@@ -188,7 +188,7 @@ steps:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -240,7 +240,7 @@ steps:
     final parts = refs.single.split(' ');
     expect(parts.first, startsWith('dartclaw/workflow/'));
     expect(parts.last, headCommit);
-  });
+  }, tags: ['slow']);
 
   test('service wiring registers knowledge inbox and wiki lint scheduled jobs', () async {
     final config = DartclawConfig(
@@ -286,7 +286,7 @@ steps:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -325,5 +325,5 @@ steps:
     expect(memory, contains('DartClaw release notes synthesized into durable knowledge'));
     expect(File(p.join(config.workspaceDir, 'wiki', 'release-notes.md')).existsSync(), isTrue);
     expect(File(p.join(config.workspaceDir, 'processed', 'release-notes.md')).existsSync(), isTrue);
-  });
+  }, tags: ['slow']);
 }

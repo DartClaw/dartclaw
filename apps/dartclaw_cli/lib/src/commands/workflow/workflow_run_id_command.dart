@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun;
 
 import 'cli_progress_printer.dart';
+import 'live_status_line.dart';
 import 'standalone_lifecycle_support.dart';
 import 'standalone_run_harness.dart';
 
@@ -25,7 +26,7 @@ abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
     super.environment,
     super.stderrLine,
     super.interrupts,
-    super.runAndthenSkillsBootstrap,
+    super.runWorkflowSkillsBootstrap,
     super.skillIntrospector,
     super.providerAuthPreflight,
   }) {
@@ -60,6 +61,8 @@ abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
       totalSteps: definition.steps.length,
       workflowName: definition.name,
       writeLine: writeLine,
+      standalone: true,
+      liveStatusLine: LiveStatusLine.forStdout(jsonOutput: argResults!['json'] as bool),
     );
     final finalRun = await driveStandaloneWorkflowRun(
       service: session.wiring.workflowService,

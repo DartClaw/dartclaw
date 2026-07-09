@@ -147,7 +147,14 @@ GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig de
       }
     }
 
-    turnProgress = TurnProgressConfig(stallTimeout: stallTimeout, stallAction: stallAction);
+    final maxDurationRaw = turnProgressMap['max_duration'];
+    final parsedMaxDuration = tryParseDuration(maxDurationRaw);
+    final maxDuration = parsedMaxDuration ?? turnProgress.maxDuration;
+    if (maxDurationRaw != null && parsedMaxDuration == null) {
+      warns.add('Invalid value for governance.turn_progress.max_duration: "$maxDurationRaw" — using default');
+    }
+
+    turnProgress = TurnProgressConfig(stallTimeout: stallTimeout, stallAction: stallAction, maxDuration: maxDuration);
   }
 
   var budget = defaults.budget;

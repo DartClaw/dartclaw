@@ -46,28 +46,5 @@ void main() {
         throwsFormatException,
       );
     });
-
-    test('applies caller-supplied basename policy', () {
-      expect(
-        safeWorkspaceRelativePath(
-          'docs/specs/fis/s01-story.md',
-          activeWorkspaceRoot: tempDir.path,
-          fieldName: 'spec_path',
-          basenameMatcher: isFisMarkdownPath,
-          typeDescription: 'an sNN-style markdown FIS path',
-        ),
-        'docs/specs/fis/s01-story.md',
-      );
-      expect(
-        () => safeWorkspaceRelativePath(
-          'docs/specs/fis/story.md',
-          activeWorkspaceRoot: tempDir.path,
-          fieldName: 'spec_path',
-          basenameMatcher: isFisMarkdownPath,
-          typeDescription: 'an sNN-style markdown FIS path',
-        ),
-        throwsFormatException,
-      );
-    });
   });
 }

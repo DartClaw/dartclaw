@@ -6,7 +6,7 @@ import '../scenario_test_support.dart';
 // scenario-types: multi-prompt, map
 
 void main() {
-  test('missing story spec artifacts fail through the public dispatch contract', () async {
+  test('missing story spec artifacts fail through production execute', () async {
     final harness = await ScenarioTaskHarness.create();
     addTearDown(harness.dispose);
 
@@ -17,7 +17,7 @@ void main() {
         WorkflowStep(
           id: 'plan',
           name: 'Plan',
-          type: WorkflowTaskType.agent,
+          taskType: WorkflowTaskType.agent,
           prompts: ['Plan the work'],
           outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
         ),
@@ -68,13 +68,17 @@ void main() {
         });
     addTearDown(completionSub.cancel);
 
-    final handoff = await dispatchStep(
-      definition.nodes.single,
-      harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+    final executor = WorkflowExecutor(
+      executionContext: harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+      dataDir: harness.tempDir.path,
     );
+    await executor.execute(run, definition, context);
 
-    expect(handoff, isA<StepHandoffValidationFailed>());
-    expect(handoff.validationFailure?.missingPaths, ['fis/s01-a.md', 'fis/s02-b.md']);
-    expect(handoff.outputs.keys.where((key) => key.startsWith('_dartclaw.internal')), isEmpty);
+    final stored = await harness.workflowRuns.getById(run.id);
+    expect(stored?.status, WorkflowRunStatus.failed);
+    expect(stored?.errorMessage, contains('story_specs.spec_path values that do not exist on disk'));
+    expect(stored?.errorMessage, contains('fis/s01-a.md'));
+    expect(stored?.errorMessage, contains('fis/s02-b.md'));
+    expect(context.data.keys.where((key) => key.startsWith('_dartclaw.internal')), isEmpty);
   });
 }

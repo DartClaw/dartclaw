@@ -59,106 +59,6 @@ final class StepValidationFailure {
 
 typedef StorySpecOutputValidation = ({Map<String, dynamic> outputs, StepValidationFailure? validationFailure});
 
-/// Token accounting attached to a step handoff.
-final class StepTokenBreakdown {
-  final int inputTokensNew;
-  final int cacheReadTokens;
-  final int outputTokens;
-  final int totalTokens;
-
-  const StepTokenBreakdown({
-    this.inputTokensNew = 0,
-    this.cacheReadTokens = 0,
-    this.outputTokens = 0,
-    this.totalTokens = 0,
-  });
-
-  static const zero = StepTokenBreakdown();
-}
-
-/// Retry state carried across runner boundaries.
-final class StepRetryState {
-  final int attempt;
-  final int maxAttempts;
-
-  const StepRetryState({this.attempt = 0, this.maxAttempts = 0});
-
-  bool get canRetry => attempt < maxAttempts;
-
-  static const none = StepRetryState();
-}
-
-/// Sealed handoff from dispatcher/coordinator boundaries.
-sealed class StepHandoff {
-  Map<String, Object?> get outputs;
-  StepValidationFailure? get validationFailure;
-  StepTokenBreakdown get cost;
-  StepRetryState get retryState;
-}
-
-/// Successful step handoff.
-final class StepHandoffSuccess extends StepHandoff {
-  @override
-  final Map<String, Object?> outputs;
-  @override
-  final StepTokenBreakdown cost;
-  @override
-  final StepRetryState retryState;
-  final StepOutcome? outcome;
-
-  StepHandoffSuccess({
-    required Map<String, Object?> outputs,
-    this.cost = StepTokenBreakdown.zero,
-    this.retryState = StepRetryState.none,
-    this.outcome,
-  }) : outputs = Map.unmodifiable(outputs);
-
-  @override
-  StepValidationFailure? get validationFailure => null;
-}
-
-/// Failed validation handoff with any salvageable outputs.
-final class StepHandoffValidationFailed extends StepHandoff {
-  @override
-  final Map<String, Object?> outputs;
-  @override
-  final StepValidationFailure validationFailure;
-  @override
-  final StepTokenBreakdown cost;
-  @override
-  final StepRetryState retryState;
-  final StepOutcome? outcome;
-
-  StepHandoffValidationFailed({
-    required Map<String, Object?> outputs,
-    required this.validationFailure,
-    this.cost = StepTokenBreakdown.zero,
-    this.retryState = StepRetryState.none,
-    this.outcome,
-  }) : outputs = Map.unmodifiable(outputs);
-}
-
-/// Handoff indicating retry policy is still in progress.
-final class StepHandoffRetrying extends StepHandoff {
-  @override
-  final Map<String, Object?> outputs;
-  @override
-  final StepValidationFailure? validationFailure;
-  @override
-  final StepTokenBreakdown cost;
-  @override
-  final StepRetryState retryState;
-  final StepOutcome? outcome;
-
-  StepHandoffRetrying({
-    required Map<String, Object?> outputs,
-    this.validationFailure,
-    this.cost = StepTokenBreakdown.zero,
-    required this.retryState,
-    this.outcome,
-  }) : outputs = Map.unmodifiable(outputs);
-}
-
 /// Result of a single workflow step execution.
 class StepOutcome {
   final WorkflowStep step;
@@ -170,6 +70,13 @@ class StepOutcome {
   final String? outcome;
   final String? outcomeReason;
   final bool awaitingApproval;
+
+  /// Set by a nested loop that escalated on exhaustion (`onMaxIterations:
+  /// escalate`): the enclosing foreach must hold open dependents for human
+  /// review even under `onFailure: continue`. Carried explicitly so the hold
+  /// never depends on structural fingerprints of the outcome (task type,
+  /// null task).
+  final bool requiresDependencyHold;
   final StepValidationFailure? validationFailure;
 
   const StepOutcome({
@@ -182,6 +89,7 @@ class StepOutcome {
     this.outcome,
     this.outcomeReason,
     this.awaitingApproval = false,
+    this.requiresDependencyHold = false,
     this.validationFailure,
   });
 }

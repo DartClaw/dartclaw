@@ -71,6 +71,15 @@ void main() {
     test('returns false at zero tokens with non-zero limit', () {
       expect(workflowBudgetExceeded(_run(tokens: 0), _def(maxTokens: 1000)), isFalse);
     });
+
+    test('uses additional tokens in the effective budget basis', () {
+      final run = _run(tokens: 600);
+      final definition = _def(maxTokens: 1000);
+
+      expect(workflowBudgetExceeded(run, definition, additionalTokens: 400), isTrue);
+      expect(workflowBudgetExceeded(run, definition, additionalTokens: 399), isFalse);
+      expect(workflowBudgetExceeded(run, definition, additionalTokens: 500), isTrue);
+    });
   });
 
   group('checkWorkflowBudgetWarning', () {
@@ -186,6 +195,35 @@ void main() {
       );
       await sub.cancel();
       expect(updatedRun.contextJson['_budget.warningFired'], isTrue);
+    });
+
+    test('uses additional tokens for the 80% boundary without inflating storage', () async {
+      final warnings = <WorkflowBudgetWarningEvent>[];
+      final sub = eventBus.on<WorkflowBudgetWarningEvent>().listen(warnings.add);
+      final repo = _FakeRepo();
+
+      final updatedRun = await checkWorkflowBudgetWarning(
+        run: _run(tokens: 5000),
+        definition: _def(maxTokens: 10000),
+        eventBus: eventBus,
+        repository: repo,
+        additionalTokens: 3000,
+      );
+      await checkWorkflowBudgetWarning(
+        run: _run(tokens: 5000),
+        definition: _def(maxTokens: 10000),
+        eventBus: eventBus,
+        repository: _FakeRepo(),
+        additionalTokens: 2999,
+      );
+      await sub.cancel();
+
+      expect(warnings, hasLength(1));
+      expect(warnings.first.consumed, equals(8000));
+      expect(warnings.first.consumedPercent, closeTo(0.80, 0.001));
+      expect(updatedRun.totalTokens, 5000);
+      expect(updatedRun.contextJson['_budget.warningFired'], isTrue);
+      expect((await repo.getById('run-1'))?.totalTokens, 5000);
     });
 
     test('consumedPercent in event is accurate (0.80 for 8000/10000)', () async {

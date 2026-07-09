@@ -90,6 +90,97 @@ void main() {
       expect(html, contains('width: 0%'));
     });
 
+    test('why-paused banner: awaitingApproval names the pending step and its request', () {
+      final run = makeRun(status: 'awaitingApproval');
+      run['pendingApprovalStepId'] = 'plan-approval';
+      run['contextJson'] = {'plan-approval.approval.message': 'Review the plan before build.'};
+      final steps = [
+        {
+          'index': 0,
+          'id': 'plan-approval',
+          'name': 'Plan Approval',
+          'status': 'awaiting_approval',
+          'type': 'approval',
+          'parallel': false,
+          'taskId': null,
+          'approval': {'message': 'Review the plan before build.'},
+        },
+      ];
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: steps,
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('workflow-pause-banner'));
+      expect(html, contains('Awaiting approval'));
+      expect(html, contains('Plan Approval'));
+      expect(html, contains('Review the plan before build.'));
+    });
+
+    test('why-paused banner: needsInput hold on a non-approval step surfaces its reason', () {
+      final run = makeRun(status: 'awaitingApproval');
+      run['pendingApprovalStepId'] = 'build';
+      run['contextJson'] = {'build.approval.message': 'Need the target branch to proceed.'};
+      final steps = [
+        {
+          'index': 0,
+          'id': 'build',
+          'name': 'Build',
+          'status': 'awaiting_approval',
+          'type': 'agent',
+          'parallel': false,
+          'taskId': null,
+        },
+      ];
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: steps,
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('workflow-pause-banner'));
+      expect(html, contains('Build'));
+      expect(html, contains('Need the target branch to proceed.'));
+    });
+
+    test('why-paused banner: generic paused run surfaces its reason', () {
+      final run = makeRun(status: 'paused', errorMessage: 'Paused by operator.');
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: makeSteps(count: 2, completedCount: 1),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('workflow-pause-banner'));
+      expect(html, contains('Paused by operator.'));
+    });
+
+    test('why-paused banner: absent for a running run', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'running'),
+        steps: makeSteps(count: 2),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, isNot(contains('workflow-pause-banner')));
+    });
+
     test('progress bar: 3/6 -> 50%', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
@@ -185,16 +276,50 @@ void main() {
       expect(html, isNot(contains('hx-post')));
     });
 
-    test('error message rendered when errorMessage is non-null', () {
+    test('failed run with errorMessage and no pause renders the error block', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
         navItems: const [],
-        run: makeRun(status: 'paused', errorMessage: 'Step failed: timeout'),
+        run: makeRun(status: 'failed', errorMessage: 'Step failed: timeout'),
         steps: makeSteps(),
         contextEntries: const [],
         loopInfo: const [],
       );
+      expect(html, contains('workflow-error-message'));
       expect(html, contains('Step failed: timeout'));
+      expect(html, isNot(contains('workflow-pause-banner')));
+    });
+
+    test('awaitingApproval run renders the pause banner, not the error block', () {
+      // The awaitingApproval path sets errorMessage ("approval required: <step>");
+      // the pause banner must own that message and the red error block stay hidden.
+      final run = makeRun(status: 'awaitingApproval', errorMessage: 'approval required: plan-approval');
+      run['pendingApprovalStepId'] = 'plan-approval';
+      run['contextJson'] = {'plan-approval.approval.message': 'Review the plan before build.'};
+      final steps = [
+        {
+          'index': 0,
+          'id': 'plan-approval',
+          'name': 'Plan Approval',
+          'status': 'awaiting_approval',
+          'type': 'approval',
+          'parallel': false,
+          'taskId': null,
+          'approval': {'message': 'Review the plan before build.'},
+        },
+      ];
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: steps,
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('workflow-pause-banner'));
+      expect(html, isNot(contains('workflow-error-message')));
     });
 
     test('no error section when errorMessage is null', () {

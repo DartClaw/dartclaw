@@ -1,4 +1,4 @@
-import 'package:dartclaw_cli/src/commands/service_wiring.dart';
+import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 

@@ -10,7 +10,6 @@ void main() {
 
       expect(decoded, isA<FileSystemOutput>());
       final filesystem = decoded as FileSystemOutput;
-      expect(filesystem.authoritative, isTrue);
       expect(filesystem.pathPattern, 'fis/s*.md');
       expect(filesystem.listMode, isTrue);
       expect(filesystem.matches('fis/s01-foo.md'), isTrue);
@@ -54,18 +53,14 @@ void main() {
       final decoded = OutputResolver.fromJson(resolver.toJson());
 
       expect(decoded, isA<InlineOutput>());
-      expect(decoded.authoritative, isFalse);
       expect((decoded as InlineOutput).schemaKey, 'plan_source');
     });
 
-    test('round-trips NarrativeOutput', () {
-      const resolver = NarrativeOutput(schemaKey: 'summary');
+    test('decodes legacy narrative kind as InlineOutput', () {
+      final decoded = OutputResolver.fromJson({'kind': 'narrative', 'schemaKey': 'summary'});
 
-      final decoded = OutputResolver.fromJson(resolver.toJson());
-
-      expect(decoded, isA<NarrativeOutput>());
-      expect(decoded.authoritative, isFalse);
-      expect((decoded as NarrativeOutput).schemaKey, 'summary');
+      expect(decoded, isA<InlineOutput>());
+      expect((decoded as InlineOutput).schemaKey, 'summary');
     });
   });
 }

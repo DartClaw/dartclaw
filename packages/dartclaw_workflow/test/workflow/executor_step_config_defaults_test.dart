@@ -15,7 +15,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowTaskConfig;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -176,6 +177,104 @@ void main() {
       expect(capturedConfig!.containsKey('model'), isFalse);
     });
 
+    test('step inherits timeout from matching stepDefaults', () async {
+      final definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p']),
+        ],
+        stepDefaults: const [StepConfigDefault(match: 'implement', timeoutSeconds: 900)],
+      );
+
+      final run = makeDefaultsRun(definition);
+      await h.repository.insert(run);
+
+      Map<String, dynamic>? capturedConfig;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        capturedConfig = task?.configJson;
+        await completeDefaultsTask(e.taskId);
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(capturedConfig?[WorkflowTaskConfig.workflowTimeoutSeconds], 900);
+    });
+
+    test('mapOver iterations inherit timeout from matching stepDefaults', () async {
+      final definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p {{map.item}}'], mapOver: 'items'),
+        ],
+        stepDefaults: const [StepConfigDefault(match: 'implement', timeoutSeconds: 900)],
+      );
+
+      final run = makeDefaultsRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a'],
+        },
+      );
+
+      Map<String, dynamic>? capturedConfig;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        capturedConfig = task?.configJson;
+        await completeDefaultsTask(e.taskId);
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(
+        capturedConfig?[WorkflowTaskConfig.workflowTimeoutSeconds],
+        900,
+        reason: 'mapOver child tasks must use the same resolved timeout defaults as single-step dispatch',
+      );
+    });
+
+    test('mapOver iteration wait timeout uses matching stepDefaults', () async {
+      final definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p {{map.item}}'], mapOver: 'items'),
+        ],
+        stepDefaults: const [StepConfigDefault(match: 'implement', timeoutSeconds: 1)],
+      );
+
+      final run = makeDefaultsRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a'],
+        },
+      );
+
+      final taskIds = <String>[];
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) {
+        taskIds.add(e.taskId);
+      });
+
+      await h.executor.execute(run, definition, context).timeout(const Duration(seconds: 10));
+      await sub.cancel();
+
+      expect(taskIds, hasLength(1));
+      final finalRun = await h.repository.getById('run-s03');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
     test('no stepDefaults on definition: existing behavior unchanged', () async {
       final definition = WorkflowDefinition(
         name: 'wf',
@@ -205,40 +304,47 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
-    test('workflow-spawned task carries no _workflow* or model keys in configJson', () async {
-      final definition = WorkflowDefinition(
-        name: 'wf',
-        description: 'desc',
-        steps: const [
-          WorkflowStep(id: 'review-code', name: 'Review Code', prompts: ['p']),
-        ],
-        stepDefaults: const [StepConfigDefault(match: 'review*', model: 'claude-opus-4')],
-      );
+    test(
+      'workflow-spawned task carries no _workflow* (except step-artifacts env) or model keys in configJson',
+      () async {
+        final definition = WorkflowDefinition(
+          name: 'wf',
+          description: 'desc',
+          steps: const [
+            WorkflowStep(id: 'review-code', name: 'Review Code', prompts: ['p']),
+          ],
+          stepDefaults: const [StepConfigDefault(match: 'review*', model: 'claude-opus-4')],
+        );
 
-      final run = makeDefaultsRun(definition);
-      await h.repository.insert(run);
+        final run = makeDefaultsRun(definition);
+        await h.repository.insert(run);
 
-      Map<String, dynamic>? capturedConfig;
-      String? capturedAeModel;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedConfig = task?.configJson;
-        capturedAeModel = task?.agentExecution?.model;
-        await completeDefaultsTask(e.taskId);
-      });
+        Map<String, dynamic>? capturedConfig;
+        String? capturedAeModel;
+        final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+          e,
+        ) async {
+          await Future<void>.delayed(Duration.zero);
+          final task = await h.taskService.get(e.taskId);
+          capturedConfig = task?.configJson;
+          capturedAeModel = task?.agentExecution?.model;
+          await completeDefaultsTask(e.taskId);
+        });
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
+        await h.executor.execute(run, definition, WorkflowContext());
+        await sub.cancel();
 
-      expect(capturedConfig, isNotNull);
-      expect(capturedAeModel, equals('claude-opus-4'));
-      expect(capturedConfig!.containsKey('model'), isFalse);
-      final leakedWorkflowKeys = capturedConfig!.keys.where((k) => k.startsWith('_workflow')).toList();
-      expect(leakedWorkflowKeys, isEmpty, reason: 'Task.configJson must not carry _workflow* keys');
-    });
+        expect(capturedConfig, isNotNull);
+        expect(capturedAeModel, equals('claude-opus-4'));
+        expect(capturedConfig!.containsKey('model'), isFalse);
+        // The host-owned step-artifacts dir env is exported on every workflow task
+        // and deliberately survives the config strip list.
+        final leakedWorkflowKeys = capturedConfig!.keys
+            .where((k) => k.startsWith('_workflow') && k != '_workflowStepArtifactsEnv')
+            .toList();
+        expect(leakedWorkflowKeys, isEmpty, reason: 'Task.configJson must not carry _workflow* keys');
+      },
+    );
   });
 
   group('step timeout', () {

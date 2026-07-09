@@ -312,10 +312,8 @@ void main() {
       expect(workflows.startCalls, 0);
     });
 
-    test('local-path preflight state errors return workflow precondition failed', () async {
-      workflows.startError = StateError(
-        'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
-      );
+    test('typed workflow start precondition errors return workflow precondition failed', () async {
+      workflows.startError = const WorkflowStartPreconditionException('Workflow cannot start until alpha is clean.');
 
       final code = await api.expectJsonErrorCode(
         'POST',
@@ -330,10 +328,8 @@ void main() {
       expect(code, 'WORKFLOW_PRECONDITION_FAILED');
     });
 
-    test('remote strict ref failures return workflow precondition failed', () async {
-      workflows.startError = StateError(
-        "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
-      );
+    test('plain StateError during workflow start returns internal error', () async {
+      workflows.startError = StateError('Local-path project "alpha" legacy prefix no longer controls status');
 
       final code = await api.expectJsonErrorCode(
         'POST',
@@ -342,10 +338,10 @@ void main() {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Pagination'},
         },
-        status: 409,
+        status: 500,
       );
 
-      expect(code, 'WORKFLOW_PRECONDITION_FAILED');
+      expect(code, 'INTERNAL_ERROR');
     });
 
     test('optional variable with default can be omitted', () async {

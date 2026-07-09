@@ -7,6 +7,26 @@ sealed class WorkflowLifecycleEvent extends DartclawEvent {
 
   @override
   DateTime get timestamp;
+
+  Map<String, dynamic> toJson();
+
+  static WorkflowLifecycleEvent fromJson(Map<String, dynamic> json) {
+    final type = _requiredString(json, 'type');
+    return switch (type) {
+      'workflow_status_changed' => WorkflowRunStatusChangedEvent.fromJson(json),
+      'workflow_step_completed' => WorkflowStepCompletedEvent.fromJson(json),
+      'parallel_group_completed' => ParallelGroupCompletedEvent.fromJson(json),
+      'workflow_budget_warning' => WorkflowBudgetWarningEvent.fromJson(json),
+      'loop_iteration_completed' => LoopIterationCompletedEvent.fromJson(json),
+      'map_iteration_completed' => MapIterationCompletedEvent.fromJson(json),
+      'approval_requested' || 'workflow_approval_requested' => WorkflowApprovalRequestedEvent.fromJson(json),
+      'approval_resolved' || 'workflow_approval_resolved' => WorkflowApprovalResolvedEvent.fromJson(json),
+      'map_step_completed' => MapStepCompletedEvent.fromJson(json),
+      'workflow_serialization_enacted' => WorkflowSerializationEnactedEvent.fromJson(json),
+      'step_skipped' => StepSkippedEvent.fromJson(json),
+      _ => throw FormatException('Unknown workflow lifecycle event type "$type"'),
+    };
+  }
 }
 
 /// Fired when a workflow run changes status.
@@ -37,6 +57,24 @@ final class WorkflowRunStatusChangedEvent extends WorkflowLifecycleEvent {
     required this.newStatus,
     this.errorMessage,
     required this.timestamp,
+  });
+
+  factory WorkflowRunStatusChangedEvent.fromJson(Map<String, dynamic> json) => WorkflowRunStatusChangedEvent(
+    runId: _requiredString(json, 'runId'),
+    definitionName: _optionalString(json, 'definitionName') ?? '',
+    oldStatus: _workflowRunStatus(json, 'oldStatus'),
+    newStatus: _workflowRunStatus(json, 'newStatus'),
+    errorMessage: _optionalString(json, 'errorMessage'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'workflow_status_changed',
+    'runId': runId,
+    'oldStatus': oldStatus.name,
+    'newStatus': newStatus.name,
+    'errorMessage': errorMessage,
   });
 
   @override
@@ -72,6 +110,16 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   /// Whether the step completed successfully.
   final bool success;
 
+  /// Semantic outcome the executor recorded for the step (`succeeded`,
+  /// `failed`, `needsInput`/`blocked`, `skipped`), or null when the emit site
+  /// has no per-step outcome (aggregate/cancelled events).
+  final String? outcome;
+
+  /// Human-readable reason the step settled with this [outcome], or null when
+  /// none was recorded. For a failed or blocked step this is the operator-facing
+  /// explanation surfaced inline in the console.
+  final String? reason;
+
   /// Tokens consumed by this step.
   final int tokenCount;
 
@@ -87,15 +135,53 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
     required this.taskId,
     this.displayScope,
     required this.success,
+    this.outcome,
+    this.reason,
     required this.tokenCount,
     required this.timestamp,
+  });
+
+  factory WorkflowStepCompletedEvent.fromJson(Map<String, dynamic> json) {
+    final stepId = _requiredString(json, 'stepId');
+    return WorkflowStepCompletedEvent(
+      runId: _requiredString(json, 'runId'),
+      stepId: stepId,
+      stepName: _optionalString(json, 'stepName') ?? stepId,
+      stepIndex: _requiredInt(json, 'stepIndex'),
+      totalSteps: _requiredInt(json, 'totalSteps'),
+      taskId: _requiredString(json, 'taskId'),
+      displayScope: _optionalString(json, 'displayScope'),
+      success: _requiredBool(json, 'success'),
+      outcome: _optionalString(json, 'outcome'),
+      reason: _optionalString(json, 'reason'),
+      tokenCount: _requiredInt(json, 'tokenCount'),
+      timestamp: _timestampFromJson(json),
+    );
+  }
+
+  /// [stepName] is deliberately not transported (the wire shape predates it);
+  /// [WorkflowStepCompletedEvent.fromJson] falls back to [stepId], so
+  /// round-trips are JSON-equal but not object-equal when the two differ.
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'workflow_step_completed',
+    'runId': runId,
+    'stepId': stepId,
+    'stepIndex': stepIndex,
+    'totalSteps': totalSteps,
+    'taskId': taskId,
+    'displayScope': displayScope,
+    'success': success,
+    'outcome': outcome,
+    'reason': reason,
+    'tokenCount': tokenCount,
   });
 
   @override
   String toString() =>
       'WorkflowStepCompletedEvent(run: $runId, step: $stepId [$stepIndex/$totalSteps], '
       'task: $taskId${displayScope != null ? ', scope: $displayScope' : ''}, '
-      'success: $success, tokens: $tokenCount)';
+      'success: $success${outcome != null ? ', outcome: $outcome' : ''}, tokens: $tokenCount)';
 }
 
 /// Fired when a workflow-owned one-shot CLI provider finishes a turn.
@@ -202,6 +288,25 @@ final class ParallelGroupCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
+  factory ParallelGroupCompletedEvent.fromJson(Map<String, dynamic> json) => ParallelGroupCompletedEvent(
+    runId: _requiredString(json, 'runId'),
+    stepIds: _requiredStringList(json, 'stepIds'),
+    successCount: _requiredInt(json, 'successCount'),
+    failureCount: _requiredInt(json, 'failureCount'),
+    totalTokens: _requiredInt(json, 'totalTokens'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'parallel_group_completed',
+    'runId': runId,
+    'stepIds': stepIds,
+    'successCount': successCount,
+    'failureCount': failureCount,
+    'totalTokens': totalTokens,
+  });
+
   @override
   String toString() =>
       'ParallelGroupCompletedEvent(run: $runId, steps: ${stepIds.length}, '
@@ -235,6 +340,26 @@ final class WorkflowBudgetWarningEvent extends WorkflowLifecycleEvent {
     required this.consumed,
     required this.limit,
     required this.timestamp,
+  });
+
+  factory WorkflowBudgetWarningEvent.fromJson(Map<String, dynamic> json) => WorkflowBudgetWarningEvent(
+    runId: _requiredString(json, 'runId'),
+    definitionName: _requiredString(json, 'definitionName'),
+    consumedPercent: _requiredDouble(json, 'consumedPercent'),
+    consumed: _requiredInt(json, 'consumed'),
+    limit: _requiredInt(json, 'limit'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'workflow_budget_warning',
+    'runId': runId,
+    'definitionName': definitionName,
+    'consumedPercent': consumedPercent,
+    'consumed': consumed,
+    'limit': limit,
+    'timestamp': timestamp.toIso8601String(),
   });
 
   @override
@@ -273,6 +398,25 @@ final class LoopIterationCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
+  factory LoopIterationCompletedEvent.fromJson(Map<String, dynamic> json) => LoopIterationCompletedEvent(
+    runId: _requiredString(json, 'runId'),
+    loopId: _requiredString(json, 'loopId'),
+    iteration: _requiredInt(json, 'iteration'),
+    maxIterations: _requiredInt(json, 'maxIterations'),
+    gateResult: _requiredBool(json, 'gateResult'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'loop_iteration_completed',
+    'runId': runId,
+    'loopId': loopId,
+    'iteration': iteration,
+    'maxIterations': maxIterations,
+    'gateResult': gateResult,
+  });
+
   @override
   String toString() =>
       'LoopIterationCompletedEvent(run: $runId, loop: $loopId, '
@@ -303,6 +447,15 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
   /// Whether the iteration completed successfully.
   final bool success;
 
+  /// Semantic outcome the executor recorded for the iteration's child step
+  /// (`succeeded`, `failed`, `needsInput`/`blocked`), or null for aggregate/
+  /// cancelled events with no per-child outcome.
+  final String? outcome;
+
+  /// Human-readable reason the iteration settled with this [outcome], or null
+  /// when none was recorded. Surfaced inline for failed/blocked iterations.
+  final String? reason;
+
   /// Tokens consumed by this iteration.
   final int tokenCount;
 
@@ -317,14 +470,47 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
     this.itemId,
     required this.taskId,
     required this.success,
+    this.outcome,
+    this.reason,
     required this.tokenCount,
     required this.timestamp,
+  });
+
+  factory MapIterationCompletedEvent.fromJson(Map<String, dynamic> json) => MapIterationCompletedEvent(
+    runId: _requiredString(json, 'runId'),
+    stepId: _requiredString(json, 'stepId'),
+    iterationIndex: _requiredInt(json, 'iterationIndex'),
+    totalIterations: _requiredInt(json, 'totalIterations'),
+    itemId: _optionalString(json, 'itemId'),
+    taskId: _requiredString(json, 'taskId'),
+    success: _requiredBool(json, 'success'),
+    outcome: _optionalString(json, 'outcome'),
+    reason: _optionalString(json, 'reason'),
+    tokenCount: _requiredInt(json, 'tokenCount'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'map_iteration_completed',
+    'runId': runId,
+    'stepId': stepId,
+    'iterationIndex': iterationIndex,
+    'totalIterations': totalIterations,
+    'itemId': itemId,
+    'displayScope': itemId,
+    'taskId': taskId,
+    'success': success,
+    'outcome': outcome,
+    'reason': reason,
+    'tokenCount': tokenCount,
   });
 
   @override
   String toString() =>
       'MapIterationCompletedEvent(run: $runId, step: $stepId, '
-      'iter: $iterationIndex/$totalIterations, task: $taskId, success: $success)';
+      'iter: $iterationIndex/$totalIterations, task: $taskId, success: $success'
+      '${outcome != null ? ', outcome: $outcome' : ''})';
 }
 
 /// Fired when a workflow approval step requests a decision.
@@ -351,6 +537,24 @@ final class WorkflowApprovalRequestedEvent extends WorkflowLifecycleEvent {
     required this.message,
     this.timeoutSeconds,
     required this.timestamp,
+  });
+
+  factory WorkflowApprovalRequestedEvent.fromJson(Map<String, dynamic> json) => WorkflowApprovalRequestedEvent(
+    runId: _requiredString(json, 'runId'),
+    stepId: _requiredString(json, 'stepId'),
+    message: _requiredString(json, 'message'),
+    timeoutSeconds: _optionalInt(json, 'timeoutSeconds'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'approval_requested',
+    'runId': runId,
+    'stepId': stepId,
+    'message': message,
+    'timeoutSeconds': timeoutSeconds,
+    'timestamp': timestamp.toIso8601String(),
   });
 
   @override
@@ -385,6 +589,24 @@ final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
+  factory WorkflowApprovalResolvedEvent.fromJson(Map<String, dynamic> json) => WorkflowApprovalResolvedEvent(
+    runId: _requiredString(json, 'runId'),
+    stepId: _requiredString(json, 'stepId'),
+    approved: _requiredBool(json, 'approved'),
+    feedback: _optionalString(json, 'feedback'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'approval_resolved',
+    'runId': runId,
+    'stepId': stepId,
+    'approved': approved,
+    'feedback': feedback,
+    'timestamp': timestamp.toIso8601String(),
+  });
+
   @override
   String toString() =>
       'WorkflowApprovalResolvedEvent(run: $runId, step: $stepId, '
@@ -415,6 +637,11 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
   /// Number of iterations that were cancelled (e.g. due to budget exhaustion).
   final int cancelledCount;
 
+  /// Number of iterations that settled blocked (`needsInput`, recoverable),
+  /// distinct from a hard failure. Defaults to 0 for callers that do not track
+  /// blocked items.
+  final int blockedCount;
+
   /// Aggregate tokens consumed across all completed iterations.
   final int totalTokens;
 
@@ -429,24 +656,52 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
     required this.successCount,
     required this.failureCount,
     required this.cancelledCount,
+    this.blockedCount = 0,
     required this.totalTokens,
     required this.timestamp,
+  });
+
+  factory MapStepCompletedEvent.fromJson(Map<String, dynamic> json) => MapStepCompletedEvent(
+    runId: _requiredString(json, 'runId'),
+    stepId: _requiredString(json, 'stepId'),
+    stepName: _requiredString(json, 'stepName'),
+    totalIterations: _requiredInt(json, 'totalIterations'),
+    successCount: _requiredInt(json, 'successCount'),
+    failureCount: _requiredInt(json, 'failureCount'),
+    cancelledCount: _requiredInt(json, 'cancelledCount'),
+    blockedCount: _optionalInt(json, 'blockedCount') ?? 0,
+    totalTokens: _requiredInt(json, 'totalTokens'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'map_step_completed',
+    'runId': runId,
+    'stepId': stepId,
+    'stepName': stepName,
+    'totalIterations': totalIterations,
+    'successCount': successCount,
+    'failureCount': failureCount,
+    'cancelledCount': cancelledCount,
+    'blockedCount': blockedCount,
+    'totalTokens': totalTokens,
   });
 
   @override
   String toString() =>
       'MapStepCompletedEvent(run: $runId, step: $stepId, '
       'total: $totalIterations, ok: $successCount, fail: $failureCount, '
-      'cancelled: $cancelledCount, tokens: $totalTokens)';
+      'blocked: $blockedCount, cancelled: $cancelledCount, tokens: $totalTokens)';
 }
 
 /// Fired once per workflow run when a merge-conflict escalation first triggers
 /// serialize-remaining mode for any foreach step — parallel execution of that
 /// step is halted and remaining iterations will run serially.
 ///
-/// Exactly one event is emitted per run (PRD US06 / FR4): if multiple foreach
+/// Exactly one event is emitted per run: if multiple foreach
 /// steps in the same run each escalate, only the first emits this event;
-/// subsequent steps still drain and re-queue but do not re-emit. The
+/// subsequent steps still enter serial mode but do not re-emit. The
 /// [foreachStepId] field identifies the step that triggered the run-level
 /// transition.
 // NOT_ALERTABLE: workflow governance telemetry — surfaced via SSE only
@@ -463,9 +718,6 @@ final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
   /// Attempt number (1-based) of the failing merge attempt.
   final int failedAttemptNumber;
 
-  /// Number of in-flight sibling iterations that were cancelled during drain.
-  final int drainedIterationCount;
-
   @override
   final DateTime timestamp;
 
@@ -474,15 +726,31 @@ final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
     required this.foreachStepId,
     required this.failingIterationIndex,
     required this.failedAttemptNumber,
-    required this.drainedIterationCount,
     required this.timestamp,
+  });
+
+  factory WorkflowSerializationEnactedEvent.fromJson(Map<String, dynamic> json) => WorkflowSerializationEnactedEvent(
+    runId: _requiredString(json, 'runId'),
+    foreachStepId: _requiredString(json, 'foreachStepId'),
+    failingIterationIndex: _requiredInt(json, 'failingIterationIndex'),
+    failedAttemptNumber: _requiredInt(json, 'failedAttemptNumber'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'workflow_serialization_enacted',
+    'runId': runId,
+    'foreachStepId': foreachStepId,
+    'failingIterationIndex': failingIterationIndex,
+    'failedAttemptNumber': failedAttemptNumber,
+    'timestamp': timestamp.toIso8601String(),
   });
 
   @override
   String toString() =>
       'WorkflowSerializationEnactedEvent(run: $runId, step: $foreachStepId, '
-      'failingIter: $failingIterationIndex, attempt: $failedAttemptNumber, '
-      'drained: $drainedIterationCount)';
+      'failingIter: $failingIterationIndex, attempt: $failedAttemptNumber)';
 }
 
 /// Fired when a workflow step is skipped because its [entryGate] expression
@@ -505,6 +773,124 @@ final class StepSkippedEvent extends WorkflowLifecycleEvent {
 
   StepSkippedEvent({required this.runId, required this.stepId, required this.reason, required this.timestamp});
 
+  factory StepSkippedEvent.fromJson(Map<String, dynamic> json) => StepSkippedEvent(
+    runId: _requiredString(json, 'runId'),
+    stepId: _requiredString(json, 'stepId'),
+    reason: _requiredString(json, 'reason'),
+    timestamp: _timestampFromJson(json),
+  );
+
+  @override
+  Map<String, dynamic> toJson() => _workflowEventJson({
+    'type': 'step_skipped',
+    'runId': runId,
+    'stepId': stepId,
+    'reason': reason,
+    'timestamp': timestamp.toIso8601String(),
+  });
+
   @override
   String toString() => 'StepSkippedEvent(run: $runId, step: $stepId, reason: "$reason")';
+}
+
+Map<String, dynamic> _workflowEventJson(Map<String, dynamic> values) => {
+  for (final entry in values.entries)
+    if (entry.value != null) entry.key: entry.value,
+};
+
+String _requiredString(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value is String) {
+    return value;
+  }
+  throw FormatException('Expected string field "$key"');
+}
+
+String? _optionalString(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) {
+    return null;
+  }
+  if (value is String) {
+    return value;
+  }
+  throw FormatException('Expected string field "$key"');
+}
+
+int _requiredInt(Map<String, dynamic> json, String key) {
+  final value = _optionalInt(json, key);
+  if (value != null) {
+    return value;
+  }
+  throw FormatException('Expected integer field "$key"');
+}
+
+int? _optionalInt(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) {
+    return null;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num && value.truncateToDouble() == value) {
+    return value.toInt();
+  }
+  throw FormatException('Expected integer field "$key"');
+}
+
+double _requiredDouble(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value is double) {
+    return value;
+  }
+  if (value is int) {
+    return value.toDouble();
+  }
+  if (value is num) {
+    return value.toDouble();
+  }
+  throw FormatException('Expected numeric field "$key"');
+}
+
+bool _requiredBool(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value is bool) {
+    return value;
+  }
+  throw FormatException('Expected boolean field "$key"');
+}
+
+List<String> _requiredStringList(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value is List) {
+    return value.map((entry) {
+      if (entry is String) {
+        return entry;
+      }
+      throw FormatException('Expected string list field "$key"');
+    }).toList();
+  }
+  throw FormatException('Expected string list field "$key"');
+}
+
+DateTime _timestampFromJson(Map<String, dynamic> json) {
+  final value = json['timestamp'];
+  if (value == null) {
+    return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  }
+  if (value is String) {
+    return DateTime.parse(value);
+  }
+  throw const FormatException('Expected timestamp string field "timestamp"');
+}
+
+WorkflowRunStatus _workflowRunStatus(Map<String, dynamic> json, String key) {
+  final value = _requiredString(json, key);
+  for (final status in WorkflowRunStatus.values) {
+    if (status.name == value) {
+      return status;
+    }
+  }
+  throw FormatException('Unknown workflow run status "$value"');
 }

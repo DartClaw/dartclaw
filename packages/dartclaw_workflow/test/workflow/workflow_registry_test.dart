@@ -44,16 +44,16 @@ steps:
 String _warningsOnlyYaml(String name) =>
     '''
 name: $name
-description: Workflow with approval in a loop.
+description: Workflow with Codex advisory allowedTools.
 steps:
-  - id: step1
-    name: Step 1
-    type: approval
-loops:
-  - id: approval-loop
-    steps: [step1]
-    maxIterations: 1
-    exitGate: step1.done == true
+  - id: implement
+    name: Implement
+    provider: codex
+    allowedTools:
+      - shell
+      - file_read
+      - file_write
+    prompt: Do the thing.
 ''';
 
 String _codexAllowedToolsWarningYaml(String name) =>
@@ -420,6 +420,49 @@ steps:
 
       expect(registry.getByName('nested'), isNull);
     });
+
+    test('deprecated legacy directory loads workflows and warns once', () async {
+      File(p.join(tempDir.path, 'legacy.yaml')).writeAsStringSync(_validCustomYaml('legacy'));
+      final logger = Logger('test.workflow_registry.legacy_warning');
+      final records = <LogRecord>[];
+      final sub = logger.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      final registry = _makeRegistry(log: logger);
+      await registry.loadFromDeprecatedLegacyDirectory(
+        tempDir.path,
+        replacementDirectory: p.join(tempDir.path, 'workflows', 'custom'),
+      );
+
+      expect(registry.getByName('legacy'), isNotNull);
+      final warnings = records
+          .where(
+            (record) =>
+                record.level == Level.WARNING &&
+                record.message.toLowerCase().contains('deprecated') &&
+                record.message.contains('workflows/custom'),
+          )
+          .toList();
+      expect(warnings, hasLength(1));
+    });
+
+    test('deprecated legacy directory does not warn when no top-level yaml files load', () async {
+      Directory(p.join(tempDir.path, 'built-in')).createSync();
+      Directory(p.join(tempDir.path, 'custom')).createSync();
+      final logger = Logger('test.workflow_registry.legacy_empty');
+      final records = <LogRecord>[];
+      final sub = logger.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      final registry = _makeRegistry(log: logger);
+      await registry.loadFromDeprecatedLegacyDirectory(
+        tempDir.path,
+        replacementDirectory: p.join(tempDir.path, 'workflows', 'custom'),
+      );
+
+      expect(registry.listCustom(), isEmpty);
+      expect(records.where((record) => record.level == Level.WARNING), isEmpty);
+    });
   });
 
   // ------------------------------------------------------------------
@@ -464,9 +507,9 @@ steps:
   - id: review
     name: Review
     prompt: Review it.
-    extraction:
-      type: [json]
-      pattern: {}
+    outputs:
+      result:
+        format: [json]
 ''');
 
       final registry = _makeRegistry();

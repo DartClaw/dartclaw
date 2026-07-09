@@ -1,13 +1,11 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
-import 'workflow_definition.dart' show WorkflowStep;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'missing_artifact_failure.dart';
 import 'output_resolver.dart';
-import 'review_artifact_policy.dart' as rap;
 import 'workflow_git_port.dart';
 import 'workflow_run_paths.dart';
 
@@ -41,53 +39,6 @@ List<String> fileSystemOutputRoots({
   return roots;
 }
 
-bool isRuntimeArtifactsRoot(String root, {required String? workflowRunId, required String dataDir}) {
-  final runId = workflowRunId?.trim();
-  if (runId == null || runId.isEmpty) return false;
-  return p.normalize(root) == p.normalize(workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId));
-}
-
-/// Validates that a runtime-artifacts claim is fully within [runtimeArtifactsDir].
-///
-/// Returns the claim relative to [runtimeArtifactsDir], or null when containment
-/// cannot be established.
-String? runtimeArtifactsRelativeClaim(String claim, String runtimeArtifactsDir) {
-  final normalizedClaim = p.normalize(claim);
-  if (!p.isAbsolute(normalizedClaim)) return null;
-
-  final roots = <String>{p.normalize(runtimeArtifactsDir)};
-  try {
-    if (Directory(runtimeArtifactsDir).existsSync()) {
-      roots.add(p.normalize(Directory(runtimeArtifactsDir).resolveSymbolicLinksSync()));
-    }
-  } catch (_) {
-    // Unresolved string root still protects the common non-symlink case.
-  }
-
-  for (final root in roots) {
-    if (p.isWithin(root, normalizedClaim)) {
-      final relative = p.normalize(p.relative(normalizedClaim, from: root));
-      if (!runtimeArtifactsClaimStaysInside(runtimeArtifactsDir, normalizedClaim)) return null;
-      return relative;
-    }
-  }
-  return null;
-}
-
-/// Symlink-aware containment check for runtime-artifacts claims.
-bool runtimeArtifactsClaimStaysInside(String runtimeArtifactsDir, String claim) {
-  try {
-    final resolvedRoot = Directory(runtimeArtifactsDir).resolveSymbolicLinksSync();
-    final resolvedClaim = resolveExistingPathOrParent(claim);
-    if (resolvedClaim == null) return false;
-    return resolvedClaim == resolvedRoot || p.isWithin(resolvedRoot, resolvedClaim);
-  } on FileSystemException {
-    // runtimeArtifactsDir doesn't exist yet (first claim in a brand-new run).
-    // String containment suffices when no symlinks can exist inside a non-existent dir.
-    return p.isWithin(p.normalize(runtimeArtifactsDir), claim);
-  }
-}
-
 /// Resolves [path] if it exists, or its parent if [path] does not yet exist.
 String? resolveExistingPathOrParent(String path) {
   if (File(path).existsSync()) return File(path).resolveSymbolicLinksSync();
@@ -116,11 +67,16 @@ List<String> relativeClaimCandidates(String value, String root, {String? project
 
 /// Validates one agent-claimed path against a set of known roots.
 ///
-/// Returns the safe relative path if valid and on-disk, null otherwise.
+/// Returns the safe relative path if valid and on-disk, null otherwise. The
+/// trust boundary for an explicit claim is containment + on-disk existence
+/// (argument-safety is enforced separately downstream, per ADR-041) — *not* the
+/// output's [FileSystemOutput.pathPattern]. That glob is a discovery selector
+/// for picking an unnamed artifact out of the worktree diff
+/// ([safeChangedFileSystemMatches]); applying it here would reject a path the
+/// skill named explicitly (e.g. a `report-draft.md` claimed for a `report`
+/// output whose glob is `**/*report*.md`) even though it exists and is contained.
 String? safeRelativeExistingFileClaim(
-  String value,
-  FileSystemOutput resolver, {
-  bool preserveRuntimeArtifactsRoot = false,
+  String value, {
   required List<String> roots,
   required String? taskId,
   required String? projectId,
@@ -140,11 +96,6 @@ String? safeRelativeExistingFileClaim(
         final resolvedCandidate = p.normalize(File(candidate).resolveSymbolicLinksSync());
         if (!p.isWithin(resolvedRoot, resolvedCandidate)) continue;
         final relative = p.normalize(p.relative(candidate, from: normalizedRoot));
-        if (!resolver.matches(relative)) continue;
-        if (preserveRuntimeArtifactsRoot &&
-            isRuntimeArtifactsRoot(normalizedRoot, workflowRunId: workflowRunId, dataDir: dataDir)) {
-          return candidate;
-        }
         if (i > 0) {
           _log.fine(
             'Path-existence probe stripped prefix from "$value" → "$relative" under "$normalizedRoot" for task $taskId',
@@ -161,34 +112,18 @@ String? safeRelativeExistingFileClaim(
 
 /// Resolves all valid existing claims from a set of agent-supplied path strings.
 Map<String, String> existingSafeFileClaims(
-  List<String> values,
-  FileSystemOutput resolver, {
-  required bool preserveRuntimeArtifactsRoot,
+  List<String> values, {
   required List<String> roots,
   required String? taskId,
   required String? projectId,
   required String? workflowRunId,
   required String dataDir,
 }) {
-  // For review-report claims, resolve against the runtime-artifacts root first.
-  // In profiles where the data dir is nested inside the worktree (e.g. the
-  // maintainer workflow profile keeps `.data/` under the checkout), an absolute
-  // claim into `<runtimeArtifacts>/reviews/...` is *also* within the worktree
-  // root. With worktree-first ordering it resolves to a worktree-relative path,
-  // which `runtimeArtifactsOutputClaims` then rejects (it requires an absolute
-  // path) and which is gitignored (so absent from the diff), dropping the claim
-  // to the worktree-diff fallback. Trying the runtime-artifacts root first keeps
-  // the preserved absolute form so the claim is honored.
-  final orderedRoots = preserveRuntimeArtifactsRoot
-      ? _runtimeArtifactsRootFirst(roots, workflowRunId: workflowRunId, dataDir: dataDir)
-      : roots;
   final claims = <String, String>{};
   for (final value in values) {
     final safeClaim = safeRelativeExistingFileClaim(
       value,
-      resolver,
-      preserveRuntimeArtifactsRoot: preserveRuntimeArtifactsRoot,
-      roots: orderedRoots,
+      roots: roots,
       taskId: taskId,
       projectId: projectId,
       workflowRunId: workflowRunId,
@@ -199,22 +134,12 @@ Map<String, String> existingSafeFileClaims(
   return claims;
 }
 
-/// Returns [roots] with the runtime-artifacts root moved to the front, or
-/// [roots] unchanged when it is absent or already first.
-List<String> _runtimeArtifactsRootFirst(List<String> roots, {required String? workflowRunId, required String dataDir}) {
-  final index = roots.indexWhere(
-    (root) => isRuntimeArtifactsRoot(root, workflowRunId: workflowRunId, dataDir: dataDir),
-  );
-  if (index <= 0) return roots;
-  final reordered = List<String>.from(roots);
-  reordered.insert(0, reordered.removeAt(index));
-  return reordered;
-}
-
-/// Returns paths from [values] that match the worktree diff, validated for containment.
+/// Returns paths from [values] that match the worktree diff, validated for
+/// containment. [values] is already glob-filtered by the caller (the
+/// `pathPattern` selects which diff entries are candidates); this stage only
+/// applies the containment + existence trust boundary.
 List<String> safeChangedFileSystemMatches(
-  Iterable<String> values,
-  FileSystemOutput resolver, {
+  Iterable<String> values, {
   required List<String> worktreeRoots,
   required String? taskId,
   required String? projectId,
@@ -225,7 +150,6 @@ List<String> safeChangedFileSystemMatches(
       .map(
         (value) => safeRelativeExistingFileClaim(
           value,
-          resolver,
           roots: worktreeRoots,
           taskId: taskId,
           projectId: projectId,
@@ -269,25 +193,12 @@ List<String> safeFileSystemOutputClaims(
     ..sort();
 }
 
-/// Filters [claims] to those that fall within the runtime-artifacts directory.
-List<String> runtimeArtifactsOutputClaims(
-  Iterable<String> claims, {
-  required String? workflowRunId,
-  required String dataDir,
-}) {
-  final runId = workflowRunId?.trim();
-  if (runId == null || runId.isEmpty) return const <String>[];
-  final runtimeArtifactsDir = workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId);
-  return claims
-      .map(p.normalize)
-      .where((claim) => runtimeArtifactsRelativeClaim(claim, runtimeArtifactsDir) != null)
-      .toSet()
-      .toList()
-    ..sort();
-}
-
-/// Resolves the filesystem output for a step, applying git-diff filtering,
-/// claimed-path validation, and review-artifact policy.
+/// Resolves the filesystem output for a step, applying git-diff filtering and
+/// claimed-path validation.
+///
+/// Review-artifact path outputs never reach this resolver — they are captured
+/// deterministically from the host-owned step artifacts dir
+/// (`resolveReviewArtifactFromStepDir` in `review_artifact_policy.dart`).
 ///
 /// When [git] is null or [worktreePath] is empty, falls back to existence-only
 /// validation (no diff filtering). Otherwise performs a `git diff --name-only`
@@ -295,15 +206,11 @@ List<String> runtimeArtifactsOutputClaims(
 Future<Object?> resolveFileSystemOutput(
   FileSystemOutput resolver, {
   required String outputKey,
-  required WorkflowStep step,
   required Task task,
   required List<String> claimedPaths,
   required List<String> changedMatches,
   required Map<String, String> existingClaims,
-  required bool preservesRuntimeArtifactsRoot,
-  required Map<String, dynamic>? workflowContextPayload,
   required WorkflowGitPort? git,
-  required String dataDir,
   bool claimsExplicitlyEmpty = false,
 }) async {
   // An explicit "no path" claim from the agent (e.g. `plan: ""` per the
@@ -317,22 +224,6 @@ Future<Object?> resolveFileSystemOutput(
   if (git == null || worktreePath.isEmpty) {
     final missingPaths = claimedPaths.where((path) => !existingClaims.containsKey(path)).toList();
     if (missingPaths.isNotEmpty) {
-      if (rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
-        final fallback = rap.materializeMissingCleanReviewArtifact(
-          outputKey: outputKey,
-          step: step,
-          task: task,
-          resolver: resolver,
-          missingClaims: missingPaths,
-          workflowContextPayload: workflowContextPayload,
-          dataDir: dataDir,
-        );
-        if (fallback != null) return resolver.listMode ? <String>[fallback] : fallback;
-        _log.warning(
-          'Ignoring missing clean review artifact claim(s) for "$outputKey" on task ${task.id}: $missingPaths',
-        );
-        return resolver.listMode ? const <String>[] : '';
-      }
       throw MissingArtifactFailure(
         claimedPaths: claimedPaths,
         missingPaths: missingPaths,
@@ -342,17 +233,6 @@ Future<Object?> resolveFileSystemOutput(
       );
     }
     final safeClaims = existingClaims.values.toList()..sort();
-    if (safeClaims.isEmpty && rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
-      final fallback = rap.materializeUnclaimedCleanReviewArtifact(
-        outputKey: outputKey,
-        step: step,
-        task: task,
-        resolver: resolver,
-        workflowContextPayload: workflowContextPayload,
-        dataDir: dataDir,
-      );
-      if (fallback != null) return resolver.listMode ? <String>[fallback] : fallback;
-    }
     if (resolver.listMode) return safeClaims;
     return safeClaims.isEmpty ? '' : safeClaims.single;
   }
@@ -365,32 +245,17 @@ Future<Object?> resolveFileSystemOutput(
       .toList();
   if (missingClaims.isNotEmpty) {
     if (changedMatches.isNotEmpty) {
-      _log.warning(
-        'Ignoring stale claimed path(s) for "$outputKey" on task ${task.id}: '
-        '$missingClaims; using changed file(s): $changedMatches',
-      );
-      if (resolver.listMode) return changedMatches;
-      if (changedMatches.length == 1) return changedMatches.single;
+      if (resolver.listMode || changedMatches.length == 1) {
+        _log.warning(
+          'Ignoring stale claimed path(s) for "$outputKey" on task ${task.id}: '
+          '$missingClaims; using changed file(s): $changedMatches',
+        );
+        return resolver.listMode ? changedMatches : changedMatches.single;
+      }
       throw StateError(
         'Multiple filesystem artifacts matched "$outputKey" in $worktreePath '
         'after stale claims $missingClaims: $changedMatches',
       );
-    }
-    if (rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
-      final fallback = rap.materializeMissingCleanReviewArtifact(
-        outputKey: outputKey,
-        step: step,
-        task: task,
-        resolver: resolver,
-        missingClaims: missingClaims,
-        workflowContextPayload: workflowContextPayload,
-        dataDir: dataDir,
-      );
-      if (fallback != null) return resolver.listMode ? <String>[fallback] : fallback;
-      _log.warning(
-        'Ignoring missing clean review artifact claim(s) for "$outputKey" on task ${task.id}: $missingClaims',
-      );
-      return resolver.listMode ? const <String>[] : '';
     }
     throw MissingArtifactFailure(
       claimedPaths: claimedPaths,
@@ -401,99 +266,35 @@ Future<Object?> resolveFileSystemOutput(
     );
   }
 
-  final prefersChanged = rap.isReviewArtifactPathOutput(outputKey, step, resolver, workflowContextPayload);
-
   if (claimedPaths.isNotEmpty) {
     final matchingClaims = changedFileSystemOutputClaims(claimedPaths, existingClaims, changedMatches);
-    final runtimeClaims = preservesRuntimeArtifactsRoot
-        ? runtimeArtifactsOutputClaims(existingClaims.values, workflowRunId: task.workflowRunId, dataDir: dataDir)
-        : const <String>[];
-    if (runtimeClaims.isNotEmpty) {
-      if (resolver.listMode) return runtimeClaims;
-      if (runtimeClaims.length == 1) return runtimeClaims.single;
-      throw StateError('Multiple runtime artifacts were explicitly claimed for "$outputKey": $runtimeClaims');
-    }
-    if (matchingClaims.isNotEmpty && (prefersChanged || !resolver.listMode)) {
-      if (resolver.listMode) return matchingClaims;
+    if (matchingClaims.isNotEmpty && !resolver.listMode) {
       if (matchingClaims.length == 1) return matchingClaims.single;
       throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $matchingClaims');
-    }
-    if (prefersChanged && changedMatches.isNotEmpty) {
-      if (resolver.listMode) return changedMatches;
-      if (changedMatches.length == 1) return changedMatches.single;
-      throw StateError('Multiple filesystem artifacts matched "$outputKey" in $worktreePath: $changedMatches');
     }
     final safeClaims = safeFileSystemOutputClaims(claimedPaths, existingClaims, changedMatches);
     if (resolver.listMode) return safeClaims;
     if (safeClaims.length == 1) return safeClaims.single;
     throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $safeClaims');
   }
-  // No inline path was claimed. For a review-artifact output the worktree
-  // `changedMatches` are the wrong source — review reports are written to the
-  // runtime-artifacts `reviews/` output dir, never the worktree diff, and the
-  // `review_report_path` preset's default `**/*` pattern would otherwise match
-  // every dirty file and throw. Locate the report in the output dir instead,
-  // degrading to a clean stub / empty rather than failing the whole run when a
-  // review step omits its inline claim.
-  if (prefersChanged) {
-    final located = rap.locateUnclaimedReviewArtifact(
-      outputKey: outputKey,
-      step: step,
-      task: task,
-      resolver: resolver,
-      dataDir: dataDir,
-    );
-    if (located != null) return resolver.listMode ? <String>[located] : located;
-    if (rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
-      final fallback = rap.materializeUnclaimedCleanReviewArtifact(
-        outputKey: outputKey,
-        step: step,
-        task: task,
-        resolver: resolver,
-        workflowContextPayload: workflowContextPayload,
-        dataDir: dataDir,
-      );
-      if (fallback != null) return resolver.listMode ? <String>[fallback] : fallback;
-    }
-    _log.warning(
-      'No review artifact found in the runtime-artifacts output dir for "$outputKey" on task '
-      '${task.id}; the review step claimed no inline report path. Returning empty instead of '
-      'matching unrelated worktree files.',
-    );
-    return resolver.listMode ? const <String>[] : '';
-  }
   if (resolver.listMode) return changedMatches;
-  if (changedMatches.isEmpty) {
-    if (rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
-      final fallback = rap.materializeUnclaimedCleanReviewArtifact(
-        outputKey: outputKey,
-        step: step,
-        task: task,
-        resolver: resolver,
-        workflowContextPayload: workflowContextPayload,
-        dataDir: dataDir,
-      );
-      if (fallback != null) return fallback;
-    }
-    return '';
-  }
+  if (changedMatches.isEmpty) return '';
   if (changedMatches.length == 1) return changedMatches.single;
-  final preferredMatch = _preferredSingularMatch(outputKey, changedMatches);
+  final preferredMatch = _preferredSingularMatch(resolver.preferPatterns, changedMatches);
   if (preferredMatch != null) return preferredMatch;
   throw StateError('Multiple filesystem artifacts matched "$outputKey" in $worktreePath: $changedMatches');
 }
 
-String? _preferredSingularMatch(String outputKey, List<String> matches) {
-  if (outputKey == 'prd' || outputKey == 'prd_path') {
-    final prdMatches = matches.where((match) => p.basename(match).toLowerCase() == 'prd.md').toList()..sort();
-    if (prdMatches.length == 1) return prdMatches.single;
-    return null;
-  }
-  if (outputKey == 'plan' || outputKey == 'plan_path') {
-    for (final basename in const ['plan.json', 'plan.md']) {
-      final planMatches = matches.where((match) => p.basename(match).toLowerCase() == basename).toList()..sort();
-      if (planMatches.length == 1) return planMatches.single;
-    }
+/// Picks a single winner from [matches] using the output's declared
+/// [FileSystemOutput.preferPatterns]: the first bare basename (compared
+/// case-insensitively) with exactly one matching candidate wins. Returns null
+/// when no preference resolves a unique match, leaving the ambiguity to surface
+/// as a failure.
+String? _preferredSingularMatch(List<String> preferPatterns, List<String> matches) {
+  for (final basename in preferPatterns) {
+    final lowered = basename.toLowerCase();
+    final hits = matches.where((match) => p.basename(match).toLowerCase() == lowered).toList()..sort();
+    if (hits.length == 1) return hits.single;
   }
   return null;
 }

@@ -44,6 +44,13 @@ abstract final class WorkflowTaskConfig {
   /// Task-config key carrying merge-resolve environment variables.
   static const String mergeResolveEnv = '_workflowMergeResolveEnv';
 
+  /// Task-config key carrying the host-computed step-artifacts environment map
+  /// (`DARTCLAW_STEP_ARTIFACTS_DIR` → `<runtime-artifacts>/steps/<stepId>`), so
+  /// an agent references the shell var instead of retyping a UUID-bearing
+  /// absolute path. Populated for every workflow task at task creation;
+  /// survives the strip list like [mergeResolveEnv].
+  static const String stepArtifactsEnv = '_workflowStepArtifactsEnv';
+
   /// Task-config key carrying the authored workflow step name.
   static const String workflowStepName = 'workflowStepName';
 
@@ -60,6 +67,18 @@ abstract final class WorkflowTaskConfig {
   /// is a map with string values; returns `null` otherwise.
   static Map<String, String>? readMergeResolveEnv(Task task) {
     final raw = task.configJson[mergeResolveEnv];
+    if (raw is! Map) return null;
+    return Map<String, String>.fromEntries(
+      raw.entries.where((e) => e.value is String).map((e) => MapEntry(e.key.toString(), e.value as String)),
+    );
+  }
+
+  /// Reads the step-artifacts environment map from [Task.configJson].
+  ///
+  /// Returns a `Map<String, String>` when the key is present and the value is a
+  /// map with string values; returns `null` otherwise.
+  static Map<String, String>? readStepArtifactsEnv(Task task) {
+    final raw = task.configJson[stepArtifactsEnv];
     if (raw is! Map) return null;
     return Map<String, String>.fromEntries(
       raw.entries.where((e) => e.value is String).map((e) => MapEntry(e.key.toString(), e.value as String)),

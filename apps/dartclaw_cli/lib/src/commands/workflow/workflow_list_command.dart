@@ -101,19 +101,30 @@ class WorkflowListCommand extends Command<void> {
     // Calculate column widths
     const minNameWidth = 24;
     const minDescWidth = 40;
+    const minVarsWidth = 9; // 'VARIABLES'.length
     final nameWidth = definitions.fold(minNameWidth, (w, d) => d.name.length > w ? d.name.length : w);
+    final varsWidth = definitions.fold(
+      minVarsWidth,
+      (w, d) => _requiredVariablesLabel(d).length > w ? _requiredVariablesLabel(d).length : w,
+    );
 
-    _writeLine('  ${'NAME'.padRight(nameWidth)}  ${'STEPS'.padRight(5)}  ${'SOURCE'.padRight(11)}  DESCRIPTION');
+    _writeLine(
+      '  ${'NAME'.padRight(nameWidth)}  ${'STEPS'.padRight(5)}  ${'SOURCE'.padRight(11)}  '
+      '${'VARIABLES'.padRight(varsWidth)}  DESCRIPTION',
+    );
 
     final materializedCount = registry.listMaterialized().length;
     final customCount = registry.listCustom().length;
     for (final d in definitions) {
       final source = registry.sourceOf(d.name);
       final sourceLabel = (source?.name ?? 'unknown').padRight(11);
+      final varsLabel = _requiredVariablesLabel(d).padRight(varsWidth);
       final desc = d.description.length > minDescWidth
           ? '${d.description.substring(0, minDescWidth - 3)}...'
           : d.description;
-      _writeLine('  ${d.name.padRight(nameWidth)}  ${d.steps.length.toString().padRight(5)}  $sourceLabel  $desc');
+      _writeLine(
+        '  ${d.name.padRight(nameWidth)}  ${d.steps.length.toString().padRight(5)}  $sourceLabel  $varsLabel  $desc',
+      );
     }
 
     _writeLine('');
@@ -127,6 +138,13 @@ class WorkflowListCommand extends Command<void> {
     _writeLine('Total: ${parts.join(' ')}');
     _printExclusions(registry);
   }
+}
+
+/// Comma-joined required-variable names for a definition, or `—` when none are
+/// required. Names only — types/defaults stay in `--json`.
+String _requiredVariablesLabel(WorkflowDefinition definition) {
+  final required = definition.variables.entries.where((e) => e.value.required).map((e) => e.key).toList();
+  return required.isEmpty ? '—' : required.join(', ');
 }
 
 /// Builds a [WorkflowRegistry] synchronously for the `list` command.
@@ -143,7 +161,10 @@ Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetReso
     source: WorkflowSource.materialized,
   );
   await registry.loadFromDirectory(WorkflowMaterializer.customDir(config.server.dataDir));
-  await registry.loadFromDirectory(p.join(config.server.dataDir, 'workflows'));
+  await registry.loadFromDeprecatedLegacyDirectory(
+    p.join(config.server.dataDir, 'workflows'),
+    replacementDirectory: WorkflowMaterializer.customDir(config.server.dataDir),
+  );
   for (final projectDef in config.projects.definitions.values) {
     await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
   }

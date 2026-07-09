@@ -73,26 +73,6 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
       }
     }
 
-    if (strategy.legacyExternalArtifactMountLocation) {
-      errors.add(
-        _err(
-          ValidationErrorType.invalidReference,
-          'gitStrategy.externalArtifactMount was moved to '
-          'gitStrategy.worktree.externalArtifactMount. Update the workflow '
-          'to nest the block under gitStrategy.worktree.',
-        ),
-      );
-    }
-
-    if (strategy.legacyBootstrapKey) {
-      warnings.add(
-        _err(
-          ValidationErrorType.invalidReference,
-          'gitStrategy.bootstrap is deprecated; use gitStrategy.integrationBranch instead.',
-        ),
-      );
-    }
-
     final mount = strategy.externalArtifactMount;
     if (mount != null) {
       if (mount.mode == WorkflowExternalArtifactMountMode.perStoryCopy &&
@@ -121,7 +101,7 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
             ValidationErrorType.invalidReference,
             'gitStrategy.externalArtifactMount.mode: "bind-mount" broadens '
             'the sandbox scope of each per-story worktree beyond its own '
-            'FIS. Ensure the profile README justifies this opt-in.',
+            'story spec. Ensure the profile README justifies this opt-in.',
           ),
         );
       }

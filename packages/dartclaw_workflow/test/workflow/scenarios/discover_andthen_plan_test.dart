@@ -25,7 +25,7 @@ void main() {
       expect(skill, contains('*-plan.json'));
       expect(skill, contains('stories[]'));
       expect(skill, contains('Always emit `dependencies` as an array'));
-      expect(skill, contains('Do not emit `fis_source` or `spec_confidence` from discovery'));
+      expect(skill, contains('Do not emit `spec_source` or `spec_confidence` from discovery'));
       expect(skill, contains('skipped/done stories are not re-emitted'));
       expect(skill, contains('normalized to `pending`'));
       expect(skill, isNot(contains('project_index')));
@@ -79,7 +79,7 @@ void main() {
       expect(items.every((item) => item.containsKey('parallel') && item.containsKey('status')), isTrue);
     });
 
-    test('schema accepts plan-emitted fis_source and spec_confidence fields', () async {
+    test('schema accepts plan-emitted spec_source and spec_confidence fields', () async {
       final harness = await ScenarioTaskHarness.create();
       addTearDown(harness.dispose);
       final projectRoot = harness.createTempProjectRoot('confidence-project');
@@ -100,7 +100,7 @@ void main() {
                 'title': 'Story',
                 'spec_path': 'docs/specs/demo/fis/s01-story.md',
                 'dependencies': <String>[],
-                'fis_source': 'synthesized',
+                'spec_source': 'synthesized',
                 'spec_confidence': 5,
               },
             ],
@@ -110,7 +110,7 @@ void main() {
 
       final storySpecs = outputs['story_specs'] as Map<String, dynamic>;
       final item = (storySpecs['items'] as List<dynamic>).single as Map<String, dynamic>;
-      expect(item['fis_source'], 'synthesized');
+      expect(item['spec_source'], 'synthesized');
       expect(item['spec_confidence'], 5);
     });
 

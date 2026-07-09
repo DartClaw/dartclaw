@@ -167,6 +167,10 @@ class TaskService implements WorkflowTaskService {
   @override
   Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
 
+  /// Lists tasks whose `workflowRunId` is in [runIds].
+  @override
+  Future<List<Task>> listByWorkflowRunIds(Iterable<String> runIds) => _repo.listByWorkflowRunIds(runIds);
+
   /// Applies a lifecycle transition.
   ///
   /// Fires [TaskStatusChangedEvent] (and [TaskReviewReadyEvent] when entering

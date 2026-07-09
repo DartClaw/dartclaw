@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
@@ -121,11 +123,41 @@ void main() {
       expect(proc.killCalled, isTrue);
     });
 
-    test('requestVoiceVerification exists and is callable', () {
-      final mgr = SignalCliManager(executable: 'signal-cli', phoneNumber: '+1');
-      // Verify the method exists on SignalCliManager (will fail at RPC level
-      // without a real server, but we just verify it doesn't throw synchronously).
-      expect(() => mgr.requestVoiceVerification(), throwsA(anything));
+    test('requestVoiceVerification sends register RPC with voice flag', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requestHandled = Completer<void>();
+      late String requestPath;
+      late Map<String, dynamic> payload;
+
+      final sub = server.listen((request) {
+        unawaited(() async {
+          requestPath = request.uri.path;
+          payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
+          await request.response.close();
+          requestHandled.complete();
+        }());
+      });
+
+      try {
+        final mgr = SignalCliManager(
+          executable: 'signal-cli',
+          host: InternetAddress.loopbackIPv4.address,
+          port: server.port,
+          phoneNumber: '+1',
+        );
+
+        await mgr.requestVoiceVerification(captcha: 'captcha-token');
+        await requestHandled.future;
+
+        expect(requestPath, '/api/v1/rpc');
+        expect(payload['method'], 'register');
+        expect(payload['params'], {'account': '+1', 'voice': true, 'captcha': 'captcha-token'});
+      } finally {
+        await sub.cancel();
+        await server.close(force: true);
+      }
     });
 
     test('events stream is broadcast', () {

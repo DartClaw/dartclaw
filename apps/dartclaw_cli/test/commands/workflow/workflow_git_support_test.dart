@@ -258,6 +258,9 @@ void main() {
 
     const branch = 'dartclaw/workflow/run123/integration';
     expect((await _git(repoDir.path, ['checkout', '-b', branch])).exitCode, 0);
+    File(p.join(repoDir.path, 'notes', 'publish.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('ready\n');
 
     var pushed = false;
     var fetched = false;
@@ -282,6 +285,10 @@ void main() {
 
     final remoteTracking = await _git(repoDir.path, ['rev-parse', '--verify', 'origin/$branch']);
     expect(remoteTracking.exitCode, 0);
+    final tree = await _git(repoDir.path, ['ls-tree', '-r', '--name-only', 'origin/$branch']);
+    expect((tree.stdout as String).split('\n'), contains('notes/publish.md'));
+    final log = await _git(repoDir.path, ['log', '--format=%s', '-1', 'origin/$branch']);
+    expect((log.stdout as String).trim(), 'workflow: prepare publish');
   });
 
   test('publishWorkflowBranchWithRemotePush returns structured auth failures without fetching', () async {

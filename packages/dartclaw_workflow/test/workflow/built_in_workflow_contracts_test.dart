@@ -27,6 +27,10 @@ library;
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart'
+    show modelDerivedFinalizerKeys, stepNeedsFinalizer;
+import 'package:dartclaw_workflow/src/workflow/review_finding_derivations.dart'
+    show deriveReviewFindingCountFromVerdict;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -41,6 +45,8 @@ WorkflowDefinition _load(String fileName) {
   final yaml = File(p.join(workflowDefinitionsDir(), fileName)).readAsStringSync();
   return WorkflowDefinitionParser().parse(yaml);
 }
+
+String _loadSource(String fileName) => File(p.join(workflowDefinitionsDir(), fileName)).readAsStringSync();
 
 WorkflowDefinition _loadInline(String fileName) {
   final dir = findAncestorDir(['.dartclaw/workflows/custom']);
@@ -72,12 +78,48 @@ String? _effectiveDescription(OutputConfig? config) =>
 /// Review steps declare exactly one `format: path` output backed by the
 /// canonical `review_report_path` preset – the report artifact. Keyed
 /// generically (not by literal name) so the lookup survives the step-prefixed
-/// output-key convention (`<stepId>.review_findings`).
+/// output-key convention (`<stepId>.review_report_path`).
 MapEntry<String, OutputConfig>? _reviewReportPathOutput(WorkflowStep step) {
   final entries = (step.outputs ?? const <String, OutputConfig>{}).entries
       .where((e) => e.value.format == OutputFormat.path && e.value.presetName == 'review_report_path')
       .toList();
   return entries.length == 1 ? entries.single : null;
+}
+
+/// Returns the declared input / workflowVariable keys whose value is already
+/// interpolated in [promptText], making the declaration a redundant no-op.
+///
+/// Mirrors `SkillPromptBuilder.appendAutoFramedContext` Detection B: a
+/// referenced key is NOT auto-framed, so declaring it as an input
+/// (`{{context.key}}`) or workflowVariable (`{{KEY}}`) adds nothing. The `.`→`_`
+/// tag-normalized form is accepted too, matching the auto-framer's tolerance.
+///
+/// The auto-framer keys Detection B on `step.prompts.first`, while [promptText]
+/// here is the full concatenated prompt (`_allPromptText`). The two coincide for
+/// every current built-in skill step (all single-prompt); a future multi-prompt
+/// skill step declaring an input referenced only in a later prompt would trip
+/// this rule (a loud false positive), not silently pass — scan `prompts.first`
+/// if that case ever ships.
+Set<String> _redundantlyDeclaredKeys({
+  required String promptText,
+  required List<String> inputs,
+  required List<String> variables,
+}) {
+  bool referenced(String key, {required bool isContextInput}) {
+    final tag = key.replaceAll('.', '_');
+    for (final candidate in {key, tag}) {
+      final pattern = isContextInput ? 'context.$candidate' : candidate;
+      if (RegExp('\\{\\{\\s*${RegExp.escape(pattern)}\\s*\\}\\}').hasMatch(promptText)) return true;
+    }
+    return false;
+  }
+
+  return {
+    for (final key in inputs)
+      if (referenced(key, isContextInput: true)) key,
+    for (final key in variables)
+      if (referenced(key, isContextInput: false)) key,
+  };
 }
 
 const _builtInWorkflows = ['spec-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
@@ -101,7 +143,7 @@ void main() {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.type != WorkflowTaskType.agent) continue;
+          if (step.taskType != WorkflowTaskType.agent) continue;
           expect(step.skill, isNotNull, reason: '$file → step "${step.id}" is type=agent but has no skill:');
           expect(step.skill, isNotEmpty, reason: '$file → step "${step.id}" skill is empty');
         }
@@ -193,12 +235,14 @@ void main() {
       expect(simplify.continueSession, '@previous');
       expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
       expect(simplify.maxRetries, isNull);
-      expect(simplify.inputs, ['story_result']);
+      // continueSession carries the implement history, so no story_result input.
+      expect(simplify.inputs, isEmpty);
       expect(_allPromptText(simplify), contains('changes for this story'));
 
       // The per-story loop is a foreach-owned loop with the converging shape.
       final loop = def.loops.singleWhere((l) => l.id == 'story-remediation');
       expect(loop.steps, ['remediate-story', 're-review-story']);
+      expect(loop.onMaxIterations, WorkflowLoop.onMaxIterationsEscalate);
       expect(loop.exitGate, 'gating_findings_count == 0');
       final review = _flattenedSteps(def).singleWhere((step) => step.id == 'review-story');
       expect(_allPromptText(review), contains('--mode gap,code,security'));
@@ -220,8 +264,16 @@ void main() {
 
       final simplify = def.steps.singleWhere((step) => step.id == 'simplify-code');
       expect(simplify.skill, 'andthen:simplify-code');
-      expect(simplify.provider, '@executor');
-      expect(simplify.model, '@executor');
+      // provider/model are not pinned inline – they resolve to @executor via the
+      // `simplify-code` stepDefault (redundant inline pins removed).
+      expect(simplify.provider, isNull);
+      expect(simplify.model, isNull);
+      final resolvedSimplify = const WorkflowDefinitionResolver()
+          .resolve(def)
+          .steps
+          .singleWhere((step) => step.id == 'simplify-code');
+      expect(resolvedSimplify.provider, '@executor');
+      expect(resolvedSimplify.model, '@executor');
       expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
       expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, isEmpty);
@@ -233,11 +285,19 @@ void main() {
       final simplify = def.steps.singleWhere((step) => step.id == 'simplify-code');
       final prompt = _allPromptText(simplify);
 
-      expect(simplify.provider, '@executor');
-      expect(simplify.model, '@executor');
+      // provider/model resolve to @executor via the `simplify-code` stepDefault.
+      expect(simplify.provider, isNull);
+      expect(simplify.model, isNull);
+      final resolvedSimplify = const WorkflowDefinitionResolver()
+          .resolve(def)
+          .steps
+          .singleWhere((step) => step.id == 'simplify-code');
+      expect(resolvedSimplify.provider, '@executor');
+      expect(resolvedSimplify.model, '@executor');
       expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
       expect(simplify.maxRetries, isNull);
-      expect(simplify.inputs, ['spec_path']);
+      // spec_path is interpolated inline in the prompt – no redundant input.
+      expect(simplify.inputs, isEmpty);
       expect(prompt, contains('{{context.spec_path}}'));
       expect(prompt, contains('live checkout'));
       expect(prompt, isNot(contains('base ref')));
@@ -263,7 +323,8 @@ void main() {
       expect(simplify.continueSession, '@previous');
       expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
       expect(simplify.maxRetries, isNull);
-      expect(simplify.inputs, ['story_result']);
+      // continueSession carries the implement history, so no story_result input.
+      expect(simplify.inputs, isEmpty);
       expect(_allPromptText(simplify), contains('changes for this story'));
 
       final loop = def.loops.singleWhere((l) => l.id == 'story-remediation');
@@ -300,6 +361,28 @@ void main() {
       }
     });
 
+    test('inline remediation-loop opts into onMaxIterations: continue; verify-fix-loop stays fail (TI05)', () {
+      for (final file in const [
+        'spec-and-implement-inline.yaml',
+        'plan-and-implement-inline.yaml',
+        'review-and-remediate-inline.yaml',
+      ]) {
+        final def = _loadInline(file);
+        final remediation = def.loops.singleWhere((loop) => loop.id == 'remediation-loop');
+        expect(
+          remediation.onMaxIterations,
+          'continue',
+          reason: '$file remediation-loop must fall through to the verify gate on exhaustion',
+        );
+        final verifyFix = def.loops.singleWhere((loop) => loop.id == 'verify-fix-loop');
+        expect(
+          verifyFix.onMaxIterations,
+          'fail',
+          reason: '$file verify-fix-loop is the genuine gate and must keep fail-on-exhaustion',
+        );
+      }
+    });
+
     test('inline verification all gate does not require a clean working tree', () {
       final dir = findAncestorDir(['.dartclaw/workflows/custom']);
       final script = File(p.join(dir, 'scripts/verify-gate.sh')).readAsStringSync();
@@ -324,7 +407,7 @@ void main() {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
           if (!step.id.contains('review')) continue;
-          if (step.type == WorkflowTaskType.aggregateReviews) continue;
+          if (step.taskType == WorkflowTaskType.aggregateReviews) continue;
           if (writeableReviewSteps.contains(step.id)) continue;
           expect(step.allowedTools, isNotNull, reason: '$file → review step "${step.id}" must declare allowedTools');
           final emitsPathArtifact = step.outputs?.values.any((config) => config.format == OutputFormat.path) ?? false;
@@ -360,6 +443,72 @@ void main() {
       }
     });
 
+    // Regression guard for the standalone edit-grant bug: under one-shot
+    // dontAsk the Claude allow-list grants Edit/MultiEdit/NotebookEdit only when
+    // a step's allowedTools includes file_edit. A mutation step that lists
+    // file_write but not file_edit can create files yet silently fails to edit
+    // existing ones. So every project-mutating step that grants file_write must
+    // also grant file_edit. A step mutates the project when it runs a known
+    // mutator skill (exec-spec/remediate-findings/triage) or invokes a review
+    // with --fix. Re-review steps are read-only re-runs of the original review
+    // (no --fix), so they are NOT mutating and hold review-only grants.
+    test('mutation steps that grant file_write also grant file_edit', () {
+      const mutatorSkills = {'andthen:exec-spec', 'andthen:remediate-findings', 'andthen:triage'};
+      var checked = 0;
+      for (final file in _builtInWorkflows) {
+        final def = _load(file);
+        for (final step in _flattenedSteps(def)) {
+          final tools = step.allowedTools;
+          if (tools == null || !tools.contains('file_write')) continue;
+          final mutates =
+              mutatorSkills.contains(step.skill) ||
+              (step.skill == 'andthen:review' && _allPromptText(step).contains('--fix'));
+          if (!mutates) continue;
+          checked++;
+          expect(
+            tools,
+            contains('file_edit'),
+            reason:
+                '$file → mutation step "${step.id}" grants file_write but omits file_edit; '
+                'existing-file edits would be hard-denied under one-shot dontAsk',
+          );
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'built-ins must include file_edit-granting mutation steps');
+    });
+
+    test('re-review steps hold review-only grants (no file_edit)', () {
+      // A re-review re-runs the original review (no --fix), so it must not carry
+      // the file_edit mutation grant. revise-spec (a --fix review) keeps it.
+      var checked = 0;
+      for (final file in _builtInWorkflows) {
+        final def = _load(file);
+        for (final step in _flattenedSteps(def)) {
+          if (!step.id.startsWith('re-review')) continue;
+          checked++;
+          expect(
+            step.allowedTools ?? const <String>[],
+            isNot(contains('file_edit')),
+            reason: '$file → re-review step "${step.id}" must not grant file_edit',
+          );
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'built-ins must include re-review steps');
+    });
+
+    test('transient-failure retries are consistent on --fix and implement steps', () {
+      // revise-spec (--fix over the spec) and the inline custom implement each
+      // carry maxRetries: 1 for transient harness failures, matching the
+      // built-in implement.
+      final reviseSpec = _load('spec-and-implement.yaml').steps.singleWhere((s) => s.id == 'revise-spec');
+      expect(reviseSpec.maxRetries, 1, reason: 'revise-spec must retry transient harness failures');
+
+      final customImplement = _loadInline(
+        'spec-and-implement-inline.yaml',
+      ).steps.singleWhere((s) => s.id == 'implement');
+      expect(customImplement.maxRetries, 1, reason: 'custom implement must retry transient harness failures');
+    });
+
     test('discovery/classification steps are read-only', () {
       final plan = _load('plan-and-implement.yaml');
       final discover = plan.steps.firstWhere((s) => s.id == 'discover-plan-state');
@@ -380,8 +529,13 @@ void main() {
       );
     });
 
-    test('remediation steps pass at least one report path source and declare it', () {
-      final reportKeys = {'review_findings', 'architecture_review_findings'};
+    test('remediation steps pass at least one report path source in the prompt', () {
+      // The report path is interpolated inline ({{context.review_report_path}}),
+      // which the remediate skill executes as its argument. Because it is
+      // template-referenced, declaring it as an input would be a redundant no-op
+      // (the no-op-inputs rule forbids it) – so this only asserts the prompt
+      // reference, not an inputs declaration.
+      final reportKeys = {'review_report_path', 'architecture_review_findings'};
       final referencePattern = RegExp(r'\{\{\s*context\.([A-Za-z0-9_.-]+)\s*\}\}');
       var checked = 0;
 
@@ -400,9 +554,6 @@ void main() {
             isNotEmpty,
             reason: '$file → "${step.id}" must pass at least one report path to andthen:remediate-findings',
           );
-          for (final ref in references) {
-            expect(step.inputs, contains(ref), reason: '$file → "${step.id}" must declare report path input "$ref"');
-          }
         }
       }
       expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
@@ -432,7 +583,7 @@ void main() {
       expect(checked, greaterThan(0), reason: 'workflows must include remediation steps');
     });
 
-    test('andthen:review report outputs direct writes into the runtime artifacts dir', () {
+    test('andthen:review report outputs direct writes into the host-owned step artifacts dir', () {
       var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
@@ -443,8 +594,8 @@ void main() {
           checked++;
           expect(
             _allPromptText(step),
-            contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"'),
-            reason: '$file → "${step.id}" must write review reports under workflow runtime artifacts',
+            contains('--output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR"'),
+            reason: '$file → "${step.id}" must write review reports into the host-owned step artifacts dir',
           );
           final description = _effectiveDescription(reportOutput.value) ?? '';
           expect(
@@ -465,11 +616,11 @@ void main() {
 
     test('parallel review source steps prefix every output key with the step id', () {
       // Convention: a review step that feeds an aggregate-reviews step prefixes
-      // ALL its output keys with its step id (`<stepId>.review_findings`,
+      // ALL its output keys with its step id (`<stepId>.review_report_path`,
       // `<stepId>.findings_count`, `<stepId>.gating_findings_count`). The host
       // accepts the skill's bare-suffix emission via the filesystem-claim alias,
       // so prefixing is always collision-safe. Locks out the historical
-      // three-strategy split (bare `review_findings`, distinct
+      // three-strategy split (bare `review_report_path`, distinct
       // `architecture_review_findings`, prefixed council key).
       final definitions = <String, WorkflowDefinition>{
         for (final file in _builtInWorkflows) file: _load(file),
@@ -485,7 +636,7 @@ void main() {
       for (final entry in definitions.entries) {
         final aggregate = _flattenedSteps(
           entry.value,
-        ).where((s) => s.type == WorkflowTaskType.aggregateReviews).firstOrNull;
+        ).where((s) => s.taskType == WorkflowTaskType.aggregateReviews).firstOrNull;
         if (aggregate == null) continue;
         final stepsById = {for (final s in _flattenedSteps(entry.value)) s.id: s};
 
@@ -501,11 +652,11 @@ void main() {
             );
           }
           final reportOutput = _reviewReportPathOutput(source);
-          expect(reportOutput?.key, '$sourceId.review_findings', reason: '${entry.key} → "$sourceId" report key');
+          expect(reportOutput?.key, '$sourceId.review_report_path', reason: '${entry.key} → "$sourceId" report key');
           expect(
-            source.outputs?.containsKey('review_findings'),
+            source.outputs?.containsKey('review_report_path'),
             isNot(isTrue),
-            reason: '${entry.key} → "$sourceId" must not declare a bare review_findings',
+            reason: '${entry.key} → "$sourceId" must not declare a bare review_report_path',
           );
           expect(
             source.outputs?.containsKey('architecture_review_findings'),
@@ -533,15 +684,17 @@ void main() {
         final remediate = _flattenedSteps(def).firstWhere((s) => s.id == 'remediate');
         final reReview = _flattenedSteps(def).firstWhere((s) => s.id == 're-review');
 
-        expect(aggregate.type, WorkflowTaskType.aggregateReviews, reason: '$file → review-aggregate type');
+        expect(aggregate.taskType, WorkflowTaskType.aggregateReviews, reason: '$file → review-aggregate type');
         expect(aggregate.aggregateReviews, entry.value, reason: '$file → aggregate source order');
-        expect(aggregate.outputKeys.toSet(), {'review_findings', 'findings_count', 'gating_findings_count'});
+        expect(aggregate.outputKeys.toSet(), {'review_report_path', 'findings_count', 'gating_findings_count'});
         expect(loop.entryGate, 'gating_findings_count > 0', reason: '$file → loop entry gate');
         expect(loop.exitGate, 'gating_findings_count == 0', reason: '$file → loop exit gate');
         expect(remediate.entryGate, 'gating_findings_count > 0', reason: '$file → remediate entry gate');
-        expect(remediate.inputs, contains('review_findings'), reason: '$file → remediate report input');
+        // review_report_path is interpolated inline in the prompt, so declaring it
+        // as an input would be a redundant no-op (no-op-inputs rule).
+        expect(remediate.inputs, isNot(contains('review_report_path')), reason: '$file → remediate no-op report input');
         expect(remediate.inputs, isNot(contains('architecture_review_findings')), reason: file);
-        expect(_allPromptText(remediate).trim(), '--auto {{context.review_findings}}', reason: file);
+        expect(_allPromptText(remediate).trim(), '--auto {{context.review_report_path}}', reason: file);
         expect(
           remediate.outputs?.containsKey('architecture-review.gating_findings_count'),
           isNot(isTrue),
@@ -549,7 +702,7 @@ void main() {
         );
         expect(remediate.outputs?.containsKey('architecture_review_findings'), isNot(isTrue), reason: file);
         expect(remediate.outputs?.containsKey('diff_summary'), isNot(isTrue), reason: file);
-        expect(reReview.outputKeys, containsAll(['review_findings', 'findings_count', 'gating_findings_count']));
+        expect(reReview.outputKeys, containsAll(['review_report_path', 'findings_count', 'gating_findings_count']));
         expect(reReview.outputKeys, isNot(contains('re-review.findings_count')), reason: file);
         expect(reReview.outputKeys, isNot(contains('re-review.gating_findings_count')), reason: file);
       }
@@ -576,6 +729,38 @@ void main() {
           remediate.entryGate,
           anyOf(isNull, contains('gating_findings_count')),
           reason: '${entry.key} remediate gate',
+        );
+      }
+    });
+
+    test('built-in review count contract uses default high severity threshold', () {
+      final reviewCountKeys = <String>{};
+      for (final file in _builtInWorkflows) {
+        for (final step in _flattenedSteps(_load(file))) {
+          reviewCountKeys.addAll(
+            (step.outputs ?? const <String, OutputConfig>{}).entries
+                .where((entry) => entry.value.presetName == 'gating_findings_count')
+                .map((entry) => entry.key),
+          );
+        }
+      }
+
+      const verdict = {
+        'findings_count': 4,
+        'findings': [
+          {'severity': 'critical', 'location': 'a.dart:1', 'description': 'critical'},
+          {'severity': 'high', 'location': 'a.dart:2', 'description': 'high'},
+          {'severity': 'medium', 'location': 'a.dart:3', 'description': 'medium'},
+          {'severity': 'low', 'location': 'a.dart:4', 'description': 'low'},
+        ],
+      };
+
+      expect(reviewCountKeys, isNotEmpty, reason: 'built-in review steps must declare gating finding counts');
+      for (final key in reviewCountKeys) {
+        expect(
+          deriveReviewFindingCountFromVerdict(key, verdict),
+          2,
+          reason: '$key should count only critical/high findings at the default threshold',
         );
       }
     });
@@ -611,12 +796,16 @@ void main() {
           final text = _allPromptText(step).trim();
           if (text.isEmpty) continue;
 
+          // bash prompts are shell commands and approval prompts are human
+          // messages – both legitimately prose, so guard only skill steps.
+          if (step.skill == null) continue;
+
           final key = '$file::${step.id}';
-          expect(text.length, lessThanOrEqualTo(180), reason: '$key prompt should stay a compact routing hint');
-          // Bash and approval steps don't drive a skill – their prompt is a
-          // shell command or a checkpoint message and has no `--auto`
-          // contract.
-          if (step.skill != null && !skillsWithoutAutoFlag.contains(step.skill)) {
+          // Coarse blob-backstop, not a ruler: an inputs-only prompt is ≈220,
+          // a pasted instruction paragraph 400+. Discipline is the real guard
+          // (dartclaw_workflow/CLAUDE.md § Conventions).
+          expect(text.length, lessThanOrEqualTo(280), reason: '$key prompt should stay a compact routing hint');
+          if (!skillsWithoutAutoFlag.contains(step.skill)) {
             expect(text, contains('--auto'), reason: '$key prompt should opt into automation-safe skill execution');
           }
           expect(text, isNot(contains('Use the ')), reason: '$key should not repeat generic skill-selection prose');
@@ -647,7 +836,7 @@ void main() {
       expect(_allPromptText(reReview), isNot(contains('--council')));
     });
 
-    test('andthen:review steps pin reports to workflow runtime artifacts dir', () {
+    test('andthen:review steps pin reports to the host-owned step artifacts dir', () {
       var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
@@ -655,12 +844,39 @@ void main() {
           checked++;
           expect(
             _allPromptText(step),
-            contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews'),
+            contains('--output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR"'),
             reason: '$file → "${step.id}" should avoid heuristic review report placement',
           );
         }
       }
       expect(checked, greaterThan(0), reason: 'built-ins must include andthen:review steps');
+    });
+
+    test('andthen:architecture review steps pin reports to the host-owned step artifacts dir', () {
+      // Without --output-dir, andthen:architecture defaults OUTPUT_DIR to
+      // docs/research/ – outside the step artifacts dir the host captures
+      // review-report paths from.
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in const [
+          'spec-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          file: _loadInline(file),
+      };
+      var checked = 0;
+      for (final entry in definitions.entries) {
+        for (final step in _flattenedSteps(entry.value).where((s) => s.skill == 'andthen:architecture')) {
+          checked++;
+          expect(
+            _allPromptText(step),
+            contains('--output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR"'),
+            reason: '${entry.key} → "${step.id}" must write architecture review reports into the step artifacts dir',
+          );
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'workflows must include andthen:architecture review steps');
     });
 
     test('plan-and-implement: per-story result output classifies sibling failures as non-blocking', () {
@@ -671,8 +887,8 @@ void main() {
       final def = _load('plan-and-implement.yaml');
       final implement = _flattenedSteps(def).firstWhere((s) => s.id == 'implement');
       final output = implement.outputs!['story_result']!;
-      expect(output.schema, equals('story_result'));
-      expect(output.description, isNull);
+      expect(output.presetName, 'narrative_text');
+      expect(outputResolverFor('story_result', output), isA<InlineOutput>());
 
       final rendered = SkillPromptBuilder.formatContextSummary(
         {'story_result': 'ok'},
@@ -691,6 +907,12 @@ void main() {
         expect(description, contains('plan.json'));
         expect(description, contains('plan.md'));
       }
+
+      for (final step in [discover, plan]) {
+        final resolver =
+            outputResolverFor('technical_research', step.outputs!['technical_research']) as FileSystemOutput;
+        expect(resolver.matches('docs/plans/p/.technical-research.md'), isTrue);
+      }
     });
 
     test('migrated path outputs route through canonical presets', () {
@@ -702,7 +924,7 @@ void main() {
       for (final entry in definitions.entries) {
         final architectureReview = _flattenedSteps(entry.value).where((step) => step.id == 'architecture-review');
         for (final step in architectureReview) {
-          final output = step.outputs!['architecture-review.review_findings']!;
+          final output = step.outputs!['architecture-review.review_report_path']!;
           expect(output.format, OutputFormat.path, reason: '${entry.key} → architecture-review output format');
           expect(
             output.presetName,
@@ -718,11 +940,7 @@ void main() {
         final detect = _flattenedSteps(def).firstWhere((step) => step.id == 'detect-spec-input');
         final output = detect.outputs!['spec_path']!;
         expect(output.format, OutputFormat.path, reason: '$file → detect-spec-input.spec_path');
-        expect(
-          output.presetName,
-          'detected_fis_path',
-          reason: '$file → detect-spec-input uses canonical optional-path preset',
-        );
+        expect(output.presetName, isNull, reason: '$file → detect-spec-input uses inline output shape');
         expect(_effectiveDescription(output), contains('empty when input requires spec synthesis'), reason: file);
       }
     });
@@ -747,6 +965,49 @@ void main() {
   });
 
   group('Variable passthrough – authored inputs reach only the steps that need them', () {
+    test('no template-referenced key is redundantly declared as input/workflowVariables', () {
+      var checked = 0;
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in const [
+          'spec-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          file: _loadInline(file),
+      };
+      for (final entry in definitions.entries) {
+        for (final step in _flattenedSteps(entry.value)) {
+          if (step.skill == null) continue;
+          checked++;
+          final offenders = _redundantlyDeclaredKeys(
+            promptText: _allPromptText(step),
+            inputs: step.inputs,
+            variables: step.workflowVariables,
+          );
+          expect(
+            offenders,
+            isEmpty,
+            reason:
+                '${entry.key} → "${step.id}" declares template-referenced key(s) $offenders as input/workflowVariables '
+                '(redundant no-op – the value is already interpolated inline)',
+          );
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'workflows must include skill steps');
+
+      // Seeded violations: a step that both declares and inline-references a key
+      // is flagged (proving the rule is not vacuously true).
+      expect(
+        _redundantlyDeclaredKeys(promptText: '--auto {{context.spec_path}}', inputs: ['spec_path'], variables: []),
+        contains('spec_path'),
+      );
+      expect(
+        _redundantlyDeclaredKeys(promptText: '--auto {{FEATURE}}', inputs: [], variables: ['FEATURE']),
+        contains('FEATURE'),
+      );
+    });
+
     test('plan-and-implement: only discover-plan-state opts in to FEATURE', () {
       final def = _load('plan-and-implement.yaml');
       for (final step in _flattenedSteps(def)) {
@@ -772,11 +1033,14 @@ void main() {
       }
     });
 
-    test('spec-and-implement: only detect-spec-input and spec opt in to FEATURE', () {
+    test('spec-and-implement: only detect-spec-input opts in to FEATURE', () {
+      // The `spec` step interpolates {{FEATURE}} inline by design, so its
+      // workflowVariables opt-in would be a redundant no-op – only the read-only
+      // detect-spec-input classifier auto-frames FEATURE as untrusted data.
       final def = _load('spec-and-implement.yaml');
       for (final step in _flattenedSteps(def)) {
         final opts = step.workflowVariables;
-        if (step.id == 'detect-spec-input' || step.id == 'spec') {
+        if (step.id == 'detect-spec-input') {
           expect(opts, contains('FEATURE'));
           continue;
         }
@@ -797,16 +1061,14 @@ void main() {
       }
     });
 
-    test('code-review: only review-code opts in to TARGET/BRANCH/PR_NUMBER/BASE_BRANCH', () {
+    test('code-review: no step opts in to TARGET/BRANCH/PR_NUMBER/BASE_BRANCH (all inline by design)', () {
+      // review-code and re-review both interpolate these variables inline as the
+      // review target framing, so a workflowVariables opt-in would be a redundant
+      // no-op (no-op-inputs rule); they are workflow-declared variables, not
+      // auto-framed untrusted data.
       final def = _load('code-review.yaml');
       const reviewInputs = ['TARGET', 'BRANCH', 'PR_NUMBER', 'BASE_BRANCH'];
       for (final step in _flattenedSteps(def)) {
-        if (step.id == 'review-code') {
-          for (final v in reviewInputs) {
-            expect(step.workflowVariables, contains(v));
-          }
-          continue;
-        }
         for (final v in reviewInputs) {
           expect(step.workflowVariables, isNot(contains(v)), reason: 'step "${step.id}" must not opt in to $v');
         }
@@ -819,12 +1081,23 @@ void main() {
       expect(schemaPresets['gating_findings_count']?.format, OutputFormat.json);
       expect(schemaPresets['findings_count']?.format, OutputFormat.json);
       expect(schemaPresets['review_report_path']?.format, OutputFormat.path);
-      expect(schemaPresets['prd_path']?.description, 'Workspace-relative path to the required PRD on disk.');
-      expect(schemaPresets['plan_path']?.description, contains('plan.json'));
-      expect(schemaPresets['fis_path']?.description, contains('FIS on disk'));
+      expect(schemaPresets['narrative_text']?.format, OutputFormat.text);
+      for (final name in const [
+        'fis_path',
+        'detected_fis_path',
+        'spec_source',
+        'spec_confidence',
+        'story_result',
+        'remediation_result',
+        'remediation_summary',
+        'prd_path',
+        'plan_path',
+      ]) {
+        expect(schemaPresets.containsKey(name), isFalse, reason: name);
+      }
     });
 
-    test('built-in and inline workflows exercise the new shorthand presets', () {
+    test('built-in and inline workflows exercise generic shorthand presets', () {
       final defs = [
         for (final file in _builtInWorkflows) _load(file),
         for (final file in _inlineWorkflows) _loadInline(file),
@@ -844,15 +1117,82 @@ void main() {
           'gating_findings_count',
           'findings_count',
           'review_report_path',
-          'prd_path',
-          'plan_path',
-          'fis_path',
-          'detected_fis_path',
-          'spec_source',
-          'spec_confidence',
+          'narrative_text',
+          'non_negative_integer',
           'story_specs',
         ]),
       );
+    });
+
+    test('built-in inferred output plumbing matches the explicit form', () {
+      // Mirrors docs/guide/workflows-reference.md § YAML Field Reference:
+      // schema presets may infer format/outputMode, and format: path with
+      // pathPattern infers the filesystem resolver.
+      final parser = WorkflowDefinitionParser();
+      final specInferred = parser.parse(_loadSource('spec-and-implement.yaml'));
+      final specExplicit = parser.parse(
+        _loadSource('spec-and-implement.yaml')
+            .replaceAll(
+              '      spec_path:\n        format: path\n',
+              '      spec_path:\n        format: path\n        resolver: filesystem\n',
+            )
+            .replaceAll(
+              '      spec_confidence:\n        schema: non_negative_integer\n',
+              '      spec_confidence:\n        format: json\n        schema: non_negative_integer\n',
+            ),
+      );
+      for (final stepId in ['detect-spec-input', 'spec']) {
+        final inferred = _flattenedSteps(specInferred).singleWhere((step) => step.id == stepId);
+        final explicit = _flattenedSteps(specExplicit).singleWhere((step) => step.id == stepId);
+        for (final key in ['spec_path', 'spec_confidence']) {
+          expect(inferred.outputs![key]!.toJson(), explicit.outputs![key]!.toJson(), reason: '$stepId.$key');
+        }
+      }
+
+      final planInferred = parser.parse(_loadSource('plan-and-implement.yaml'));
+      final planExplicit = parser.parse(
+        _loadSource('plan-and-implement.yaml')
+            .replaceAll(
+              '      prd:\n        format: path\n',
+              '      prd:\n        format: path\n        resolver: filesystem\n',
+            )
+            .replaceAll(
+              '      plan:\n        format: path\n',
+              '      plan:\n        format: path\n        resolver: filesystem\n',
+            )
+            .replaceAll(
+              '      technical_research:\n        format: path\n',
+              '      technical_research:\n        format: path\n        resolver: filesystem\n',
+            ),
+      );
+      const planOutputKeys = {
+        'discover-plan-state': ['prd', 'plan', 'technical_research'],
+        'plan': ['plan', 'technical_research'],
+      };
+      for (final entry in planOutputKeys.entries) {
+        final stepId = entry.key;
+        final inferred = _flattenedSteps(planInferred).singleWhere((step) => step.id == stepId);
+        final explicit = _flattenedSteps(planExplicit).singleWhere((step) => step.id == stepId);
+        for (final key in entry.value) {
+          expect(inferred.outputs![key]!.toJson(), explicit.outputs![key]!.toJson(), reason: '$stepId.$key');
+        }
+      }
+    });
+
+    test('built-in YAML does not restate inferable output plumbing', () {
+      for (final file in const ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
+        final source = _loadSource(file);
+        expect(
+          RegExp(r'^\s*resolver:\s*filesystem\s*$', multiLine: true).allMatches(source),
+          isEmpty,
+          reason: '$file should rely on format:path + pathPattern resolver inference',
+        );
+        expect(
+          RegExp(r'^\s*format:\s*json\s*\n\s*schema:\s*non_negative_integer\s*$', multiLine: true).allMatches(source),
+          isEmpty,
+          reason: '$file should rely on non_negative_integer preset format inference',
+        );
+      }
     });
 
     test('every findings_count output uses a structured non-negative integer schema', () {
@@ -927,9 +1267,43 @@ void main() {
           reason: '${entry.key} → detect-spec-input.spec_path is format: path',
         );
         expect(
-          detect.outputs!['spec_source']!.presetName,
-          'spec_source',
-          reason: '${entry.key} → detect-spec-input.spec_source preset',
+          outputResolverFor('spec_source', detect.outputs!['spec_source']),
+          isA<InlineOutput>(),
+          reason: '${entry.key} → detect-spec-input.spec_source narrative resolver',
+        );
+      }
+    });
+
+    test('detect-spec-input main prompt retains spec_source and drops finalizer-covered keys (TD-114)', () {
+      final specDefs = <String, WorkflowDefinition>{
+        'spec-and-implement.yaml': _load('spec-and-implement.yaml'),
+        'spec-and-implement-inline.yaml': _loadInline('spec-and-implement-inline.yaml'),
+      };
+      for (final entry in specDefs.entries) {
+        final detect = _flattenedSteps(entry.value).firstWhere((s) => s.id == 'detect-spec-input');
+        expect(stepNeedsFinalizer(detect, detect.outputs), isTrue, reason: '${entry.key} → mixed finalizer step');
+        final covered = modelDerivedFinalizerKeys(detect, detect.outputs);
+        expect(covered, containsAll(const ['spec_path', 'spec_confidence']), reason: '${entry.key} → covered set');
+        expect(covered, isNot(contains('spec_source')), reason: '${entry.key} → spec_source stays host-owned');
+
+        final prompt = const PromptAugmenter().augment(
+          'classify',
+          outputs: detect.outputs,
+          outputKeys: detect.outputKeys,
+          finalizerCoveredKeys: covered,
+        );
+        expect(prompt, contains('## Workflow Output Contract'), reason: '${entry.key} → contract rendered');
+        expect(prompt, contains('"spec_source"'), reason: '${entry.key} → spec_source instructed');
+        expect(prompt, isNot(contains('"spec_path"')), reason: '${entry.key} → spec_path rides the envelope');
+        expect(
+          prompt,
+          isNot(contains('"spec_confidence"')),
+          reason: '${entry.key} → spec_confidence rides the envelope',
+        );
+        expect(
+          prompt,
+          isNot(contains('## Step Outcome Protocol')),
+          reason: '${entry.key} → outcome rides the envelope',
         );
       }
     });
@@ -949,6 +1323,92 @@ void main() {
           }
         }
       }
+    });
+  });
+
+  group('Review output-key naming convention', () {
+    // Locks the cross-workflow naming convention documented in
+    // docs/guide/workflows.md § Review Output-Key Convention: the key
+    // `review_report_path` (bare or `<stepId>.review_report_path`) means a
+    // review-report path, and the remediation gate value is named
+    // `gating_findings_count` — never a `verdict`-shaped gate. A future edit
+    // that reintroduces `review_report_path` as a verdict findings object, or
+    // re-points a loop gate, fails here.
+    Map<String, WorkflowDefinition> conventionDefinitions() => {
+      for (final file in _builtInWorkflows) file: _load(file),
+      for (final file in const [
+        'spec-and-implement-inline.yaml',
+        'plan-and-implement-inline.yaml',
+        'review-and-remediate-inline.yaml',
+      ])
+        file: _loadInline(file),
+    };
+
+    bool isReviewReportPathKey(String key) => key == 'review_report_path' || key.endsWith('.review_report_path');
+
+    test('every review_report_path output key carries the review-report-path preset', () {
+      var checked = 0;
+      for (final entry in conventionDefinitions().entries) {
+        for (final step in _flattenedSteps(entry.value)) {
+          for (final output in step.outputs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
+            if (!isReviewReportPathKey(output.key)) continue;
+            checked++;
+            expect(
+              output.value.format,
+              OutputFormat.path,
+              reason: '${entry.key} → "${step.id}".${output.key} must declare format: path (review-report path)',
+            );
+            expect(
+              output.value.presetName,
+              'review_report_path',
+              reason:
+                  '${entry.key} → "${step.id}".${output.key} must use the review_report_path preset, not a verdict/findings shape',
+            );
+          }
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'workflows must declare review_report_path outputs');
+    });
+
+    test('no step binds a review_report_path key to a non-path preset', () {
+      const verdictishPresets = {'verdict', 'findings_count', 'gating_findings_count', 'non_negative_integer'};
+      for (final entry in conventionDefinitions().entries) {
+        for (final step in _flattenedSteps(entry.value)) {
+          for (final output in step.outputs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
+            if (!isReviewReportPathKey(output.key)) continue;
+            expect(
+              verdictishPresets,
+              isNot(contains(output.value.presetName)),
+              reason:
+                  '${entry.key} → "${step.id}".${output.key} binds the review_report_path name to a non-path preset "${output.value.presetName}"',
+            );
+          }
+        }
+      }
+    });
+
+    test('remediation loop gates name gating_findings_count, never a verdict gate', () {
+      var checked = 0;
+      for (final entry in conventionDefinitions().entries) {
+        for (final loop in entry.value.loops) {
+          if (loop.id != 'remediation-loop' && loop.id != 'story-remediation') continue;
+          checked++;
+          for (final gate in [loop.entryGate, loop.exitGate]) {
+            if (gate == null) continue;
+            expect(
+              gate,
+              contains('gating_findings_count'),
+              reason: '${entry.key} → loop "${loop.id}" gate must read gating_findings_count: "$gate"',
+            );
+            expect(
+              gate,
+              isNot(contains('verdict')),
+              reason: '${entry.key} → loop "${loop.id}" gate must not branch on a verdict field: "$gate"',
+            );
+          }
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'built-in + inline workflows must include remediation loops');
     });
   });
 }

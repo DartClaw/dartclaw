@@ -19,6 +19,25 @@ void main() {
       expect(config.approvals, WorkflowApprovalPolicy.manual);
     });
 
+    test('runtime-artifacts retention defaults to disabled', () {
+      const config = WorkflowConfig.defaults();
+      expect(config.runtimeArtifactsRetention.pruneAfterDays, 0);
+      expect(config.runtimeArtifactsRetention.mode, MaintenanceMode.warn);
+      expect(config.runtimeArtifactsRetention, const WorkflowRuntimeArtifactsRetentionConfig.defaults());
+      expect(config.runtimeArtifactsRetention, const WorkflowConfig.defaults().runtimeArtifactsRetention);
+    });
+
+    test('equality includes runtime-artifacts retention', () {
+      expect(
+        const WorkflowConfig(),
+        isNot(
+          equals(
+            const WorkflowConfig(runtimeArtifactsRetention: WorkflowRuntimeArtifactsRetentionConfig(pruneAfterDays: 7)),
+          ),
+        ),
+      );
+    });
+
     test('equality includes workspaceDir and role defaults', () {
       expect(
         const WorkflowConfig(workspaceDir: '/tmp/workflow'),
@@ -141,6 +160,40 @@ workflow:
       expect(config.workflow.approvals, WorkflowApprovalPolicy.manual);
       expect(config.warnings, anyElement(contains('Invalid value for workflow.approvals')));
       expect(config.warnings.single, contains('manual, auto-on-stall, auto'));
+    });
+
+    test('absent runtime_artifacts_retention section yields the disabled default', () {
+      final config = _load('port: 3000');
+      expect(config.workflow.runtimeArtifactsRetention, const WorkflowRuntimeArtifactsRetentionConfig.defaults());
+      expect(config.workflow.runtimeArtifactsRetention.pruneAfterDays, 0);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.runtime_artifacts_retention parses mode and prune_after_days', () {
+      final config = _load('''
+workflow:
+  runtime_artifacts_retention:
+    mode: enforce
+    prune_after_days: 7
+''');
+
+      expect(config.workflow.runtimeArtifactsRetention.mode, MaintenanceMode.enforce);
+      expect(config.workflow.runtimeArtifactsRetention.pruneAfterDays, 7);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.runtime_artifacts_retention rejects an invalid mode and prune value', () {
+      final config = _load('''
+workflow:
+  runtime_artifacts_retention:
+    mode: bogus
+    prune_after_days: -3
+''');
+
+      expect(config.workflow.runtimeArtifactsRetention.mode, MaintenanceMode.warn);
+      expect(config.workflow.runtimeArtifactsRetention.pruneAfterDays, 0);
+      expect(config.warnings, anyElement(contains('runtime_artifacts_retention.mode')));
+      expect(config.warnings, anyElement(contains('runtime_artifacts_retention.prune_after_days')));
     });
   });
 }

@@ -10,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
+        WorkflowCliTurnProgressEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
@@ -18,6 +19,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'cli_progress_printer.dart';
+import 'workflow_event_printer_dispatch.dart';
+import 'workflow_run_digest.dart';
 
 /// Drives an already-wired standalone workflow run to its next settle point.
 ///
@@ -94,9 +97,8 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
 
   final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
     if (activeRunId != null && event.runId != activeRunId) return;
-    final startTime = stepStartTimes.remove(
-      progressStartKey(stepIndex: event.stepIndex, taskId: event.taskId, displayScope: event.displayScope),
-    );
+    final key = progressStartKey(stepIndex: event.stepIndex, taskId: event.taskId, displayScope: event.displayScope);
+    final startTime = stepStartTimes.remove(key);
     final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
     if (jsonOutput) {
       stdoutLine(
@@ -109,23 +111,20 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
           'taskId': event.taskId,
           if (event.displayScope != null) 'displayScope': event.displayScope,
           'success': event.success,
+          if (event.outcome != null) 'outcome': event.outcome,
+          if (event.reason != null) 'reason': event.reason,
           'tokenCount': event.tokenCount,
           'durationMs': duration.inMilliseconds,
         }),
       );
       return;
     }
-    if (event.success) {
-      printer.stepCompleted(
-        event.stepIndex,
-        event.stepId,
-        duration,
-        event.tokenCount,
-        displayScope: event.displayScope,
-      );
-    } else {
-      printer.stepFailed(event.stepIndex, event.stepId, null, displayScope: event.displayScope);
-    }
+    dispatchWorkflowStepCompletedToPrinter(
+      printer: printer,
+      event: event,
+      duration: startTime != null ? duration : null,
+      progressKey: key,
+    );
   });
 
   final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().listen((event) {
@@ -133,9 +132,8 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
     final stepIndex = definition.steps.indexWhere((step) => step.id == event.stepId);
     if (stepIndex < 0) return;
     if (definition.steps[stepIndex].taskType == WorkflowTaskType.foreach && event.taskId.trim().isNotEmpty) return;
-    final startTime = stepStartTimes.remove(
-      progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: event.itemId),
-    );
+    final key = progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: event.itemId);
+    final startTime = stepStartTimes.remove(key);
     final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
     if (jsonOutput) {
       stdoutLine(
@@ -150,17 +148,31 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
           if (event.itemId != null) 'displayScope': event.itemId,
           'taskId': event.taskId,
           'success': event.success,
+          if (event.outcome != null) 'outcome': event.outcome,
+          if (event.reason != null) 'reason': event.reason,
           'tokenCount': event.tokenCount,
           'durationMs': duration.inMilliseconds,
         }),
       );
       return;
     }
-    if (event.success) {
-      printer.stepCompleted(stepIndex, event.stepId, duration, event.tokenCount, displayScope: event.itemId);
-    } else {
-      printer.stepFailed(stepIndex, event.stepId, null, displayScope: event.itemId);
-    }
+    dispatchMapIterationCompletedToPrinter(
+      printer: printer,
+      event: event,
+      stepIndex: stepIndex,
+      duration: startTime != null ? duration : null,
+      progressKey: key,
+      displayScope: event.itemId,
+    );
+  });
+
+  // Live per-step token ticks: the workflow CLI provider fires this per turn
+  // with the task's cumulative tokens. `stepTokens` is a no-op unless that task
+  // is a currently-running step of this run, so it needs no run-id scoping.
+  final tokenSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) {
+    if (jsonOutput) return;
+    final key = tokenProgressKey(event.taskId);
+    if (key != null) printer.stepTokens(key, event.cumulativeTokens);
   });
 
   final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) {
@@ -173,9 +185,9 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
         if (stepIndex == null) return;
         final stepId = definition.steps.length > stepIndex ? definition.steps[stepIndex].id : task.id;
         final displayScope = taskDisplayScope(task);
+        final runningKey = progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: displayScope);
         if (event.newStatus == TaskStatus.running) {
-          stepStartTimes[progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: displayScope)] =
-              DateTime.now();
+          stepStartTimes[runningKey] = DateTime.now();
         }
         if (jsonOutput) {
           final payload = {
@@ -200,6 +212,7 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
             task.title,
             task.provider ?? definition.steps[stepIndex].provider,
             displayScope: displayScope,
+            progressKey: runningKey,
           );
         } else {
           printer.stepReview(stepIndex, stepId, displayScope: displayScope);
@@ -260,12 +273,25 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
           break;
       }
     }
+    if (finalRun.status != WorkflowRunStatus.pending && finalRun.status != WorkflowRunStatus.running) {
+      final childTasks = (await taskService.list()).where((task) => task.workflowRunId == finalRun.id).toList();
+      final digest = buildWorkflowRunDigest(run: finalRun, definition: definition, childTasks: childTasks);
+      if (jsonOutput) {
+        stdoutLine(jsonEncode(digest.toJson()));
+      } else {
+        for (final line in renderWorkflowRunDigestLines(digest, color: printer.colorEnabled)) {
+          stdoutLine(line);
+        }
+      }
+    }
     return finalRun;
   } finally {
+    printer.disposeLive();
     await runSub.cancel();
     await stepSub.cancel();
     await mapIterationSub.cancel();
     await taskSub.cancel();
+    await tokenSub.cancel();
     await sigintSub.cancel();
     await approvalSub.cancel();
   }
@@ -295,6 +321,17 @@ String progressStartKey({required int stepIndex, String? taskId, String? display
     return 'step:$stepIndex:$normalizedScope';
   }
   return 'step:$stepIndex';
+}
+
+/// Key for matching a live token tick to its running step. A token event
+/// carries only a taskId, which always dominates [progressStartKey]'s
+/// step-index path — so this returns that `task:<id>` key directly and yields
+/// null for a blank taskId, rather than letting it collapse to `step:0` and
+/// mis-attribute the tick to whichever step holds that key.
+String? tokenProgressKey(String? taskId) {
+  final normalized = taskId?.trim();
+  if (normalized == null || normalized.isEmpty) return null;
+  return progressStartKey(stepIndex: 0, taskId: normalized);
 }
 
 /// Reads a task's `displayScope` config value, normalized to null when blank.

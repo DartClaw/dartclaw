@@ -11,7 +11,9 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         Task,
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
+        WorkflowCliTurnProgressEvent,
         WorkflowApprovalResolvedEvent,
+        WorkflowLifecycleEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -25,12 +27,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowService,
         WorkflowSummary,
         WorkflowTaskType,
+        missingRequiredWorkflowVariables,
+        missingRequiredWorkflowVariablesMessage,
         stepStatusFromTask;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../task/task_service.dart';
+import '../task/workflow_start_precondition_exception.dart';
 import 'api_helpers.dart';
 import 'sse_broadcast.dart';
 
@@ -442,16 +447,11 @@ Response? _validateWorkflowVariables(
   Map<String, String> variables, {
   bool htmlResponse = false,
 }) {
-  final missing = <String>[];
-  for (final entry in definition.variables.entries) {
-    if (entry.value.required && entry.value.defaultValue == null && !variables.containsKey(entry.key)) {
-      missing.add(entry.key);
-    }
-  }
+  final missing = missingRequiredWorkflowVariables(definition, variables);
   if (missing.isEmpty) {
     return null;
   }
-  final message = 'Missing required variable(s): ${missing.join(', ')}';
+  final message = missingRequiredWorkflowVariablesMessage(missing);
   return htmlResponse
       ? _workflowFormError(message)
       : errorResponse(400, 'INVALID_INPUT', message, {'missingVariables': missing});
@@ -484,12 +484,9 @@ Future<Response> _startWorkflowResponse(
     return htmlResponse
         ? _workflowFormError(e.message.toString())
         : errorResponse(400, 'INVALID_INPUT', e.message.toString());
+  } on WorkflowStartPreconditionException catch (e) {
+    return htmlResponse ? _workflowFormError(e.message) : errorResponse(409, 'WORKFLOW_PRECONDITION_FAILED', e.message);
   } on StateError catch (e) {
-    if (_isWorkflowStartPreconditionError(e.message)) {
-      return htmlResponse
-          ? _workflowFormError(e.message)
-          : errorResponse(409, 'WORKFLOW_PRECONDITION_FAILED', e.message);
-    }
     _log.severe('Failed to start workflow', e);
     return htmlResponse
         ? _workflowFormError('Failed to start workflow')
@@ -500,13 +497,6 @@ Future<Response> _startWorkflowResponse(
         ? _workflowFormError('Failed to start workflow')
         : errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
   }
-}
-
-bool _isWorkflowStartPreconditionError(String message) {
-  return message.startsWith('Local-path project "') ||
-      message.startsWith('Publish requires an origin remote in local-path project "') ||
-      message.startsWith('Failed to inspect local-path project "') ||
-      message.startsWith('git fetch failed for "');
 }
 
 /// Renders an inline workflow-form error as an HTMX-swappable fragment.
@@ -670,13 +660,7 @@ Future<Response> _workflowRunSseHandler(
 
   // Subscribe to workflow lifecycle events.
   final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, {
-      'type': 'workflow_status_changed',
-      'runId': event.runId,
-      'oldStatus': event.oldStatus.name,
-      'newStatus': event.newStatus.name,
-      if (event.errorMessage != null) 'errorMessage': event.errorMessage,
-    });
+    sendSseData(controller, event.toJson());
   });
 
   final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
@@ -685,71 +669,23 @@ Future<Response> _workflowRunSseHandler(
     childTaskIds.add(event.taskId);
     final task = event.taskId.isEmpty ? null : await tasks.get(event.taskId);
     final displayScope = event.displayScope ?? _taskDisplayScope(task);
-    final payload = <String, dynamic>{
-      'type': 'workflow_step_completed',
-      'runId': event.runId,
-      'stepId': event.stepId,
-      'stepIndex': event.stepIndex,
-      'totalSteps': event.totalSteps,
-      'taskId': event.taskId,
-      'success': event.success,
-      'tokenCount': event.tokenCount,
-    };
-    if (displayScope != null) {
-      payload['displayScope'] = displayScope;
-    }
-    sendSseData(controller, payload);
+    sendSseData(controller, _workflowEventPayload(event, displayScope: displayScope));
   });
 
   final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, {
-      'type': 'parallel_group_completed',
-      'runId': event.runId,
-      'stepIds': event.stepIds,
-      'successCount': event.successCount,
-      'failureCount': event.failureCount,
-      'totalTokens': event.totalTokens,
-    });
+    sendSseData(controller, event.toJson());
   });
 
   final loopSub = eventBus.on<LoopIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, {
-      'type': 'loop_iteration_completed',
-      'runId': event.runId,
-      'loopId': event.loopId,
-      'iteration': event.iteration,
-      'maxIterations': event.maxIterations,
-      'gateResult': event.gateResult,
-    });
+    sendSseData(controller, event.toJson());
   });
 
   final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, {
-      'type': 'map_iteration_completed',
-      'runId': event.runId,
-      'stepId': event.stepId,
-      'iterationIndex': event.iterationIndex,
-      'totalIterations': event.totalIterations,
-      if (event.itemId != null) 'itemId': event.itemId,
-      if (event.itemId != null) 'displayScope': event.itemId,
-      'taskId': event.taskId,
-      'success': event.success,
-      'tokenCount': event.tokenCount,
-    });
+    sendSseData(controller, event.toJson());
   });
 
   final mapStepSub = eventBus.on<MapStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, {
-      'type': 'map_step_completed',
-      'runId': event.runId,
-      'stepId': event.stepId,
-      'stepName': event.stepName,
-      'totalIterations': event.totalIterations,
-      'successCount': event.successCount,
-      'failureCount': event.failureCount,
-      'cancelledCount': event.cancelledCount,
-      'totalTokens': event.totalTokens,
-    });
+    sendSseData(controller, event.toJson());
   });
 
   final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
@@ -773,30 +709,28 @@ Future<Response> _workflowRunSseHandler(
     sendSseData(controller, payload);
   });
 
+  // Live per-step token ticks. The event carries no runId, so resolve the
+  // owning run via the task (same approach as taskStatusSub above).
+  final tokenProgressSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) async {
+    final task = await tasks.get(event.taskId);
+    if (task?.workflowRunId != runId) return;
+    sendSseData(controller, {
+      'type': 'workflow_cli_turn_progress',
+      'taskId': event.taskId,
+      'cumulativeTokens': event.cumulativeTokens,
+    });
+  });
+
   final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
     event,
   ) {
-    sendSseData(controller, {
-      'type': 'approval_requested',
-      'runId': event.runId,
-      'stepId': event.stepId,
-      'message': event.message,
-      if (event.timeoutSeconds != null) 'timeoutSeconds': event.timeoutSeconds,
-      'timestamp': event.timestamp.toIso8601String(),
-    });
+    sendSseData(controller, event.toJson());
   });
 
   final approvalResolvedSub = eventBus.on<WorkflowApprovalResolvedEvent>().where((e) => e.runId == runId).listen((
     event,
   ) {
-    sendSseData(controller, {
-      'type': 'approval_resolved',
-      'runId': event.runId,
-      'stepId': event.stepId,
-      'approved': event.approved,
-      if (event.feedback != null) 'feedback': event.feedback,
-      'timestamp': event.timestamp.toIso8601String(),
-    });
+    sendSseData(controller, event.toJson());
   });
 
   controller.onCancel = () {
@@ -807,6 +741,7 @@ Future<Response> _workflowRunSseHandler(
     mapIterationSub.cancel();
     mapStepSub.cancel();
     taskStatusSub.cancel();
+    tokenProgressSub.cancel();
     approvalRequestedSub.cancel();
     approvalResolvedSub.cancel();
   };
@@ -819,4 +754,12 @@ String? _taskDisplayScope(Task? task) {
   if (scope is! String) return null;
   final trimmed = scope.trim();
   return trimmed.isEmpty ? null : trimmed;
+}
+
+Map<String, dynamic> _workflowEventPayload(WorkflowLifecycleEvent event, {String? displayScope}) {
+  final payload = event.toJson();
+  if (displayScope != null) {
+    payload['displayScope'] = displayScope;
+  }
+  return payload;
 }

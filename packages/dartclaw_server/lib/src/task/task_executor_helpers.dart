@@ -1,6 +1,15 @@
 part of 'task_executor.dart';
 
 extension _TaskExecutorHelpers on TaskExecutor {
+  void _trackPoolTask(Future<void> task) {
+    _activePoolTasks.add(task);
+    unawaited(
+      task.whenComplete(() {
+        _activePoolTasks.remove(task);
+      }),
+    );
+  }
+
   Future<void> _runPoolTask(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
     try {
       await _executeWithRunner(runningTask, runner, runnerIndex: runnerIndex);

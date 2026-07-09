@@ -416,7 +416,7 @@ void main() {
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: const ['implement'],
             outputs: outputs,
@@ -552,7 +552,9 @@ void main() {
         steps: [
           reviewSourceStep(
             id: 'review-a',
-            outputs: const {'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path')},
+            outputs: const {
+              'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+            },
           ),
           aggregateReviewsStep(),
         ],
@@ -578,7 +580,7 @@ void main() {
           reviewSourceStep(
             id: 'review-a',
             outputs: const {
-              'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+              'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
               // Mis-scoped: prefix is "review-b" instead of "review-a".
               'review-b.findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
               'review-b.gating_findings_count': OutputConfig(
@@ -604,13 +606,34 @@ void main() {
     });
 
     test('rejects duplicate report-path output keys across aggregate sources', () {
-      // Two sources both write to the same context key for their review-report path —
-      // the merged context is last-writer-wins, so the aggregator would emit the same
-      // report twice.
+      // Two sources both declare a bare `review_report_path` — last-writer-wins on
+      // the merged context, so the aggregator would emit the same report twice.
+      // (Bare source keys also violate the prefixing rule; this locks the
+      // cross-source report-path uniqueness guard specifically.)
       final def = buildDef(
         steps: [
-          reviewSourceStep(id: 'review-a'),
-          reviewSourceStep(id: 'review-b'),
+          reviewSourceStep(
+            id: 'review-a',
+            outputs: const {
+              'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+              'review-a.findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+              'review-a.gating_findings_count': OutputConfig(
+                format: OutputFormat.json,
+                schema: 'gating_findings_count',
+              ),
+            },
+          ),
+          reviewSourceStep(
+            id: 'review-b',
+            outputs: const {
+              'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+              'review-b.findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+              'review-b.gating_findings_count': OutputConfig(
+                format: OutputFormat.json,
+                schema: 'gating_findings_count',
+              ),
+            },
+          ),
           aggregateReviewsStep(aggregateReviews: const ['review-a', 'review-b']),
         ],
       );
@@ -623,7 +646,7 @@ void main() {
               .having((error) => error.stepId, 'stepId', 'review-aggregate')
               .having((error) => error.message, 'message', contains('review-a'))
               .having((error) => error.message, 'message', contains('review-b'))
-              .having((error) => error.message, 'message', contains('review_findings'))
+              .having((error) => error.message, 'message', contains('review_report_path'))
               .having((error) => error.message, 'message', contains('unique')),
         ),
       );
@@ -631,12 +654,12 @@ void main() {
 
     test('rejects aggregator outputs with wrong format or preset', () {
       // Key set matches the fixed three-key shape, but the formats/presets are wrong:
-      // review_findings declared as `text` instead of `path`, and findings_count using
-      // the wrong preset. The runner emits path strings under review_findings and
+      // review_report_path declared as `text` instead of `path`, and findings_count using
+      // the wrong preset. The runner emits path strings under review_report_path and
       // integer counts under the count keys, so a format/preset mismatch is a contract
       // defect even when the key names are correct.
       final outputs = const {
-        'review_findings': OutputConfig(format: OutputFormat.text, schema: 'review_report_path'),
+        'review_report_path': OutputConfig(format: OutputFormat.text, schema: 'review_report_path'),
         'findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
         'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
       };
@@ -653,7 +676,7 @@ void main() {
         contains(
           isA<ValidationError>()
               .having((error) => error.stepId, 'stepId', 'review-aggregate')
-              .having((error) => error.message, 'message', contains('review_findings'))
+              .having((error) => error.message, 'message', contains('review_report_path'))
               .having((error) => error.message, 'message', contains('format: path')),
         ),
       );
@@ -672,7 +695,7 @@ void main() {
       for (final outputs in [
         {'review-a.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'findings_count')},
         {
-          'review_findings': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'review_report_path': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
           'architecture_review_findings': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
           'review-a.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
         },
@@ -700,11 +723,11 @@ void main() {
     test('rejects aggregator outputs that do not match the fixed three-key shape', () {
       for (final outputs in [
         const {
-          'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
           'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
         },
         const {
-          'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
           'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
           'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
           'extra': OutputConfig(),
@@ -723,7 +746,7 @@ void main() {
           contains(
             isA<ValidationError>()
                 .having((error) => error.stepId, 'stepId', 'review-aggregate')
-                .having((error) => error.message, 'message', contains('review_findings'))
+                .having((error) => error.message, 'message', contains('review_report_path'))
                 .having((error) => error.message, 'message', contains('gating_findings_count')),
           ),
         );
@@ -762,7 +785,7 @@ void main() {
           WorkflowStep(
             id: 'per-story',
             name: 'Per story',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'context.items',
             mapAlias: 'item',
             foreachSteps: const ['review-aggregate'],
@@ -793,7 +816,7 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['c1', 'c2'],
             outputs: {'results': OutputConfig()},
@@ -815,7 +838,7 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['c1', 'nonexistent'],
             outputs: {'results': OutputConfig()},
@@ -835,7 +858,7 @@ void main() {
         description: 'd',
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
-          WorkflowStep(id: 'fe', name: 'FE', type: WorkflowTaskType.foreach, mapOver: 'items', foreachSteps: []),
+          WorkflowStep(id: 'fe', name: 'FE', taskType: WorkflowTaskType.foreach, mapOver: 'items', foreachSteps: []),
         ],
       );
       // With empty foreachSteps, isForeachController is false, so normalization
@@ -853,7 +876,7 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['c1'],
             outputs: {'results': OutputConfig()},
@@ -1004,7 +1027,7 @@ $loopBody''';
             type: aggregate-reviews
             aggregateReviews: [review]
             outputs:
-              review_findings: review_report_path
+              review_report_path: review_report_path
               findings_count: findings_count
               gating_findings_count: gating_findings_count'''),
       );

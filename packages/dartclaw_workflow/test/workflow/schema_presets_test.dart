@@ -30,55 +30,72 @@ List<MapEntry<String, Map<String, dynamic>>> _collectProperties(Map<String, dyna
   return out;
 }
 
+/// Framework vocabulary that must not leak into any preset-facing text.
+final _forbiddenVocab = RegExp(
+  r'\bFIS\b|Fix/Note|review-verdict\.md|fis-authoring-guidelines\.md|\bPRD\b|AndThen|review-report-location\.md',
+);
+
+/// Fails (naming the offending preset + surface) when any preset's description,
+/// per-property schema description, or promptFragment carries framework
+/// vocabulary. Takes a preset list so a seeded-violation test can inject
+/// synthetic presets rather than mutating the real registry.
+void expectPresetsFrameworkNeutral(Iterable<SchemaPreset> presets) {
+  for (final preset in presets) {
+    void check(String surface, Object? text) {
+      if (text is! String) return;
+      expect(
+        text,
+        isNot(matches(_forbiddenVocab)),
+        reason: '"${preset.name}" ($surface) carries framework vocabulary: "$text"',
+      );
+    }
+
+    check('description', preset.description);
+    check('promptFragment', preset.promptFragment);
+    for (final entry in _collectProperties(preset.schema)) {
+      check('property ${entry.key}', entry.value['description']);
+    }
+  }
+}
+
 void main() {
   group('SchemaPreset constants', () {
     test('all presets exist in registry', () {
       expect(schemaPresets.containsKey('verdict'), true);
-      expect(schemaPresets.containsKey('remediation_result'), true);
-      expect(schemaPresets.containsKey('story_plan'), true);
       expect(schemaPresets.containsKey('story_specs'), true);
-      expect(schemaPresets.containsKey('file_list'), true);
-      expect(schemaPresets.containsKey('checklist'), true);
       expect(schemaPresets.containsKey('non_negative_integer'), true);
+      expect(schemaPresets.containsKey('narrative_text'), true);
       expect(schemaPresets.containsKey('diff_summary'), true);
       expect(schemaPresets.containsKey('validation_summary'), true);
-      expect(schemaPresets.containsKey('state_update_summary'), true);
-      expect(schemaPresets.containsKey('remediation_summary'), true);
-      expect(schemaPresets.containsKey('story_result'), true);
       expect(schemaPresets.containsKey('gating_findings_count'), true);
       expect(schemaPresets.containsKey('findings_count'), true);
       expect(schemaPresets.containsKey('review_report_path'), true);
-      expect(schemaPresets.containsKey('prd_path'), true);
-      expect(schemaPresets.containsKey('plan_path'), true);
-      expect(schemaPresets.containsKey('fis_path'), true);
-      expect(schemaPresets.containsKey('detected_fis_path'), true);
-      expect(schemaPresets.containsKey('spec_source'), true);
-      expect(schemaPresets.containsKey('spec_confidence'), true);
+      for (final name in const [
+        'fis_path',
+        'detected_fis_path',
+        'spec_source',
+        'spec_confidence',
+        'story_result',
+        'remediation_result',
+        'remediation_summary',
+        'prd_path',
+        'plan_path',
+      ]) {
+        expect(schemaPresets.containsKey(name), isFalse, reason: name);
+      }
     });
 
     test('each preset declares its effective output format', () {
       const expected = {
         'verdict': OutputFormat.json,
-        'remediation_result': OutputFormat.json,
-        'story_plan': OutputFormat.json,
         'story_specs': OutputFormat.json,
-        'file_list': OutputFormat.json,
-        'checklist': OutputFormat.json,
         'non_negative_integer': OutputFormat.json,
+        'narrative_text': OutputFormat.text,
         'diff_summary': OutputFormat.text,
         'validation_summary': OutputFormat.text,
-        'state_update_summary': OutputFormat.text,
-        'remediation_summary': OutputFormat.text,
-        'story_result': OutputFormat.text,
         'gating_findings_count': OutputFormat.json,
         'findings_count': OutputFormat.json,
         'review_report_path': OutputFormat.path,
-        'prd_path': OutputFormat.path,
-        'plan_path': OutputFormat.path,
-        'fis_path': OutputFormat.path,
-        'detected_fis_path': OutputFormat.path,
-        'spec_source': OutputFormat.text,
-        'spec_confidence': OutputFormat.json,
       };
 
       expect(schemaPresets.keys, containsAll(expected.keys));
@@ -126,38 +143,32 @@ void main() {
           'spec_confidence',
           const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
         ),
-        isA<NarrativeOutput>(),
+        isA<InlineOutput>(),
       );
       expect(outputResolverFor('plan', const OutputConfig(format: OutputFormat.path)), isA<FileSystemOutput>());
     });
 
-    test('plan path outputs use the narrowed plan.{json,md} default pattern', () {
-      final plan = outputResolverFor('plan', const OutputConfig(format: OutputFormat.path)) as FileSystemOutput;
-      final planPath =
-          outputResolverFor('plan_path', const OutputConfig(format: OutputFormat.path)) as FileSystemOutput;
-
-      expect(plan.pathPattern, '**/*plan.{json,md}');
-      expect(planPath.pathPattern, '**/*plan.{json,md}');
-
-      // Accepts canonical plan.json/plan.md and dashed variants.
-      expect(plan.matches('docs/plans/demo/plan.json'), isTrue);
-      expect(plan.matches('docs/plans/demo/sample-plan.json'), isTrue);
-      expect(plan.matches('docs/plans/demo/plan.md'), isTrue);
-      expect(plan.matches('docs/plans/demo/sample-plan.md'), isTrue);
-
-      // Rejects unrelated plan-named files that the old `**/*plan*.*` pattern
-      // would have matched (review reports, implementation notes, etc.).
-      expect(plan.matches('docs/plans/demo/plan-review.md'), isFalse);
-      expect(plan.matches('docs/plans/demo/plan-notes.txt'), isFalse);
-      expect(plan.matches('docs/plans/demo/myplan-report.json'), isFalse);
+    test('framework output keys no longer get narrative behavior by key-name heuristic', () {
+      for (final entry in const {
+        'spec_source': OutputConfig(format: OutputFormat.text),
+        'spec_confidence': OutputConfig(format: OutputFormat.json),
+        'story_result': OutputConfig(format: OutputFormat.text),
+        'remediation_summary': OutputConfig(format: OutputFormat.text),
+      }.entries) {
+        expect(outputResolverFor(entry.key, entry.value), isA<InlineOutput>(), reason: entry.key);
+      }
     });
 
-    test('prd path outputs accept prd.md and dashed PRD filenames', () {
+    test('bare prd/plan path outputs fall back to the generic default after preset relocation', () {
+      // The prd_path/plan_path presets and their _defaultPathPattern arms were
+      // removed; the built-in workflows now declare the narrowed globs inline
+      // (see built_in_workflow_contracts_test.dart S03). A non-shipped workflow
+      // that declares a bare `prd:`/`plan:` path output now resolves the generic
+      // `**/*` default – accepted breaking change (early-experimental stage).
       final prd = outputResolverFor('prd', const OutputConfig(format: OutputFormat.path)) as FileSystemOutput;
-
-      expect(prd.matches('docs/specs/demo/prd.md'), isTrue);
-      expect(prd.matches('docs/specs/demo/demo-prd.md'), isTrue);
-      expect(prd.matches('docs/specs/demo/prd-draft.md'), isFalse);
+      final plan = outputResolverFor('plan', const OutputConfig(format: OutputFormat.path)) as FileSystemOutput;
+      expect(prd.pathPattern, '**/*');
+      expect(plan.pathPattern, '**/*');
     });
 
     test('infers filesystem resolver for legacy path output without preset resolver', () {
@@ -165,37 +176,28 @@ void main() {
 
       expect(resolver, isA<FileSystemOutput>());
       final filesystem = resolver as FileSystemOutput;
-      expect(filesystem.authoritative, isTrue);
       expect(filesystem.pathPattern, '**/*');
     });
 
-    test('path presets preserve key-specific filesystem resolver patterns', () {
-      final prd = outputResolverFor('prd', const OutputConfig(format: OutputFormat.path, schema: 'prd_path'));
-      final plan = outputResolverFor('plan', const OutputConfig(format: OutputFormat.path, schema: 'plan_path'));
+    test('review_report_path preset resolves the uniform glob (name-agnostic; recognition is preset-based)', () {
+      // The preset carries no key-specific pattern: review-artifact recognition
+      // keys on the preset itself (see review_artifact_policy), and the unclaimed
+      // backstop scans the reviews/ output dir where `**/*` correctly matches
+      // every report (including architecture reports whose names lack "review").
       final review = outputResolverFor(
-        'review_findings',
+        'review_report_path',
         const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
       );
 
-      expect((prd as FileSystemOutput).pathPattern, '**/*prd.md');
-      expect((plan as FileSystemOutput).pathPattern, '**/*plan.{json,md}');
-      expect((review as FileSystemOutput).pathPattern, '**/*review*.md');
+      expect((review as FileSystemOutput).pathPattern, '**/*');
     });
 
     test('new presets expose canonical descriptions and schemas', () {
       expect(gatingFindingsCountPreset.schema, {'type': 'integer', 'minimum': 0});
-      // Gating count tracks AndThen's fix-character routing (Fix vs Note), not
-      // severity: only auto-applicable Fix-routed findings keep the remediation
-      // loop iterating, so Note-routed findings must be excluded or the loop
-      // deadlocks on a Note-only stall.
-      expect(gatingFindingsCountPreset.description, contains('routed to Fix'));
-      expect(gatingFindingsCountPreset.description, contains('nothing remains for automated remediation'));
-      expect(gatingFindingsCountPreset.description, contains('Note-routed'));
-      expect(
-        gatingFindingsCountPreset.description,
-        isNot(contains('MEDIUM-or-higher severity findings')),
-        reason: 'gating count must not be defined by raw severity (see AndThen Fix/Note routing)',
-      );
+      expect(gatingFindingsCountPreset.description, contains('at or above the resolved gating-severity threshold'));
+      expect(gatingFindingsCountPreset.description, contains('0 means no finding of gating severity remains'));
+      expect(gatingFindingsCountPreset.description, isNot(contains('Fix')));
+      expect(gatingFindingsCountPreset.description, isNot(contains('Note')));
       expect(findingsCountPreset.description, 'Number of issues flagged by this review; 0 means clean.');
       expect(reviewReportPathPreset.description, contains('--output-dir'));
       expect(
@@ -205,29 +207,28 @@ void main() {
       );
       expect(
         reviewReportPathPreset.description,
-        matches(RegExp(r'project-root-relative.{0,80}review-report-location\.md', dotAll: true)),
-        reason: 'the project-root-relative form must be paired with review-report-location.md',
+        contains('project-root-relative'),
+        reason: 'the description states the project-root-relative path form',
       );
-      // The preset description carries no framework-specific skill name (ADR-041).
+      // The preset description carries no framework-specific skill name or doc
+      // filename (ADR-041 / framework-neutral vocabulary).
       expect(reviewReportPathPreset.description, isNot(contains('andthen')));
-      expect(prdPathPreset.description, 'Workspace-relative path to the required PRD on disk.');
-      expect(planPathPreset.description, contains('plan.json'));
-      expect(fisPathPreset.description, contains('FIS on disk'));
-      expect(detectedFisPathPreset.description, contains('empty when input requires spec synthesis'));
-      expect(specSourcePreset.description, contains("'existing'"));
-      expect(specSourcePreset.description, contains("'synthesized'"));
-      expect(specConfidencePreset.description, contains('1-10'));
-      expect(specConfidencePreset.description, contains('revise-spec'));
+      expect(reviewReportPathPreset.description, isNot(contains('review-report-location.md')));
       expect(storySpecsPreset.description, contains('foreach controller'));
       expect(
         outputResolverFor('gating_findings_count', const OutputConfig(schema: 'gating_findings_count')),
-        isA<NarrativeOutput>(),
+        isA<InlineOutput>(),
       );
-      expect(outputResolverFor('findings_count', const OutputConfig(schema: 'findings_count')), isA<NarrativeOutput>());
-      expect(outputResolverFor('spec_source', const OutputConfig(schema: 'spec_source')), isA<NarrativeOutput>());
+      expect(outputResolverFor('findings_count', const OutputConfig(schema: 'findings_count')), isA<InlineOutput>());
       expect(
-        outputResolverFor('spec_confidence', const OutputConfig(schema: 'spec_confidence')),
-        isA<NarrativeOutput>(),
+        outputResolverFor(
+          'spec_confidence',
+          const OutputConfig(
+            format: OutputFormat.json,
+            resolverOverride: InlineOutput(schemaKey: 'spec_confidence'),
+          ),
+        ),
+        isA<InlineOutput>(),
       );
     });
 
@@ -246,6 +247,11 @@ void main() {
     // via per-property JSON Schema `description` fields and must NOT set the
     // preset-level `description` (doing so would affect every workflow using
     // them – see `PromptAugmenter.effectiveDescription`).
+    // `narrative_text` is the deliberate exemption: a generic free-text preset
+    // whose semantics live entirely in each call site's inline `description:`,
+    // so it carries none of its own (framework-neutral by construction).
+    const descriptionLessTextPresets = {'narrative_text'};
+
     test('text presets have description, no promptFragment', () {
       for (final preset in schemaPresets.values) {
         if (preset.schema['type'] != 'string') continue;
@@ -254,6 +260,14 @@ void main() {
           isNull,
           reason: '"${preset.name}" is a text preset – promptFragment is dead code for text outputs.',
         );
+        if (descriptionLessTextPresets.contains(preset.name)) {
+          expect(
+            preset.description,
+            isNull,
+            reason: '"${preset.name}" is the generic narrative preset – semantics live in per-site description:.',
+          );
+          continue;
+        }
         expect(
           preset.description,
           isNotNull,
@@ -261,6 +275,84 @@ void main() {
         );
         expect(preset.description, isNotEmpty, reason: preset.name);
       }
+    });
+
+    test('narrative_text is a generic, description-less text preset', () {
+      final preset = schemaPresets['narrative_text']!;
+      expect(preset.format, OutputFormat.text);
+      expect(preset.description, isNull, reason: 'framework semantics live in per-site inline description:');
+      expect(preset.promptFragment, isNull);
+      expect(
+        outputResolverFor('remediation_summary', const OutputConfig(schema: 'narrative_text')),
+        isA<InlineOutput>(),
+      );
+      expect(outputResolverFor('story_result', const OutputConfig(schema: 'narrative_text')), isA<InlineOutput>());
+    });
+
+    test('preset descriptions, property descriptions, and promptFragments are framework-neutral', () {
+      expectPresetsFrameworkNeutral(schemaPresets.values);
+      expect(gatingFindingsCountPreset.description, contains('at or above the resolved gating-severity threshold'));
+    });
+
+    test('the neutrality guard catches vocabulary seeded into any preset surface', () {
+      SchemaPreset propertyViolation(String phrase) => SchemaPreset(
+        name: 'seeded_property',
+        format: OutputFormat.json,
+        schema: {
+          'type': 'object',
+          'additionalProperties': false,
+          'properties': {
+            'field': {'type': 'string', 'description': phrase},
+          },
+        },
+      );
+      SchemaPreset descriptionViolation(String phrase) => SchemaPreset(
+        name: 'seeded_description',
+        format: OutputFormat.text,
+        schema: const {'type': 'string'},
+        description: phrase,
+      );
+      SchemaPreset promptFragmentViolation(String phrase) => SchemaPreset(
+        name: 'seeded_fragment',
+        format: OutputFormat.json,
+        schema: {
+          'type': 'object',
+          'additionalProperties': false,
+          'properties': {
+            'field': {'type': 'string', 'description': 'clean'},
+          },
+        },
+        promptFragment: phrase,
+      );
+
+      // A per-property description seeded with framework vocabulary fails the
+      // guard, naming the offending property.
+      expect(
+        () => expectPresetsFrameworkNeutral([propertyViolation('per the FIS contract')]),
+        throwsA(isA<TestFailure>()),
+      );
+      // Every forbidden term is caught on the description and promptFragment
+      // surfaces too.
+      for (final term in const [
+        'per the FIS contract',
+        'from the PRD',
+        'authored by AndThen',
+        'see review-report-location.md',
+      ]) {
+        expect(
+          () => expectPresetsFrameworkNeutral([descriptionViolation(term)]),
+          throwsA(isA<TestFailure>()),
+          reason: term,
+        );
+        expect(
+          () => expectPresetsFrameworkNeutral([promptFragmentViolation(term)]),
+          throwsA(isA<TestFailure>()),
+          reason: term,
+        );
+      }
+
+      // The real registry passes the same guard.
+      expectPresetsFrameworkNeutral(schemaPresets.values);
     });
 
     // Structured presets (object/array schemas) must always carry per-property
@@ -335,28 +427,6 @@ void main() {
     });
   });
 
-  group('storyPlanPreset', () {
-    test('has correct name', () {
-      expect(storyPlanPreset.name, 'story_plan');
-    });
-
-    test('schema is an object envelope type', () {
-      expect(storyPlanPreset.schema['type'], 'object');
-    });
-
-    test('schema item requires id, title, description', () {
-      final items = (storyPlanPreset.schema['properties'] as Map)['items'] as Map;
-      final itemSchema = items['items'] as Map;
-      final required = itemSchema['required'] as List;
-      expect(required, containsAll(['id', 'title', 'description']));
-    });
-
-    test('schema envelope requires items', () {
-      final required = storyPlanPreset.schema['required'] as List;
-      expect(required, contains('items'));
-    });
-  });
-
   group('storySpecsPreset', () {
     test('has correct name', () {
       expect(storySpecsPreset.name, 'story_specs');
@@ -416,52 +486,14 @@ void main() {
     });
   });
 
-  group('fileListPreset', () {
-    test('has correct name', () {
-      expect(fileListPreset.name, 'file_list');
-    });
-
-    test('schema is an object envelope type', () {
-      expect(fileListPreset.schema['type'], 'object');
-    });
-
-    test('schema item requires path', () {
-      final items = (fileListPreset.schema['properties'] as Map)['items'] as Map;
-      final itemSchema = items['items'] as Map;
-      final required = itemSchema['required'] as List;
-      expect(required, contains('path'));
-    });
-  });
-
-  group('checklistPreset', () {
-    test('has correct name', () {
-      expect(checklistPreset.name, 'checklist');
-    });
-
-    test('schema is an object type', () {
-      expect(checklistPreset.schema['type'], 'object');
-    });
-
-    test('schema requires items and all_pass', () {
-      final required = checklistPreset.schema['required'] as List;
-      expect(required, containsAll(['items', 'all_pass']));
-    });
-  });
-
   group('registry lookup', () {
     test('lookup by name returns correct preset', () {
       expect(schemaPresets['verdict'], verdictPreset);
-      expect(schemaPresets['remediation_result'], remediationResultPreset);
-      expect(schemaPresets['story_plan'], storyPlanPreset);
       expect(schemaPresets['story_specs'], storySpecsPreset);
-      expect(schemaPresets['file_list'], fileListPreset);
-      expect(schemaPresets['checklist'], checklistPreset);
       expect(schemaPresets['gating_findings_count'], gatingFindingsCountPreset);
       expect(schemaPresets['findings_count'], findingsCountPreset);
       expect(schemaPresets['review_report_path'], reviewReportPathPreset);
-      expect(schemaPresets['prd_path'], prdPathPreset);
-      expect(schemaPresets['plan_path'], planPathPreset);
-      expect(schemaPresets['fis_path'], fisPathPreset);
+      expect(schemaPresets['narrative_text'], narrativeTextPreset);
     });
 
     test('unknown preset name returns null', () {

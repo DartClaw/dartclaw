@@ -75,13 +75,11 @@ Set by the merge-resolve FSM inside `_resolveMergePromotionConflict` in
 crash-recovery: these keys are read on resume to detect in-flight attempts, restore attempt
 counters, and determine FSM phase. Do NOT rename them without a migration.
 
-Per-step FSM state (one set per foreach controller step):
+Serialize-drain FSM state:
 
 | Key | Type | Semantics |
 |-----|------|-----------|
-| `_merge_resolve.<stepId>.serialize_remaining_phase` | `String?` | `null` / `'enacting'` / `'drained'` |
-| `_merge_resolve.<stepId>.serializing_iter_index` | `int` | Iteration that triggered serialize-remaining |
-| `_merge_resolve.<stepId>.failed_attempt_number` | `int` | Attempt count at escalation time |
+| `_merge_resolve.serializeRemaining` | `Map?` | Typed state object for a serialize-drain transition (one tracked at a time, scoped by `stepId`). Fields: `stepId` (`String` foreach controller id), `phase` (`'enacting'` / `'drained'`), `iterIndex` (`int` iteration that triggered serialize-remaining), `failedAttemptNumber` (`int` attempt count at escalation time), `eventEmitted` (`bool`, true after the first `WorkflowSerializationEnactedEvent` fires for this serialize-drain transition — the event is emitted once per transition, deduped via this flag). |
 
 Per-iteration per-attempt state:
 
@@ -89,12 +87,6 @@ Per-iteration per-attempt state:
 |-----|------|-----------|
 | `_merge_resolve.<stepId>.<iterIndex>.pre_attempt_sha` | `String` | Branch HEAD SHA captured before the current attempt |
 | `_merge_resolve.<stepId>.<iterIndex>.attempt_counter` | `int` | Number of attempts completed so far |
-
-Run-level deduplication:
-
-| Key | Type | Semantics |
-|-----|------|-----------|
-| `_merge_resolve.serialize_remaining_event_emitted` | `bool` | `true` after the first `WorkflowSerializationEnactedEvent` fires for this run |
 
 ### `_workflow.git.*`
 
@@ -128,6 +120,27 @@ Set when `_workflow.approvals` auto-resolves a `needsInput` outcome or explicit 
 | Key | Type | Semantics |
 |-----|------|-----------|
 | `_approval.auto_resolved.<stepId>` | `Map` | Audit record with `policy`, `reason`, `source` (`needsInput` or `approval`), and `resolved_at` |
+
+### `step.<stepId>.outcome` / `step.<stepId>.outcome.reason`
+
+Not `_`-prefixed (these are part of the public step rollup the status table and the
+standalone-run digest read), but listed here because the **blocked** value is load-bearing.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `step.<stepId>.outcome` | `String` | Settle classification: `succeeded`, `failed`, `needsInput`, `skipped`, `blocked`, or `cancelled`. For a `foreach` controller, `blocked` means one or more items emitted `needsInput` (a recoverable hold), distinct from a hard `failed`; the controller's `blocked` reason names the blocked item ids. `cancelled` marks a run-teardown interruption of the step's task (plain step or loop body) — the run pauses resumable, never fails. Recorded only at the controller level — never promoted from inside an iteration, preserving per-iteration isolation. Per-item state lives under the namespaced `step.<childId>[<iterIndex>].outcome`. |
+| `step.<childId>[<iterIndex>].outcome` | `String` | Per-item settle classification inside a `foreach` iteration. `cancelled` here marks a run-teardown interruption of a nested-loop body step or a direct child task — the run pauses resumable and `workflow resume` re-runs from the cancelled step. The foreach controller-level `step.<stepId>.outcome` never carries `cancelled` (an interrupted iteration pauses the run instead of settling the controller). |
+| `step.<stepId>.outcome.reason` | `String` | Operator-facing reason for the outcome; surfaced inline in the live console and in the settle-time digest. |
+
+A blocked `foreach` item is **retryable**: it is left out of the cursor's `completedIndices`/`failedIndices`,
+so a resume re-attempts it. When a still-open story depends on a blocked or hard-failed prerequisite,
+the run pauses for a human (`awaitingApproval`) via the existing approval-hold transition; when nothing
+open depends on it, independent stories continue and the blocked item is reported in the digest.
+An escalation-marked blocked item (nested loop exhausted with `onMaxIterations: escalate`) additionally
+carries `requires_dependency_hold: true` in its result slot (`MapStepContext.requiresDependencyHoldKey`) –
+engine-owned routing metadata carried from the loop's `StepOutcome.requiresDependencyHold` that forces the
+dependency hold even when the controller declares `onFailure: continue` (under which plain hard failures
+do not hold).
 
 ## Rules
 

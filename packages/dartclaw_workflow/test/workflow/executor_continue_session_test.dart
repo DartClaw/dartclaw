@@ -165,7 +165,7 @@ void main() {
       expect(agentExecutionCount, greaterThanOrEqualTo(taskCount));
     });
 
-    test('mixed-output steps without narrative outputs skip structured extraction schema', () async {
+    test('model-derived inline output joins the finalizer envelope schema', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(
@@ -174,8 +174,36 @@ void main() {
             prompts: ['Plan this'],
             outputs: {
               'prd': OutputConfig(format: OutputFormat.text),
-              'stories': OutputConfig(format: OutputFormat.json, schema: 'story_plan'),
+              'stories': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
             },
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final sub = autoAcceptQueuedTask();
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final createdTask = (await h.taskService.list()).single;
+      final schema = (await h.workflowStepExecutionRepository.getByTaskId(createdTask.id))!.structuredSchema!;
+      // The inline `prd` output is model-derived, so the step finalizes through
+      // the execution envelope (top-level `outputs`/`step_outcome`).
+      expect((schema['properties'] as Map).keys, containsAll(['outputs', 'step_outcome']));
+      final outputs = (schema['properties'] as Map)['outputs'] as Map;
+      expect((outputs['properties'] as Map).containsKey('prd'), isTrue);
+    });
+
+    test('steps with only host-owned outputs skip the finalizer schema', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Plan this'],
+            outputs: {'branch': OutputConfig(format: OutputFormat.text, source: 'worktree.branch')},
           ),
         ],
       );
@@ -442,7 +470,7 @@ void main() {
         name: 'test-wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'fix', name: 'Fix Bug', type: WorkflowTaskType.agent, prompts: ['Fix the bug']),
+          WorkflowStep(id: 'fix', name: 'Fix Bug', taskType: WorkflowTaskType.agent, prompts: ['Fix the bug']),
         ],
       );
 
@@ -479,7 +507,7 @@ void main() {
         name: 'test-wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'fix', name: 'Fix Bug', type: WorkflowTaskType.agent, prompts: ['Fix the bug']),
+          WorkflowStep(id: 'fix', name: 'Fix Bug', taskType: WorkflowTaskType.agent, prompts: ['Fix the bug']),
         ],
       );
 

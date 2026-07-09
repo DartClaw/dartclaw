@@ -6,15 +6,20 @@ import 'package:logging/logging.dart';
 import 'log_formatter.dart';
 import 'log_redactor.dart';
 
+const suppressLogServiceOutputZoneKey = 'dartclaw.testing.suppressLogServiceOutput';
+
 /// Configures Dart's `logging` package with structured formatters and outputs.
 ///
 /// Call [install] to set up root logger listener. Call [dispose] to flush
 /// and close file sink on shutdown.
 class LogService {
+  static bool suppressOutputForTests = false;
+
   final LogFormatter _formatter;
   final IOSink? _fileSink;
   final Level _level;
   StreamSubscription<LogRecord>? _subscription;
+  bool _suppressOutput = false;
 
   LogService({required LogFormatter formatter, IOSink? fileSink, Level level = Level.INFO})
     : _formatter = formatter,
@@ -53,12 +58,15 @@ class LogService {
   void install() {
     Logger.root.level = _level;
     _subscription?.cancel();
+    _suppressOutput = Zone.current[suppressLogServiceOutputZoneKey] == true;
     _subscription = Logger.root.onRecord.listen(_handleRecord);
   }
 
   void _handleRecord(LogRecord record) {
     final line = _formatter.format(record);
-    stderr.writeln(line);
+    if (!_suppressOutput && !suppressOutputForTests) {
+      stderr.writeln(line);
+    }
     _fileSink?.writeln(line);
   }
 

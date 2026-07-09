@@ -193,8 +193,8 @@ Router taskSseRoutes(
         'session_id': event.sessionId,
         'turn_id': event.turnId,
         'task_id': event.taskId,
-        'state': event.state,
-        'wait_reason': event.waitReason,
+        'state': event.state.name,
+        'wait_reason': event.waitReason.jsonName,
         'waiting_since': event.waitingSince?.toIso8601String(),
         'stuck_since': event.stuckSince?.toIso8601String(),
         'global_timeout_at': event.globalTimeoutAt?.toIso8601String(),
@@ -301,6 +301,14 @@ String _compactEventText(TaskEventKind kind, Map<String, dynamic> details) {
       maxLength: 80,
     ),
     TaskEventKind.artifactCreated => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    TaskEventKind.structuredOutputFinalizerUsed => truncate(
+      'Structured envelope: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
+    TaskEventKind.structuredOutputValidationFailed => truncate(
+      'Structured validation failed: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
     TaskEventKind.structuredOutputInlineUsed => truncate(
       'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
       80,

@@ -32,7 +32,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -47,7 +47,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -63,7 +63,7 @@ void main() {
     expect(trace.descriptionsByStep['spec']!.single, contains('Add validate step'));
     expect(trace.descriptionsByStep['implement']!.single, contains('docs/specs/test/spec.md'));
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('docs/specs/test/spec.md'));
-    expectReviewOutputDir(trace.descriptionsByStep['integrated-review']!.single);
+    expectReviewOutputDir(trace.tasksForStep('integrated-review').single);
   });
 
   test('spec-and-implement: revise-spec is skipped when spec reuses an existing FIS (spec_confidence == 0)', () async {
@@ -84,7 +84,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -125,7 +125,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -167,7 +167,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -179,7 +179,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -225,7 +225,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -237,7 +237,7 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -277,7 +277,7 @@ void main() {
               assistantContent: contextOutput(
                 reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: 1,
                 ),
               ),
@@ -292,7 +292,7 @@ void main() {
               assistantContent: contextOutput(
                 reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: 0,
                 ),
               ),
@@ -311,7 +311,7 @@ void main() {
         trace.descriptionsByStep['remediate']!.single,
         contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'),
       );
-      expectReviewOutputDir(trace.descriptionsByStep['re-review']!.single);
+      expectReviewOutputDir(trace.tasksForStep('re-review').single);
     },
   );
 
@@ -335,12 +335,15 @@ void main() {
               assistantContent: contextOutput(
                 reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: 0,
                 ),
               ),
             ),
-            'architecture-review' => architectureReviewStub(findingsCount: 1),
+            'architecture-review' => architectureReviewStub(
+              findingsCount: 1,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+            ),
             'integrated-review-council' => integratedReviewCouncilStub(),
             'remediate' => StubResponse(
               assistantContent: contextOutput({
@@ -354,7 +357,7 @@ void main() {
               assistantContent: contextOutput(
                 reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: queued.occurrence == 0 ? 1 : 0,
                 ),
               ),
@@ -371,9 +374,10 @@ void main() {
       // into a single file path for remediation.
       final firstRemediate = trace.descriptionsByStep['remediate']![0];
       expect(firstRemediate, contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'));
-      // Iteration 2: the loop consumes only the fresh re-review report.
+      // Iteration 2: the loop consumes only the fresh re-review report, captured
+      // from the re-review step's host-owned artifacts dir.
       final secondRemediate = trace.descriptionsByStep['remediate']![1];
-      expect(secondRemediate, contains('/runtime-artifacts/reviews/re-review-codex-2026-04-29.md'));
+      expect(secondRemediate, contains('/runtime-artifacts/steps/re-review/re-review-codex-2026-04-29.md'));
       expect(secondRemediate, isNot(contains('architecture-review-codex')));
     },
   );
@@ -455,7 +459,7 @@ void main() {
               assistantContent: contextOutput(
                 reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: 0,
                 ),
               ),
@@ -470,7 +474,7 @@ void main() {
               assistantContent: contextOutput(
                 reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: 0,
                 ),
               ),

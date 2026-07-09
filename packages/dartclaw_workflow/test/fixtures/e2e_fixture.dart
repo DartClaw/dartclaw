@@ -61,7 +61,12 @@ const _ProviderPreset _claudePreset = (
   plannerModel: 'claude-opus-4-7',
   executorModel: 'claude-sonnet-4-6',
   reviewerModel: 'claude-sonnet-4-6',
-  sandbox: 'bypassPermissions',
+  // Claude workflow one-shot tasks declare per-step allowedTools policies, and
+  // `claude_cli_provider` rejects `bypassPermissions` when a policy is present
+  // (bypass can't enforce the allowlist). `dontAsk` is the non-interactive mode
+  // the runner expects for policy-enforced one-shot tasks. (For claude,
+  // `_providerOptions` maps this field to `permissionMode`.)
+  sandbox: 'dontAsk',
 );
 
 const String _envProvider = 'DARTCLAW_TEST_PROVIDER';
@@ -534,7 +539,7 @@ final class E2EFixtureInstance {
     WorkflowStepOutputTransformer? outputTransformer,
     CliWorkflowPrCreator? prCreator,
     HarnessFactory? harnessFactory,
-    bool runAndthenSkillsBootstrap = false,
+    bool runWorkflowSkillsBootstrap = false,
   }) async {
     final wiring = CliWorkflowWiring(
       config: config,
@@ -545,7 +550,7 @@ final class E2EFixtureInstance {
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       workflowStepOutputTransformer: outputTransformer,
-      runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
+      runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
       prCreator: prCreator,
     );
     await wiring.wire();

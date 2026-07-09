@@ -8,17 +8,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ContextExtractor,
         OutputConfig,
         OutputFormat,
-        StepHandoffSuccess,
         TaskStatus,
         TaskStatusChangedEvent,
         TaskType,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowExecutor,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep,
-        WorkflowVariable,
-        dispatchStep;
+        WorkflowVariable;
 import 'package:test/test.dart';
 
 import '../scenario_test_support.dart';
@@ -33,11 +32,17 @@ void main() {
 
       final skill = harness.readRepoFile('packages/dartclaw_workflow/skills/dartclaw-discover-andthen-spec/SKILL.md');
 
-      expect(skill, contains('s[0-9]+-*.md'));
-      expect(skill, contains('s[0-9]+_*.md'));
-      expect(skill, contains('non-`sNN-*.md` / non-`sNN_*.md` markdown files'));
-      expect(skill, contains('## Acceptance Criteria'));
-      expect(skill, contains('`spec_source` must be `existing` or `synthesized`'));
+      // Classification is multi-signal and filename-independent; assert the
+      // documented contract, kept in sync with built_in_skill_inventory_test.dart.
+      expect(skill, contains('## Implementation Plan'));
+      expect(skill, contains('corroborated'));
+      expect(skill, contains('Filename is irrelevant'));
+      expect(skill, contains('never reach `existing`'));
+      expect(skill, contains('existing'));
+      expect(skill, contains('synthesized'));
+      // The brittle filename gate and the stale section markers it keyed on are gone.
+      expect(skill, isNot(contains('## Acceptance Criteria')));
+      expect(skill, isNot(contains('## Touched Files')));
       // Examples for DC-native skills live in SKILL.md alongside the contract –
       // the workflow YAML does not duplicate them via outputExamples.
       expect(skill, contains('<workflow-context>'));
@@ -76,7 +81,7 @@ void main() {
       expect(outputs['spec_confidence'], 0);
     });
 
-    test('dispatch validates spec_path through generic format: path (no bespoke skill gate)', () async {
+    test('execute validates spec_path through generic format: path (no bespoke skill gate)', () async {
       // ADR-041: discovery output now validates through declared schema +
       // generic format: path, not the (un-wired) dartclaw-discover-andthen-spec
       // bespoke validator. With an active workspace root, format: path enforces
@@ -90,7 +95,7 @@ void main() {
       // root accepts a safe relative missing path" / "rejects an escaping path").
       final harness = await ScenarioTaskHarness.create();
       addTearDown(harness.dispose);
-      final projectRoot = harness.createTempProjectRoot('detect-dispatch-project');
+      final projectRoot = harness.createTempProjectRoot('detect-execute-project');
       harness.writeProjectFile(projectRoot, 'dev/specs/demo/fis/s01-story.md', '# Story\n\n## Scope\n');
 
       final definition = const WorkflowDefinition(
@@ -151,15 +156,16 @@ void main() {
           });
       addTearDown(completionSub.cancel);
 
-      final handoff = await dispatchStep(
-        definition.nodes.single,
-        harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+      final executor = WorkflowExecutor(
+        executionContext: harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+        dataDir: harness.tempDir.path,
       );
+      await executor.execute(run, definition, context);
 
-      expect(handoff, isA<StepHandoffSuccess>());
-      expect(handoff.validationFailure, isNull);
-      expect(handoff.outputs['spec_path'], 'dev/specs/demo/fis/s01-story.md');
-      expect(handoff.outputs['spec_source'], 'existing');
+      final stored = await harness.workflowRuns.getById(run.id);
+      expect(stored?.status, WorkflowRunStatus.completed);
+      expect(context['spec_path'], 'dev/specs/demo/fis/s01-story.md');
+      expect(context['spec_source'], 'existing');
     });
   });
 }

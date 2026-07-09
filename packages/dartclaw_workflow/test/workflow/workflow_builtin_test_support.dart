@@ -15,6 +15,8 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart' show stepArtifactsDirEnvVar;
+import 'package:dartclaw_workflow/src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         Task,
@@ -60,15 +62,20 @@ class StubResponse {
   const StubResponse({required this.assistantContent, this.worktreeJson});
 }
 
-StubResponse architectureReviewStub({int findingsCount = 0, int? gatingFindingsCount}) => StubResponse(
-  assistantContent: contextOutput({
-    'architecture-review.review_findings': 'docs/specs/test/architecture-review-codex-2026-04-29.md',
-    'findings_count': findingsCount,
-    'gating_findings_count': gatingFindingsCount ?? findingsCount,
-    'architecture-review.findings_count': findingsCount,
-    'architecture-review.gating_findings_count': gatingFindingsCount ?? findingsCount,
-  }),
-);
+/// Architecture-review stub. When [stepArtifactsDir] is supplied the report is
+/// materialized into that host-owned dir (the deterministic capture source);
+/// omit it to exercise the clean-review stub path (findings == 0 only).
+StubResponse architectureReviewStub({int findingsCount = 0, int? gatingFindingsCount, String? stepArtifactsDir}) =>
+    StubResponse(
+      assistantContent: contextOutput({
+        if (stepArtifactsDir != null)
+          'architecture-review.review_report_path': p.join(stepArtifactsDir, 'architecture-review-codex-2026-04-29.md'),
+        'findings_count': findingsCount,
+        'gating_findings_count': gatingFindingsCount ?? findingsCount,
+        'architecture-review.findings_count': findingsCount,
+        'architecture-review.gating_findings_count': gatingFindingsCount ?? findingsCount,
+      }),
+    );
 
 StubResponse integratedReviewCouncilStub({int findingsCount = 0, int? gatingFindingsCount}) => StubResponse(
   assistantContent: contextOutput({
@@ -143,17 +150,22 @@ StubResponse planAndImplementCommonStub(
   };
 }
 
-String runtimeArtifactsDirForTask(Task task, String dataDir) =>
-    p.join(dataDir, 'workflows', 'runs', task.workflowRunId!, 'runtime-artifacts');
+/// The host-computed step artifacts dir persisted on the task's config env —
+/// the same value the spawned agent sees as `$DARTCLAW_STEP_ARTIFACTS_DIR`.
+String stepArtifactsDirForTask(Task task) {
+  final env = task.configJson[WorkflowTaskConfig.stepArtifactsEnv];
+  expect(env, isA<Map<Object?, Object?>>(), reason: 'workflow task ${task.id} must carry the step artifacts env');
+  return (env as Map<Object?, Object?>)[stepArtifactsDirEnvVar]! as String;
+}
 
 Map<String, Object?> reviewReportContext(
   String stepId, {
-  required String runtimeArtifactsDir,
+  required String stepArtifactsDir,
   required int findingsCount,
   int? gatingFindingsCount,
 }) {
   return {
-    'review_findings': p.join(runtimeArtifactsDir, 'reviews', '$stepId-codex-2026-04-29.md'),
+    'review_report_path': p.join(stepArtifactsDir, '$stepId-codex-2026-04-29.md'),
     'findings_count': findingsCount,
     'gating_findings_count': gatingFindingsCount ?? findingsCount,
     '$stepId.findings_count': findingsCount,
@@ -161,9 +173,14 @@ Map<String, Object?> reviewReportContext(
   };
 }
 
-void expectReviewOutputDir(String description) {
-  expect(description, contains('--output-dir '));
-  expect(description, contains('/runtime-artifacts/reviews'));
+void expectReviewOutputDir(QueuedTaskRecord task) {
+  // The prompt carries the literal shell-var token (never a mutated absolute
+  // path); the host-computed per-step dir rides only on the task config env.
+  expect(task.description, contains('--output-dir "\$$stepArtifactsDirEnvVar"'));
+  final env = task.configJson[WorkflowTaskConfig.stepArtifactsEnv];
+  expect(env, isA<Map<Object?, Object?>>());
+  final value = (env as Map<Object?, Object?>)[stepArtifactsDirEnvVar]! as String;
+  expect(p.dirname(value), endsWith(p.join('runtime-artifacts', 'steps')));
 }
 
 class QueuedStep {
@@ -356,8 +373,8 @@ final class BuiltInWorkflowDriver {
         : '';
     writeRelative(planPath, body: planBody);
     writeRelative(decoded['spec_path'] as String?, body: '# FIS\n\n## Scope\n');
-    writeRelative(decoded['review_findings'] as String?);
-    writeRelative(decoded['architecture-review.review_findings'] as String?);
+    writeRelative(decoded['review_report_path'] as String?);
+    writeRelative(decoded['architecture-review.review_report_path'] as String?);
     final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
     if (storySpecs is Map) {
       final items = storySpecs['items'];

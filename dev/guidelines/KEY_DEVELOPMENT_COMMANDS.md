@@ -158,6 +158,12 @@ dart test --reporter=failures-only apps/dartclaw_cli
 dart test -j 1 --reporter=failures-only \
   packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli
 
+# Fast local CLI iteration: skip real-build / real-process tests tagged slow.
+dart test --reporter=failures-only -x slow apps/dartclaw_cli
+
+# Run only slow CLI tests when validating build/release behavior.
+dart test --reporter=failures-only --run-skipped -t slow apps/dartclaw_cli
+
 # Test all packages with the CI-equivalent package/test serialization policy
 bash dev/tools/test_workspace.sh
 

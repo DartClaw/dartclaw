@@ -30,6 +30,7 @@ void main() {
         expect(names, contains('idx_tasks_status'));
         expect(names, contains('idx_tasks_type'));
         expect(names, contains('idx_tasks_status_type'));
+        expect(names, contains('idx_tasks_workflow_run_id'));
         expect(names, contains('idx_task_artifacts_task_id'));
       });
 
@@ -154,6 +155,48 @@ void main() {
         expect(queued.map((task) => task.id), ['queued-research', 'queued-coding']);
         expect(coding.map((task) => task.id), ['queued-coding', 'draft-coding']);
         expect(queuedCoding.map((task) => task.id), ['queued-coding']);
+      });
+
+      test('lists tasks by workflow run ids without widening empty input to all rows', () async {
+        await repository.insert(
+          _task(id: 'run-a-new', workflowRunId: 'run-A', createdAt: DateTime.parse('2026-03-10T10:00:00Z')),
+        );
+        await repository.insert(
+          _task(id: 'run-a-old', workflowRunId: 'run-A', createdAt: DateTime.parse('2026-03-10T09:00:00Z')),
+        );
+        await repository.insert(
+          _task(id: 'run-b-task', workflowRunId: 'run-B', createdAt: DateTime.parse('2026-03-10T11:00:00Z')),
+        );
+        await repository.insert(_task(id: 'no-run', createdAt: DateTime.parse('2026-03-10T12:00:00Z')));
+
+        final runA = await repository.listByWorkflowRunIds(['run-A']);
+        final bothRuns = await repository.listByWorkflowRunIds(['run-A', 'run-B']);
+        final empty = await repository.listByWorkflowRunIds([]);
+
+        expect(runA.map((task) => task.id), ['run-a-new', 'run-a-old']);
+        expect(bothRuns.map((task) => task.id), ['run-b-task', 'run-a-new', 'run-a-old']);
+        expect(empty, isEmpty);
+      });
+
+      test('listByWorkflowRunIds resolves rows through the workflow_run_id index, not a table scan', () {
+        // Proves the performance contract: the workflow-run filter is applied in
+        // SQL via idx_tasks_workflow_run_id. A regression to selecting all tasks
+        // and filtering in Dart would not search this index.
+        final plan = db.select(
+          'EXPLAIN QUERY PLAN '
+          'SELECT t.id FROM tasks t '
+          'LEFT JOIN agent_executions ae ON ae.id = t.agent_execution_id '
+          'LEFT JOIN workflow_step_executions wse ON wse.task_id = t.id '
+          'WHERE t.workflow_run_id IN (?) ORDER BY t.created_at DESC, t.id DESC',
+          ['run-A'],
+        );
+        final detail = plan.map((row) => row['detail'] as String).join('\n');
+
+        expect(
+          detail,
+          contains('idx_tasks_workflow_run_id'),
+          reason: 'tasks table must be searched via the workflow-run index: $detail',
+        );
       });
 
       test('updates an existing task', () async {
@@ -428,6 +471,7 @@ Task _task({
   String? acceptanceCriteria,
   Map<String, dynamic> configJson = const {},
   Map<String, dynamic>? worktreeJson,
+  String? workflowRunId,
   DateTime? startedAt,
   DateTime? completedAt,
 }) {
@@ -443,6 +487,7 @@ Task _task({
     configJson: configJson,
     worktreeJson: worktreeJson,
     createdAt: createdAt ?? DateTime.parse('2026-03-10T10:00:00Z'),
+    workflowRunId: workflowRunId,
     startedAt: startedAt,
     completedAt: completedAt,
   );

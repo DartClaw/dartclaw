@@ -54,8 +54,8 @@ void main() {
       String? model,
       String? effort,
       int? maxTokens,
-      double? maxCostUsd,
       int? maxRetries,
+      int? timeoutSeconds,
       List<String>? allowedTools,
     }) {
       return WorkflowStep(
@@ -66,8 +66,8 @@ void main() {
         model: model,
         effort: effort,
         maxTokens: maxTokens,
-        maxCostUsd: maxCostUsd,
         maxRetries: maxRetries,
+        timeoutSeconds: timeoutSeconds,
         allowedTools: allowedTools,
       );
     }
@@ -78,8 +78,8 @@ void main() {
       expect(resolved.provider, isNull);
       expect(resolved.model, isNull);
       expect(resolved.maxTokens, isNull);
-      expect(resolved.maxCostUsd, isNull);
       expect(resolved.maxRetries, isNull);
+      expect(resolved.timeoutSeconds, isNull);
       expect(resolved.allowedTools, isNull);
     });
 
@@ -146,8 +146,8 @@ void main() {
           provider: 'claude',
           model: 'claude-opus-4',
           maxTokens: 8000,
-          maxCostUsd: 2.0,
           maxRetries: 3,
+          timeoutSeconds: 900,
           allowedTools: ['Read', 'Grep'],
         ),
       ];
@@ -155,9 +155,16 @@ void main() {
       expect(resolved.provider, 'claude');
       expect(resolved.model, 'claude-opus-4');
       expect(resolved.maxTokens, 8000);
-      expect(resolved.maxCostUsd, 2.0);
       expect(resolved.maxRetries, 3);
+      expect(resolved.timeoutSeconds, 900);
       expect(resolved.allowedTools, ['Read', 'Grep']);
+    });
+
+    test('per-step timeout overrides stepDefaults timeout', () {
+      final step = makeStep(id: 'review-code', timeoutSeconds: 120);
+      final defaults = [const StepConfigDefault(match: 'review*', timeoutSeconds: 900)];
+      final resolved = resolveStepConfig(step, defaults);
+      expect(resolved.timeoutSeconds, 120);
     });
 
     test('* catch-all matches any step', () {

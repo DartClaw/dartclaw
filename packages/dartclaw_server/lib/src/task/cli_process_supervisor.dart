@@ -19,6 +19,7 @@ final class CliProcessSupervisor {
     required this.eventBus,
     required this.log,
     this.terminationGrace = const Duration(seconds: 5),
+    this.postTerminalResultGrace = const Duration(seconds: 10),
   });
 
   final Process process;
@@ -30,11 +31,19 @@ final class CliProcessSupervisor {
   final EventBus? eventBus;
   final Logger log;
   final Duration terminationGrace;
+  final Duration postTerminalResultGrace;
 
   final Completer<WorkflowCliException> _failure = Completer<WorkflowCliException>();
   Future<void>? _termination;
   Timer? _timeoutTimer;
+  Timer? _postTerminalResultTimer;
   TurnProgressMonitor? _stallMonitor;
+  bool _terminalResultRecorded = false;
+  bool _postTerminalResultTerminationStarted = false;
+
+  bool get postTerminalResultTerminationStarted => _postTerminalResultTerminationStarted;
+
+  bool get terminalResultRecorded => _terminalResultRecorded;
 
   void start() {
     if (stallTimeout > Duration.zero) {
@@ -74,6 +83,21 @@ final class CliProcessSupervisor {
     _stallMonitor?.recordProgress();
   }
 
+  void recordTerminalResult() {
+    if (_terminalResultRecorded) return;
+    _terminalResultRecorded = true;
+    recordParsedOutput();
+    _stallMonitor?.stop();
+    _stallMonitor = null;
+    _timeoutTimer?.cancel();
+    _timeoutTimer = null;
+    if (postTerminalResultGrace <= Duration.zero) {
+      _terminateAfterTerminalResult();
+      return;
+    }
+    _postTerminalResultTimer = Timer(postTerminalResultGrace, _terminateAfterTerminalResult);
+  }
+
   Future<int> waitForExitCode() async {
     final exitCode = process.exitCode.then<Object>((code) => code);
     final result = await Future.any<Object>([exitCode, _failure.future]);
@@ -92,6 +116,8 @@ final class CliProcessSupervisor {
   void stop() {
     _timeoutTimer?.cancel();
     _timeoutTimer = null;
+    _postTerminalResultTimer?.cancel();
+    _postTerminalResultTimer = null;
     _stallMonitor?.stop();
     _stallMonitor = null;
   }
@@ -104,10 +130,21 @@ final class CliProcessSupervisor {
 
   void _failAndTerminate(WorkflowCliException failure) {
     if (_failure.isCompleted) return;
+    _postTerminalResultTimer?.cancel();
+    _postTerminalResultTimer = null;
     _termination = terminateCliProcess(process, grace: terminationGrace);
     _completeFailure(failure);
   }
+
+  void _terminateAfterTerminalResult() {
+    if (_failure.isCompleted || _postTerminalResultTerminationStarted) return;
+    _postTerminalResultTerminationStarted = true;
+    _termination = terminateCliProcess(process, grace: terminationGrace);
+  }
 }
 
-Future<void> terminateCliProcess(Process process, {Duration grace = const Duration(seconds: 5)}) =>
-    killWithEscalation(process, label: 'workflow CLI', gracePeriod: grace);
+Future<bool> terminateCliProcess(
+  Process process, {
+  Duration grace = const Duration(seconds: 5),
+  bool alreadySignalled = false,
+}) => killWithEscalation(process, label: 'workflow CLI', gracePeriod: grace, alreadySignalled: alreadySignalled);

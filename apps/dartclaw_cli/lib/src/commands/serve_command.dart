@@ -32,7 +32,7 @@ class ServeCommand extends Command<void> {
   final ExitFn _exitFn;
   final AssetResolver _assetResolver;
   late final AssetDownloader _assetDownloader;
-  final bool _runAndthenSkillsBootstrap;
+  final bool _runWorkflowSkillsBootstrap;
   static final _log = Logger('ServeCommand');
 
   @override
@@ -52,7 +52,7 @@ class ServeCommand extends Command<void> {
     ExitFn? exitFn,
     AssetResolver? assetResolver,
     AssetDownloader? assetDownloader,
-    bool runAndthenSkillsBootstrap = true,
+    bool runWorkflowSkillsBootstrap = true,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
@@ -61,7 +61,7 @@ class ServeCommand extends Command<void> {
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
-       _runAndthenSkillsBootstrap = runAndthenSkillsBootstrap,
+       _runWorkflowSkillsBootstrap = runWorkflowSkillsBootstrap,
        _assetResolver = assetResolver ?? AssetResolver() {
     _assetDownloader =
         assetDownloader ??
@@ -290,7 +290,7 @@ class ServeCommand extends Command<void> {
         resolvedAssets: resolvedAssets,
         logService: logService,
         messageRedactor: messageRedactor,
-        runAndthenSkillsBootstrap: _runAndthenSkillsBootstrap,
+        runWorkflowSkillsBootstrap: _runWorkflowSkillsBootstrap,
       );
       final result = await wiring.wire();
 

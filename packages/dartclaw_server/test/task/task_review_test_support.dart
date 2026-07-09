@@ -88,6 +88,10 @@ class FakePrCreator extends PrCreator {
   final PrCreationResult result;
 
   @override
-  Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async =>
-      result;
+  Future<PrCreationResult> create({
+    required Project project,
+    required Task task,
+    required String branch,
+    String? notes,
+  }) async => result;
 }

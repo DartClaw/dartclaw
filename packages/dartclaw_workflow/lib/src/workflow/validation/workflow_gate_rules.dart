@@ -34,10 +34,13 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
             _err(
               ValidationErrorType.invalidGate,
               'Step "${step.id}" has invalid gate expression: "$condition". '
-              'Expected: stepId.key operator value.',
+              'Expected: "<key> <operator> <value>" or "<key> isEmpty".',
               stepId: step.id,
             ),
           );
+          continue;
+        }
+        if (!referencedKey.contains('.')) {
           continue;
         }
         final referencedStepId = _gateReferencedStepId(referencedKey);

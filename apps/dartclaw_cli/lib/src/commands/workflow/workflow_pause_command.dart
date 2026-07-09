@@ -12,7 +12,7 @@ class WorkflowPauseCommand extends WorkflowRunIdCommand {
     super.environment,
     super.stderrLine,
     super.interrupts,
-    super.runAndthenSkillsBootstrap,
+    super.runWorkflowSkillsBootstrap,
     super.skillIntrospector,
     super.providerAuthPreflight,
   });
@@ -31,7 +31,7 @@ class WorkflowPauseCommand extends WorkflowRunIdCommand {
       await runStandaloneLifecycle(
         runId: runId,
         provisionTaskRunners: false,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         action: (session) async {
           final paused = await session.wiring.workflowService.pause(runId);
           printLifecycleStatus(paused, 'paused');

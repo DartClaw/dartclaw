@@ -116,6 +116,123 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
   return WorkflowSkillPreflightResult._(visibleByProviderAndAuthored);
 }
 
+/// A single unresolvable skill reference discovered by [checkWorkflowSkillRefs].
+final class WorkflowSkillCheckWarning {
+  final String stepId;
+  final String skill;
+  final String provider;
+
+  const WorkflowSkillCheckWarning({required this.stepId, required this.skill, required this.provider});
+}
+
+/// Result of a non-throwing skill-resolution check for `workflow validate
+/// --skills`: [unresolved] skill refs surface as warnings, [probeNotes] carry
+/// degradation reasons (missing provider CLI, unconfigured provider, probe
+/// failure) so the command never hard-fails on machine state.
+final class WorkflowSkillCheckResult {
+  final List<WorkflowSkillCheckWarning> unresolved;
+  final List<String> probeNotes;
+
+  const WorkflowSkillCheckResult({required this.unresolved, required this.probeNotes});
+}
+
+/// Probes each agent step's authored skill ref against its resolved provider and
+/// reports which refs the provider cannot see — the diagnostic sibling of
+/// [preflightWorkflowSkillRefs] that degrades instead of throwing.
+///
+/// Reuses the same provider-resolution and provider-visible-name translation as
+/// the executor preflight (single source of the codex namespace mapping), so a
+/// ref that would dispatch cleanly never warns and vice versa. Any provider the
+/// probe cannot reach (missing/unconfigured provider, introspection failure)
+/// degrades to a [WorkflowSkillCheckResult.probeNotes] entry; its steps are not
+/// reported as unresolved.
+Future<WorkflowSkillCheckResult> checkWorkflowSkillRefs({
+  required WorkflowDefinition definition,
+  required SkillIntrospector introspector,
+  required WorkflowSkillPreflightConfig skillPreflightConfig,
+  required WorkflowRoleDefaults roleDefaults,
+}) async {
+  final refs = <({String stepId, String skill, String provider})>[];
+  final probeNotes = <String>[];
+
+  void addRef(WorkflowStep step, String skill) {
+    final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
+    final provider = _effectivePreflightProvider(
+      definition: definition,
+      step: step,
+      resolved: resolved,
+      roleDefaults: roleDefaults,
+      defaultProvider: skillPreflightConfig.defaultProvider,
+    )?.trim();
+    if (provider == null || provider.isEmpty) {
+      probeNotes.add('Step "${step.id}" references skill "$skill" but no provider is configured; not checked.');
+      return;
+    }
+    if (!skillPreflightConfig.isProviderConfigured(provider)) {
+      probeNotes.add(
+        'Step "${step.id}" references skill "$skill" for provider "$provider", '
+        'which is not configured for skill preflight; not checked.',
+      );
+      return;
+    }
+    refs.add((stepId: step.id, skill: skill, provider: provider));
+  }
+
+  for (final step in definition.steps) {
+    final skill = step.skill;
+    if (skill == null || step.taskType != WorkflowTaskType.agent) continue;
+    addRef(step, skill);
+  }
+
+  // Runtime preflight resolves synthetic merge-resolve skill steps too, so the
+  // validate-time check must cover them or a workflow can pass `validate
+  // --skills` yet fail runtime preflight on a provider that cannot see the
+  // synthetic skill. An empty context degrades gracefully: an unresolvable
+  // `maxParallel` template simply skips that synthetic step.
+  for (final step in syntheticWorkflowSkillSteps(definition, context: WorkflowContext(), roleDefaults: roleDefaults)) {
+    addRef(step, step.skill!);
+  }
+
+  final providers = {for (final ref in refs) ref.provider};
+  final availableByProvider = <String, Set<String>>{};
+  final familyByProvider = <String, String>{};
+  final degradedProviders = <String>{};
+  for (final provider in providers) {
+    final executable = skillPreflightConfig.executableFor(provider);
+    final providerOptions = skillPreflightConfig.optionsFor(provider);
+    try {
+      availableByProvider[provider] = await introspector.listAvailable(
+        provider: provider,
+        executable: executable,
+        providerOptions: providerOptions,
+      );
+      familyByProvider[provider] = ProviderIdentity.resolveFamily(
+        provider,
+        options: providerOptions,
+        executable: executable,
+      );
+    } catch (e) {
+      degradedProviders.add(provider);
+      final executableContext = executable == null ? '' : ' using "$executable"';
+      probeNotes.add('Skill resolution for provider "$provider"$executableContext could not be checked: $e');
+    }
+  }
+
+  final unresolved = <WorkflowSkillCheckWarning>[];
+  for (final ref in refs) {
+    if (degradedProviders.contains(ref.provider)) continue;
+    final visible = _providerVisibleSkillName(
+      family: familyByProvider[ref.provider]!,
+      authoredSkill: ref.skill,
+      available: availableByProvider[ref.provider]!,
+    );
+    if (visible == null) {
+      unresolved.add(WorkflowSkillCheckWarning(stepId: ref.stepId, skill: ref.skill, provider: ref.provider));
+    }
+  }
+  return WorkflowSkillCheckResult(unresolved: unresolved, probeNotes: probeNotes);
+}
+
 Future<void> _preflightProviderAuth(
   ProviderAuthPreflight preflight,
   Iterable<String> providers,

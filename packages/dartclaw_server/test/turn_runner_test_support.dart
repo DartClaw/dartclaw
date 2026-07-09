@@ -131,14 +131,14 @@ Map<String, dynamic> turnResult({
 void scheduleTurnCompletion(
   FakeAgentHarness worker, {
   String responseText = '',
-  Duration delay = Duration.zero,
+  Future<void>? waitUntil,
   Map<String, dynamic>? result,
   Object? error,
 }) {
   unawaited(() async {
     await worker.turnInvoked;
-    if (delay > Duration.zero) {
-      await Future<void>.delayed(delay);
+    if (waitUntil != null) {
+      await waitUntil;
     }
     if (error != null) {
       worker.completeError(error);

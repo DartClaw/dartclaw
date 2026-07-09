@@ -45,6 +45,14 @@ Use standalone mode when:
 
 These commands reuse `workflow run --standalone`'s safety guard: they abort against a reachable server unless `--force` is added. The engine's state-transition guards apply — resuming a `running` run or retrying a non-`failed` run prints a clean one-line reason and exits non-zero, never a Dart stack trace. A stale `running` run (left by an abruptly killed standalone process) is **not** auto-reconciled; the guard surfaces it and you re-run once it is back in a resumable state.
 
+### Settle-time digest and step outcomes
+
+A standalone run is legible at the console. When a step fails or holds, the live progress line carries its reason inline — `failed — <reason>` for a hard failure, `blocked (recoverable): <reason>` for a recoverable hold — so you never have to open `context.json` to learn why a step stopped. In `--json` mode the `workflow_step_completed` and `map_iteration_completed` payloads carry additive `outcome` and `reason` fields alongside the existing keys.
+
+When a run settles (completed / paused / awaiting-approval / failed / cancelled), a per-story digest prints: one row per step with its final status, reason, tokens and duration, followed by the concrete next-action commands for this run id (`resume` / `cancel` / `retry --standalone`). In `--json` mode the same digest is emitted as a single structured `workflow_run_digest` object — a per-story array plus `nextActions`, parseable without scraping human text.
+
+**Blocked vs failed.** A `foreach` story that emits `needsInput` (for example, "Docker Desktop must be started…") is recorded as **blocked** — a recoverable, retryable hold — distinct from a hard **failed**. When a still-open story depends on a blocked or failed story, the run pauses for a human (exit `2`) and the pause message names both the blocker and the blocked-on dependent. When nothing still-open depends on it, independent stories continue and the blocked/failed item is reported in the settle-time digest rather than pausing the whole run.
+
 ### Inline runs (`--inline`)
 
 `workflow run --inline <name>` runs any existing definition on the **current branch** — no workflow-owned integration branch, no worktree, no merge-back. It overrides the definition's git strategy at run time (`integrationBranch: false` + `worktree: inline`), so you don't need a separate `*-inline` copy of a workflow just to flip the git behavior.

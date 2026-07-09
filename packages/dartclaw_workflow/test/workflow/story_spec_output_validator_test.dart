@@ -154,4 +154,79 @@ void main() {
       expect(escaping.validationFailure, isNotNull, reason: 'containment still rejects escaping paths with no root');
     });
   });
+
+  // The story_specs data-shape contract is framework-neutral: it names no
+  // framework status vocabulary and rejects unknown item keys loudly so a stale
+  // emitter (e.g. one still emitting the old `fis_source` key) breaks discovery
+  // at validation time instead of silently never dispatching dependent gates.
+  group('validateStorySpecOutputs enforces the framework-neutral item contract', () {
+    late Directory tempDir;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('story_spec_neutral_test_');
+      Directory(p.join(tempDir.path, 'fis')).createSync();
+      File(p.join(tempDir.path, 'fis', 's01-story.md')).writeAsStringSync('# S01');
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test('a spec_source item validates', () {
+      final result = validateStorySpecOutputs({
+        'story_specs': {
+          'items': [
+            {
+              'id': 'S01',
+              'title': 'Story 1',
+              'spec_path': 'fis/s01-story.md',
+              'dependencies': <String>[],
+              'spec_source': 'synthesized',
+              'spec_confidence': 5,
+            },
+          ],
+        },
+      }, activeWorkspaceRoot: tempDir.path);
+
+      expect(result.validationFailure, isNull);
+    });
+
+    test('a legacy fis_source item is rejected naming the unknown property', () {
+      final result = validateStorySpecOutputs({
+        'story_specs': {
+          'items': [
+            {
+              'id': 'S01',
+              'title': 'Story 1',
+              'spec_path': 'fis/s01-story.md',
+              'dependencies': <String>[],
+              'fis_source': 'existing',
+            },
+          ],
+        },
+      }, activeWorkspaceRoot: tempDir.path);
+
+      expect(result.validationFailure, isNotNull);
+      expect(result.validationFailure!.reason, contains('unknown propert'));
+      expect(result.validationFailure!.reason, contains('fis_source'));
+    });
+
+    test('a non-framework status value validates (status is opaque to the engine)', () {
+      final result = validateStorySpecOutputs({
+        'story_specs': {
+          'items': [
+            {
+              'id': 'S01',
+              'title': 'Story 1',
+              'spec_path': 'fis/s01-story.md',
+              'dependencies': <String>[],
+              'status': 'ready-for-dev',
+            },
+          ],
+        },
+      }, activeWorkspaceRoot: tempDir.path);
+
+      expect(result.validationFailure, isNull);
+    });
+  });
 }

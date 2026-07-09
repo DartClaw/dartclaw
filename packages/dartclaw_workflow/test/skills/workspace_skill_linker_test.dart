@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkspaceSkillInventory, WorkspaceSkillLinker, skillProvisionerMarkerFile;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -214,7 +213,7 @@ void main() {
       );
     });
 
-    test('copy fallback writes managed markers and refreshes only on fingerprint mismatch', () {
+    test('copy fallback refreshes managed payloads by delete-and-recopy', () {
       var copyWrites = 0;
       final linker = WorkspaceSkillLinker(
         linkFactory: ({required targetPath, required linkPath}) {
@@ -263,7 +262,7 @@ void main() {
         agentMdNames: const [],
         agentTomlNames: const [],
       );
-      expect(copyWrites, 2);
+      expect(copyWrites, 4);
 
       File(
         p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md'),
@@ -275,7 +274,42 @@ void main() {
         agentMdNames: const [],
         agentTomlNames: const [],
       );
-      expect(copyWrites, 3);
+      expect(copyWrites, 6);
+    });
+
+    test('managed file marker is removed when a copied agent becomes a symlink', () {
+      final source = File(p.join(dataDir, '.claude', 'agents', 'dartclaw-reviewer.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Reviewer\n');
+      final destination = p.join(workspaceDir, '.claude', 'agents', 'dartclaw-reviewer.md');
+      final marker = File('$destination.${WorkspaceSkillLinker.managedMarkerName}');
+      final fallbackLinker = WorkspaceSkillLinker(
+        linkFactory: ({required targetPath, required linkPath}) {
+          throw const FileSystemException('symlinks unavailable');
+        },
+      );
+
+      fallbackLinker.materialize(
+        dataDir: dataDir,
+        workspaceDir: workspaceDir,
+        skillNames: const [],
+        agentMdNames: const ['dartclaw-reviewer'],
+        agentTomlNames: const [],
+      );
+
+      expect(File(destination).readAsStringSync(), source.readAsStringSync());
+      expect(marker.existsSync(), isTrue);
+
+      WorkspaceSkillLinker().materialize(
+        dataDir: dataDir,
+        workspaceDir: workspaceDir,
+        skillNames: const [],
+        agentMdNames: const ['dartclaw-reviewer'],
+        agentTomlNames: const [],
+      );
+
+      expect(FileSystemEntity.typeSync(destination, followLinks: false), FileSystemEntityType.link);
+      expect(marker.existsSync(), isFalse);
     });
 
     test('clean removes only managed artifacts and exact exclude lines', () {
@@ -329,31 +363,21 @@ void main() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
-    test('without a manifest marker, discovers all managed dartclaw-* skills (cold-start fallback)', () {
+    test('discovers managed dartclaw-* skills from the cache', () {
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
       expect(inventory.skillNames, containsAll(<String>['dartclaw-discover-andthen-spec', 'dartclaw-merge-resolve']));
     });
 
-    test('binds the inventory to the manifest marker: a stale dartclaw-* skill is never surfaced', () {
+    test('inventory reads cache state; stale skills are removed by provisioner purge', () {
       // A stale managed skill lingers on disk after a manifest removal.
       for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
         File(p.join(root, 'dartclaw-old-skill', 'SKILL.md'))
           ..createSync(recursive: true)
           ..writeAsStringSync('---\nname: dartclaw-old-skill\n---\nbody\n');
       }
-      // The provisioned marker is the canonical inventory and omits it.
-      File(p.join(dataDir, skillProvisionerMarkerFile)).writeAsStringSync(
-        const [
-          'dartclaw-discover-andthen-spec',
-          'dartclaw-discover-andthen-plan',
-          'dartclaw-validate-workflow',
-          'dartclaw-merge-resolve',
-        ].join('\n'),
-      );
-
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
-      expect(inventory.skillNames, isNot(contains('dartclaw-old-skill')));
+      expect(inventory.skillNames, contains('dartclaw-old-skill'));
       expect(inventory.skillNames, contains('dartclaw-discover-andthen-spec'));
     });
   });

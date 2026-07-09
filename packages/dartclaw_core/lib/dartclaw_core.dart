@@ -238,6 +238,8 @@ export 'src/events/dartclaw_event.dart'
         ProjectLifecycleEvent,
         ProjectStatusChangedEvent,
         TurnWaitStateChangedEvent,
+        TurnWaitState,
+        TurnWaitReason,
         TaskEventCreatedEvent,
         BudgetWarningEvent,
         LoopIterationCompletedEvent,

@@ -10,7 +10,7 @@ import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, LogService;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
@@ -20,8 +20,13 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:shelf/shelf.dart' show Handler, Request;
 import 'package:test/test.dart';
 
+import '../helpers/log_service_capture.dart';
+
 late String _templatesDir;
 late String _staticDir;
+late List<LogRecord> _testLogRecords;
+late StreamSubscription<LogRecord> _testLogSubscription;
+late List<String> _expectedSevereLogSubstrings;
 
 Future<String> _resolveDartclawServerAssetDir(String child) async {
   final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
@@ -30,6 +35,15 @@ Future<String> _resolveDartclawServerAssetDir(String child) async {
   }
   final libDir = File.fromUri(uri).parent;
   return p.join(libDir.path, 'src', child);
+}
+
+Future<List<LogRecord>> _captureExpectedServeLogs(
+  Future<void> Function() body, {
+  Iterable<String> expectedSevereSubstrings = const [],
+}) async {
+  final expectedSevere = expectedSevereSubstrings.toList();
+  _expectedSevereLogSubstrings.addAll(expectedSevere);
+  return captureLogServiceRecords(body, expectedSevereSubstrings: expectedSevere, failOnUnexpectedSevere: true);
 }
 
 AssetResolver _assetResolverFor(Directory tempDir) {
@@ -95,8 +109,27 @@ void main() {
   });
 
   setUp(() {
+    LogService.suppressOutputForTests = true;
+    _testLogRecords = <LogRecord>[];
+    _testLogSubscription = Logger.root.onRecord.listen(_testLogRecords.add);
+    _expectedSevereLogSubstrings = <String>[];
     serveCommand = ServeCommand();
     runner = DartclawRunner()..addCommand(serveCommand);
+  });
+
+  tearDown(() async {
+    await _testLogSubscription.cancel();
+    LogService.suppressOutputForTests = false;
+    final unexpectedSevere = _testLogRecords
+        .where(
+          (record) =>
+              record.level >= Level.SEVERE &&
+              !_expectedSevereLogSubstrings.any((expected) => record.message.contains(expected)),
+        )
+        .toList();
+    if (unexpectedSevere.isNotEmpty) {
+      fail('Unexpected SEVERE logs: ${unexpectedSevere.map((record) => record.message).join(' | ')}');
+    }
   });
 
   group('ServeCommand', () {
@@ -197,11 +230,17 @@ void main() {
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to 0.0.0.0:3333'],
+      );
       expect(stderrLines.join('\n'), contains('WARNING: Binding to 0.0.0.0 exposes the server to the network.'));
     });
 
@@ -255,11 +294,17 @@ channels:
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
       expect(stderrLines.join('\n'), contains('WARNING: Invalid type for google_chat.group_access'));
       expect(stderrLines.join('\n'), contains('WARNING: Invalid type for whatsapp.gowa_port'));
       expect(stderrLines.join('\n'), contains('WARNING: Invalid type for signal.port'));
@@ -294,11 +339,17 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Failed to start harness'],
+      );
       expect(worker.started, isFalse);
       expect(worker.stopped, isFalse);
     });
@@ -331,7 +382,7 @@ channels:
           resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
           homeDir: p.join(tempDir.path, 'home'),
         ),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         assetDownloader: downloader,
       );
       final localRunner = DartclawRunner()..addCommand(command);
@@ -383,13 +434,16 @@ channels:
           homeDir: p.join(tempDir.path, 'home'),
         ),
         assetDownloader: downloader,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(
-        localRunner.run(['serve', '--offline']),
-        throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve', '--offline']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
 
       expect(stderrLines.join('\n'), isNot(contains('Assets for ${downloader.version} not found.')));
@@ -438,11 +492,17 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
 
       final response = await capturedHandler(Request('GET', Uri.parse('http://localhost/static/sse.js')));
       expect(response.statusCode, 200);
@@ -450,14 +510,6 @@ channels:
     });
 
     test('secondary-provider validation warnings do not block startup', () async {
-      final logs = <LogRecord>[];
-      Logger.root.level = Level.ALL;
-      final logSub = Logger.root.onRecord.listen(logs.add);
-      addTearDown(() {
-        logSub.cancel();
-        Logger.root.level = Level.INFO;
-      });
-
       final worker = _FakeWorkerService();
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
 
@@ -491,11 +543,17 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      final logs = await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
       expect(worker.started, isTrue);
       expect(
         logs.any(
@@ -510,13 +568,6 @@ channels:
 
     test('port-in-use path prints clear bind error', () async {
       final stderrLines = <String>[];
-      final logs = <LogRecord>[];
-      Logger.root.level = Level.ALL;
-      final logSub = Logger.root.onRecord.listen(logs.add);
-      addTearDown(() {
-        logSub.cancel();
-        Logger.root.level = Level.INFO;
-      });
       final worker = _FakeWorkerService();
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
 
@@ -543,11 +594,17 @@ channels:
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      final logs = await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot bind to localhost:3333')), isTrue);
       expect(
         logs.any((r) => r.level == Level.SEVERE && r.message.contains('is another process already using this port?')),
@@ -590,11 +647,17 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
 
       expect(File(p.join(tempDir.path, 'state.db')).existsSync(), isTrue);
 
@@ -604,13 +667,6 @@ channels:
     });
 
     test('search database open failure prints clear startup error', () async {
-      final logs = <LogRecord>[];
-      Logger.root.level = Level.ALL;
-      final logSub = Logger.root.onRecord.listen(logs.add);
-      addTearDown(() {
-        logSub.cancel();
-        Logger.root.level = Level.INFO;
-      });
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
 
       addTearDown(() {
@@ -627,22 +683,21 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      final logs = await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot open search database'],
+      );
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open search database')), isTrue);
     });
 
     test('task database open failure prints clear startup error', () async {
-      final logs = <LogRecord>[];
-      Logger.root.level = Level.ALL;
-      final logSub = Logger.root.onRecord.listen(logs.add);
-      addTearDown(() {
-        logSub.cancel();
-        Logger.root.level = Level.INFO;
-      });
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
 
       addTearDown(() {
@@ -660,11 +715,17 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      final logs = await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+        ),
+        expectedSevereSubstrings: const ['Cannot open task database'],
+      );
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open task database')), isTrue);
     });
 
@@ -707,11 +768,14 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>()));
+      await _captureExpectedServeLogs(
+        () async => await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>())),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
       // Default classifier is claude_binary which doesn't need ANTHROPIC_API_KEY.
       // No API key warning should appear.
       expect(warnings.join('\n'), isNot(contains('ANTHROPIC_API_KEY not set')));

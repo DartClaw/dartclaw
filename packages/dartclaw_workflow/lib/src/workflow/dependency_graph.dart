@@ -191,6 +191,24 @@ class DependencyGraph {
     return ready;
   }
 
+  /// Returns the indices of items that declare a direct dependency on [depId].
+  ///
+  /// Used to decide whether a blocked or failed item should pause the run: the
+  /// caller intersects the result with the still-open item set.
+  List<int> dependentIndicesOf(String depId) {
+    final dependents = <int>[];
+    for (final entry in _deps.entries) {
+      if (entry.value.contains(depId)) dependents.add(entry.key);
+    }
+    return dependents;
+  }
+
+  /// Returns the item ID declared at [index], or null when the item declares none.
+  String? idAt(int index) => _indexToId[index];
+
+  /// Returns the index of the item declaring [id], or null when none does.
+  int? indexOfId(String id) => _idToIndex[id];
+
   /// Builds a human-readable cycle description from [cycleNodes].
   String _describeCycle(List<String> cycleNodes) {
     if (cycleNodes.isEmpty) return '(unknown cycle)';

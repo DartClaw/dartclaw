@@ -531,6 +531,23 @@ class _InMemoryTaskRepository implements TaskRepository {
   }
 
   @override
+  Future<List<Task>> listByWorkflowRunIds(Iterable<String> runIds) async {
+    final ids = runIds.toSet();
+    if (ids.isEmpty) {
+      return const [];
+    }
+    final tasks = _tasks.values.where((task) => task.workflowRunId != null && ids.contains(task.workflowRunId)).toList()
+      ..sort((a, b) {
+        final createdAtComparison = b.createdAt.compareTo(a.createdAt);
+        if (createdAtComparison != 0) {
+          return createdAtComparison;
+        }
+        return b.id.compareTo(a.id);
+      });
+    return tasks;
+  }
+
+  @override
   Future<List<TaskArtifact>> listArtifactsByTask(String taskId) async {
     final artifacts = _artifacts.values.where((artifact) => artifact.taskId == taskId).toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));

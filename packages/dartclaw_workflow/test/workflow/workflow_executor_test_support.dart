@@ -144,6 +144,7 @@ final class WorkflowExecutorHarness {
     ProviderAuthPreflight? providerAuthPreflight,
     WorkflowSkillPreflightConfig skillPreflightConfig = const WorkflowSkillPreflightConfig(),
     WorkflowRoleDefaults? roleDefaults,
+    Duration serializeRemainingSettleTimeout = const Duration(seconds: 30),
   }) {
     final effectiveDataDir = dataDir ?? tempDir.path;
     return WorkflowExecutor(
@@ -176,6 +177,7 @@ final class WorkflowExecutorHarness {
       ),
       dataDir: effectiveDataDir,
       roleDefaults: roleDefaults,
+      serializeRemainingSettleTimeout: serializeRemainingSettleTimeout,
       bashStepPolicy: hostEnvironment != null || bashStepEnvAllowlist != null || bashStepExtraStripPatterns != null
           ? BashStepPolicy(
               hostEnvironment: hostEnvironment,
@@ -231,6 +233,15 @@ final class WorkflowExecutorHarness {
     }
     await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
     await completeTask(taskId, status: finalStatus);
+  }
+
+  /// Overwrites the executor-created `WorkflowStepExecution.structuredOutput`
+  /// for [taskId] with [envelope], standing in for what the no-tools finalizer
+  /// turn persists. Call from the queued-task listener before completing the
+  /// task so outcome/output resolution reads the envelope.
+  Future<void> seedExecutionEnvelope(String taskId, Map<String, dynamic> envelope) async {
+    final wse = await workflowStepExecutionRepository.getByTaskId(taskId);
+    await workflowStepExecutionRepository.update(wse!.copyWith(structuredOutputJson: jsonEncode(envelope)));
   }
 
   /// Simulates task completion: queued → running → [review →] terminal.
@@ -291,6 +302,7 @@ final class WorkflowExecutorHarness {
 WorkflowTurnAdapter standardTurnAdapter({
   String turnId = 'turn-1',
   String integrationBranch = 'dartclaw/integration/test',
+  String? workflowWorkspaceDir,
   Future<WorkflowStartResolution> Function(
     WorkflowDefinition definition,
     Map<String, String> variables, {
@@ -338,6 +350,7 @@ WorkflowTurnAdapter standardTurnAdapter({
     reserveTurn: (_) => Future.value(turnId),
     executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
     waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+    workflowWorkspaceDir: workflowWorkspaceDir,
     resolveStartContext: resolveStartContext,
     initializeWorkflowGit:
         initializeWorkflowGit ??

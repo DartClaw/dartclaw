@@ -64,7 +64,7 @@ void main() {
           WorkflowStep(
             id: 's1',
             name: 'Shell',
-            type: WorkflowTaskType.bash,
+            taskType: WorkflowTaskType.bash,
             prompts: ['pwd'],
             workdir: '{{workflow.frobnozzle}}',
           ),

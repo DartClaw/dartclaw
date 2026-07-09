@@ -78,6 +78,7 @@ export 'src/workflow_config.dart'
         WorkflowConfig,
         WorkflowRoleDefaultsConfig,
         WorkflowRoleModelConfig,
+        WorkflowRuntimeArtifactsRetentionConfig,
         parseWorkflowConfig;
 export 'src/workspace_config.dart' show WorkspaceConfig;
 export 'src/path_utils.dart' show expandHome;

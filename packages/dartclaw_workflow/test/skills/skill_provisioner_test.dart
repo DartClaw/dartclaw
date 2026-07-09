@@ -93,16 +93,16 @@ void main() {
       expect(persisted, equals(_dcNativeSkillNames.toSet()));
     });
 
-    test('round-trip: the persisted marker binds WorkspaceSkillInventory to the manifest', () async {
+    test('round-trip: purge removes stale cache entries before inventory reads cache', () async {
       final provisioner = SkillProvisioner(dataDir: dataDir, dcNativeSkillsSourceDir: sourceDir);
       await provisioner.ensureCacheCurrent();
 
-      // A stale managed skill appears on disk after provisioning (so the purge
-      // did not see it); the real marker written by _writeMarker must still
-      // exclude it from the inventory the linker consumes.
-      File(p.join(dataDir, '.claude', 'skills', 'dartclaw-old-skill', 'SKILL.md'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('---\nname: dartclaw-old-skill\n---\n\n# legacy\n');
+      for (final root in ['.agents/skills', '.claude/skills']) {
+        File(p.join(dataDir, root, 'dartclaw-old-skill', 'SKILL.md'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('---\nname: dartclaw-old-skill\n---\n\n# legacy\n');
+      }
+      await provisioner.ensureCacheCurrent();
 
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 

@@ -2,7 +2,33 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## TD-114 – Mixed finalizer + `outputMode: prompt` outputs on one agent step drop the opt-out output's main-prompt contract
+
+**Status**: Closed 2026-07-05 — resolved by `dev/bundle/docs/specs/0.20/per-key-main-prompt-output-contract-filtering.md` (approach (a): per-key main-prompt output-contract filtering in `PromptAugmenter`; `spec_source` / `outputMode: prompt` opt-outs stay instructed, host-ownership boundary intact).
+
+**Severity**: Low (latent; not hit by any built-in workflow – custom-workflow trap)
+**Found**: 2026-07-04 S03 (execution-envelope finalization) quick-review, Critic finding 3
+**Affects**: `packages/dartclaw_workflow/lib/src/workflow/prompt_augmenter.dart` (`finalizerHandlesOutputs` early-return), `execution_envelope_schema.dart` (`stepNeedsFinalizer` / `_isPromptOptOut`)
+
+**Context**: `stepNeedsFinalizer` is true when *any* declared output is a model-derived finalizer output, so `finalizerHandlesOutputs` suppresses the entire main-prompt output contract. A `format: json` + `outputMode: prompt` output is excluded from the finalizer envelope (`_isPromptOptOut`) yet, on a step that also declares a finalizer-eligible output, its legacy main-prompt contract section is suppressed too – the model is never told how to emit it, and it resolves to `''`. This contradicts the ratified `outputmode-prompt-opt-out-fate` decision that prompt-opt-out outputs keep their legacy main-prompt contract. No shipped built-in mixes the two on one step.
+
+**Related facet — envelope-excluded `*_source` keys (same root cause)**: `isModelDerivedFinalizerOutput` also excludes every `key.endsWith('_source')` output as a host-owned canonical default (the `*_source → synthesized` default in `context_output_defaults.dart`). But `spec_source` in the shipped `spec-and-implement.yaml` is a *model-authored* narrative decision (`existing` vs `synthesized`) that gates the `spec` step (`entryGate: spec_source == synthesized`). On the (finalizer-eligible) `detect-spec-input` step, `spec_source` is excluded from the envelope *and* its main-prompt contract is suppressed, so the only channel left is the legacy inline `<workflow-context>` fallback (`context_extractor` layer 2). If the model omits it there, the `*_source` canonical default forces `synthesized`, misclassifying a reused existing spec as needing synthesis. The two candidate fixes mirror this entry's: (a) per-key main-prompt-contract filtering keeps `spec_source`'s instruction, or reverse the blanket `*_source` finalizer exclusion so the envelope carries model-authored `*_source` values — the latter reverses the ratified `S03 Structural Criterion` that canonical defaults stay host-owned, so it is itself a decision. Surfaced by the codex mixed-review (F2), 2026-07-05; deferred here as the same root cause rather than fixed speculatively.
+
+**Blocker**: design decision required – either (a) render the output-contract section only for envelope-excluded (opt-out / `*_source`) outputs while suppressing finalizer-handled ones (per-key section filtering in `PromptAugmenter`, which must learn per-output finalizer eligibility), or (b) reject/warn at validation when a single agent step mixes finalizer-eligible and `outputMode: prompt` outputs (and separately decide whether model-authored `*_source` keys belong in the envelope, which touches the ADR-041 host-ownership boundary).
+
+**Fix**: Pick (a) or (b) above; add a `prompt_augmenter`/validator test pinning that a mixed step retains the prompt-opt-out output's contract (or is rejected), plus a `spec-and-implement` canary/test proving a reused existing spec conveys `spec_source: existing` and suppresses the `spec` step.
+
+**Source**: S03 phase (b) Critic review (finding 3), 2026-07-04; codex mixed-review F2 (`spec_source`), 2026-07-05.
+
+**Spec (approach (a) ratified)**: `dev/bundle/docs/specs/0.20/per-key-main-prompt-output-contract-filtering.md` (2026-07-05) — per-key main-prompt output-contract filtering; option (a) chosen over (b) as smaller/safer/more-complete. Landed 2026-07-05 (see Status above).
+
+Last reviewed: 2026-07-05
+
+---
+
 ## TD-113 – Replace S01 turn-monitor real-time sleeps with controlled timer tests
+
+**Status**: Closed 2026-07-08 — resolved by the 0.20 test-suite hardening (CHANGELOG [0.20.0]: "injected test timers into turn wait/stall monitors to remove fixed sleeps from unit coverage"). The controlled-timer seam now exists — `SessionLockManager` takes an injectable `SessionLockTimerFactory` + `SessionLockNow` (`session_lock_manager.dart`), and `TurnRunner` threads `turnMonitorTimerFactory`/`turnMonitorNow` through. The wait/stuck monitor assertions in `turn_runner_test.dart` all drive fake time via the `_TurnMonitorFakeTime` (`FakeAsync`) helper + `monitoredRunner` + `elapseAsync`; a grep confirms zero real-time `Future.delayed` sleeps remain (only `Duration.zero` microtask yields). Backlog entry was stale.
 
 **Severity**: Low (test determinism – new test harness required)
 **Found**: 2026-06-08 S01 remediation-loop iter 4
@@ -22,6 +48,8 @@ Last reviewed: 2026-06-08
 ---
 
 ## TD-111 – Move turn wait-state semantics out of server string fields
+
+**Status**: Closed 2026-07-08 — resolved by the `turn-wait-state-typed-event-contract` FIS (0.20). `enum TurnWaitState` and `enum TurnWaitReason` moved into `dartclaw_core` (`turn_wait_events.dart`), exported via the core barrel `show` clause; `TurnWaitStateChangedEvent.state`/`.waitReason` retyped to the enums so an unknown-state string is now a compile error. `turn_wait_status.dart` keeps a core re-export bridge (server-only types unchanged). The SSE/REST wire JSON stays byte-identical (`state` via `.name`, `wait_reason` via `.jsonName`), pinned by whole-payload SSE tests plus an exhaustive `values`-driven wire-name mapping test.
 
 **Severity**: Medium (architecture / API contract – caller API change required)
 **Found**: 2026-06-08 S01 remediation of aggregated architecture review
@@ -44,6 +72,8 @@ Last reviewed: 2026-06-08
 
 ## TD-112 – Decide whether SessionLockManager should keep wait/stuck timer policy
 
+**Status**: Closed 2026-07-08 — decision made: **keep status quo, do not extract now.** The two-threshold wait/stuck policy on `SessionLockManager.acquire()` is acceptable at current scope; extracting a `TurnWaitMonitor` today would be the speculative abstraction the project's KISS/YAGNI mandate forbids (the entry itself notes it "risks broadening a narrow remediation"). Extraction is warranted only if a trigger fires — new wait categories, per-provider wait policy, or further operator-facing monitor behavior — at which point this becomes a live design task again. Recorded as a made decision, not a re-deferral (owner-endorsed 2026-07-08).
+
 **Severity**: Low (architecture / cohesion – decision needed)
 **Found**: 2026-06-08 S01 remediation of aggregated architecture review
 **Affects**: `packages/dartclaw_server/lib/src/concurrency/session_lock_manager.dart`, `packages/dartclaw_server/lib/src/turn_runner.dart`
@@ -64,6 +94,8 @@ Last reviewed: 2026-06-08
 ---
 
 ## TD-109 – Inbox extraction turn runs tool-capable over untrusted source (least-privilege / excessive agency)
+
+**Status**: Closed 2026-07-08 — resolved and now regression-guarded. The premise ("`TurnManager.startTurn` exposes no per-turn tool scoping; the only levers are process-level mutable state") is stale: `startTurn` now carries per-turn `allowedTools` + `readOnly` (`turn_manager.dart`), and `_runExtractionTurn` dispatches with `allowedTools: ['__knowledge_inbox_no_tools__']` + `readOnly: true`. `TurnRunner` applies that policy **session-scoped** via `TaskToolFilterGuard.setSessionToolFilter`/`setSessionReadOnly` before the harness runs (`turn_runner.dart` :476-481) and clears it in `finally` (:808-813), so restrictions never leak onto concurrent turns on other sessions. Enforcement + the anti-leak property are unit-tested in `task_tool_filter_guard_test.dart`; the caller contract in `knowledge_inbox_service_test.dart`; and the previously-untested TurnRunner apply/clear wiring is now pinned by `turn_runner_test.dart` ("per-turn toolless policy is applied session-scoped during the turn and cleared after (TD-109)", red-checked against a sabotaged apply).
 
 **Severity**: High (security – OWASP LLM06 excessive agency over untrusted input)
 **Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (codex review)
@@ -185,7 +217,7 @@ Last reviewed: 2026-05-18
 **Found**: 2026-04-30 S80 mixed-review remediation
 **Affects**: `packages/dartclaw_workflow/lib/src/workflow/context_extractor.dart`
 
-**Context**: `_fileSystemOutputRoots` checks the worktree before the runtime-artifacts root. For `review_findings` claims that are relative paths, a stale colliding worktree file such as `reviews/foo.md` can win over the actual runtime-artifacts file. The built-in happy path asks agents to emit absolute paths, so this is only exposed by stale or malformed relative claims.
+**Context**: `_fileSystemOutputRoots` checks the worktree before the runtime-artifacts root. For `review_report_path` claims that are relative paths, a stale colliding worktree file such as `reviews/foo.md` can win over the actual runtime-artifacts file. The built-in happy path asks agents to emit absolute paths, so this is only exposed by stale or malformed relative claims.
 
 **Current state**: Acceptable for S80; absolute runtime-artifacts claims and runtime-root-relative claims are covered, and no concrete operator failure exists.
 
@@ -237,24 +269,6 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-083 – `WorkflowTemplateEngine` has no escape mode (shared between prompts, commit messages, shell)
-
-**Severity**: Low (security defence-in-depth – no known exploit; current callers happen to be safe)
-**Found**: 2026-04-30 deeper code review of `dartclaw_workflow` (M35)
-**Affects**: `workflow_template_engine.dart`
-
-**Context**: The same `resolve()` method is used to build prompts, commit messages (via `WorkflowArtifactCommitter`), and shell-bound contexts (via `BashStepRunner`). `shell_escape.dart` exists but the template engine doesn't apply it; correctness depends on every caller doing the right thing. No current exploit, but the defensive-coding gap is worth closing – especially before any future caller forgets.
-
-**Fix shape**: add an explicit `escape:` mode parameter to `resolve()` (`shell | json | html | raw`) or per-substitution opt-in via `{{var|shell}}` filter syntax. Default to `raw` for backward compatibility; flip default to `shell` for shell-bound contexts inside `BashStepRunner`.
-
-**Trigger**: any new template-engine caller; report of an unescaped substitution causing a real-world issue; or 0.17+ security hardening pass.
-
-**References**: 2026-04-30 deeper code review consolidated report (M35).
-
-Last reviewed: 2026-05-18
-
----
-
 ## TD-081 – `_resolveReapWorkingDirectory` orphan-task fallback uses `_defaultProjectDir`
 
 **Severity**: Low (bounded operational risk – orphan reaping for true-orphan tasks)
@@ -268,24 +282,6 @@ Last reviewed: 2026-05-18
 **Trigger**: orphan-task reaping observed using the wrong project dir in production; or any worktree-path-scheme refactor.
 
 Last reviewed: 2026-05-18
-
----
-
-## TD-077 – Cross-workflow output-key naming convention (`review_findings` vs `verdict`)
-
-**Severity**: Low (refactor / consistency)
-**Found**: 2026-04-30 0.16.4 sub-plan inventory (`workflow-output-contract-and-presets-implementation-note.md` §"Out of Scope")
-**Affects**: built-in workflow YAMLs (`plan-and-implement`, `spec-and-implement`); chained-workflow consumers
-
-**Context**: Output keys vary across built-in workflows for what is conceptually the same datum: review steps emit `review_findings` in some places, `verdict` in others, and downstream gates branch on either. There is no documented convention; new workflows pick one inconsistently.
-
-**Fix shape**: pick a canonical name per concept (e.g. `review_findings` for findings array, `verdict` for the boolean/enum gate value), document in the public workflow guide, sweep built-ins to align.
-
-**Partially resolved (2026-06-08)**: the review-report **path** output key is now standardized — every parallel review source step prefixes all its keys as `<stepId>.review_findings`/`<stepId>.findings_count`/`<stepId>.gating_findings_count`; the `aggregate-reviews` step's own outputs and single-review `code-review` keep the bare canonical `review_findings`/`findings_count`/`gating_findings_count`. Documented in `docs/guide/workflows.md` + `packages/dartclaw_workflow/CLAUDE.md`, contract-locked in `built_in_workflow_contracts_test.dart`. **Remaining**: the broader `review_findings`-array vs `verdict`-gate-value concept naming (and any downstream gate branching on either) is untouched — that is the open part of this item.
-
-**Trigger**: a chained workflow breaks because the consumer expects one key and the producer emits another; UBIQUITOUS_LANGUAGE.md sweep; workflow author confusion.
-
-Last reviewed: 2026-06-08
 
 ---
 
@@ -364,27 +360,6 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-062 – Stuck Codex turn blocks session with no user feedback
-
-Promoted: 0.18 planning candidate
-Last reviewed: 2026-05-18
-
-**Severity**: High (availability – blocks an entire crowd-coding session)
-**Found**: 0.14.3 crowd-coding setup feedback (2026-03-25)
-**Affects**: `SessionLockManager`, `CodexHarness`
-**Target**: 0.18
-
-**Context**: When Codex app-server hangs on a tool-use turn (upstream bug `openai/codex#11816`), the `SessionLockManager` per-session lock is held until `worker_timeout` fires. During that time, all messages to the same session queue behind the lock with no feedback to the user. In crowd-coding with a shared session, this blocks the entire workshop.
-
-**Workaround**: Use `approval: never` and `sandbox: danger-full-access` in provider config. Reduce `worker_timeout` to 120s for crowd-coding.
-
-**Fix**:
-- Log when a session lock is being waited on
-- Add a per-session stuck-turn detector that cancels turns earlier than the global timeout
-- Add a `/cancel` or equivalent admin escape hatch to force-release a stuck session
-
----
-
 ## TD-065 – Polymorphic `TaskExecutionStrategy` (workflow-vs-interactive branch remains imperative after S16)
 
 **Severity**: Low (maintainability, testability)
@@ -413,10 +388,12 @@ Last reviewed: 2026-05-18
 
 **Context**: Of the original carry-overs, three closed in S15 (executor LOC decomposition, `_waitForTaskCompletion` race, map/foreach resume cursor) and the typed `_workflow*` task-config surface closed in S34 (`WorkflowTaskConfig` constants + `readMergeResolveEnv`, with the two server-side reads now routing through it). The remaining residual is structural: `WorkflowCliRunner` still lives in `dartclaw_server` despite acting as workflow/task boundary infrastructure. The seam decision is owned by S31.
 
-**Fix**: Complete S31. Drop this entry when it ships.
+**Decision (2026-06-27, [ADR-043](../adrs/043-cli-task-execution-provider-placement.md))**: **defer — keep status quo.** The unit is a self-contained cluster (`workflow_cli_runner` + `cli_provider` + `claude_cli_provider` + `codex_cli_provider` + `cli_process_supervisor`) importing only core/config/security, so relocation is dependency-feasible but unjustified at the current low severity: the cleanest home (a dedicated `dartclaw_task` package) trips the `arch_check` package-count ceiling (14→15), and moving into `dartclaw_workflow` conflates the control plane with CLI execution. No code change. This entry stays open, pinned to the ADR.
 
-**Trigger**: any new workflow runner type; any cross-package wiring change that re-opens the seam question.
+**Fix**: Deferred per ADR-043. Revisit on the trigger below; prefer the dedicated-package option and accept the ceiling bump when it fires.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
+**Trigger**: a second production consumer of the cluster; a dependency-cycle pressure that forces the seam; or a broader task-execution/harness-layer refactor that makes the relocation incidental rather than standalone churn.
 
-Last reviewed: 2026-05-28
+**References**: [ADR-043](../adrs/043-cli-task-execution-provider-placement.md) (placement decision) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
+
+Last reviewed: 2026-06-27

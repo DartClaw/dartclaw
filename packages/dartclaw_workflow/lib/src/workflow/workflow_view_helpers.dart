@@ -44,6 +44,34 @@ String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepI
   };
 }
 
+/// Builds a short operator-facing summary of run-level `blocked` (recoverable)
+/// step outcomes from a persisted run's context, or null when none exist.
+///
+/// A foreach controller that advances past escalated items with no open
+/// dependent records `step.<id>.outcome = 'blocked'`; the run then completes
+/// green while a story shipped unresolved. The summary makes that gap
+/// surfaceable on operator-facing rollups without re-gating the run.
+String? workflowBlockedOutcomeSummary(WorkflowRun run) {
+  final contextData = switch (run.contextJson['data']) {
+    final Map<String, dynamic> data => data,
+    final Map<Object?, Object?> data => Map<String, dynamic>.from(data),
+    _ => const <String, dynamic>{},
+  };
+  final pattern = RegExp(r'^step\.(.+)\.outcome$');
+  final lines = <String>[];
+  for (final entry in contextData.entries) {
+    if (entry.value != 'blocked') continue;
+    final match = pattern.firstMatch(entry.key);
+    if (match == null) continue;
+    final stepId = match.group(1)!;
+    final reason = contextData['step.$stepId.outcome.reason'];
+    lines.add(reason is String && reason.trim().isNotEmpty ? reason.trim() : "Step '$stepId' ended blocked.");
+  }
+  if (lines.isEmpty) return null;
+  lines.sort();
+  return lines.join('\n');
+}
+
 /// Builds loop membership info for all loops in a workflow definition.
 ///
 /// Returns a list of maps, one per loop, with loop ID, step IDs,

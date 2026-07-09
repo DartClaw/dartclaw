@@ -10,6 +10,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowDefinitionParser,
+        WorkflowExecutionCursor,
         WorkflowLoop,
         WorkflowRunStatus,
         WorkflowStep,
@@ -453,14 +454,13 @@ void main() {
       await h.completeTask(e.taskId);
     });
 
-    // Resume from loop index 0, iteration 2 (the executor seeks back to the loop node).
+    // Resume from iteration 2 using the persisted loop cursor.
     await h.executor.execute(
       seededRun,
       definition,
       context,
-      startFromStepIndex: definition.steps.length, // Force loop-node resume resolution.
-      startFromLoopIndex: 0,
-      startFromLoopIteration: 2,
+      startFromStepIndex: definition.steps.length,
+      startCursor: WorkflowExecutionCursor.loop(loopId: 'loop1', stepIndex: 0, iteration: 2),
     );
     await sub.cancel();
 

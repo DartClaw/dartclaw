@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_server/src/logging/log_formatter.dart';
 import 'package:dartclaw_server/src/logging/log_service.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -10,6 +12,7 @@ void main() {
   tearDown(() async {
     Logger.root.level = Level.INFO;
     Logger.root.clearListeners();
+    LogService.suppressOutputForTests = false;
   });
 
   group('LogService.fromConfig — format selection', () {
@@ -157,6 +160,45 @@ void main() {
       // thing is no exception is thrown when a record arrives post-dispose.
       expect(() => Logger('test.postDispose').info('ghost'), returnsNormally);
       await Future<void>.delayed(Duration.zero);
+    });
+
+    test('zone suppression mutes stderr output without dropping file logs', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_log_service_test_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final logFile = File(p.join(tempDir.path, 'dartclaw.log'));
+      final svc = LogService(
+        formatter: HumanFormatter(colorize: false),
+        fileSink: logFile.openWrite(),
+        level: Level.INFO,
+      );
+
+      await runZoned(() async {
+        svc.install();
+        Logger('test.suppressed').severe('expected failure');
+        await Future<void>.delayed(Duration.zero);
+      }, zoneValues: {suppressLogServiceOutputZoneKey: true});
+
+      await svc.dispose();
+      expect(logFile.readAsStringSync(), contains('expected failure'));
+    });
+
+    test('test suppression mutes stderr output without dropping file logs', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_log_service_test_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final logFile = File(p.join(tempDir.path, 'dartclaw.log'));
+      final svc = LogService(
+        formatter: HumanFormatter(colorize: false),
+        fileSink: logFile.openWrite(),
+        level: Level.INFO,
+      );
+
+      LogService.suppressOutputForTests = true;
+      svc.install();
+      Logger('test.staticSuppressed').severe('expected failure');
+      await Future<void>.delayed(Duration.zero);
+
+      await svc.dispose();
+      expect(logFile.readAsStringSync(), contains('expected failure'));
     });
   });
 }

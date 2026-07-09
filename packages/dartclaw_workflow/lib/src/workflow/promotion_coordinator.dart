@@ -111,6 +111,16 @@ Future<void> recordIterationFailureAndDecrement(
   );
 }
 
+Future<T> runPromotionSpan<T>({
+  required Future<R> Function<R>({required String projectId, required Future<R> Function() body})? lockPromotionSpan,
+  required String projectId,
+  required Future<T> Function() body,
+}) {
+  final lock = lockPromotionSpan;
+  if (lock == null) return body();
+  return lock<T>(projectId: projectId, body: body);
+}
+
 /// Calls the promotion callback and returns a typed [PromotionOutcome].
 ///
 /// Does NOT mutate [mapCtx] or call [persistProgress] — callers handle outcomes.

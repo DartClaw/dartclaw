@@ -1,17 +1,8 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show TurnOutcome, TurnStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show TurnOutcome, TurnStatus, TurnWaitState, TurnWaitReason;
 
-enum TurnWaitState { idle, running, waiting, stuck, cancelling, cancelled, completed, failed }
-
-enum TurnWaitReason {
-  sessionLock('session_lock'),
-  providerTurn('provider_turn'),
-  toolApproval('tool_approval'),
-  unknown('unknown');
-
-  final String jsonName;
-
-  const TurnWaitReason(this.jsonName);
-}
+// TurnWaitState / TurnWaitReason now live in dartclaw_core (turn wait-state event
+// vocabulary). Re-exported here so existing importers of this file keep resolving.
+export 'package:dartclaw_core/dartclaw_core.dart' show TurnWaitState, TurnWaitReason;
 
 enum TurnCancelReason {
   operatorCancel('operator_cancel'),

@@ -27,7 +27,10 @@ String schedulingTemplate({
 
   final topbar = pageTopbarTemplate(title: 'Scheduling Status');
 
-  final jobRows = jobs.map((job) {
+  // Task-type entries share the unified `scheduling.jobs` list but belong in the
+  // Scheduled Tasks table below; exclude them here so they don't render as a
+  // blank, actionable phantom row in Scheduled Jobs.
+  final jobRows = jobs.where((job) => job['type']?.toString() != 'task').map((job) {
     final name = job['name']?.toString() ?? '';
     final schedule = job['schedule']?.toString() ?? '';
     final delivery = job['delivery']?.toString() ?? 'none';
@@ -103,7 +106,7 @@ String schedulingTemplate({
     ),
     'intervalDisplay': heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
     'heartbeatOn': heartbeatEnabled,
-    'hasJobs': jobs.isNotEmpty,
+    'hasJobs': jobRows.isNotEmpty,
     'hasUserJobs': jobRows.any((j) => j['isSystem'] != true),
     'jobs': jobRows,
     'hasScheduledTasks': scheduledTasks.isNotEmpty,

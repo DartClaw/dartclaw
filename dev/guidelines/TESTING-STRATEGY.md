@@ -240,20 +240,24 @@ The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run t
 
 | Preset | Workflow / Planner | Executor / Reviewer | Sandbox | API key env var |
 |---|---|---|---|---|
-| `codex` (default) | `gpt-5.4` | `gpt-5.3-codex-spark` | `danger-full-access` | `CODEX_API_KEY` |
-| `claude` | `claude-opus-4-7` | `claude-sonnet-4-6` | `bypassPermissions` | `ANTHROPIC_API_KEY` |
+| `codex` | `gpt-5.4` | `gpt-5.3-codex-spark` | `danger-full-access` | `CODEX_API_KEY` |
+| `claude` | `claude-opus-4-7` | `claude-sonnet-4-6` | `dontAsk` | `ANTHROPIC_API_KEY` |
 
-**Run the integration tier against Claude**:
+(The claude `Sandbox` column is the `permissionMode`. It must be `dontAsk`, **not** `bypassPermissions` — the Claude workflow one-shot runner rejects `bypassPermissions` for any step that declares an `allowedTools` policy, i.e. every workflow step.)
+
+The fixture default provider is `codex`, and the heavy workflow e2e (`workflow-live/run.sh`) uses it (validated live: A2's plan-skip pipeline ran end-to-end on codex/`gpt-5.3-codex-spark` in ~24 min). Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. Claude one-shot spawns print a benign stderr notice (`Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`); the CLI does force default mode when the scrub var is set, but the step tool policy rides in `--settings` permission rules, which default mode enforces identically in headless runs (allowed tools run, everything else is denied, never prompted) — verified live 2026-07-07: a claude plan-and-implement canary ran discovery, both story implementations, simplify, and all reviews green with the var set. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
+
+**Run the integration tier against Claude explicitly** (e.g. the other integration files):
 
 ```bash
 DARTCLAW_TEST_PROVIDER=claude ANTHROPIC_API_KEY=... \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
-Mix-and-match works too — e.g. keep the codex provider but force a faster executor for a quick local sweep:
+Mix-and-match works too — e.g. pin a specific per-role model:
 
 ```bash
-DARTCLAW_TEST_EXECUTOR_MODEL=gpt-5.3-codex-spark \
+DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-4-7 \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 

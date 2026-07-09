@@ -25,26 +25,6 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
   int _nodeIndexForCursor(List<WorkflowNode> nodes, Map<String, int> stepIndexById, WorkflowExecutionCursor cursor) =>
       _nodeIndexForStepIndex(nodes, stepIndexById, cursor.stepIndex);
 
-  WorkflowExecutionCursor? _legacyResumeCursor(
-    WorkflowDefinition definition, {
-    int? startFromLoopIndex,
-    int? startFromLoopIteration,
-    String? startFromLoopStepId,
-  }) {
-    if (startFromLoopIndex == null || startFromLoopIndex < 0 || startFromLoopIndex >= definition.loops.length) {
-      return null;
-    }
-    final loop = definition.loops[startFromLoopIndex];
-    final firstStepId = startFromLoopStepId ?? loop.steps.firstOrNull;
-    final stepIndex = firstStepId == null ? 0 : definition.steps.indexWhere((step) => step.id == firstStepId);
-    return WorkflowExecutionCursor.loop(
-      loopId: loop.id,
-      stepIndex: stepIndex >= 0 ? stepIndex : 0,
-      iteration: startFromLoopIteration ?? 1,
-      stepId: startFromLoopStepId,
-    );
-  }
-
   int _firstStepIndexForNode(WorkflowNode node, Map<String, int> stepIndexById) {
     final indexes = _referencedStepIdsForNode(
       node,

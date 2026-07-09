@@ -15,10 +15,14 @@ import 'aggregate_step_runner.dart' as aggregate_step_runner;
 import 'bash_step_runner.dart' as bash_step_runner;
 import 'context_extractor.dart';
 import 'dependency_graph.dart';
+import 'execution_envelope_schema.dart';
+import 'review_scoring_fragment.dart' show defaultGatingSeverity;
+import 'diff_artifact_reader.dart';
 import 'gate_evaluator.dart';
 import 'map_context.dart';
 import 'map_step_context.dart';
 import 'missing_artifact_failure.dart';
+import 'workflow_cleanup_policy.dart';
 import 'skill_prompt_builder.dart';
 import '../skills/provider_auth_preflight.dart';
 import 'skill_introspector.dart';
@@ -28,6 +32,7 @@ import 'step_retry_policy.dart';
 import 'step_outcome_normalizer.dart' as step_outcome_normalizer;
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
+import 'workflow_context_persistence.dart';
 import 'workflow_approval_policy.dart';
 import 'workflow_artifact_committer.dart' as workflow_artifact_committer;
 import 'workflow_budget_monitor.dart' as workflow_budget_monitor;
@@ -44,12 +49,10 @@ import 'workflow_task_config.dart';
 import 'promotion_coordinator.dart';
 import 'workflow_turn_adapter.dart';
 export 'workflow_runner_types.dart';
-part 'public_node_runners.dart';
-part 'public_step_dispatcher.dart';
-part 'public_step_dispatcher_helpers.dart';
 part 'step_dispatcher.dart';
 part 'parallel_group_and_step_outcome_runner.dart';
 part 'loop_step_runner.dart';
+part 'iteration_dispatch_engine.dart';
 part 'map_iteration_runner.dart';
 part 'foreach_iteration_runner.dart';
 part 'map_iteration_dispatcher.dart';
@@ -62,6 +65,7 @@ part 'merge_resolve_coordinator.dart';
 
 class WorkflowExecutor {
   static final _log = Logger('WorkflowExecutor');
+  final StepExecutionContext _executionContext;
   final WorkflowTaskService _taskService;
   final EventBus _eventBus;
   final KvService _kvService;
@@ -77,9 +81,7 @@ class WorkflowExecutor {
   final ProviderAuthPreflight? _providerAuthPreflight;
   final WorkflowSkillPreflightConfig _skillPreflightConfig;
   final TaskRepository? _taskRepository;
-  final AgentExecutionRepository? _agentExecutionRepository;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
-  final ExecutionRepositoryTransactor? _executionTransactor;
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
@@ -89,6 +91,7 @@ class WorkflowExecutor {
   final List<String> _bashStepExtraStripPatterns;
   final ProjectService? _projectService;
   final String? _defaultWorkspaceRoot;
+  final Duration _serializeRemainingSettleTimeout;
   String? _workflowWorkspaceDirCache;
   final _approvalTimers = <String, Timer>{};
   final _inputConfigCache = Expando<Map<String, Map<String, OutputConfig>>>('workflowInputConfigCache');
@@ -98,23 +101,39 @@ class WorkflowExecutor {
     required String dataDir,
     WorkflowRoleDefaults? roleDefaults,
     BashStepPolicy bashStepPolicy = const BashStepPolicy(),
+    Duration serializeRemainingSettleTimeout = const Duration(seconds: 30),
     Uuid? uuid,
-  }) => WorkflowExecutor._internal(
-    executionContext: executionContext,
-    promptConfiguration: promptConfiguration ?? StepPromptConfiguration(),
-    dataDir: dataDir,
-    roleDefaults: roleDefaults,
-    bashStepPolicy: bashStepPolicy,
-    uuid: uuid,
-  );
+  }) {
+    final effectivePromptConfiguration = promptConfiguration ?? StepPromptConfiguration();
+    final effectiveRoleDefaults = roleDefaults ?? const WorkflowRoleDefaults();
+    final effectiveUuid = uuid ?? const Uuid();
+    return WorkflowExecutor._internal(
+      executionContext: executionContext,
+      promptConfiguration: effectivePromptConfiguration,
+      dataDir: dataDir,
+      roleDefaults: effectiveRoleDefaults,
+      bashStepPolicy: bashStepPolicy,
+      serializeRemainingSettleTimeout: serializeRemainingSettleTimeout,
+      uuid: effectiveUuid,
+    );
+  }
+
   WorkflowExecutor._internal({
     required StepExecutionContext executionContext,
     required StepPromptConfiguration promptConfiguration,
     required String dataDir,
-    WorkflowRoleDefaults? roleDefaults,
+    required WorkflowRoleDefaults roleDefaults,
     BashStepPolicy bashStepPolicy = const BashStepPolicy(),
-    Uuid? uuid,
-  }) : _taskService = executionContext.taskService,
+    required Duration serializeRemainingSettleTimeout,
+    required Uuid uuid,
+  }) : _executionContext = executionContext.configured(
+         dataDir: dataDir,
+         promptConfiguration: promptConfiguration,
+         roleDefaults: roleDefaults,
+         bashStepPolicy: bashStepPolicy,
+         uuid: uuid,
+       ),
+       _taskService = executionContext.taskService,
        _eventBus = executionContext.eventBus,
        _kvService = executionContext.kvService,
        _repository = executionContext.repository,
@@ -129,17 +148,16 @@ class WorkflowExecutor {
        _providerAuthPreflight = executionContext.providerAuthPreflight,
        _skillPreflightConfig = executionContext.skillPreflightConfig,
        _taskRepository = executionContext.taskRepository,
-       _agentExecutionRepository = executionContext.agentExecutionRepository,
        _workflowStepExecutionRepository = executionContext.workflowStepExecutionRepository,
-       _executionTransactor = executionContext.executionTransactor,
        _dataDir = dataDir,
-       _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
+       _roleDefaults = roleDefaults,
        _hostEnvironment = bashStepPolicy.hostEnvironment,
        _bashStepEnvAllowlist = List.unmodifiable(bashStepPolicy.envAllowlist),
        _bashStepExtraStripPatterns = List.unmodifiable(bashStepPolicy.extraStripPatterns),
        _projectService = executionContext.projectService,
        _defaultWorkspaceRoot = executionContext.defaultWorkspaceRoot,
-       _uuid = uuid ?? const Uuid();
+       _serializeRemainingSettleTimeout = serializeRemainingSettleTimeout,
+       _uuid = uuid;
 
   void _logRun(WorkflowRun run, String msg, {Level level = Level.FINE}) {
     _log.log(level, "Workflow '${run.id}': $msg");
@@ -151,21 +169,11 @@ class WorkflowExecutor {
     WorkflowContext context, {
     int startFromStepIndex = 0,
     WorkflowExecutionCursor? startCursor,
-    int? startFromLoopIndex,
-    int? startFromLoopIteration,
-    String? startFromLoopStepId,
     bool Function()? isCancelled,
   }) async {
     final runtimeArtifactsDir = await _initializeRuntimeArtifactsDir(run.id);
     context.mergeSystemVariables({'workflow.runtime_artifacts_dir': runtimeArtifactsDir});
-    final resumeCursor =
-        startCursor ??
-        _legacyResumeCursor(
-          definition,
-          startFromLoopIndex: startFromLoopIndex,
-          startFromLoopIteration: startFromLoopIteration,
-          startFromLoopStepId: startFromLoopStepId,
-        );
+    final resumeCursor = startCursor;
     final effectiveStartStepIndex = resumeCursor?.stepIndex ?? startFromStepIndex;
     _log.info("Workflow '${definition.name}' (${run.id}) executing from step $effectiveStartStepIndex");
     final nodes = definition.nodes;
@@ -198,7 +206,7 @@ class WorkflowExecutor {
     // Resolve the active workspace root when the workflow emits story_specs so
     // path validation can enforce existence when a root is available. A missing
     // root no longer fails the run: the generic validator falls back to
-    // containment-only and skips existence (S02 OC05 / ADR-041 §Open edge case).
+    // containment-only and skips existence (ADR-041 §Open edge case).
     final activeWorkspaceRoot = _emitsStorySpecs(definition)
         ? await _resolveActiveWorkspaceRoot(run, definition, context)
         : null;
@@ -266,15 +274,9 @@ class WorkflowExecutor {
               return;
             }
           }
-          final refreshedRun = await _repository.getById(run.id) ?? run;
-          run = refreshedRun;
-          run = await _checkWorkflowBudgetWarning(run, definition);
-          if (_workflowBudgetExceeded(run, definition)) {
-            final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _logRun(run, msg, level: Level.INFO);
-            await _failRun(run, msg);
-            return;
-          }
+          final budgetedRun = await _budgetPreflight(run, definition);
+          if (budgetedRun == null) return;
+          run = budgetedRun;
           final mapCursor = switch (activeCursor) {
             WorkflowExecutionCursor(nodeType: WorkflowExecutionCursorNodeType.map, nodeId: final cursorStepId)
                 when cursorStepId == step.id =>
@@ -329,18 +331,14 @@ class WorkflowExecutor {
           );
           await _persistContext(run.id, context);
           await _repository.update(run);
-          _eventBus.fire(
-            WorkflowStepCompletedEvent(
-              runId: run.id,
-              stepId: step.id,
-              stepName: step.name,
-              stepIndex: stepIndex,
-              totalSteps: totalSteps,
-              taskId: '',
-              success: true,
-              tokenCount: mapResult.totalTokens,
-              timestamp: DateTime.now(),
-            ),
+          _fireStepCompletedEvent(
+            run: run,
+            step: step,
+            stepIndex: stepIndex,
+            totalSteps: totalSteps,
+            taskId: '',
+            success: true,
+            tokenCount: mapResult.totalTokens,
           );
           nodeIndex++;
         case ParallelGroupNode(stepIds: final fullGroupStepIds):
@@ -396,15 +394,9 @@ class WorkflowExecutor {
               }
             }
           }
-          final refreshedRun = await _repository.getById(run.id) ?? run;
-          run = refreshedRun;
-          run = await _checkWorkflowBudgetWarning(run, definition);
-          if (_workflowBudgetExceeded(run, definition)) {
-            final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _logRun(run, msg, level: Level.INFO);
-            await _failRun(run, msg);
-            return;
-          }
+          final budgetedRun = await _budgetPreflight(run, definition);
+          if (budgetedRun == null) return;
+          run = budgetedRun;
           run = run.copyWith(
             contextJson: {...run.contextJson, '_parallel.current.stepIds': fullGroupStepIds},
             updatedAt: DateTime.now(),
@@ -432,18 +424,14 @@ class WorkflowExecutor {
           void fireParallelStepCompletedEvents(List<StepOutcome> eventResults) {
             for (final result in eventResults) {
               final si = stepIndexById[result.step.id] ?? groupStartStepIndex;
-              _eventBus.fire(
-                WorkflowStepCompletedEvent(
-                  runId: run.id,
-                  stepId: result.step.id,
-                  stepName: result.step.name,
-                  stepIndex: si,
-                  totalSteps: totalSteps,
-                  taskId: result.task?.id ?? '',
-                  success: result.success,
-                  tokenCount: result.tokenCount,
-                  timestamp: DateTime.now(),
-                ),
+              _fireStepCompletedEvent(
+                run: run,
+                step: result.step,
+                stepIndex: si,
+                totalSteps: totalSteps,
+                taskId: result.task?.id ?? '',
+                success: result.success,
+                tokenCount: result.tokenCount,
               );
             }
           }
@@ -487,6 +475,19 @@ class WorkflowExecutor {
             fireParallelStepCompletedEvents(results);
             fireParallelGroupCompletedEvent(results);
 
+            // Interruption dominates the group verdict: a teardown-cancelled
+            // member pauses the run (group-restart state is already persisted
+            // above), never fails it – genuinely-failed members keep their
+            // `_parallel.failed.stepIds` restart semantics on resume.
+            final cancelledMember = failedSteps.where((result) => result.outcome == 'cancelled').firstOrNull;
+            if (cancelledMember != null) {
+              await _pauseRun(
+                run,
+                "Parallel step '${cancelledMember.step.id}' was interrupted by task cancellation; "
+                'resume re-runs the interrupted and failed steps.',
+              );
+              return;
+            }
             final approvalHold = failedSteps.where((result) => result.awaitingApproval).firstOrNull;
             if (approvalHold != null) {
               run = await _transitionStepAwaitingApproval(
@@ -576,15 +577,9 @@ class WorkflowExecutor {
             await _failRun(run, 'Normalized foreach node references missing step "$foreachStepId".');
             return;
           }
-          final refreshedRunForeach = await _repository.getById(run.id) ?? run;
-          run = refreshedRunForeach;
-          run = await _checkWorkflowBudgetWarning(run, definition);
-          if (_workflowBudgetExceeded(run, definition)) {
-            final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _logRun(run, msg, level: Level.INFO);
-            await _failRun(run, msg);
-            return;
-          }
+          final budgetedRun = await _budgetPreflight(run, definition);
+          if (budgetedRun == null) return;
+          run = budgetedRun;
           final foreachCursor = switch (activeCursor) {
             WorkflowExecutionCursor(nodeType: WorkflowExecutionCursorNodeType.foreach, nodeId: final cursorStepId)
                 when cursorStepId == foreachStep.id =>
@@ -618,6 +613,7 @@ class WorkflowExecutor {
             if (foreachStep.onFailure == OnFailurePolicy.continueWorkflow &&
                 foreachResult.results.isNotEmpty &&
                 foreachResult.error?.startsWith('foreach-controller-failure:') != true &&
+                foreachResult.error?.startsWith('foreach-hard-failure-with-escalation:') != true &&
                 foreachResult.error?.startsWith('promotion-conflict:') != true &&
                 foreachResult.error?.startsWith('promotion-failure:') != true) {
               context['step.${foreachStep.id}.outcome'] = 'failed';
@@ -634,18 +630,14 @@ class WorkflowExecutor {
               );
               await _persistContext(run.id, context);
               await _repository.update(run);
-              _eventBus.fire(
-                WorkflowStepCompletedEvent(
-                  runId: run.id,
-                  stepId: foreachStep.id,
-                  stepName: foreachStep.name,
-                  stepIndex: foreachStepIndex,
-                  totalSteps: totalSteps,
-                  taskId: '',
-                  success: false,
-                  tokenCount: foreachResult.totalTokens,
-                  timestamp: DateTime.now(),
-                ),
+              _fireStepCompletedEvent(
+                run: run,
+                step: foreachStep,
+                stepIndex: foreachStepIndex,
+                totalSteps: totalSteps,
+                taskId: '',
+                success: false,
+                tokenCount: foreachResult.totalTokens,
               );
               nodeIndex++;
               continue;
@@ -661,7 +653,11 @@ class WorkflowExecutor {
             );
             await _persistContext(run.id, context);
             await _repository.update(run);
-            await _failRun(run, msg);
+            if (msg.startsWith('serialize-remaining settle-timeout:')) {
+              await _failRunAndCancelActiveTasks(run, msg, taskCancelTrigger: 'serialize-remaining-settle-timeout');
+            } else {
+              await _failRun(run, msg);
+            }
             return;
           }
           run = run.copyWith(
@@ -676,18 +672,14 @@ class WorkflowExecutor {
           );
           await _persistContext(run.id, context);
           await _repository.update(run);
-          _eventBus.fire(
-            WorkflowStepCompletedEvent(
-              runId: run.id,
-              stepId: foreachStep.id,
-              stepName: foreachStep.name,
-              stepIndex: foreachStepIndex,
-              totalSteps: totalSteps,
-              taskId: '',
-              success: true,
-              tokenCount: foreachResult.totalTokens,
-              timestamp: DateTime.now(),
-            ),
+          _fireStepCompletedEvent(
+            run: run,
+            step: foreachStep,
+            stepIndex: foreachStepIndex,
+            totalSteps: totalSteps,
+            taskId: '',
+            success: true,
+            tokenCount: foreachResult.totalTokens,
           );
           nodeIndex++;
         case ActionNode(stepId: final stepId):
@@ -712,15 +704,9 @@ class WorkflowExecutor {
               return;
             }
           }
-          final refreshedRun = await _repository.getById(run.id) ?? run;
-          run = refreshedRun;
-          run = await _checkWorkflowBudgetWarning(run, definition);
-          if (_workflowBudgetExceeded(run, definition)) {
-            final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _logRun(run, msg, level: Level.INFO);
-            await _failRun(run, msg);
-            return;
-          }
+          final budgetedRun = await _budgetPreflight(run, definition);
+          if (budgetedRun == null) return;
+          run = budgetedRun;
           final followingActionSteps = nodes
               .skip(nodeIndex + 1)
               .whereType<ActionNode>()
@@ -746,7 +732,37 @@ class WorkflowExecutor {
                 "Step '${step.id}' (${step.name}) ${result.task?.status.name ?? 'failed'}"
                 "${reason != null ? ': $reason' : ''}";
             _logRun(run, msg, level: Level.INFO);
-            if (step.onError == 'continue') {
+            // Teardown interruption pauses without advancing currentStepIndex
+            // (resume re-runs this step) and is checked before `onError:
+            // continue` – advancing past a task the run's own teardown killed
+            // would dispatch the next step mid-teardown. The partial attempt's
+            // tokens are not charged, consistent with crash-resume.
+            if (result.outcome == 'cancelled') {
+              _mergeStepResultIntoContext(context, result, fallbackStatus: 'cancelled');
+              run = run.copyWith(
+                contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
+                updatedAt: DateTime.now(),
+              );
+              await _persistContext(run.id, context);
+              await _repository.update(run);
+              _fireStepCompletedEvent(
+                run: run,
+                step: step,
+                stepIndex: stepIndex,
+                totalSteps: totalSteps,
+                taskId: result.task?.id ?? '',
+                success: false,
+                outcome: result.outcome,
+                reason: result.outcomeReason ?? reason,
+                tokenCount: result.tokenCount,
+              );
+              await _pauseRun(
+                run,
+                "Step '${step.id}' was interrupted by task cancellation; resume re-runs it from its checkpoint.",
+              );
+              return;
+            }
+            if (step.onError == OnErrorPolicy.continueWorkflow) {
               _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
               run = run.copyWith(
                 totalTokens: run.totalTokens + result.tokenCount,
@@ -756,18 +772,16 @@ class WorkflowExecutor {
               );
               await _persistContext(run.id, context);
               await _repository.update(run);
-              _eventBus.fire(
-                WorkflowStepCompletedEvent(
-                  runId: run.id,
-                  stepId: step.id,
-                  stepName: step.name,
-                  stepIndex: stepIndex,
-                  totalSteps: totalSteps,
-                  taskId: result.task?.id ?? '',
-                  success: false,
-                  tokenCount: result.tokenCount,
-                  timestamp: DateTime.now(),
-                ),
+              _fireStepCompletedEvent(
+                run: run,
+                step: step,
+                stepIndex: stepIndex,
+                totalSteps: totalSteps,
+                taskId: result.task?.id ?? '',
+                success: false,
+                outcome: result.outcome,
+                reason: result.outcomeReason ?? reason,
+                tokenCount: result.tokenCount,
               );
               nodeIndex++;
               continue;
@@ -780,18 +794,16 @@ class WorkflowExecutor {
             );
             await _persistContext(run.id, context);
             await _repository.update(run);
-            _eventBus.fire(
-              WorkflowStepCompletedEvent(
-                runId: run.id,
-                stepId: step.id,
-                stepName: step.name,
-                stepIndex: stepIndex,
-                totalSteps: totalSteps,
-                taskId: result.task?.id ?? '',
-                success: false,
-                tokenCount: result.tokenCount,
-                timestamp: DateTime.now(),
-              ),
+            _fireStepCompletedEvent(
+              run: run,
+              step: step,
+              stepIndex: stepIndex,
+              totalSteps: totalSteps,
+              taskId: result.task?.id ?? '',
+              success: false,
+              outcome: result.outcome,
+              reason: result.outcomeReason ?? reason,
+              tokenCount: result.tokenCount,
             );
             if (result.awaitingApproval) {
               run = await _transitionStepAwaitingApproval(
@@ -826,18 +838,14 @@ class WorkflowExecutor {
             );
             await _persistContext(run.id, context);
             await _repository.update(run);
-            _eventBus.fire(
-              WorkflowStepCompletedEvent(
-                runId: run.id,
-                stepId: step.id,
-                stepName: step.name,
-                stepIndex: stepIndex,
-                totalSteps: totalSteps,
-                taskId: result.task?.id ?? '',
-                success: false,
-                tokenCount: result.tokenCount,
-                timestamp: DateTime.now(),
-              ),
+            _fireStepCompletedEvent(
+              run: run,
+              step: step,
+              stepIndex: stepIndex,
+              totalSteps: totalSteps,
+              taskId: result.task?.id ?? '',
+              success: false,
+              tokenCount: result.tokenCount,
             );
             await _failRun(run, msg);
             return;
@@ -850,18 +858,14 @@ class WorkflowExecutor {
           );
           await _persistContext(run.id, context);
           await _repository.update(run);
-          _eventBus.fire(
-            WorkflowStepCompletedEvent(
-              runId: run.id,
-              stepId: step.id,
-              stepName: step.name,
-              stepIndex: stepIndex,
-              totalSteps: totalSteps,
-              taskId: result.task?.id ?? '',
-              success: true,
-              tokenCount: result.tokenCount,
-              timestamp: DateTime.now(),
-            ),
+          _fireStepCompletedEvent(
+            run: run,
+            step: step,
+            stepIndex: stepIndex,
+            totalSteps: totalSteps,
+            taskId: result.task?.id ?? '',
+            success: true,
+            tokenCount: result.tokenCount,
           );
           nodeIndex++;
       }
@@ -886,19 +890,40 @@ class WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
+    await _cancelActiveTasksForRun(run.id, trigger: 'approval-timeout');
+    await _cleanupWorkflowGit(cancelled, preserveWorktrees: !workflowCleanupEnabledForRun(cancelled, _log));
+  }
+
+  Future<void> _cancelActiveTasksForRun(String runId, {required String trigger}) async {
     final allTasks = await _taskService.list();
     for (final task in allTasks) {
-      if (task.workflowRunId == run.id && (task.status == TaskStatus.queued || task.status == TaskStatus.running)) {
+      if (task.workflowRunId == runId && (task.status == TaskStatus.queued || task.status == TaskStatus.running)) {
         try {
-          await _taskService.transition(task.id, TaskStatus.cancelled, trigger: 'approval-timeout');
+          await _taskService.transition(task.id, TaskStatus.cancelled, trigger: trigger);
         } on StateError {
           // Already transitioned concurrently.
         } catch (e) {
-          _log.warning('Failed to cancel task ${task.id} on approval timeout: $e');
+          _log.warning('Failed to cancel task ${task.id} with trigger "$trigger": $e');
         }
       }
     }
-    await _cleanupWorkflowGit(cancelled, preserveWorktrees: !_cleanupEnabledForRun(cancelled));
+  }
+
+  Future<void> _pauseRun(WorkflowRun run, String reason) async {
+    final latest = await _repository.getById(run.id) ?? run;
+    if (latest.status != WorkflowRunStatus.running) return;
+    final paused = latest.copyWith(status: WorkflowRunStatus.paused, errorMessage: reason, updatedAt: DateTime.now());
+    await _repository.update(paused);
+    _eventBus.fire(
+      WorkflowRunStatusChangedEvent(
+        runId: latest.id,
+        definitionName: latest.definitionName,
+        oldStatus: latest.status,
+        newStatus: WorkflowRunStatus.paused,
+        errorMessage: reason,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   Future<void> _failRun(WorkflowRun run, String reason, {bool cleanupWorkflowGit = true}) async {
@@ -915,23 +940,36 @@ class WorkflowExecutor {
       ),
     );
     if (cleanupWorkflowGit) {
-      await _cleanupWorkflowGit(failed, preserveWorktrees: !_cleanupEnabledForRun(failed));
+      await _cleanupWorkflowGit(failed, preserveWorktrees: !workflowCleanupEnabledForRun(failed, _log));
     }
   }
 
-  bool _cleanupEnabledForRun(WorkflowRun run) {
-    try {
-      final definition = WorkflowDefinition.fromJson(run.definitionJson);
-      return definition.gitStrategy?.cleanupEnabled ?? true;
-    } catch (e, st) {
-      _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
-      return false;
+  Future<void> _failRunAndCancelActiveTasks(
+    WorkflowRun run,
+    String reason, {
+    required String taskCancelTrigger,
+    bool cleanupWorkflowGit = true,
+  }) async {
+    final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
+    await _repository.update(failed);
+    _eventBus.fire(
+      WorkflowRunStatusChangedEvent(
+        runId: run.id,
+        definitionName: run.definitionName,
+        oldStatus: run.status,
+        newStatus: WorkflowRunStatus.failed,
+        errorMessage: reason,
+        timestamp: DateTime.now(),
+      ),
+    );
+    await _cancelActiveTasksForRun(run.id, trigger: taskCancelTrigger);
+    if (cleanupWorkflowGit) {
+      await _cleanupWorkflowGit(failed, preserveWorktrees: !workflowCleanupEnabledForRun(failed, _log));
     }
   }
 
   Future<void> _completeRun(WorkflowRun run, WorkflowDefinition definition, WorkflowContext context) async {
-    final publishStrategy = definition.gitStrategy?.publish;
-    if (publishStrategy?.enabled == true) {
+    if (definition.gitStrategy?.publish == true) {
       final publishError = await _runDeterministicPublish(run, definition, context);
       if (publishError != null) {
         await _failRun(run, publishError, cleanupWorkflowGit: false);
@@ -958,8 +996,7 @@ class WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-    final cleanupEnabled = definition.gitStrategy?.cleanupEnabled ?? true;
-    await _cleanupWorkflowGit(completed, preserveWorktrees: !cleanupEnabled);
+    await _cleanupWorkflowGit(completed, preserveWorktrees: !workflowCleanupEnabledForRun(completed, _log));
     _log.info("Workflow '${run.definitionName}' (${run.id}) completed successfully");
   }
 

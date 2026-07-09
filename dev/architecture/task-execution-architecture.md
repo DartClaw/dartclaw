@@ -89,7 +89,7 @@ Task type influences artifact collection strategy, prompt composition, review mo
 
 For workflow-owned tasks specifically, authored workflow step types collapse onto the coding-task path. The authored YAML type is preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`) for observability and review-mode compatibility, while write intent is expressed through `configJson.readOnly` (set when `step_config_policy.stepIsReadOnly()` holds).
 
-For structured workflow outputs, task execution is conditional rather than always-two-turns: the one-shot branch first checks whether the final assistant message already contains a valid inline `<workflow-context>` payload for the declared structured output, and only falls back to the extra provider-native extraction turn when that inline parse fails.
+For workflow-owned agent steps whose declared outputs need model-derived values, the one-shot branch runs a dedicated no-tools structured finalization turn after the main work turn, emitting a strict execution envelope (`outputs` + `step_outcome`) that the host reads as the authoritative structured payload — this runs even if the main turn's final assistant message already contains a legacy inline `<workflow-context>` payload. Legacy inline parsing remains only as a compatibility fallback (missing/malformed envelope, old transcripts, `outputMode: prompt` opt-out steps); outcome-only steps with no model-derived declared outputs skip the finalizer turn and keep the inline `<step-outcome>` tag as their designed channel.
 
 ### 2.4 TaskStatus State Machine
 

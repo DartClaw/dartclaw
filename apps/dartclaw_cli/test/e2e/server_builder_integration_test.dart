@@ -298,7 +298,7 @@ void main() {
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -389,7 +389,7 @@ void main() {
         expect(server.name, 'acme');
         return transport;
       },
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -464,7 +464,7 @@ void main() {
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     await expectLater(
@@ -530,7 +530,7 @@ void main() {
         transports.add(transport);
         return transport;
       },
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -602,7 +602,7 @@ void main() {
         expect(server.name, 'acme');
         return transport;
       },
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -658,7 +658,7 @@ void main() {
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     await expectLater(
@@ -708,7 +708,7 @@ void main() {
       resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
       postMcpStartupHook: (_) async => throw StateError('post-registration startup failed'),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     await expectLater(
@@ -757,7 +757,7 @@ void main() {
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -836,7 +836,7 @@ void main() {
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     await expectLater(
@@ -898,7 +898,7 @@ mcp_servers:
         factoryCalls++;
         return _FakeOutboundTransport(tools: const []);
       },
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -944,7 +944,7 @@ mcp_servers:
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -994,7 +994,7 @@ mcp_servers:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -1059,7 +1059,7 @@ mcp_servers:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -1122,7 +1122,7 @@ mcp_servers:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -1206,7 +1206,7 @@ mcp_servers:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -1258,7 +1258,7 @@ mcp_servers:
       logService: logService,
       messageRedactor: messageRedactor,
       resolvedAssets: _resolvedAssetsForConfig(config),
-      // Default `runAndthenSkillsBootstrap: true` – we want the bootstrap to run.
+      // Default `runWorkflowSkillsBootstrap: true` – we want the bootstrap to run.
       skillProvisionerEnvironment: {'HOME': provisionHome.path},
     );
 

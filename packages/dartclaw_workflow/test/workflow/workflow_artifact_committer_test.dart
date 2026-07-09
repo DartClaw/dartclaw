@@ -190,7 +190,7 @@ void main() {
         id: 'plan-review',
         name: 'Review',
         skill: 'andthen:review',
-        outputs: {'review_findings': OutputConfig(format: OutputFormat.path)},
+        outputs: {'review_report_path': OutputConfig(format: OutputFormat.path)},
       );
 
       final result = await maybeCommitStepArtifacts(
@@ -204,7 +204,7 @@ void main() {
             steps: [reviewStep],
           ),
           step: reviewStep,
-          context: WorkflowContext(data: {'review_findings': runtimeReport}),
+          context: WorkflowContext(data: {'review_report_path': runtimeReport}),
           task: Task(
             id: 'task-1',
             title: 'Task',
@@ -292,7 +292,7 @@ void main() {
       }
     });
 
-    test('commits nested story specs and technical research sibling', () async {
+    test('commits nested story specs and declared technical research output', () async {
       final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
       final paths = [
         'docs/plans/p/plan.md',
@@ -325,6 +325,7 @@ void main() {
                 outputs: {
                   'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
                   'plan': OutputConfig(format: OutputFormat.path),
+                  'technical_research': OutputConfig(format: OutputFormat.path),
                 },
               ),
             ],
@@ -335,11 +336,13 @@ void main() {
             outputs: {
               'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
               'plan': OutputConfig(format: OutputFormat.path),
+              'technical_research': OutputConfig(format: OutputFormat.path),
             },
           ),
           context: WorkflowContext(
             data: {
               'plan': 'docs/plans/p/plan.md',
+              'technical_research': 'docs/plans/p/.technical-research.md',
               'story_specs': {
                 'items': [
                   {'id': 'S01', 'title': 'One', 'spec_path': 'fis/s01.md'},

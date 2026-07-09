@@ -130,6 +130,15 @@
 
   /* x — close/delete/dismiss */
   --icon-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+
+  /* clock — temporal KG timeline (Timeline nav) */
+  --icon-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E");
+
+  /* database — knowledge hub (Knowledge nav) */
+  --icon-database: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='5' rx='9' ry='3'/%3E%3Cpath d='M3 5V19A9 3 0 0 0 21 19V5'/%3E%3Cpath d='M3 12A9 3 0 0 0 21 12'/%3E%3C/svg%3E");
+
+  /* search — research packet (Research nav) */
+  --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
 }
 
 
@@ -232,6 +241,9 @@
 [data-icon="folder-git"]::before { -webkit-mask-image: var(--icon-folder-git);     mask-image: var(--icon-folder-git); }
 [data-icon="projects"]::before   { -webkit-mask-image: var(--icon-folder-kanban);  mask-image: var(--icon-folder-kanban); }
 [data-icon="workflows"]::before  { -webkit-mask-image: var(--icon-workflow);       mask-image: var(--icon-workflow); }
+[data-icon="database"]::before   { -webkit-mask-image: var(--icon-database);       mask-image: var(--icon-database); }
+[data-icon="search"]::before     { -webkit-mask-image: var(--icon-search);         mask-image: var(--icon-search); }
+[data-icon="clock"]::before      { -webkit-mask-image: var(--icon-clock);          mask-image: var(--icon-clock); }
 
 /* Sidebar — session items */
 [data-icon="terminal"]::before       { -webkit-mask-image: var(--icon-terminal);       mask-image: var(--icon-terminal); }

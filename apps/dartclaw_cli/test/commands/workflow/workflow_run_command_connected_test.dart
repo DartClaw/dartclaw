@@ -53,6 +53,45 @@ void main() {
       expect(transport.requests.last.uri.path, '/api/workflows/runs/run-1/events');
     });
 
+    test('connected run skips a malformed SSE frame instead of aborting the stream', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                // Missing required taskId/totalSteps – must be skipped, not thrown.
+                'data: {"type":"workflow_step_completed","runId":"run-1","stepId":"step-1","stepIndex":0}\n\n'
+                'data: {"type":"workflow_step_completed","runId":"run-1","stepId":"step-1","stepIndex":0,"totalSteps":1,"taskId":"task-1","success":true,"tokenCount":12}\n\n'
+                // Unknown status value (version skew) – must also be skipped.
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"nonexistent"}\n\n'
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final errorOutput = <String>[];
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: output.add,
+        stderrLine: errorOutput.add,
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      expect(output.any((line) => line.contains('Completed: 1/1 steps')), isTrue);
+      expect(errorOutput, isEmpty);
+    });
+
     test('connected run sends approvals override in the start request', () async {
       final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],
@@ -148,8 +187,74 @@ void main() {
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
-      expect(output, contains('[step 1/1] step-1[S01]: First step — running'));
+      expect(output, contains('[step 1/1] step-1[S01]: First step – running'));
       expect(output, contains('[step 1/1] step-1[S01]: completed (0s, 12 tokens)'));
+    });
+
+    test('connected text mode renders needsInput as recoverable blocked', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"workflow_step_completed","runId":"run-1","stepId":"step-1","stepIndex":0,"totalSteps":1,"taskId":"task-1","success":false,"outcome":"needsInput","reason":"waiting on operator","tokenCount":0}\n\n'
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"paused","errorMessage":"waiting on operator"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: output.add,
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 2)),
+      );
+
+      expect(output, contains('[step 1/1] step-1: blocked (recoverable): waiting on operator'));
+      expect(output, isNot(contains('[step 1/1] step-1: failed')));
+    });
+
+    test('connected text mode renders cancelled steps as resumable interruptions', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"workflow_step_completed","runId":"run-1","stepId":"step-1","stepIndex":0,"totalSteps":1,"taskId":"task-1","success":false,"outcome":"cancelled","reason":"run teardown","tokenCount":0}\n\n'
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"cancelled"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: output.add,
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 2)),
+      );
+
+      expect(output, contains('[step 1/1] step-1: interrupted (resumable): run teardown'));
+      expect(output, isNot(contains('[step 1/1] step-1: failed')));
     });
 
     test('connected text mode renders direct map iteration completion with item id', () async {
@@ -190,7 +295,7 @@ void main() {
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
-      expect(output, contains('[step 1/1] implement[S01]: Implement — running'));
+      expect(output, contains('[step 1/1] implement[S01]: Implement – running'));
       expect(output, contains('[step 1/1] implement[S01]: completed (0s, 42 tokens)'));
     });
 
@@ -219,7 +324,7 @@ void main() {
             headers: const {'content-type': 'text/event-stream'},
             body: Stream.value(
               utf8.encode(
-                'data: {"type":"map_iteration_completed","runId":"run-1","stepId":"story-pipeline","iterationIndex":1,"totalIterations":2,"itemId":"S02","taskId":"","success":false,"tokenCount":0}\n\n'
+                'data: {"type":"map_iteration_completed","runId":"run-1","stepId":"story-pipeline","iterationIndex":1,"totalIterations":2,"itemId":"S02","taskId":"","success":false,"outcome":"cancelled","reason":"run teardown","tokenCount":0}\n\n'
                 'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
               ),
             ),
@@ -239,7 +344,7 @@ void main() {
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
-      expect(output, contains('[step 1/2] story-pipeline[S02]: failed'));
+      expect(output, contains('[step 1/2] story-pipeline[S02]: interrupted (resumable): run teardown'));
     });
 
     test('standalone mode aborts when a server is reachable without --force', () async {

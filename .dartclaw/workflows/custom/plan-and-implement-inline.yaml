@@ -35,9 +35,6 @@ gitStrategy:
     commit: false
 
 stepDefaults:
-  - match: "prd"
-    provider: "@planner"
-    model: "@planner"
   - match: "plan"
     provider: "@planner"
     model: "@planner"
@@ -70,21 +67,38 @@ steps:
     # auto-framing and route attacker-controlled text through as instructions.
     workflowVariables: [FEATURE]
     outputs:
-      prd: prd_path
-      plan: plan_path
+      prd:
+        format: path
+        resolver: filesystem
+        pathPattern: '**/*prd.md'
+        preferPatterns: ['prd.md']
+        description: Workspace-relative path to the required PRD on disk.
+      plan:
+        format: path
+        resolver: filesystem
+        pathPattern: '**/*plan.{json,md}'
+        preferPatterns: ['plan.json', 'plan.md']
+        description: "Workspace-relative path to plan.json (preferred) or plan.md (legacy) on disk; empty when no plan exists yet."
       story_specs: story_specs
 
   - id: plan
     name: Plan Stories and Specs
     skill: andthen:plan
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
-    inputs: [prd, plan]
+    # `prd` is interpolated inline as the skill argument; only `plan` needs
+    # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
+    inputs: [plan]
     onFailure: retry
     maxRetries: 1
     prompt: "--auto {{context.prd}}"
     outputs:
       story_specs: story_specs
-      plan: plan_path
+      plan:
+        format: path
+        resolver: filesystem
+        pathPattern: '**/*plan.{json,md}'
+        preferPatterns: ['plan.json', 'plan.md']
+        description: "Workspace-relative path to plan.json (preferred) or plan.md (legacy) on disk; empty when no plan exists yet."
 
   - id: story-pipeline
     name: Per-Story Pipeline
@@ -101,21 +115,24 @@ steps:
       - id: revise-story-spec
         name: Revise Story Spec (low confidence)
         skill: andthen:review
-        entryGate: "map.item.fis_source == synthesized && map.item.spec_confidence > 0 && map.item.spec_confidence < 7"
-        inputs: [story_specs]
+        entryGate: "map.item.spec_source == synthesized && map.item.spec_confidence > 0 && map.item.spec_confidence < 7"
         prompt: >-
           --mode doc --fix --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
           {{map.item.spec_path}}
 
       - id: implement
         name: Implement Story
         skill: andthen:exec-spec
+        # No allowedTools grant here (unlike the built-in): the maintainer profile
+        # runs under a broader permission mode, so mutating steps in the inline
+        # customs deliberately omit per-tool allowlists.
         maxRetries: 1
         prompt: "--auto {{map.item.spec_path}}"
-        inputs: [story_specs]
         outputs:
-          story_result: story_result
+          story_result:
+            schema: narrative_text
+            description: Per-story result for this work item only. Report success when scoped acceptance checks pass; unrelated sibling or baseline failures are non-blocking and should be named as external context, not as this story's failure.
 
       - id: simplify-code
         name: Simplify Story Code
@@ -133,7 +150,6 @@ steps:
         prompt: >-
           --auto simplify only the changes for this story; preserve
           behavior; no scope creep into other packages.
-        inputs: [story_result]
 
       # Per-story review: catch intent-drift + code/security defects in this
       # story before integration, instead of deferring everything to the
@@ -143,15 +159,15 @@ steps:
         name: Review Story
         skill: andthen:review
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [story_specs, story_result]
+        inputs: [story_result]
         prompt: >-
           --mode gap,code,security --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
           Review the implementation of {{map.item.spec_path}}. Scope strictly
           to this story's FIS; the live checkout may contain unrelated operator
           work, so do not flag it.
         outputs:
-          review_findings: review_report_path
+          review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
 
@@ -162,29 +178,34 @@ steps:
         name: Story Remediation Loop
         type: loop
         maxIterations: 3
+        # On exhaustion with residual gating findings, escalate the story to
+        # needs-review (pause for approval) instead of hard-failing it — the
+        # foreach-nested counterpart to the top-level loop's onMaxIterations: continue.
+        onMaxIterations: escalate
         entryGate: "gating_findings_count > 0"
         exitGate: "gating_findings_count == 0"
         steps:
           - id: remediate-story
             name: Remediate Story Findings
             skill: andthen:remediate-findings
-            inputs: [review_findings, story_result]
-            prompt: "--auto {{context.review_findings}}"
+            prompt: "--auto {{context.review_report_path}}"
             outputs:
-              remediation_summary: remediation_summary
+              remediation_summary:
+                schema: narrative_text
+                description: Summary of what was changed during this remediation pass.
           - id: re-review-story
             name: Re-review Story
             skill: andthen:review
             allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-            inputs: [story_specs, story_result, remediation_summary]
+            inputs: [story_result, remediation_summary]
             prompt: >-
               --mode gap,code,security --auto
-              --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+              --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
               Review the implementation of {{map.item.spec_path}}. Scope
               strictly to this story's FIS; the live checkout may contain
               unrelated operator work, so do not flag it.
             outputs:
-              review_findings: review_report_path
+              review_report_path: review_report_path
               findings_count: findings_count
               gating_findings_count: gating_findings_count
 
@@ -194,17 +215,17 @@ steps:
     parallel: true
     onFailure: retry
     maxRetries: 1
-    inputs: [story_specs, story_results, plan]
+    inputs: [story_specs, story_results]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
       --mode gap --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.plan}}. Scope by the plan and
       per-story FIS – assess only the working-tree state implementing this
       plan; the live checkout may contain unrelated operator work, so do
       not flag it.
     outputs:
-      plan-review.review_findings: review_report_path
+      plan-review.review_report_path: review_report_path
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
@@ -222,17 +243,17 @@ steps:
     provider: claude
     model: opus[1m]
     effort: xhigh
-    inputs: [story_specs, story_results, plan]
+    inputs: [story_specs, story_results]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
       --mode code,security --council --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.plan}}. Scope by the plan and
       per-story FIS – assess only the working-tree state implementing this
       plan; the live checkout may contain unrelated operator work, so do
       not flag it.
     outputs:
-      plan-review-council.review_findings: review_report_path
+      plan-review-council.review_report_path: review_report_path
       plan-review-council.findings_count: findings_count
       plan-review-council.gating_findings_count: gating_findings_count
 
@@ -242,15 +263,17 @@ steps:
     parallel: true
     onFailure: retry
     maxRetries: 1
-    inputs: [story_specs, story_results, plan]
+    inputs: [story_specs, story_results]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode review --auto {{context.plan}}. Scope by the plan and
+      --mode review --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      {{context.plan}}. Scope by the plan and
       per-story FIS – review only packages this plan touched in the
       working tree; ignore unrelated operator work in other parts of the
       live checkout.
     outputs:
-      architecture-review.review_findings: review_report_path
+      architecture-review.review_report_path: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
@@ -259,7 +282,7 @@ steps:
     type: aggregate-reviews
     aggregateReviews: [plan-review, plan-review-council, architecture-review]
     outputs:
-      review_findings: review_report_path
+      review_report_path: review_report_path
       findings_count: findings_count
       gating_findings_count: gating_findings_count
 
@@ -269,15 +292,21 @@ steps:
     maxIterations: 5
     entryGate: "gating_findings_count > 0"
     exitGate: "gating_findings_count == 0"
+    # On exhaustion, fall through to the deterministic verify-all → verify-fix-loop
+    # gate below instead of failing the run; that gate mechanically resolves
+    # guardrail-class residue and is the genuine fail point if it cannot.
+    onMaxIterations: continue
     steps:
       - id: remediate
         name: Remediate Findings
         skill: andthen:remediate-findings
         entryGate: "gating_findings_count > 0"
-        inputs: [review_findings, story_results]
-        prompt: "--auto {{context.review_findings}}"
+        inputs: [story_results]
+        prompt: "--auto {{context.review_report_path}}"
         outputs:
-          remediation_summary: remediation_summary
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
 
       - id: re-review
         name: Re-review After Remediation
@@ -286,13 +315,13 @@ steps:
         inputs: [story_specs, story_results, remediation_summary]
         prompt: >-
           --mode gap,code,security --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
           Review implementation of {{context.plan}}. Scope by the plan
           and per-story FIS – assess only the working-tree state
           implementing this plan; the live checkout may contain unrelated
           operator work, so do not flag it.
         outputs:
-          review_findings: review_report_path
+          review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
 
@@ -339,7 +368,7 @@ steps:
       - id: verify-recheck
         name: Re-run Verification Gate
         type: bash
-        timeout: 60m
+        timeout: 90m
         script: >-
           bash ../workflows/custom/scripts/verify-gate.sh all
           {{workflow.runtime_artifacts_dir}}

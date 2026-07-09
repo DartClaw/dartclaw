@@ -2,29 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-typedef PathBasenameMatcher = bool Function(String path);
-
 final _argumentSafePathPattern = RegExp(r'^[A-Za-z0-9._/-]+$');
-
-String safeWorkspaceRelativePath(
-  String rawPath, {
-  required String? activeWorkspaceRoot,
-  required String fieldName,
-  required PathBasenameMatcher basenameMatcher,
-  required String typeDescription,
-}) {
-  final value = rawPath.trim();
-  if (value.isEmpty) {
-    throw FormatException('$fieldName must be a non-empty path.');
-  }
-
-  final workspacePath = _workspaceRelativePath(value, activeWorkspaceRoot, fieldName, rawPath);
-  if (!basenameMatcher(workspacePath)) {
-    throw FormatException('$fieldName must be $typeDescription: $rawPath.');
-  }
-  validateArgumentSafePath(workspacePath, fieldName: fieldName, rawPath: rawPath);
-  return workspacePath;
-}
 
 void validateArgumentSafePath(String workspacePath, {required String fieldName, required String rawPath}) {
   if (RegExp(r'[\x00-\x20\x7f]').hasMatch(workspacePath)) {
@@ -114,25 +92,4 @@ String? resolveExistingPath(String path) {
     }
     return null;
   }
-}
-
-bool isFisMarkdownPath(String path) =>
-    RegExp(r'^s\d+(?:[-_][^/]+)?\.md$', caseSensitive: false).hasMatch(p.basename(path));
-
-bool isPrdMarkdownPath(String path) => RegExp(r'^(?:prd|.+-prd)\.md$', caseSensitive: false).hasMatch(p.basename(path));
-
-String _workspaceRelativePath(String value, String? activeWorkspaceRoot, String fieldName, String rawPath) {
-  final root = activeWorkspaceRoot?.trim();
-  if (p.isAbsolute(value)) {
-    if (root == null || root.isEmpty) {
-      throw FormatException('$fieldName must be workspace-relative: $rawPath.');
-    }
-    final rootAbs = p.normalize(p.absolute(root));
-    final candidateAbs = p.normalize(value);
-    if (!p.isWithin(rootAbs, candidateAbs)) {
-      throw FormatException('$fieldName escapes project root: $rawPath.');
-    }
-    return p.normalize(p.relative(candidateAbs, from: rootAbs));
-  }
-  return p.normalize(value);
 }

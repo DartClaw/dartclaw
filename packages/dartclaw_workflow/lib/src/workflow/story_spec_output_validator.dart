@@ -43,7 +43,7 @@ StepValidationFailure? _missingStorySpecFailure(List<String> missingSpecPaths) {
   return StepValidationFailure(
     reason:
         'Plan skill produced story_specs.spec_path values that do not '
-        'exist on disk: $sorted. Expected the skill to write a FIS file '
+        'exist on disk: $sorted. Expected the skill to write a story-spec file '
         'per story record. On retry, create those files before emitting '
         'their paths or emit only spec_path values for files that already exist.',
     missingArtifacts: sorted,

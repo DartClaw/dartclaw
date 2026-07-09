@@ -260,6 +260,7 @@ class ConfigSerializer {
         'turnProgress': {
           'stallTimeout': _durationString(config.governance.turnProgress.stallTimeout),
           'stallAction': config.governance.turnProgress.stallAction.name,
+          'maxDuration': _durationString(config.governance.turnProgress.maxDuration),
         },
         'rateLimits': {
           'perSender': {

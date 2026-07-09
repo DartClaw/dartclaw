@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus;
 import 'package:test/test.dart';
 
@@ -27,26 +25,19 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
           ),
           'remediate' => StubResponse(
-            assistantContent: contextOutput({
-              'remediation_result': jsonEncode({
-                'remediation_summary': 'No remediation needed',
-                'diff_summary': 'No diff',
-              }),
-              'remediation_summary': 'No remediation needed',
-              'diff_summary': 'No diff',
-            }),
+            assistantContent: contextOutput({'remediation_summary': 'No remediation needed'}),
           ),
           're-review' => StubResponse(
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 0,
               ),
             ),
@@ -63,7 +54,7 @@ void main() {
     expect(trace.tasksForStep('review-code').single.configJson['_workflowNeedsWorktree'], isTrue);
     // File-backed review must stay writable: no readOnly flag applied to review-code.
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('readOnly'), isFalse);
-    expectReviewOutputDir(trace.descriptionsByStep['review-code']!.single);
+    expectReviewOutputDir(trace.tasksForStep('review-code').single);
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('re-review'), isEmpty);
   });
@@ -84,26 +75,21 @@ void main() {
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: 1,
               ),
             ),
           ),
           'remediate' => StubResponse(
             assistantContent: contextOutput({
-              'remediation_result': jsonEncode({
-                'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
-                'diff_summary': 'Diff summary ${queued.occurrence + 1}',
-              }),
               'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
-              'diff_summary': 'Diff summary ${queued.occurrence + 1}',
             }),
           ),
           're-review' => StubResponse(
             assistantContent: contextOutput(
               reviewReportContext(
                 queued.stepKey,
-                runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                 findingsCount: queued.occurrence == 0 ? 1 : 0,
               ),
             ),
@@ -122,8 +108,8 @@ void main() {
       'remediate',
       're-review',
     ]);
-    for (final description in trace.descriptionsByStep['re-review']!) {
-      expectReviewOutputDir(description);
+    for (final task in trace.tasksForStep('re-review')) {
+      expectReviewOutputDir(task);
     }
   });
 }

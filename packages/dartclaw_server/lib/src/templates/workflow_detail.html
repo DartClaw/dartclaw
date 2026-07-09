@@ -78,6 +78,13 @@
         </button>
       </div>
 
+      <!-- Why-paused banner: states why the run is paused and what clears it -->
+      <div tl:if="${hasPauseBanner}" class="banner workflow-pause-banner"
+           tl:classappend="${pauseBannerClass}" role="status">
+        <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+        <span><strong tl:text="${pauseBannerLabel}">Paused</strong>: <span tl:text="${pauseBannerText}">reason</span></span>
+      </div>
+
       <!-- Vertical pipeline -->
       <div class="workflow-pipeline">
         <div tl:each="step : ${steps}" class="workflow-step-wrapper">

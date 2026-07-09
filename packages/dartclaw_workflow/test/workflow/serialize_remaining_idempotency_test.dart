@@ -24,7 +24,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutor,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
@@ -54,8 +53,7 @@ void main() {
     tearDown(h.tearDown);
 
     test('resume after durable event flag does not re-fire serialization event', () async {
-      const runEmittedKey = '_merge_resolve.serialize_remaining_event_emitted';
-      const phaseKey = '_merge_resolve.pipeline.serialize_remaining_phase';
+      const stateKey = '_merge_resolve.serializeRemaining';
 
       // First-run wiring comes from the shared harness; the resume block below
       // opens a SECOND in-memory db to simulate a crash/restart and must stay local.
@@ -89,7 +87,14 @@ void main() {
       final releaseThirdTask = Completer<void>();
       final completeFirstRunTasks = eventBus.on<TaskStatusChangedEvent>().where(_isQueued).listen((event) async {
         await _attachWorktree(event.taskId, taskService, tempDir);
-        if (await _isThirdStoryTask(event.taskId, taskService)) await releaseThirdTask.future;
+        if (await _isThirdStoryTask(event.taskId, taskService)) {
+          // Park the third story's task in `review` so the mid-settle crash
+          // window (eventEmitted persisted, phase still 'enacting') stays open
+          // for the snapshot poller.
+          await taskService.transition(event.taskId, TaskStatus.running, trigger: 'test');
+          await taskService.transition(event.taskId, TaskStatus.review, trigger: 'test');
+          await releaseThirdTask.future;
+        }
         await Future<void>.delayed(Duration.zero);
         await _completeIfActive(event.taskId, taskService);
       });
@@ -110,10 +115,11 @@ void main() {
       );
 
       final firstRunFuture = firstExecutor.execute(run, definition, context);
-      final crashSnapshot = await _waitForCrashSnapshot(repository, run.id, runEmittedKey, phaseKey);
+      final crashSnapshot = await _waitForCrashSnapshot(repository, run.id, stateKey);
       expect(firstEvents, hasLength(1));
-      expect(_contextData(crashSnapshot)[runEmittedKey], isTrue);
-      expect(_contextData(crashSnapshot)[phaseKey], isNot(equals('drained')));
+      final crashState = _serializeState(_contextData(crashSnapshot), stateKey);
+      expect(crashState['eventEmitted'], isTrue);
+      expect(crashState['phase'], isNot(equals('drained')));
 
       releaseThirdTask.complete();
       await firstRunFuture;
@@ -185,8 +191,9 @@ void main() {
       expect(secondEvents, isEmpty);
       expect(firstEvents.length + secondEvents.length, equals(1));
       final persistedRun = await repository.getById(run.id);
-      expect(_contextData(persistedRun)[runEmittedKey], isTrue, reason: '${persistedRun?.contextJson}');
-      expect(_contextData(persistedRun)[phaseKey], equals('drained'));
+      final persistedState = _serializeState(_contextData(persistedRun), stateKey);
+      expect(persistedState['eventEmitted'], isTrue, reason: '${persistedRun?.contextJson}');
+      expect(persistedState['phase'], equals('drained'));
     });
   });
 }
@@ -202,7 +209,7 @@ WorkflowDefinition _mergeResolveDefinition({required int maxParallel}) {
       integrationBranch: true,
       worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
       promotion: 'merge',
-      publish: WorkflowGitPublishStrategy(enabled: false),
+      publish: false,
       mergeResolve: MergeResolveConfig(
         enabled: true,
         maxAttempts: 1,
@@ -213,7 +220,7 @@ WorkflowDefinition _mergeResolveDefinition({required int maxParallel}) {
       WorkflowStep(
         id: 'pipeline',
         name: 'Story Pipeline',
-        type: WorkflowTaskType.foreach,
+        taskType: WorkflowTaskType.foreach,
         mapOver: 'stories',
         maxParallel: maxParallel,
         foreachSteps: const ['implement'],
@@ -308,7 +315,7 @@ WorkflowStepOutputTransformer _codingWithMergeResolveFailTransformer() {
       };
     }
     final result = Map<String, dynamic>.from(outputs);
-    if (step.type == WorkflowTaskType.agent) {
+    if (step.taskType == WorkflowTaskType.agent) {
       result['${step.id}.branch'] = 'story-branch-${task.id}';
     }
     return result;
@@ -351,23 +358,19 @@ Future<void> _completeIfActive(String taskId, TaskService taskService) async {
       await taskService.transition(taskId, TaskStatus.accepted, trigger: 'test');
     }
   } on StateError {
-    // Drain cancellation can win the race in the simulated crash window.
+    // Serialize-settle cancellation can win the race in the simulated crash window.
   }
 }
 
-Future<WorkflowRun> _waitForCrashSnapshot(
-  SqliteWorkflowRunRepository repository,
-  String runId,
-  String runEmittedKey,
-  String phaseKey,
-) async {
+Future<WorkflowRun> _waitForCrashSnapshot(SqliteWorkflowRunRepository repository, String runId, String stateKey) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   WorkflowRun? lastRun;
   while (DateTime.now().isBefore(deadline)) {
     final run = await repository.getById(runId);
     lastRun = run;
     final data = _contextData(run);
-    if (data[runEmittedKey] == true && data[phaseKey] != 'drained') {
+    final state = _serializeState(data, stateKey);
+    if (state['eventEmitted'] == true && state['phase'] != 'drained') {
       return run!;
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -383,4 +386,9 @@ Map<String, dynamic> _contextData(WorkflowRun? run) {
   if (contextJson == null) return const <String, dynamic>{};
   final data = contextJson['data'];
   return data is Map ? Map<String, dynamic>.from(data) : Map<String, dynamic>.from(contextJson);
+}
+
+Map<String, dynamic> _serializeState(Map<String, dynamic> data, String stateKey) {
+  final raw = data[stateKey];
+  return raw is Map ? Map<String, dynamic>.from(raw) : const <String, dynamic>{};
 }

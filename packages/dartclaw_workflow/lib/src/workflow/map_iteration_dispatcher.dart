@@ -246,16 +246,23 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
 
     late Task finalTask;
     try {
-      finalTask = await _waitForTaskCompletion(taskId, step, completer, sub, runId: run.id);
+      finalTask = await _waitForTaskCompletion(
+        taskId,
+        step,
+        completer,
+        sub,
+        runId: run.id,
+        timeoutSeconds: resolved.timeoutSeconds,
+      );
     } on TimeoutException {
       WorkflowExecutor._log.warning(
-        "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex timed out after ${step.timeoutSeconds}s",
+        "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex timed out after ${resolved.timeoutSeconds}s",
       );
       return _MapIterationAttempt(
         taskId: taskId,
         isFailedOutcome: true,
         retryable: false,
-        message: 'Timed out after ${step.timeoutSeconds}s',
+        message: 'Timed out after ${resolved.timeoutSeconds}s',
         tokenCount: 0,
         outputs: const {},
         resultValue: null,
@@ -294,7 +301,28 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
     }
 
     final tokenCount = await _readStepTokenCount(finalTask);
-    final taskFailed = finalTask.status == TaskStatus.failed || finalTask.status == TaskStatus.cancelled;
+    // Route the status→outcome vocabulary decision through the shared resolver
+    // mapping so cancelled semantics stay defined in one place, even though
+    // the map attempt pipeline consumes it via the abort seam rather than a
+    // StepOutcome.
+    if (_fallbackOutcomeFromTaskStatus(finalTask.status) == 'cancelled') {
+      // Run-teardown interruption: reuse the abort seam so the item settles in
+      // no index set (resume re-dispatches it) and no retry attempt fires
+      // mid-teardown; the runner performs the deferred pause after the
+      // in-flight drain when the run is still running.
+      mapCtx.abortReason ??= "Map step '${step.id}' item $iterIndex was interrupted and can be resumed.";
+      return _MapIterationAttempt(
+        taskId: taskId,
+        isFailedOutcome: false,
+        aborted: true,
+        message: null,
+        tokenCount: tokenCount,
+        outputs: const {},
+        resultValue: null,
+        task: finalTask,
+      );
+    }
+    final taskFailed = finalTask.status == TaskStatus.failed;
     if (taskFailed) {
       final reason = finalTask.configJson['failReason'] as String?;
       return _MapIterationAttempt(
@@ -311,7 +339,10 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
     Map<String, dynamic> outputs = {};
     StepValidationFailure? extractionFailure;
     try {
-      outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: effectiveOutputsFor(step));
+      final extractionStep = resolved.gatingSeverity == step.gatingSeverity
+          ? step
+          : step.copyWith(gatingSeverity: resolved.gatingSeverity);
+      outputs = await _contextExtractor.extract(extractionStep, finalTask, effectiveOutputs: step.outputs);
     } on MissingArtifactFailure catch (e, st) {
       extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
       WorkflowExecutor._log.warning(

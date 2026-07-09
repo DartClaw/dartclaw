@@ -18,6 +18,60 @@ const String workflowContextClose = '</$workflowContextTag>';
 /// its inner JSON payload in group 1.
 final RegExp workflowContextRegExp = RegExp('$workflowContextOpen\\s*([\\s\\S]*?)\\s*$workflowContextClose');
 
+/// Top-level key carrying declared domain outputs in the structured execution
+/// envelope. Reserved as a declared-output key name (see the output-schema
+/// validation rules) so a step cannot collide with the envelope shape.
+const String executionEnvelopeOutputsKey = 'outputs';
+
+/// Top-level key carrying engine-owned semantic step outcome in the execution
+/// envelope. Reserved as a declared-output key name.
+const String executionEnvelopeStepOutcomeKey = 'step_outcome';
+
+/// Reserved declared-output key names that would collide with the execution
+/// envelope's top-level shape.
+const Set<String> reservedEnvelopeOutputKeys = {executionEnvelopeOutputsKey, executionEnvelopeStepOutcomeKey};
+
+/// Host-stamped marker key recording the execution-envelope schema version on a
+/// persisted `structuredOutput` payload.
+///
+/// The host injects this after receiving the finalizer envelope so envelope and
+/// legacy flat payloads are discriminated deterministically — never by
+/// shape-sniffing top-level keys, which stay stable across pre-upgrade rows and
+/// resumed mid-run tasks. Absent from the strict schema sent to the provider.
+const String executionEnvelopeMarkerKey = '_envelopeVersion';
+
+/// Current execution-envelope schema version.
+const int executionEnvelopeVersion = 1;
+
+/// Whether [payload] is a host-stamped execution envelope (marker-discriminated,
+/// never shape-sniffed).
+bool isExecutionEnvelope(Map<String, dynamic>? payload) =>
+    payload != null && payload[executionEnvelopeMarkerKey] is int;
+
+/// Whether [schema] is the strict execution-envelope schema (top-level `outputs`
+/// object), as opposed to a legacy flat structured-output schema.
+///
+/// The reserved key names are validator-forbidden as declared-output names
+/// (see the output-schema rules), so a legacy flat schema can never carry a
+/// top-level `outputs` property that is not the envelope.
+bool isExecutionEnvelopeSchema(Map<String, dynamic>? schema) {
+  final properties = schema?['properties'];
+  return properties is Map && properties.containsKey(executionEnvelopeOutputsKey);
+}
+
+/// The declared domain-output keys carried under an execution-envelope
+/// [schema]'s `outputs` object, in declaration order. Returns empty for a
+/// non-envelope schema.
+List<String> executionEnvelopeDeclaredOutputKeys(Map<String, dynamic>? schema) {
+  final properties = schema?['properties'];
+  if (properties is! Map) return const <String>[];
+  final outputs = properties[executionEnvelopeOutputsKey];
+  if (outputs is! Map) return const <String>[];
+  final outputProperties = outputs['properties'];
+  if (outputProperties is! Map) return const <String>[];
+  return outputProperties.keys.map((key) => key.toString()).toList(growable: false);
+}
+
 /// Tag name used to delimit step outcome metadata in the final assistant message.
 const String stepOutcomeTag = 'step-outcome';
 

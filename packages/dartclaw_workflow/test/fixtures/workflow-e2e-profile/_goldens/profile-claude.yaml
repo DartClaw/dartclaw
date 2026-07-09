@@ -29,7 +29,7 @@ providers:
   claude:
     executable: claude
     pool_size: 3
-    permissionMode: bypassPermissions
+    permissionMode: dontAsk
 
 credentials:
   anthropic:

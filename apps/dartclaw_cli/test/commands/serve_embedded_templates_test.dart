@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import '../helpers/log_service_capture.dart';
+
 late String _templatesDirPath;
 late String _staticDirPath;
 late String _skillsDirPath;
@@ -111,11 +113,20 @@ void main() {
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      await captureLogServiceRecords(
+        () async {
+          await expectLater(
+            localRunner.run(['serve']),
+            throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+          );
+        },
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+        failOnUnexpectedSevere: true,
+      );
       expect(stderrLines.join('\n'), isNot(contains('Template validation failed')));
     });
   });

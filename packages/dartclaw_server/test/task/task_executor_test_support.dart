@@ -180,16 +180,20 @@ const _testCliProviders = {
 /// Collapses the ~12 bespoke `processStarter:` closures that all shell out to
 /// `Process.start('/bin/sh', ['-lc', "printf '%s' '<json>'"])`. [payloadFor]
 /// receives the CLI args so a test can branch on, e.g., `--json-schema`.
-/// [onArgs] captures the args for assertions; [providers] defaults to claude+codex.
+/// [onArgs] captures the args for assertions; [onEnv] captures the spawn
+/// environment (merged provider + extra env); [providers] defaults to
+/// claude+codex.
 WorkflowCliRunner echoCliRunner(
   String Function(List<String> args) payloadFor, {
   Map<String, WorkflowCliProviderConfig> providers = _testCliProviders,
   void Function(String executable, List<String> args)? onArgs,
+  void Function(Map<String, String>? environment)? onEnv,
 }) {
   return WorkflowCliRunner(
     providers: providers,
     processStarter: (exe, args, {workingDirectory, environment}) async {
       onArgs?.call(exe, List<String>.from(args));
+      onEnv?.call(environment);
       final escaped = payloadFor(args).replaceAll("'", "'\\''");
       return Process.start('/bin/sh', ['-lc', "printf '%s' '$escaped'"]);
     },

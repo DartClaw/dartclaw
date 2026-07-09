@@ -81,8 +81,31 @@ String _dependencyErrorWithRemediation(String message) {
       "story's `dependencies` array — do not re-add the closed story to `items`.";
 }
 
+/// Item keys the `story_specs` data-shape contract recognizes.
+///
+/// Unknown keys are rejected loudly (the sanctioned ADR-041 data-shape
+/// exception) so a stale emitter breaks discovery at validation time instead of
+/// silently never dispatching dependent gates.
+const _knownStorySpecItemKeys = {
+  'id',
+  'title',
+  'spec_path',
+  'dependencies',
+  'parallel',
+  'wave',
+  'phase',
+  'risk',
+  'status',
+  'spec_source',
+  'spec_confidence',
+};
+
 Map<String, dynamic> _normalizeItem(Map<String, dynamic> item, int index, List<String> errors) {
   final normalizedItem = Map<String, dynamic>.from(item);
+  final unknownKeys = item.keys.where((key) => !_knownStorySpecItemKeys.contains(key)).toList()..sort();
+  if (unknownKeys.isNotEmpty) {
+    errors.add('story_specs.items[$index] has unknown propert${unknownKeys.length == 1 ? 'y' : 'ies'}: $unknownKeys.');
+  }
   final id = trimmedString(item['id']);
   if (id == null) {
     errors.add('story_specs.items[$index] is missing a non-empty `id`.');

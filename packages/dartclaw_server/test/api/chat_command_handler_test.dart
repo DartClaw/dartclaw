@@ -135,7 +135,7 @@ void main() {
 
     expect(response, isNotNull);
     final body = await response!.readAsString();
-    expect(body, contains('Required variable'));
+    expect(body, contains('Missing required variable(s)'));
     expect(body, contains('REPO'));
     expect(workflows.calls, isEmpty);
   });

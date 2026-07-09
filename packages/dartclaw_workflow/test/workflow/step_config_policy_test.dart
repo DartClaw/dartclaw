@@ -242,7 +242,7 @@ void main() {
         description: 'test',
         project: 'proj',
         steps: const [
-          WorkflowStep(id: 'readonly', name: 'Readonly', type: WorkflowTaskType.agent, allowedTools: ['file_read']),
+          WorkflowStep(id: 'readonly', name: 'Readonly', taskType: WorkflowTaskType.agent, allowedTools: ['file_read']),
           WorkflowStep(id: 'write', name: 'Write'),
         ],
       );
@@ -257,7 +257,7 @@ void main() {
       expect(
         shouldBindWorkflowProject(
           definition,
-          const WorkflowStep(id: 'analysis', name: 'Analysis', type: WorkflowTaskType.agent),
+          const WorkflowStep(id: 'analysis', name: 'Analysis', taskType: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
         isFalse,
@@ -267,7 +267,7 @@ void main() {
       expect(
         shouldBindWorkflowProject(
           definition,
-          const WorkflowStep(id: 'research', name: 'Research', type: WorkflowTaskType.agent),
+          const WorkflowStep(id: 'research', name: 'Research', taskType: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
         isFalse,
@@ -278,7 +278,7 @@ void main() {
     test('stepIsReadOnly opts out when allowedTools includes file_write', () {
       expect(
         stepIsReadOnly(
-          const WorkflowStep(id: 'w', name: 'Writing', type: WorkflowTaskType.agent),
+          const WorkflowStep(id: 'w', name: 'Writing', taskType: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_write']),
         ),
         isFalse,
@@ -287,7 +287,7 @@ void main() {
 
       expect(
         stepIsReadOnly(
-          const WorkflowStep(id: 'a', name: 'Analysis', type: WorkflowTaskType.agent),
+          const WorkflowStep(id: 'a', name: 'Analysis', taskType: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_write', 'file_read']),
         ),
         isFalse,
@@ -296,7 +296,7 @@ void main() {
 
       expect(
         stepIsReadOnly(
-          const WorkflowStep(id: 'a2', name: 'Analysis2', type: WorkflowTaskType.agent),
+          const WorkflowStep(id: 'a2', name: 'Analysis2', taskType: WorkflowTaskType.agent),
           const ResolvedStepConfig(),
         ),
         isFalse,

@@ -4,6 +4,9 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException;
 import 'package:logging/logging.dart';
 
+typedef SessionLockTimerFactory = Timer Function(Duration duration, void Function() callback);
+typedef SessionLockNow = DateTime Function();
+
 /// Per-session Completer-based locks with a global concurrency cap.
 ///
 /// Prevents concurrent turns on the same session and limits overall parallel
@@ -15,9 +18,14 @@ class SessionLockManager implements Reconfigurable {
   int _maxParallel;
   final Map<String, Completer<void>> _locks = {};
   final Map<String, _WaitEntry> _waits = {};
+  final SessionLockTimerFactory _timerFactory;
+  final SessionLockNow _now;
   int _activeCount = 0;
 
-  SessionLockManager({int maxParallel = 3}) : _maxParallel = maxParallel;
+  SessionLockManager({int maxParallel = 3, SessionLockTimerFactory? timerFactory, SessionLockNow? now})
+    : _maxParallel = maxParallel,
+      _timerFactory = timerFactory ?? Timer.new,
+      _now = now ?? DateTime.now;
 
   int get maxParallel => _maxParallel;
 
@@ -47,18 +55,18 @@ class SessionLockManager implements Reconfigurable {
     while (_locks.containsKey(sessionId)) {
       final waitEntry = _waits.putIfAbsent(sessionId, () {
         _log.info('Session $sessionId is waiting on an active turn lock');
-        final entry = _WaitEntry(waitingSince: DateTime.now());
+        final entry = _WaitEntry(waitingSince: _now());
         final warningAfter = waitWarningAfter;
         if (warningAfter != null && warningAfter > Duration.zero) {
-          entry.waitingTimer = Timer(warningAfter, () {
-            entry.warningVisibleAt = DateTime.now();
+          entry.waitingTimer = _timerFactory(warningAfter, () {
+            entry.warningVisibleAt = _now();
             onWaiting?.call();
           });
         }
         final stuckDelay = stuckAfter;
         if (stuckDelay != null && stuckDelay > Duration.zero) {
-          entry.stuckTimer = Timer(stuckDelay, () {
-            entry.stuckSince = DateTime.now();
+          entry.stuckTimer = _timerFactory(stuckDelay, () {
+            entry.stuckSince = _now();
             onStuck?.call();
           });
         }

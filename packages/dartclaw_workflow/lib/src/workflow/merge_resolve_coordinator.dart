@@ -49,6 +49,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
     required MergeResolveConfig config,
     required int? controllerMaxParallel,
     required String? activeWorkspaceRoot,
+    void Function(String taskId)? onFirstTaskCreated,
   }) async {
     final statePrefix = '_merge_resolve.${controllerStep.id}.$iterIndex';
     final promote = _turnAdapter?.promoteWorkflowBranch;
@@ -261,6 +262,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           mapCtx: mapContext,
           enclosingMaxParallel: controllerMaxParallel,
           extraTaskConfig: {WorkflowTaskConfig.mergeResolveEnv: envMap},
+          onFirstTaskCreated: onFirstTaskCreated,
         );
         final attemptElapsedMs = DateTime.now().difference(attemptStartedAt).inMilliseconds;
 
@@ -544,8 +546,9 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
   /// Dispatch method for max-attempts exhaustion.
   ///
   /// `fail` → returns WorkflowGitPromotionConflict immediately.
-  /// `serializeRemaining` → sets serialize_remaining_phase='enacting', stores attempt
-  /// number for _drainAndRequeue, persists state, returns sentinel.
+  /// `serializeRemaining` → persists the typed serialize state in `enacting`
+  /// and returns the sentinel that makes the foreach controller settle siblings
+  /// before entering serial mode.
   Future<WorkflowGitPromotionResult> _handleMergeResolveEscalation({
     required MergeResolveEscalation mode,
     required List<String> conflictingFiles,
@@ -562,18 +565,34 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
   }) async {
     switch (mode) {
       case MergeResolveEscalation.fail:
-        final files = lastAttempt?.conflictedFiles.isNotEmpty == true ? lastAttempt!.conflictedFiles : conflictingFiles;
-        return WorkflowGitPromotionConflict(conflictingFiles: files, details: conflictDetails);
+        return WorkflowGitPromotionConflict(
+          conflictingFiles: _escalationConflictFiles(lastAttempt, conflictingFiles),
+          details: conflictDetails,
+        );
       case MergeResolveEscalation.serializeRemaining:
-        final phaseKey = '_merge_resolve.${controllerStep.id}.serialize_remaining_phase';
-        // Idempotent — if already serial, return sentinel without re-firing event.
-        if (context[phaseKey] != null) {
-          return const WorkflowGitPromotionSerializeRemaining();
+        // Idempotent only while the first serialize-remaining transition is still
+        // being enacted. Once terminal, a serial retry that still conflicts has
+        // exhausted its retry path and must fail normally.
+        final existingState = _SerializeRemainingState.read(context, stepId: controllerStep.id);
+        if (existingState != null) {
+          if (existingState.phase == _SerializeRemainingPhase.enacting) {
+            return const WorkflowGitPromotionSerializeRemaining();
+          }
+          return WorkflowGitPromotionConflict(
+            conflictingFiles: _escalationConflictFiles(lastAttempt, conflictingFiles),
+            details: conflictDetails,
+          );
         }
-        // Mark 'enacting' BEFORE issuing any cancel signals (crash safety).
-        context[phaseKey] = 'enacting';
-        context['_merge_resolve.${controllerStep.id}.serializing_iter_index'] = iterIndex;
-        context['_merge_resolve.${controllerStep.id}.failed_attempt_number'] = attemptCounter;
+        // Mark 'enacting' before the foreach controller stops dispatching so
+        // crash recovery resumes into the serial-settle path.
+        _SerializeRemainingState(
+          stepId: controllerStep.id,
+          phase: _SerializeRemainingPhase.enacting,
+          iterIndex: iterIndex,
+          failedAttemptNumber: attemptCounter,
+          eventEmitted: false,
+          settleDeadlineIso: _newSerializeRemainingSettleDeadlineIso(_serializeRemainingSettleTimeout),
+        ).writeTo(context);
         await _persistForeachProgress(
           run,
           controllerStep,
@@ -588,44 +607,57 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
     }
   }
 
-  /// Cancels in-flight sibling iterations, awaits settlement, rebuilds [pending]
-  /// with [failingIterIndex] at head followed by drained siblings.
+  List<String> _escalationConflictFiles(MergeResolveAttemptArtifact? lastAttempt, List<String> fallback) =>
+      lastAttempt?.conflictedFiles.isNotEmpty == true ? lastAttempt!.conflictedFiles : fallback;
+
+  /// Stops new dispatch, lets in-flight siblings settle, then enters serial mode.
   ///
-  /// Returns null on success. Returns an error message when a sibling is stuck —
-  /// caller must abort the foreach with that message.
-  Future<String?> _drainAndRequeue({
+  /// Returns null on success. Returns an error message when siblings do not
+  /// settle inside [_serializeRemainingSettleTimeout].
+  Future<String?> _enactSerializeRemaining({
     required WorkflowRun run,
     required WorkflowStep controllerStep,
     required WorkflowContext context,
     required MapStepContext mapCtx,
     required Queue<int> pending,
     required Map<int, Future<void>> inFlight,
-    required Map<int, String> iterTaskIds,
     required int failingIterIndex,
     required int stepIndex,
     required Set<String> promotedIds,
   }) async {
-    final phaseKey = '_merge_resolve.${controllerStep.id}.serialize_remaining_phase';
-    if (context[phaseKey] == 'drained') return null;
+    var state =
+        _SerializeRemainingState.read(context, stepId: controllerStep.id) ??
+        _SerializeRemainingState(
+          stepId: controllerStep.id,
+          phase: _SerializeRemainingPhase.enacting,
+          iterIndex: failingIterIndex,
+          failedAttemptNumber: 0,
+          eventEmitted: false,
+          settleDeadlineIso: _newSerializeRemainingSettleDeadlineIso(_serializeRemainingSettleTimeout),
+        );
+    if (state.phase == _SerializeRemainingPhase.drained) return null;
 
-    final siblingIndices = inFlight.keys.toList(growable: false);
-    final drainedCount = siblingIndices.length;
-
-    // Fire exactly one event per run (PRD US06 / FR4).
-    const runEmittedKey = '_merge_resolve.serialize_remaining_event_emitted';
-    if (context[runEmittedKey] != true) {
-      final attemptCounter = (context['_merge_resolve.${controllerStep.id}.failed_attempt_number'] as int?) ?? 0;
+    final shouldFireEvent = !state.eventEmitted;
+    if (shouldFireEvent) {
       _eventBus.fire(
         WorkflowSerializationEnactedEvent(
           runId: run.id,
           foreachStepId: controllerStep.id,
           failingIterationIndex: failingIterIndex,
-          failedAttemptNumber: attemptCounter,
-          drainedIterationCount: drainedCount,
+          failedAttemptNumber: state.failedAttemptNumber,
           timestamp: DateTime.now(),
         ),
       );
-      context[runEmittedKey] = true;
+    }
+
+    // Fire once per serialize transition, deduped via the typed state's eventEmitted flag.
+    if (shouldFireEvent || state.settleDeadlineIso == null) {
+      state = state.copyWith(
+        eventEmitted: true,
+        settleDeadlineIso:
+            state.settleDeadlineIso ?? _newSerializeRemainingSettleDeadlineIso(_serializeRemainingSettleTimeout),
+      );
+      state.writeTo(context);
       await _persistForeachProgress(
         run,
         controllerStep,
@@ -636,60 +668,55 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
       );
     }
 
-    // Cancel all in-flight siblings.
-    for (final idx in siblingIndices) {
-      final taskId = iterTaskIds[idx];
-      if (taskId != null) {
-        try {
-          await _taskService.transition(taskId, TaskStatus.cancelled, trigger: 'serialize-remaining drain');
-        } catch (e) {
-          WorkflowExecutor._log.warning("Workflow '${run.id}': drain cancel failed for task $taskId: $e");
-        }
-      }
-    }
-
-    // Await all siblings in parallel with a single 30s cap.
-    const drainTimeout = Duration(seconds: 30);
-    final drainFutures = <({int idx, Future<void> future})>[
-      for (final idx in siblingIndices)
-        if (inFlight[idx] != null) (idx: idx, future: inFlight[idx]!.catchError((_) {})),
-    ];
-    if (drainFutures.isNotEmpty) {
-      try {
-        await Future.wait(drainFutures.map((e) => e.future)).timeout(drainTimeout);
-      } on TimeoutException {
-        final stuckIdx = drainFutures.firstWhere((e) => inFlight.containsKey(e.idx)).idx;
-        final stuckTaskId = iterTaskIds[stuckIdx] ?? 'unknown';
-        return 'serialize-remaining drain failed: task $stuckTaskId did not honor cancellation within timeout';
-      }
-    }
-
-    // Discard parallel-mode pre_attempt_sha for all re-queued iterations.
-    context.remove('_merge_resolve.${controllerStep.id}.$failingIterIndex.pre_attempt_sha');
-    for (final idx in siblingIndices) {
-      context.remove('_merge_resolve.${controllerStep.id}.$idx.pre_attempt_sha');
-    }
-
-    // Rebuild pending: failing iter at head, drained siblings after, remaining pending preserved.
     final oldPending = pending.toList();
     pending.clear();
-    pending.add(failingIterIndex);
-    for (final idx in siblingIndices) {
-      if (!mapCtx.completedIndices.contains(idx)) {
-        pending.add(idx);
-      }
+    if (!mapCtx.completedIndices.contains(failingIterIndex) &&
+        !mapCtx.failedIndices.contains(failingIterIndex) &&
+        !mapCtx.cancelledIndices.contains(failingIterIndex) &&
+        !mapCtx.blockedIndices.contains(failingIterIndex)) {
+      pending.add(failingIterIndex);
     }
     for (final idx in oldPending) {
-      if (idx != failingIterIndex && !siblingIndices.contains(idx)) {
+      if (idx != failingIterIndex &&
+          !mapCtx.completedIndices.contains(idx) &&
+          !mapCtx.failedIndices.contains(idx) &&
+          !mapCtx.cancelledIndices.contains(idx) &&
+          !mapCtx.blockedIndices.contains(idx)) {
         pending.add(idx);
       }
     }
 
-    // Atomically advance phase to 'drained'.
-    context[phaseKey] = 'drained';
+    if (inFlight.isNotEmpty) {
+      final remainingTimeout = _remainingSerializeRemainingSettleTimeout(state, _serializeRemainingSettleTimeout);
+      if (remainingTimeout == Duration.zero) {
+        return "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
+            '${inFlight.length} in-flight iteration(s) after ${_serializeRemainingSettleTimeout.inMilliseconds}ms';
+      }
+      try {
+        await Future.any(inFlight.values.map((future) => future.catchError((_) {}))).timeout(remainingTimeout);
+      } on TimeoutException {
+        return "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
+            '${inFlight.length} in-flight iteration(s) after ${_serializeRemainingSettleTimeout.inMilliseconds}ms';
+      }
+      await _persistForeachProgress(
+        run,
+        controllerStep,
+        context,
+        mapCtx,
+        stepIndex: stepIndex,
+        promotedIds: promotedIds,
+      );
+      return null;
+    }
+
+    // Discard parallel-mode pre_attempt_sha for the serial retry.
+    context.remove('_merge_resolve.${controllerStep.id}.$failingIterIndex.pre_attempt_sha');
+
+    // Atomically advance to the terminal serial-attempt-consumed marker.
+    state.copyWith(phase: _SerializeRemainingPhase.drained, eventEmitted: true).writeTo(context);
     WorkflowExecutor._log.info(
       "Workflow '${run.id}': serialize-remaining enacted for step '${controllerStep.id}'; "
-      'drained $drainedCount sibling(s), failing iter $failingIterIndex placed at head.',
+      'failing iter $failingIterIndex placed at head for serial retry.',
     );
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
     return null;

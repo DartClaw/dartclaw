@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
+import 'package:dartclaw_server/src/concurrency/session_lock_manager.dart' show SessionLockTimerFactory;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
+import 'package:fake_async/fake_async.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -28,6 +30,9 @@ TurnRunner _buildRunner({
   EventBus? eventBus,
   SelfImprovementService? selfImprovement,
   GuardChain? guardChain,
+  TaskToolFilterGuard? taskToolFilterGuard,
+  SessionLockTimerFactory? turnMonitorTimerFactory,
+  DateTime Function()? turnMonitorNow,
 }) {
   return TurnRunner(
     harness: harness,
@@ -44,7 +49,25 @@ TurnRunner _buildRunner({
     eventBus: eventBus,
     selfImprovement: selfImprovement,
     guardChain: guardChain,
+    taskToolFilterGuard: taskToolFilterGuard,
+    turnMonitorTimerFactory: turnMonitorTimerFactory,
+    turnMonitorNow: turnMonitorNow,
   );
+}
+
+class _TurnMonitorFakeTime {
+  static final _initialTime = DateTime(2026);
+  final _async = FakeAsync(initialTime: _initialTime);
+
+  DateTime now() => _async.getClock(_initialTime).now();
+
+  Timer create(Duration duration, void Function() callback) => _async.run((_) => Timer(duration, callback));
+
+  Future<void> elapseAsync(Duration duration) async {
+    await pumpEventQueue();
+    _async.elapse(duration);
+    await pumpEventQueue();
+  }
 }
 
 void main() {
@@ -58,6 +81,7 @@ void main() {
   late Database turnStateDb;
   late TurnStateStore turnState;
   late KvService kvService;
+  late _TurnMonitorFakeTime turnMonitorTime;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_turn_runner_test_');
@@ -72,6 +96,7 @@ void main() {
     turnStateDb = sqlite3.openInMemory();
     turnState = TurnStateStore(turnStateDb);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+    turnMonitorTime = _TurnMonitorFakeTime();
     runner = _buildRunner(
       harness: worker,
       messages: messages,
@@ -102,6 +127,8 @@ void main() {
         waitWarningAfter: Duration(milliseconds: 10),
         stuckAfter: Duration(milliseconds: 25),
       ),
+      turnMonitorTimerFactory: turnMonitorTime.create,
+      turnMonitorNow: turnMonitorTime.now,
       eventBus: eventBus,
       selfImprovement: selfImprovement,
     );
@@ -139,6 +166,58 @@ void main() {
     expect(outcome.status, TurnStatus.completed);
     expect(outcome.responseText, 'Hello from runner!');
     expect(runner.isActive(session.id), isFalse);
+  });
+
+  test('per-turn toolless policy is applied session-scoped during the turn and cleared after (TD-109)', () async {
+    // Regression guard for TD-109: the untrusted knowledge-inbox extraction turn
+    // dispatches with allowedTools:['__knowledge_inbox_no_tools__'] + readOnly.
+    // TurnRunner must apply that per-turn policy to the session BEFORE the harness
+    // runs and clear it after, so a prompt-injected source cannot induce tool use
+    // — without the enforcement leaking onto concurrent turns on other sessions.
+    final guard = TaskToolFilterGuard();
+    final guardedRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      taskToolFilterGuard: guard,
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    Future<GuardVerdict> probeFetch(String sessionId) => guard.evaluate(
+      GuardContext(hookPoint: 'beforeToolCall', toolName: 'web_fetch', sessionId: sessionId, timestamp: DateTime.now()),
+    );
+
+    GuardVerdict? midTurnScoped;
+    GuardVerdict? midTurnConcurrent;
+    unawaited(() async {
+      await worker.turnInvoked;
+      // Harness dispatched → the per-turn policy is now applied to this session.
+      midTurnScoped = await probeFetch(session.id);
+      midTurnConcurrent = await probeFetch('other-interactive-session');
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await guardedRunner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'untrusted inbox source'},
+      ],
+      allowedTools: const ['__knowledge_inbox_no_tools__'],
+      readOnly: true,
+    );
+    await guardedRunner.waitForOutcome(session.id, turnId);
+
+    // web_fetch is read-only-safe, so a mid-turn block proves the toolless
+    // allowlist (not read-only) was applied to the extraction session.
+    expect(midTurnScoped?.isBlock, isTrue);
+    // The restriction is session-scoped: a concurrent turn on another session is
+    // unaffected (the leak TD-109 warned about).
+    expect(midTurnConcurrent?.isPass, isTrue);
+    // Policy cleared after the turn — the extraction session is unrestricted again.
+    expect((await probeFetch(session.id)).isPass, isTrue);
   });
 
   test('handles agent failure and produces TurnOutcome.failed', () async {
@@ -182,9 +261,9 @@ void main() {
     await pumpEventQueue();
 
     expect(outcome.status, TurnStatus.completed);
-    expect(events.map((event) => event.state), containsAllInOrder(['running', 'completed']));
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.running, TurnWaitState.completed]));
     expect(events.last.turnId, turnId);
-    expect(events.last.waitReason, TurnWaitReason.unknown.jsonName);
+    expect(events.last.waitReason, TurnWaitReason.unknown);
   });
 
   test('emits turn wait-state failed event for natural failure', () async {
@@ -214,7 +293,7 @@ void main() {
     await pumpEventQueue();
 
     expect(outcome.status, TurnStatus.failed);
-    expect(events.map((event) => event.state), containsAllInOrder(['running', 'failed']));
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.running, TurnWaitState.failed]));
     expect(events.last.turnId, turnId);
     expect(events.last.canCancel, isFalse);
   });
@@ -274,7 +353,7 @@ void main() {
           },
         );
     runner.releaseTurn(session.id, turnId);
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
 
     expect(runner.isActive(session.id), isFalse);
     expect(await turnState.getAll(), isNot(contains(session.id)));
@@ -302,17 +381,17 @@ void main() {
     });
     final queuedReserve = runner.reserveTurn(session.id);
 
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     expect(runner.turnStatus(session.id).state, TurnWaitState.waiting);
     expect(runner.turnStatus(session.id).waitReason, TurnWaitReason.sessionLock);
     expect(runner.turnStatus(session.id).taskId, 'task-wait');
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 20));
     final stuck = runner.turnStatus(session.id);
     expect(stuck.state, TurnWaitState.stuck);
     expect(stuck.taskId, 'task-wait');
     expect(stuck.canCancel, isTrue);
-    expect(events.map((event) => event.state), containsAllInOrder(['waiting', 'stuck']));
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.waiting, TurnWaitState.stuck]));
     expect(events.map((event) => event.taskId), contains('task-wait'));
 
     runner.releaseTurn(session.id, firstTurnId);
@@ -346,20 +425,20 @@ void main() {
     await worker.turnInvoked;
     worker.emit(ProviderProgressBridgeEvent(kind: 'provider_turn', text: 'model is still processing'));
 
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     final waiting = runner.turnStatus(session.id);
     expect(waiting.state, TurnWaitState.waiting);
     expect(waiting.waitReason, TurnWaitReason.providerTurn);
     expect(waiting.canCancel, isTrue);
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 20));
     final stuck = runner.turnStatus(session.id);
     expect(stuck.state, TurnWaitState.stuck);
     expect(stuck.waitReason, TurnWaitReason.providerTurn);
     expect(stuck.canCancel, isTrue);
     expect(
-      events.where((event) => event.waitReason == 'provider_turn').map((event) => event.state),
-      containsAllInOrder(['waiting', 'stuck']),
+      events.where((event) => event.waitReason == TurnWaitReason.providerTurn).map((event) => event.state),
+      containsAllInOrder([TurnWaitState.waiting, TurnWaitState.stuck]),
     );
 
     await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
@@ -375,7 +454,7 @@ void main() {
     await worker.turnInvoked;
     worker.emit(ToolApprovalWaitEvent(requestId: 'approval-1', toolName: 'shell'));
 
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     final waiting = runner.turnStatus(session.id);
     expect(waiting.state, TurnWaitState.waiting);
     expect(waiting.waitReason, TurnWaitReason.toolApproval);
@@ -386,7 +465,7 @@ void main() {
     );
     expect(runner.activeTurnId(session.id), turnId);
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 20));
     final stuck = runner.turnStatus(session.id);
     expect(stuck.state, TurnWaitState.stuck);
     expect(stuck.waitReason, TurnWaitReason.toolApproval);
@@ -406,7 +485,7 @@ void main() {
     worker.emit(ToolApprovalWaitEvent(requestId: 'approval-lock-wait', toolName: 'shell'));
 
     final queuedReserve = runner.reserveTurn(session.id);
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     final waiting = runner.turnStatus(session.id);
     expect(waiting.state, TurnWaitState.waiting);
     expect(waiting.waitReason, TurnWaitReason.sessionLock);
@@ -417,7 +496,7 @@ void main() {
     );
     expect(runner.activeTurnId(session.id), turnId);
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 20));
     final stuck = runner.turnStatus(session.id);
     expect(stuck.state, TurnWaitState.stuck);
     expect(stuck.waitReason, TurnWaitReason.sessionLock);
@@ -447,12 +526,12 @@ void main() {
     await worker.turnInvoked;
     worker.emit(ToolApprovalWaitEvent(requestId: 'approval-2', toolName: 'shell'));
 
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     expect(runner.turnStatus(session.id).waitReason, TurnWaitReason.toolApproval);
     expect(runner.turnStatus(session.id).canCancel, isFalse);
 
     worker.emit(ToolApprovalResolvedEvent(requestId: 'approval-2'));
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     final waiting = runner.turnStatus(session.id);
     expect(waiting.state, TurnWaitState.waiting);
     expect(waiting.waitReason, TurnWaitReason.unknown);
@@ -475,13 +554,13 @@ void main() {
     );
     expect(runner.activeTurnId(session.id), turnId);
 
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     final waiting = runner.turnStatus(session.id);
     expect(waiting.state, TurnWaitState.waiting);
     expect(waiting.waitReason, TurnWaitReason.unknown);
     expect(waiting.canCancel, isTrue);
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 20));
     final stuck = runner.turnStatus(session.id);
     expect(stuck.state, TurnWaitState.stuck);
     expect(stuck.waitReason, TurnWaitReason.unknown);
@@ -508,7 +587,7 @@ void main() {
     ]);
     final outcomeFuture = runner.waitForOutcome(session.id, turnId);
     await raceWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     expect(runner.turnStatus(session.id).state, TurnWaitState.waiting);
 
     final cancelFuture = runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
@@ -516,7 +595,7 @@ void main() {
     var nextReserveCompleted = false;
     final nextReserve = runner.reserveTurn(session.id);
     unawaited(nextReserve.then((_) => nextReserveCompleted = true));
-    await Future<void>.delayed(const Duration(milliseconds: 25));
+    await pumpEventQueue();
     expect(nextReserveCompleted, isTrue);
 
     raceWorker.emit(DeltaEvent('late completion'));
@@ -538,7 +617,7 @@ void main() {
     var thirdReserveCompleted = false;
     final thirdReserve = runner.reserveTurn(session.id);
     unawaited(thirdReserve.then((_) => thirdReserveCompleted = true));
-    await Future<void>.delayed(const Duration(milliseconds: 25));
+    await pumpEventQueue();
 
     expect(cancelResult.status, TurnWaitState.cancelled);
     expect(cancelResult.releasedSessionLock, isTrue);
@@ -548,7 +627,7 @@ void main() {
     expect(runner.activeTurnId(session.id), nextTurnId);
     expect(thirdReserveCompleted, isFalse);
     expect(storedMessages.where((message) => message.role == 'assistant'), isEmpty);
-    expect(events.map((event) => event.state), containsAllInOrder(['cancelling', 'cancelled']));
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.cancelling, TurnWaitState.cancelled]));
 
     runner.releaseTurn(session.id, nextTurnId);
     await nextOutcome;
@@ -576,10 +655,10 @@ void main() {
       {'role': 'user', 'content': 'Cleanup fails'},
     ]);
     await failingWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
 
     final result = await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
 
     expect(result.status, TurnWaitState.cancelled);
     expect(result.releasedSessionLock, isTrue);
@@ -617,7 +696,7 @@ void main() {
       {'role': 'user', 'content': 'Leak check'},
     ]);
     await leakWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
 
     final result = await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
     await pumpEventQueue();
@@ -640,7 +719,7 @@ void main() {
       {'role': 'user', 'content': 'Cleanup hangs'},
     ]);
     await hangingWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
 
     final result = await runner
         .cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel)
@@ -674,7 +753,7 @@ void main() {
       {'role': 'user', 'content': 'Cleanup hangs'},
     ]);
     await hangingWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
 
     await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
     await hangingWorker.cancelStarted.future.timeout(const Duration(seconds: 1));
@@ -687,7 +766,7 @@ void main() {
     expect(hangingWorker.turnCallCount, 1);
 
     hangingWorker.cancelCompleter.complete();
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
     expect(hangingWorker.turnCallCount, 2);
 
     hangingWorker.completeSuccess(turnResult());
@@ -703,10 +782,10 @@ void main() {
       {'role': 'user', 'content': 'Restart fails'},
     ]);
     await failingWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
 
     final result = await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
 
     expect(result.status, TurnWaitState.cancelled);
     expect(result.releasedSessionLock, isTrue);
@@ -738,7 +817,7 @@ void main() {
       {'role': 'user', 'content': 'Restart fails'},
     ]);
     await failingWorker.turnInvoked;
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
 
     await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
     final nextTurnId = await runner.startTurn(session.id, [
@@ -752,7 +831,8 @@ void main() {
 
   test('persists and cleans turn state via store', () async {
     final session = await sessions.getOrCreateMainSession();
-    scheduleTurnCompletion(worker, responseText: 'Tracked', delay: const Duration(milliseconds: 100));
+    final releaseCompletion = Completer<void>();
+    scheduleTurnCompletion(worker, responseText: 'Tracked', waitUntil: releaseCompletion.future);
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Track turn state'},
@@ -763,6 +843,7 @@ void main() {
     expect(activeState?.turnId, equals(turnId));
     expect(activeState?.startedAt, isA<DateTime>());
 
+    releaseCompletion.complete();
     final outcome = await runner.waitForOutcome(session.id, turnId);
     expect(outcome.status, TurnStatus.completed);
     expect(await turnState.getAll(), isNot(contains(session.id)));
@@ -1014,7 +1095,7 @@ void main() {
     unawaited(() async {
       await worker.turnInvoked;
       worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_1', input: {'command': 'ls'}));
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       worker.emit(ToolResultEvent(toolId: 'tu_1', output: 'file.txt', isError: false));
       worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
     }());
@@ -1058,7 +1139,7 @@ void main() {
   test('turnDuration is set on TurnOutcome', () async {
     final session = await sessions.getOrCreateMainSession();
 
-    scheduleTurnCompletion(worker, responseText: 'done', delay: const Duration(milliseconds: 5));
+    scheduleTurnCompletion(worker, responseText: 'done');
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'duration test'},
@@ -1109,9 +1190,9 @@ void main() {
     unawaited(() async {
       await worker.turnInvoked;
       worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_err', input: {'command': 'bad'}));
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       worker.emit(ToolResultEvent(toolId: 'tu_err', output: 'permission denied', isError: true));
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
     }());
 
@@ -1138,7 +1219,7 @@ void main() {
       await worker.turnInvoked;
       worker.emit(DeltaEvent('hello'));
       worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_p1', input: {'command': 'ls'}));
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       worker.emit(ToolResultEvent(toolId: 'tu_p1', output: 'ok', isError: false));
       worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
     }());
@@ -1170,10 +1251,10 @@ void main() {
       worker.emit(DeltaEvent('abc')); // 3 chars
       worker.emit(DeltaEvent('de')); // +2 = 5 chars
       worker.emit(ToolUseEvent(toolName: 'read', toolId: 'tu_s1', input: {}));
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       worker.emit(ToolResultEvent(toolId: 'tu_s1', output: 'ok', isError: false));
       worker.emit(ToolUseEvent(toolName: 'write', toolId: 'tu_s2', input: {}));
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       worker.emit(ToolResultEvent(toolId: 'tu_s2', output: 'ok', isError: false));
       worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
     }());
@@ -1250,6 +1331,8 @@ void main() {
         kvService: kvService,
         stallTimeout: const Duration(milliseconds: 200),
         stallAction: TurnProgressAction.cancel,
+        turnMonitorTimerFactory: turnMonitorTime.create,
+        turnMonitorNow: turnMonitorTime.now,
       );
 
       // Never complete the worker turn — it's the hung-sub-agent case.
@@ -1260,6 +1343,8 @@ void main() {
       final turnId = await stallRunner.startTurn(session.id, [
         {'role': 'user', 'content': 'stall'},
       ]);
+      await worker.turnInvoked;
+      await turnMonitorTime.elapseAsync(const Duration(milliseconds: 200));
 
       final outcome = await stallRunner
           .waitForOutcome(session.id, turnId)
@@ -1279,13 +1364,13 @@ void main() {
         kvService: kvService,
         stallTimeout: const Duration(milliseconds: 150),
         stallAction: TurnProgressAction.warn,
+        turnMonitorTimerFactory: turnMonitorTime.create,
+        turnMonitorNow: turnMonitorTime.now,
       );
 
       unawaited(() async {
         await worker.turnInvoked;
-        // Sleep past the stall timeout without emitting events — expect a
-        // warning log but no cancellation.
-        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await turnMonitorTime.elapseAsync(const Duration(milliseconds: 250));
         worker.emit(DeltaEvent('finally some progress'));
         worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
       }());
@@ -1311,6 +1396,8 @@ void main() {
         kvService: kvService,
         stallTimeout: const Duration(milliseconds: 120),
         stallAction: TurnProgressAction.cancel,
+        turnMonitorTimerFactory: turnMonitorTime.create,
+        turnMonitorNow: turnMonitorTime.now,
       );
 
       final stallEvents = <TurnStallProgressEvent>[];
@@ -1323,6 +1410,8 @@ void main() {
       final turnId = await stallRunner.startTurn(session.id, [
         {'role': 'user', 'content': 'stall with event'},
       ]);
+      await worker.turnInvoked;
+      await turnMonitorTime.elapseAsync(const Duration(milliseconds: 120));
 
       await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
 

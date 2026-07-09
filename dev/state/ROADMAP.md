@@ -4,23 +4,46 @@
 
 ## Active Milestone
 
-### 0.19 — Context Engine
+### 0.20 — Workflow Hardening, Simplification & Polish
 
-**Status: Release-ready (0.19.0) — awaiting squash-merge to `main` + annotated `v0.19.0` tag.** FR1–FR8 (outbound MCP client + governance + audit, `context_research` synthesis, read-only knowledge UI on Afterglow) shipped across S01–S12; FR9–FR11 (validation/dogfooding/steward) carved to a 0.19.x follow-on per the PRD sizing flag. See `CHANGELOG.md`.
+**Status: Release-ready, awaiting tag.** Opened 2026-06-26 from the `v0.19.0` tag as maintenance milestone 0.19.1 (tech debt + test-suite hardening); rebranded to 0.20 on 2026-07-04 after the scope grew into a full workflow-feature hardening/simplification/polish release (25+ stories: teardown-cancellation honesty, nested-loop escalation, framework-neutral severity scoring, preset relocation, output-contract hygiene, vocabulary neutralization, execution envelope, escalation-visibility fix, YAGNI trims, authoring/operator UX polish). Planned versions previously labeled 0.20/0.21 shifted to 0.21/0.22; a 2026-07-06 renumber then moved the workflow track to 0.24/0.25 and made 0.22/0.23 lead with the UX/app track (see Planned).
 
-A knowledge-serving context layer: DartClaw synthesizes its internal knowledge (LLM-maintained wiki + temporal knowledge graph + memory) into compact, citation-backed packets served to agents over MCP via a single `context_research` call, instead of returning raw ranked rows. Adds outbound MCP — DartClaw as a guard-mediated, audited MCP *client* — so it can consume external MCP servers and systems of record. Includes a documented DartClaw-on-DartClaw dogfooding reference (propose-only). Builds on the 0.17 knowledge backend (temporal KG, wiki, inbox ingestion, FTS5/QMD, inbound MCP).
+Headline: **test-suite speed + log-noise hardening** (spec via `andthen:spec` first). The workspace suite runs ~5 min — dominated by the serialized `-j 1` workflow+server+cli gate — and floods output with `SEVERE` lines from injected negative-path tests (fake `serveFn` bind-failure, mock asset downloads), which makes a green run look broken and would bury a real failure. Profile the serialized suite, reduce the slowest tests, and capture/silence expected-error logs so output is clean.
 
-Scoping backlog disposition:
-- TD-109: Add per-turn tool scoping or toolless structured extraction before inbox ingestion is treated as untrusted multi-session input. *(Carried — revisit with the FR9–FR11 0.19.x tail.)*
-- TD-110: Guard/audit coverage for write-capable MCP tools — **closed** inside FR3 (S04, egress-guard trust-boundary audit).
+The open `dev/state/TECH-DEBT-BACKLOG.md` items, dispositioned in the 2026-07-08 cleanup pass:
+- TD-109 (HIGH security): **closed** — already resolved in-tree (per-turn session-scoped tool scoping); the untested TurnRunner apply/clear wiring is now regression-guarded.
+- TD-113 (test determinism): **closed** — already resolved by the 0.20 test-suite hardening (injected fake timers into the turn wait/stall monitors).
+- TD-112 (cohesion, decision-needed): **closed** — decided keep-status-quo (extracting a `TurnWaitMonitor` now is speculative per KISS/YAGNI; revisit on trigger).
+- TD-070 (WorkflowCliRunner location): **deferred** — ADR-043 keep-status-quo, pinned; no code.
+- TD-111 (wait-state typing): **closed** — the turn wait-state event now carries the `dartclaw_core` `TurnWaitState`/`TurnWaitReason` enums across the sealed-event + SSE-wire contract (`ba33e8bf`).
 
 ## Planned
 
-### Workflow DSL v2 + Dynamic Workflows (Next)
+### 0.21 — Windows Support & Cross-Platform Hardening (Next)
 
-The workflow track is confirmed for the milestone after 0.19.
+Shifted from the 0.20 label by the 2026-07-04 rebrand; scope unchanged (see private repo specs).
+
+### 0.22 — Afterglow Design-System Overhaul
+
+Full Web UI adoption of the canonical "Afterglow" design system + a drift-checked `design-system.css`/`app.css` split. Hard prerequisite for all later UI work; pulled forward by the 2026-07-06 renumber to lead with the UX/app track.
+
+### 0.23 — Chat & Session Experience
+
+Best-in-class Web chat + session-management control-plane on the Afterglow system — the app-track flagship. Sequenced after 0.22.
+
+### 0.24 — Workflow Track: DSL v2
+
+Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `agents:`, fresh-context loops, conditional `approval:` routing) plus the TR-10 server-first authoring UI. First slice of the workflow track (the 2026-07-04 rebrand's "0.22" target, split + renumbered 2026-07-06).
+
+### 0.25 — Workflow Track: Dynamic Workflows + Orchestration Agent
+
+Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.19 — Context Engine ✅
+
+Tagged `v0.19.0` on 2026-06-26. `context_research` synthesis over MCP (memory + temporal KG + wiki → one compact, citation-backed packet), a guard-mediated and audited outbound MCP *client* (egress allowlist, per-server governance, runtime pool composition), and a read-only Knowledge UI (hub/research/timeline) on the new Afterglow design system. Plus standalone workflow lifecycle control, inline git-strategy override, non-interactive approval policy, provider auth preflight, and the framework-agnostic workflow engine (ADR-041). FR9–FR11 (validation/dogfooding/steward) carried to a follow-on. See `CHANGELOG.md` for details.
 
 ### 0.18 — Universal Agent Harness ✅
 

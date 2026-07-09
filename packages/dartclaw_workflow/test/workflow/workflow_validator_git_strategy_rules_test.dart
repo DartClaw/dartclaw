@@ -22,7 +22,7 @@ void main() {
           integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
           promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: true),
+          publish: true,
         ),
       );
       expect(validator.validate(def).errors, isEmpty);
@@ -44,23 +44,6 @@ void main() {
       expect(report.warnings, hasLength(1));
       expect(report.warnings.single.message, contains('variables.BRANCH.default: "main"'));
       expect(report.warnings.single.message, contains('gitStrategy.integrationBranch: true'));
-    });
-
-    test('legacy bootstrap key emits migration warning', () {
-      final def = WorkflowDefinition(
-        name: 'wf',
-        description: 'd',
-        steps: const [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
-        gitStrategy: const WorkflowGitStrategy(integrationBranch: true, legacyBootstrapKey: true),
-      );
-
-      final report = validator.validate(def);
-      expect(report.errors, isEmpty);
-      expect(report.warnings, hasLength(1));
-      expect(report.warnings.single.message, contains('gitStrategy.bootstrap is deprecated'));
-      expect(report.warnings.single.message, contains('gitStrategy.integrationBranch'));
     });
 
     test('invalid gitStrategy promotion produces validation error', () {
@@ -285,29 +268,6 @@ void main() {
       );
       final report = validator.validate(def);
       expect(hasError(report.errors, messageContains: 'externalArtifactMount.fromPath'), isTrue);
-    });
-
-    test('flat-level externalArtifactMount emits migration error', () {
-      final def = WorkflowDefinition(
-        name: 'wf',
-        description: 'd',
-        gitStrategy: const WorkflowGitStrategy(
-          worktree: WorkflowGitWorktreeStrategy(
-            mode: WorkflowGitWorktreeMode.perMapItem,
-            externalArtifactMount: WorkflowGitExternalArtifactMount(
-              mode: WorkflowExternalArtifactMountMode.perStoryCopy,
-              fromProject: 'DOC',
-              source: '{{map.item.spec_path}}',
-            ),
-          ),
-          legacyExternalArtifactMountLocation: true,
-        ),
-        steps: const [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
-      );
-      final report = validator.validate(def);
-      expect(hasError(report.errors, messageContains: 'gitStrategy.worktree.externalArtifactMount'), isTrue);
     });
 
     test('TD-073: literal source with parallel map emits collision error', () {

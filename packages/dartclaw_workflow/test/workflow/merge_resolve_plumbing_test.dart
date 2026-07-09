@@ -70,7 +70,7 @@ WorkflowDefinition _mergeResolveDef({
       WorkflowStep(
         id: 'stories-pipeline',
         name: 'Stories Pipeline',
-        type: WorkflowTaskType.foreach,
+        taskType: WorkflowTaskType.foreach,
         mapOver: 'stories',
         foreachSteps: const ['impl'],
         maxParallel: maxParallel,
@@ -136,7 +136,7 @@ void main() {
         WorkflowStep(
           id: 'stories-pipeline',
           name: 'Stories Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'stories',
           foreachSteps: ['impl'],
           maxParallel: 1,
@@ -1054,6 +1054,7 @@ void main() {
 
     var lockEnterCount = 0;
     var lockExitCount = 0;
+    var initialPromotionConflictWhileLockHeld = false;
     var skillTaskDispatchedWhileLockHeld = false;
 
     final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
@@ -1095,6 +1096,7 @@ void main() {
             }) async {
               if (firstPromotion) {
                 firstPromotion = false;
+                initialPromotionConflictWhileLockHeld = lockEnterCount > lockExitCount;
                 return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
               }
               return const WorkflowGitPromotionSuccess(commitSha: 'h1-ok');
@@ -1122,6 +1124,11 @@ void main() {
       reason: 'H1: each merge-resolve attempt body must run under runResolverAttemptUnderLock',
     );
     expect(lockEnterCount, equals(lockExitCount), reason: 'H1: lock must always be released');
+    expect(
+      initialPromotionConflictWhileLockHeld,
+      isTrue,
+      reason: 'H1: initial promote and resolver retries must share the same lock span',
+    );
     expect(
       skillTaskDispatchedWhileLockHeld,
       isTrue,

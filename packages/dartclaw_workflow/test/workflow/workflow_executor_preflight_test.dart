@@ -533,7 +533,7 @@ steps:
     expect(introspector.calls, [(provider: 'codex', executable: '/bin/codex')]);
   });
 
-  test('does not require synthetic merge-resolve skill for non-promotion-aware foreach', () async {
+  test('coarse synthetic merge-resolve preflight fails before foreach task dispatch', () async {
     final definition = const WorkflowDefinition(
       name: 'preflight-merge-resolve-not-reachable',
       description: 'preflight merge resolve not reachable test',
@@ -556,15 +556,6 @@ steps:
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
-    Task? capturedTask;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((event) => event.newStatus == TaskStatus.queued).listen((
-      event,
-    ) async {
-      capturedTask = await h.taskService.get(event.taskId);
-      await h.completeTask(event.taskId);
-    });
-    addTearDown(sub.cancel);
-
     await executor.execute(
       run,
       definition,
@@ -575,9 +566,11 @@ steps:
       ),
     );
 
+    final failedRun = await h.repository.getById(run.id);
+    expect(failedRun?.status, WorkflowRunStatus.failed);
+    expect(failedRun?.errorMessage, contains('dartclaw-merge-resolve'));
+    expect(await h.taskService.list(), isEmpty);
     expect(introspector.calls, [(provider: 'codex', executable: '/bin/codex')]);
-    expect(capturedTask?.description, startsWith(r'$andthen-review'));
-    expect(capturedTask?.provider, 'codex');
   });
 
   for (final provider in ['claude', 'codex']) {
@@ -619,4 +612,140 @@ steps:
       expect(capturedTask?.provider, provider);
     });
   }
+
+  group('checkWorkflowSkillRefs (validate --skills diagnostic)', () {
+    const config = WorkflowSkillPreflightConfig(
+      defaultProvider: 'claude',
+      configuredProviders: {'claude', 'codex'},
+      providerExecutables: {'claude': 'claude', 'codex': 'codex'},
+    );
+
+    test('unresolvable ref surfaces as a warning naming step id, skill, and provider', () async {
+      const definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'claude', skill: 'andthen:reveiw')],
+      );
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: FakeSkillIntrospector({
+          'claude': {'andthen:review'},
+        }),
+        skillPreflightConfig: config,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.probeNotes, isEmpty);
+      expect(result.unresolved, hasLength(1));
+      expect(result.unresolved.single.stepId, 'review');
+      expect(result.unresolved.single.skill, 'andthen:reveiw');
+      expect(result.unresolved.single.provider, 'claude');
+    });
+
+    test('a ref resolvable via the codex hyphen alias does not warn (translation reused, not re-derived)', () async {
+      const definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'codex', skill: 'andthen:review')],
+      );
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: FakeSkillIntrospector({
+          'codex': {'andthen-review'},
+        }),
+        skillPreflightConfig: config,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.unresolved, isEmpty);
+      expect(result.probeNotes, isEmpty);
+    });
+
+    test('probe failure degrades to a note and reports no unresolved refs', () async {
+      const definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'claude', skill: 'andthen:reveiw')],
+      );
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: _ThrowingSkillIntrospector(),
+        skillPreflightConfig: config,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.unresolved, isEmpty);
+      expect(result.probeNotes, hasLength(1));
+      expect(result.probeNotes.single, contains('provider "claude"'));
+    });
+
+    test('non-agent and skill-less steps are ignored', () async {
+      const definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [
+          WorkflowStep(id: 'plain', name: 'Plain', prompts: ['do it']),
+          WorkflowStep(id: 'shell', name: 'Shell', taskType: WorkflowTaskType.bash, prompts: ['echo hi']),
+        ],
+      );
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: FakeSkillIntrospector(const {}),
+        skillPreflightConfig: config,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.unresolved, isEmpty);
+      expect(result.probeNotes, isEmpty);
+    });
+
+    test('synthetic merge-resolve skill ref surfaces when the provider cannot see it', () async {
+      const definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        project: 'proj',
+        gitStrategy: WorkflowGitStrategy(mergeResolve: MergeResolveConfig(enabled: true)),
+        steps: [
+          WorkflowStep(id: 'stories', name: 'Stories', mapOver: 'items', maxParallel: 2, foreachSteps: ['implement']),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item}}']),
+        ],
+      );
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: FakeSkillIntrospector({
+          'claude': {'andthen:review'},
+        }),
+        skillPreflightConfig: config,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.unresolved, hasLength(1));
+      expect(result.unresolved.single.skill, 'dartclaw-merge-resolve');
+      expect(result.probeNotes, isEmpty);
+    });
+
+    test('synthetic merge-resolve skill ref does not warn when the provider sees it', () async {
+      const definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        project: 'proj',
+        gitStrategy: WorkflowGitStrategy(mergeResolve: MergeResolveConfig(enabled: true)),
+        steps: [
+          WorkflowStep(id: 'stories', name: 'Stories', mapOver: 'items', maxParallel: 2, foreachSteps: ['implement']),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item}}']),
+        ],
+      );
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: FakeSkillIntrospector({
+          'claude': {'dartclaw-merge-resolve'},
+        }),
+        skillPreflightConfig: config,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.unresolved, isEmpty);
+      expect(result.probeNotes, isEmpty);
+    });
+  });
 }

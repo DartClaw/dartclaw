@@ -1,13 +1,22 @@
+/// Resolves the workflow-owned integration branch for [runId].
+String resolveIntegrationBranchName(String runId, {required bool perMapItem}) {
+  final runToken = runId.replaceAll('-', '');
+  return perMapItem ? 'dartclaw/workflow/$runToken/integration' : 'dartclaw/workflow/$runToken';
+}
+
 /// Mockable git boundary for workflow execution.
 ///
 /// All git operations from `dartclaw_workflow/lib` route through this port so
 /// tests can use an in-memory implementation and production can centralize
 /// subprocess policy.
 ///
-/// Codex CLI stderr capture and transient-vs-semantic subprocess-exit classification (fix 15) are out of scope. Follow-up owned by `workflow-observability-and-correctness-remediation-plan.md` S04.
+/// Codex CLI stderr capture and transient-vs-semantic subprocess-exit classification (fix 15) are out of scope.
 abstract interface class WorkflowGitPort {
   /// Resolves [ref] to a commit SHA or symbolic ref name.
   Future<String> revParse(String worktreePath, String ref);
+
+  /// Returns the current branch name, or `HEAD` when detached.
+  Future<String> currentBranch(String worktreePath);
 
   /// Returns paths reported by `git diff --name-only`.
   Future<List<String>> diffNameOnly(String worktreePath, {String? against, bool cached = false, String? diffFilter});

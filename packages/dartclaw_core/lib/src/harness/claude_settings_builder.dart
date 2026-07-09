@@ -132,6 +132,13 @@ abstract final class ClaudeSettingsBuilder {
     final sandbox = options['sandbox'];
     if (sandbox is Map<dynamic, dynamic>) {
       _deepMergeInto(settings, {'sandbox': normalizeDynamicMap(sandbox)});
+    } else if (sandbox is String) {
+      final block = _coarseSandboxBlock(sandbox);
+      if (block != null) {
+        _deepMergeInto(settings, {'sandbox': block});
+      } else {
+        _log.warning('Ignoring unsupported Claude sandbox value: "$sandbox"');
+      }
     } else if (sandbox != null) {
       _log.warning('Ignoring unsupported Claude sandbox option type: ${sandbox.runtimeType}');
     }
@@ -145,6 +152,33 @@ abstract final class ClaudeSettingsBuilder {
 
     if (settings.isEmpty) return null;
     return jsonEncode(settings);
+  }
+
+  /// Translates a coarse DartClaw `sandbox` value into a Claude `sandbox`
+  /// settings block, or `null` for an unrecognised value.
+  ///
+  /// This is the OS-isolation axis only — it never touches permission-mode.
+  /// `workspace-write` leaves Claude's defaults (cwd + session temp writable);
+  /// `read-only` denies all writes; `danger-full-access` disables the sandbox.
+  ///
+  /// Block keys (`enabled`, `allowUnsandboxedCommands`, `filesystem.denyWrite`)
+  /// are the documented Claude sandbox schema — see
+  /// https://code.claude.com/docs/en/sandboxing.md. `read-only` mirrors the
+  /// docs' deny-all-writes pattern (`denyWrite: ["/"]`) and disables the
+  /// unsandboxed-command escape hatch so reads stay enabled but writes cannot.
+  static Map<String, dynamic>? _coarseSandboxBlock(String value) {
+    return switch (value.trim()) {
+      'danger-full-access' => {'enabled': false},
+      'workspace-write' => {'enabled': true},
+      'read-only' => {
+        'enabled': true,
+        'allowUnsandboxedCommands': false,
+        'filesystem': {
+          'denyWrite': ['/'],
+        },
+      },
+      _ => null,
+    };
   }
 
   static void _deepMergeInto(Map<String, dynamic> target, Map<String, dynamic> overlay) {

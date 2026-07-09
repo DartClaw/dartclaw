@@ -44,7 +44,7 @@ void main() {
           WorkflowStep(
             id: 'ms',
             name: 'Map Step',
-            type: WorkflowTaskType.agent,
+            taskType: WorkflowTaskType.agent,
             mapOver: 'items',
             maxParallel: 1,
             outputs: {'results': OutputConfig()},
@@ -86,7 +86,7 @@ void main() {
           WorkflowStep(
             id: 'ms',
             name: 'Map Step',
-            type: WorkflowTaskType.agent,
+            taskType: WorkflowTaskType.agent,
             mapOver: 'items',
             outputs: {'results': OutputConfig()},
           ),
@@ -142,7 +142,7 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             maxParallel: 1,
             foreachSteps: ['child'],
@@ -185,7 +185,7 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
@@ -240,7 +240,7 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['implement', 'quick-review'],
             outputs: {'results': OutputConfig()},
@@ -339,13 +339,16 @@ void main() {
       expect(restoredImplement, isNot(contains('tokenCount')));
     });
 
-    test('needsInput hold preserves foreach child cursor without failing iteration', () async {
+    test('needsInput in a foreach child records a blocked item without an approval hold', () async {
+      // A needsInput child is a recoverable hold (blocked), distinct from a hard
+      // failure. With no open dependent declared, it does not pause the run: the
+      // blocked item is recorded and independent items still complete.
       final definition = h.makeDefinition(
         steps: [
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['implement', 'quick-review', 'simplify'],
             outputs: {'results': OutputConfig()},
@@ -385,14 +388,11 @@ void main() {
       await h.executor.execute(run, definition, context);
       await Future.wait([taskSub.cancel(), approvalSub.cancel()]);
 
-      expect(taskCount, 2, reason: 'the hold must stop before simplify[0] or item 1 are dispatched');
-      expect(approvalEvents, hasLength(1));
+      expect(approvalEvents, isEmpty, reason: 'a blocked item with no open dependent must not pause the run');
       final finalRun = await h.repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
-      expect(finalRun?.executionCursor?.completedIndices, isEmpty);
-      expect(finalRun?.executionCursor?.failedIndices, isEmpty);
-      expect(finalRun?.executionCursor?.completedSubStepIdsByIndex[0], ['implement', 'quick-review']);
-      expect(finalRun?.contextJson['_approval.pending.stepId'], 'quick-review');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.contextJson['data']?['step.fe.outcome'], equals('blocked'));
+      expect(finalRun?.contextJson['_approval.pending.stepId'], isNull);
     });
   });
 }

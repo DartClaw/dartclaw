@@ -12,6 +12,17 @@ const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CO
 ///
 /// Used by both the direct-spawn path (host environment map) and the
 /// containerized-spawn path (`ContainerManager.exec(env:)`).
+///
+/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` also makes the claude CLI force
+/// `--permission-mode default`, printing a benign stderr notice ("Permission
+/// mode forced to default"). That is compatible with every DartClaw spawn
+/// path: workflow one-shot tasks carry their tool policy as `--settings`
+/// permission rules, which default mode enforces identically in headless
+/// runs (non-allowed tools are denied, never prompted), and the long-lived
+/// harness fields permission requests over the control protocol. The notice
+/// is operational noise, not a failure cause — verified live 2026-07-07
+/// (allowed tools run, denied tools deny, skills invoke, structured output
+/// completes, with the var set).
 const claudeHardeningEnvVars = <String, String>{
   'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1',
   'DISABLE_AUTOUPDATER': '1',

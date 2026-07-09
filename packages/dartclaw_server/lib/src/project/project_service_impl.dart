@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 
 import 'project_auth_support.dart';
 import '../task/git_credential_env.dart';
+import '../task/workflow_start_precondition_exception.dart';
 
 /// Function type for running git commands, injectable for testing.
 ///
@@ -372,7 +373,7 @@ class ProjectServiceImpl implements ProjectService {
     if (result.exitCode != 0) {
       final message = 'git fetch failed for "${project.name}" (ref: $targetRef): ${result.stderr}';
       if (strict) {
-        throw StateError(message);
+        throw WorkflowStartPreconditionException(message);
       }
       _log.warning(message);
       return; // Best-effort — proceed with local state.

@@ -190,9 +190,9 @@ void main() {
 
     test('remediate prompts carry one report source each', () {
       expectStepInputContainsAll(
-        ['<review_findings>docs/specs/review.md</review_findings>'],
+        ['<review_report_path>docs/specs/review.md</review_report_path>'],
         'remediate',
-        ['<review_findings>'],
+        ['<review_report_path>'],
       );
       expectStepInputContainsAll(
         ['<architecture_review_findings>docs/specs/architecture-review.md</architecture_review_findings>'],

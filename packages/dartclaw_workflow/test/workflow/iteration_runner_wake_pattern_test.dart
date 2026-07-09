@@ -61,7 +61,7 @@ void main() {
           WorkflowStep(
             id: 'stories',
             name: 'Stories',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             maxParallel: 4,
             maxItems: 50,
@@ -91,7 +91,12 @@ void main() {
       expect(queuedCount, 30);
     });
 
-    test('foreach and map runners use completer wake instead of Future.any plus 1ms tick', () {
+    test('iteration runners use shared completer wake instead of Future.any plus 1ms tick', () {
+      final helperSource = File(_workflowSourcePath('iteration_dispatch_engine.dart')).readAsStringSync();
+      expect(helperSource, contains('Completer<void>'), reason: 'shared engine should own the wake completer');
+      expect(helperSource, contains('void wake()'), reason: 'shared engine should expose explicit wake');
+      expect(helperSource, contains('whenComplete'), reason: 'shared engine should wake when iteration futures settle');
+
       for (final path in [
         _workflowSourcePath('foreach_iteration_runner.dart'),
         _workflowSourcePath('map_iteration_runner.dart'),
@@ -108,13 +113,11 @@ void main() {
           isNot(matches(RegExp(r'Future<void>\.delayed\(\s*const Duration\(milliseconds:\s*1\)\s*\)'))),
           reason: '$path must not use a 1ms timer tick after in-flight completion',
         );
-        expect(source, contains('Completer<void>'), reason: '$path should use a shared completer wake');
         expect(
           source,
-          contains('wakeInFlightLoop'),
-          reason: '$path should pump the shared wake from completion handlers',
+          contains('engine.track'),
+          reason: '$path should register iteration futures through the shared wake engine',
         );
-        expect(source, contains('whenComplete'), reason: '$path should wake when an iteration future settles');
         expect(source, contains('catchError'), reason: '$path should absorb async errors from iteration futures');
       }
     });

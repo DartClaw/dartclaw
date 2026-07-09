@@ -97,7 +97,7 @@ void main() {
       expect(fixture.plannerModel, 'claude-opus-4-7');
       expect(fixture.executorModel, 'claude-sonnet-4-6');
       expect(fixture.reviewerModel, 'claude-sonnet-4-6');
-      expect(fixture.sandbox, 'bypassPermissions');
+      expect(fixture.sandbox, 'dontAsk');
     });
 
     test('claude preset still honors per-role env-var overrides', () {
@@ -118,7 +118,7 @@ void main() {
       final entry = fixture.config.providers.entries['claude'];
       expect(entry, isNotNull);
       expect(entry!.executable, 'claude');
-      expect(entry.options['permissionMode'], 'bypassPermissions');
+      expect(entry.options['permissionMode'], 'dontAsk');
       expect(entry.options.containsKey('approval'), isFalse);
     });
 
@@ -129,7 +129,7 @@ void main() {
       expect(swapped.plannerModel, 'claude-opus-4-7');
       expect(swapped.executorModel, 'claude-sonnet-4-6');
       expect(swapped.reviewerModel, 'claude-sonnet-4-6');
-      expect(swapped.sandbox, 'bypassPermissions');
+      expect(swapped.sandbox, 'dontAsk');
     });
 
     test('withProvider keeps explicit per-role overrides while realigning the rest', () {
@@ -139,7 +139,7 @@ void main() {
       expect(swapped.executorModel, 'claude-haiku-4-5');
       expect(swapped.plannerModel, 'claude-opus-4-7');
       expect(swapped.reviewerModel, 'claude-sonnet-4-6');
-      expect(swapped.sandbox, 'bypassPermissions');
+      expect(swapped.sandbox, 'dontAsk');
     });
 
     test('unknown provider value raises ArgumentError instead of silently selecting codex', () {

@@ -57,6 +57,27 @@ void main() {
     expect(report.warnings, isEmpty);
   });
 
+  test('rejects reserved execution-envelope key names as declared outputs', () {
+    for (final reserved in ['outputs', 'step_outcome']) {
+      final def = buildDef(
+        steps: [
+          WorkflowStep(
+            id: 'a',
+            name: 'A',
+            prompts: const ['p'],
+            outputs: {reserved: const OutputConfig(format: OutputFormat.text)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(
+        hasError(report.errors, messageContains: 'reserved execution-envelope key name'),
+        isTrue,
+        reason: 'reserved key "$reserved" must be rejected',
+      );
+    }
+  });
+
   group('structured + inline-schema + description rules', () {
     test('structured output requires json format and schema', () {
       final def = WorkflowDefinition(
@@ -234,7 +255,7 @@ void main() {
           WorkflowStep(
             id: 'research',
             name: 'Research',
-            type: WorkflowTaskType.agent,
+            taskType: WorkflowTaskType.agent,
             prompts: ['Research'],
             outputs: {'verdict': OutputConfig(format: OutputFormat.json)},
           ),
@@ -254,7 +275,7 @@ void main() {
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['implement'],
             outputs: {'story_results': OutputConfig(format: OutputFormat.json)},

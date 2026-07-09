@@ -31,17 +31,32 @@ class MapStepContext {
   /// Indices of iterations that were cancelled.
   final Set<int> cancelledIndices = {};
 
+  /// Indices of iterations that settled blocked (`needsInput`, recoverable).
+  ///
+  /// Distinct from [failedIndices]: a blocked item stays retryable. Blocked
+  /// indices are NOT added to [completedIndices], so the dependency scheduler
+  /// never treats a blocked item's dependents as ready and the controller can
+  /// re-attempt the item on resume.
+  final Set<int> blockedIndices = {};
+
   /// Current number of in-flight (dispatched but not yet settled) iterations.
   int inFlightCount = 0;
 
   /// Set to true when the workflow budget is exhausted mid-execution.
   bool budgetExhausted = false;
 
-  /// Set to true when the run left `running` (pause/cancel) while a map item
-  /// awaited its task. Signals the runner to stop dispatching siblings and
-  /// return `null` so the executor exits without completing the run — the
-  /// step-level analogue of the single-step dispatcher's null return on abort.
+  /// Set to true when a map/foreach item is interrupted without a settled item
+  /// result. Signals the runner to stop dispatching siblings and return `null`
+  /// so the executor exits without completing the run.
   bool aborted = false;
+
+  /// Reason for the first abort, surfaced when the controller performs the
+  /// deferred run pause after in-flight siblings have drained.
+  String? abortReason;
+
+  /// Result-slot key marking a blocked item that must force a dependency hold
+  /// even under `onFailure: continue` (nested-loop escalation).
+  static const String requiresDependencyHoldKey = 'requires_dependency_hold';
 
   MapStepContext({required this.collection, required this.maxParallel, required this.maxItems})
     : results = List<dynamic>.filled(collection.length, null);
@@ -67,14 +82,41 @@ class MapStepContext {
     completedIndices.add(index);
   }
 
+  /// Records a blocked (recoverable) iteration at [index].
+  ///
+  /// Unlike [recordFailure], the index is left out of [completedIndices] so the
+  /// item stays retryable: dependents never become ready off a blocked item and
+  /// the controller can re-attempt it on resume.
+  ///
+  /// [requiresDependencyHold] marks a nested-loop escalation block: the
+  /// controller must hold open dependents for human review even under
+  /// `onFailure: continue`, whereas an ordinary `needsInput` block is
+  /// recorded-and-advanced under that policy.
+  void recordBlocked(int index, String message, String? taskId, {bool requiresDependencyHold = false}) {
+    results[index] = {
+      'error': true,
+      'blocked': true,
+      'message': message,
+      'task_id': taskId,
+      if (requiresDependencyHold) requiresDependencyHoldKey: true,
+    };
+    blockedIndices.add(index);
+  }
+
   /// Whether any iterations failed.
   bool get hasFailures => failedIndices.isNotEmpty;
+
+  /// Whether any iterations settled blocked (recoverable).
+  bool get hasBlocked => blockedIndices.isNotEmpty;
 
   /// Number of successfully completed iterations.
   int get successCount => completedIndices.length - failedIndices.length - cancelledIndices.length;
 
   /// Number of cancelled iterations.
   int get cancelledCount => cancelledIndices.length;
+
+  /// Number of iterations that settled blocked (recoverable).
+  int get blockedCount => blockedIndices.length;
 
   /// Effective concurrency for dispatch.
   ///

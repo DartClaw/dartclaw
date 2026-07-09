@@ -52,8 +52,41 @@ class WorkflowDefinitionResolver {
   /// requested step plus any loops it participates in, so the emitter can
   /// produce a compact single-step YAML document without dangling references.
   WorkflowDefinition? sliceStep(WorkflowDefinition resolved, String stepId) {
-    final step = resolved.steps.where((s) => s.id == stepId).firstOrNull;
+    final stepsById = {for (final step in resolved.steps) step.id: step};
+    final loopsById = {for (final loop in resolved.loops) loop.id: loop};
+    final step = stepsById[stepId];
     if (step == null) return null;
+    final selectedStepIds = <String>{};
+    final selectedLoopIds = <String>{};
+    void includeStepTree(String id) {
+      if (!selectedStepIds.add(id)) return;
+      final step = stepsById[id];
+      if (step == null) return;
+      if (step.isForeachController) {
+        for (final childId in step.foreachSteps!) {
+          includeStepTree(childId);
+        }
+      }
+      final loop = loopsById[id];
+      if (loop != null) {
+        selectedLoopIds.add(loop.id);
+        for (final bodyStepId in loop.steps) {
+          includeStepTree(bodyStepId);
+        }
+        final finalizer = loop.finally_;
+        if (finalizer != null) includeStepTree(finalizer);
+      }
+    }
+
+    includeStepTree(stepId);
+    final selectedSteps = [
+      for (final step in resolved.steps)
+        if (selectedStepIds.contains(step.id)) step,
+    ];
+    final selectedLoops = [
+      for (final loop in resolved.loops)
+        if (selectedLoopIds.contains(loop.id)) loop,
+    ];
     // Preserve the workflow-level variable declarations so any `{{VAR}}`
     // references the step's prompt still carries resolve cleanly when the
     // sliced YAML is fed back through the parser or used as a runnable
@@ -63,9 +96,9 @@ class WorkflowDefinitionResolver {
       description: resolved.description,
       variables: resolved.variables,
       project: resolved.project,
-      steps: [step],
-      loops: const [],
-      nodes: [ActionNode(stepId: step.id)],
+      steps: selectedSteps,
+      loops: selectedLoops,
+      nodes: WorkflowDefinition.normalizeNodes(selectedSteps, selectedLoops),
     );
   }
 
@@ -99,10 +132,11 @@ class WorkflowDefinitionResolver {
       provider: resolvedProvider,
       model: step.model ?? matched?.model,
       effort: step.effort ?? matched?.effort,
+      gatingSeverity: step.gatingSeverity ?? matched?.gatingSeverity,
       outputs: step.outputs,
       maxTokens: step.maxTokens ?? matched?.maxTokens,
-      maxCostUsd: step.maxCostUsd ?? matched?.maxCostUsd,
       maxRetries: step.maxRetries ?? matched?.maxRetries,
+      timeoutSeconds: step.timeoutSeconds ?? matched?.timeoutSeconds,
       allowedTools: step.allowedTools ?? matched?.allowedTools,
       emitsOwnOutcome: step.emitsOwnOutcome,
     );
@@ -140,11 +174,24 @@ class WorkflowDefinitionResolver {
 
   /// Serializes [def] into an ordered list of `(key, value)` entries so the
   /// emitted YAML preserves a stable, human-friendly field order (name,
-  /// description, variables, stepDefaults, gitStrategy, steps, loops).
+  /// description, variables, stepDefaults, gitStrategy, steps).
   List<MapEntry<String, dynamic>> _workflowToOrderedMap(WorkflowDefinition def) {
     final entries = <MapEntry<String, dynamic>>[MapEntry('name', def.name), MapEntry('description', def.description)];
     if (def.variables.isNotEmpty) {
-      entries.add(MapEntry('variables', def.variables.map((k, v) => MapEntry(k, v.toJson()))));
+      // Emit the YAML authoring key `default` — toJson()'s `defaultValue` is the
+      // persisted-JSON shape, not a parser-known authoring field.
+      entries.add(
+        MapEntry(
+          'variables',
+          def.variables.map(
+            (k, v) => MapEntry(k, <String, dynamic>{
+              'required': v.required,
+              'description': v.description,
+              if (v.defaultValue != null) 'default': v.defaultValue,
+            }),
+          ),
+        ),
+      );
     }
     if (def.maxTokens != null) entries.add(MapEntry('maxTokens', def.maxTokens));
     if (def.project != null) entries.add(MapEntry('project', def.project));
@@ -153,14 +200,6 @@ class WorkflowDefinitionResolver {
       entries.add(MapEntry('stepDefaults', def.stepDefaults!.map((d) => d.toJson()).toList()));
     }
     entries.add(MapEntry('steps', _buildTopLevelStepList(def)));
-    // Foreach-nested loops are emitted inline under their foreach controller
-    // (the parser requires the loop body inside the foreach), so they are
-    // excluded from the top-level `loops:` section to avoid double-emission.
-    final foreachOwnedLoopIds = _foreachOwnedLoopIds(def);
-    final topLevelLoops = def.loops.where((l) => !foreachOwnedLoopIds.contains(l.id)).toList();
-    if (topLevelLoops.isNotEmpty) {
-      entries.add(MapEntry('loops', topLevelLoops.map((l) => l.toJson()).toList()));
-    }
     return entries;
   }
 
@@ -184,23 +223,38 @@ class WorkflowDefinitionResolver {
     final stepsById = {for (final s in def.steps) s.id: s};
     final loopsById = {for (final l in def.loops) l.id: l};
     final foreachOwnedLoopIds = _foreachOwnedLoopIds(def);
+    final topLevelLoopByControllerId = {
+      for (final loop in def.loops)
+        if (!foreachOwnedLoopIds.contains(loop.id) && stepsById.containsKey(loop.id)) loop.id: loop,
+    };
+    final topLevelLoopByFirstBodyStepId = {
+      for (final loop in def.loops)
+        if (!foreachOwnedLoopIds.contains(loop.id) && !stepsById.containsKey(loop.id) && loop.steps.isNotEmpty)
+          loop.steps.first: loop,
+    };
     final inlinedChildIds = <String>{};
     for (final step in def.steps) {
       if (step.isForeachController) inlinedChildIds.addAll(step.foreachSteps!);
     }
-    // Body (and finalizer) steps of a foreach-nested loop are emitted inside the
-    // inline loop child, so suppress them at the top level too.
-    for (final loopId in foreachOwnedLoopIds) {
-      final loop = loopsById[loopId];
-      if (loop == null) continue;
+    // Loop body and finalizer steps are emitted inside their inline loop
+    // controller, so suppress them at the top level too.
+    for (final loop in def.loops) {
       inlinedChildIds.addAll(loop.steps);
       if (loop.finally_ != null) inlinedChildIds.add(loop.finally_!);
     }
     final result = <dynamic>[];
+    final emittedLoopIds = <String>{};
     for (final step in def.steps) {
+      final loopAtBodyStart = topLevelLoopByFirstBodyStepId[step.id];
+      if (loopAtBodyStart != null && emittedLoopIds.add(loopAtBodyStart.id)) {
+        result.add(_inlineLoopToOrderedMap(null, loopAtBodyStart, stepsById));
+        continue;
+      }
       if (inlinedChildIds.contains(step.id)) continue; // emitted under its controller
       if (step.isForeachController) {
         result.add(_foreachControllerToOrderedMap(step, stepsById, loopsById));
+      } else if (topLevelLoopByControllerId.containsKey(step.id) && emittedLoopIds.add(step.id)) {
+        result.add(_inlineLoopToOrderedMap(step, topLevelLoopByControllerId[step.id]!, stepsById));
       } else {
         result.add(_stepToOrderedMap(step));
       }
@@ -224,12 +278,18 @@ class WorkflowDefinitionResolver {
     if (controller.mapAlias != null) entries.add(MapEntry('as', controller.mapAlias));
     if (controller.maxParallel != null) entries.add(MapEntry('max_parallel', controller.maxParallel));
     if (controller.maxItems != null) entries.add(MapEntry('max_items', controller.maxItems));
+    if (controller.gate != null) entries.add(MapEntry('gate', controller.gate));
+    if (controller.entryGate != null) entries.add(MapEntry('entryGate', controller.entryGate));
     if (controller.inputs.isNotEmpty) {
       entries.add(MapEntry('inputs', controller.inputs.toList()));
     }
     if (controller.outputs != null && controller.outputs!.isNotEmpty) {
       entries.add(MapEntry('outputs', controller.outputs!.map((k, v) => MapEntry(k, v.toJson()))));
     }
+    if (controller.outputExamples != null) {
+      entries.add(MapEntry('outputExamples', controller.outputExamples!.toList(growable: false)));
+    }
+    if (controller.onFailure != OnFailurePolicy.fail) entries.add(MapEntry('onFailure', controller.onFailure.yamlName));
     if (controller.workflowVariables.isNotEmpty) {
       entries.add(MapEntry('workflow_variables', controller.workflowVariables.toList()));
     }
@@ -265,6 +325,9 @@ class WorkflowDefinitionResolver {
     ];
     if (loop.entryGate != null) entries.add(MapEntry('entryGate', loop.entryGate));
     entries.add(MapEntry('exitGate', loop.exitGate));
+    if (loop.onMaxIterations != WorkflowLoop.onMaxIterationsFail) {
+      entries.add(MapEntry('onMaxIterations', loop.onMaxIterations));
+    }
     final body = <dynamic>[];
     for (final stepId in loop.steps) {
       final step = stepsById[stepId];
@@ -291,6 +354,7 @@ class WorkflowDefinitionResolver {
     if (step.provider != null) entries.add(MapEntry('provider', step.provider));
     if (step.model != null) entries.add(MapEntry('model', step.model));
     if (step.effort != null) entries.add(MapEntry('effort', step.effort));
+    if (step.gatingSeverity != null) entries.add(MapEntry('gatingSeverity', step.gatingSeverity));
     if (step.timeoutSeconds != null) entries.add(MapEntry('timeout', step.timeoutSeconds));
     if (step.parallel) entries.add(MapEntry('parallel', true));
     if (step.gate != null) entries.add(MapEntry('gate', step.gate));
@@ -299,12 +363,10 @@ class WorkflowDefinitionResolver {
     if (step.aggregateReviews != null) {
       entries.add(MapEntry('aggregateReviews', step.aggregateReviews!.toList()));
     }
-    if (step.extraction != null) entries.add(MapEntry('extraction', step.extraction!.toJson()));
     if (step.outputs != null && step.outputs!.isNotEmpty) {
       entries.add(MapEntry('outputs', step.outputs!.map((k, v) => MapEntry(k, v.toJson()))));
     }
     if (step.maxTokens != null) entries.add(MapEntry('maxTokens', step.maxTokens));
-    if (step.maxCostUsd != null) entries.add(MapEntry('maxCostUsd', step.maxCostUsd));
     if (step.maxRetries != null) entries.add(MapEntry('maxRetries', step.maxRetries));
     if (step.allowedTools != null) entries.add(MapEntry('allowedTools', step.allowedTools!.toList()));
     if (step.mapOver != null) entries.add(MapEntry('map_over', step.mapOver));
@@ -318,7 +380,7 @@ class WorkflowDefinitionResolver {
     if (step.continueSession != null) {
       entries.add(MapEntry('continueSession', step.continueSession == '@previous' ? true : step.continueSession));
     }
-    if (step.onError != null) entries.add(MapEntry('onError', step.onError));
+    if (step.onError != null) entries.add(MapEntry('onError', step.onError!.yamlName));
     if (step.workdir != null) entries.add(MapEntry('workdir', step.workdir));
     if (step.onFailure != OnFailurePolicy.fail) entries.add(MapEntry('onFailure', step.onFailure.yamlName));
     if (step.emitsOwnOutcome) entries.add(MapEntry('emitsOwnOutcome', true));

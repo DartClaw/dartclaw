@@ -3,20 +3,21 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions;
-import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeSettingsBuilder, ContainerExecutor, intValue, stringValue;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show ClaudeSettingsBuilder, ContainerExecutor, WorkflowCliTurnProgressEvent, intValue, stringValue;
 import 'package:logging/logging.dart';
 
+import '../container/security_profile.dart';
 import 'workflow_cli_runner.dart';
 import 'cli_process_supervisor.dart';
 
 /// [CliProvider] implementation for the Claude CLI one-shot runner.
 ///
-/// Owns command construction, Claude stream-JSON parsing, and interactive
-/// permission-mode rejection for the non-interactive workflow path.
-class ClaudeCliProvider implements CliProvider {
+/// Owns command construction, Claude stream-JSON parsing, live token-progress
+/// emission, and interactive permission-mode rejection for the non-interactive
+/// workflow path.
+class ClaudeCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('ClaudeCliProvider');
-
-  final Set<Process> _inflight = <Process>{};
 
   ClaudeCliProvider();
 
@@ -25,9 +26,13 @@ class ClaudeCliProvider implements CliProvider {
     final command = _buildCommand(req);
     final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, req.containerManager);
 
-    final env = req.extraEnvironment == null || req.extraEnvironment!.isEmpty
-        ? req.providerConfig.environment
-        : {...req.providerConfig.environment, ...req.extraEnvironment!};
+    // `spawnEnvOverride` is merged last so a full-access run's env-scrub opt-out
+    // wins over both the provider's hardening env and any per-step extras.
+    final env = <String, String>{
+      ...req.providerConfig.environment,
+      ...?req.extraEnvironment,
+      ...command.spawnEnvOverride,
+    };
 
     final stopwatch = Stopwatch()..start();
     Process? process;
@@ -36,14 +41,14 @@ class ClaudeCliProvider implements CliProvider {
     final stderrBuffer = StringBuffer();
     try {
       process = await startCliProcess(
-        executable: command.$1,
-        arguments: command.$2,
+        executable: command.executable,
+        arguments: command.arguments,
         workingDirectory: resolvedWorkDir,
         environment: env,
         containerManager: req.containerManager,
         processStarter: req.processStarter,
       );
-      _inflight.add(process);
+      trackInflightProcess(process);
       supervisor = CliProcessSupervisor(
         process: process,
         provider: 'claude',
@@ -54,10 +59,10 @@ class ClaudeCliProvider implements CliProvider {
         eventBus: req.eventBus,
         log: req.log,
       )..start();
-      await process.stdin.close();
-
       final stdoutDone = Completer<void>();
       final stderrDone = Completer<void>();
+      var terminalResultRecorded = false;
+      final progressState = _ClaudeProgressState();
       process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
@@ -66,6 +71,11 @@ class ClaudeCliProvider implements CliProvider {
               stdoutBuffer.writeln(line);
               if (line.trim().isNotEmpty) {
                 supervisor?.recordParsedOutput();
+              }
+              _emitAssistantProgress(line, progressState, req);
+              if (!terminalResultRecorded && _isTerminalResultLine(line)) {
+                terminalResultRecorded = true;
+                supervisor?.recordTerminalResult();
               }
             },
             onError: (Object error, StackTrace stackTrace) {
@@ -88,6 +98,24 @@ class ClaudeCliProvider implements CliProvider {
             },
             cancelOnError: true,
           );
+      cancelFutureStartedProcessIfRequested(process);
+      try {
+        await process.stdin.close();
+      } catch (_) {
+        if (cancellationRequestedFor(process)) {
+          final exitCode = await supervisor.waitForExitCode();
+          await stdoutDone.future;
+          await stderrDone.future;
+          stopwatch.stop();
+          final stdout = stdoutBuffer.toString();
+          if (_hasClaudeFailureEvidence(stdout) ||
+              hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrFragments)) {
+            throw StateError(_describeNonZeroExit(exitCode, stdout, stderrBuffer.toString()));
+          }
+          return WorkflowCliTurnResult.cancelled(duration: stopwatch.elapsed);
+        }
+        rethrow;
+      }
 
       final exitCode = await supervisor.waitForExitCode();
       await stdoutDone.future;
@@ -96,7 +124,19 @@ class ClaudeCliProvider implements CliProvider {
       supervisor.stop();
 
       if (exitCode != 0) {
-        throw StateError(_describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString()));
+        final hasProviderFailureEvidence =
+            _hasClaudeFailureEvidence(stdoutBuffer.toString()) ||
+            hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrFragments);
+        final cancellationResult = cancellationResultForNonZeroExit(
+          process: process,
+          supervisor: supervisor,
+          duration: stopwatch.elapsed,
+          hasProviderFailureEvidence: hasProviderFailureEvidence,
+        );
+        if (cancellationResult != null) return cancellationResult;
+        if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
+          throw StateError(_describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString()));
+        }
       }
 
       return _parse(stdoutBuffer.toString(), fallbackDuration: stopwatch.elapsed);
@@ -104,21 +144,37 @@ class ClaudeCliProvider implements CliProvider {
       supervisor?.stop();
       final activeProcess = process;
       if (activeProcess != null) {
-        _inflight.remove(activeProcess);
+        untrackInflightProcess(activeProcess);
       }
     }
   }
 
-  @override
-  Future<void> cancelInflight() async {
-    await Future.wait(_inflight.map(terminateCliProcess), eagerError: false);
-    _inflight.clear();
-  }
-
-  (String, List<String>) _buildCommand(CliTurnRequest req) {
-    final taskPolicy = _ClaudeTaskPolicy(req.allowedTools, readOnly: req.readOnly);
-    final options = _optionsWithTaskPolicy(req.providerConfig.options, taskPolicy);
-    final configuredPermissionMode = ClaudeSettingsBuilder.buildPermissionMode(options);
+  ({String executable, List<String> arguments, Map<String, String> spawnEnvOverride}) _buildCommand(
+    CliTurnRequest req,
+  ) {
+    final providerOptions = req.providerConfig.options;
+    // Approval axis (prompt gating): `approval: never` opts into full access.
+    // Read-only steps always keep their deny-list policy regardless of approval.
+    final fullAccess = !req.readOnly && ClaudeProviderOptions.isFullAccessApproval(providerOptions);
+    if (fullAccess && req.containerManager?.profileId == SecurityProfile.restricted.id) {
+      // The one-shot CLI path has no hooks/GuardChain — its only tool gating is
+      // the static allow-list, which full-access removes. Remaining containment
+      // is then purely the container's filesystem mounts. The restricted profile
+      // mounts no workspace, so a bypass there would have no containment at all;
+      // refuse it rather than run unconfined.
+      throw StateError(
+        'Claude full-access approval ("approval: never") is not honored under the restricted container '
+        'profile, which mounts no workspace — a permission bypass there would run without any containment.',
+      );
+    }
+    // Full access bypasses the allow-list entirely; an empty policy keeps
+    // _rejectInteractivePermissionMode from throwing on bypassPermissions.
+    final taskPolicy = fullAccess
+        ? const _ClaudeTaskPolicy.empty()
+        : _ClaudeTaskPolicy(req.allowedTools, readOnly: req.readOnly);
+    final options = _optionsWithTaskPolicy(providerOptions, taskPolicy);
+    final configuredPermissionMode =
+        ClaudeSettingsBuilder.buildPermissionMode(options) ?? ClaudeProviderOptions.approvalPermissionMode(options);
     final permissionMode = _rejectInteractivePermissionMode(
       _permissionModeForTaskPolicy(configuredPermissionMode, taskPolicy),
       taskPolicy,
@@ -166,7 +222,11 @@ class ClaudeCliProvider implements CliProvider {
       if (settings != null) ...['--settings', settings],
       req.prompt,
     ];
-    return (req.providerConfig.executable, args);
+    return (
+      executable: req.providerConfig.executable,
+      arguments: args,
+      spawnEnvOverride: fullAccess ? _fullAccessEnvOverride : const <String, String>{},
+    );
   }
 
   WorkflowCliTurnResult _parse(String stdout, {required Duration fallbackDuration}) {
@@ -208,6 +268,57 @@ class ClaudeCliProvider implements CliProvider {
     return intValue(decoded[legacyTopKey]) ?? 0;
   }
 
+  void _emitAssistantProgress(String line, _ClaudeProgressState state, CliTurnRequest req) {
+    final eventBus = req.eventBus;
+    if (eventBus == null) return;
+    if (!line.contains('"type":"assistant"') && !line.contains('"type": "assistant"')) return;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(line);
+    } on FormatException {
+      return;
+    }
+    if (decoded is! Map<String, dynamic> || decoded['type'] != 'assistant') return;
+    final message = decoded['message'];
+    if (message is! Map) return;
+    final usage = message['usage'];
+    if (usage is! Map) return;
+
+    final inputTokens = _assistantUsageInt(usage['input_tokens']);
+    final outputTokens = _assistantUsageInt(usage['output_tokens']);
+    if (inputTokens == null || outputTokens == null) return;
+
+    state.turnCount++;
+    state.inputTokens = inputTokens;
+    state.outputTokens += outputTokens;
+    state.cacheReadTokens = _assistantUsageInt(usage['cache_read_input_tokens']) ?? state.cacheReadTokens;
+    state.cacheWriteTokens = _assistantUsageInt(usage['cache_creation_input_tokens']) ?? state.cacheWriteTokens;
+
+    eventBus.fire(
+      WorkflowCliTurnProgressEvent(
+        taskId: req.taskId ?? '',
+        sessionId: req.sessionId ?? '',
+        provider: 'claude',
+        turnIndex: state.turnCount,
+        cumulativeTokens: state.inputTokens + state.outputTokens,
+        inputTokens: state.inputTokens,
+        outputTokens: state.outputTokens,
+        cacheReadTokens: state.cacheReadTokens,
+        cacheWriteTokens: state.cacheWriteTokens,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  int? _assistantUsageInt(Object? value) {
+    return switch (value) {
+      int() => value,
+      num() when value.isFinite => value.toInt(),
+      String() => int.tryParse(value),
+      _ => null,
+    };
+  }
+
   static String? _rejectInteractivePermissionMode(String? mode, _ClaudeTaskPolicy taskPolicy) {
     const interactive = {'acceptEdits', 'auto', 'default', 'plan'};
     if (mode != null && interactive.contains(mode)) {
@@ -223,6 +334,14 @@ class ClaudeCliProvider implements CliProvider {
     }
     return mode;
   }
+}
+
+final class _ClaudeProgressState {
+  int turnCount = 0;
+  int inputTokens = 0;
+  int outputTokens = 0;
+  int cacheReadTokens = 0;
+  int cacheWriteTokens = 0;
 }
 
 /// Returns the terminal `type: "result"` event from claude stream-json stdout.
@@ -258,6 +377,17 @@ Map<String, dynamic>? _terminalResultEvent(String stdout) {
   return objectCount == 1 ? soleObject : null;
 }
 
+bool _isTerminalResultLine(String line) {
+  final trimmed = line.trim();
+  if (trimmed.isEmpty) return false;
+  try {
+    final decoded = jsonDecode(trimmed);
+    return decoded is Map<String, dynamic> && decoded['type'] == 'result';
+  } on FormatException {
+    return false;
+  }
+}
+
 /// Builds a diagnostic message for a non-zero claude one-shot exit.
 ///
 /// `claude -p --output-format stream-json` reports turn-level errors in the
@@ -291,6 +421,39 @@ String? _resultJsonDiagnostic(String stdout) {
   ];
   return fields.isEmpty ? null : fields.join(' ');
 }
+
+bool _hasClaudeFailureEvidence(String stdout) {
+  final decoded = _terminalResultEvent(stdout);
+  if (decoded == null) return false;
+  final subtype = stringValue(decoded['subtype']);
+  return decoded['is_error'] == true ||
+      decoded['api_error_status'] != null ||
+      (subtype != null && subtype.startsWith('error_'));
+}
+
+/// Subprocess env-var the current claude CLI reads as a hardening signal: when
+/// set to `1` it scrubs the child env AND forces `--permission-mode` to
+/// `default`, overriding any `--dangerously-skip-permissions` / bypass posture.
+const _claudeSubprocessEnvScrubVar = 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB';
+
+/// Spawn-env overlay for a full-access (`approval: never`) claude one-shot.
+///
+/// The workflow provider env sets [_claudeSubprocessEnvScrubVar]`=1` on every
+/// claude spawn (v0.14.6 hardening). Because that also forces permission mode to
+/// `default`, it silently neutralizes the bypass posture a full-access step
+/// relies on (`--permission-mode bypassPermissions` / `--dangerously-skip-permissions`),
+/// leaving the agent unable to use its tools headlessly. Full-access is an
+/// explicit operator opt-in to unrestricted execution (and is already refused
+/// under the no-workspace restricted profile), so it opts out of the scrub with
+/// an explicit `=0` that wins over the inherited hardening. Policy-enforced steps
+/// keep the scrub: their `--settings permissions.allow` rules are honored under
+/// `default` mode, so the hardening costs them nothing.
+const _fullAccessEnvOverride = <String, String>{_claudeSubprocessEnvScrubVar: '0'};
+
+// `claude` prints this operational notice to stderr on every run; it is not a
+// failure signal. Any other stderr output is treated as genuine evidence so a
+// stderr-only provider error is never masked as a cancellation.
+const List<String> _claudeBenignStderrFragments = [_claudeSubprocessEnvScrubVar];
 
 String? _permissionModeForTaskPolicy(String? configured, _ClaudeTaskPolicy taskPolicy) {
   if (!taskPolicy.hasPolicy) return configured;
@@ -389,6 +552,10 @@ final class _ClaudeTaskPolicy {
   _ClaudeTaskPolicy(List<String>? allowedTools, {required this.readOnly})
     : allowedTools =
           allowedTools?.where((tool) => tool.trim().isNotEmpty).map((tool) => tool.trim()).toSet() ?? const <String>{};
+
+  /// An empty, no-policy task policy: no allow-list is constructed and the
+  /// one-shot bypass-permissions guard does not fire. Used for full-access runs.
+  const _ClaudeTaskPolicy.empty() : allowedTools = const <String>{}, readOnly = false;
 
   final Set<String> allowedTools;
   final bool readOnly;

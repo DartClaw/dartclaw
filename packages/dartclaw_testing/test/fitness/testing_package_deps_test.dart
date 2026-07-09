@@ -18,6 +18,7 @@ const _allowedDependencies = {
   'dartclaw_security',
   'dartclaw_workflow',
   'http',
+  'logging',
   'path',
 };
 

@@ -1,25 +1,8 @@
 part of 'workflow_executor.dart';
 
-/// Public node-dispatch contract for scenario tests.
-///
-/// Named to flag that this path exercises a scenario-only subset of
-/// production behavior – `WorkflowExecutor.execute()` runs additional
-/// production-only side effects (`_parallel.*` persistence,
-/// `_maybeCommitArtifacts`, `step.onError == 'continue'`, promotion pass).
-Future<StepHandoff> dispatchStepForScenario(WorkflowNode node, StepExecutionContext ctx) async {
-  final dispatcher = _PublicStepDispatcher.fromContext(ctx);
-  try {
-    return await dispatcher.dispatch(node);
-  } finally {
-    dispatcher.dispose();
-  }
-}
-
-/// Alias for [dispatchStepForScenario]; kept for test backward-compatibility.
-Future<StepHandoff> dispatchStep(WorkflowNode node, StepExecutionContext ctx) => dispatchStepForScenario(node, ctx);
-
 extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
   /// Executes a single step: resolves template, creates task, waits for terminal state.
+  ///
   Future<StepOutcome?> _executeStep(
     WorkflowRun run,
     WorkflowDefinition definition,
@@ -33,6 +16,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     required String? activeWorkspaceRoot,
     bool promoteAfterSuccess = false,
     Map<String, dynamic>? extraTaskConfig,
+    void Function(String taskId)? onFirstTaskCreated,
     _NestedLoopScope? nestedLoopScope,
   }) async {
     if (step.taskType == WorkflowTaskType.bash) {
@@ -104,7 +88,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     final visibleSkill = step.skill == null
         ? null
         : _skillPreflightResult.visibleSkillFor(provider: taskProvider, skill: step.skill!);
-    final effectiveOutputs = effectiveOutputsFor(step);
+    final effectiveOutputs = step.outputs;
     final effectiveOutputKeys = effectiveOutputKeysFor(step, effectiveOutputs);
     var taskConfig = _buildStepConfig(
       run,
@@ -184,7 +168,16 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         ? '${definition.name} – ${step.name} ($loopId iter $loopIteration)'
         : '${definition.name} – ${step.name}';
 
-    final emitOutcomeProtocol = !step.emitsOwnOutcome;
+    // Workflow-owned agent steps whose declared outputs need model claims
+    // finalize through the structured envelope: the main prompt drops the
+    // output-contract and step-outcome sections (they move to the finalizer
+    // turn), and the persisted schema is the strict envelope.
+    final needsFinalizer = stepNeedsFinalizer(step, effectiveOutputs);
+    final emitOutcomeProtocol = !needsFinalizer && !step.emitsOwnOutcome;
+    // Keys the envelope claims travel out of the main prompt; the complement
+    // (`outputMode: prompt` opt-outs, `*_source`, host-owned keys) still renders
+    // its contract. Empty on non-finalizer steps, so all keys render.
+    final finalizerCoveredKeys = needsFinalizer ? modelDerivedFinalizerKeys(step, effectiveOutputs) : const <String>[];
     final firstTaskPrompt = step.isMultiPrompt
         ? _skillPromptBuilder.build(
             skill: visibleSkill,
@@ -193,12 +186,14 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             outputs: effectiveOutputs,
             outputKeys: effectiveOutputKeys,
             outputExamples: step.outputExamples,
+            finalizerCoveredKeys: finalizerCoveredKeys,
             autoFrameContext: step.autoFrameContext,
             inputs: step.inputs,
             variables: variableNames,
             resolvedInputValues: resolvedInputValues,
             templatePrompt: step.prompts?.first,
             provider: taskProvider,
+            gatingSeverity: resolved.gatingSeverity,
           )
         : _skillPromptBuilder.build(
             skill: visibleSkill,
@@ -208,21 +203,31 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             outputKeys: effectiveOutputKeys,
             outputExamples: step.outputExamples,
             emitStepOutcomeProtocol: emitOutcomeProtocol,
+            finalizerCoveredKeys: finalizerCoveredKeys,
             autoFrameContext: step.autoFrameContext,
             inputs: step.inputs,
             variables: variableNames,
             resolvedInputValues: resolvedInputValues,
             templatePrompt: step.prompts?.first,
             provider: taskProvider,
+            gatingSeverity: resolved.gatingSeverity,
           );
     final followUpPrompts = _buildOneShotFollowUpPrompts(
       step,
       context,
       effectiveOutputs,
       outputKeys: effectiveOutputKeys,
+      gatingSeverity: resolved.gatingSeverity,
+      finalizerHandlesOutputs: needsFinalizer,
       mapCtx: mapCtx,
     );
-    final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
+    final structuredSchema = needsFinalizer
+        ? buildExecutionEnvelopeSchema(
+            step,
+            effectiveOutputs,
+            gatingSeverity: resolved.gatingSeverity ?? defaultGatingSeverity,
+          )
+        : null;
     taskConfig = {...taskConfig, ...?extraTaskConfig};
     if (followUpPrompts.isNotEmpty) {
       taskConfig['_workflowFollowUpPrompts'] = followUpPrompts;
@@ -231,9 +236,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       taskConfig['_workflowStructuredSchema'] = structuredSchema;
     }
     taskConfig[WorkflowTaskConfig.workflowStepName] = step.name;
-    if (step.timeoutSeconds != null) {
-      taskConfig[WorkflowTaskConfig.workflowTimeoutSeconds] = step.timeoutSeconds;
-    }
     var accumulatedTokenCount = 0;
 
     String? lastFailureReason;
@@ -296,13 +298,21 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           return null;
         }
 
+        onFirstTaskCreated?.call(taskId);
         WorkflowExecutor._log.fine("Workflow '${run.id}': step '${step.id}' → task $taskId");
 
         late Task finalTask;
         try {
-          finalTask = await _waitForTaskCompletion(taskId, step, completer, sub, runId: run.id);
+          finalTask = await _waitForTaskCompletion(
+            taskId,
+            step,
+            completer,
+            sub,
+            runId: run.id,
+            timeoutSeconds: resolved.timeoutSeconds,
+          );
         } on TimeoutException {
-          final msg = 'Step "${step.name}" timed out after ${step.timeoutSeconds}s';
+          final msg = 'Step "${step.name}" timed out after ${resolved.timeoutSeconds}s';
           WorkflowExecutor._log.warning("Workflow '${run.id}': $msg");
           await _failRun(run, msg);
           return null;
@@ -323,7 +333,10 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         StepValidationFailure? extractionFailure;
         if (finalTask.status != TaskStatus.failed && finalTask.status != TaskStatus.cancelled) {
           try {
-            outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: effectiveOutputs);
+            final extractionStep = resolved.gatingSeverity == step.gatingSeverity
+                ? step
+                : step.copyWith(gatingSeverity: resolved.gatingSeverity);
+            outputs = await _contextExtractor.extract(extractionStep, finalTask, effectiveOutputs: effectiveOutputs);
           } on MissingArtifactFailure catch (e, st) {
             extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
             WorkflowExecutor._log.warning("Context extraction failed for step '${step.id}'", e, st);
@@ -344,7 +357,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
         if (wj == null &&
             resolvedWorktreeMode != 'inline' &&
-            _stepNeedsWorktree(
+            step_config_policy.stepNeedsWorktree(
               definition,
               step,
               resolved,
@@ -373,9 +386,14 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         }
 
         final (outcome, outcomeReason) = await _resolveStepOutcome(step, finalTask, runId: run.id);
-        final effectiveOutcome = validationFailure != null && outcome != 'needsInput' ? 'failed' : outcome;
+        final effectiveOutcome = validationFailure != null && outcome != 'needsInput' && outcome != 'cancelled'
+            ? 'failed'
+            : outcome;
+        // A SIGTERM'd task usually leaves declared outputs unwritten, so a
+        // co-occurring validation failure must not mask the interruption
+        // reason (or rewrite the outcome) for cancelled tasks.
         final effectiveReason =
-            validationFailure?.reason ??
+            (effectiveOutcome == 'cancelled' ? null : validationFailure?.reason) ??
             ((outcomeReason != null && outcomeReason.isNotEmpty)
                 ? outcomeReason
                 : (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name);
@@ -384,6 +402,33 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             "Workflow '${run.id}': step '${step.id}' outcome overridden from "
             "'$outcome' to 'failed' due to post-extraction validation failure: "
             '${validationFailure.reason}',
+          );
+        }
+
+        // Teardown interruption bypasses every policy branch: onFailure
+        // retry/continue/pause must not re-dispatch or advance past a task the
+        // run's own teardown killed. Controllers map this outcome to their
+        // interrupted/pause seams (the retry wrapper keys on 'failed', so no
+        // second attempt fires).
+        if (effectiveOutcome == 'cancelled') {
+          // A cancelled task rarely records a failReason, leaving the bare (or
+          // empty) status name as the reason; substitute an operator-facing
+          // interruption message so pause reasons read as resumable. Worded
+          // cause-neutrally: teardown is the designed producer, but operator
+          // task-cancel and emergency stop reach this branch too.
+          final interruptionReason = effectiveReason.isEmpty || effectiveReason == finalTask.status.name
+              ? "Step '${step.id}' was interrupted by task cancellation and can be resumed."
+              : effectiveReason;
+          return StepOutcome(
+            step: step,
+            task: finalTask,
+            outputs: outputs,
+            tokenCount: accumulatedTokenCount,
+            success: false,
+            error: interruptionReason,
+            outcome: effectiveOutcome,
+            outcomeReason: interruptionReason,
+            validationFailure: validationFailure,
           );
         }
 

@@ -16,7 +16,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputConfig,
         OutputFormat,
         WorkflowDefinition,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowStep,
@@ -101,21 +100,21 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
       integrationBranch: true,
       worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
       promotion: 'merge',
-      publish: WorkflowGitPublishStrategy(enabled: false),
+      publish: false,
       mergeResolve: MergeResolveConfig(enabled: true, maxAttempts: 2, tokenCeiling: 100000),
     ),
     steps: const [
       WorkflowStep(
         id: 'seed-stories',
         name: 'Seed stories',
-        type: WorkflowTaskType.bash,
+        taskType: WorkflowTaskType.bash,
         prompts: ['printf \'%s\\n\' \'[{"id":"S01"},{"id":"S02"}]\''],
         outputs: {'stories': OutputConfig(format: OutputFormat.json)},
       ),
       WorkflowStep(
         id: 'story-foreach',
         name: 'Story foreach',
-        type: WorkflowTaskType.foreach,
+        taskType: WorkflowTaskType.foreach,
         mapOver: 'stories',
         mapAlias: 'story',
         maxParallel: 2,
@@ -236,12 +235,10 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
       }),
     );
 
-    final run = await wiring.workflowService.start(
-      definition,
-      const {'PROJECT': _projectId, 'BRANCH': 'main'},
-      projectId: _projectId,
-      headless: true,
-    );
+    final run = await wiring.workflowService.start(definition, const {
+      'PROJECT': _projectId,
+      'BRANCH': 'main',
+    }, projectId: _projectId);
     runId = run.id;
     final completionFuture = _awaitWorkflowCompletion(wiring.eventBus, run.id);
 
@@ -359,9 +356,9 @@ void _assertDefinitionContract(WorkflowDefinition definition) {
   expect(definition.gitStrategy?.mergeResolve.enabled, isTrue);
   final seed = definition.steps.firstWhere((step) => step.id == 'seed-stories');
   final foreach = definition.steps.firstWhere((step) => step.id == 'story-foreach');
-  expect(seed.type, equals(WorkflowTaskType.bash));
+  expect(seed.taskType, equals(WorkflowTaskType.bash));
   expect(seed.outputKeys, contains('stories'));
-  expect(foreach.type, equals(WorkflowTaskType.foreach));
+  expect(foreach.taskType, equals(WorkflowTaskType.foreach));
   expect(foreach.mapOver, equals('stories'));
   expect(foreach.mapAlias, equals('story'));
 }

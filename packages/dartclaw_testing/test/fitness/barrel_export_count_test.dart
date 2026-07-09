@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import '_internal/fitness_test_utils.dart';
 
-const _caps = {'dartclaw_core': 80, 'dartclaw_config': 50, 'dartclaw_workflow': 35};
+const _caps = {'dartclaw_core': 80, 'dartclaw_config': 50, 'dartclaw_testing': 32, 'dartclaw_workflow': 35};
 const _defaultCap = 25;
 
 void main() {

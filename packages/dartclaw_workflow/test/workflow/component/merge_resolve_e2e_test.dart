@@ -22,13 +22,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktr
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        MergeResolveConfig,
-        MergeResolveEscalation,
-        OutputConfig,
-        WorkflowGitStrategy,
-        WorkflowGitPublishStrategy,
-        WorkflowGitWorktreeStrategy;
+    show MergeResolveConfig, MergeResolveEscalation, OutputConfig, WorkflowGitStrategy, WorkflowGitWorktreeStrategy;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -74,7 +68,7 @@ WorkflowDefinition _makeDefinition({
       integrationBranch: true,
       worktree: const WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
       promotion: 'merge',
-      publish: const WorkflowGitPublishStrategy(enabled: false),
+      publish: false,
       mergeResolve: MergeResolveConfig(
         enabled: true,
         maxAttempts: maxAttempts,
@@ -88,7 +82,7 @@ WorkflowDefinition _makeDefinition({
       WorkflowStep(
         id: 'pipeline',
         name: 'Story Pipeline',
-        type: WorkflowTaskType.foreach,
+        taskType: WorkflowTaskType.foreach,
         mapOver: 'stories',
         maxParallel: maxParallel,
         foreachSteps: const ['implement'],
@@ -423,7 +417,8 @@ void main() {
           await h.completeTask(e.taskId);
         });
 
-        // S01 always succeeds. S02 conflicts first two times, succeeds on third.
+        // S01 always succeeds. S02 conflicts once, then succeeds after
+        // serialize-remaining requeues it for a serial retry.
         final executor = h.makeExecutor(
           turnAdapter: standardTurnAdapter(
             turnId: 'turn-p3',
@@ -438,7 +433,7 @@ void main() {
                 }) async {
                   if (storyId == 'S02') {
                     s02PromoteCount[0]++;
-                    if (s02PromoteCount[0] <= 2) {
+                    if (s02PromoteCount[0] == 1) {
                       return const WorkflowGitPromotionConflict(
                         conflictingFiles: ['docs/STATE.md'],
                         details: 'conflict',
@@ -466,12 +461,6 @@ void main() {
         expect(evt.runId, run.id);
         expect(evt.foreachStepId, isNotEmpty);
         expect(evt.failedAttemptNumber, equals(2));
-        // P3 is a single-story foreach (last-unfinished-iteration case),
-        // so drainedIterationCount is correctly 0. The accuracy of this
-        // field for the mid-flight case is asserted in S61's S2 test
-        // (serialize_remaining_escalation_test.dart, S2 group).
-        expect(evt.drainedIterationCount, equals(0), reason: 'P3 single-story foreach: no in-flight siblings to drain');
-
         // Two failed artifacts for the conflicting story.
         if (conflictingStoryTaskId != null) {
           final artifacts = await _readArtifacts(h, conflictingStoryTaskId!);

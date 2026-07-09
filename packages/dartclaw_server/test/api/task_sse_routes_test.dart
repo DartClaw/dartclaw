@@ -574,7 +574,7 @@ void main() {
   });
 
   group('task_event SSE forwarding', () {
-    test('turn_wait_state event is delivered without blocking existing task events', () async {
+    test('turn_wait_state frame is byte-identical for a fully-populated event', () async {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
       final iterator = StreamIterator(response.read().transform(utf8.decoder));
       addTearDown(iterator.cancel);
@@ -585,8 +585,8 @@ void main() {
           sessionId: 'session-123',
           turnId: 'turn-456',
           taskId: 'task-789',
-          state: 'stuck',
-          waitReason: 'session_lock',
+          state: TurnWaitState.stuck,
+          waitReason: TurnWaitReason.sessionLock,
           canCancel: true,
           waitingSince: DateTime.parse('2026-03-10T09:58:00Z'),
           stuckSince: DateTime.parse('2026-03-10T09:59:30Z'),
@@ -595,16 +595,44 @@ void main() {
         ),
       );
 
+      const expectedJson =
+          '{"type":"turn_wait_state","session_id":"session-123","turn_id":"turn-456","task_id":"task-789",'
+          '"state":"stuck","wait_reason":"session_lock","waiting_since":"2026-03-10T09:58:00.000Z",'
+          '"stuck_since":"2026-03-10T09:59:30.000Z","global_timeout_at":"2026-03-10T10:02:00.000Z","can_cancel":true}';
+
       final payload = await nextFramePayloadOfType(iterator, 'turn_wait_state');
-      expect(payload['session_id'], 'session-123');
-      expect(payload['turn_id'], 'turn-456');
-      expect(payload['task_id'], 'task-789');
-      expect(payload['state'], 'stuck');
-      expect(payload['wait_reason'], 'session_lock');
-      expect(payload['waiting_since'], '2026-03-10T09:58:00.000Z');
-      expect(payload['stuck_since'], '2026-03-10T09:59:30.000Z');
-      expect(payload['global_timeout_at'], '2026-03-10T10:02:00.000Z');
-      expect(payload['can_cancel'], isTrue);
+      expect(payload, jsonDecode(expectedJson));
+      // Byte-level wire freeze: key order is not caught by decoded-map equality.
+      final rawDataLine = iterator.current.trim().split('\n').first;
+      expect(rawDataLine, 'data: $expectedJson');
+    });
+
+    test('turn_wait_state frame preserves explicit nulls for a minimally-populated event', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+      await nextFramePayload(iterator);
+
+      eventBus.fire(
+        TurnWaitStateChangedEvent(
+          sessionId: 'session-123',
+          turnId: 'turn-456',
+          state: TurnWaitState.cancelled,
+          waitReason: TurnWaitReason.unknown,
+          canCancel: false,
+          timestamp: DateTime.parse('2026-03-10T10:00:00Z'),
+        ),
+      );
+
+      const expectedJson =
+          '{"type":"turn_wait_state","session_id":"session-123","turn_id":"turn-456","task_id":null,'
+          '"state":"cancelled","wait_reason":"unknown","waiting_since":null,"stuck_since":null,'
+          '"global_timeout_at":null,"can_cancel":false}';
+
+      final payload = await nextFramePayloadOfType(iterator, 'turn_wait_state');
+      expect(payload, jsonDecode(expectedJson));
+      final rawDataLine = iterator.current.trim().split('\n').first;
+      expect(rawDataLine, 'data: $expectedJson');
     });
 
     test('TaskEventCreatedEvent forwarded as task_event frame with all fields', () async {

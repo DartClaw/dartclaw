@@ -15,6 +15,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowExecutionCursor,
+        WorkflowExecutionCursorNodeType,
         WorkflowLoop,
         WorkflowRunStatus,
         WorkflowStep;
@@ -223,14 +225,14 @@ void main() {
           const WorkflowStep(
             id: 'bash-a',
             name: 'Bash A',
-            type: WorkflowTaskType.bash,
+            taskType: WorkflowTaskType.bash,
             prompts: ['printf A'],
             parallel: true,
           ),
           const WorkflowStep(
             id: 'bash-b',
             name: 'Bash B',
-            type: WorkflowTaskType.bash,
+            taskType: WorkflowTaskType.bash,
             prompts: ['printf B'],
             parallel: true,
           ),
@@ -299,9 +301,13 @@ void main() {
         definition,
         context,
         startFromStepIndex: 2,
-        startFromLoopIndex: 0,
-        startFromLoopIteration: 1,
-        startFromLoopStepId: 'loopB',
+        startCursor: const WorkflowExecutionCursor(
+          nodeType: WorkflowExecutionCursorNodeType.loop,
+          nodeId: 'loop1',
+          stepIndex: 1,
+          stepId: 'loopB',
+          iteration: 1,
+        ),
       );
       await sub.cancel();
 
@@ -376,9 +382,12 @@ void main() {
         definition,
         context,
         startFromStepIndex: 0,
-        startFromLoopIndex: 0,
-        startFromLoopIteration: 1,
-        startFromLoopStepId: interrupted.contextJson['_loop.current.stepId'] as String?,
+        startCursor: WorkflowExecutionCursor.loop(
+          loopId: 'loop1',
+          stepIndex: 1,
+          iteration: 1,
+          stepId: interrupted.contextJson['_loop.current.stepId'] as String?,
+        ),
       );
       await secondPassSub.cancel();
 

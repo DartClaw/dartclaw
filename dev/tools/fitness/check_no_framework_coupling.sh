@@ -35,4 +35,21 @@ if [[ -n "$matches" ]]; then
   exit 1
 fi
 
-echo "Fitness function passed: no framework-coupling literals in packages/dartclaw_workflow/lib/src/ (excluding definitions/*.yaml)."
+scoring_files=(
+  "packages/dartclaw_workflow/lib/src/workflow/review_scoring_fragment.dart"
+  "packages/dartclaw_workflow/lib/src/workflow/review_finding_derivations.dart"
+  "packages/dartclaw_workflow/lib/src/workflow/schema_presets.dart"
+)
+
+scoring_pattern='FIS|Fix/Note|review-verdict\.md|fis-authoring-guidelines\.md'
+scoring_matches="$(rg "$scoring_pattern" "${scoring_files[@]}" --with-filename -n 2>/dev/null || true)"
+scoring_matches="$(printf '%s' "$scoring_matches" | sed '/^$/d')"
+
+if [[ -n "$scoring_matches" ]]; then
+  echo "Fitness function failed: framework-specific scoring concepts found in workflow scoring-path files."
+  echo "Offending references:"
+  echo "$scoring_matches"
+  exit 1
+fi
+
+echo "Fitness function passed: no framework-coupling literals in packages/dartclaw_workflow/lib/src/ (excluding definitions/*.yaml), and no framework-specific scoring concepts in scoring-path files."

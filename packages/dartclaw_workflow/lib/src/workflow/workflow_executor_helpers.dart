@@ -90,26 +90,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     required int? maxTokens,
     required Map<String, dynamic> taskConfig,
   }) => workflow_task_factory.createWorkflowTaskTriple(
-    ctx: StepExecutionContext(
-      taskService: _taskService,
-      eventBus: _eventBus,
-      kvService: _kvService,
-      repository: _repository,
-      gateEvaluator: _gateEvaluator,
-      contextExtractor: _contextExtractor,
-      turnAdapter: _turnAdapter,
-      outputTransformer: _outputTransformer,
-      skillIntrospector: _skillIntrospector,
-      skillPreflightConfig: _skillPreflightConfig,
-      taskRepository: _taskRepository,
-      agentExecutionRepository: _agentExecutionRepository,
-      workflowStepExecutionRepository: _workflowStepExecutionRepository,
-      executionTransactor: _executionTransactor,
-      projectService: _projectService,
-      defaultWorkspaceRoot: _defaultWorkspaceRoot,
-      uuid: _uuid,
-      workflowGitPort: _workflowGitPort,
-    ),
+    ctx: _executionContext,
     workflowWorkspaceDir: _resolveWorkflowWorkspaceDir(),
     taskId: taskId,
     run: run,
@@ -164,20 +145,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
 
   String _effectivePromotion(WorkflowGitStrategy? strategy, {required String resolvedWorktreeMode}) =>
       step_config_policy.effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode);
-
-  bool _stepNeedsWorktree(
-    WorkflowDefinition definition,
-    WorkflowStep step,
-    ResolvedStepConfig resolved, {
-    required String resolvedWorktreeMode,
-    Map<String, OutputConfig>? effectiveOutputs,
-  }) => step_config_policy.stepNeedsWorktree(
-    definition,
-    step,
-    resolved,
-    resolvedWorktreeMode: resolvedWorktreeMode,
-    effectiveOutputs: effectiveOutputs,
-  );
 
   bool _isLastBranchTouchingStepInScope(
     WorkflowDefinition definition,
@@ -280,9 +247,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     hasCodingSteps: hasCodingSteps,
   );
 
-  bool _requiresPerMapItemBootstrap(WorkflowDefinition definition, WorkflowContext context) =>
-      step_config_policy.requiresPerMapItemBootstrap(definition, context, templateEngine: _templateEngine);
-
   String? _mapItemSpecPath(MapContext mapCtx) {
     final item = mapCtx.item;
     final raw = switch (item) {
@@ -314,11 +278,51 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition, {int additionalTokens = 0}) =>
       workflow_budget_monitor.workflowBudgetExceeded(run, definition, additionalTokens: additionalTokens);
 
+  Future<WorkflowRun?> _budgetPreflight(WorkflowRun run, WorkflowDefinition definition) async {
+    var refreshedRun = await _repository.getById(run.id) ?? run;
+    refreshedRun = await _checkWorkflowBudgetWarning(refreshedRun, definition);
+    if (!_workflowBudgetExceeded(refreshedRun, definition)) return refreshedRun;
+
+    final msg = 'Workflow budget exceeded: ${refreshedRun.totalTokens} / ${definition.maxTokens} tokens';
+    _logRun(refreshedRun, msg, level: Level.INFO);
+    await _failRun(refreshedRun, msg);
+    return null;
+  }
+
+  void _fireStepCompletedEvent({
+    required WorkflowRun run,
+    required WorkflowStep step,
+    required int stepIndex,
+    required int totalSteps,
+    required String taskId,
+    required bool success,
+    required int tokenCount,
+    String? outcome,
+    String? reason,
+  }) {
+    _eventBus.fire(
+      WorkflowStepCompletedEvent(
+        runId: run.id,
+        stepId: step.id,
+        stepName: step.name,
+        stepIndex: stepIndex,
+        totalSteps: totalSteps,
+        taskId: taskId,
+        success: success,
+        outcome: outcome,
+        reason: reason,
+        tokenCount: tokenCount,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
   /// Returns the workflow workspace directory used for task behavior injection.
   ///
   /// Custom workflow workspaces are supplied by the turn adapter. When no
   /// custom workspace is configured, materializes the built-in workflow
-  /// workspace under `<dataDir>/workflow-workspace`.
+  /// workspace under `<dataDir>/workflow-workspace`. A custom
+  /// `workflow.workspace_dir` is operator-owned and left completely untouched.
   String _resolveWorkflowWorkspaceDir() {
     final cached = _workflowWorkspaceDirCache;
     if (cached != null) return cached;
@@ -328,18 +332,82 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     final resolvedDir = (configuredDir == null || configuredDir.isEmpty) ? defaultDir : configuredDir;
 
     if (resolvedDir == defaultDir) {
-      final dir = Directory(resolvedDir);
-      final agentsPath = p.join(resolvedDir, 'AGENTS.md');
-      dir.createSync(recursive: true);
-      final file = File(agentsPath);
-      if (!file.existsSync() || file.readAsStringSync() != builtInWorkflowAgentsMd) {
-        file.writeAsStringSync(builtInWorkflowAgentsMd);
-      }
+      _reconcileManagedWorkflowAgentsMd(resolvedDir);
     }
 
     _workflowWorkspaceDirCache = resolvedDir;
     return resolvedDir;
   }
+
+  /// Reconciles the default-path workflow-workspace `AGENTS.md` against the
+  /// sibling `.dartclaw-managed.json` marker recording the content DartClaw
+  /// last materialized.
+  ///
+  /// - absent file → write the built-in template + marker;
+  /// - live file equals the marker → refresh to the current template only when
+  ///   it changed (no-op otherwise);
+  /// - live file differs from the marker → user edit, preserved untouched;
+  /// - file present with no marker → one-time reconcile to the current template
+  ///   + marker (matches the pre-marker self-heal behavior at the upgrade
+  ///   boundary, after which edits are preserved).
+  void _reconcileManagedWorkflowAgentsMd(String workspaceDir) {
+    Directory(workspaceDir).createSync(recursive: true);
+    final file = File(p.join(workspaceDir, 'AGENTS.md'));
+    final marker = _workflowAgentsManagedMarkerFile(workspaceDir);
+
+    if (!file.existsSync()) {
+      _writeManagedWorkflowAgentsMd(file, marker);
+      return;
+    }
+
+    final recorded = _readManagedWorkflowAgentsContent(marker);
+    if (recorded == null) {
+      // Pre-marker install: reconcile once, then respect later edits.
+      _writeManagedWorkflowAgentsMd(file, marker);
+      return;
+    }
+
+    final live = file.readAsStringSync();
+    if (live != recorded) return; // User edit – preserve.
+    if (recorded == builtInWorkflowAgentsMd) return; // Up to date – no-op.
+
+    _writeManagedWorkflowAgentsMd(file, marker);
+  }
+
+  void _writeManagedWorkflowAgentsMd(File file, File marker) {
+    // Marker before file: if the file write fails after the marker lands, the
+    // next run never sees marker-absent, so it cannot clobber a user edit via
+    // the pre-marker branch – it takes the preserve branch instead.
+    marker.writeAsStringSync(
+      jsonEncode({
+        'managedContent': builtInWorkflowAgentsMd,
+        'note':
+            'Managed by DartClaw; edits are preserved once changed. '
+            'Override the default via workflow.workspace_dir.',
+      }),
+    );
+    file.writeAsStringSync(builtInWorkflowAgentsMd);
+  }
+
+  String? _readManagedWorkflowAgentsContent(File marker) {
+    if (!marker.existsSync()) return null;
+    try {
+      final decoded = jsonDecode(marker.readAsStringSync());
+      if (decoded is Map<String, dynamic> && decoded['managedContent'] is String) {
+        return decoded['managedContent'] as String;
+      }
+    } catch (error, stackTrace) {
+      WorkflowExecutor._log.warning(
+        'Failed to read workflow-workspace managed marker ${marker.path}',
+        error,
+        stackTrace,
+      );
+    }
+    return null;
+  }
+
+  File _workflowAgentsManagedMarkerFile(String workspaceDir) =>
+      File(p.join(workspaceDir, 'AGENTS.md.dartclaw-managed.json'));
 
   /// Fires a warning event when the workflow reaches 80% of its token budget.
   ///

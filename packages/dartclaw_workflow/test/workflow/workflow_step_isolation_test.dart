@@ -433,7 +433,7 @@ void main() {
   }
 
   // Deliberately not re-introduced: the previous `expectStoryPlanShape` helper
-  // asserted on a richer story_plan preset (acceptance_criteria, type,
+  // asserted on a richer story structured output (acceptance_criteria, type,
   // key_files, effort) that the current workflow does not declare – the plan
   // step only emits the `story_specs` shape. Use `expectStorySpecShape` for
   // every per-story assertion.
@@ -504,7 +504,7 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 10)));
 
   test(
-    'plan emits story_plan stories and story_specs in a single pass from the reviewed PRD',
+    'plan emits stories and story_specs in a single pass from the reviewed PRD',
     () async {
       const prdPath = 'docs/specs/workflow-testing/prd.md';
       File(p.join(fixtureDir, prdPath))
@@ -573,6 +573,70 @@ void main() {
     timeout: const Timeout(Duration(minutes: 15)),
   );
 
+  // Live authoring probe for spec-and-implement. The heavy spec-and-implement
+  // e2e feeds a pre-authored FIS and skips the `spec` step, so the one live
+  // authoring turn that used to run there is relocated here as a single thin
+  // probe: run `spec` on a free-text feature and assert it self-classifies as a
+  // synthesized spec with a parseable confidence and an on-disk FIS. Downstream
+  // branch coverage stays in the stubbed built-in suite; the plan-authoring
+  // counterpart is the "plan emits stories and story_specs" test above.
+  test(
+    'spec authors a synthesized FIS with a self-rated confidence for a free-text feature',
+    () async {
+      final result = await executeStep(
+        step: _stepById(specDefinition, 'spec'),
+        context: WorkflowContext(
+          variables: const {
+            'FEATURE':
+                'Add exactly one new markdown note file at notes/spec-probe.md with one heading '
+                '"Spec Probe" and one bullet "Authored by the spec step".',
+            'PROJECT': 'workflow-testing',
+            'BRANCH': 'main',
+          },
+          data: {
+            'project_index': {
+              'framework': 'markdown',
+              'project_root': fixtureDir,
+              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+              'state_protocol': {'state_file': 'STATE.md'},
+            },
+          },
+        ),
+        stepTimeout: const Duration(minutes: 14),
+        artifactLabel: 'spec-synthesized-free-text-feature',
+      );
+
+      expect(
+        result.outputs['spec_source'],
+        'synthesized',
+        reason:
+            'the spec step authors a new FIS from free text, so spec_source is synthesized. '
+            'Artifact: ${result.artifactPath}',
+      );
+      final confidence = switch (result.outputs['spec_confidence']) {
+        final int numeric => numeric,
+        final value => int.tryParse('$value'),
+      };
+      expect(
+        confidence,
+        isNotNull,
+        reason: 'spec_confidence must be parseable as an int. Artifact: ${result.artifactPath}',
+      );
+      expect(
+        confidence,
+        inInclusiveRange(1, 10),
+        reason: 'a synthesized spec self-rates readiness 1-10. Artifact: ${result.artifactPath}',
+      );
+      _requireRelativeExistingMarkdownPath(
+        result.outputs['spec_path'],
+        rootDir: fixtureDir,
+        artifactPath: result.artifactPath,
+        label: 'spec_path',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 15)),
+  );
+
   test(
     'integrated-review returns verdict with findings_count for a trivial markdown change',
     () async {
@@ -617,7 +681,7 @@ void main() {
       // literal declared key – assert on that key directly.
       _expectReviewReportPathOrCleanCounts(
         result,
-        'integrated-review.review_findings',
+        'integrated-review.review_report_path',
         'integrated-review.findings_count',
         rootDir: fixtureDir,
         runtimeArtifactsDir: runtimeArtifactsDir,
@@ -652,7 +716,6 @@ void main() {
               {
                 'id': 'S01',
                 'title': 'Create isolation review note',
-                'acceptance_criteria': ['Create the note exactly once'],
                 'spec': 'Create notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
               },
             ],
@@ -745,12 +808,12 @@ void main() {
       artifactLabel: 'plan-review-clean-two-story-batch',
     );
 
-    // plan-review only declares `review_findings` and scoped finding-count
+    // plan-review only declares `review_report_path` and scoped finding-count
     // outputs. Live reviewer verdicts are provider-judgment dependent; this
     // test asserts extraction shape and count consistency, not a fixed verdict.
     _expectReviewReportPathOrCleanCounts(
       result,
-      'plan-review.review_findings',
+      'plan-review.review_report_path',
       'plan-review.findings_count',
       rootDir: fixtureDir,
       runtimeArtifactsDir: runtimeArtifactsDir,
@@ -758,7 +821,7 @@ void main() {
     _expectGatingCountNotGreaterThanTotal(result, 'plan-review.findings_count', 'plan-review.gating_findings_count');
   }, timeout: _defaultLiveTestTimeout);
 
-  test('architecture-review returns a workspace-relative findings report path', () async {
+  test('architecture-review returns a durable findings report path', () async {
     _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
     _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
     _writeMarkdownNote(
@@ -832,8 +895,13 @@ void main() {
       artifactLabel: 'architecture-review-clean-two-story-batch',
     );
 
-    _requireRelativeMarkdownArtifactPath(result, 'architecture-review.review_findings', rootDir: fixtureDir);
-    final findingsCount = _requireFindingsCount(result, 'architecture-review.findings_count');
+    final findingsCount = _expectReviewReportPathOrCleanCounts(
+      result,
+      'architecture-review.review_report_path',
+      'architecture-review.findings_count',
+      rootDir: fixtureDir,
+      runtimeArtifactsDir: runtimeArtifactsDir,
+    );
     expect(findingsCount, inInclusiveRange(0, 1), reason: 'Artifact: ${result.artifactPath}');
     expect(
       _requireFindingsCount(result, 'architecture-review.gating_findings_count'),
@@ -910,7 +978,7 @@ void main() {
     // not the LLM's verdict on a synthetic fixture.
     final findingsCount = _expectReviewReportPathOrCleanCounts(
       result,
-      'review_findings',
+      'review_report_path',
       'findings_count',
       rootDir: fixtureDir,
       runtimeArtifactsDir: runtimeArtifactsDir,

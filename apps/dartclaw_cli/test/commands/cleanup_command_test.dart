@@ -4,6 +4,9 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/cleanup_command.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, openTaskDb;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -139,6 +142,127 @@ void main() {
       // Session should still be user type (not archived)
       final fetched = await sessions.getSession(s.id);
       expect(fetched!.type, SessionType.user);
+    });
+  });
+
+  group('CleanupCommand workflow runtime-artifacts retention', () {
+    DartclawConfig configWith(WorkflowRuntimeArtifactsRetentionConfig retention) => DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      workflow: WorkflowConfig(runtimeArtifactsRetention: retention),
+    );
+
+    Directory seedRunArtifacts(String runId) {
+      final runDir = Directory(p.join(tempDir.path, 'workflows', 'runs', runId))..createSync(recursive: true);
+      File(p.join(runDir.path, 'context.json')).writeAsStringSync('{}');
+      final artifactsDir = Directory(p.join(runDir.path, 'runtime-artifacts', 'reviews'))..createSync(recursive: true);
+      File(p.join(artifactsDir.path, 'report.md')).writeAsStringSync('# review\n');
+      return Directory(p.join(runDir.path, 'runtime-artifacts'));
+    }
+
+    Future<void> seedCompletedRun(DartclawConfig config, String runId, {required Duration age}) async {
+      final db = openTaskDb(config.tasksDbPath);
+      try {
+        final repo = SqliteWorkflowRunRepository(db);
+        final completedAt = DateTime.now().subtract(age);
+        await repo.insert(
+          WorkflowRun(
+            id: runId,
+            definitionName: 'spec-and-implement',
+            status: WorkflowRunStatus.completed,
+            startedAt: completedAt.subtract(const Duration(hours: 1)),
+            updatedAt: completedAt,
+            completedAt: completedAt,
+          ),
+        );
+      } finally {
+        db.close();
+      }
+    }
+
+    test('enforce prunes an old completed run runtime-artifacts and keeps context.json', () async {
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      final artifacts = seedRunArtifacts('run-old');
+      await seedCompletedRun(config, 'run-old', age: const Duration(days: 10));
+
+      await runCleanup([], config: config);
+
+      expect(artifacts.existsSync(), isFalse);
+      expect(File(p.join(tempDir.path, 'workflows', 'runs', 'run-old', 'context.json')).existsSync(), isTrue);
+      expect(output, anyElement(contains('Workflow Runtime-Artifacts Retention')));
+      expect(output, anyElement(contains('run-old')));
+      expect(exitCode, 0);
+    });
+
+    test('--dry-run lists the candidate run without removing it', () async {
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      final artifacts = seedRunArtifacts('run-old');
+      await seedCompletedRun(config, 'run-old', age: const Duration(days: 10));
+
+      await runCleanup(['--dry-run'], config: config);
+
+      expect(artifacts.existsSync(), isTrue);
+      expect(output, anyElement(contains('Would prune')));
+      expect(output, anyElement(contains('run-old')));
+    });
+
+    test('disabled retention (prune_after_days 0) is a no-op and prints no retention section', () async {
+      final config = configWith(const WorkflowRuntimeArtifactsRetentionConfig());
+      final artifacts = seedRunArtifacts('run-old');
+      await seedCompletedRun(config, 'run-old', age: const Duration(days: 10));
+
+      await runCleanup([], config: config);
+
+      expect(artifacts.existsSync(), isTrue);
+      expect(output, isNot(anyElement(contains('Workflow Runtime-Artifacts Retention'))));
+    });
+
+    test('a corrupt tasks.db degrades to a skip warning and exit 1 instead of crashing', () async {
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      // Write a non-SQLite garbage file at the tasks DB path so the repository's
+      // schema-init DDL throws from its constructor.
+      File(config.tasksDbPath).writeAsStringSync('not a sqlite database at all');
+
+      // Must not throw — the command degrades to a warning + exit 1.
+      await runCleanup([], config: config);
+
+      expect(output, anyElement(contains('workflow artifact retention skipped')));
+      expect(exitCode, 1);
+    });
+
+    test('enforce reports only successful deletions when one run dir is non-deletable', () async {
+      if (Platform.isWindows) {
+        markTestSkipped('POSIX permission model only');
+        return;
+      }
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      final deletable = seedRunArtifacts('run-deletable');
+      seedRunArtifacts('run-locked');
+      await seedCompletedRun(config, 'run-deletable', age: const Duration(days: 10));
+      await seedCompletedRun(config, 'run-locked', age: const Duration(days: 10));
+
+      // Make run-locked's run dir read-only so deleting its runtime-artifacts
+      // subtree fails (POSIX requires write+execute on the parent to remove a child).
+      final lockedRunDir = Directory(p.join(tempDir.path, 'workflows', 'runs', 'run-locked'));
+      Process.runSync('chmod', ['500', lockedRunDir.path]);
+      addTearDown(() => Process.runSync('chmod', ['700', lockedRunDir.path]));
+
+      await runCleanup([], config: config);
+
+      expect(deletable.existsSync(), isFalse);
+      expect(output, anyElement(contains('Pruned:           1 run')));
+      expect(output, anyElement(contains('run-deletable')));
+      expect(output, isNot(anyElement(contains('  - run-locked'))));
+      expect(output, anyElement(contains('Warnings:')));
+      expect(output, anyElement(contains('run-locked')));
+      expect(exitCode, 1);
     });
   });
 }

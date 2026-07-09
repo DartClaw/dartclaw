@@ -364,6 +364,32 @@ void main() {
     expect(taskMessages.last.content, contains('[Turn failed]'));
   });
 
+  test('generic cancelled task is not overwritten to failed when its turn fails', () async {
+    final cancellingExecutor = buildExecutor();
+    addTearDown(cancellingExecutor.stop);
+
+    // A non-one-shot task cancelled mid-turn whose runner then reports a
+    // non-completed outcome must stay cancelled: generic failure handling may
+    // not rewrite an intentional cancellation to failed.
+    worker.shouldFail = true;
+    worker.beforeComplete = (_) async {
+      await tasks.transition('task-cancelled-then-fails', TaskStatus.cancelled);
+    };
+    await tasks.create(
+      id: 'task-cancelled-then-fails',
+      title: 'Cancelled then failing task',
+      description: 'Cancellation must win over a subsequent turn failure.',
+      type: TaskType.automation,
+      autoStart: true,
+    );
+
+    await cancellingExecutor.pollOnce();
+
+    final task = await tasks.get('task-cancelled-then-fails');
+    expect(task!.status, TaskStatus.cancelled);
+    expect(task.configJson.containsKey('errorSummary'), isFalse);
+  });
+
   test('does not invoke auto-accept when a task is cancelled during execution', () async {
     final calls = <String>[];
     final cancellingExecutor = buildExecutor(

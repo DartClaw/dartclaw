@@ -36,6 +36,18 @@ void main() {
       expect(events, ['first-enter', 'first-exit', 'second-enter']);
     });
 
+    test('releases on a throwing body so a subsequent acquire succeeds', () async {
+      final lock = RepoLock();
+
+      await expectLater(
+        lock.acquire<void>('/repo/.git', () => throw StateError('cancelled mid-span')),
+        throwsStateError,
+      );
+
+      final result = await lock.acquire('/repo/.git', () => 'reacquired');
+      expect(result, 'reacquired');
+    });
+
     test('reentrant within same zone: nested acquisition runs directly', () async {
       final lock = RepoLock();
       final events = <String>[];

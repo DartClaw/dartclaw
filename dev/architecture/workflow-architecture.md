@@ -128,7 +128,6 @@ The important types are:
 | `WorkflowLoop` | Repeating subset of steps with an exit gate |
 | `StepConfigDefault` | Glob-based per-step defaults |
 | `OutputConfig` | Output extraction and validation metadata |
-| `ExtractionConfig` | Explicit extraction override |
 | `WorkflowRun` | Runtime state for a run |
 | `WorkflowRunStatus` | Run lifecycle state |
 
@@ -197,7 +196,7 @@ The definition model encodes 0.16-era capabilities directly on the step object:
 | `provider` / `model` / `effort` | explicit provider, model, or reasoning-effort override |
 | `auto_frame_context` | bool, default `true` — opt out of auto-XML-framing of `inputs:` / `workflow_variables:` |
 | `emitsOwnOutcome` | bool, default `false` — skip the `<step-outcome>` framing append |
-| `maxTokens` / `maxCostUsd` | step-level budgets |
+| `maxTokens` | step-level token budget |
 | `allowedTools` | tool allowlist override |
 | `workdir` | step working directory override |
 
@@ -223,7 +222,7 @@ The consequence: a workflow definition is declarative enough to be validated sta
 ### Schema (S66/S67): `outputs:` and `setValue`
 
 - **`outputs:` is the only declaration of context-write keys.** The parser treats `outputs:` map keys as the source of truth for the context-write set. `WorkflowStep.outputKeys` derives directly from `outputs?.keys`. Foreach / `mapOver` controllers parse `outputs:` through the same path as every other step and emit one aggregate value, so the controller's `outputs:` map must declare exactly one key. The parser throws a `FormatException` with a one-line migration message if the legacy `contextOutputs:` field appears anywhere in the YAML — `contextOutputs: is removed; declare keys under outputs: instead, e.g. outputs: { key_name: text }` — so authors get an immediate cue rather than a silent warning.
-- **`OutputConfig.setValue` writes a static literal.** When an output entry declares `setValue:` (any JSON-encodable literal, including `null`), the executor short-circuits extraction for that key and writes the literal verbatim on step success. The slot is sentinel-backed (`_workflowDefinitionFieldUnset`) so absence and explicit `null` round-trip distinctly through `toJson` / `fromJson`. `setValue` wins over the legacy `extraction:` priority branch even at the first-key position, and fires only on success — failure and `entryGate` skip leave context untouched. Snake_case alias `set_value` is accepted alongside the camelCase form.
+- **`OutputConfig.setValue` writes a static literal.** When an output entry declares `setValue:` (any JSON-encodable literal, including `null`), the executor short-circuits extraction for that key and writes the literal verbatim on step success. The slot is sentinel-backed (`_workflowDefinitionFieldUnset`) so absence and explicit `null` round-trip distinctly through `toJson` / `fromJson`. It fires only on success — failure and `entryGate` skip leave context untouched. Snake_case alias `set_value` is accepted alongside the camelCase form.
 - **Validator alias-awareness for `continueSession` and multi-prompt.** Role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`, …) are skipped by the continuity-provider check in both `_validateMultiPromptProviders` and the `continueSession` block. The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider` continues to detect family mismatches at execution time (warning + re-route to the root provider). Concrete provider names with no continuity support still produce `unsupportedProviderCapability` errors. A `TODO(0.16.7+)` comment in the validator hot spots names the deferred stretch path: thread the workflow's roles config through the validator so the resolved concrete provider can be checked at validation time.
 
 ## 4. Step Types
@@ -274,7 +273,7 @@ All built-in `dartclaw-review` steps pass `--output-dir "{{workflow.runtime_arti
 
 Review report path outputs remain durable even when the review is clean. If a zero-finding review omits the report path or claims a missing path under the runtime-artifacts directory, the context extractor materializes a diagnostic clean-review markdown file there and records that path in context.
 
-**Review output-key naming convention.** A parallel review step that feeds an `aggregate-reviews` step prefixes **all** its output keys with its own step id: `<stepId>.review_findings` (the report path), `<stepId>.findings_count`, and `<stepId>.gating_findings_count`. Prefixing avoids context-key collisions between concurrent review branches and is always safe because the host accepts the review skill's bare-suffix emission (`review_findings`) for the prefixed output via the filesystem-claim alias (`context_extractor.dart _fileSystemClaimKey`) — mirroring the dual-key acceptance already used for counts. The aggregator derives each source's report key from the step's `outputs:` declaration (format `path` + `review_report_path` preset, via `reviewReportPathOutputKey`), so it consumes the prefixed keys without re-deriving names. The `aggregate-reviews` step's **own** outputs stay bare (`review_findings`/`findings_count`/`gating_findings_count`) — the canonical post-aggregate keys the validator requires and the remediation loop + `re-review` read and overwrite. A single-review workflow with no aggregator (`code-review.yaml`) keeps the bare canonical keys directly, since there is no sibling step to collide with. The convention is contract-locked in `built_in_workflow_contracts_test.dart`.
+**Review output-key naming convention.** A parallel review step that feeds an `aggregate-reviews` step prefixes **all** its output keys with its own step id: `<stepId>.review_report_path` (the report path), `<stepId>.findings_count`, and `<stepId>.gating_findings_count`. Prefixing avoids context-key collisions between concurrent review branches and is always safe because the host accepts the review skill's bare-suffix emission (`review_report_path`) for the prefixed output via the filesystem-claim alias (`context_extractor.dart _fileSystemClaimKey`) — mirroring the dual-key acceptance already used for counts. The aggregator derives each source's report key from the step's `outputs:` declaration (format `path` + `review_report_path` preset, via `reviewReportPathOutputKey`), so it consumes the prefixed keys without re-deriving names. The `aggregate-reviews` step's **own** outputs stay bare (`review_report_path`/`findings_count`/`gating_findings_count`) — the canonical post-aggregate keys the validator requires and the remediation loop + `re-review` read and overwrite. A single-review workflow with no aggregator (`code-review.yaml`) keeps the bare canonical keys directly, since there is no sibling step to collide with. The convention is enforced by `validation/workflow_review_source_prefix_rules.dart` (a bare/mis-prefixed review key on an aggregate source is a validation error) and contract-locked in `built_in_workflow_contracts_test.dart`. The prior key name `review_findings` is retired — the parser rejects it, naming `review_report_path`.
 
 ### 4.2 Approval Steps
 
@@ -316,20 +315,22 @@ Only `completed`, `failed`, and `cancelled` are terminal lifecycle states. This 
 
 ### 4.2.2 Step Outcome Protocol
 
-Agent steps can end their final assistant message with:
+Workflow-owned agent steps whose declared outputs need model-derived values resolve their outcome from the `step_outcome` object of the structured execution envelope (Section 4.4a) — the engine-owned `outcome`/`reason` pair rides alongside the step's declared `outputs` in that same no-tools finalizer turn. `step_outcome` is omitted from the envelope when the step opts out with `emitsOwnOutcome: true`.
+
+Outcome-only steps (no model-derived declared outputs) skip the finalizer turn entirely and keep the cheap inline tag as their designed channel — the agent ends its final assistant message with:
 
 ```text
 <step-outcome>{"outcome":"succeeded|failed|needsInput","reason":"..."}</step-outcome>
 ```
 
-The executor appends this contract automatically unless the step or referenced skill opts out with `emitsOwnOutcome: true`.
+The executor appends this contract automatically unless the step or referenced skill opts out with `emitsOwnOutcome: true`. The same inline tag also remains a compatibility **fallback** for finalizer-eligible steps — old transcripts, custom workflows, `outputMode: prompt` opt-out steps, and failed-finalization cases — but is no longer the standard extraction path for them.
 
-Runtime handling:
+Runtime handling (envelope `step_outcome` first, inline tag as fallback):
 
 - `succeeded` records `step.<id>.outcome = "succeeded"` and continues normally.
 - `failed` records the semantic outcome and applies `onFailure` (`fail`, `continue`, `retry`, `pause`).
 - `needsInput` transitions the run to `awaitingApproval` by default, reusing the same `_approval.*` metadata shape as an explicit approval step. `onFailure: continue` is the explicit best-effort policy for advisory/cleanup steps that should record the `needsInput` reason and advance.
-- Missing tags fall back to lifecycle status (`accepted -> succeeded`, `failed/cancelled -> failed`), emit a warning log, and increment the `workflow.outcome.fallback` counter.
+- Missing envelope/tags fall back to lifecycle status (`accepted -> succeeded`, `failed/cancelled -> failed`), emit a warning log, and increment the `workflow.outcome.fallback` counter — except a missing/malformed envelope on a finalizer-required step, which is a workflow validation failure eligible for the existing retry path rather than a silent lifecycle fallback.
 
 The older `<stepId>.status` keys remain as lifecycle metadata. Outcome is additive rather than a replacement, so existing gates keep working while authors can now write semantic gates such as `step.review.outcome != failed`.
 
@@ -368,12 +369,11 @@ Workflow agent steps use a single one-shot CLI execution path. The task lifecycl
 Practical consequences:
 
 - Workflow prompt chains can reuse provider-native session continuity (`--resume` / `resume`) across prompts.
-- Native structured extraction is implemented as an extra one-shot extraction turn on the same provider session.
 - The task/session transcript is still recorded in DartClaw's own session store.
 - Workflow tasks set `task.type = TaskType.coding` uniformly; workflow step type no longer flows through task-system bookkeeping.
 - Workflow step read-only behavior is derived from effective `allowedTools` via `step_config_policy.stepIsReadOnly`, and the mutation check runs against the provisioned worktree path when present.
 - `format: json` with `schema` defaults to provider-enforced structured output. Explicit `outputMode: prompt` is the opt-out; heuristic extraction remains only as a fallback when the structured payload is missing.
-- `outputMode: structured` is now inline-first: if the last assistant message already contains a valid `<workflow-context>` payload with the required top-level keys, the executor promotes that inline JSON directly and skips the extra extraction turn. Provider-native schema extraction remains the fallback when the inline payload is missing or malformed.
+- For finalizer-eligible steps (workflow-owned agent steps whose declared outputs need model claims), the standard completion path is a dedicated no-tools structured finalization turn after the main work turn: the provider emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` (`step_outcome` omitted when `emitsOwnOutcome: true`). This finalizer turn runs even when the main turn's last assistant message also contains a legacy inline `<workflow-context>` block — the envelope is authoritative, not the inline text. Legacy inline `<workflow-context>` / `<step-outcome>` parsing remains a compatibility **fallback** (old transcripts, custom workflows, `outputMode: prompt` opt-out steps, finalizer failures), not the happy path.
 
 The parser normalizes `prompt: "single string"` to `prompts: ["single string"]` so the executor always works with a list. `step.isMultiPrompt` is true when `prompts.length > 1`.
 
@@ -531,7 +531,7 @@ Both `MapNode` and `ForeachNode` execution respects three concurrency controls:
 
 Effective concurrency is `min(maxParallel, poolAvailable, collection.length)`.
 
-When collection items declare `id` and `dependencies` fields (common for story_plan arrays), the `DependencyGraph` enforces ordering:
+When collection items declare `id` and `dependencies` fields, the `DependencyGraph` enforces ordering:
 
 - Items with no dependencies are dispatched immediately.
 - Items with dependencies wait until all dependency IDs have completed.
@@ -554,9 +554,8 @@ The server-side extractor uses a deterministic fallback chain (full priority lis
 1. `OutputConfig.setValue` — literal write, short-circuits all extraction
 2. `OutputConfig.source` — direct task metadata read (`worktree.branch`, `worktree.path`)
 3. Canonical context defaults — `*_source` keys default to `synthesized` for any step that emits them blank (see `context_output_defaults.dart`)
-4. Per-key resolver — `FileSystemOutput` (path glob), `InlineOutput`/`NarrativeOutput` (`<workflow-context>` JSON, then structured-output payload)
-5. Step-level legacy `extraction:` — first-key path
-6. Empty string with warning
+4. Per-key resolver — `FileSystemOutput` (path glob), `InlineOutput` (envelope-first, then legacy `<workflow-context>` JSON / structured-output payload; `resolver: narrative` is a parser-known alias)
+5. Empty string with warning
 
 ### Template Engine
 
@@ -590,18 +589,17 @@ Context is persisted atomically after each step, so a crash can resume from the 
 
 ## 10. Budgets and Defaults
 
-Budgeting exists at three levels:
+Budgeting exists at two levels:
 
 - workflow-level `maxTokens`
 - step-level `maxTokens`
-- step-level `maxCostUsd`
 
 `stepDefaults` applies glob-matched defaults before per-step overrides. The first match wins.
 
 ```yaml
 stepDefaults:
   - match: "review*"
-    maxCostUsd: 2.0
+    maxTokens: 20000
   - match: "*"
     maxTokens: 40000
 ```
@@ -691,21 +689,17 @@ The engine ships built-in schema presets (registered in `schema_presets.dart`) t
 | `verdict` | Review output with pass/fail, `findings_count`, `findings[]`, `summary` |
 | `remediation_result` | Outcome of a remediation pass (changes applied, status, follow-ups) |
 | `remediation_summary` | Aggregate remediation summary for loop gates |
-| `story_plan` | Array of implementation stories with `id`, `title`, `acceptance_criteria`, `dependencies`, `key_files`, `effort` |
 | `story_specs` | Array of per-story spec records with `spec_path` for `file_read` consumption |
 | `story_result` | Result record for a single story executed via `ForeachNode` |
-| `file_list` | Array of file paths with reasons |
-| `checklist` | Pass/fail checklist with items and `all_pass` rollup |
 | `non_negative_integer` | Scalar guard used for counts such as `findings_count` |
 | `diff_summary` | Structured diff summary for code-review flows |
 | `validation_summary` | Structured validator output (errors, warnings) |
-| `state_update_summary` | Summary of `dartclaw-ops` state-update changes |
 
 Usage in a workflow definition:
 
 ```yaml
 outputs:
-  review_findings:
+  verdict:
     format: json
     schema: verdict
 ```
@@ -731,7 +725,7 @@ Crash recovery is stateful but simple:
 
 - `WorkflowRun` stores the compact execution snapshot.
 - `WorkflowContext` stores the full execution context on disk (atomic JSON writes).
-- `currentStepIndex`, `currentLoopId`, and `currentLoopIteration` identify the resume point.
+- `currentStepIndex` and the persisted `executionCursor` (`WorkflowExecutionCursor`) identify the resume point.
 - Loop, approval, and parallel-group metadata are encoded into context so resume can restore the correct state.
 
 On server restart, `WorkflowService.recoverIncompleteRuns()` handles two categories:
@@ -741,7 +735,7 @@ On server restart, `WorkflowService.recoverIncompleteRuns()` handles two categor
 
 Parallel group resume uses `_parallel.failed.stepIds` in contextJson: when a group had failures, the next resume re-runs only the failed steps (not the entire group), then merges their results with the previously successful steps.
 
-`WorkflowSerializationEnactedEvent` is fire-exactly-once across crash + resume for any given `(runId, foreachStepId)` pair (S78). The merge-resolve serialize-remaining path persists the `runEmittedKey` flag immediately after the event fires, before the cancel-and-await-siblings drain begins, so a server crash mid-drain cannot re-fire the event on resume. The post-drain `phase = drained` write remains the second persistence point; only the emitted-flag ordering changed.
+`WorkflowSerializationEnactedEvent` is fire-exactly-once across crash + resume for any given `(runId, foreachStepId)` pair (S78). The merge-resolve serialize-remaining path persists the typed `_merge_resolve.serializeRemaining` state with `eventEmitted: true` immediately after the event fires, before in-flight siblings finish settling, so a server crash mid-settle cannot re-fire the event on resume. The terminal `phase: 'drained'` marker on the same typed object remains the serial-retry-consumed persistence point.
 
 This is the same failure model used elsewhere in DartClaw: persistent state is written atomically, and the runtime resumes from the last committed cursor rather than from speculative in-memory state.
 
@@ -824,6 +818,28 @@ Workflow runtime state lives under `<dataDir>/workflows/runs/<runId>/` (see
 data directory. The runtime-artifacts root and its `reviews/` subdirectory are
 created at run start before the first prompt renders.
 
+**Subdirectory ownership.** The engine owns and pre-creates only two
+runtime-artifacts subdirectories: `reviews/` (via `_initializeRuntimeArtifactsDir`)
+and `merge-resolve/` (via `workflowMergeResolveAttemptsDir`). Any other consumer
+— a custom workflow step writing to
+`{{workflow.runtime_artifacts_dir}}/screenshots`, `/architecture`, etc. — must
+create its own subdirectory; the engine never pre-creates it. If a custom
+`format: path` claim names a file under a non-engine subdir that does not exist,
+resolution surfaces a `MissingArtifactFailure` rather than silently substituting
+an unrelated dirty worktree file (the clean-review fallback is review-only).
+
+**Tie-break between worktree and runtime-artifacts roots.** When the same
+relative name resolves under both the worktree and the runtime-artifacts roots,
+the worktree copy wins by default. The runtime-artifacts root is tried *first*
+only for review-artifact path outputs (those for which
+`review_artifact_policy.isReviewArtifactPathOutput` is true, i.e.
+`preserveRuntimeArtifactsRoot`). This review-only precedence is load-bearing in
+the maintainer profile, where `.dartclaw/` is nested inside the checkout so a
+review claim is also within the worktree root; without it the claim would
+resolve worktree-relative, be gitignored, and drop to the worktree diff. The
+worktree-first default for non-review keys is intentional and must not be
+globalized.
+
 ## 15. Wire Formats and API Surfaces
 
 The workflow server exposes definition listing, run lifecycle, form-launch, and event streaming endpoints:
@@ -898,9 +914,11 @@ The per-run SSE endpoint (`GET /api/workflows/runs/<id>/events`) streams real-ti
 |---|---|
 | `connected` | Run state snapshot + step statuses at connection time |
 | `workflow_status_changed` | Run status transition (running → paused, etc.) |
-| `workflow_step_completed` | Step outcome with token count and task ID |
+| `workflow_step_completed` | Step result with token count and task ID, plus additive `outcome`/`reason` (present only when the executor recorded a semantic outcome — e.g. `failed`/`needsInput` with an operator-facing reason) |
 | `parallel_group_completed` | Group summary with success/failure counts |
 | `loop_iteration_completed` | Iteration number, max iterations, gate result |
+| `map_iteration_completed` | Per-item fan-out result with token count, plus additive `outcome`/`reason` when recorded |
+| `map_step_completed` | Fan-out aggregate with success/failure/cancelled/`blockedCount` and total tokens |
 | `task_status_changed` | Child task status transitions |
 | `approval_requested` | Approval step metadata (message, timeout) |
 | `approval_resolved` | Approval outcome (approved/rejected with feedback) |
@@ -1103,7 +1121,6 @@ The resolved fields today are:
 | `provider` | yes |
 | `model` | yes |
 | `maxTokens` | yes |
-| `maxCostUsd` | yes |
 | `maxRetries` | yes |
 | `allowedTools` | yes |
 
@@ -1147,13 +1164,12 @@ User-declared outputs are then extracted by `ContextExtractor`. The pipeline dri
 1. `OutputConfig.setValue` — literal write (any JSON-encodable value, including `null`); short-circuits all other extraction.
 2. `OutputConfig.source` — direct read from task metadata (`worktree.branch`, `worktree.path`).
 3. Canonical context defaults (`context_output_defaults.dart`) — `*_source` keys default to `synthesized` for any step that declares them and emits no value.
-4. Per-key resolver from `outputResolverFor` — `FileSystemOutput` (glob over changed files; `format: path`), `InlineOutput` (read from the `<workflow-context>` JSON, then the structured-output payload), `NarrativeOutput` (same priority as inline).
-5. Step-level legacy `extraction:` config — first-key path only, kept for backwards compatibility.
-6. Empty string with warning.
+4. Per-key resolver from `outputResolverFor` — `FileSystemOutput` (glob over changed files; `format: path`) or `InlineOutput` (envelope-first: reads the finalizer envelope's `outputs` object first, falling back to the legacy `<workflow-context>` JSON or structured-output payload only when no envelope value is present). The legacy `resolver: narrative` keyword remains a parser-known alias for inline extraction.
+5. Empty string with warning (legacy/opt-out steps only).
 
-When `format: json` and `schema` are both present, the parser default is `outputMode: structured` — provider-enforced schema extraction. The inline `<workflow-context>` payload is the happy path for structured outputs: when the last assistant message already contains valid JSON with the required top-level keys, the executor promotes it directly and skips the extra extraction turn. Provider-native schema extraction runs only when the inline payload is missing or malformed.
+When `format: json` and `schema` are both present, the parser default is `outputMode: structured` — provider-enforced schema extraction. For finalizer-eligible steps the standard path reads `structuredOutput.outputs` from the no-tools execution-envelope turn (Section 4.4a); the legacy inline `<workflow-context>` payload is retained only as a compatibility fallback when the envelope is missing or malformed. File and path values extracted this way are still claims: `FileSystemOutput` validation (existence, containment, argument safety, review-artifact runtime-root precedence) runs after finalization, so a claimed `succeeded` `step_outcome` cannot bypass a missing required artifact — the step becomes a workflow validation failure eligible for the existing retry path instead.
 
-`schema_presets.dart` declares default glob patterns by output key (e.g. `prd → **/prd.md`, `fis_paths → fis/s*.md`, `review_findings → **/*review*.md`). For ordinary path outputs, a missing claimed file is a hard failure (`MissingArtifactFailure`).
+Path-output glob resolution is name-agnostic: a `format: path` output that declares no `pathPattern:`/preset falls back to the uniform `**/*` glob (list mode for a path-list). Declare `pathPattern:` inline to infer filesystem resolution and narrow the match. For ordinary path outputs, a missing claimed file is a hard failure (`MissingArtifactFailure`).
 
 The four-strategy design matters because workflows run across very different
 step styles:
@@ -1276,9 +1292,7 @@ The persisted state fields matter for recovery:
 
 | Field | Meaning |
 |---|---|
-| `currentLoopId` | which loop was active |
-| `currentLoopIteration` | zero-based iteration cursor |
-| `currentLoopStepId` | which step within the loop was active |
+| `executionCursor` (loop node: `nodeType: loop`) | which loop was active (`nodeId`), zero-based iteration cursor (`iteration`), and which step within the loop was active (`stepId`) |
 | `_loop.current.*` context keys | human-readable recovery metadata |
 
 This enables crash recovery with enough precision to distinguish:

@@ -40,25 +40,22 @@ steps:
     allowedTools:
       - Bash
       - Read
-  - id: implement
-    name: Implement Step
-    prompt: Implement based on {{context.research_result}}
-    parallel: true
-    inputs:
-      - research_result
-    outputs:
-      impl_result:
-        format: text
-    extraction:
-      type: artifact
-      pattern: "\\\\d+"
-loops:
   - id: refine-loop
-    steps:
-      - implement
+    name: Refine Loop
+    type: loop
     maxIterations: 3
     entryGate: research.findings_count > 0
     exitGate: implement.status == done
+    steps:
+      - id: implement
+        name: Implement Step
+        prompt: Implement based on {{context.research_result}}
+        parallel: true
+        inputs:
+          - research_result
+        outputs:
+          impl_result:
+            format: text
 ''';
 
 const inlineLoopWorkflowYaml = '''
@@ -329,7 +326,7 @@ void expectFullWorkflowDefinition(WorkflowDefinition def) {
   expect(def.steps.length, 2);
   final research = def.steps[0];
   expect(research.id, 'research');
-  expect(research.type, WorkflowTaskType.agent);
+  expect(research.taskType, WorkflowTaskType.agent);
   expect(research.provider, 'claude');
   expect(research.model, 'claude-opus');
   expect(research.timeoutSeconds, 1800);
@@ -341,11 +338,9 @@ void expectFullWorkflowDefinition(WorkflowDefinition def) {
 
   final implement = def.steps[1];
   expect(implement.id, 'implement');
-  expect(implement.type, WorkflowTaskType.agent);
+  expect(implement.taskType, WorkflowTaskType.agent);
   expect(implement.parallel, true);
   expect(implement.inputs, ['research_result']);
-  expect(implement.extraction!.type, ExtractionType.artifact);
-  expect(implement.extraction!.pattern, r'\d+');
 
   expect(def.loops.length, 1);
   expect(def.loops[0].id, 'refine-loop');

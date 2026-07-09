@@ -21,7 +21,7 @@ Future<String?> initializeWorkflowGit({
 }) async {
   final strategy = definition.gitStrategy;
   if (strategy == null || strategy.integrationBranch != true) return null;
-  final initializeGit = turnAdapter?.initializeWorkflowGit ?? turnAdapter?.bootstrapWorkflowGit;
+  final initializeGit = turnAdapter?.initializeWorkflowGit;
   if (initializeGit == null) return null;
 
   final projectId = workflowProjectId(run, context);

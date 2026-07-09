@@ -45,6 +45,11 @@ abstract interface class WorkflowTaskService {
   /// Lists tasks with optional status/type filters.
   Future<List<Task>> list({TaskStatus? status, TaskType? type});
 
+  /// Lists tasks whose `workflowRunId` is in [runIds], newest first.
+  ///
+  /// Empty [runIds] returns an empty list.
+  Future<List<Task>> listByWorkflowRunIds(Iterable<String> runIds);
+
   /// Lists artifacts for the task with [taskId].
   Future<List<TaskArtifact>> listArtifacts(String taskId);
 }

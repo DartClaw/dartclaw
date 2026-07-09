@@ -39,6 +39,30 @@ void main() {
       expect(await port.pathExistsAtRef(tempDir.path, ref: 'HEAD', path: 'plan.md'), isTrue);
       expect(await port.diffNameOnly(tempDir.path, cached: true), isEmpty);
     });
+
+    test('reports current branch and detached HEAD through the port', () async {
+      await _git(tempDir.path, ['init', '-q']);
+      await _git(tempDir.path, ['checkout', '-qb', 'main']);
+      File('${tempDir.path}/base.txt').writeAsStringSync('base');
+      await _git(tempDir.path, ['add', 'base.txt']);
+      await _git(tempDir.path, [
+        '-c',
+        'user.name=DartClaw Test',
+        '-c',
+        'user.email=test@example.com',
+        'commit',
+        '-qm',
+        'initial',
+      ]);
+
+      final port = WorkflowGitPortProcess();
+
+      expect(await port.currentBranch(tempDir.path), 'main');
+
+      await _git(tempDir.path, ['checkout', '--detach', 'HEAD']);
+
+      expect(await port.currentBranch(tempDir.path), 'HEAD');
+    });
   });
 }
 

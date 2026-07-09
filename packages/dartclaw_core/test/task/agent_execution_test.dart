@@ -1,7 +1,7 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -71,16 +71,13 @@ void main() {
       expect(execution.toJson(), equals({'id': 'ae-1', 'provider': 'codex'}));
     });
 
-    test('source file stays task and workflow agnostic', () {
-      // AgentExecution moved to dartclaw_config in S22 TI08.
-      // Resolve relative to the test file so the test is CWD-agnostic.
-      final testDir = p.dirname(Platform.script.toFilePath());
-      final candidates = [
-        p.join(testDir, '..', '..', '..', '..', 'dartclaw_config', 'lib', 'src', 'agent_execution.dart'),
-        p.join(Directory.current.path, 'packages', 'dartclaw_config', 'lib', 'src', 'agent_execution.dart'),
-      ];
-      final sourcePath = candidates.firstWhere((path) => File(path).existsSync(), orElse: () => candidates.first);
-      final source = File(sourcePath).readAsStringSync();
+    test('source file stays task and workflow agnostic', () async {
+      // AgentExecution lives in dartclaw_config. Resolve its source through the
+      // package: URI mechanism so the lookup is independent of CWD and of where
+      // `dart test` stages the precompiled kernel.
+      final sourceUri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_config/src/agent_execution.dart'));
+      expect(sourceUri, isNotNull, reason: 'could not resolve package:dartclaw_config/src/agent_execution.dart');
+      final source = File.fromUri(sourceUri!).readAsStringSync();
 
       expect(source, isNot(contains('/task/')));
       expect(source, isNot(contains('dartclaw_models')));

@@ -1,4 +1,3 @@
-import 'step_config_policy.dart' as step_config_policy;
 import 'workflow_context.dart';
 import 'workflow_definition.dart';
 
@@ -63,18 +62,20 @@ class ResolvedStepConfig {
   final String? provider;
   final String? model;
   final String? effort;
+  final String? gatingSeverity;
   final int? maxTokens;
-  final double? maxCostUsd;
   final int? maxRetries;
+  final int? timeoutSeconds;
   final List<String>? allowedTools;
 
   const ResolvedStepConfig({
     this.provider,
     this.model,
     this.effort,
+    this.gatingSeverity,
     this.maxTokens,
-    this.maxCostUsd,
     this.maxRetries,
+    this.timeoutSeconds,
     this.allowedTools,
   });
 }
@@ -120,9 +121,10 @@ ResolvedStepConfig resolveStepConfig(
     provider: provider,
     model: model,
     effort: effort,
+    gatingSeverity: step.gatingSeverity ?? matched?.gatingSeverity,
     maxTokens: step.maxTokens ?? matched?.maxTokens,
-    maxCostUsd: step.maxCostUsd ?? matched?.maxCostUsd,
     maxRetries: step.maxRetries ?? matched?.maxRetries,
+    timeoutSeconds: step.timeoutSeconds ?? matched?.timeoutSeconds,
     allowedTools: step.allowedTools ?? matched?.allowedTools,
   );
 }
@@ -166,32 +168,11 @@ Iterable<WorkflowStep> syntheticWorkflowSkillSteps(
 }) sync* {
   final strategy = definition.gitStrategy;
   if (strategy?.mergeResolve.enabled != true) return;
-  final stepById = {for (final step in definition.steps) step.id: step};
-  for (final step in definition.steps) {
-    if (!step.isForeachController) continue;
-    final childSteps = step.foreachSteps?.map((id) => stepById[id]).nonNulls.toList(growable: false) ?? const [];
-    final hasCodingSteps = childSteps.any(
-      (child) => step_config_policy.stepTouchesProjectBranch(definition, child, roleDefaults: roleDefaults),
-    );
-    int? maxParallel;
-    try {
-      maxParallel = step_config_policy.resolveMaxParallel(step.maxParallel, context, step.id);
-    } on ArgumentError {
-      continue;
-    }
-    final resolvedWorktreeMode = strategy!.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true);
-    final promotionAware = step_config_policy.isPromotionAwareScope(
-      strategy,
-      resolvedWorktreeMode: resolvedWorktreeMode,
-      hasCodingSteps: hasCodingSteps,
-    );
-    if (promotionAware) {
-      yield WorkflowStep(
-        id: '_merge_resolve_${step.id}_0_1',
-        name: 'merge-resolve preflight',
-        skill: 'dartclaw-merge-resolve',
-        prompts: const ['preflight'],
-      );
-    }
-  }
+  if (!definition.steps.any((step) => step.isForeachController)) return;
+  yield const WorkflowStep(
+    id: '_merge_resolve_preflight',
+    name: 'merge-resolve preflight',
+    skill: 'dartclaw-merge-resolve',
+    prompts: ['preflight'],
+  );
 }

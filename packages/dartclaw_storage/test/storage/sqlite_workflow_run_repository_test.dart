@@ -14,8 +14,6 @@ WorkflowRun _buildRun({
   Map<String, dynamic>? definitionJson,
   DateTime? completedAt,
   String? errorMessage,
-  String? currentLoopId,
-  int? currentLoopIteration,
   WorkflowExecutionCursor? executionCursor,
 }) {
   final now = DateTime.parse('2026-01-01T10:00:00Z');
@@ -30,8 +28,6 @@ WorkflowRun _buildRun({
     completedAt: completedAt,
     errorMessage: errorMessage,
     definitionJson: definitionJson ?? const {},
-    currentLoopId: currentLoopId,
-    currentLoopIteration: currentLoopIteration,
     executionCursor: executionCursor,
   );
 }
@@ -112,15 +108,11 @@ void main() {
           status: WorkflowRunStatus.completed,
           completedAt: completedAt,
           errorMessage: 'some error',
-          currentLoopId: 'loop-1',
-          currentLoopIteration: 2,
         );
         await repository.insert(run);
         final loaded = await repository.getById(run.id);
         expect(loaded!.completedAt, completedAt);
         expect(loaded.errorMessage, 'some error');
-        expect(loaded.currentLoopId, 'loop-1');
-        expect(loaded.currentLoopIteration, 2);
       });
 
       test('execution cursor round-trips through SQLite storage', () async {
@@ -225,9 +217,7 @@ void main() {
             total_tokens INTEGER DEFAULT 0,
             current_step_index INTEGER DEFAULT 0,
             definition_json TEXT,
-            execution_cursor_json TEXT,
-            current_loop_id TEXT,
-            current_loop_iteration INTEGER
+            execution_cursor_json TEXT
           )
         ''');
       });

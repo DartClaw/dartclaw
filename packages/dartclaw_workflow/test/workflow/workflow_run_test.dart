@@ -63,8 +63,6 @@ void main() {
         totalTokens: 1234,
         currentStepIndex: 3,
         definitionJson: {'name': 'pipeline', 'steps': []},
-        currentLoopId: 'loop-1',
-        currentLoopIteration: 2,
         executionCursor: WorkflowExecutionCursor.map(
           stepId: 'map-step',
           stepIndex: 4,
@@ -96,8 +94,6 @@ void main() {
       expect(restored.totalTokens, 1234);
       expect(restored.currentStepIndex, 3);
       expect(restored.definitionJson['name'], 'pipeline');
-      expect(restored.currentLoopId, 'loop-1');
-      expect(restored.currentLoopIteration, 2);
       expect(restored.executionCursor?.nodeType, WorkflowExecutionCursorNodeType.map);
       expect(restored.executionCursor?.nodeId, 'map-step');
       expect(restored.executionCursor?.completedIndices, [0, 2]);
@@ -115,8 +111,6 @@ void main() {
       expect(restored.contextJson, isEmpty);
       expect(restored.variablesJson, isEmpty);
       expect(restored.definitionJson, isEmpty);
-      expect(restored.currentLoopId, isNull);
-      expect(restored.currentLoopIteration, isNull);
       expect(restored.executionCursor, isNull);
     });
 

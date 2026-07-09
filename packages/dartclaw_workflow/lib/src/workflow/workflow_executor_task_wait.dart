@@ -25,6 +25,7 @@ extension WorkflowExecutorTaskWait on WorkflowExecutor {
     Completer<Task> completer,
     StreamSubscription<TaskStatusChangedEvent> sub, {
     String? runId,
+    int? timeoutSeconds,
   }) async {
     StreamSubscription<WorkflowRunStatusChangedEvent>? runSub;
 
@@ -75,11 +76,10 @@ extension WorkflowExecutorTaskWait on WorkflowExecutor {
     }
 
     try {
-      if (step.timeoutSeconds != null) {
+      if (timeoutSeconds != null) {
         return await result.future.timeout(
-          Duration(seconds: step.timeoutSeconds!),
-          onTimeout: () =>
-              throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: step.timeoutSeconds!)),
+          Duration(seconds: timeoutSeconds),
+          onTimeout: () => throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: timeoutSeconds)),
         );
       } else {
         return await result.future;

@@ -1,5 +1,6 @@
 import 'path_utils.dart';
 import 'provider_identity.dart';
+import 'session_maintenance_config.dart' show MaintenanceMode;
 
 /// Run-scoped policy for resolving workflow approval gates.
 enum WorkflowApprovalPolicy {
@@ -128,6 +129,39 @@ class WorkflowCleanupConfig {
   String toString() => 'WorkflowCleanupConfig(deleteRemoteBranchOnFailure: $deleteRemoteBranchOnFailure)';
 }
 
+/// Opt-in age-based retention for workflow runtime-artifacts directories.
+///
+/// Prunes the `runtime-artifacts/` subtree of completed runs older than
+/// [pruneAfterDays] via the `dartclaw cleanup` maintenance CLI. The run's
+/// `context.json` and DB record are never touched. Disabled by default
+/// ([pruneAfterDays] == 0) so the keep-everything behavior is preserved unless
+/// an operator opts in.
+class WorkflowRuntimeArtifactsRetentionConfig {
+  /// Maintenance mode: warn (dry-run) or enforce (apply).
+  final MaintenanceMode mode;
+
+  /// Prune runtime-artifacts of completed runs older than this many days.
+  /// 0 = disabled.
+  final int pruneAfterDays;
+
+  /// Creates a [WorkflowRuntimeArtifactsRetentionConfig] value.
+  const WorkflowRuntimeArtifactsRetentionConfig({this.mode = MaintenanceMode.warn, this.pruneAfterDays = 0});
+
+  /// Default retention configuration (disabled).
+  const WorkflowRuntimeArtifactsRetentionConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WorkflowRuntimeArtifactsRetentionConfig && mode == other.mode && pruneAfterDays == other.pruneAfterDays;
+
+  @override
+  int get hashCode => Object.hash(mode, pruneAfterDays);
+
+  @override
+  String toString() => 'WorkflowRuntimeArtifactsRetentionConfig(mode: $mode, pruneAfterDays: $pruneAfterDays)';
+}
+
 /// Configuration for the workflow workspace subsystem.
 ///
 /// `workspaceDir` overrides the built-in workflow workspace location when set.
@@ -145,12 +179,16 @@ class WorkflowConfig {
   /// Default approval-resolution policy for newly-started workflow runs.
   final WorkflowApprovalPolicy approvals;
 
+  /// Opt-in age-based retention for runtime-artifacts directories.
+  final WorkflowRuntimeArtifactsRetentionConfig runtimeArtifactsRetention;
+
   /// Creates a [WorkflowConfig] value.
   const WorkflowConfig({
     this.workspaceDir,
     this.defaults = const WorkflowRoleDefaultsConfig.defaults(),
     this.cleanup = const WorkflowCleanupConfig.defaults(),
     this.approvals = WorkflowApprovalPolicy.manual,
+    this.runtimeArtifactsRetention = const WorkflowRuntimeArtifactsRetentionConfig.defaults(),
   });
 
   /// Default configuration with no custom workflow workspace override.
@@ -163,14 +201,16 @@ class WorkflowConfig {
           workspaceDir == other.workspaceDir &&
           defaults == other.defaults &&
           cleanup == other.cleanup &&
-          approvals == other.approvals;
+          approvals == other.approvals &&
+          runtimeArtifactsRetention == other.runtimeArtifactsRetention;
 
   @override
-  int get hashCode => Object.hash(workspaceDir, defaults, cleanup, approvals);
+  int get hashCode => Object.hash(workspaceDir, defaults, cleanup, approvals, runtimeArtifactsRetention);
 
   @override
   String toString() =>
-      'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults, cleanup: $cleanup, approvals: $approvals)';
+      'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults, cleanup: $cleanup, '
+      'approvals: $approvals, runtimeArtifactsRetention: $runtimeArtifactsRetention)';
 }
 
 /// Parses the `workflow:` YAML section into a [WorkflowConfig].
@@ -198,7 +238,55 @@ WorkflowConfig parseWorkflowConfig(Map<String, dynamic>? workflowMap, List<Strin
     defaults: _parseWorkflowRoleDefaults(workflowMap['defaults'], warns),
     cleanup: _parseWorkflowCleanup(workflowMap['cleanup'], warns),
     approvals: _parseWorkflowApprovals(workflowMap['approvals'], warns),
+    runtimeArtifactsRetention: _parseWorkflowRuntimeArtifactsRetention(
+      workflowMap['runtime_artifacts_retention'],
+      warns,
+    ),
   );
+}
+
+WorkflowRuntimeArtifactsRetentionConfig _parseWorkflowRuntimeArtifactsRetention(Object? raw, List<String> warns) {
+  if (raw == null) return const WorkflowRuntimeArtifactsRetentionConfig.defaults();
+  if (raw is! Map) {
+    warns.add('Invalid type for workflow.runtime_artifacts_retention: "${raw.runtimeType}" — using defaults');
+    return const WorkflowRuntimeArtifactsRetentionConfig.defaults();
+  }
+  final map = raw.cast<Object?, Object?>();
+
+  var mode = MaintenanceMode.warn;
+  final modeRaw = map['mode'];
+  if (modeRaw != null) {
+    if (modeRaw is String) {
+      final parsed = MaintenanceMode.fromYaml(modeRaw.trim());
+      if (parsed != null) {
+        mode = parsed;
+      } else {
+        warns.add(
+          'Invalid value for workflow.runtime_artifacts_retention.mode: "$modeRaw" '
+          '(allowed: warn, enforce) — using default warn',
+        );
+      }
+    } else {
+      warns.add(
+        'Invalid type for workflow.runtime_artifacts_retention.mode: "${modeRaw.runtimeType}" — using default warn',
+      );
+    }
+  }
+
+  var pruneAfterDays = 0;
+  final pruneRaw = map['prune_after_days'];
+  if (pruneRaw != null) {
+    if (pruneRaw is int && pruneRaw >= 0) {
+      pruneAfterDays = pruneRaw;
+    } else {
+      warns.add(
+        'Invalid value for workflow.runtime_artifacts_retention.prune_after_days: "$pruneRaw" '
+        '(expected a non-negative integer) — using default 0 (disabled)',
+      );
+    }
+  }
+
+  return WorkflowRuntimeArtifactsRetentionConfig(mode: mode, pruneAfterDays: pruneAfterDays);
 }
 
 WorkflowApprovalPolicy _parseWorkflowApprovals(Object? raw, List<String> warns) {

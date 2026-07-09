@@ -22,7 +22,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
@@ -288,7 +287,7 @@ void main() {
         integrationBranch: true,
         worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
         promotion: 'merge',
-        publish: WorkflowGitPublishStrategy(enabled: false),
+        publish: false,
       ),
       steps: const [
         WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement the story']),
@@ -424,7 +423,7 @@ void main() {
       gitStrategy: const WorkflowGitStrategy(
         integrationBranch: true,
         worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perTask),
-        publish: WorkflowGitPublishStrategy(enabled: false),
+        publish: false,
       ),
       steps: const [
         WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement']),
@@ -627,7 +626,7 @@ void main() {
     final definition = WorkflowDefinition(
       name: 'publish-only',
       description: 'No steps, publish only',
-      gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+      gitStrategy: const WorkflowGitStrategy(publish: true),
       steps: const [],
     );
 
@@ -1206,6 +1205,62 @@ void main() {
     final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('step1'));
+  });
+
+  test('cancelled plain step pauses without advancing and resume re-runs it', () async {
+    final definition = h.makeDefinition(
+      steps: [
+        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+      ],
+    );
+
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+
+    var cancelNext = true;
+    var taskCount = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      taskCount++;
+      if (cancelNext) {
+        cancelNext = false;
+        await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+      } else {
+        await h.completeTask(e.taskId);
+      }
+    });
+
+    await h.executor.execute(run, definition, WorkflowContext());
+
+    final pausedRun = await h.repository.getById('run-1');
+    expect(pausedRun?.status, equals(WorkflowRunStatus.paused));
+    expect(pausedRun?.currentStepIndex, equals(0), reason: 'the interrupted step stays the resume target');
+    // The pause reason distinguishes a teardown interruption from an approval hold.
+    expect(
+      pausedRun?.errorMessage,
+      "Step 'step1' was interrupted by task cancellation; resume re-runs it from its checkpoint.",
+    );
+    expect(taskCount, equals(1));
+
+    // Resume from the persisted state: the interrupted step re-runs, then the next step.
+    final resumedRun = pausedRun!.copyWith(
+      status: WorkflowRunStatus.running,
+      errorMessage: null,
+      updatedAt: DateTime.now(),
+    );
+    await h.repository.update(resumedRun);
+    final resumedContext = WorkflowContext.fromJson(
+      Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+    );
+    await h.executor.execute(resumedRun, definition, resumedContext, startFromStepIndex: resumedRun.currentStepIndex);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    expect(taskCount, equals(3), reason: 'resume re-dispatches step1, then step2');
   });
 
   test('gate failure pauses workflow', () async {

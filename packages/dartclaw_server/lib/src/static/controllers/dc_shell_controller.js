@@ -36,7 +36,11 @@ export default class DcShellController extends Stimulus.Controller {
     document.addEventListener('htmx:afterSettle', this.applyTimelineAutoScroll);
 
     this.initializeShellUi();
-    this.connectGlobalEvents();
+    // Global SSE (restart / context-warning events) only exists for authenticated
+    // shell pages; the login page renders no sidebar and would 401 on /api/events.
+    if (document.querySelector('.sidebar')) {
+      this.connectGlobalEvents();
+    }
     renderMarkdown();
     scrollToBottom();
     this.applyTimelineAutoScroll();

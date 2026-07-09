@@ -1,22 +1,19 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ActionNode,
-        ExtractionConfig,
-        ExtractionType,
         ForeachNode,
         LoopNode,
         MapNode,
         MergeResolveConfig,
         MergeResolveEscalation,
+        OnErrorPolicy,
         OutputConfig,
         OutputFormat,
         ParallelGroupNode,
         StepConfigDefault,
         WorkflowDefinition,
         WorkflowExternalArtifactMountMode,
-        WorkflowGitCleanupStrategy,
         WorkflowGitExternalArtifactMount,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
@@ -30,24 +27,6 @@ import 'package:test/test.dart';
 const _basicStep = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
 
 void main() {
-  group('ExtractionConfig', () {
-    test('round-trips via toJson/fromJson', () {
-      const config = ExtractionConfig(type: ExtractionType.artifact, pattern: r'\d+');
-      final json = config.toJson();
-      final restored = ExtractionConfig.fromJson(json);
-      expect(restored.type, ExtractionType.artifact);
-      expect(restored.pattern, r'\d+');
-    });
-
-    test('supports all extraction types', () {
-      for (final type in ExtractionType.values) {
-        final config = ExtractionConfig(type: type, pattern: 'p');
-        final restored = ExtractionConfig.fromJson(config.toJson());
-        expect(restored.type, type);
-      }
-    });
-  });
-
   group('WorkflowVariable', () {
     for (final testCase in const [
       (
@@ -99,7 +78,7 @@ void main() {
       expect(restored.finally_, isNull);
     });
 
-    test('round-trips with finally_ field (S03)', () {
+    test('round-trips with finally_ field', () {
       const loop = WorkflowLoop(
         id: 'loop-1',
         steps: ['loop-step'],
@@ -114,10 +93,51 @@ void main() {
       expect(restored.finally_, 'summarize');
     });
 
-    test('finally_ absent from json when null (S03)', () {
+    test('finally_ absent from json when null', () {
       const loop = WorkflowLoop(id: 'l', steps: ['s'], maxIterations: 1, exitGate: 'e');
       final json = loop.toJson();
       expect(json.containsKey('finally'), false);
+    });
+
+    test('onMaxIterations defaults to fail; toJson omits the default', () {
+      const loop = WorkflowLoop(id: 'l', steps: ['s'], maxIterations: 1, exitGate: 'e');
+      expect(loop.onMaxIterations, 'fail');
+      final json = loop.toJson();
+      expect(json.containsKey('onMaxIterations'), false);
+      final restored = WorkflowLoop.fromJson(json);
+      expect(restored.onMaxIterations, 'fail');
+    });
+
+    test('onMaxIterations: continue round-trips and is emitted in json', () {
+      const loop = WorkflowLoop(id: 'l', steps: ['s'], maxIterations: 2, exitGate: 'e', onMaxIterations: 'continue');
+      final json = loop.toJson();
+      expect(json['onMaxIterations'], 'continue');
+      final restored = WorkflowLoop.fromJson(json);
+      expect(restored.onMaxIterations, 'continue');
+    });
+
+    test('onMaxIterations: escalate round-trips and is emitted in json', () {
+      const loop = WorkflowLoop(
+        id: 'l',
+        steps: ['s'],
+        maxIterations: 2,
+        exitGate: 'e',
+        onMaxIterations: WorkflowLoop.onMaxIterationsEscalate,
+      );
+      final json = loop.toJson();
+      expect(json['onMaxIterations'], WorkflowLoop.onMaxIterationsEscalate);
+      final restored = WorkflowLoop.fromJson(json);
+      expect(restored.onMaxIterations, WorkflowLoop.onMaxIterationsEscalate);
+    });
+
+    test('fromJson of a missing onMaxIterations key defaults to fail', () {
+      final restored = WorkflowLoop.fromJson({
+        'id': 'l',
+        'steps': ['s'],
+        'maxIterations': 1,
+        'exitGate': 'e',
+      });
+      expect(restored.onMaxIterations, 'fail');
     });
   });
 
@@ -131,7 +151,7 @@ void main() {
           integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
           promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: true),
+          publish: true,
         ),
       );
       final json = def.toJson();
@@ -141,7 +161,7 @@ void main() {
       expect(restored.gitStrategy!.integrationBranch, isTrue);
       expect(restored.gitStrategy!.worktreeMode, 'shared');
       expect(restored.gitStrategy!.promotion, 'merge');
-      expect(restored.gitStrategy!.publish?.enabled, isTrue);
+      expect(restored.gitStrategy!.publish, isTrue);
     });
 
     test('invalid gitStrategy worktree mode fails during model hydration', () {
@@ -153,10 +173,10 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: [_basicStep],
-        gitStrategy: WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+        gitStrategy: WorkflowGitStrategy(cleanup: false),
       );
       final restored = WorkflowDefinition.fromJson(def.toJson());
-      expect(restored.gitStrategy?.cleanup?.enabled, isFalse);
+      expect(restored.gitStrategy?.cleanup, isFalse);
       expect(restored.gitStrategy?.cleanupEnabled, isFalse);
     });
 
@@ -192,17 +212,6 @@ void main() {
       expect(perMapItemStrategy.effectiveWorktreeMode(maxParallel: 1, isMap: true), 'per-map-item');
     });
 
-    test('legacy bootstrap key hydrates integrationBranch', () {
-      final strategy = WorkflowGitStrategy.fromJson({'bootstrap': true});
-      expect(strategy.integrationBranch, isTrue);
-      expect(strategy.legacyBootstrapKey, isTrue);
-      expect(strategy.toJson(), {'integrationBranch': true});
-    });
-
-    test('legacy bootstrap key must agree with integrationBranch in json', () {
-      expect(() => WorkflowGitStrategy.fromJson({'integrationBranch': false, 'bootstrap': true}), throwsArgumentError);
-    });
-
     test('integrationBranch spellings must agree in json', () {
       expect(
         () => WorkflowGitStrategy.fromJson({'integrationBranch': true, 'integration_branch': false}),
@@ -218,11 +227,30 @@ void main() {
       );
     });
 
-    test('legacy bootstrap constructor value must agree with integrationBranch', () {
+    test('legacy bootstrap key hydrates as an integrationBranch input alias', () {
+      final strategy = WorkflowGitStrategy.fromJson({'bootstrap': true});
+
+      expect(strategy.integrationBranch, isTrue);
+      expect(strategy.toJson(), equals({'integrationBranch': true}));
+    });
+
+    test('legacy bootstrap key must agree with integrationBranch in json', () {
       expect(
-        () => WorkflowGitStrategy(integrationBranch: false, bootstrap: true).integrationBranch,
-        throwsA(anyOf(isA<AssertionError>(), isA<StateError>())),
+        () => WorkflowGitStrategy.fromJson({'integrationBranch': true, 'bootstrap': false}),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('gitStrategy.integrationBranch'), contains('gitStrategy.bootstrap')),
+          ),
+        ),
       );
+    });
+
+    test('agreeing integrationBranch spellings hydrate as one value', () {
+      final strategy = WorkflowGitStrategy.fromJson({'integrationBranch': true, 'integration_branch': true});
+
+      expect(strategy.integrationBranch, isTrue);
     });
   });
 
@@ -286,8 +314,8 @@ void main() {
         provider: 'claude',
         model: 'claude-opus-4',
         maxTokens: 8000,
-        maxCostUsd: 2.5,
         maxRetries: 2,
+        timeoutSeconds: 900,
         allowedTools: ['Read', 'Grep'],
       );
       final json = d.toJson();
@@ -296,8 +324,8 @@ void main() {
       expect(restored.provider, 'claude');
       expect(restored.model, 'claude-opus-4');
       expect(restored.maxTokens, 8000);
-      expect(restored.maxCostUsd, 2.5);
       expect(restored.maxRetries, 2);
+      expect(restored.timeoutSeconds, 900);
       expect(restored.allowedTools, ['Read', 'Grep']);
     });
 
@@ -308,8 +336,8 @@ void main() {
       expect(restored.provider, isNull);
       expect(restored.model, isNull);
       expect(restored.maxTokens, isNull);
-      expect(restored.maxCostUsd, isNull);
       expect(restored.maxRetries, isNull);
+      expect(restored.timeoutSeconds, isNull);
       expect(restored.allowedTools, isNull);
     });
 
@@ -319,16 +347,9 @@ void main() {
       expect(json.containsKey('provider'), false);
       expect(json.containsKey('model'), false);
       expect(json.containsKey('maxTokens'), false);
-      expect(json.containsKey('maxCostUsd'), false);
       expect(json.containsKey('maxRetries'), false);
+      expect(json.containsKey('timeoutSeconds'), false);
       expect(json.containsKey('allowedTools'), false);
-    });
-
-    test('maxCostUsd int-as-num round-trips to double', () {
-      final json = {'match': 'review*', 'maxCostUsd': 2};
-      final restored = StepConfigDefault.fromJson(json);
-      expect(restored.maxCostUsd, 2.0);
-      expect(restored.maxCostUsd, isA<double>());
     });
   });
 
@@ -338,7 +359,7 @@ void main() {
         id: 'step-1',
         name: 'My Step',
         prompts: ['Do {{VAR}} and {{context.key}}'],
-        type: WorkflowTaskType.bash,
+        taskType: WorkflowTaskType.bash,
         provider: 'claude',
         model: 'claude-opus',
         timeoutSeconds: 1800,
@@ -346,7 +367,6 @@ void main() {
         gate: 'prev.status == done',
         inputs: ['in_key'],
         outputs: {'out_key': OutputConfig()},
-        extraction: ExtractionConfig(type: ExtractionType.artifact, pattern: r'$.result'),
         maxTokens: 10000,
         maxRetries: 3,
         allowedTools: ['Bash', 'Read'],
@@ -360,7 +380,7 @@ void main() {
       expect(restored.id, 'step-1');
       expect(restored.name, 'My Step');
       expect(restored.prompt, 'Do {{VAR}} and {{context.key}}');
-      expect(restored.type, WorkflowTaskType.bash);
+      expect(restored.taskType, WorkflowTaskType.bash);
       expect(restored.provider, 'claude');
       expect(restored.model, 'claude-opus');
       expect(restored.timeoutSeconds, 1800);
@@ -368,8 +388,6 @@ void main() {
       expect(restored.gate, 'prev.status == done');
       expect(restored.inputs, ['in_key']);
       expect(restored.outputKeys, contains('out_key'));
-      expect(restored.extraction!.type, ExtractionType.artifact);
-      expect(restored.extraction!.pattern, r'$.result');
       expect(restored.maxTokens, 10000);
       expect(restored.maxRetries, 3);
       expect(restored.allowedTools, ['Bash', 'Read']);
@@ -381,11 +399,10 @@ void main() {
     test('round-trips with only required fields (defaults applied)', () {
       const step = WorkflowStep(id: 'step-1', name: 'Step One', prompts: ['Just do it']);
       final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.type, WorkflowTaskType.agent);
+      expect(restored.taskType, WorkflowTaskType.agent);
       expect(restored.parallel, false);
       expect(restored.inputs, isEmpty);
       expect(restored.outputKeys, isEmpty);
-      expect(restored.extraction, isNull);
       expect(restored.maxTokens, isNull);
       expect(restored.allowedTools, isNull);
     });
@@ -402,28 +419,6 @@ void main() {
       expect(json['timeout'], 1800);
       final restored = WorkflowStep.fromJson(json);
       expect(restored.timeoutSeconds, 1800);
-    });
-
-    test('round-trips maxCostUsd (S03)', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxCostUsd: 1.5);
-      final json = step.toJson();
-      expect(json['maxCostUsd'], 1.5);
-      final restored = WorkflowStep.fromJson(json);
-      expect(restored.maxCostUsd, 1.5);
-    });
-
-    test('maxCostUsd absent from json when null (S03)', () {
-      const step = _basicStep;
-      final json = step.toJson();
-      expect(json.containsKey('maxCostUsd'), false);
-      expect(WorkflowStep.fromJson(json).maxCostUsd, isNull);
-    });
-
-    test('maxCostUsd int-as-num in json normalizes to double (S03)', () {
-      final json = {'id': 's', 'name': 'S', 'prompt': 'p', 'maxCostUsd': 2};
-      final restored = WorkflowStep.fromJson(json);
-      expect(restored.maxCostUsd, 2.0);
-      expect(restored.maxCostUsd, isA<double>());
     });
 
     test('skill field round-trips (S04)', () {
@@ -574,12 +569,12 @@ void main() {
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['implement', 'validate', 'review'],
             outputs: {'story_results': OutputConfig()},
           ),
-          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], type: WorkflowTaskType.agent),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], taskType: WorkflowTaskType.agent),
           WorkflowStep(id: 'validate', name: 'Validate', prompts: ['p']),
           WorkflowStep(id: 'review', name: 'Review', prompts: ['p']),
           WorkflowStep(id: 'publish', name: 'Publish', prompts: ['p']),
@@ -945,14 +940,27 @@ void main() {
       expect(WorkflowStep.fromJson(json).onError, isNull);
     });
 
-    for (final onError in const ['continue', 'retry']) {
-      test('onError: $onError round-trips', () {
-        final step = WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.bash, onError: onError);
+    for (final (policy, wire) in const [(OnErrorPolicy.continueWorkflow, 'continue'), (OnErrorPolicy.pause, 'pause')]) {
+      test('onError: $wire round-trips', () {
+        final step = WorkflowStep(id: 's', name: 'S', taskType: WorkflowTaskType.bash, onError: policy);
         final json = step.toJson();
-        expect(json['onError'], onError);
-        expect(WorkflowStep.fromJson(json).onError, onError);
+        expect(json['onError'], wire);
+        expect(WorkflowStep.fromJson(json).onError, policy);
       });
     }
+
+    test('legacy onError "fail" in json deserializes to pause', () {
+      final json = {'id': 's', 'name': 'S', 'type': 'bash', 'onError': 'fail'};
+      expect(WorkflowStep.fromJson(json).onError, OnErrorPolicy.pause);
+    });
+
+    test('unknown persisted onError value deserializes to null (resume-safe, not a throw)', () {
+      // A snapshot from before onError was typed may carry a value the enum no
+      // longer accepts (e.g. the previously-tolerated 'retry'); fromJson must
+      // degrade to null rather than throw so an in-flight run still resumes.
+      final json = {'id': 's', 'name': 'S', 'type': 'bash', 'onError': 'retry'};
+      expect(WorkflowStep.fromJson(json).onError, isNull);
+    });
 
     test('workdir defaults to null', () {
       const step = _basicStep;
@@ -963,7 +971,7 @@ void main() {
     });
 
     test('workdir round-trips', () {
-      const step = WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.bash, workdir: '/tmp/workspace');
+      const step = WorkflowStep(id: 's', name: 'S', taskType: WorkflowTaskType.bash, workdir: '/tmp/workspace');
       final json = step.toJson();
       expect(json['workdir'], '/tmp/workspace');
       expect(WorkflowStep.fromJson(json).workdir, '/tmp/workspace');
@@ -973,30 +981,30 @@ void main() {
       const step = WorkflowStep(
         id: 'build',
         name: 'Build',
-        type: WorkflowTaskType.bash,
-        onError: 'retry',
+        taskType: WorkflowTaskType.bash,
+        onError: OnErrorPolicy.continueWorkflow,
         workdir: '/workspace',
         maxRetries: 2,
       );
       final json = step.toJson();
       expect(json['type'], 'bash');
-      expect(json['onError'], 'retry');
+      expect(json['onError'], 'continue');
       expect(json['workdir'], '/workspace');
       final restored = WorkflowStep.fromJson(json);
-      expect(restored.type, WorkflowTaskType.bash);
-      expect(restored.onError, 'retry');
+      expect(restored.taskType, WorkflowTaskType.bash);
+      expect(restored.onError, OnErrorPolicy.continueWorkflow);
       expect(restored.workdir, '/workspace');
       expect(restored.maxRetries, 2);
       expect(restored.prompts, isNull);
     });
 
     test('approval type round-trips without prompt', () {
-      const step = WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval);
+      const step = WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval);
       final json = step.toJson();
       expect(json['type'], 'approval');
       expect(json.containsKey('prompts'), false);
       final restored = WorkflowStep.fromJson(json);
-      expect(restored.type, WorkflowTaskType.approval);
+      expect(restored.taskType, WorkflowTaskType.approval);
       expect(restored.prompts, isNull);
     });
 
@@ -1132,7 +1140,7 @@ void main() {
 
     test('WorkflowStep parses enums and emits unchanged JSON strings', () {
       final bash = WorkflowStep.fromJson({'id': 'build', 'name': 'Build', 'type': 'bash', 'prompt': 'echo ok'});
-      expect(bash.type, WorkflowTaskType.bash);
+      expect(bash.taskType, WorkflowTaskType.bash);
       expect(bash.toJson()['type'], 'bash');
 
       final foreach = WorkflowStep.fromJson({
@@ -1142,7 +1150,7 @@ void main() {
         'mapOver': 'stories',
         'foreachSteps': ['implement'],
       });
-      expect(foreach.type, WorkflowTaskType.foreach);
+      expect(foreach.taskType, WorkflowTaskType.foreach);
       expect(foreach.toJson()['type'], 'foreach');
     });
 

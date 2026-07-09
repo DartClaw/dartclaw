@@ -261,6 +261,89 @@ void main() {
       expect(stepCompleted.first['stepId'], 'research');
       expect(stepCompleted.first['success'], true);
       expect(stepCompleted.first['tokenCount'], 1000);
+      expect(stepCompleted.first.keys.toSet(), {
+        'type',
+        'runId',
+        'stepId',
+        'stepIndex',
+        'totalSteps',
+        'taskId',
+        'success',
+        'tokenCount',
+      });
+      // Additive fields are omitted when the event carries no semantic outcome.
+      expect(stepCompleted.first.containsKey('outcome'), isFalse);
+      expect(stepCompleted.first.containsKey('reason'), isFalse);
+    });
+
+    test('forwards WorkflowStepCompletedEvent outcome and reason when present', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            WorkflowStepCompletedEvent(
+              runId: 'run-001',
+              stepId: 'research',
+              stepName: 'Research',
+              stepIndex: 0,
+              totalSteps: 2,
+              taskId: 'task-001',
+              success: false,
+              outcome: 'needsInput',
+              reason: 'awaiting operator decision',
+              tokenCount: 500,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final stepCompleted = frames.where((f) => f['type'] == 'workflow_step_completed').toList();
+      expect(stepCompleted, isNotEmpty);
+      expect(stepCompleted.first['success'], false);
+      expect(stepCompleted.first['outcome'], 'needsInput');
+      expect(stepCompleted.first['reason'], 'awaiting operator decision');
+    });
+
+    test('forwards WorkflowStepCompletedEvent with task display scope enrichment', () async {
+      await taskRepo.insert(
+        Task(
+          id: 'task-scoped',
+          title: 'Scoped task',
+          description: 'desc',
+          type: TaskType.research,
+          status: TaskStatus.running,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+          workflowRunId: 'run-001',
+          stepIndex: 0,
+          configJson: const {'displayScope': 'S04'},
+        ),
+      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            WorkflowStepCompletedEvent(
+              runId: 'run-001',
+              stepId: 'research',
+              stepName: 'Research',
+              stepIndex: 0,
+              totalSteps: 2,
+              taskId: 'task-scoped',
+              success: true,
+              tokenCount: 1000,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final stepCompleted = frames.where((f) => f['type'] == 'workflow_step_completed').toList();
+      expect(stepCompleted, isNotEmpty);
+      expect(stepCompleted.first['displayScope'], 'S04');
+      expect(stepCompleted.first.keys.toSet(), containsAll({'displayScope', 'tokenCount'}));
     });
 
     test('forwards MapIterationCompletedEvent with display scope', () async {
@@ -289,6 +372,80 @@ void main() {
       expect(mapIteration.first['itemId'], 'S02');
       expect(mapIteration.first['displayScope'], 'S02');
       expect(mapIteration.first['success'], false);
+      expect(mapIteration.first.keys.toSet(), {
+        'type',
+        'runId',
+        'stepId',
+        'iterationIndex',
+        'totalIterations',
+        'itemId',
+        'displayScope',
+        'taskId',
+        'success',
+        'tokenCount',
+      });
+      expect(mapIteration.first.containsKey('outcome'), isFalse);
+      expect(mapIteration.first.containsKey('reason'), isFalse);
+    });
+
+    test('forwards MapIterationCompletedEvent outcome and reason when present', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            MapIterationCompletedEvent(
+              runId: 'run-001',
+              stepId: 'story-pipeline',
+              iterationIndex: 1,
+              totalIterations: 2,
+              itemId: 'S02',
+              taskId: 'task-iter',
+              success: false,
+              outcome: 'failed',
+              reason: 'analyze gate failed',
+              tokenCount: 42,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final mapIteration = frames.where((f) => f['type'] == 'map_iteration_completed').toList();
+      expect(mapIteration, isNotEmpty);
+      expect(mapIteration.first['outcome'], 'failed');
+      expect(mapIteration.first['reason'], 'analyze gate failed');
+    });
+
+    test('forwards MapStepCompletedEvent with blockedCount', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            MapStepCompletedEvent(
+              runId: 'run-001',
+              stepId: 'story-pipeline',
+              stepName: 'Story pipeline',
+              totalIterations: 4,
+              successCount: 2,
+              failureCount: 1,
+              cancelledCount: 0,
+              blockedCount: 1,
+              totalTokens: 1234,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final mapStep = frames.where((f) => f['type'] == 'map_step_completed').toList();
+      expect(mapStep, isNotEmpty);
+      expect(mapStep.first['successCount'], 2);
+      expect(mapStep.first['failureCount'], 1);
+      expect(mapStep.first['cancelledCount'], 0);
+      expect(mapStep.first['blockedCount'], 1);
+      expect(mapStep.first['totalTokens'], 1234);
     });
 
     test('forwards TaskStatusChangedEvent for known child tasks', () async {
@@ -385,6 +542,86 @@ void main() {
       );
       final taskStatus = frames.where((f) => f['type'] == 'task_status_changed').toList();
       expect(taskStatus, isEmpty);
+    });
+
+    test('forwards WorkflowCliTurnProgressEvent for a child task of this run', () async {
+      await taskRepo.insert(
+        Task(
+          id: 'task-001',
+          title: 'Step 0',
+          description: 'desc',
+          type: TaskType.research,
+          status: TaskStatus.running,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+          workflowRunId: 'run-001',
+          stepIndex: 0,
+        ),
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            WorkflowCliTurnProgressEvent(
+              taskId: 'task-001',
+              sessionId: 'session-001',
+              provider: 'codex',
+              turnIndex: 2,
+              cumulativeTokens: 8400,
+              inputTokens: 8000,
+              outputTokens: 400,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final progress = frames.where((f) => f['type'] == 'workflow_cli_turn_progress').toList();
+      expect(progress, isNotEmpty);
+      expect(progress.first['taskId'], 'task-001');
+      expect(progress.first['cumulativeTokens'], 8400);
+    });
+
+    test('does NOT forward WorkflowCliTurnProgressEvent for a task of another run', () async {
+      await taskRepo.insert(
+        Task(
+          id: 'task-other',
+          title: 'Other',
+          description: 'desc',
+          type: TaskType.research,
+          status: TaskStatus.running,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+          workflowRunId: 'run-OTHER',
+          stepIndex: 0,
+        ),
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            WorkflowCliTurnProgressEvent(
+              taskId: 'task-other',
+              sessionId: 'session-other',
+              provider: 'codex',
+              turnIndex: 1,
+              cumulativeTokens: 5000,
+              inputTokens: 5000,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final progress = frames.where((f) => f['type'] == 'workflow_cli_turn_progress').toList();
+      expect(progress, isEmpty);
     });
 
     test('forwards LoopIterationCompletedEvent', () async {

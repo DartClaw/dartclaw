@@ -108,6 +108,7 @@ final class WorkflowServiceTestHarness {
     WorkflowTurnAdapter? turnAdapter,
     WorkflowGitContext? gitContext,
     WorkflowServiceOptions options = const WorkflowServiceOptions(),
+    Map<String, Future<void>>? debugSeedActiveExecutors,
   }) {
     return WorkflowService.lifecycleOnly(
       repository: repository,
@@ -119,6 +120,7 @@ final class WorkflowServiceTestHarness {
       turnAdapter: turnAdapter,
       gitContext: gitContext,
       options: options,
+      debugSeedActiveExecutors: debugSeedActiveExecutors,
     );
   }
 

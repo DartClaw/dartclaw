@@ -39,6 +39,13 @@ void main() {
       expect(parseStepOutcomePayload(message), isNull);
     });
 
+    test('rejects a cancelled payload – the outcome stays engine-derived only', () {
+      // The teardown-interruption outcome must be unclaimable by agents; its
+      // only producer is the engine's TaskStatus.cancelled mapping.
+      const message = '<step-outcome>{"outcome":"cancelled","reason":"teardown"}</step-outcome>';
+      expect(parseStepOutcomePayload(message), isNull);
+    });
+
     test('uses the last well-formed marker when multiple are present', () {
       const message =
           '<step-outcome>{"outcome":"failed","reason":"first"}</step-outcome>\n'

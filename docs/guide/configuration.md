@@ -384,6 +384,12 @@ agent:
 
 # --- Workflow Defaults ---
 workflow:
+  # Operator-owned workflow workspace. When unset, DartClaw manages a default
+  # workspace under <dataDir>/workflow-workspace/ whose AGENTS.md is created on
+  # first use and auto-refreshed on upgrade while untouched; once you edit it,
+  # your version is preserved (tracked via a sibling
+  # AGENTS.md.dartclaw-managed.json marker). A custom workspace_dir is never
+  # written to or refreshed by DartClaw.
   workspace_dir: ~/.dartclaw/workflow-workspace
   approvals: manual              # manual | auto-on-stall | auto
   defaults:
@@ -428,6 +434,13 @@ providers:
     executable: claude           # path or binary name
     pool_size: 2                 # primary + 1 task worker
     inherit_user_settings: true  # default: load user + project + local Claude settings; false = project-only
+  #   approval: on-request       # on-request | unless-allow-listed | never (prompt-gating axis)
+  #   sandbox: workspace-write   # read-only | workspace-write | danger-full-access (OS-isolation axis)
+  #                              # approval and sandbox are independent: sandbox never relaxes
+  #                              #   prompt gating, approval never changes OS isolation. Both
+  #                              #   default OFF (dontAsk + allow-list, no sandbox change).
+  #                              #   approval: never opts a trusted run into full access and is
+  #                              #   refused under the restricted container profile (fail-closed).
   # codex:                       # uncomment to enable Codex (OpenAI models)
   #   executable: codex          # path to codex binary
   #   pool_size: 2               # 2 task workers
@@ -503,6 +516,10 @@ search:
 governance:
   admin_senders:                       # sender IDs exempt from rate limits (facilitators)
     - "users/123456789012345"
+  turn_progress:
+    stall_timeout: 300s                # one-shot CLI stdout silence window
+    stall_action: cancel               # warn | cancel | ignore
+    max_duration: 1800s                # default one-shot CLI wall-clock ceiling
   rate_limits:
     per_sender:
       messages: 10                     # max messages per window per sender
@@ -575,6 +592,13 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `providers.claude.executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation". For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
 
+**Claude `approval` and `sandbox` (two orthogonal axes).** Mirroring the Codex provider's vocabulary, the Claude provider accepts two independent trusted-run knobs, both defaulting OFF:
+
+- `approval` — the **prompt-gating** axis (Claude permission-mode). Accepted values: `on-request`, `unless-allow-listed`, `never`. Claude's one-shot path has no interactive prompt channel, so `on-request`/`unless-allow-listed` keep the default `dontAsk` + static allow-list; only `approval: never` opts a trusted run into **full access** (permission bypass, no allow-list). Full access is refused under the restricted container profile, where hooks are disabled and a bypass cannot fail closed.
+- `sandbox` — the **OS-isolation** axis (Claude `sandbox` settings block). Accepted coarse values: `read-only` (sandbox on, all writes denied), `workspace-write` (sandbox on, working-dir + session-temp writes), `danger-full-access` (sandbox off). A map value is passed through verbatim as a raw native Claude `sandbox` block for advanced per-path/network rules.
+
+The axes never cross: setting `sandbox: danger-full-access` disables OS isolation but does **not** relax prompt gating, and `approval: never` does **not** change the sandbox block. Invalid values warn and fall back to the default. The raw `permissionMode`/`sandbox`/`permissions` passthrough remains available as the advanced escape hatch.
+
 **Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
 
 - Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, `required_builtins`, `container_isolation_required`, and `container_profile`.
@@ -612,7 +636,9 @@ with guard and audit hooks.
 
 **Note on `governance.budget.timezone`:** Two forms are accepted. Fixed UTC offsets — `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`) — and IANA timezone names like `Europe/Stockholm` or `America/New_York`. IANA names are DST-aware: the offset is resolved for each reset instant, so budget reset time follows daylight-saving transitions automatically. Only the fixed `UTC±N` forms do not adjust for DST — with those, a DST-observing region needs the offset updated seasonally or accepts the one-hour drift across transitions. An unrecognized value falls back to UTC with a warning.
 
-**Note on `governance` defaults:** All governance features default to disabled/unlimited for backward compatibility. Rate limits, budgets, and loop detection only activate when explicitly configured. Admin senders are exempt from rate limits but not from token budgets.
+**Note on `governance` defaults:** Rate limits, budgets, and loop detection default to disabled/unlimited for backward compatibility. Workflow one-shot CLI liveness is on by default: `governance.turn_progress.stall_timeout` defaults to `300s`, `stall_action` defaults to `cancel`, and `max_duration` defaults to `1800s`.
+
+**Workflow one-shot timeout precedence:** a workflow step's `timeout_seconds` wins first, then the first matching `stepDefaults.timeout_seconds`, then `governance.turn_progress.max_duration`. The shipped global default is non-zero so one-shot workflow steps are never unbounded unless an operator explicitly sets the global value to `0`.
 
 **Note on `github.webhook_secret`:** Accepts a literal string or a `${ENV_VAR}` reference resolved at startup. Required when `github.enabled: true` — startup logs a warning if the secret is missing. The webhook handler verifies `x-hub-signature-256: sha256=<digest>` against this secret and rejects unsigned or malformed requests with HTTP 403. See [Workflow Triggers](workflows.md#workflow-triggers) for the end-to-end setup.
 

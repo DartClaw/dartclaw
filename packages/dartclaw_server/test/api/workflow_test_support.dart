@@ -13,7 +13,14 @@ import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, KvService, Mess
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowApprovalPolicy, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowService;
+    show
+        WorkflowApprovalPolicy,
+        WorkflowDefinition,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowService,
+        missingRequiredWorkflowVariables,
+        missingRequiredWorkflowVariablesMessage;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -96,15 +103,13 @@ class FakeWorkflowService extends WorkflowService {
     Map<String, String> variables, {
     String? projectId,
     bool allowDirtyLocalPath = false,
-    bool headless = false,
     bool inline = false,
     WorkflowApprovalPolicy? approvals,
   }) async {
     if (validateRequiredVars) {
-      for (final entry in definition.variables.entries) {
-        if (entry.value.required && !variables.containsKey(entry.key)) {
-          throw ArgumentError('Required variable "${entry.key}" not provided');
-        }
+      final missing = missingRequiredWorkflowVariables(definition, variables);
+      if (missing.isNotEmpty) {
+        throw ArgumentError(missingRequiredWorkflowVariablesMessage(missing));
       }
     }
     startCalls++;

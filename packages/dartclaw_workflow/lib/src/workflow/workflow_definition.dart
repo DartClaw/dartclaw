@@ -1,3 +1,6 @@
+import 'output_resolver.dart';
+import 'workflow_git_strategy_fields.dart';
+
 const _workflowDefinitionFieldUnset = Object();
 
 /// Output format for context extraction.
@@ -51,7 +54,7 @@ class OutputConfig {
   /// Schema for validation and prompt augmentation.
   ///
   /// Can be:
-  /// - A [String] preset name (e.g. 'verdict', 'story_plan')
+  /// - A [String] preset name (e.g. 'verdict', 'story_specs')
   /// - A [Map<String, dynamic>] inline JSON Schema
   /// - null (no schema constraint)
   final Object? schema;
@@ -63,6 +66,9 @@ class OutputConfig {
   /// - `"worktree.branch"` – reads the coding-task branch from persisted worktree metadata
   /// - `"worktree.path"` – reads the worktree filesystem path from persisted worktree metadata
   final String? source;
+
+  /// Explicit resolver policy for this output.
+  final OutputResolver? resolverOverride;
 
   /// Extraction mode for JSON outputs.
   final OutputMode outputMode;
@@ -88,6 +94,7 @@ class OutputConfig {
     this.format = OutputFormat.text,
     this.schema,
     this.source,
+    this.resolverOverride,
     this.outputMode = OutputMode.prompt,
     this.description,
     Object? setValue = _workflowDefinitionFieldUnset,
@@ -105,9 +112,8 @@ class OutputConfig {
   /// Whether this output declares a [setValue] literal.
   ///
   /// `true` means the executor should write [setValue] verbatim to the named
-  /// context key on step success, overriding any extracted value (and the
-  /// legacy `extraction:` priority branch). Fires only on step success – not
-  /// on failure or `entryGate` skip.
+  /// context key on step success, overriding any extracted value. Fires only on
+  /// step success – not on failure or `entryGate` skip.
   bool get hasSetValue => !identical(_setValue, _workflowDefinitionFieldUnset);
 
   /// The configured literal written to context when [hasSetValue] is true.
@@ -121,6 +127,7 @@ class OutputConfig {
     'format': format.name,
     if (schema != null) 'schema': schema,
     if (source != null) 'source': source,
+    if (resolverOverride != null) 'resolver': resolverOverride!.toJson(),
     if (outputMode != OutputMode.prompt) 'outputMode': outputMode.name,
     if (description != null) 'description': description,
     if (hasSetValue) 'setValue': setValue,
@@ -131,6 +138,9 @@ class OutputConfig {
     format: json['format'] != null ? OutputFormat.values.byName(json['format'] as String) : OutputFormat.text,
     schema: json['schema'],
     source: json['source'] as String?,
+    resolverOverride: json['resolver'] == null
+        ? null
+        : OutputResolver.fromJson(Map<String, Object?>.from(json['resolver'] as Map)),
     outputMode: json['outputMode'] != null ? OutputMode.values.byName(json['outputMode'] as String) : OutputMode.prompt,
     description: json['description'] as String?,
     setValue: json.containsKey('setValue') ? json['setValue'] : _workflowDefinitionFieldUnset,
@@ -166,29 +176,26 @@ enum OnFailurePolicy {
   };
 }
 
-/// Extraction strategy for context output values.
-enum ExtractionType {
-  /// Extract from a named artifact.
-  artifact,
-}
+/// Policy applied when a workflow step errors, as opposed to reporting a modeled
+/// failed outcome (which uses [OnFailurePolicy]).
+enum OnErrorPolicy {
+  /// Pauses the workflow for operator intervention (default when unset).
+  pause('pause'),
 
-/// Configuration for custom context output extraction.
-class ExtractionConfig {
-  /// Selects the extraction strategy.
-  final ExtractionType type;
+  /// Logs the error and skips to the next step.
+  continueWorkflow('continue');
 
-  /// Pattern interpreted according to [type] (artifact name).
-  final String pattern;
+  /// YAML wire name for this policy.
+  final String yamlName;
 
-  /// Creates an [ExtractionConfig] value.
-  const ExtractionConfig({required this.type, required this.pattern});
+  const OnErrorPolicy(this.yamlName);
 
-  /// Serializes this extraction config to a JSON-ready map.
-  Map<String, dynamic> toJson() => {'type': type.name, 'pattern': pattern};
-
-  /// Reconstructs an [ExtractionConfig] from its JSON representation.
-  factory ExtractionConfig.fromJson(Map<String, dynamic> json) =>
-      ExtractionConfig(type: ExtractionType.values.byName(json['type'] as String), pattern: json['pattern'] as String);
+  /// Parses an [OnErrorPolicy]; the legacy `fail` spelling maps to [pause].
+  static OnErrorPolicy? fromYaml(String value) => switch (value) {
+    'pause' || 'fail' => pause,
+    'continue' => continueWorkflow,
+    _ => null,
+  };
 }
 
 /// A variable declaration in a workflow definition.
@@ -237,14 +244,17 @@ class StepConfigDefault {
   /// Optional reasoning effort level (e.g. "low", "medium", "high").
   final String? effort;
 
+  /// Optional review finding severity threshold for remediation-loop gating.
+  final String? gatingSeverity;
+
   /// Optional per-step token budget.
   final int? maxTokens;
 
-  /// Optional per-step cost ceiling in USD.
-  final double? maxCostUsd;
-
   /// Optional per-step retry limit.
   final int? maxRetries;
+
+  /// Optional wall-clock timeout in seconds.
+  final int? timeoutSeconds;
 
   /// Optional per-step tool allowlist.
   final List<String>? allowedTools;
@@ -255,9 +265,10 @@ class StepConfigDefault {
     this.provider,
     this.model,
     this.effort,
+    this.gatingSeverity,
     this.maxTokens,
-    this.maxCostUsd,
     this.maxRetries,
+    this.timeoutSeconds,
     this.allowedTools,
   });
 
@@ -267,9 +278,10 @@ class StepConfigDefault {
     if (provider != null) 'provider': provider,
     if (model != null) 'model': model,
     if (effort != null) 'effort': effort,
+    if (gatingSeverity != null) 'gatingSeverity': gatingSeverity,
     if (maxTokens != null) 'maxTokens': maxTokens,
-    if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
     if (maxRetries != null) 'maxRetries': maxRetries,
+    if (timeoutSeconds != null) 'timeoutSeconds': timeoutSeconds,
     if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
   };
 
@@ -279,9 +291,10 @@ class StepConfigDefault {
     provider: json['provider'] as String?,
     model: json['model'] as String?,
     effort: json['effort'] as String?,
+    gatingSeverity: json['gatingSeverity'] as String?,
     maxTokens: json['maxTokens'] as int?,
-    maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
     maxRetries: json['maxRetries'] as int?,
+    timeoutSeconds: json['timeoutSeconds'] as int?,
     allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
   );
 }
@@ -310,6 +323,24 @@ class WorkflowLoop {
   /// is a reserved keyword; serialized as `finally` in JSON/YAML.
   final String? finally_;
 
+  /// Behavior when the loop exhausts [maxIterations] without satisfying
+  /// [exitGate]: `fail` (default) fails the run; `continue` lets a top-level
+  /// loop fall through to the next workflow step; `escalate` lets a
+  /// foreach-nested loop settle blocked for human review.
+  ///
+  /// Stored as a raw string so definition validation – not enum parsing – owns
+  /// invalid-value diagnostics.
+  final String onMaxIterations;
+
+  /// Default [onMaxIterations] policy: fail the run on exhaustion.
+  static const String onMaxIterationsFail = 'fail';
+
+  /// [onMaxIterations] opt-in policy: advance to the next step on exhaustion.
+  static const String onMaxIterationsContinue = 'continue';
+
+  /// [onMaxIterations] opt-in policy: settle a nested loop as needing review.
+  static const String onMaxIterationsEscalate = 'escalate';
+
   /// Creates a [WorkflowLoop] value.
   const WorkflowLoop({
     required this.id,
@@ -318,6 +349,7 @@ class WorkflowLoop {
     this.entryGate,
     required this.exitGate,
     this.finally_,
+    this.onMaxIterations = onMaxIterationsFail,
   });
 
   /// Serializes this value to a JSON-ready map.
@@ -328,6 +360,7 @@ class WorkflowLoop {
     if (entryGate != null) 'entryGate': entryGate,
     'exitGate': exitGate,
     if (finally_ != null) 'finally': finally_,
+    if (onMaxIterations != onMaxIterationsFail) 'onMaxIterations': onMaxIterations,
   };
 
   /// Reconstructs a [WorkflowLoop] from its JSON representation.
@@ -338,6 +371,7 @@ class WorkflowLoop {
     entryGate: json['entryGate'] as String?,
     exitGate: json['exitGate'] as String,
     finally_: json['finally'] as String?,
+    onMaxIterations: json['onMaxIterations'] as String? ?? onMaxIterationsFail,
   );
 }
 
@@ -377,10 +411,8 @@ sealed class WorkflowNode {
 
 /// A normalized action node for an ordinary workflow step.
 final class ActionNode extends WorkflowNode {
-  /// stepId.
   final String stepId;
 
-  /// const ActionNode({required this.stepId});.
   const ActionNode({required this.stepId});
 
   @override
@@ -390,16 +422,13 @@ final class ActionNode extends WorkflowNode {
   List<String> get stepIds => [stepId];
 
   @override
-  /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {'type': type, 'stepId': stepId};
 }
 
 /// A normalized map/fan-out node.
 final class MapNode extends WorkflowNode {
-  /// stepId.
   final String stepId;
 
-  /// const MapNode({required this.stepId});.
   const MapNode({required this.stepId});
 
   @override
@@ -409,7 +438,6 @@ final class MapNode extends WorkflowNode {
   List<String> get stepIds => [stepId];
 
   @override
-  /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {'type': type, 'stepId': stepId};
 }
 
@@ -418,36 +446,30 @@ final class ParallelGroupNode extends WorkflowNode {
   @override
   final List<String> stepIds;
 
-  /// const ParallelGroupNode({required this.stepIds});.
   const ParallelGroupNode({required this.stepIds});
 
   @override
   String get type => 'parallelGroup';
 
   @override
-  /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {'type': type, 'stepIds': stepIds.toList(growable: false)};
 }
 
 /// A normalized loop node with ordered body steps and optional finalizer.
 final class LoopNode extends WorkflowNode {
-  /// loopId.
   final String loopId;
 
   @override
   final List<String> stepIds;
 
-  /// finallyStepId.
   final String? finallyStepId;
 
-  /// const LoopNode({required this.loopId, required this.stepIds,.
   const LoopNode({required this.loopId, required this.stepIds, this.finallyStepId});
 
   @override
   String get type => 'loop';
 
   @override
-  /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {
     'type': type,
     'loopId': loopId,
@@ -470,7 +492,6 @@ final class ForeachNode extends WorkflowNode {
   /// Ordered sub-pipeline step IDs executed sequentially per item.
   final List<String> childStepIds;
 
-  /// const ForeachNode({required this.stepId, required this.child.
   const ForeachNode({required this.stepId, required this.childStepIds});
 
   @override
@@ -480,7 +501,6 @@ final class ForeachNode extends WorkflowNode {
   List<String> get stepIds => [stepId, ...childStepIds];
 
   @override
-  /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {
     'type': type,
     'stepId': stepId,
@@ -542,12 +562,7 @@ class WorkflowStep {
   /// which execute as sequential turns in the same conversation session.
   final List<String>? prompts;
 
-  /// Workflow dispatch kind.
   final WorkflowTaskType taskType;
-
-  /// Deprecated alias for [taskType].
-  @Deprecated('Use taskType')
-  WorkflowTaskType get type => taskType;
 
   /// Optional provider override (e.g., "claude", "codex").
   final String? provider;
@@ -557,6 +572,9 @@ class WorkflowStep {
 
   /// Optional reasoning effort level (e.g. "low", "medium", "high").
   final String? effort;
+
+  /// Optional review finding severity threshold for remediation-loop gating.
+  final String? gatingSeverity;
 
   /// Step timeout in seconds (null means no timeout).
   final int? timeoutSeconds;
@@ -582,9 +600,6 @@ class WorkflowStep {
   /// Context keys this step reads from.
   final List<String> inputs;
 
-  /// Optional custom extraction configuration.
-  final ExtractionConfig? extraction;
-
   /// Per-output extraction and format configuration.
   ///
   /// The keys of this map are the canonical declaration of which context keys
@@ -597,9 +612,6 @@ class WorkflowStep {
 
   /// Optional per-step token budget.
   final int? maxTokens;
-
-  /// Optional per-step cost ceiling in USD.
-  final double? maxCostUsd;
 
   /// Optional per-step retry limit.
   final int? maxRetries;
@@ -614,7 +626,7 @@ class WorkflowStep {
   ///
   /// When set, this step is a map/fan-out step that iterates over the
   /// collection at this key. The collection is resolved from workflow context
-  /// at execution time (S07). Template engine can access `{{map.item}}`,
+  /// at execution time. Template engine can access `{{map.item}}`,
   /// `{{map.index}}`, `{{map.length}}`, and `{{map.item.field}}` references.
   final String? mapOver;
 
@@ -623,8 +635,8 @@ class WorkflowStep {
   /// Stored as [Object?] because the value may be:
   /// - `int`: explicit concurrency limit
   /// - `String` `"unlimited"`: no concurrency cap
-  /// - `String` template: e.g. `"{{MAX_PARALLEL}}"`, resolved at runtime (S07)
-  /// - `null`: default (S07 determines the default)
+  /// - `String` template: e.g. `"{{MAX_PARALLEL}}"`, resolved at runtime
+  /// - `null`: runtime default
   final Object? maxParallel;
 
   /// Optional maximum number of items to process from the map collection.
@@ -660,22 +672,18 @@ class WorkflowStep {
   /// `continueSession: true` is still accepted and is normalized internally to
   /// the immediately preceding step via the private sentinel `@previous`.
   /// Only valid for provider/harness combinations that support session
-  /// continuity (e.g. Claude Code). S04 owns runtime execution semantics.
+  /// continuity (e.g. Claude Code).
   final String? continueSession;
 
-  /// Error handling policy for this step.
+  /// Error handling policy for this step (null = default [OnErrorPolicy.pause]).
   ///
-  /// Accepted values: `"pause"` (default – abort the workflow), `"continue"`
-  /// (log the error and continue to the next step), and legacy `"fail"`
-  /// (treated the same as `"pause"` for backward compatibility).
-  /// S02 owns runtime execution semantics for this field.
-  final String? onError;
+  /// The legacy `"fail"` spelling parses to [OnErrorPolicy.pause].
+  final OnErrorPolicy? onError;
 
   /// Working directory override for bash steps.
   ///
   /// When set, the bash executor uses this path as the working directory.
   /// Supports `{{variable}}` references. Ignored for non-bash steps.
-  /// S02 owns runtime execution semantics for this field.
   final String? workdir;
 
   /// Policy applied when this step reports an explicit failed outcome.
@@ -729,20 +737,18 @@ class WorkflowStep {
     this.prompts,
     this.skill,
     WorkflowTaskType? taskType,
-    @Deprecated('Use taskType') WorkflowTaskType? type,
     this.provider,
     this.model,
     this.effort,
+    this.gatingSeverity,
     this.timeoutSeconds,
     this.parallel = false,
     this.gate,
     this.entryGate,
     this.inputs = const [],
-    this.extraction,
     this.outputs,
     this.outputExamples,
     this.maxTokens,
-    this.maxCostUsd,
     this.maxRetries,
     this.allowedTools,
     this.aggregateReviews,
@@ -758,7 +764,7 @@ class WorkflowStep {
     this.emitsOwnOutcome = false,
     this.autoFrameContext = true,
     this.workflowVariables = const [],
-  }) : taskType = taskType ?? type ?? WorkflowTaskType.agent;
+  }) : taskType = taskType ?? WorkflowTaskType.agent;
 
   /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {
@@ -771,15 +777,14 @@ class WorkflowStep {
     if (provider != null) 'provider': provider,
     if (model != null) 'model': model,
     if (effort != null) 'effort': effort,
+    if (gatingSeverity != null) 'gatingSeverity': gatingSeverity,
     if (timeoutSeconds != null) 'timeout': timeoutSeconds,
     if (gate != null) 'gate': gate,
     if (entryGate != null) 'entryGate': entryGate,
     'inputs': inputs.toList(),
-    if (extraction != null) 'extraction': extraction!.toJson(),
     if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
     if (outputExamples != null) 'outputExamples': outputExamples!.toList(growable: false),
     if (maxTokens != null) 'maxTokens': maxTokens,
-    if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
     if (maxRetries != null) 'maxRetries': maxRetries,
     if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
     if (aggregateReviews != null) 'aggregateReviews': aggregateReviews!.toList(growable: false),
@@ -789,7 +794,7 @@ class WorkflowStep {
     if (foreachSteps != null) 'foreachSteps': foreachSteps!.toList(growable: false),
     if (mapAlias != null) 'mapAlias': mapAlias,
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
-    if (onError != null) 'onError': onError,
+    if (onError != null) 'onError': onError!.yamlName,
     if (workdir != null) 'workdir': workdir,
     if (onFailure != OnFailurePolicy.fail) 'onFailure': onFailure.yamlName,
     if (emitsOwnOutcome) 'emitsOwnOutcome': true,
@@ -818,20 +823,18 @@ class WorkflowStep {
       taskType: WorkflowTaskType.fromJsonString((json['type'] as String?) ?? 'agent'),
       provider: json['provider'] as String?,
       model: json['model'] as String?,
+      effort: json['effort'] as String?,
+      gatingSeverity: json['gatingSeverity'] as String?,
       timeoutSeconds: (json['timeout'] ?? json['timeoutSeconds']) as int?,
       parallel: (json['parallel'] as bool?) ?? false,
       gate: json['gate'] as String?,
       entryGate: json['entryGate'] as String?,
       inputs: (json['inputs'] as List?)?.cast<String>() ?? const [],
-      extraction: json['extraction'] != null
-          ? ExtractionConfig.fromJson(json['extraction'] as Map<String, dynamic>)
-          : null,
       outputs: (json['outputs'] as Map<String, dynamic>?)?.map(
         (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
       ),
       outputExamples: (json['outputExamples'] as List?)?.cast<String>(),
       maxTokens: json['maxTokens'] as int?,
-      maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
       maxRetries: json['maxRetries'] as int?,
       allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
       aggregateReviews: (json['aggregateReviews'] as List?)?.cast<String>(),
@@ -845,7 +848,7 @@ class WorkflowStep {
         String value when value.isNotEmpty => value,
         _ => null,
       },
-      onError: json['onError'] as String?,
+      onError: json['onError'] is String ? OnErrorPolicy.fromYaml(json['onError'] as String) : null,
       workdir: json['workdir'] as String?,
       onFailure: json['onFailure'] is String
           ? (OnFailurePolicy.fromYaml(json['onFailure'] as String) ?? OnFailurePolicy.fail)
@@ -867,20 +870,18 @@ class WorkflowStep {
     Object? skill = _workflowDefinitionFieldUnset,
     Object? prompts = _workflowDefinitionFieldUnset,
     WorkflowTaskType? taskType,
-    @Deprecated('Use taskType') WorkflowTaskType? type,
     Object? provider = _workflowDefinitionFieldUnset,
     Object? model = _workflowDefinitionFieldUnset,
     Object? effort = _workflowDefinitionFieldUnset,
+    Object? gatingSeverity = _workflowDefinitionFieldUnset,
     Object? timeoutSeconds = _workflowDefinitionFieldUnset,
     bool? parallel,
     Object? gate = _workflowDefinitionFieldUnset,
     Object? entryGate = _workflowDefinitionFieldUnset,
     List<String>? inputs,
-    Object? extraction = _workflowDefinitionFieldUnset,
     Object? outputs = _workflowDefinitionFieldUnset,
     Object? outputExamples = _workflowDefinitionFieldUnset,
     Object? maxTokens = _workflowDefinitionFieldUnset,
-    Object? maxCostUsd = _workflowDefinitionFieldUnset,
     Object? maxRetries = _workflowDefinitionFieldUnset,
     Object? allowedTools = _workflowDefinitionFieldUnset,
     Object? aggregateReviews = _workflowDefinitionFieldUnset,
@@ -902,22 +903,21 @@ class WorkflowStep {
       name: name ?? this.name,
       skill: skill == _workflowDefinitionFieldUnset ? this.skill : skill as String?,
       prompts: prompts == _workflowDefinitionFieldUnset ? this.prompts : prompts as List<String>?,
-      taskType: taskType ?? type ?? this.taskType,
+      taskType: taskType ?? this.taskType,
       provider: provider == _workflowDefinitionFieldUnset ? this.provider : provider as String?,
       model: model == _workflowDefinitionFieldUnset ? this.model : model as String?,
       effort: effort == _workflowDefinitionFieldUnset ? this.effort : effort as String?,
+      gatingSeverity: gatingSeverity == _workflowDefinitionFieldUnset ? this.gatingSeverity : gatingSeverity as String?,
       timeoutSeconds: timeoutSeconds == _workflowDefinitionFieldUnset ? this.timeoutSeconds : timeoutSeconds as int?,
       parallel: parallel ?? this.parallel,
       gate: gate == _workflowDefinitionFieldUnset ? this.gate : gate as String?,
       entryGate: entryGate == _workflowDefinitionFieldUnset ? this.entryGate : entryGate as String?,
       inputs: inputs ?? this.inputs,
-      extraction: extraction == _workflowDefinitionFieldUnset ? this.extraction : extraction as ExtractionConfig?,
       outputs: outputs == _workflowDefinitionFieldUnset ? this.outputs : outputs as Map<String, OutputConfig>?,
       outputExamples: outputExamples == _workflowDefinitionFieldUnset
           ? this.outputExamples
           : outputExamples as List<String>?,
       maxTokens: maxTokens == _workflowDefinitionFieldUnset ? this.maxTokens : maxTokens as int?,
-      maxCostUsd: maxCostUsd == _workflowDefinitionFieldUnset ? this.maxCostUsd : maxCostUsd as double?,
       maxRetries: maxRetries == _workflowDefinitionFieldUnset ? this.maxRetries : maxRetries as int?,
       allowedTools: allowedTools == _workflowDefinitionFieldUnset ? this.allowedTools : allowedTools as List<String>?,
       aggregateReviews: aggregateReviews == _workflowDefinitionFieldUnset
@@ -931,7 +931,7 @@ class WorkflowStep {
       continueSession: continueSession == _workflowDefinitionFieldUnset
           ? this.continueSession
           : continueSession as String?,
-      onError: onError == _workflowDefinitionFieldUnset ? this.onError : onError as String?,
+      onError: onError == _workflowDefinitionFieldUnset ? this.onError : onError as OnErrorPolicy?,
       workdir: workdir == _workflowDefinitionFieldUnset ? this.workdir : workdir as String?,
       onFailure: onFailure ?? this.onFailure,
       emitsOwnOutcome: emitsOwnOutcome ?? this.emitsOwnOutcome,
@@ -966,7 +966,6 @@ class WorkflowGitArtifactsStrategy {
   /// project (`{{PROJECT}}`) is used.
   final String? project;
 
-  /// const WorkflowGitArtifactsStrategy({this.commit, this.commit.
   const WorkflowGitArtifactsStrategy({this.commit, this.commitMessage, this.project});
 
   /// Serializes this value to a JSON-ready map.
@@ -1072,43 +1071,6 @@ class WorkflowGitExternalArtifactMount {
   );
 }
 
-/// Publish strategy configuration nested under [WorkflowGitStrategy].
-class WorkflowGitPublishStrategy {
-  /// Whether publish behavior is enabled for the workflow.
-  final bool? enabled;
-
-  /// const WorkflowGitPublishStrategy({this.enabled});.
-  const WorkflowGitPublishStrategy({this.enabled});
-
-  /// Serializes this value to a JSON-ready map.
-  Map<String, dynamic> toJson() => {if (enabled != null) 'enabled': enabled};
-
-  /// Reconstructs a [WorkflowGitPublishStrategy] from its JSON representation.
-  factory WorkflowGitPublishStrategy.fromJson(Map<String, dynamic> json) =>
-      WorkflowGitPublishStrategy(enabled: json['enabled'] as bool?);
-}
-
-/// End-of-run cleanup configuration nested under [WorkflowGitStrategy].
-///
-/// Controls whether workflow-owned worktrees are removed and local story
-/// branches deleted when the run reaches a terminal status (completed,
-/// cancelled, or failed). Defaults to enabled when omitted; set
-/// `enabled: false` to retain worktrees and branches for post-mortem inspection.
-class WorkflowGitCleanupStrategy {
-  /// Whether end-of-run cleanup is enabled for the workflow.
-  final bool? enabled;
-
-  /// const WorkflowGitCleanupStrategy({this.enabled});.
-  const WorkflowGitCleanupStrategy({this.enabled});
-
-  /// Serializes this value to a JSON-ready map.
-  Map<String, dynamic> toJson() => {if (enabled != null) 'enabled': enabled};
-
-  /// Reconstructs a [WorkflowGitCleanupStrategy] from its JSON representation.
-  factory WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic> json) =>
-      WorkflowGitCleanupStrategy(enabled: json['enabled'] as bool?);
-}
-
 /// Escalation policy when all merge-resolve attempts are exhausted.
 ///
 /// YAML string → enum mapping:
@@ -1119,20 +1081,16 @@ class WorkflowGitCleanupStrategy {
 /// a future release and surfaced as a validator error via
 /// [MergeResolveConfig.rawEscalation].
 enum MergeResolveEscalation {
-  /// serializeRemaining,.
   serializeRemaining,
 
-  /// fail;.
   fail;
 
-  /// static MergeResolveEscalation? tryParse(String? value) => sw.
   static MergeResolveEscalation? tryParse(String? value) => switch (value) {
     'serialize-remaining' => serializeRemaining,
     'fail' => fail,
     _ => null,
   };
 
-  /// String toYamlString() => switch (this) {.
   String toYamlString() => switch (this) {
     serializeRemaining => 'serialize-remaining',
     fail => 'fail',
@@ -1151,13 +1109,10 @@ enum MergeResolveEscalation {
 ///
 /// Unknown top-level keys are captured in [unknownFields] for the same reason.
 class MergeResolveConfig {
-  /// enabled.
   final bool enabled;
 
-  /// maxAttempts.
   final int maxAttempts;
 
-  /// tokenCeiling.
   final int tokenCeiling;
 
   /// Parsed escalation value. `null` when the authored string is unrecognised.
@@ -1249,10 +1204,8 @@ class WorkflowGitWorktreeStrategy {
   /// Optional cross-clone external artifact mount (two-repo profiles).
   final WorkflowGitExternalArtifactMount? externalArtifactMount;
 
-  /// const WorkflowGitWorktreeStrategy({this.mode, this.externalA.
   const WorkflowGitWorktreeStrategy({this.mode, this.externalArtifactMount});
 
-  /// Object? toJsonValue() {.
   Object? toJsonValue() {
     if (mode != null && externalArtifactMount == null) return mode!.toJson();
     if (mode == null && externalArtifactMount == null) return null;
@@ -1280,26 +1233,10 @@ class WorkflowGitWorktreeStrategy {
 
 /// Reusable workflow-level git behavior strategy surface.
 ///
-/// This shape is intentionally declarative for S16b. Runtime enforcement is
-/// owned by later milestones.
+/// This shape is intentionally declarative; runtime enforcement lives in the
+/// executor and workflow git port.
 class WorkflowGitStrategy {
-  final bool? _integrationBranch;
-
-  final bool? _bootstrap;
-
-  /// Whether workflow startup should create a workflow-owned integration branch.
-  bool? get integrationBranch {
-    final integrationBranch = _integrationBranch;
-    final bootstrap = _bootstrap;
-    if (integrationBranch != null && bootstrap != null && integrationBranch != bootstrap) {
-      throw StateError('integrationBranch and bootstrap must not disagree.');
-    }
-    return integrationBranch ?? bootstrap;
-  }
-
-  /// Legacy alias for workflow definitions that still use `bootstrap:`.
-  @Deprecated('Use integrationBranch instead.')
-  bool? get bootstrap => integrationBranch;
+  final bool? integrationBranch;
 
   /// Worktree strategy (`shared`, `per-task`, `per-map-item`, `inline`,
   /// `auto`) plus nested worktree-only settings.
@@ -1308,25 +1245,15 @@ class WorkflowGitStrategy {
   /// Promotion strategy (`merge`, `rebase`, `none`).
   final String? promotion;
 
-  /// Publish behavior configuration.
-  final WorkflowGitPublishStrategy? publish;
+  /// Publish behavior setting from `publish.enabled`.
+  final bool? publish;
 
-  /// End-of-run worktree/branch cleanup configuration. `null` means default
+  /// End-of-run worktree/branch cleanup setting. `null` means default
   /// (cleanup enabled); see [cleanupEnabled] for the resolved boolean.
-  final WorkflowGitCleanupStrategy? cleanup;
+  final bool? cleanup;
 
   /// Artifact auto-commit configuration (null = default truth-table resolution).
   final WorkflowGitArtifactsStrategy? artifacts;
-
-  /// True when the definition authored `gitStrategy.externalArtifactMount`
-  /// at the deprecated flat level. Parser-only metadata so the validator can
-  /// emit a migration hint while still hydrating the nested runtime surface.
-  final bool legacyExternalArtifactMountLocation;
-
-  /// True when the definition authored deprecated `gitStrategy.bootstrap`.
-  /// Parser-only metadata so the validator can emit a migration hint while
-  /// the runtime uses the normalized [integrationBranch] surface.
-  final bool legacyBootstrapKey;
 
   /// Nullable backing field – null when `merge_resolve:` is absent from YAML
   /// so [toJson] omits the key for pre-feature definitions.
@@ -1340,7 +1267,7 @@ class WorkflowGitStrategy {
   MergeResolveConfig get mergeResolve => _mergeResolve ?? const MergeResolveConfig();
 
   /// Whether end-of-run worktree/branch cleanup is enabled (default: true).
-  bool get cleanupEnabled => cleanup?.enabled ?? true;
+  bool get cleanupEnabled => cleanup ?? true;
 
   /// Convenience projection of the configured worktree mode.
   String? get worktreeMode => worktree?.mode?.toJson();
@@ -1377,31 +1304,22 @@ class WorkflowGitStrategy {
 
   /// Creates a [WorkflowGitStrategy] value.
   const WorkflowGitStrategy({
-    bool? integrationBranch,
-    @Deprecated('Use integrationBranch instead.') bool? bootstrap,
+    this.integrationBranch,
     this.worktree,
     this.promotion,
     this.publish,
     this.cleanup,
     this.artifacts,
-    this.legacyExternalArtifactMountLocation = false,
-    this.legacyBootstrapKey = false,
     MergeResolveConfig? mergeResolve,
-  }) : assert(
-         integrationBranch == null || bootstrap == null || integrationBranch == bootstrap,
-         'integrationBranch and bootstrap must not disagree.',
-       ),
-       _integrationBranch = integrationBranch,
-       _bootstrap = bootstrap,
-       _mergeResolve = mergeResolve;
+  }) : _mergeResolve = mergeResolve;
 
   /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {
     if (integrationBranch != null) 'integrationBranch': integrationBranch,
     if (worktree != null) 'worktree': worktree!.toJsonValue(),
     if (promotion != null) 'promotion': promotion,
-    if (publish != null) 'publish': publish!.toJson(),
-    if (cleanup != null) 'cleanup': cleanup!.toJson(),
+    if (publish != null) 'publish': {'enabled': publish},
+    if (cleanup != null) 'cleanup': {'enabled': cleanup},
     if (artifacts != null) 'artifacts': artifacts!.toJson(),
     if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
   };
@@ -1412,24 +1330,21 @@ class WorkflowGitStrategy {
       json,
       error: (message) => ArgumentError.value(json, 'json', message),
     );
-    final bootstrapRaw = json['bootstrap'];
-
     return WorkflowGitStrategy(
       integrationBranch: integrationBranchRaw,
-      bootstrap: bootstrapRaw as bool?,
       worktree: switch (json['worktree']) {
         null => null,
         final value => WorkflowGitWorktreeStrategy.fromJson(value),
       },
       promotion: json['promotion'] as String?,
       publish: switch (json['publish']) {
-        Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
-        Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
+        Map<String, dynamic> publish => publish['enabled'] as bool?,
+        Map<Object?, Object?> publish => Map<String, dynamic>.from(publish)['enabled'] as bool?,
         _ => null,
       },
       cleanup: switch (json['cleanup']) {
-        Map<String, dynamic> cleanup => WorkflowGitCleanupStrategy.fromJson(cleanup),
-        Map<Object?, Object?> cleanup => WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic>.from(cleanup)),
+        Map<String, dynamic> cleanup => cleanup['enabled'] as bool?,
+        Map<Object?, Object?> cleanup => Map<String, dynamic>.from(cleanup)['enabled'] as bool?,
         _ => null,
       },
       artifacts: switch (json['artifacts']) {
@@ -1437,8 +1352,6 @@ class WorkflowGitStrategy {
         Map<Object?, Object?> artifacts => WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic>.from(artifacts)),
         _ => null,
       },
-      legacyExternalArtifactMountLocation: json['legacyExternalArtifactMountLocation'] == true,
-      legacyBootstrapKey: json.containsKey('bootstrap'),
       mergeResolve: switch (json['merge_resolve']) {
         null => null,
         final value => MergeResolveConfig.fromJson(value),
@@ -1448,29 +1361,12 @@ class WorkflowGitStrategy {
 }
 
 bool? _resolveIntegrationBranchJsonValue(Map<String, dynamic> json, {required Object Function(String message) error}) {
-  final values = <String, bool>{};
-  for (final entry in const {
-    'integrationBranch': 'gitStrategy.integrationBranch',
-    'integration_branch': 'gitStrategy.integration_branch',
-    'bootstrap': 'gitStrategy.bootstrap',
-  }.entries) {
-    final value = json[entry.key];
-    if (value == null) continue;
-    if (value is! bool) {
-      throw error('${entry.value} must be a boolean.');
-    }
-    values[entry.value] = value;
-  }
-
-  if (values.isEmpty) return null;
-  final distinct = values.values.toSet();
-  if (distinct.length > 1) {
-    throw error('Fields ${_quotedFieldList(values.keys)} must not disagree.');
-  }
-  return distinct.single;
+  return resolveWorkflowIntegrationBranchValue(
+    (key) => json[key],
+    typeError: (fieldPath) => error('$fieldPath must be a boolean.'),
+    disagreementError: (fieldPaths) => error('Fields ${quotedWorkflowFieldList(fieldPaths)} must not disagree.'),
+  );
 }
-
-String _quotedFieldList(Iterable<String> fields) => fields.map((field) => '"$field"').join(', ');
 
 /// A workflow definition parsed from a YAML file.
 ///
@@ -1528,7 +1424,6 @@ class WorkflowDefinition {
   /// Normalized authored-order execution graph for this definition.
   List<WorkflowNode> get nodes => _nodes ?? normalizeNodes(steps, loops);
 
-  /// WorkflowDefinition copyWith({.
   WorkflowDefinition copyWith({
     String? name,
     String? description,

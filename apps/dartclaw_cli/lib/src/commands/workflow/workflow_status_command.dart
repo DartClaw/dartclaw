@@ -9,6 +9,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, Work
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
+import 'agent_text_scrub.dart';
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends ConnectedCommand {
@@ -128,8 +129,9 @@ class WorkflowStatusCommand extends ConnectedCommand {
       '  Steps:       ${steps.where((step) => step['status'] == 'completed').length}/${steps.length} completed',
     );
     writeLine('  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}');
+    _printApiWhyPaused(run);
     if (run['errorMessage'] != null) {
-      writeLine('  Error:       ${run['errorMessage']}');
+      writeLine('  Error:       ${scrubAgentReportedText('${run['errorMessage']}')}');
     }
 
     if (steps.isEmpty) {
@@ -144,6 +146,31 @@ class WorkflowStatusCommand extends ConnectedCommand {
       final status = (step['status']?.toString() ?? 'pending').padRight(18);
       final taskId = step['taskId']?.toString() ?? '—';
       writeLine('  $label  $name  $status  $taskId');
+    }
+  }
+
+  /// Appends the same why-paused / what-to-do synthesis the standalone table
+  /// prints, sourced from the connected enriched-detail payload
+  /// (`isApprovalPaused`, `pendingApprovalStepId`) plus the pending step's
+  /// message at the flat context key `<stepId>.approval.message` — the same key
+  /// the standalone path reads, so approval *and* needsInput holds both surface
+  /// their reason.
+  void _printApiWhyPaused(Map<String, dynamic> run) {
+    final runId = run['id'];
+    if (run['isApprovalPaused'] == true) {
+      final pendingStepId = run['pendingApprovalStepId']?.toString();
+      writeLine('  Approval:    Step "$pendingStepId" is awaiting approval');
+      final contextJson = (run['contextJson'] as Map?) ?? const {};
+      final approvalMessage = contextJson['$pendingStepId.approval.message']?.toString();
+      if (approvalMessage != null && approvalMessage.isNotEmpty) {
+        writeLine('  Request:     ${scrubAgentReportedText(approvalMessage)}');
+      }
+      writeLine('  Actions:     Run `dartclaw workflow resume $runId` to approve');
+      writeLine('               Run `dartclaw workflow cancel $runId` to reject');
+    } else if (run['status'] == 'paused') {
+      writeLine('  Actions:     Run `dartclaw workflow resume $runId` to continue');
+    } else if (run['status'] == 'failed') {
+      writeLine('  Actions:     Run `dartclaw workflow retry $runId` to retry');
     }
   }
 
@@ -166,7 +193,7 @@ class WorkflowStatusCommand extends ConnectedCommand {
       final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
       writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
       if (approvalMessage != null) {
-        writeLine('  Request:     $approvalMessage');
+        writeLine('  Request:     ${scrubAgentReportedText(approvalMessage)}');
       }
       writeLine('  Actions:     Run `dartclaw workflow resume ${run.id} --standalone` to approve');
       writeLine('               Run `dartclaw workflow cancel ${run.id} --standalone` to reject');
@@ -174,7 +201,7 @@ class WorkflowStatusCommand extends ConnectedCommand {
       writeLine('  Actions:     Run `dartclaw workflow retry ${run.id} --standalone` to retry');
     }
     if (run.errorMessage != null) {
-      writeLine('  Error:       ${run.errorMessage}');
+      writeLine('  Error:       ${scrubAgentReportedText(run.errorMessage!)}');
     }
 
     if (childTasks.isEmpty) {
@@ -188,7 +215,7 @@ class WorkflowStatusCommand extends ConnectedCommand {
       final stepNum = task.stepIndex != null ? '${task.stepIndex! + 1}' : '?';
       final totalStr = _totalSteps(run).toString();
       final stepLabel = '$stepNum/$totalStr'.padRight(6);
-      final name = truncate(task.title, 30, suffix: '...').padRight(30);
+      final name = truncate(scrubAgentReportedText(task.title), 30, suffix: '...').padRight(30);
       final status = task.status.name.padRight(10);
       final tokens = '—'.padRight(8);
       final duration = _taskDuration(task);

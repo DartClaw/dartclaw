@@ -12,7 +12,7 @@ class WorkflowResumeCommand extends WorkflowRunIdCommand {
     super.environment,
     super.stderrLine,
     super.interrupts,
-    super.runAndthenSkillsBootstrap,
+    super.runWorkflowSkillsBootstrap,
     super.skillIntrospector,
     super.providerAuthPreflight,
   });

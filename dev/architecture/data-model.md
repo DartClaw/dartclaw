@@ -592,7 +592,6 @@ WorkflowStep
 ├── parallel: bool
 ├── gate: String?                            # step-id.key operator value expression
 ├── inputs: List<String>
-├── extraction: ExtractionConfig?
 ├── outputs: Map<String, OutputConfig>?      # canonical context-write declarations; keys exposed as outputKeys
 ├── evaluator: bool                          # minimal prompt scope for reviewer steps
 ├── maxTokens: int?

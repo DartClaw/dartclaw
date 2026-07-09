@@ -23,10 +23,6 @@ class WorkflowGitIntegrationBranchResult {
   const WorkflowGitIntegrationBranchResult({required this.integrationBranch, this.note});
 }
 
-/// Legacy alias retained for callers compiled against the old name.
-@Deprecated('Use WorkflowGitIntegrationBranchResult instead.')
-typedef WorkflowGitBootstrapResult = WorkflowGitIntegrationBranchResult;
-
 /// Result of promoting a story/task branch into the integration branch.
 sealed class WorkflowGitPromotionResult {
   const WorkflowGitPromotionResult();
@@ -138,15 +134,6 @@ class WorkflowTurnAdapter {
   })?
   initializeWorkflowGit;
 
-  /// Legacy callback name retained for existing embeddings.
-  @Deprecated('Use initializeWorkflowGit instead.')
-  final Future<WorkflowGitIntegrationBranchResult> Function({
-    required String runId,
-    required String projectId,
-    required String baseRef,
-    required bool perMapItem,
-  })?
-  bootstrapWorkflowGit;
   final Future<WorkflowGitPromotionResult> Function({
     required String runId,
     required String projectId,
@@ -201,7 +188,7 @@ class WorkflowTurnAdapter {
   /// Used by the merge-resolve attempt loop to wrap one attempt's
   /// `capture+clean → skill invocation → outcome read → promotion retry`
   /// chain so no concurrent sibling promotion can mutate the integration
-  /// branch mid-resolution (PRD Lifecycle & Recovery; S60 acceptance).
+  /// branch mid-resolution.
   ///
   /// The lock is reentrant within the body's zone, so inner primitives
   /// (e.g. [captureAndCleanWorktreeForRetry], [promoteWorkflowBranch]) that
@@ -218,7 +205,6 @@ class WorkflowTurnAdapter {
     this.workflowWorkspaceDir,
     this.resolveStartContext,
     this.initializeWorkflowGit,
-    this.bootstrapWorkflowGit,
     this.promoteWorkflowBranch,
     this.publishWorkflowBranch,
     this.cleanupWorkflowGit,

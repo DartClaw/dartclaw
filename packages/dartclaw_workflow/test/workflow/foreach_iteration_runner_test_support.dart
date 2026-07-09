@@ -9,7 +9,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
@@ -82,7 +81,7 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
         WorkflowStep(
           id: 'controller',
           name: 'Controller',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'items',
           foreachSteps: ['inner'],
         ),
@@ -127,14 +126,14 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
               integrationBranch: true,
               worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
               promotion: 'merge',
-              publish: WorkflowGitPublishStrategy(enabled: false),
+              publish: false,
             )
           : null,
       steps: [
         WorkflowStep(
           id: 'story-pipeline',
           name: 'Story Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: mapOver,
           foreachSteps: const ['implement'],
           maxParallel: maxParallel,
@@ -157,7 +156,7 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
         WorkflowStep(
           id: 'story-pipeline',
           name: 'Story Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'stories',
           mapAlias: 'story',
           foreachSteps: ['implement'],
@@ -167,7 +166,7 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
           id: 'implement',
           name: 'Implement',
           prompts: ['Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'],
-          type: WorkflowTaskType.agent,
+          taskType: WorkflowTaskType.agent,
         ),
       ],
     );
@@ -216,7 +215,7 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
         WorkflowStep(
           id: controllerId,
           name: controllerId == 'fe' ? 'FE' : 'Story Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: collectionKey,
           maxItems: maxItems,
           maxParallel: maxParallel,
@@ -237,12 +236,17 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
         WorkflowStep(
           id: 'story-pipeline',
           name: 'Story Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'stories',
           foreachSteps: ['implement', 'validate'],
           outputs: {'story_results': OutputConfig()},
         ),
-        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Build {{map.item}}'], type: WorkflowTaskType.agent),
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          prompts: ['Build {{map.item}}'],
+          taskType: WorkflowTaskType.agent,
+        ),
         WorkflowStep(id: 'validate', name: 'Validate', prompts: ['Validate {{map.item}}']),
       ],
     );

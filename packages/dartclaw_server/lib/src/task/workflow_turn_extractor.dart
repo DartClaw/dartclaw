@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show workflowContextRegExp;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show executionEnvelopeDeclaredOutputKeys, isExecutionEnvelopeSchema, workflowContextRegExp;
 import 'package:logging/logging.dart';
 
 /// Structured data extracted from one workflow task turn.
@@ -80,13 +81,23 @@ final class WorkflowTurnExtractor {
     return true;
   }
 
+  /// The declared output keys a legacy inline payload must supply. For an
+  /// execution envelope these are the domain-output keys under `outputs`, never
+  /// the literal top-level `outputs`/`step_outcome`.
   static List<String> requiredTopLevelKeys(Map<String, dynamic> schema) {
+    if (isExecutionEnvelopeSchema(schema)) return executionEnvelopeDeclaredOutputKeys(schema);
     final raw = schema['required'];
     if (raw is! List) return const <String>[];
     return raw.map((value) => value.toString()).toList(growable: false);
   }
 
+  /// The primary declared output key for event reporting. For an execution
+  /// envelope this is the first domain-output key, not the literal `outputs`.
   static String? structuredOutputKey(Map<String, dynamic> schema) {
+    if (isExecutionEnvelopeSchema(schema)) {
+      final keys = executionEnvelopeDeclaredOutputKeys(schema);
+      return keys.isEmpty ? null : keys.first;
+    }
     final raw = schema['properties'];
     if (raw is! Map || raw.isEmpty) return null;
     return raw.keys.first.toString();

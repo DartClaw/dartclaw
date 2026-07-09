@@ -166,10 +166,3 @@ bool requiresPerMapItemGitIsolation(
   }
   return false;
 }
-
-/// Legacy alias retained for callers using the previous name.
-bool requiresPerMapItemBootstrap(
-  WorkflowDefinition definition,
-  WorkflowContext context, {
-  required WorkflowTemplateEngine templateEngine,
-}) => requiresPerMapItemGitIsolation(definition, context, templateEngine: templateEngine);

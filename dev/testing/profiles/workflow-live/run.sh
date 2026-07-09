@@ -173,6 +173,11 @@ case "${MODE}:${CANARY:-}" in
     ;;
 esac
 
+# Provider is the fixture default (codex / gpt-5.3-codex-spark) unless overridden.
+# Opt into Claude Sonnet with DARTCLAW_TEST_PROVIDER=claude. The codex `-mini`
+# executor/reviewer measured a regression on these pipelines (~5-8x slower, ~100x
+# tokens/review), so the default stays on spark.
+
 LOG_DIR="${DARTCLAW_TEST_LOG_DIR:-${REPO_ROOT}/.agent_temp}"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/workflow-live-${LOG_LABEL}-$(date '+%Y%m%d-%H%M%S').log"

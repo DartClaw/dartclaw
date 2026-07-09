@@ -4,11 +4,16 @@ import 'dart:async';
 class TurnProgressMonitor {
   final Duration stallTimeout;
   final void Function(Duration stallTimeout) onStall;
+  final Timer Function(Duration duration, void Function() callback) _timerFactory;
 
   Timer? _stallTimer;
   bool _running = false;
 
-  TurnProgressMonitor({required this.stallTimeout, required this.onStall});
+  TurnProgressMonitor({
+    required this.stallTimeout,
+    required this.onStall,
+    Timer Function(Duration duration, void Function() callback)? timerFactory,
+  }) : _timerFactory = timerFactory ?? Timer.new;
 
   void start() {
     _running = true;
@@ -33,7 +38,7 @@ class TurnProgressMonitor {
     if (stallTimeout <= Duration.zero) {
       return;
     }
-    _stallTimer = Timer(stallTimeout, () {
+    _stallTimer = _timerFactory(stallTimeout, () {
       if (_running) {
         onStall(stallTimeout);
       }

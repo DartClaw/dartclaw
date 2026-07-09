@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -6,7 +7,7 @@ import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, dartclawVersion;
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, LogService, dartclawVersion;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -14,7 +15,11 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:shelf/shelf.dart' show Handler, Request, Response;
 import 'package:test/test.dart';
 
+import '../helpers/log_service_capture.dart';
+
 late String _templatesDir;
+late List<LogRecord> _testLogRecords;
+late StreamSubscription<LogRecord> _testLogSubscription;
 
 Future<String> _resolveDartclawServerAssetDir(String child) async {
   final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
@@ -29,6 +34,11 @@ class _AssetExitIntercept implements Exception {
   final int code;
   _AssetExitIntercept(this.code);
 }
+
+Future<List<LogRecord>> _captureExpectedServeLogs(
+  Future<void> Function() body, {
+  Iterable<String> expectedSevereSubstrings = const [],
+}) => captureLogServiceRecords(body, expectedSevereSubstrings: expectedSevereSubstrings, failOnUnexpectedSevere: true);
 
 class _AssetWorkerHarness extends FakeAgentHarness {
   @override
@@ -133,17 +143,25 @@ void main() {
     _templatesDir = await _resolveDartclawServerAssetDir('templates');
   });
 
-  setUp(() => capturedHandler = null);
+  setUp(() {
+    capturedHandler = null;
+    LogService.suppressOutputForTests = true;
+    _testLogRecords = <LogRecord>[];
+    _testLogSubscription = Logger.root.onRecord.listen(_testLogRecords.add);
+  });
+
+  tearDown(() async {
+    await _testLogSubscription.cancel();
+    LogService.suppressOutputForTests = false;
+    final unexpectedSevere = _testLogRecords
+        .where((record) => record.level >= Level.SEVERE && !record.message.contains('Cannot bind to localhost:3333'))
+        .toList();
+    if (unexpectedSevere.isNotEmpty) {
+      fail('Unexpected SEVERE logs: ${unexpectedSevere.map((record) => record.message).join(' | ')}');
+    }
+  });
 
   test('explicit asset dirs beat a same-version cache for templates and static assets', () async {
-    final logs = <LogRecord>[];
-    Logger.root.level = Level.ALL;
-    final logSub = Logger.root.onRecord.listen(logs.add);
-    addTearDown(() {
-      logSub.cancel();
-      Logger.root.level = Level.INFO;
-    });
-
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_asset_precedence_test_');
     final sourceStatic = Directory(p.join(tempDir.path, 'source-static'))..createSync(recursive: true);
     File(p.join(sourceStatic.path, 'source-only.css')).writeAsStringSync('body { color: red; }');
@@ -175,14 +193,16 @@ void main() {
         resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
         homeDir: p.join(tempDir.path, 'home'),
       ),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 
-    await expectLater(
-      localRunner.run(['serve', '--static-dir', sourceStatic.path]),
-      throwsA(isA<_AssetExitIntercept>().having((e) => e.code, 'code', 1)),
-    );
+    final logs = await _captureExpectedServeLogs(() async {
+      await expectLater(
+        localRunner.run(['serve', '--static-dir', sourceStatic.path]),
+        throwsA(isA<_AssetExitIntercept>().having((e) => e.code, 'code', 1)),
+      );
+    }, expectedSevereSubstrings: const ['Cannot bind to localhost:3333']);
 
     final response = await _hit('/static/source-only.css');
     expect(response.statusCode, 200);
@@ -190,13 +210,6 @@ void main() {
   });
 
   test('config source_dir beats a same-version cache without CLI asset flags', () async {
-    final logs = <LogRecord>[];
-    Logger.root.level = Level.ALL;
-    final logSub = Logger.root.onRecord.listen(logs.add);
-    addTearDown(() {
-      logSub.cancel();
-      Logger.root.level = Level.INFO;
-    });
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_config_source_precedence_test_');
     final sourceRoot = _seedSourceCheckout(tempDir);
     final sourceTemplates = p.join(sourceRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
@@ -239,7 +252,7 @@ workspace:
         homeDir: p.join(tempDir.path, 'home'),
       ),
       assetDownloader: _FailingDownloader(),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 
@@ -249,10 +262,12 @@ workspace:
     // aborts harness startup before serveFn. `--claude-executable` is not an
     // asset-dir flag, so it does not affect the config-source_dir precedence
     // path under test.
-    await expectLater(
-      localRunner.run(['--config', configFile.path, 'serve', '--claude-executable', Platform.resolvedExecutable]),
-      throwsA(isA<_AssetExitIntercept>().having((e) => e.code, 'code', 1)),
-    );
+    final logs = await _captureExpectedServeLogs(() async {
+      await expectLater(
+        localRunner.run(['--config', configFile.path, 'serve', '--claude-executable', Platform.resolvedExecutable]),
+        throwsA(isA<_AssetExitIntercept>().having((e) => e.code, 'code', 1)),
+      );
+    }, expectedSevereSubstrings: const ['Cannot bind to localhost:3333']);
 
     // The config-set source tree must win over the same-version cache: provenance
     // names the source checkout, and its static (not the cache's empty static) serves.
@@ -289,7 +304,7 @@ workspace:
         resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
         homeDir: p.join(tempDir.path, 'home'),
       ),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 
@@ -348,7 +363,7 @@ steps:
         homeDir: p.join(tempDir.path, 'home'),
       ),
       assetDownloader: _AssetReturningDownloader(downloadedRoot.path),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 
@@ -390,7 +405,7 @@ steps:
         resolvedExecutable: p.join(tempDir.path, 'elsewhere', 'bin', 'dartclaw'),
         homeDir: p.join(tempDir.path, 'home'),
       ),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 
@@ -440,7 +455,7 @@ steps:
           resolvedExecutable: p.join(tempDir.path, 'elsewhere', 'bin', 'dartclaw'),
           homeDir: p.join(tempDir.path, 'home'),
         ),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -487,7 +502,7 @@ steps:
         resolvedExecutable: p.join(tempDir.path, 'elsewhere', 'bin', 'dartclaw'),
         homeDir: p.join(tempDir.path, 'home'),
       ),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 
@@ -524,7 +539,7 @@ steps:
         resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
         homeDir: p.join(tempDir.path, 'home'),
       ),
-      runAndthenSkillsBootstrap: false,
+      runWorkflowSkillsBootstrap: false,
     );
     final localRunner = DartclawRunner()..addCommand(command);
 

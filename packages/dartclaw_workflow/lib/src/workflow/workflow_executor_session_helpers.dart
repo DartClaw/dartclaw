@@ -146,17 +146,18 @@ extension WorkflowExecutorSessionHelpers on WorkflowExecutor {
     WorkflowContext context,
     Map<String, OutputConfig>? effectiveOutputs, {
     required List<String> outputKeys,
+    String? gatingSeverity,
+    bool finalizerHandlesOutputs = false,
     MapContext? mapCtx,
   }) => workflow_task_factory.buildOneShotFollowUpPrompts(
     step,
     context,
     effectiveOutputs,
     outputKeys: outputKeys,
+    gatingSeverity: gatingSeverity,
+    finalizerHandlesOutputs: finalizerHandlesOutputs,
     mapCtx: mapCtx,
     templateEngine: _templateEngine,
     skillPromptBuilder: _skillPromptBuilder,
   );
-
-  Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(WorkflowStep step) =>
-      workflow_task_factory.buildStructuredOutputEnvelopeSchema(step, effectiveOutputsFor(step));
 }

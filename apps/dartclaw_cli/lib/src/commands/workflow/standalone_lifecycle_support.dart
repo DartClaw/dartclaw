@@ -53,7 +53,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
   @protected
   final WriteLine stderrLine;
   final Stream<void> Function() interrupts;
-  final bool runAndthenSkillsBootstrap;
+  final bool runWorkflowSkillsBootstrap;
   final SkillIntrospector? skillIntrospector;
   final ProviderAuthPreflight? providerAuthPreflight;
 
@@ -68,7 +68,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
     this.environment,
     WriteLine? stderrLine,
     Stream<void> Function()? interrupts,
-    this.runAndthenSkillsBootstrap = true,
+    this.runWorkflowSkillsBootstrap = true,
     this.skillIntrospector,
     this.providerAuthPreflight,
   }) : stderrLine = stderrLine ?? stderr.writeln,
@@ -99,8 +99,8 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
   /// code; a `StateError` it throws (engine guard violation) is mapped to its
   /// message on stderr + exit `1`.
   ///
-  /// [runAndthenSkillsBootstrap] overrides the command-level
-  /// [StandaloneWorkflowLifecycleCommand.runAndthenSkillsBootstrap] for this
+  /// [runWorkflowSkillsBootstrap] overrides the command-level
+  /// [StandaloneWorkflowLifecycleCommand.runWorkflowSkillsBootstrap] for this
   /// call; null inherits it. Lifecycle-only verbs (cancel/pause) pass `false`:
   /// they only transition persisted run state, so DC-native skill provisioning
   /// is unnecessary work — and a hard failure when the version-pinned asset dir
@@ -110,9 +110,9 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
     required String runId,
     required bool provisionTaskRunners,
     required Future<int> Function(StandaloneLifecycleSession session) action,
-    bool? runAndthenSkillsBootstrap,
+    bool? runWorkflowSkillsBootstrap,
   }) async {
-    final bootstrapSkills = runAndthenSkillsBootstrap ?? this.runAndthenSkillsBootstrap;
+    final bootstrapSkills = runWorkflowSkillsBootstrap ?? this.runWorkflowSkillsBootstrap;
     final force = argResults!['force'] as bool;
     final configPath = resolveStandaloneWorkflowConfigPath(
       configPath: globalOptionString(globalResults, 'config'),
@@ -142,7 +142,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
       harnessFactory: harnessFactory,
       searchDbFactory: searchDbFactory,
       taskDbFactory: taskDbFactory,
-      runAndthenSkillsBootstrap: bootstrapSkills,
+      runWorkflowSkillsBootstrap: bootstrapSkills,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
     );

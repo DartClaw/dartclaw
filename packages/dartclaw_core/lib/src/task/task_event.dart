@@ -5,8 +5,10 @@ enum TaskEventKind {
   statusChanged,
   toolCalled,
   artifactCreated,
+  structuredOutputFinalizerUsed,
   structuredOutputInlineUsed,
   structuredOutputFallbackUsed,
+  structuredOutputValidationFailed,
   pushBack,
   tokenUpdate,
   taskError,
@@ -31,8 +33,13 @@ enum TaskEventKind {
 /// - `statusChanged`: `{oldStatus, newStatus, trigger}`
 /// - `toolCalled`: `{name, success, durationMs, ?errorType, ?context}`
 /// - `artifactCreated`: `{name, kind}`
-/// - `structuredOutputInlineUsed`: `{stepId, outputKey}`
+/// - `structuredOutputFinalizerUsed`: `{stepId, outputKey}` — the structured
+///   finalization envelope supplied the declared outputs (standard path).
+/// - `structuredOutputInlineUsed`: `{stepId, outputKey}` — legacy inline
+///   `<workflow-context>` payload supplied the outputs (fallback path).
 /// - `structuredOutputFallbackUsed`: `{stepId, outputKey, failureReason, ?providerSubtype}`
+/// - `structuredOutputValidationFailed`: `{stepId, outputKey, failureReason}` —
+///   a required finalizer envelope was missing or malformed.
 /// - `pushBack`: `{comment}`
 /// - `tokenUpdate`: `{inputTokens, outputTokens, ?cacheReadTokens, ?cacheWriteTokens}`
 /// - `taskError`: `{message}`

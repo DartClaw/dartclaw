@@ -330,9 +330,9 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
             _err(
               ValidationErrorType.invalidReference,
               'Aggregate-reviews step "$stepId" must not appear inside loop "${loop.id}": its reserved '
-              'unscoped outputs ({review_findings, findings_count, gating_findings_count}) are meant to be '
+              'unscoped outputs ({review_report_path, findings_count, gating_findings_count}) are meant to be '
               'written once per fan-out, and re-execution would overwrite them each iteration. Sources whose '
-              'own report-path output collides with the unscoped "review_findings" key would also see the '
+              'own report-path output collides with the unscoped "review_report_path" key would also see the '
               'previous merge fed back in as source content.',
               stepId: stepId,
               loopId: loop.id,
@@ -350,9 +350,9 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
             _err(
               ValidationErrorType.invalidReference,
               'Aggregate-reviews step "$childId" must not appear inside foreach step "${step.id}": its '
-              'reserved unscoped outputs ({review_findings, findings_count, gating_findings_count}) are meant '
+              'reserved unscoped outputs ({review_report_path, findings_count, gating_findings_count}) are meant '
               'to be written once per fan-out, and per-iteration re-execution would overwrite them. Sources '
-              'whose own report-path output collides with the unscoped "review_findings" key would also see '
+              'whose own report-path output collides with the unscoped "review_report_path" key would also see '
               'the previous merge fed back in as source content.',
               stepId: childId,
             ),

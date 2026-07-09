@@ -46,13 +46,18 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
       _mergeStepResultIntoContext(
         context,
         result,
-        fallbackStatus: result.success ? (result.task?.status.name ?? 'unknown') : 'failed',
+        fallbackStatus: result.success
+            ? (result.task?.status.name ?? 'unknown')
+            : (result.outcome == 'cancelled' ? 'cancelled' : 'failed'),
       );
     }
   }
 
   WorkflowRun _updateParallelBudget(WorkflowRun run, List<StepOutcome> results) {
-    final total = results.fold(0, (sum, r) => sum + r.tokenCount);
+    // Interrupted members' partial attempts stay uncharged: the pause path
+    // re-runs them on resume, so charging here would double-count – consistent
+    // with the plain-step, loop, and map interruption seams.
+    final total = results.fold(0, (sum, r) => sum + (r.outcome == 'cancelled' ? 0 : r.tokenCount));
     return run.copyWith(totalTokens: run.totalTokens + total, updatedAt: DateTime.now());
   }
 
@@ -79,23 +84,29 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
 
   String? _fallbackOutcomeFromTaskStatus(TaskStatus? status) => switch (status) {
     TaskStatus.accepted => 'succeeded',
-    TaskStatus.failed || TaskStatus.cancelled || TaskStatus.rejected => 'failed',
+    TaskStatus.failed || TaskStatus.rejected => 'failed',
+    // Run-teardown interruption is a first-class outcome, never a failure:
+    // every controller maps it to its interrupted/pause seam so the step
+    // stays resumable. Agents cannot claim it – the <step-outcome> whitelist
+    // (workflow_output_contract.dart) rejects 'cancelled', so this engine-side
+    // mapping is its only producer.
+    TaskStatus.cancelled => 'cancelled',
     _ => null,
   };
 
   Future<(String?, String?)> _resolveStepOutcome(WorkflowStep step, Task task, {required String runId}) async {
     final parsed = await _contextExtractor.extractStepOutcome(task);
     final forcedOutcome = _fallbackOutcomeFromTaskStatus(task.status);
-    if (forcedOutcome == 'failed') {
-      if (parsed != null && parsed.outcome != 'failed') {
+    if (forcedOutcome == 'failed' || forcedOutcome == 'cancelled') {
+      if (parsed != null && parsed.outcome != forcedOutcome) {
         WorkflowExecutor._log.warning(
           "Workflow step '${step.id}' reported outcome '${parsed.outcome}' but task ${task.id} "
-          'finished with terminal status ${task.status.name}; overriding to failed',
+          'finished with terminal status ${task.status.name}; overriding to $forcedOutcome',
         );
       }
       final failReason =
           (task.configJson['failReason'] as String?) ?? (task.configJson['errorSummary'] as String?) ?? parsed?.reason;
-      return ('failed', failReason ?? task.status.name);
+      return (forcedOutcome, failReason ?? task.status.name);
     }
     if (parsed != null) {
       return (parsed.outcome, parsed.reason);

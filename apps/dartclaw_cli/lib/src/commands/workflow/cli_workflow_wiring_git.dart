@@ -44,7 +44,7 @@ List<String> _gitArgsWithRemoteOverride(String originalRemoteUrl, String resolve
 
 Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   try {
-    final result = await _workflowGit([
+    final result = await runWorkflowGitCommand([
       'symbolic-ref',
       '--quiet',
       '--short',
@@ -55,84 +55,6 @@ Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
     return stdout.isEmpty ? null : stdout;
   } catch (_) {
     return null; // git not available or repo absent — caller treats null as unknown.
-  }
-}
-
-Future<bool> _localRefExists(String workingDirectory, String ref) async {
-  final safeRef = normalizeGitRefOperand(ref, label: 'workflow ref');
-  final candidates = <String>{safeRef};
-  if (!safeRef.startsWith('origin/') && !safeRef.startsWith('refs/')) {
-    candidates.add('origin/$safeRef');
-  }
-  for (final candidate in candidates) {
-    try {
-      final result = await _workflowGit([
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        candidate,
-      ], workingDirectory: workingDirectory);
-      if (result.exitCode == 0) return true;
-    } catch (_) {} // git not available or rev-parse failed — try next candidate.
-  }
-  return false;
-}
-
-class _WorkflowGitCleanupPlan {
-  final Set<String> worktreePaths;
-  final Set<String> branches;
-
-  const _WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
-}
-
-Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
-  return SafeProcess.git(
-    args,
-    plan: const GitCredentialPlan.none(),
-    workingDirectory: workingDirectory,
-    noSystemConfig: true,
-  );
-}
-
-String _processFailureDetail(ProcessResult result) {
-  final stderr = (result.stderr as String).trim();
-  final stdout = (result.stdout as String).trim();
-  final detail = stderr.isNotEmpty ? stderr : stdout;
-  return detail.isEmpty ? 'exit=${result.exitCode}' : 'exit=${result.exitCode}: $detail';
-}
-
-_WorkflowGitCleanupPlan _buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
-  final runToken = runId.replaceAll('-', '');
-  final worktreePaths = <String>{};
-  final branches = <String>{'dartclaw/workflow/$runToken', 'dartclaw/workflow/$runToken/integration'};
-
-  for (final task in runTasks) {
-    final worktree = task.worktreeJson;
-    if (worktree == null) continue;
-    final path = worktree['path'];
-    final branch = worktree['branch'];
-    if (path is String && path.trim().isNotEmpty) {
-      worktreePaths.add(path.trim());
-    }
-    if (branch is String && branch.trim().isNotEmpty) {
-      branches.add(branch.trim());
-    }
-  }
-
-  return _WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches);
-}
-
-Future<void> _ensureLocalBranch({required String projectDir, required String branch, required String baseRef}) async {
-  final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
-  final safeBaseRef = normalizeGitRefOperand(baseRef, label: 'workflow base ref');
-  final existing = await _workflowGit(['rev-parse', '--verify', safeBranch], workingDirectory: projectDir);
-  if (existing.exitCode == 0) {
-    return;
-  }
-  final create = await _workflowGit(['branch', '--', safeBranch, safeBaseRef], workingDirectory: projectDir);
-  if (create.exitCode != 0) {
-    final stderr = (create.stderr as String).trim();
-    throw StateError('Failed to create workflow branch "$safeBranch" from "$safeBaseRef": $stderr');
   }
 }
 
@@ -239,7 +161,7 @@ Future<void> _cleanupWorkflowGitRun(
 }) async {
   final run = await w.workflowService.get(runId);
   final runTasks = (await w.taskService.list()).where((task) => task.workflowRunId == runId).toList();
-  final cleanupPlan = _buildWorkflowCleanupPlan(runId, runTasks);
+  final cleanupPlan = buildWorkflowCleanupPlan(runId, runTasks);
   final pushedBranches = w.config.workflow.cleanup.deleteRemoteBranchOnFailure && terminalStatus == 'failed'
       ? await _pushedWorkflowBranches(w, runTasks)
       : const <String>{};
@@ -275,7 +197,7 @@ Future<void> _cleanupTrackedWorkflowGit(CliWorkflowWiring w) async {
     if (localTasks.isNotEmpty) {
       await _runWorkflowGitCleanupPlan(
         w,
-        _buildWorkflowCleanupPlan(runId, localTasks),
+        buildWorkflowCleanupPlan(runId, localTasks),
         projectDir: w.runtimeCwd,
         restoreRef: restoreRef,
       );
@@ -286,7 +208,7 @@ Future<void> _cleanupTrackedWorkflowGit(CliWorkflowWiring w) async {
     for (final projectId in projectIds) {
       await _runWorkflowGitCleanupPlan(
         w,
-        _buildWorkflowCleanupPlan(runId, runTasks.where((task) => task.projectId?.trim() == projectId).toList()),
+        buildWorkflowCleanupPlan(runId, runTasks.where((task) => task.projectId?.trim() == projectId).toList()),
         projectDir: await _resolveWorkflowProjectDir(w, projectId),
         restoreRef: restoreRef,
       );
@@ -309,7 +231,7 @@ Future<Set<String>> _pushedWorkflowBranches(CliWorkflowWiring w, List<Task> runT
 
 Future<void> _runWorkflowGitCleanupPlan(
   CliWorkflowWiring w,
-  _WorkflowGitCleanupPlan cleanupPlan, {
+  WorkflowGitCleanupPlan cleanupPlan, {
   String? projectDir,
   Set<String> remoteBranchesToDelete = const {},
   String? restoreRef,
@@ -318,15 +240,27 @@ Future<void> _runWorkflowGitCleanupPlan(
   final gitDir = projectDir ?? w.runtimeCwd;
   if (projectDir != null) {
     for (final branch in remoteBranchesToDelete) {
-      final result = await _workflowGit(['push', 'origin', '--delete', branch], workingDirectory: projectDir);
+      final result = await _runCleanupGit(
+        ['push', 'origin', '--delete', branch],
+        workingDirectory: projectDir,
+        cleanupLog: cleanupLog,
+        failureMessage: 'Remote workflow branch cleanup for "$branch"',
+      );
+      if (result == null) continue;
       final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
       cleanupLog.info('Remote workflow branch cleanup for "$branch" $detail');
     }
   }
   for (final worktreePath in cleanupPlan.worktreePaths) {
-    final result = await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
+    final result = await _runCleanupGit(
+      ['worktree', 'remove', '--force', worktreePath],
+      workingDirectory: gitDir,
+      cleanupLog: cleanupLog,
+      failureMessage: 'Workflow worktree cleanup for "$worktreePath"',
+    );
+    if (result == null) continue;
     if (result.exitCode != 0) {
-      cleanupLog.warning('Workflow worktree cleanup for "$worktreePath" failed: ${_processFailureDetail(result)}');
+      cleanupLog.warning('Workflow worktree cleanup for "$worktreePath" failed: ${workflowGitFailureDetail(result)}');
     }
   }
   final localBranches = cleanupPlan.branches.where((branch) => !branch.startsWith('origin/')).toSet();
@@ -341,9 +275,29 @@ Future<void> _runWorkflowGitCleanupPlan(
     }
   }
   for (final branch in localBranches) {
-    final result = await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+    final result = await _runCleanupGit(
+      ['branch', '--delete', '--force', branch],
+      workingDirectory: gitDir,
+      cleanupLog: cleanupLog,
+      failureMessage: 'Local workflow branch cleanup for "$branch"',
+    );
+    if (result == null) continue;
     if (result.exitCode != 0) {
-      cleanupLog.warning('Local workflow branch cleanup for "$branch" failed: ${_processFailureDetail(result)}');
+      cleanupLog.warning('Local workflow branch cleanup for "$branch" failed: ${workflowGitFailureDetail(result)}');
     }
+  }
+}
+
+Future<ProcessResult?> _runCleanupGit(
+  List<String> args, {
+  required String workingDirectory,
+  required Logger cleanupLog,
+  required String failureMessage,
+}) async {
+  try {
+    return await runWorkflowGitCommand(args, workingDirectory: workingDirectory);
+  } on ProcessException catch (error) {
+    cleanupLog.warning('$failureMessage failed: ${error.message}');
+    return null;
   }
 }

@@ -15,16 +15,6 @@ void applyContextOutputDefaults(WorkflowStep step, Map<String, dynamic> outputs)
       outputs[outputKey] = derivedValue;
     }
   }
-
-  for (final outputKey in step.outputKeys.where(_isSourceOutputKey)) {
-    if (!_shouldFillSource(step, outputKey, outputs)) continue;
-    outputs[outputKey] = _defaultSourceValue(step, outputKey, outputs);
-  }
-}
-
-bool _shouldFillSource(WorkflowStep step, String sourceKey, Map<String, dynamic> outputs) {
-  if (_isBlank(outputs[sourceKey])) return true;
-  return false;
 }
 
 String _defaultSourceValue(WorkflowStep step, String sourceKey, Map<String, dynamic> outputs) => 'synthesized';

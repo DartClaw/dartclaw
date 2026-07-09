@@ -35,10 +35,13 @@ export 'workflow_cli_runner.dart'
         CliTurnRequest,
         WorkflowCliException,
         WorkflowCliProviderConfig,
+        WorkflowCliProcessStarter,
         WorkflowCliRunner,
         WorkflowCliStallException,
         WorkflowCliTimeoutException,
-        WorkflowCliTurnResult;
+        WorkflowCliTurnResult,
+        WorkflowCliUsageBaseline;
+export 'workflow_start_precondition_exception.dart' show WorkflowStartPreconditionException;
 export 'task_review_service.dart'
     show
         TaskReviewService,

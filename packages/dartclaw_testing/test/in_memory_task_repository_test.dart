@@ -22,6 +22,28 @@ void main() {
       expect((await repo.list(type: TaskType.coding)).map((task) => task.id).toList(), ['task-1']);
     });
 
+    test('lists tasks by workflow run ids newest first', () async {
+      final repo = InMemoryTaskRepository();
+      await repo.insert(
+        _task(id: 'run-a-old', workflowRunId: 'run-A', createdAt: DateTime.parse('2026-03-10T10:00:00Z')),
+      );
+      await repo.insert(
+        _task(id: 'run-a-new', workflowRunId: 'run-A', createdAt: DateTime.parse('2026-03-10T11:00:00Z')),
+      );
+      await repo.insert(
+        _task(id: 'run-b-task', workflowRunId: 'run-B', createdAt: DateTime.parse('2026-03-10T12:00:00Z')),
+      );
+      await repo.insert(_task(id: 'no-run', createdAt: DateTime.parse('2026-03-10T13:00:00Z')));
+
+      expect((await repo.listByWorkflowRunIds(['run-A'])).map((task) => task.id), ['run-a-new', 'run-a-old']);
+      expect((await repo.listByWorkflowRunIds(['run-A', 'run-B'])).map((task) => task.id), [
+        'run-b-task',
+        'run-a-new',
+        'run-a-old',
+      ]);
+      expect(await repo.listByWorkflowRunIds([]), isEmpty);
+    });
+
     test('supports transition-safe updates and spoofed next reads', () async {
       final repo = InMemoryTaskRepository();
       await repo.insert(_task(status: TaskStatus.queued));
@@ -86,6 +108,7 @@ Task _task({
   String description = 'Describe the work',
   TaskType type = TaskType.coding,
   TaskStatus status = TaskStatus.draft,
+  String? workflowRunId,
   DateTime? createdAt,
   DateTime? startedAt,
 }) {
@@ -95,6 +118,7 @@ Task _task({
     description: description,
     type: type,
     status: status,
+    workflowRunId: workflowRunId,
     createdAt: createdAt ?? DateTime.parse('2026-03-10T10:00:00Z'),
     startedAt: startedAt,
   );

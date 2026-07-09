@@ -25,15 +25,15 @@ extension WorkflowExecutorRunLifecycle on WorkflowExecutor {
 
   // ── Run persistence + initialization ────────────────────────────────────────
 
-  Future<void> _persistContext(String runId, WorkflowContext context) async {
-    final file = File(workflowRunContextJson(dataDir: _dataDir, runId: runId));
-    await file.parent.create(recursive: true);
-    await atomicWriteJson(file, context.toJson());
-  }
+  Future<void> _persistContext(String runId, WorkflowContext context) =>
+      persistWorkflowContext(dataDir: _dataDir, runId: runId, context: context);
 
   Future<String> _initializeRuntimeArtifactsDir(String runId) async {
     final dir = Directory(workflowRuntimeArtifactsDir(dataDir: _dataDir, runId: runId));
     await dir.create(recursive: true);
+    // The engine owns and pre-creates only `reviews/` here (and `merge-resolve/`
+    // via workflowMergeResolveAttemptsDir). Any other consumer must create its
+    // own subdir; an absent custom subdir surfaces via MissingArtifactFailure.
     await Directory(p.join(dir.path, 'reviews')).create(recursive: true);
     return p.normalize(dir.path);
   }
@@ -47,7 +47,8 @@ extension WorkflowExecutorRunLifecycle on WorkflowExecutor {
         repository: _repository,
         persistContext: _persistContext,
         workflowProjectId: _workflowProjectId,
-        requiresPerMapItemGitIsolation: _requiresPerMapItemBootstrap,
+        requiresPerMapItemGitIsolation: (definition, context) =>
+            step_config_policy.requiresPerMapItemGitIsolation(definition, context, templateEngine: _templateEngine),
       );
 
   String? _workflowProjectId(WorkflowRun run, WorkflowContext context) {

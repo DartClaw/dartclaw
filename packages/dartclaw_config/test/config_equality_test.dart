@@ -286,5 +286,32 @@ void main() {
         expect(a, isNot(equals(b)));
       });
     });
+
+    group('WorkflowRuntimeArtifactsRetentionConfig', () {
+      test('equal instances match', () {
+        const a = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7);
+        const b = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7);
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different pruneAfterDays are not equal', () {
+        const a = WorkflowRuntimeArtifactsRetentionConfig(pruneAfterDays: 7);
+        const b = WorkflowRuntimeArtifactsRetentionConfig(pruneAfterDays: 30);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('different mode are not equal', () {
+        const a = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.warn);
+        const b = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('default is disabled', () {
+        const config = WorkflowRuntimeArtifactsRetentionConfig.defaults();
+        expect(config.pruneAfterDays, 0);
+        expect(config.mode, MaintenanceMode.warn);
+      });
+    });
   });
 }

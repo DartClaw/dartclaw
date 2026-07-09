@@ -349,7 +349,7 @@ The default system model remains a long-lived streaming harness per active runne
 - Workflow-authored step types are preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`), while runtime dispatch uses the coding-task path and `readOnly` to distinguish mutating and non-mutating workflow steps.
 
 Key workflow-engine extensions:
-- **Output format system**: `outputs:` map per step, `format: text/json/lines`, `schema: preset_name` or inline JSON Schema. Multi-strategy JSON extraction (raw → code blocks → pattern scan). 5 built-in schema presets: `verdict`, `remediation_result`, `story_plan`, `file_list`, `checklist`.
+- **Output format system**: `outputs:` map per step, `format: text/json/lines`, `schema: preset_name` or inline JSON Schema. Multi-strategy JSON extraction (raw → code blocks → pattern scan). Built-in schema presets cover review verdicts, remediation results, story specs, counts, review report paths, and workflow artifact paths.
 - **Step config defaults**: `stepDefaults:` list with glob `match` patterns. First match wins. Covers provider, model, maxTokens, maxCostUsd, maxRetries, allowedTools.
 - **Skill-aware steps**: Optional `skill:` field on steps. When present, step delegates to an Agent Skills-compatible skill. Authored refs are checked at workflow-run preflight through `SkillIntrospector`, using the effective provider's visible skill list rather than a local metadata registry.
 - **Map/fan-out**: `map_over:` references a JSON array in context; the step runs once per element. `max_parallel:` (int, `"unlimited"`, or template), optional `max_items:` (omitted means uncapped). Template engine resolves `{{map.item}}`, `{{map.item.field}}`, `{{map.index}}`, `{{map.length}}`, `{{context.key[map.index]}}`.

@@ -71,8 +71,13 @@ final class FakeGitGateway implements WorkflowGitPort {
     events.add('rev-parse $ref');
     final worktree = _worktree(worktreePath);
     if (ref == 'HEAD') return worktree.head;
-    if (ref == '--abbrev-ref HEAD') return worktree.branch ?? 'HEAD';
     return _resolveRef(ref);
+  }
+
+  @override
+  Future<String> currentBranch(String worktreePath) async {
+    events.add('current-branch');
+    return _worktree(worktreePath).branch ?? 'HEAD';
   }
 
   @override

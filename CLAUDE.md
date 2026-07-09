@@ -7,6 +7,18 @@
 Read more in `dev/state/PRODUCT.md` for vision, development stage, and core philosophy.
 
 
+### Core Philosophy (Binding)
+
+DartClaw is **pragmatic, lightweight, adaptable, and approachable**. This is a product requirement, not a style preference – every change is judged against it, and violations are defects, not taste. The failure modes to guard against: over-engineering, speculative generality, bloat, misguided workarounds, scope creep.
+
+- **Smallest change that solves the real problem.** No speculative features, abstractions, config knobs, layers, or extension points for imagined futures.
+- **Reuse before you build.** Extend an existing seam, type, or package before adding a new one – prove the existing ones can't carry it first.
+- **Root causes over workarounds.** When something fights you, diagnose it or surface it – never paper over it with wrappers, fallbacks, retries, or special cases.
+- **Scope is a contract.** Every changed line traces to the request or active spec; adjacent "improvements" get surfaced, not done.
+- **Approachable over clever.** Plain, readable code beats elegant indirection – the codebase must stay small, auditable, and easy to pick up.
+- **When in doubt, leave it out.** Missing is cheap to add later; bloat is expensive to remove. Cutting scope is a legitimate resolution.
+
+
 ### Development Stage
 
 Early experimental (soft-published). Breaking changes acceptable – correctness and clean design over backward compat. See `dev/state/PRODUCT.md`.
@@ -64,13 +76,14 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary – use these terms in code, docs, naming |
 | Architecture reference | `dev/architecture/` (`system-`, `security-`, `configuration-`, `control-protocol`, `task-execution-`, `workflow-`, `session-state-`, `data-model`, `channel-messaging-`, `cli-api-`, `observability-operations-architecture.md`) | Canonical deep-dive on how each subsystem actually works. Read the relevant doc before changing or reasoning about a subsystem — e.g. `control-protocol.md` for agent-harness spawn/CLI flags/provider protocols, `security-architecture.md` for container/setting isolation + guards, `configuration-architecture.md` for the config schema. Don't reverse-engineer subsystem behavior from source when a doc exists |
-| ADRs | `dev/adrs/` | Canonical architecture decision records plus public-safe research appendices |
+| Decisions | `dev/state/DECISIONS.md` | Index of record for ADRs (ID, title, status, scope) plus load-bearing non-ADR decisions ("Still Current") and supersession lineage. The write path for `andthen:ops update-decisions` and `andthen:preflight` project-decision notes |
+| ADRs | `dev/adrs/` (index in `dev/state/DECISIONS.md`) | Full text of the canonical architecture decision records plus public-safe research appendices (`dev/adrs/research/`); see `DECISIONS.md` for the status/scope inventory |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When exported implementation bundle files appear or disappear |
 | Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | Single source of truth for visual design. YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Read before any UI/CSS/template work. |
-| Implementation bundle specs | `dev/bundle/docs/specs/` | Transient PRD/plan/FIS copies for public workflow runs; canonical in private |
+| Specs & Plans | `dev/bundle/docs/specs/` | PRDs, implementation plans, FIS, story breakdowns (per `<version-or-feature>`). Transient copies for public workflow runs; canonical in private |
 | Implementation bundle docs | `dev/bundle/docs/` | Transient support docs copied with private `docs/` layout preserved; ADRs are canonical in `dev/adrs/`, not bundled |
-| User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | End-user reference and guides. Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface — e.g. `docs/guide/configuration.md` documents `providers.*` options. **Keep them current** in the same change when behavior/config they document changes (same currency discipline as package `AGENTS.md`) |
+| User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `workflows-reference`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | End-user reference and guides. Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface — e.g. `docs/guide/configuration.md` documents `providers.*` options and `docs/guide/workflows-reference.md` documents workflow YAML fields. **Keep them current** in the same change when behavior/config they document changes (same currency discipline as package `AGENTS.md`) |
 | Changelog | `CHANGELOG.md` | Shipped history per release |
 | Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart |

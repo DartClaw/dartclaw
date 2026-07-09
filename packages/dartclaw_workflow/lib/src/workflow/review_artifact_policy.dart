@@ -5,9 +5,10 @@ import 'workflow_definition.dart' show OutputFormat, WorkflowStep;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'filesystem_output_resolver.dart' show runtimeArtifactsRelativeClaim;
+import 'missing_artifact_failure.dart';
 import 'output_resolver.dart';
 import 'review_finding_derivations.dart' show firstIntegerForKeys;
+import 'schema_presets.dart' show isReviewReportPathPreset;
 import 'workflow_run_paths.dart';
 
 final _log = Logger('ContextExtractor');
@@ -15,16 +16,22 @@ final _log = Logger('ContextExtractor');
 /// Returns true if the output key represents a review artifact path output.
 ///
 /// A key qualifies when its [OutputConfig] declares `format: path` AND the
-/// step either declares review-count keys, the payload already contains
-/// review counts, or the resolver's pattern contains "review" or "architecture".
+/// output declares the `review_report_path` preset, the step declares
+/// review-count keys, the payload already contains review counts, or the
+/// resolver's pattern contains "review" or "architecture". Preset declaration
+/// is the name-agnostic signal — the `review_report_path` preset itself resolves
+/// the uniform `**/*` glob, so review-artifact recognition cannot rely on a
+/// name-keyed pattern.
 bool isReviewArtifactPathOutput(
   String outputKey,
   WorkflowStep step,
   FileSystemOutput resolver,
   Map<String, dynamic>? workflowContextPayload,
 ) {
-  if (step.outputs?[outputKey]?.format != OutputFormat.path) return false;
-  return declaresReviewCounts(step) ||
+  final config = step.outputs?[outputKey];
+  if (config?.format != OutputFormat.path) return false;
+  return isReviewReportPathPreset(config?.presetName) ||
+      declaresReviewCounts(step) ||
       payloadHasReviewCounts(step, workflowContextPayload) ||
       hasReviewArtifactPattern(resolver);
 }
@@ -80,132 +87,109 @@ bool allowsMissingCleanReviewArtifact(
   return fc == 0 && (gc == null || gc == 0);
 }
 
-/// Locates a review report the agent wrote to the runtime-artifacts `reviews/`
-/// output dir but failed to claim via an inline `<workflow-context>` payload.
+/// Captures a review artifact deterministically from the host-owned step
+/// artifacts dir, ignoring model-claimed paths.
 ///
-/// Review reports are written under the step's `--output-dir`
-/// (`<runtimeArtifactsDir>/reviews`), never into the worktree diff, so this is
-/// the correct fallback when the inline path claim is missing. Falling back to
-/// worktree `changedMatches` is a category error: the `review_report_path`
-/// preset uses the default `**/*` pattern, so every dirty worktree file matches.
+/// The host exports `DARTCLAW_STEP_ARTIFACTS_DIR` on every workflow task and
+/// the review skill writes its report there, so the directory — not the
+/// model's transcription of a path — is the source of truth. The newest
+/// top-level `.md` file wins (warning when multiple are present; loop
+/// occurrences share the step dir). The returned path is always absolute.
 ///
-/// Returns the absolute path of the most-recently-modified matching report
-/// (logging a warning when more than one is present, since the missing claim
-/// makes attribution ambiguous), or null when none is found.
-String? locateUnclaimedReviewArtifact({
+/// When the dir holds no report:
+/// - zero reported findings → materializes the diagnostic stub in the step dir
+///   (downstream steps are guaranteed a durable `review_report_path`)
+/// - otherwise → throws [MissingArtifactFailure] (honest failure).
+Object resolveReviewArtifactFromStepDir({
   required String outputKey,
   required WorkflowStep step,
   required Task task,
   required FileSystemOutput resolver,
+  required Map<String, dynamic>? workflowContextPayload,
   required String dataDir,
+  required int? mapIterationIndex,
 }) {
   final runId = task.workflowRunId?.trim();
-  if (runId == null || runId.isEmpty) return null;
+  final stepArtifactsDir = runId == null || runId.isEmpty
+      ? null
+      : workflowStepArtifactsDir(dataDir: dataDir, runId: runId, stepId: step.id, mapIterationIndex: mapIterationIndex);
+  final located = stepArtifactsDir == null
+      ? null
+      : _newestMarkdownArtifact(stepArtifactsDir, outputKey: outputKey, taskId: task.id);
+  if (located != null) return resolver.listMode ? <String>[located] : located;
 
-  final runtimeArtifactsDir = workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId);
-  final reviewsDir = Directory(p.join(runtimeArtifactsDir, 'reviews'));
-  if (!reviewsDir.existsSync()) return null;
-
-  final candidates = <({String path, DateTime modified})>[];
-  for (final entity in reviewsDir.listSync()) {
-    if (entity is! File) continue;
-    final relative = p.normalize(p.relative(entity.path, from: runtimeArtifactsDir));
-    if (!resolver.matches(relative)) continue;
-    if (runtimeArtifactsRelativeClaim(entity.path, runtimeArtifactsDir) == null) continue;
-    candidates.add((path: entity.path, modified: entity.statSync().modified));
+  if (allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
+    final stub = stepArtifactsDir == null
+        ? null
+        : materializeUnclaimedCleanReviewArtifact(
+            outputKey: outputKey,
+            step: step,
+            task: task,
+            workflowContextPayload: workflowContextPayload,
+            stepArtifactsDir: stepArtifactsDir,
+          );
+    if (stub != null) return resolver.listMode ? <String>[stub] : stub;
+    _log.warning(
+      'No review artifact found in the step artifacts dir for clean review "$outputKey" on task ${task.id}; '
+      'returning empty instead of matching unrelated files.',
+    );
+    return resolver.listMode ? const <String>[] : '';
   }
+  throw MissingArtifactFailure(
+    claimedPaths: const [],
+    missingPaths: [?stepArtifactsDir],
+    worktreePath: (task.worktreeJson?['path'] as String?)?.trim() ?? '',
+    fieldName: outputKey,
+    reason: 'no review artifact found in the step artifacts dir',
+  );
+}
+
+/// Returns the absolute path of the most-recently-modified top-level `.md`
+/// file in [stepArtifactsDir], or null when none exists. Non-`.md` files an
+/// agent drops in its dir are ignored.
+String? _newestMarkdownArtifact(String stepArtifactsDir, {required String outputKey, required String taskId}) {
+  final dir = Directory(stepArtifactsDir);
+  if (!dir.existsSync()) return null;
+  final candidates = <({String path, DateTime modified})>[
+    for (final entity in dir.listSync())
+      if (entity is File && entity.path.toLowerCase().endsWith('.md'))
+        (path: p.normalize(entity.path), modified: entity.statSync().modified),
+  ];
   if (candidates.isEmpty) return null;
   candidates.sort((a, b) => b.modified.compareTo(a.modified));
   if (candidates.length > 1) {
     _log.warning(
-      'Multiple review artifacts in ${reviewsDir.path} for "$outputKey" on task ${task.id}; '
-      'selecting most recent (${p.basename(candidates.first.path)}) because the review step '
-      'omitted its inline <workflow-context> report-path claim.',
+      'Multiple review artifacts in $stepArtifactsDir for "$outputKey" on task $taskId; '
+      'selecting most recent (${p.basename(candidates.first.path)}).',
     );
   }
   return candidates.first.path;
 }
 
-/// Writes a diagnostic stub file for a missing clean review artifact.
-///
-/// Returns the materialized path on success, null otherwise. The stub is only
-/// written when the claim falls within the workflow runtime-artifacts directory.
-String? materializeMissingCleanReviewArtifact({
-  required String outputKey,
-  required WorkflowStep step,
-  required Task task,
-  required FileSystemOutput resolver,
-  required List<String> missingClaims,
-  required Map<String, dynamic>? workflowContextPayload,
-  required String dataDir,
-}) {
-  final runId = task.workflowRunId?.trim();
-  if (runId == null || runId.isEmpty) return null;
-
-  final runtimeArtifactsDir = workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId);
-  for (final claim in missingClaims.map(p.normalize)) {
-    final relative = runtimeArtifactsRelativeClaim(claim, runtimeArtifactsDir);
-    if (relative == null) continue;
-    if (!resolver.matches(relative)) continue;
-
-    return _writeMissingCleanReviewArtifact(
-      claim,
-      outputKey: outputKey,
-      step: step,
-      task: task,
-      workflowContextPayload: workflowContextPayload,
-      reason: 'after the agent claimed a missing zero-finding report',
-    );
-  }
-  return null;
-}
-
-/// Writes a diagnostic artifact when a clean review omits its report path.
+/// Writes a diagnostic artifact into the step artifacts dir when a clean
+/// review leaves no report on disk.
 String? materializeUnclaimedCleanReviewArtifact({
   required String outputKey,
   required WorkflowStep step,
   required Task task,
-  required FileSystemOutput resolver,
   required Map<String, dynamic>? workflowContextPayload,
-  required String dataDir,
+  required String stepArtifactsDir,
 }) {
-  final runId = task.workflowRunId?.trim();
-  if (runId == null || runId.isEmpty) return null;
-
-  final runtimeArtifactsDir = workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId);
-  final reviewsDir = p.join(runtimeArtifactsDir, 'reviews');
   try {
-    Directory(reviewsDir).createSync(recursive: true);
+    Directory(stepArtifactsDir).createSync(recursive: true);
   } on FileSystemException catch (error, st) {
     _log.warning('Failed to create clean review artifact directory for "$outputKey" on task ${task.id}', error, st);
     return null;
   }
-
-  for (final relative in _unclaimedCleanReviewArtifactCandidates(outputKey, step, task)) {
-    if (!resolver.matches(relative)) continue;
-    final claim = p.join(runtimeArtifactsDir, relative);
-    if (runtimeArtifactsRelativeClaim(claim, runtimeArtifactsDir) == null) continue;
-    return _writeMissingCleanReviewArtifact(
-      claim,
-      outputKey: outputKey,
-      step: step,
-      task: task,
-      workflowContextPayload: workflowContextPayload,
-      reason: 'after the agent reported zero findings without a report path',
-    );
-  }
-  return null;
-}
-
-List<String> _unclaimedCleanReviewArtifactCandidates(String outputKey, WorkflowStep step, Task task) {
-  final output = _pathSlug(outputKey);
-  final stepId = _pathSlug(step.id);
-  final taskId = _pathSlug(task.id);
-  return [
-    p.join('reviews', '$output-$stepId-$taskId.md'),
-    p.join('reviews', 'clean-review-$stepId-$taskId.md'),
-    p.join('reviews', 'clean-architecture-review-$stepId-$taskId.md'),
-  ];
+  final claim = p.join(stepArtifactsDir, 'clean-review-${_pathSlug(step.id)}-${_pathSlug(task.id)}.md');
+  return _writeMissingCleanReviewArtifact(
+    claim,
+    outputKey: outputKey,
+    step: step,
+    task: task,
+    workflowContextPayload: workflowContextPayload,
+    reason: 'after the agent reported zero findings without leaving a report',
+  );
 }
 
 String _pathSlug(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '-');
@@ -219,15 +203,11 @@ String? _writeMissingCleanReviewArtifact(
   required String reason,
 }) {
   try {
-    // TOCTOU note: the containment check in runtimeArtifactsRelativeClaim resolves
-    // symlinks at validation time, but the createSync/writeAsStringSync below run
-    // separately. A racing process with write access to runtimeArtifactsDir could
-    // swap a path component for a symlink in between, redirecting the write outside
-    // the run dir. The threat model is bounded: any agent that can win this race
-    // already has write access to the run dir (a confused-deputy scenario rather
-    // than privilege escalation), and the materialized body is a diagnostic stub –
-    // no secrets are leaked. Tightening to O_CREAT|O_EXCL or temp-then-rename is
-    // tracked as a hardening item if the threat model widens.
+    // The stub path is host-computed (never model-claimed), so no containment
+    // validation applies. A racing process with write access to the run dir
+    // could still symlink-swap a path component between create and write, but
+    // that actor already holds write access there (confused-deputy, not
+    // privilege escalation) and the body is a diagnostic stub — no secrets.
     final file = File(claim)..createSync(recursive: true);
     file.writeAsStringSync(_missingCleanReviewArtifactBody(outputKey, step, task, workflowContextPayload));
     _log.warning('Materialized diagnostic clean review artifact for "$outputKey" on task ${task.id} $reason: $claim');

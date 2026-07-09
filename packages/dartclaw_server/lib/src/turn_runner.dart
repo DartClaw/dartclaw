@@ -62,6 +62,8 @@ class TurnRunner implements core.TurnRunner {
   final Duration _stallTimeout;
   final TurnProgressAction _stallAction;
   final TurnMonitorConfig _turnMonitor;
+  final SessionLockTimerFactory _turnMonitorTimerFactory;
+  final SessionLockNow _turnMonitorNow;
   final Duration? _globalTimeout;
   final Duration _outcomeTtl;
 
@@ -120,6 +122,8 @@ class TurnRunner implements core.TurnRunner {
     Duration stallTimeout = Duration.zero,
     TurnProgressAction stallAction = TurnProgressAction.warn,
     TurnMonitorConfig turnMonitor = const TurnMonitorConfig.defaults(),
+    SessionLockTimerFactory? turnMonitorTimerFactory,
+    SessionLockNow? turnMonitorNow,
     Duration? globalTimeout,
     Duration outcomeTtl = const Duration(seconds: 30),
     Future<void> Function(String sessionId, BudgetCheckResult result)? budgetWarningNotifier,
@@ -132,7 +136,7 @@ class TurnRunner implements core.TurnRunner {
        _sessions = sessions,
        _turnState = turnState,
        _kv = kv,
-       _lockManager = lockManager ?? SessionLockManager(),
+       _lockManager = lockManager ?? SessionLockManager(timerFactory: turnMonitorTimerFactory, now: turnMonitorNow),
        _resetService = resetService,
        _contextMonitor = contextMonitor ?? ContextMonitor(),
        _explorationSummarizer = explorationSummarizer ?? ExplorationSummarizer(),
@@ -165,6 +169,8 @@ class TurnRunner implements core.TurnRunner {
        _stallTimeout = stallTimeout,
        _stallAction = stallAction,
        _turnMonitor = turnMonitor,
+       _turnMonitorTimerFactory = turnMonitorTimerFactory ?? Timer.new,
+       _turnMonitorNow = turnMonitorNow ?? DateTime.now,
        _globalTimeout = globalTimeout,
        _outcomeTtl = outcomeTtl;
 
@@ -480,6 +486,7 @@ class TurnRunner implements core.TurnRunner {
             stallTimeout: _stallTimeout,
             onStall: (stallTimeout) =>
                 _handleTurnStall(sessionId: sessionId, turnId: turnId, stallTimeout: stallTimeout),
+            timerFactory: _turnMonitorTimerFactory,
           )
         : null;
 
@@ -589,6 +596,8 @@ class TurnRunner implements core.TurnRunner {
         runtimeWait = _RuntimeWaitTracker(
           waitWarningAfter: _turnMonitor.waitWarningAfter,
           stuckAfter: _turnMonitor.stuckAfter,
+          timerFactory: _turnMonitorTimerFactory,
+          now: _turnMonitorNow,
           initialReason: TurnWaitReason.unknown,
           onWaiting: () => _emitWaitState(sessionId, TurnWaitState.waiting),
           onStuck: () => _emitWaitState(sessionId, TurnWaitState.stuck),

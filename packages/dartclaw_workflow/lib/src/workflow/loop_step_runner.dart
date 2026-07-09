@@ -5,9 +5,10 @@ part of 'workflow_executor.dart';
 /// Top-level loops only use [halted] (`true` ⇒ the run paused/cancelled/failed
 /// and was already transitioned; `false` ⇒ the loop completed and the executor
 /// should advance). Nested (foreach-owned) loops additionally use [converged]
-/// vs [failureMessage] to let the enclosing foreach iteration record a
-/// per-item result without failing the whole run, and [tokensConsumed] to
-/// attribute the loop body's tokens to that iteration.
+/// vs [failureMessage] / [needsReviewReason] / [interrupted] to let the
+/// enclosing foreach iteration record a per-item result without failing the
+/// whole run, and [tokensConsumed] to attribute the loop body's tokens to
+/// that iteration.
 class WorkflowLoopExecutionResult {
   /// The run was paused/cancelled/failed and the caller must stop.
   final bool halted;
@@ -19,6 +20,12 @@ class WorkflowLoopExecutionResult {
   /// a body step failed); the enclosing foreach records the iteration failure.
   final String? failureMessage;
 
+  /// Set when a nested loop exhausts and should pause for review instead of failing.
+  final String? needsReviewReason;
+
+  /// Set when a nested loop body task was cancelled and should resume from its checkpoint.
+  final bool interrupted;
+
   /// Tokens consumed by the loop body, for per-iteration attribution.
   final int tokensConsumed;
 
@@ -26,6 +33,8 @@ class WorkflowLoopExecutionResult {
     this.halted = false,
     this.converged = false,
     this.failureMessage,
+    this.needsReviewReason,
+    this.interrupted = false,
     this.tokensConsumed = 0,
   });
 }
@@ -55,6 +64,9 @@ class _NestedLoopScope {
   /// steps resolve the same worktree scope (per-map-item) as sibling children.
   final int? enclosingMaxParallel;
 
+  /// Records the enclosing foreach iteration's first task id for attribution.
+  final void Function(String taskId)? onFirstTaskCreated;
+
   const _NestedLoopScope({
     required this.foreachStepId,
     required this.iterIndex,
@@ -64,6 +76,7 @@ class _NestedLoopScope {
     this.isCancelled,
     this.mapContext,
     this.enclosingMaxParallel,
+    this.onFirstTaskCreated,
   });
 
   String keyBase(String loopId) => '_loop.$loopId.foreach.$foreachStepId[$iterIndex]';
@@ -124,6 +137,32 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         tokenCount: result.tokensConsumed,
         success: true,
         outcome: 'completed',
+      );
+    }
+    if (result.interrupted) {
+      return StepOutcome(
+        step: loopStep,
+        task: null,
+        outputs: const {},
+        tokenCount: result.tokensConsumed,
+        success: false,
+        outcome: 'cancelled',
+        outcomeReason: 'Nested loop interrupted by cancelled body task; resume re-runs the cancelled step.',
+      );
+    }
+    if (result.needsReviewReason != null) {
+      _clearNestedLoopCheckpoint(scope, loop);
+      await scope.persist();
+      return StepOutcome(
+        step: loopStep,
+        task: null,
+        outputs: const {},
+        tokenCount: result.tokensConsumed,
+        success: false,
+        error: result.needsReviewReason,
+        outcome: 'needsInput',
+        outcomeReason: result.needsReviewReason,
+        requiresDependencyHold: true,
       );
     }
     // Non-converged: drop the per-iteration resume snapshot so no nested-loop
@@ -194,6 +233,25 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       return WorkflowLoopExecutionResult(failureMessage: message, tokensConsumed: loopTokens);
     }
 
+    Future<String?> runLoopFinalizer() async {
+      if (loop.finally_ == null) return null;
+      final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
+        run,
+        definition,
+        loop,
+        context,
+        activeWorkspaceRoot: activeWorkspaceRoot,
+        onRunUpdated: onRunUpdated,
+        onFirstTaskCreated: nested?.onFirstTaskCreated,
+      );
+      run = updatedRun;
+      return finalizerMsg;
+    }
+
+    Future<WorkflowLoopExecutionResult> Function()? pendingLoopExit;
+    var finalizeBeforeConverged = false;
+
+    iterationLoop:
     for (var iteration = startFromIteration; iteration <= loop.maxIterations; iteration++) {
       if (isCancelled?.call() ?? false) {
         WorkflowExecutor._log.info("Workflow '${run.id}' cancelled during loop '${loop.id}'");
@@ -235,6 +293,21 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       if (entryGate != null && entryGate.isNotEmpty && !_gateEvaluator.evaluate(entryGate, context)) {
         gatePassed = true;
         WorkflowExecutor._log.info("Loop '${loop.id}' skipped: entry gate failed before iteration $iteration");
+        // A top-level loop that never enters leaves its body steps with no task
+        // and no outcome marker — indistinguishable from "not started" to the
+        // digest/UI observers that read `step.<id>.outcome`. Mark them skipped
+        // (mirroring step-level entryGate skips) so the shared status mapper
+        // renders them as skipped with the gate as the reason. Guarded to the
+        // genuine never-entered case: top-level only (a nested loop must not
+        // leak body keys to run context), the very first iteration, and not a
+        // mid-iteration resume — a later-iteration gate-false is a convergence
+        // exit whose body steps already ran.
+        if (nested == null && iteration == 1 && resumeStepId == null) {
+          for (final bodyStepId in loop.steps) {
+            context['step.$bodyStepId.outcome'] = 'skipped';
+            context['step.$bodyStepId.outcome.reason'] = entryGate;
+          }
+        }
         _eventBus.fire(
           LoopIterationCompletedEvent(
             runId: run.id,
@@ -245,20 +318,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             timestamp: DateTime.now(),
           ),
         );
-        if (loop.finally_ != null) {
-          final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
-            run,
-            definition,
-            loop,
-            context,
-            activeWorkspaceRoot: activeWorkspaceRoot,
-            onRunUpdated: onRunUpdated,
-          );
-          run = updatedRun;
-          if (finalizerMsg != null) {
-            return failLoop(finalizerMsg);
-          }
-        }
+        finalizeBeforeConverged = true;
         break;
       }
 
@@ -373,6 +433,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           loopIteration: iteration,
           mapCtx: nested?.mapContext,
           enclosingMaxParallel: nested?.enclosingMaxParallel,
+          onFirstTaskCreated: nested?.onFirstTaskCreated,
           // A nested loop never promotes mid-body: the enclosing foreach
           // iteration owns promotion after the loop converges.
           promoteAfterSuccess: nested != null
@@ -392,7 +453,58 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           final failMsg = "Loop '${loop.id}' step '${step.name}' failed in iteration $iteration";
           WorkflowExecutor._log.info("Workflow '${run.id}': $failMsg");
 
-          if (step.onError == 'continue') {
+          // Teardown interruption is checked before `onError: continue` (and
+          // every other policy branch): continuing would dispatch the next
+          // task mid-teardown. Keep the pre-step checkpoint/cursor (written
+          // above, before _executeStep): it already points at this step with
+          // the pre-step token total, so resume re-runs the cancelled step
+          // fresh and its partial attempt is not charged – consistent with the
+          // crash-resume path.
+          if (result.outcome == 'cancelled') {
+            WorkflowExecutor._log.info(
+              "Workflow '${run.id}': loop '${loop.id}' interrupted by cancelled step '${step.id}' "
+              'in iteration $iteration',
+            );
+            if (nested != null) {
+              // The foreach cancelled branch drops the per-child tokenCount
+              // key, so the checkpoint stays the single budget source
+              // (never-overlap invariant).
+              return WorkflowLoopExecutionResult(interrupted: true, tokensConsumed: loopTokens);
+            }
+            // Persist the outcome and fire the step event before pausing so
+            // observers (digest, live console) classify the step interrupted,
+            // matching the plain-step and foreach scopes.
+            _mergeStepResultIntoContext(context, result, fallbackStatus: 'cancelled');
+            run = run.copyWith(
+              contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
+              updatedAt: DateTime.now(),
+            );
+            await _persistContext(run.id, context);
+            await _repository.update(run);
+            onRunUpdated(run);
+            _eventBus.fire(
+              WorkflowStepCompletedEvent(
+                runId: run.id,
+                stepId: step.id,
+                stepName: step.name,
+                stepIndex: stepIndex,
+                totalSteps: definition.steps.length,
+                taskId: result.task?.id ?? '',
+                success: false,
+                outcome: result.outcome,
+                reason: result.outcomeReason,
+                tokenCount: result.tokenCount,
+                timestamp: DateTime.now(),
+              ),
+            );
+            await _pauseRun(
+              run,
+              "Step '${step.id}' was interrupted by task cancellation; resume re-runs it from its checkpoint.",
+            );
+            return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+          }
+
+          if (step.onError == OnErrorPolicy.continueWorkflow) {
             _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
             final nextLoopStepId = loopStepIndex + 1 < loop.steps.length ? loop.steps[loopStepIndex + 1] : null;
             if (nested == null) {
@@ -442,31 +554,21 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             continue;
           }
 
-          if (loop.finally_ != null) {
-            final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
-              run,
-              definition,
-              loop,
-              context,
-              activeWorkspaceRoot: activeWorkspaceRoot,
-              onRunUpdated: onRunUpdated,
-            );
-            run = updatedRun;
-            if (finalizerMsg != null) {
-              return failLoop(finalizerMsg);
-            }
-          }
           if (result.awaitingApproval) {
-            run = await _transitionStepAwaitingApproval(
-              run,
-              step,
-              context,
-              stepIndex: stepIndex,
-              reason: result.outcomeReason ?? failMsg,
-            );
-            return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+            pendingLoopExit = () async {
+              run = await _transitionStepAwaitingApproval(
+                run,
+                step,
+                context,
+                stepIndex: stepIndex,
+                reason: result.outcomeReason ?? failMsg,
+              );
+              return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+            };
+          } else {
+            pendingLoopExit = () => failLoop(failMsg);
           }
-          return failLoop(failMsg);
+          break iterationLoop;
         }
 
         _mergeStepResultIntoContext(context, result, fallbackStatus: result.task?.status.name ?? 'completed');
@@ -532,20 +634,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             timestamp: DateTime.now(),
           ),
         );
-        if (loop.finally_ != null) {
-          final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
-            run,
-            definition,
-            loop,
-            context,
-            activeWorkspaceRoot: activeWorkspaceRoot,
-            onRunUpdated: onRunUpdated,
-          );
-          run = updatedRun;
-          if (finalizerMsg != null) {
-            return failLoop(finalizerMsg);
-          }
-        }
+        finalizeBeforeConverged = true;
         break;
       }
 
@@ -580,40 +669,60 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       }
     }
 
-    if (!gatePassed) {
+    if (!gatePassed && pendingLoopExit == null) {
+      // A top-level loop with `onMaxIterations: continue` advances to the next
+      // step (e.g. a deterministic verify gate) rather than failing the run, so
+      // it also persists the loop body's outputs for that step; `fail` only
+      // clears the cursor before failLoop. Nested loops can opt into
+      // `escalate`, which records a recoverable blocked item for review.
+      final fallThroughOnExhaustion = loop.onMaxIterations == WorkflowLoop.onMaxIterationsContinue && nested == null;
+      final escalateOnExhaustion = loop.onMaxIterations == WorkflowLoop.onMaxIterationsEscalate && nested != null;
       if (nested == null) {
         run = run.copyWith(
           executionCursor: null,
           contextJson: {
             for (final e in run.contextJson.entries)
               if (!e.key.startsWith('_loop.current')) e.key: e.value,
+            if (fallThroughOnExhaustion) ...context.toJson(),
           },
           updatedAt: DateTime.now(),
         );
+        if (fallThroughOnExhaustion) await _persistContext(run.id, context);
         await _repository.update(run);
         onRunUpdated(run);
       }
 
-      if (loop.finally_ != null) {
-        final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
-          run,
-          definition,
-          loop,
-          context,
-          activeWorkspaceRoot: activeWorkspaceRoot,
-          onRunUpdated: onRunUpdated,
-        );
-        run = updatedRun;
-        if (finalizerMsg != null) {
-          return failLoop(finalizerMsg);
+      pendingLoopExit = () async {
+        if (fallThroughOnExhaustion) {
+          WorkflowExecutor._log.info(
+            "Workflow '${run.id}': loop '${loop.id}' reached max iterations (${loop.maxIterations}); "
+            'onMaxIterations=continue – advancing to the next step.',
+          );
+          return WorkflowLoopExecutionResult(converged: true, tokensConsumed: loopTokens);
         }
-      }
 
-      final msg =
-          "Loop '${loop.id}' reached max iterations (${loop.maxIterations}). "
-          'Exit condition not met: ${loop.exitGate}';
-      WorkflowExecutor._log.info("Workflow '${run.id}': $msg");
-      return failLoop(msg);
+        final baseMsg =
+            "Loop '${loop.id}' reached max iterations (${loop.maxIterations}). "
+            'Exit condition not met: ${loop.exitGate}';
+        if (escalateOnExhaustion) {
+          final residual = _loopResidualFindingsDetail(context);
+          final msg = residual == null ? baseMsg : '$baseMsg $residual';
+          WorkflowExecutor._log.info(
+            "Workflow '${run.id}': $msg; onMaxIterations=escalate – recording needsInput for review.",
+          );
+          return WorkflowLoopExecutionResult(needsReviewReason: msg, tokensConsumed: loopTokens);
+        }
+        WorkflowExecutor._log.info("Workflow '${run.id}': $baseMsg");
+        return failLoop(baseMsg);
+      };
+    }
+
+    if (pendingLoopExit != null || finalizeBeforeConverged) {
+      final finalizerMsg = await runLoopFinalizer();
+      if (finalizerMsg != null) {
+        return failLoop(finalizerMsg);
+      }
+      if (pendingLoopExit != null) return pendingLoopExit();
     }
 
     if (nested == null) {
@@ -674,6 +783,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     WorkflowContext context, {
     required String? activeWorkspaceRoot,
     required void Function(WorkflowRun) onRunUpdated,
+    void Function(String taskId)? onFirstTaskCreated,
   }) async {
     final finallyStepId = loop.finally_!;
     final finallyStep = definition.steps.firstWhere((s) => s.id == finallyStepId);
@@ -687,12 +797,18 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       context,
       activeWorkspaceRoot: activeWorkspaceRoot,
       stepIndex: stepIndex,
+      onFirstTaskCreated: onFirstTaskCreated,
     );
     if (result == null) {
       return (run, null);
     }
 
     if (!result.success) {
+      // Deliberately includes teardown-cancelled finalizers: a finalizer has
+      // no resume anchor, so a clear loop failure beats a silently skipped
+      // finalizer. On the exhaustion path this also means a failing finalizer
+      // wins over `onMaxIterations: escalate`/`continue` – the caller routes
+      // finalizerMsg to failLoop before the escalate/fall-through branches.
       final msg = "Loop '${loop.id}' finalizer '${finallyStep.name}' failed";
       WorkflowExecutor._log.info("Workflow '${run.id}': $msg");
       return (run, msg);
@@ -718,4 +834,23 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
 
     return (run, null);
   }
+}
+
+/// Builds the residual-findings sentence for an escalated loop's pause reason.
+///
+/// `gating_findings_count` carries the residual measure; `review_report_path` is
+/// a review-report *path* (key-per-concept convention), so it is labeled as a
+/// report pointer, never as findings prose. Both live in the loop's
+/// iteration context for the built-in remediation loops; custom loops
+/// without these keys get the bare exhaustion message.
+String? _loopResidualFindingsDetail(WorkflowContext context) {
+  final rawCount = context['gating_findings_count'];
+  final count = rawCount is int ? rawCount : int.tryParse('$rawCount');
+  final rawPath = context['review_report_path'];
+  final path = rawPath is String && rawPath.trim().isNotEmpty ? _sanitizeAgentReportedText(rawPath) : null;
+  final countText = count != null && count > 0 ? '$count gating finding${count == 1 ? ' remains' : 's remain'}' : null;
+  if (countText == null && path == null) return null;
+  if (countText == null) return 'Residual findings report: $path';
+  if (path == null) return '$countText.';
+  return '$countText; report: $path';
 }

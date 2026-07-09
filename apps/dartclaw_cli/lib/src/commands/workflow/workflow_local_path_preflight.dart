@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show Project;
-import 'package:dartclaw_server/dartclaw_server.dart' show GitCredentialPlan;
+import 'package:dartclaw_server/dartclaw_server.dart' show GitCredentialPlan, WorkflowStartPreconditionException;
 import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess;
 import 'package:logging/logging.dart';
 
@@ -41,7 +41,7 @@ Future<void> ensureWorkflowLocalPathProjectReady({
   );
   if (status.exitCode != 0) {
     final stderr = (status.stderr as String).trim();
-    throw StateError(
+    throw WorkflowStartPreconditionException(
       'Failed to inspect local-path project "$projectId": ${stderr.isEmpty ? "git status failed" : stderr}',
     );
   }
@@ -57,7 +57,7 @@ Future<void> ensureWorkflowLocalPathProjectReady({
         'Local-path project "$projectId" is not safe to mutate: observed branch '
         '"${parsed.observedBranch}", expected $branchExpectation, dirty path count ${parsed.dirtyPathCount}.';
     if (!allowDirty) {
-      throw StateError('$message Re-run with --allow-dirty-localpath to override.');
+      throw WorkflowStartPreconditionException('$message Re-run with --allow-dirty-localpath to override.');
     }
     _log.warning('$message Proceeding because --allow-dirty-localpath was set.');
   }
@@ -74,7 +74,7 @@ Future<void> ensureWorkflowLocalPathProjectReady({
   );
   if (origin.exitCode != 0) {
     final stderr = (origin.stderr as String).trim();
-    throw StateError(
+    throw WorkflowStartPreconditionException(
       'Publish requires an origin remote in local-path project "$projectId" '
       'working tree ($localPath).${stderr.isEmpty ? "" : " $stderr"}',
     );

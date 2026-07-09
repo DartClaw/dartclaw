@@ -1,10 +1,17 @@
 import 'dart:io';
 
-import 'package:dartclaw_workflow/src/workflow/produced_artifact_resolver.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/src/workflow/step_outcome_normalizer.dart';
-import 'package:dartclaw_workflow/src/workflow/workflow_runner_types.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'workflow_executor_test_support.dart' show WorkflowExecutorHarness;
+
+StorySpecOutputValidation _validateOutputs(
+  Map<String, dynamic> envelope, {
+  String planDir = '',
+  String? activeWorkspaceRoot,
+}) => validateStorySpecOutputs(envelope, planDir: planDir, activeWorkspaceRoot: activeWorkspaceRoot);
 
 void main() {
   group('resolveStorySpecPathAgainstPlanDir', () {
@@ -29,13 +36,13 @@ void main() {
       final absolute = p.normalize(p.absolute('tmp/fis/s01.md'));
 
       expect(
-        () => normalizeOutputs({
+        () => _validateOutputs({
           'story_specs': {
             'items': [
               {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': absolute},
             ],
           },
-        }, const StepOutputNormalizationContext()),
+        }),
         returnsNormally,
       );
       expect(
@@ -51,7 +58,7 @@ void main() {
     });
   });
 
-  group('normalizeOutputs', () {
+  group('validateStorySpecOutputs', () {
     late Directory tempDir;
 
     setUp(() {
@@ -63,72 +70,71 @@ void main() {
     });
 
     test('reports missing FIS files without sentinel output keys', () {
-      final handoff = normalizeOutputs({
-        'plan': 'docs/plans/foo/plan.md',
-        'story_specs': {
-          'items': [
-            {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01-a.md'},
-            {
-              'id': 'S02',
-              'title': 'Two',
-              'dependencies': <String>['S01'],
-              'spec_path': 'fis/s02-b.md',
-            },
-          ],
+      final validation = _validateOutputs(
+        {
+          'plan': 'docs/plans/foo/plan.md',
+          'story_specs': {
+            'items': [
+              {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01-a.md'},
+              {
+                'id': 'S02',
+                'title': 'Two',
+                'dependencies': <String>['S01'],
+                'spec_path': 'fis/s02-b.md',
+              },
+            ],
+          },
         },
-      }, StepOutputNormalizationContext(planDir: 'docs/plans/foo', activeWorkspaceRoot: tempDir.path));
+        planDir: 'docs/plans/foo',
+        activeWorkspaceRoot: tempDir.path,
+      );
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      final failure = handoff.validationFailure!;
+      final failure = validation.validationFailure!;
       expect(failure.missingPaths, equals(['docs/plans/foo/fis/s01-a.md', 'docs/plans/foo/fis/s02-b.md']));
-      expect(handoff.outputs, isEmpty);
       final reservedPrefix = ['_dartclaw', 'internal', ''].join('.');
-      expect(handoff.outputs.keys.any((key) => key.startsWith(reservedPrefix)), isFalse);
+      expect(validation.outputs.keys.any((key) => key.startsWith(reservedPrefix)), isFalse);
     });
 
     test('rejects legacy list-shaped story_specs payloads', () {
-      final handoff = normalizeOutputs({
+      final validation = _validateOutputs({
         'story_specs': ['docs/plans/foo/fis/a.md'],
-      }, const StepOutputNormalizationContext());
+      });
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      expect(handoff.validationFailure?.reason, contains('legacy list-shaped `story_specs`'));
-      expect(handoff.validationFailure?.missingPaths, isEmpty);
-      expect(handoff.outputs, isEmpty);
+      expect(validation.validationFailure?.reason, contains('legacy list-shaped `story_specs`'));
+      expect(validation.validationFailure?.missingPaths, isEmpty);
+      expect(validation.outputs.keys.any((key) => key.startsWith('_dartclaw.internal.')), isFalse);
     });
 
     test('rejects story spec paths outside the project root', () {
-      final handoff = normalizeOutputs({
+      final validation = _validateOutputs({
         'story_specs': {
           'items': [
             {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': '../outside.md'},
           ],
         },
-      }, StepOutputNormalizationContext(activeWorkspaceRoot: tempDir.path));
+      }, activeWorkspaceRoot: tempDir.path);
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      expect(handoff.validationFailure?.reason, contains('parent traversal'));
-      expect(handoff.outputs, isEmpty);
+      expect(validation.validationFailure?.reason, contains('parent traversal'));
+      expect(validation.outputs.keys.any((key) => key.startsWith('_dartclaw.internal.')), isFalse);
     });
 
     test('rejects story_specs items missing dependencies', () {
-      final handoff = normalizeOutputs({
+      final validation = _validateOutputs({
         'plan': 'docs/plans/foo/plan.md',
         'story_specs': {
           'items': [
             {'id': 'S01', 'title': 'One', 'spec_path': 'fis/s01-a.md'},
           ],
         },
-      }, const StepOutputNormalizationContext(planDir: 'docs/plans/foo'));
+      }, planDir: 'docs/plans/foo');
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      expect(handoff.validationFailure?.reason, contains('missing `dependencies`'));
-      expect(handoff.validationFailure?.missingPaths, isEmpty);
-      expect(handoff.outputs, isEmpty);
+      expect(validation.validationFailure?.reason, contains('missing `dependencies`'));
+      expect(validation.validationFailure?.missingPaths, isEmpty);
+      expect(validation.outputs.keys.any((key) => key.startsWith('_dartclaw.internal.')), isFalse);
     });
 
     test('rejects story_specs dependencies that are not story ids', () {
-      final handoff = normalizeOutputs({
+      final validation = _validateOutputs({
         'plan': 'docs/plans/foo/plan.md',
         'story_specs': {
           'items': [
@@ -140,46 +146,39 @@ void main() {
             },
           ],
         },
-      }, const StepOutputNormalizationContext(planDir: 'docs/plans/foo'));
+      }, planDir: 'docs/plans/foo');
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      expect(handoff.validationFailure?.reason, contains('Unknown dependency IDs: Blocks A-G complete'));
-      expect(handoff.validationFailure?.missingPaths, isEmpty);
-      expect(handoff.outputs, isEmpty);
+      expect(validation.validationFailure?.reason, contains('Unknown dependency IDs: Blocks A-G complete'));
+      expect(validation.validationFailure?.missingPaths, isEmpty);
+      expect(validation.outputs.keys.any((key) => key.startsWith('_dartclaw.internal.')), isFalse);
     });
 
     test('rejects argument-unsafe story spec paths', () {
-      for (final specPath in [
-        'fis/s01.md --to-pr 123.md',
-        'fis/--flag/s01-story.md',
-        'fis/s01-"bad".md',
-        'fis/story.md',
-      ]) {
-        final handoff = normalizeOutputs({
+      for (final specPath in ['fis/s01.md --to-pr 123.md', 'fis/--flag/s01-story.md', 'fis/s01-"bad".md']) {
+        final validation = _validateOutputs({
           'story_specs': {
             'items': [
               {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': specPath},
             ],
           },
-        }, const StepOutputNormalizationContext());
+        });
 
-        expect(handoff, isA<StepHandoffValidationFailed>(), reason: specPath);
-        expect(handoff.outputs, isEmpty, reason: specPath);
+        expect(validation.validationFailure, isNotNull, reason: specPath);
+        expect(validation.outputs.keys.any((key) => key.startsWith('_dartclaw.internal.')), isFalse, reason: specPath);
       }
     });
 
     test('rejects story spec paths made unsafe by plan directory normalization', () {
-      final handoff = normalizeOutputs({
+      final validation = _validateOutputs({
         'story_specs': {
           'items': [
             {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01-story.md'},
           ],
         },
-      }, const StepOutputNormalizationContext(planDir: 'docs/my plan'));
+      }, planDir: 'docs/my plan');
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      expect(handoff.validationFailure?.reason, contains('whitespace or control characters'));
-      expect(handoff.outputs, isEmpty);
+      expect(validation.validationFailure?.reason, contains('whitespace or control characters'));
+      expect(validation.outputs.keys.any((key) => key.startsWith('_dartclaw.internal.')), isFalse);
     });
 
     test('normalizes nested story_specs items and succeeds when files exist', () {
@@ -188,23 +187,27 @@ void main() {
       final dependencyFisPath = p.join(tempDir.path, 'docs/plans/foo/fis/s00-dependency.md');
       File(dependencyFisPath).createSync(recursive: true);
 
-      final handoff = normalizeOutputs({
-        'plan': 'docs/plans/foo/plan.md',
-        'story_specs': {
-          'items': [
-            {'id': 'S00', 'title': 'Dependency', 'dependencies': <String>[], 'spec_path': 'fis/s00-dependency.md'},
-            {
-              'id': ' S01 ',
-              'title': 'One',
-              'dependencies': <String>[' S00 '],
-              'spec_path': 'fis/s01-a.md',
-            },
-          ],
+      final validation = _validateOutputs(
+        {
+          'plan': 'docs/plans/foo/plan.md',
+          'story_specs': {
+            'items': [
+              {'id': 'S00', 'title': 'Dependency', 'dependencies': <String>[], 'spec_path': 'fis/s00-dependency.md'},
+              {
+                'id': ' S01 ',
+                'title': 'One',
+                'dependencies': <String>[' S00 '],
+                'spec_path': 'fis/s01-a.md',
+              },
+            ],
+          },
         },
-      }, StepOutputNormalizationContext(planDir: 'docs/plans/foo', activeWorkspaceRoot: tempDir.path));
+        planDir: 'docs/plans/foo',
+        activeWorkspaceRoot: tempDir.path,
+      );
 
-      expect(handoff, isA<StepHandoffSuccess>());
-      final storySpecs = handoff.outputs['story_specs'] as Map<String, Object?>;
+      expect(validation.validationFailure, isNull);
+      final storySpecs = validation.outputs['story_specs'] as Map<String, Object?>;
       final items = storySpecs['items'] as List;
       expect(items.last, containsPair('id', 'S01'));
       expect(items.last, containsPair('spec_path', 'docs/plans/foo/fis/s01-a.md'));
@@ -215,27 +218,31 @@ void main() {
       final fisPath = p.join(tempDir.path, 'docs/plans/foo/fis/s01-a.md');
       File(fisPath).createSync(recursive: true);
 
-      final handoff = normalizeOutputs({
-        'plan': 'docs/plans/foo/plan.json',
-        'story_specs': {
-          'items': [
-            {
-              'id': 'S01',
-              'title': 'One',
-              'dependencies': <String>[],
-              'spec_path': 'fis/s01-a.md',
-              'parallel': true,
-              'wave': 'W1',
-              'phase': 'P1',
-              'risk': 'medium',
-              'status': 'spec-ready',
-            },
-          ],
+      final validation = _validateOutputs(
+        {
+          'plan': 'docs/plans/foo/plan.json',
+          'story_specs': {
+            'items': [
+              {
+                'id': 'S01',
+                'title': 'One',
+                'dependencies': <String>[],
+                'spec_path': 'fis/s01-a.md',
+                'parallel': true,
+                'wave': 'W1',
+                'phase': 'P1',
+                'risk': 'medium',
+                'status': 'spec-ready',
+              },
+            ],
+          },
         },
-      }, StepOutputNormalizationContext(planDir: 'docs/plans/foo', activeWorkspaceRoot: tempDir.path));
+        planDir: 'docs/plans/foo',
+        activeWorkspaceRoot: tempDir.path,
+      );
 
-      expect(handoff, isA<StepHandoffSuccess>());
-      final storySpecs = handoff.outputs['story_specs'] as Map<String, Object?>;
+      expect(validation.validationFailure, isNull);
+      final storySpecs = validation.outputs['story_specs'] as Map<String, Object?>;
       final items = storySpecs['items'] as List;
       expect(
         items.single,
@@ -250,10 +257,57 @@ void main() {
     });
 
     test('empty outputs pass through as success', () {
-      final handoff = normalizeOutputs({}, const StepOutputNormalizationContext());
+      final validation = _validateOutputs({});
 
-      expect(handoff, isA<StepHandoffSuccess>());
-      expect(handoff.outputs, isEmpty);
+      expect(validation.validationFailure, isNull);
+      expect(validation.outputs, isEmpty);
+    });
+  });
+
+  group('WorkflowExecutor.execute story_specs normalization', () {
+    final h = WorkflowExecutorHarness();
+
+    setUp(h.setUp);
+    tearDown(h.tearDown);
+
+    test('rejects story_specs items missing dependencies without sentinel outputs', () async {
+      const definition = WorkflowDefinition(
+        name: 'plan-invalid-story-specs',
+        description: 'Invalid story_specs execute test',
+        steps: [
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            taskType: WorkflowTaskType.agent,
+            prompts: ['Plan the work'],
+            outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
+          ),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext();
+
+      final completionSub = h.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((event) => event.newStatus == TaskStatus.queued)
+          .listen((event) async {
+            await Future<void>.delayed(Duration.zero);
+            await h.completeTaskWithOutcome(
+              event.taskId,
+              outcomeContent:
+                  'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","spec_path":"fis/s01-a.md"}]}}</workflow-context>',
+            );
+          });
+      addTearDown(completionSub.cancel);
+
+      await h.executor.execute(run, definition, context);
+      await completionSub.cancel();
+
+      final stored = await h.repository.getById(run.id);
+      expect(stored?.status, WorkflowRunStatus.failed);
+      expect(stored?.errorMessage, contains('missing `dependencies`'));
+      expect(context.data.keys.where((key) => key.startsWith('_dartclaw.internal')), isEmpty);
     });
   });
 }

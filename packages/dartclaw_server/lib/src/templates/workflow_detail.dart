@@ -116,6 +116,10 @@ String workflowDetailPageTemplate({
     return s;
   }).toList();
 
+  // Why-paused banner: reuses fields the run already carries (approval-pause
+  // metadata or the generic pause reason) — no new API surface.
+  final pauseBanner = _pauseBanner(statusName, run, annotatedSteps);
+
   // Compute duration.
   final startedAt = run['startedAt'];
   final durationDisplay = _formatDuration(startedAt, run['completedAt']);
@@ -135,7 +139,10 @@ String workflowDetailPageTemplate({
     'completedAtDisplay': run['completedAt'] != null ? _formatTimeAgo(run['completedAt']) : null,
     'totalTokens': formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
     'durationDisplay': durationDisplay,
-    'hasError': run['errorMessage'] != null,
+    // A pause banner already surfaces the errorMessage (approval hold or pause
+    // reason); suppress the red error block so the same event isn't rendered
+    // twice with contradictory severity.
+    'hasError': run['errorMessage'] != null && pauseBanner == null,
     'errorMessage': run['errorMessage'],
     'progressPercent': progressPercent,
     'completedSteps': completedSteps,
@@ -150,6 +157,10 @@ String workflowDetailPageTemplate({
     'canCancel': canCancel && !canApprove,
     'canApprove': canApprove,
     'canReject': canReject,
+    'hasPauseBanner': pauseBanner != null,
+    'pauseBannerClass': pauseBanner?.cssClass,
+    'pauseBannerLabel': pauseBanner?.label,
+    'pauseBannerText': pauseBanner?.text,
   });
 
   return layoutTemplate(
@@ -190,6 +201,47 @@ String workflowStepDetailFragment({
       'durationDisplay': durationDisplay ?? '--',
     },
   );
+}
+
+/// Why-paused banner content, or null when the run is not paused.
+class _PauseBanner {
+  final String cssClass;
+  final String label;
+  final String text;
+  const _PauseBanner({required this.cssClass, required this.label, required this.text});
+}
+
+/// Derives the why-paused banner from fields the run already carries: approval
+/// (and needsInput) holds surface the pending step name (+ its request/needs-input
+/// message, read from the flat context key `<stepId>.approval.message` the model
+/// writes for both); a generic `paused` run surfaces its pause reason
+/// (`errorMessage`) or a resume hint.
+_PauseBanner? _pauseBanner(String statusName, Map<String, dynamic> run, List<Map<String, dynamic>> steps) {
+  if (statusName == 'awaitingApproval') {
+    final pendingStepId = run['pendingApprovalStepId']?.toString();
+    if (pendingStepId == null || pendingStepId.isEmpty) return null;
+    final pendingStep = steps.firstWhere(
+      (s) => s['id']?.toString() == pendingStepId,
+      orElse: () => const <String, dynamic>{},
+    );
+    final stepLabel = (pendingStep['name']?.toString().isNotEmpty ?? false)
+        ? pendingStep['name'].toString()
+        : pendingStepId;
+    final contextJson = (run['contextJson'] as Map?) ?? const {};
+    final message = contextJson['$pendingStepId.approval.message']?.toString() ?? '';
+    final text = message.isNotEmpty
+        ? 'Step "$stepLabel" needs a decision: $message Use Approve or Reject below.'
+        : 'Step "$stepLabel" needs a decision. Use Approve or Reject below.';
+    return _PauseBanner(cssClass: 'banner-warning', label: 'Awaiting approval', text: text);
+  }
+  if (statusName == 'paused') {
+    final reason = run['errorMessage']?.toString();
+    final text = (reason != null && reason.isNotEmpty)
+        ? '$reason Use Resume below to continue.'
+        : 'This run is paused. Use Resume below to continue.';
+    return _PauseBanner(cssClass: 'banner-info', label: 'Paused', text: text);
+  }
+  return null;
 }
 
 String _formatTimeAgo(Object? value) {

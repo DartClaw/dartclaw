@@ -19,7 +19,7 @@
 ## Boundaries
 - **Never** add `package:sqlite3` to `pubspec.yaml`. Enforced by `dev/tools/arch_check.dart` (check #2). Concrete SQLite repos belong in `dartclaw_storage`; if you need a new persisted entity, define the interface here (e.g. `TaskRepository` in `src/task/`) and the SQLite impl in `dartclaw_storage`.
 - Allowed deps: `dartclaw_models`, `dartclaw_security`, `dartclaw_config`, plus `stream_channel`, `json_rpc_2`, `uuid`, `collection`, `logging`, `meta`, `path`. Do **not** import `dartclaw_storage`, `dartclaw_workflow`, or `dartclaw_server`.
-- LOC ceiling: 12 800 (arch_check check #4). Barrel ceiling: 94 exports. Prefer adding to existing files / sub-barrels over new top-level exports.
+- LOC ceiling: 16 500 (arch_check core-LOC check; warn at 15 800). Barrel ceiling: 110 exports. Prefer adding to existing files / sub-barrels over new top-level exports.
 - Never import another workspace package's `lib/src/` (arch_check #3). The exception clause in the barrel for `parseMemoryEntries`/`memoryTimestampRe` is documented and finite — do not extend it.
 
 ## Conventions

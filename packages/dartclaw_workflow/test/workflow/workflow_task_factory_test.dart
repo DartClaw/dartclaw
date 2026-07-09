@@ -9,11 +9,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         BashStepPolicy,
         ContextExtractor,
         EventBus,
+        FileSystemOutput,
         GateEvaluator,
         KvService,
         MessageService,
         OutputConfig,
         OutputFormat,
+        OutputMode,
         StepExecutionContext,
         StepPromptConfiguration,
         TaskStatusChangedEvent,
@@ -23,7 +25,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRoleDefaults,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowTaskConfig,
+        WorkflowTaskType;
+import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart';
 import 'package:dartclaw_workflow/src/workflow/step_config_resolver.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_task_factory.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
@@ -71,6 +76,7 @@ void main() {
           dataDir: tempDir.path,
           workflowStepExecutionRepository: workflowStepExecutionRepository,
         ),
+        dataDir: tempDir.path,
         taskRepository: taskRepository,
         agentExecutionRepository: agentExecutionRepository,
         workflowStepExecutionRepository: workflowStepExecutionRepository,
@@ -149,6 +155,90 @@ void main() {
       expect(events.single.newStatus.name, equals('queued'));
     });
 
+    test('exports the host-computed step artifacts dir env, surviving the strip list', () async {
+      await createWorkflowTaskTriple(
+        ctx: executionContext,
+        workflowWorkspaceDir: p.join(tempDir.path, 'workflow-workspace'),
+        taskId: 'task-step-artifacts',
+        run: _run(),
+        step: const WorkflowStep(id: 'review', name: 'Review'),
+        stepIndex: 0,
+        title: 'Review',
+        description: '--auto --output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR" target',
+        type: TaskType.coding,
+        provider: 'codex',
+        projectId: 'proj',
+        maxTokens: null,
+        taskConfig: const {},
+      );
+
+      final task = (await taskRepository.getById('task-step-artifacts'))!;
+      // The description is never mutated — it keeps whatever the YAML authored.
+      expect(task.description, '--auto --output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR" target');
+      // The env key is NOT in the strip list, so it persists onto the task.
+      expect(task.configJson.containsKey('_workflowStepArtifactsEnv'), isTrue);
+      expect(WorkflowTaskConfig.readStepArtifactsEnv(task), {
+        'DARTCLAW_STEP_ARTIFACTS_DIR': p.join(
+          tempDir.path,
+          'workflows',
+          'runs',
+          'run-1',
+          'runtime-artifacts',
+          'steps',
+          'review',
+        ),
+      });
+    });
+
+    test('exports the step artifacts env on every task, with no --output-dir token required', () async {
+      await createWorkflowTaskTriple(
+        ctx: executionContext,
+        workflowWorkspaceDir: p.join(tempDir.path, 'workflow-workspace'),
+        taskId: 'task-no-outputdir',
+        run: _run(),
+        step: const WorkflowStep(id: 'plan', name: 'Plan'),
+        stepIndex: 0,
+        title: 'Plan',
+        description: '--auto --mode plan target',
+        type: TaskType.coding,
+        provider: 'codex',
+        projectId: 'proj',
+        maxTokens: null,
+        taskConfig: const {},
+      );
+
+      final task = (await taskRepository.getById('task-no-outputdir'))!;
+      expect(task.description, '--auto --mode plan target');
+      expect(
+        WorkflowTaskConfig.readStepArtifactsEnv(task)!['DARTCLAW_STEP_ARTIFACTS_DIR'],
+        endsWith(p.join('runtime-artifacts', 'steps', 'plan')),
+      );
+    });
+
+    test('suffixes the step artifacts dir with the map iteration index', () async {
+      await createWorkflowTaskTriple(
+        ctx: executionContext,
+        workflowWorkspaceDir: p.join(tempDir.path, 'workflow-workspace'),
+        taskId: 'task-map-iteration',
+        run: _run(),
+        step: const WorkflowStep(id: 'story-review', name: 'Story Review'),
+        stepIndex: 0,
+        title: 'Story Review',
+        description: 'Review the story',
+        type: TaskType.coding,
+        provider: 'codex',
+        projectId: 'proj',
+        maxTokens: null,
+        taskConfig: const {'_mapIterationIndex': 2},
+      );
+
+      final task = (await taskRepository.getById('task-map-iteration'))!;
+      expect(
+        WorkflowTaskConfig.readStepArtifactsEnv(task)!['DARTCLAW_STEP_ARTIFACTS_DIR'],
+        endsWith(p.join('runtime-artifacts', 'steps', 'story-review-2')),
+      );
+    });
+
     test('workflow task always persists maxRetries == 0 — workflow engine owns retry authority', () async {
       // Supplying a positive maxTokens and a step with retry config should not
       // result in task-runtime retries; the workflow engine owns that authority.
@@ -199,6 +289,7 @@ void main() {
         repository: SqliteWorkflowRunRepository(db),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
+        dataDir: tempDir.path,
         taskRepository: taskRepository,
         agentExecutionRepository: agentExecutionRepository,
         workflowStepExecutionRepository: _ThrowingWorkflowStepExecutionRepository(),
@@ -247,15 +338,25 @@ void main() {
       expect(followUps.last, contains('<step-outcome>'));
     });
 
-    test('builds strict structured-output envelope schema for narrative outputs only', () {
-      final schema = buildStructuredOutputEnvelopeSchema(const WorkflowStep(id: 'step-1', name: 'Step 1'), const {
-        'summary': OutputConfig(format: OutputFormat.text),
-        'files': OutputConfig(format: OutputFormat.lines),
-      });
+    test('builds last follow-up prompt with resolved gatingSeverity', () {
+      final followUps = buildOneShotFollowUpPrompts(
+        const WorkflowStep(
+          id: 'review-step',
+          name: 'Review Step',
+          prompts: ['first', 'final'],
+          outputs: {'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count')},
+        ),
+        WorkflowContext(),
+        const {'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count')},
+        outputKeys: const ['gating_findings_count'],
+        gatingSeverity: 'critical',
+        templateEngine: WorkflowTemplateEngine(),
+        skillPromptBuilder: StepPromptConfiguration().skillPromptBuilder,
+      );
 
-      expect(schema, containsPair('additionalProperties', false));
-      expect(schema?['required'], equals(['summary']));
-      expect((schema?['properties'] as Map).containsKey('files'), isFalse);
+      expect(followUps.single, contains('## Review Finding Scoring'));
+      expect(followUps.single, contains('at or above `critical`'));
+      expect(followUps.single, isNot(contains('at or above `high`')));
     });
 
     test('buildStepConfig and stripWorkflowStepConfig preserve public task config only', () {
@@ -282,6 +383,168 @@ void main() {
       expect(stripWorkflowStepConfig({...config, 'keep': true}).containsKey('_workflowGit'), isFalse);
       expect(stripWorkflowStepConfig({...config, 'keep': true}).containsKey('model'), isFalse);
       expect(stripWorkflowStepConfig({...config, 'keep': true})['keep'], isTrue);
+    });
+  });
+
+  group('execution envelope schema', () {
+    Map<String, dynamic> outputsOf(Map<String, dynamic>? schema) =>
+        (schema!['properties'] as Map)['outputs'] as Map<String, dynamic>;
+
+    test('builds a closed envelope with required outputs and step_outcome', () {
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+        'summary': OutputConfig(format: OutputFormat.text),
+      });
+
+      expect(schema!['type'], 'object');
+      expect(schema['additionalProperties'], isFalse);
+      expect(schema['required'], equals(['outputs', 'step_outcome']));
+      final props = schema['properties'] as Map;
+      expect(props.keys, containsAll(['outputs', 'step_outcome']));
+
+      final outputs = outputsOf(schema);
+      expect(outputs['additionalProperties'], isFalse);
+      expect(outputs['required'], equals(['summary']));
+      expect((outputs['properties'] as Map)['summary'], equals({'type': 'string'}));
+
+      final stepOutcome = props['step_outcome'] as Map;
+      expect(stepOutcome['additionalProperties'], isFalse);
+      expect(stepOutcome['required'], equals(['outcome', 'reason']));
+      expect(
+        ((stepOutcome['properties'] as Map)['outcome'] as Map)['enum'],
+        equals(['succeeded', 'failed', 'needsInput']),
+      );
+    });
+
+    test('omits step_outcome for emitsOwnOutcome steps but keeps output finalization', () {
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S', emitsOwnOutcome: true), const {
+        'summary': OutputConfig(format: OutputFormat.text),
+      });
+
+      expect(schema!['required'], equals(['outputs']));
+      expect((schema['properties'] as Map).containsKey('step_outcome'), isFalse);
+      expect((outputsOf(schema)['properties'] as Map).containsKey('summary'), isTrue);
+    });
+
+    test('excludes host-owned outputs (setValue, source, canonical *_source defaults)', () {
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+        'summary': OutputConfig(format: OutputFormat.text),
+        'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x'),
+        'branch': OutputConfig(format: OutputFormat.text, source: 'worktree.branch'),
+        'plan_source': OutputConfig(format: OutputFormat.text),
+      });
+
+      final outputs = outputsOf(schema);
+      expect(outputs['required'], equals(['summary']));
+      final keys = (outputs['properties'] as Map).keys;
+      expect(keys, isNot(anyElement(isIn(['pinned', 'branch', 'plan_source']))));
+    });
+
+    test('declares filesystem path claims as nullable so a no-claim null survives strict mode', () {
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+        'report': OutputConfig(
+          format: OutputFormat.path,
+          resolverOverride: FileSystemOutput(pathPattern: '**/*.md', listMode: false),
+        ),
+      });
+
+      final report = (outputsOf(schema)['properties'] as Map)['report'] as Map;
+      expect(report['type'], equals(['string', 'null']));
+    });
+
+    test('deep-closes an author inline schema on the envelope copy without mutating the declaration', () {
+      const declared = {
+        'type': 'object',
+        'properties': {
+          'a': {'type': 'string'},
+          'b': {'type': 'integer'},
+        },
+        'required': ['a'],
+      };
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+        'obj': OutputConfig(format: OutputFormat.json, schema: declared, outputMode: OutputMode.structured),
+      });
+
+      final closed = (outputsOf(schema)['properties'] as Map)['obj'] as Map;
+      expect(closed['additionalProperties'], isFalse);
+      expect((closed['required'] as List).toSet(), equals({'a', 'b'}));
+      // Optional `b` became required + nullable; declared map is untouched.
+      expect(((closed['properties'] as Map)['b'] as Map)['type'], equals(['integer', 'null']));
+      expect(declared['required'], equals(['a']));
+    });
+
+    test('deep-close widens an optional enum property to admit null', () {
+      const declared = {
+        'type': 'object',
+        'properties': {
+          'risk': {
+            'type': 'string',
+            'enum': ['low', 'medium', 'high'],
+          },
+        },
+        'required': <String>[],
+      };
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+        'obj': OutputConfig(format: OutputFormat.json, schema: declared, outputMode: OutputMode.structured),
+      });
+
+      final risk = ((outputsOf(schema)['properties'] as Map)['obj'] as Map)['properties'] as Map;
+      final riskSchema = risk['risk'] as Map;
+      // Optional enum became required + nullable: the type widened AND the enum
+      // gained a null member, else the closed schema forbids the absent value.
+      expect(riskSchema['type'], equals(['string', 'null']));
+      expect(riskSchema['enum'], equals(['low', 'medium', 'high', null]));
+      // Declared map is untouched.
+      expect(
+        (declared['properties'] as Map)['risk'],
+        equals({
+          'type': 'string',
+          'enum': ['low', 'medium', 'high'],
+        }),
+      );
+    });
+
+    test('deep-close widens an optional const property to a nullable enum', () {
+      const declared = {
+        'type': 'object',
+        'properties': {
+          'mode': {'const': 'fixed'},
+        },
+        'required': <String>[],
+      };
+      final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+        'obj': OutputConfig(format: OutputFormat.json, schema: declared, outputMode: OutputMode.structured),
+      });
+
+      final props = ((outputsOf(schema)['properties'] as Map)['obj'] as Map)['properties'] as Map;
+      final modeSchema = props['mode'] as Map;
+      expect(modeSchema.containsKey('const'), isFalse);
+      expect(modeSchema['enum'], equals(['fixed', null]));
+    });
+
+    test('returns null when the step has no model-derived outputs', () {
+      expect(buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {}), isNull);
+      expect(
+        buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
+          'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x'),
+        }),
+        isNull,
+      );
+    });
+
+    test('stepNeedsFinalizer gates on agent task type and model-derived outputs', () {
+      const outputs = {'summary': OutputConfig(format: OutputFormat.text)};
+      expect(stepNeedsFinalizer(const WorkflowStep(id: 's', name: 'S'), outputs), isTrue);
+      expect(
+        stepNeedsFinalizer(const WorkflowStep(id: 's', name: 'S', taskType: WorkflowTaskType.bash), outputs),
+        isFalse,
+      );
+      expect(stepNeedsFinalizer(const WorkflowStep(id: 's', name: 'S'), const {}), isFalse);
+      expect(
+        stepNeedsFinalizer(const WorkflowStep(id: 's', name: 'S'), const {
+          'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x'),
+        }),
+        isFalse,
+      );
     });
   });
 }

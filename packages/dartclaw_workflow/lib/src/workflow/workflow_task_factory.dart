@@ -2,17 +2,18 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show AgentExecution, Task, TaskStatus, TaskStatusChangedEvent, TaskType, WorkflowStepExecution;
-import 'workflow_definition.dart' show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep;
+import 'workflow_definition.dart' show OutputConfig, WorkflowDefinition, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 
+import 'execution_envelope_schema.dart' show modelDerivedFinalizerKeys;
 import 'map_context.dart';
-import 'output_resolver.dart';
-import 'schema_presets.dart';
 import 'skill_prompt_builder.dart';
 import 'step_config_policy.dart' as step_config_policy;
 import 'step_config_resolver.dart';
 import 'workflow_context.dart';
+import 'workflow_run_paths.dart';
 import 'workflow_runner_types.dart';
+import 'workflow_task_config.dart';
 import 'workflow_template_engine.dart';
 
 /// Creates AgentExecution, Task, and WorkflowStepExecution in one transaction.
@@ -43,12 +44,30 @@ Future<void> createWorkflowTaskTriple({
   final workflowStepExecutionRepository = ctx.workflowStepExecutionRepository!;
   final executionTransactor = ctx.executionTransactor!;
 
+  // Host-computed per-step artifacts dir, exported on every workflow task via
+  // the spawn env. Never derived from prompt text — the agent references
+  // `$DARTCLAW_STEP_ARTIFACTS_DIR` and the extractor reads the same dir back.
+  final dataDir = ctx.dataDir;
+  if (dataDir == null || dataDir.trim().isEmpty) {
+    throw StateError('Workflow task creation requires StepExecutionContext.dataDir to compute the step artifacts dir');
+  }
+  final stepArtifactsDir = workflowStepArtifactsDir(
+    dataDir: dataDir,
+    runId: run.id,
+    stepId: step.id,
+    mapIterationIndex: intOrNull(taskConfig[WorkflowTaskConfig.mapIterationIndex]),
+  );
+  final effectiveTaskConfig = {
+    ...taskConfig,
+    WorkflowTaskConfig.stepArtifactsEnv: {stepArtifactsDirEnvVar: stepArtifactsDir},
+  };
+
   final timestamp = DateTime.now();
   final agentExecutionId = ctx.uuid.v4();
   final agentExecution = AgentExecution(
     id: agentExecutionId,
     provider: trimmedString(provider),
-    model: trimmedString(taskConfig['model']),
+    model: trimmedString(effectiveTaskConfig['model']),
     workspaceDir: workflowWorkspaceDir,
     budgetTokens: maxTokens,
   );
@@ -58,9 +77,9 @@ Future<void> createWorkflowTaskTriple({
     runId: run.id,
     stepIndex: stepIndex,
     step: step,
-    taskConfig: taskConfig,
+    taskConfig: effectiveTaskConfig,
   );
-  final sanitizedTaskConfig = stripWorkflowStepConfig(taskConfig);
+  final sanitizedTaskConfig = stripWorkflowStepConfig(effectiveTaskConfig);
   final queuedTask = Task(
     id: taskId,
     title: title,
@@ -116,7 +135,7 @@ Map<String, dynamic> buildStepConfig(
   if (resolved.effort != null) config['effort'] = resolved.effort;
   if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
   if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
-  if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
+  if (resolved.timeoutSeconds != null) config[WorkflowTaskConfig.workflowTimeoutSeconds] = resolved.timeoutSeconds;
   final isReadOnlyStep = step_config_policy.stepIsReadOnly(step, resolved);
   if (isReadOnlyStep) {
     config['readOnly'] = true;
@@ -159,12 +178,20 @@ List<String> buildOneShotFollowUpPrompts(
   Map<String, OutputConfig>? effectiveOutputs, {
   required List<String> outputKeys,
   MapContext? mapCtx,
+  String? gatingSeverity,
+  bool finalizerHandlesOutputs = false,
   required WorkflowTemplateEngine templateEngine,
   required SkillPromptBuilder skillPromptBuilder,
 }) {
   final prompts = step.prompts;
   if (prompts == null || prompts.length < 2) return const [];
 
+  // The bool stays the outcome-protocol signal; the covered-key set (derived
+  // from the same needsFinalizer gate) suppresses only the envelope-claimed
+  // keys' main-prompt contract, leaving opt-out / `*_source` keys instructed.
+  final finalizerCoveredKeys = finalizerHandlesOutputs
+      ? modelDerivedFinalizerKeys(step, effectiveOutputs)
+      : const <String>[];
   final followUps = <String>[];
   for (var i = 1; i < prompts.length; i++) {
     final isLast = i == prompts.length - 1;
@@ -176,42 +203,14 @@ List<String> buildOneShotFollowUpPrompts(
             outputs: effectiveOutputs,
             outputKeys: outputKeys,
             outputExamples: step.outputExamples,
-            emitStepOutcomeProtocol: !step.emitsOwnOutcome,
+            emitStepOutcomeProtocol: !finalizerHandlesOutputs && !step.emitsOwnOutcome,
+            finalizerCoveredKeys: finalizerCoveredKeys,
+            gatingSeverity: gatingSeverity,
           )
         : resolvedPrompt;
     followUps.add(built);
   }
   return followUps;
-}
-
-/// Builds the strict structured-output envelope schema for a step.
-Map<String, dynamic>? buildStructuredOutputEnvelopeSchema(
-  WorkflowStep step,
-  Map<String, OutputConfig>? effectiveOutputs,
-) {
-  if (effectiveOutputs == null || effectiveOutputs.isEmpty) return null;
-
-  final properties = <String, dynamic>{};
-  final required = <String>[];
-
-  for (final entry in effectiveOutputs.entries) {
-    final config = entry.value;
-    if (outputResolverFor(entry.key, config) is! NarrativeOutput) continue;
-    final schema = switch (config.format) {
-      OutputFormat.text || OutputFormat.path => const {'type': 'string'},
-      OutputFormat.lines => const {
-        'type': 'array',
-        'items': {'type': 'string'},
-      },
-      OutputFormat.json => config.inlineSchema ?? schemaPresets[config.presetName]?.schema,
-    };
-    if (schema == null) continue;
-    properties[entry.key] = schema;
-    required.add(entry.key);
-  }
-
-  if (properties.isEmpty) return null;
-  return {'type': 'object', 'additionalProperties': false, 'required': required, 'properties': properties};
 }
 
 /// Removes workflow-only task config keys before task persistence.

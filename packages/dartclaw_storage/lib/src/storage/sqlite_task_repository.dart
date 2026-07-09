@@ -224,6 +224,24 @@ class SqliteTaskRepository implements TaskRepository {
   }
 
   @override
+  Future<List<Task>> listByWorkflowRunIds(Iterable<String> runIds) async {
+    final ids = runIds.toSet().toList(growable: false);
+    if (ids.isEmpty) {
+      return const [];
+    }
+
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final stmt = _db.prepare(
+      '$_joinedSelectClause WHERE t.workflow_run_id IN ($placeholders) ORDER BY t.created_at DESC, t.id DESC',
+    );
+    try {
+      return stmt.select(ids).map(_taskFromJoinedRow).toList(growable: false);
+    } finally {
+      stmt.close();
+    }
+  }
+
+  @override
   Future<void> update(Task task) async {
     _upsertAgentExecution(task.agentExecution);
     final stmt = _db.prepare('''

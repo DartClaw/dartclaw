@@ -5,5 +5,7 @@ tags:
     skip: "Requires live API credentials — run explicitly with: dart test --run-skipped -t integration"
   live-e2e:
     skip: "Heavy real-provider agent e2e (multi-minute) — also tagged integration. Run only these with: dart test --run-skipped -t live-e2e; exclude them from a live sweep with: -x live-e2e (see dev/testing/profiles/workflow-live/run.sh --e2e / --skip-e2e)"
+  # Real-build or real-process tests. Default and CI runs include them; exclude locally with: dart test -x slow <package>.
+  slow:
   fitness-shape:
     skip: "Shape-trend monitors — run explicitly during release prep: dart test -t fitness-shape"

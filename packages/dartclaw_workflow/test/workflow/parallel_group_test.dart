@@ -1,6 +1,8 @@
 @Tags(['component'])
 library;
 
+import 'dart:convert';
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ParallelGroupCompletedEvent,
@@ -143,6 +145,128 @@ void main() {
     expect(context['p3.status'], equals('accepted'));
     // Failed step has 'failed' status.
     expect(context['p2.status'], equals('failed'));
+  });
+
+  test('cancelled parallel member pauses the run instead of failing it', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+      ],
+    );
+
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await h.taskService.get(e.taskId);
+      if (task?.title.contains('P2') ?? false) {
+        await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+      } else {
+        await h.completeTask(e.taskId);
+      }
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.errorMessage, contains("Parallel step 'p2' was interrupted by task cancellation"));
+  });
+
+  test('mixed cancelled and failed parallel members pause with group-restart state persisted', () async {
+    // Interruption dominates the group verdict: the cancelled member pauses
+    // the run while the genuinely-failed member keeps its restart semantics.
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+        const WorkflowStep(id: 'p3', name: 'P3', prompts: ['Do p3'], parallel: true),
+      ],
+    );
+
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+
+    var resumeLeg = false;
+    final tasksByStep = <String, int>{};
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      final title = (await h.taskService.get(e.taskId))?.title ?? '';
+      final stepName = ['P1', 'P2', 'P3'].firstWhere(title.contains, orElse: () => '?');
+      tasksByStep[stepName] = (tasksByStep[stepName] ?? 0) + 1;
+      if (resumeLeg) {
+        await h.completeTask(e.taskId);
+        return;
+      }
+      if (stepName == 'P2') {
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"failed","reason":"p2 broke"}</step-outcome>',
+          finalStatus: TaskStatus.failed,
+          tokenCount: 40,
+        );
+      } else if (stepName == 'P3') {
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"finished before teardown"}</step-outcome>',
+          finalStatus: TaskStatus.cancelled,
+          tokenCount: 70,
+        );
+      } else {
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"done"}</step-outcome>',
+          tokenCount: 11,
+        );
+      }
+    });
+
+    await h.executor.execute(run, definition, context);
+
+    final pausedRun = await h.repository.getById('run-1');
+    expect(pausedRun?.status, equals(WorkflowRunStatus.paused), reason: 'a cancelled member must pause, never fail');
+    expect(pausedRun?.currentStepIndex, equals(0), reason: 'restart state anchors the group start');
+    final failedIds = pausedRun?.contextJson['_parallel.failed.stepIds'] as List?;
+    expect(failedIds, containsAll(['p2', 'p3']), reason: 'every non-success member is recorded for group restart');
+    // The interrupted member's partial attempt stays uncharged (resume re-runs
+    // it, so charging would double-count); the failed member is still charged.
+    expect(pausedRun?.totalTokens, equals(11 + 40));
+
+    // Resume re-runs only the recorded non-success members.
+    resumeLeg = true;
+    final resumedRun = pausedRun!.copyWith(
+      status: WorkflowRunStatus.running,
+      errorMessage: null,
+      updatedAt: DateTime.now(),
+    );
+    await h.repository.update(resumedRun);
+    final resumedContext = WorkflowContext.fromJson(
+      Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+    );
+    await h.executor.execute(resumedRun, definition, resumedContext, startFromStepIndex: resumedRun.currentStepIndex);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    expect(
+      tasksByStep,
+      equals({'P1': 1, 'P2': 2, 'P3': 2}),
+      reason: 'resume re-dispatches the failed and interrupted members but not the succeeded one',
+    );
+    expect(finalRun?.contextJson, isNot(contains('_parallel.failed.stepIds')));
   });
 
   test('pause during parallel group preserves paused status', () async {

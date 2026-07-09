@@ -22,11 +22,18 @@ final class WorkflowGitPortProcess implements WorkflowGitPort {
 
   @override
   Future<String> revParse(String worktreePath, String ref) async {
-    final args = ref == '--abbrev-ref HEAD'
-        ? <String>['rev-parse', '--abbrev-ref', 'HEAD']
-        : <String>['rev-parse', ref];
-    final result = await _expect(args, worktreePath, 'Failed to resolve ref $ref');
+    final result = await _expect(['rev-parse', ref], worktreePath, 'Failed to resolve ref $ref');
     return result.stdout.trim();
+  }
+
+  @override
+  Future<String> currentBranch(String worktreePath) async {
+    final result = await _git(['symbolic-ref', '--quiet', '--short', 'HEAD'], workingDirectory: worktreePath);
+    if (result.exitCode == 0) {
+      final branch = result.stdout.trim();
+      if (branch.isNotEmpty) return branch;
+    }
+    return 'HEAD';
   }
 
   @override

@@ -19,6 +19,9 @@ void main() {
       expect(config.loopDetection.enabled, isFalse);
       expect(config.queueStrategy, QueueStrategy.fifo);
       expect(config.crowdCoding, const CrowdCodingConfig.defaults());
+      expect(config.turnProgress.stallTimeout, const Duration(minutes: 5));
+      expect(config.turnProgress.stallAction, TurnProgressAction.cancel);
+      expect(config.turnProgress.maxDuration, const Duration(minutes: 30));
     });
 
     group('CrowdCodingConfig', () {
@@ -254,12 +257,14 @@ governance:
   turn_progress:
     stall_timeout: 45s
     stall_action: cancel
+    max_duration: 900s
 ''');
         final dynamic governance = config.governance;
         final dynamic turnProgress = governance.turnProgress;
 
         expect(turnProgress.stallTimeout, const Duration(seconds: 45));
         expect(_enumName(turnProgress.stallAction), 'cancel');
+        expect(turnProgress.maxDuration, const Duration(seconds: 900));
       });
 
       test('invalid turn_progress action warns and keeps the default', () {
@@ -273,7 +278,7 @@ governance:
         final dynamic turnProgress = governance.turnProgress;
 
         expect(turnProgress.stallTimeout, const Duration(seconds: 30));
-        expect(_enumName(turnProgress.stallAction), 'warn');
+        expect(_enumName(turnProgress.stallAction), 'cancel');
         expect(config.warnings, anyElement(contains('governance.turn_progress.stall_action')));
       });
 

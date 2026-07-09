@@ -633,6 +633,7 @@ governance:
   turn_progress:
     stall_timeout: 45s
     stall_action: cancel
+    max_duration: 900s
 ''';
           }
           return null;
@@ -646,6 +647,7 @@ governance:
 
       expect(turnProgress['stallAction'], 'cancel');
       expect(turnProgress['stallTimeout'], anyOf(45, '45s', const Duration(seconds: 45)));
+      expect(turnProgress['maxDuration'], anyOf(900, '900s', const Duration(seconds: 900)));
     });
   });
 

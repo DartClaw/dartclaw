@@ -39,12 +39,12 @@ void main() {
       sources: [
         _reviewSourceStep(
           id: 'plan-review',
-          reportKey: 'plan-review.review_findings',
+          reportKey: 'plan-review.review_report_path',
           reportPreset: 'review_report_path',
         ),
         _reviewSourceStep(
           id: 'architecture-review',
-          reportKey: 'architecture-review.review_findings',
+          reportKey: 'architecture-review.review_report_path',
           reportPreset: 'review_report_path',
         ),
       ],
@@ -56,8 +56,8 @@ void main() {
         'plan-review.gating_findings_count': 1,
         'architecture-review.findings_count': 2,
         'architecture-review.gating_findings_count': 1,
-        'plan-review.review_findings': planReport.path,
-        'architecture-review.review_findings': architectureReport.path,
+        'plan-review.review_report_path': planReport.path,
+        'architecture-review.review_report_path': architectureReport.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -70,7 +70,7 @@ void main() {
       dataDir: tempDir.path,
     );
 
-    final mergedPath = outcome.outputs['review_findings'] as String;
+    final mergedPath = outcome.outputs['review_report_path'] as String;
     expect(outcome.success, isTrue);
     expect(outcome.outputs['findings_count'], 5);
     expect(outcome.outputs['gating_findings_count'], 2);
@@ -87,7 +87,7 @@ void main() {
       sources: [
         _reviewSourceStep(
           id: 'plan-review',
-          reportKey: 'plan-review.review_findings',
+          reportKey: 'plan-review.review_report_path',
           reportPreset: 'review_report_path',
         ),
         _reviewSourceStep(id: 'skipped-review', reportKey: 'skipped_findings', reportPreset: 'review_report_path'),
@@ -101,7 +101,7 @@ void main() {
         'plan-review.gating_findings_count': 1,
         'bad-count-review.findings_count': 'not an integer',
         'bad-count-review.gating_findings_count': 2.5,
-        'plan-review.review_findings': planReport.path,
+        'plan-review.review_report_path': planReport.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -114,7 +114,7 @@ void main() {
       dataDir: tempDir.path,
     );
 
-    final merged = File(outcome.outputs['review_findings'] as String).readAsStringSync();
+    final merged = File(outcome.outputs['review_report_path'] as String).readAsStringSync();
     expect(outcome.outputs['findings_count'], 3);
     expect(outcome.outputs['gating_findings_count'], 1);
     expect(merged, contains('# skipped-review\n\n_no report produced by skipped-review_'));
@@ -127,7 +127,7 @@ void main() {
       sources: [
         _reviewSourceStep(
           id: 'plan-review',
-          reportKey: 'plan-review.review_findings',
+          reportKey: 'plan-review.review_report_path',
           reportPreset: 'review_report_path',
         ),
       ],
@@ -140,7 +140,7 @@ void main() {
         // nested map with the same count key names — the spec requires a direct
         // lookup so this must NOT contribute to the sum.
         'unrelated-step.output': {'plan-review.findings_count': 7, 'plan-review.gating_findings_count': 4},
-        'plan-review.review_findings': planReport.path,
+        'plan-review.review_report_path': planReport.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -166,7 +166,7 @@ void main() {
       sources: [
         _reviewSourceStep(
           id: 'architecture-review',
-          reportKey: 'architecture-review.review_findings',
+          reportKey: 'architecture-review.review_report_path',
           reportPreset: 'review_report_path',
         ),
       ],
@@ -176,7 +176,7 @@ void main() {
       data: {
         'architecture-review.findings_count': 1,
         'architecture-review.gating_findings_count': 1,
-        'architecture-review.review_findings': p.join('reports', 'architecture-review.md'),
+        'architecture-review.review_report_path': p.join('reports', 'architecture-review.md'),
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -190,7 +190,7 @@ void main() {
       activeWorkspaceRoot: workspace.path,
     );
 
-    final merged = File(outcome.outputs['review_findings'] as String).readAsStringSync();
+    final merged = File(outcome.outputs['review_report_path'] as String).readAsStringSync();
     expect(merged, contains('# architecture-review\n\nWorkspace-relative architecture report'));
   });
 
@@ -200,7 +200,7 @@ void main() {
       sources: [
         _reviewSourceStep(
           id: 'plan-review',
-          reportKey: 'plan-review.review_findings',
+          reportKey: 'plan-review.review_report_path',
           reportPreset: 'review_report_path',
         ),
       ],
@@ -210,7 +210,7 @@ void main() {
       data: {
         'plan-review.findings_count': 1,
         'plan-review.gating_findings_count': 1,
-        'plan-review.review_findings': report.path,
+        'plan-review.review_report_path': report.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -231,9 +231,9 @@ void main() {
       dataDir: tempDir.path,
     );
 
-    expect(second.outputs['review_findings'], first.outputs['review_findings']);
-    expect(File(second.outputs['review_findings'] as String).readAsStringSync(), contains('Second'));
-    expect(File(second.outputs['review_findings'] as String).readAsStringSync(), isNot(contains('First')));
+    expect(second.outputs['review_report_path'], first.outputs['review_report_path']);
+    expect(File(second.outputs['review_report_path'] as String).readAsStringSync(), contains('Second'));
+    expect(File(second.outputs['review_report_path'] as String).readAsStringSync(), isNot(contains('First')));
   });
 }
 
@@ -248,10 +248,10 @@ WorkflowDefinition _definition({
     WorkflowStep(
       id: 'review-aggregate',
       name: 'Review Aggregate',
-      type: WorkflowTaskType.aggregateReviews,
+      taskType: WorkflowTaskType.aggregateReviews,
       aggregateReviews: aggregateReviews,
       outputs: const {
-        'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+        'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
         'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
         'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
       },

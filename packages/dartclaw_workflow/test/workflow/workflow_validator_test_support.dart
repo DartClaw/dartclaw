@@ -53,7 +53,8 @@ WorkflowStep step({
 );
 
 /// A review-source step emitting the fixed review-report + count keys an
-/// aggregate-reviews step consumes. Defaults the count keys to source-scoped ids.
+/// aggregate-reviews step consumes. Defaults every key to the source-scoped
+/// `<id>.` prefix the review-source prefixing rule requires.
 WorkflowStep reviewSourceStep({required String id, Map<String, OutputConfig>? outputs}) => WorkflowStep(
   id: id,
   name: id,
@@ -61,7 +62,7 @@ WorkflowStep reviewSourceStep({required String id, Map<String, OutputConfig>? ou
   outputs:
       outputs ??
       {
-        'review_findings': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+        '$id.review_report_path': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
         '$id.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
         '$id.gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
       },
@@ -74,12 +75,12 @@ WorkflowStep aggregateReviewsStep({
 }) => WorkflowStep(
   id: 'review-aggregate',
   name: 'Review Aggregate',
-  type: WorkflowTaskType.aggregateReviews,
+  taskType: WorkflowTaskType.aggregateReviews,
   aggregateReviews: aggregateReviews,
   outputs:
       outputs ??
       const {
-        'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+        'review_report_path': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
         'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
         'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
       },

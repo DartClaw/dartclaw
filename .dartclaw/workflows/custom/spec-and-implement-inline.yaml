@@ -58,43 +58,66 @@ steps:
     # and route attacker-controlled text through as instructions.
     workflowVariables: [FEATURE]
     outputs:
-      spec_path: detected_fis_path
-      spec_source: spec_source
-      spec_confidence: spec_confidence
+      spec_path:
+        format: path
+        schema:
+          type: string
+        description: Workspace-relative path to the existing implementation specification on disk, or empty when input requires spec synthesis.
+      spec_source:
+        schema: narrative_text
+        description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
+      spec_confidence:
+        format: json
+        schema: non_negative_integer
+        description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
 
   - id: spec
     name: Generate Specification
     skill: andthen:spec
     entryGate: "spec_source == synthesized"
-    workflowVariables: [FEATURE]
+    # FEATURE is interpolated inline by design – the spec skill acts on the
+    # feature description, so it is a direct argument, not auto-framed.
     prompt: "--auto {{FEATURE}}"
     outputs:
-      spec_path: fis_path
-      spec_source: spec_source
-      spec_confidence: spec_confidence
+      spec_path:
+        format: path
+        schema:
+          type: string
+        description: Workspace-relative path to the implementation specification on disk.
+      spec_source:
+        schema: narrative_text
+        description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
+      spec_confidence:
+        format: json
+        schema: non_negative_integer
+        description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
 
   - id: revise-spec
     name: Revise Spec (low confidence)
     skill: andthen:review
     entryGate: "spec_confidence > 0 && spec_confidence < 7"
-    inputs: [spec_path, spec_confidence]
+    inputs: [spec_confidence]
     prompt: >-
       --mode doc --fix --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       {{context.spec_path}}
 
   - id: implement
     name: Implement
     skill: andthen:exec-spec
-    inputs: [spec_path]
+    # No allowedTools grant here (unlike the built-in): the maintainer profile
+    # runs under a broader permission mode, so mutating steps in the inline
+    # customs deliberately omit per-tool allowlists rather than mirror the
+    # built-in's file_edit grants.
+    # Task-level retry covers transient provider/CLI exits without retrying an
+    # explicit semantic failed step outcome.
+    maxRetries: 1
     prompt: "--auto {{context.spec_path}}"
 
   - id: simplify-code
     name: Simplify Code
     skill: andthen:simplify-code
-    provider: "@executor"
-    model: "@executor"
-    inputs: [spec_path]
+    # provider/model resolve to @executor via the `simplify-code` stepDefault.
     # Best-effort cleanup: red baseline or advisory blockage should be recorded
     # without parking the live-checkout workflow after required work landed.
     onFailure: continue
@@ -110,15 +133,14 @@ steps:
     onFailure: retry
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    inputs: [spec_path]
     prompt: >-
       --mode gap --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.spec_path}}. Scope by the FIS –
       assess only the working-tree state implementing this spec; the live
       checkout may contain unrelated operator work, so do not flag it.
     outputs:
-      integrated-review.review_findings: review_report_path
+      integrated-review.review_report_path: review_report_path
       integrated-review.findings_count: findings_count
       integrated-review.gating_findings_count: gating_findings_count
 
@@ -137,15 +159,14 @@ steps:
     model: opus[1m]
     effort: xhigh
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    inputs: [spec_path]
     prompt: >-
       --mode code,security --council --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.spec_path}}. Scope by the FIS –
       assess only the working-tree state implementing this spec; the live
       checkout may contain unrelated operator work, so do not flag it.
     outputs:
-      integrated-review-council.review_findings: review_report_path
+      integrated-review-council.review_report_path: review_report_path
       integrated-review-council.findings_count: findings_count
       integrated-review-council.gating_findings_count: gating_findings_count
 
@@ -155,14 +176,15 @@ steps:
     parallel: true
     onFailure: retry
     maxRetries: 1
-    inputs: [spec_path]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode review --auto {{context.spec_path}}. Scope by the FIS – review
+      --mode review --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      {{context.spec_path}}. Scope by the FIS – review
       only packages this spec touched in the working tree; ignore unrelated
       operator work in other parts of the live checkout.
     outputs:
-      architecture-review.review_findings: review_report_path
+      architecture-review.review_report_path: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
@@ -171,7 +193,7 @@ steps:
     type: aggregate-reviews
     aggregateReviews: [integrated-review, integrated-review-council, architecture-review]
     outputs:
-      review_findings: review_report_path
+      review_report_path: review_report_path
       findings_count: findings_count
       gating_findings_count: gating_findings_count
 
@@ -181,30 +203,36 @@ steps:
     maxIterations: 5
     entryGate: "gating_findings_count > 0"
     exitGate: "gating_findings_count == 0"
+    # On exhaustion, fall through to the deterministic verify-all → verify-fix-loop
+    # gate below instead of failing the run; that gate mechanically resolves
+    # guardrail-class residue and is the genuine fail point if it cannot.
+    onMaxIterations: continue
     steps:
       - id: remediate
         name: Remediate Findings
         skill: andthen:remediate-findings
         entryGate: "gating_findings_count > 0"
-        inputs: [spec_path, review_findings]
-        prompt: "--auto {{context.review_findings}}"
+        inputs: [spec_path]
+        prompt: "--auto {{context.review_report_path}}"
         outputs:
-          remediation_summary: remediation_summary
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
 
       - id: re-review
         name: Re-review Gaps
         skill: andthen:review
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [spec_path, remediation_summary]
+        inputs: [remediation_summary]
         prompt: >-
           --mode gap,code,security --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
           Review implementation of {{context.spec_path}}. Scope by the FIS
           – assess only the working-tree state implementing this spec; the
           live checkout may contain unrelated operator work, so do not
           flag it.
         outputs:
-          review_findings: review_report_path
+          review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
 
@@ -251,7 +279,7 @@ steps:
       - id: verify-recheck
         name: Re-run Verification Gate
         type: bash
-        timeout: 60m
+        timeout: 90m
         script: >-
           bash ../workflows/custom/scripts/verify-gate.sh all
           {{workflow.runtime_artifacts_dir}}

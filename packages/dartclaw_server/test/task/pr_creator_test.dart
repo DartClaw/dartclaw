@@ -83,6 +83,54 @@ void main() {
       expect(payload['draft'], isNull);
     });
 
+    test('appends notes to the PR body under an Unresolved items heading', () async {
+      final calls = <_ApiCall>[];
+      final creator = PrCreator(
+        credentials: const CredentialsConfig(
+          entries: {'github-main': CredentialEntry.githubToken(token: 'ghp_test', repository: 'u/my-app')},
+        ),
+        apiRunner: _recordingRunner(
+          calls,
+          responses: [(statusCode: 201, body: '{"html_url":"https://github.com/u/my-app/pull/7","number":7}')],
+        ),
+      );
+
+      await creator.create(
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', credentialsRef: 'github-main'),
+        task: _makeTask(),
+        branch: 'dartclaw/task-1',
+        notes: "Foreach step 'story-pipeline': 1 item(s) blocked (recoverable): S03",
+      );
+
+      final payload = jsonDecode(calls.single.body!) as Map<String, dynamic>;
+      expect(payload['body'], contains('### Unresolved items'));
+      expect(payload['body'], contains('S03'));
+    });
+
+    test('omits the Unresolved items section when notes is null or blank', () async {
+      final calls = <_ApiCall>[];
+      final creator = PrCreator(
+        credentials: const CredentialsConfig(
+          entries: {'github-main': CredentialEntry.githubToken(token: 'ghp_test', repository: 'u/my-app')},
+        ),
+        apiRunner: _recordingRunner(
+          calls,
+          responses: [
+            (statusCode: 201, body: '{"html_url":"https://github.com/u/my-app/pull/8","number":8}'),
+            (statusCode: 201, body: '{"html_url":"https://github.com/u/my-app/pull/9","number":9}'),
+          ],
+        ),
+      );
+
+      final project = makeProject(remoteUrl: 'git@github.com:u/my-app.git', credentialsRef: 'github-main');
+      await creator.create(project: project, task: _makeTask(), branch: 'dartclaw/task-1');
+      await creator.create(project: project, task: _makeTask(), branch: 'dartclaw/task-1', notes: '   ');
+      for (final call in calls) {
+        final payload = jsonDecode(call.body!) as Map<String, dynamic>;
+        expect(payload['body'], isNot(contains('### Unresolved items')));
+      }
+    });
+
     test('includes draft=true in create payload when project.pr.draft is true', () async {
       final calls = <_ApiCall>[];
       final creator = PrCreator(

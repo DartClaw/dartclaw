@@ -1,5 +1,5 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
-import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show EscapeMode, WorkflowTemplateEngine;
 import 'package:test/test.dart';
 
 MapContext _mapCtx({required Object item, required int index, required int length}) =>
@@ -54,6 +54,36 @@ void main() {
     test('context reference with trimmed whitespace works', () {
       final ctx = _ctx(data: {'k': 'v'});
       expect(engine.resolve('{{ context.k }}', ctx), 'v');
+    });
+  });
+
+  group('WorkflowTemplateEngine.resolve escape mode', () {
+    test('shell mode single-quote-wraps a value carrying shell metacharacters', () {
+      final ctx = _ctx(variables: {'FEATURE': '; rm -rf / #'});
+      expect(engine.resolve('echo {{FEATURE}}', ctx, escape: EscapeMode.shell), "echo '; rm -rf / #'");
+    });
+
+    test('shell mode escapes an embedded single quote rather than terminating the quote', () {
+      final ctx = _ctx(data: {'branch': "o'neil; touch pwned"});
+      expect(
+        engine.resolve('git log {{context.branch}}', ctx, escape: EscapeMode.shell),
+        "git log 'o'\\''neil; touch pwned'",
+      );
+    });
+
+    test('default mode is unchanged raw substitution', () {
+      final ctx = _ctx(data: {'result': r'$(whoami)'});
+      expect(engine.resolve('Status: {{context.result}}', ctx), r'Status: $(whoami)');
+    });
+
+    test('shell mode preserves fail-fast for undefined variable', () {
+      final ctx = _ctx();
+      expect(() => engine.resolve('{{MISSING}}', ctx, escape: EscapeMode.shell), throwsA(isA<ArgumentError>()));
+    });
+
+    test('shell mode resolves a missing context key to the escaped empty string', () {
+      final ctx = _ctx();
+      expect(engine.resolve('{{context.absent}}', ctx, escape: EscapeMode.shell), "''");
     });
   });
 
@@ -380,6 +410,17 @@ void main() {
       test('null MapContext — missing variable still throws', () {
         final ctx = _ctx();
         expect(() => engine.resolveWithMap('{{MISSING}}', ctx, null), throwsA(isA<ArgumentError>()));
+      });
+
+      test('shell mode escapes map-iteration substitutions', () {
+        final ctx = _ctx();
+        final mapCtx = _mapCtx(item: 'x; echo hi', index: 0, length: 1);
+        expect(engine.resolveWithMap('run {{map.item}}', ctx, mapCtx, escape: EscapeMode.shell), "run 'x; echo hi'");
+      });
+
+      test('shell mode falls through to resolve() when MapContext is null', () {
+        final ctx = _ctx(variables: {'FEATURE': '; rm -rf / #'});
+        expect(engine.resolveWithMap('echo {{FEATURE}}', ctx, null, escape: EscapeMode.shell), "echo '; rm -rf / #'");
       });
     });
 

@@ -36,6 +36,17 @@ void main() {
       expect(validator.validate(def).errors, isEmpty);
     });
 
+    test('gate expression accepts the same bare-key grammar as entryGate', () {
+      final def = buildDef(
+        steps: [
+          step(id: 's1', outputs: {'spec_ready': OutputConfig(), 'status': OutputConfig()}),
+          step(id: 's2', name: 'S2', prompt: 'p', gate: 'spec_ready == true && s1.status == done'),
+        ],
+      );
+
+      expect(validator.validate(def).errors, isEmpty);
+    });
+
     test('gate expression with extra operator syntax produces invalidGate error', () {
       final def = buildDef(
         steps: [

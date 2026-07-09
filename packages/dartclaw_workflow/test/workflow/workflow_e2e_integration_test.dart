@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
@@ -11,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
         TaskStatusChangedEvent,
+        WorkflowContext,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowPublishStatus,
@@ -720,13 +722,61 @@ void main() {
     return completer.future;
   }
 
+  // Primary spec-and-implement live-e2e scenario. It feeds a pre-authored FIS
+  // so the run exercises the orchestration-critical steps (detect → implement →
+  // reviews → merge → git → PR) without paying for a live authoring turn — the
+  // synthesize scenario's only unique live value. The synthesize/existing/
+  // low-confidence branch matrix stays covered deterministically by the stubbed
+  // workflow_builtin_spec_and_implement_test.dart; live authoring coverage lives
+  // in the spec step-isolation probe.
+  //
+  // TD-114 existing-spec-reuse canary: when FEATURE is a path to an existing
+  // implementation spec, detect-spec-input must classify `spec_source ==
+  // "existing"` (the restored per-key main-prompt instruction is what tells the
+  // model to emit it) so the `spec` step's `spec_source == synthesized` gate is
+  // false and the step is skipped, rather than re-synthesizing the reused spec.
   test(
-    'spec-and-implement e2e with real Codex harness and git operations',
+    'spec-and-implement e2e reuses an existing FIS and skips the spec step',
     () async {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final w = await wireUp(prTitle: 'E2E spec-and-implement $timestamp');
-      final artifactDir = createPreservedArtifactDir('spec-and-implement-e2e');
+      final w = await wireUp(prTitle: 'E2E spec-and-implement reuse $timestamp');
+      final artifactDir = createPreservedArtifactDir('spec-and-implement-reuse-e2e');
       Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
+
+      // Seed a reusable implementation spec for BUG-001 into the fixture so the
+      // detect-spec-input classifier resolves it as an existing spec on disk.
+      const seededSpecPath = 'docs/specs/bug-001/fix-sidebar-incomplete-count.md';
+      File(p.join(fixtureDir, seededSpecPath))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '# Fix sidebar incomplete-count on todo deletion\n\n'
+          '## Feature Overview and Goal\n\n'
+          '**Intent**: Close BUG-001 — the sidebar incomplete-count is not updated '
+          'when a todo is deleted; the delete response must refresh the same count '
+          'via the existing HTMX out-of-band swap pattern.\n\n'
+          '## Acceptance Scenarios\n\n'
+          '- When a todo is deleted, the sidebar incomplete-count decreases via an '
+          'out-of-band swap, mirroring how toggle_todo updates it.\n\n'
+          '## Implementation Plan\n\n'
+          '- Update the delete_todo handler to return the same out-of-band count '
+          'fragment that toggle_todo returns.\n',
+        );
+      // The workflow runs in a git worktree checked out from the base branch,
+      // so the seeded spec must be committed — an uncommitted working-tree file
+      // is invisible there and the classifier would (correctly) report no
+      // existing spec. Mirrors the plan-and-implement PRD-seed commit above.
+      final addSpec = await Process.run('git', ['add', seededSpecPath], workingDirectory: fixtureDir);
+      if (addSpec.exitCode != 0) {
+        fail('Failed to stage reusable spec fixture: ${addSpec.stderr}');
+      }
+      final commitSpec = await Process.run('git', [
+        'commit',
+        '-qm',
+        'Add reusable spec fixture',
+      ], workingDirectory: fixtureDir);
+      if (commitSpec.exitCode != 0) {
+        fail('Failed to commit reusable spec fixture: ${commitSpec.stderr}');
+      }
 
       final definition = w.registry.getByName('spec-and-implement')!;
 
@@ -743,16 +793,8 @@ void main() {
       );
       recorder.start();
 
-      final variables = {
-        'FEATURE':
-            'Fix BUG-001 from docs/PRODUCT-BACKLOG.md (Known Defects section): '
-            'the sidebar incomplete-count is not updated when a todo is deleted. '
-            'Follow the codebase\'s existing HTMX out-of-band swap pattern – '
-            'see how toggle_todo updates the same count in its response.',
-        'PROJECT': 'workflow-test-todo-app',
-        'BRANCH': 'main',
-      };
-      final run = await w.workflowService.start(definition, variables, headless: true);
+      final variables = {'FEATURE': seededSpecPath, 'PROJECT': 'workflow-test-todo-app', 'BRANCH': 'main'};
+      final run = await w.workflowService.start(definition, variables);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
       final finalStatus = await completionFuture.timeout(
@@ -767,28 +809,25 @@ void main() {
 
       expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
 
-      final expectedOrder = ['spec', 'implement', 'simplify-code', 'integrated-review'];
-      expectStepOrder(recorder, expectedOrder);
+      // The reuse path skips `spec` (its gate is false) but still implements,
+      // simplifies, and reviews against the reused spec.
+      expectStepOrder(recorder, const ['implement', 'simplify-code', 'integrated-review']);
+      expect(recorder.count('spec'), 0, reason: 'spec step must be skipped when reusing an existing FIS');
+      expect(recorder.count('detect-spec-input'), 1, reason: 'detect-spec-input classifies the reused spec');
+
+      final classifiedRun = await w.workflowService.get(run.id);
+      expect(classifiedRun, isNotNull);
+      final classifiedContext =
+          (classifiedRun!.contextJson['data'] as Map?)?.cast<String, dynamic>() ?? classifiedRun.contextJson;
+      expect(
+        classifiedContext['spec_source'],
+        'existing',
+        reason: 'restored main-prompt instruction must flip spec_source to existing',
+      );
 
       expectWorktreeRecorded(recorder, 'implement');
-
-      expectPreservedArtifactsHaveNonZeroTokenKeys(
-        artifactDir,
-        agentSteps: const ['spec', 'implement', 'integrated-review', 'architecture-review'],
-      );
-      expectStepArtifactOutputs(artifactDir, 'integrated-review', const {
-        'integrated-review.review_findings',
-        'integrated-review.findings_count',
-        'integrated-review.gating_findings_count',
-      });
-      expectStepArtifactOutputs(artifactDir, 'architecture-review', const {
-        'architecture-review.review_findings',
-        'architecture-review.findings_count',
-        'architecture-review.gating_findings_count',
-      });
       expectNoMissingFisFallbacks(artifactDir);
       expectIsolationDiagnostics(artifactDir, fixture!);
-
       expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
 
       if (finalStatus == WorkflowRunStatus.completed) {
@@ -853,7 +892,21 @@ void main() {
       );
       recorder.start();
 
-      const prdPath = 'docs/specs/e2e-plan-and-implement/prd.md';
+      // Pre-authored plan seed: a committed plan.json + per-story FIS files that
+      // discover-plan-state indexes into `plan` + `story_specs.items`, making the
+      // `plan` step gate false → the authoring turn is skipped and the foreach
+      // runs directly on the pre-made stories. The synthesize/existing/resume
+      // branch matrix stays covered deterministically by the stubbed
+      // workflow_builtin_plan_and_implement_test.dart; live plan authoring moves
+      // to the plan step-isolation probe. Every seed file must be committed: the
+      // workflow runs in a worktree off the base branch, so an uncommitted seed
+      // is invisible there (the R6 root cause) and discovery would (correctly)
+      // report no plan — mirrors the spec-and-implement reuse-seed commit above.
+      const planDir = 'docs/specs/e2e-plan-and-implement';
+      const prdPath = '$planDir/prd.md';
+      const planJsonPath = '$planDir/plan.json';
+      const story1FisPath = '$planDir/fis/s01-bug-002.md';
+      const story2FisPath = '$planDir/fis/s02-bug-003.md';
       File(p.join(fixtureDir, prdPath))
         ..createSync(recursive: true)
         ..writeAsStringSync(
@@ -864,17 +917,81 @@ void main() {
           'Story 2: BUG-003 - quick-add todos have no default priority.\n\n'
           'Keep each story isolated to its own files; they must merge without conflict.\n',
         );
-      final addPrd = await Process.run('git', ['add', prdPath], workingDirectory: fixtureDir);
-      if (addPrd.exitCode != 0) {
-        fail('Failed to stage plan-and-implement PRD fixture: ${addPrd.stderr}');
+      File(p.join(fixtureDir, planJsonPath))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          jsonEncode({
+            'stories': [
+              {
+                'id': 'S01',
+                'title': 'Fix BUG-002 due-date persistence',
+                'fis': 'fis/s01-bug-002.md',
+                'dependsOn': <String>[],
+                'status': 'spec-ready',
+              },
+              {
+                'id': 'S02',
+                'title': 'Fix BUG-003 default priority',
+                'fis': 'fis/s02-bug-003.md',
+                'dependsOn': <String>[],
+                'status': 'spec-ready',
+              },
+            ],
+          }),
+        );
+      File(p.join(fixtureDir, story1FisPath))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '# Fix BUG-002 — persist edited due dates\n\n'
+          '## Feature Overview and Goal\n\n'
+          '**Intent**: Close BUG-002 — a due date set in the edit dialog is lost '
+          'after save. The update handler must read the submitted due-date field '
+          'and persist it on the todo, and the edit dialog must pre-fill the '
+          'current value.\n\n'
+          '## Acceptance Scenarios\n\n'
+          '- Editing a todo, setting a due date, and saving persists the due date '
+          'so it is still present after the list re-renders.\n'
+          '- The edit dialog pre-populates the existing due date when reopened.\n\n'
+          '## Implementation Plan\n\n'
+          '- In src/app/routes/todos.py, read the due-date form field in the update '
+          'handler and store it on the todo.\n'
+          '- In src/app/templates/app.html, bind the edit dialog\'s due-date input '
+          'to the todo\'s current value.\n',
+        );
+      File(p.join(fixtureDir, story2FisPath))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '# Fix BUG-003 — default priority for quick-add todos\n\n'
+          '## Feature Overview and Goal\n\n'
+          '**Intent**: Close BUG-003 — todos created through quick-add have no '
+          'default priority. Quick-add must assign the same default priority the '
+          'full add form uses, and the list must render it.\n\n'
+          '## Acceptance Scenarios\n\n'
+          '- A todo created via quick-add is assigned the default priority.\n'
+          '- The rendered list shows the priority for a quick-added todo.\n\n'
+          '## Implementation Plan\n\n'
+          '- In src/app/routes/todos.py, set the default priority when a quick-add '
+          'todo is created.\n'
+          '- In src/app/templates/partials/todo_list_content.html, render the todo '
+          'priority so the default is visible.\n',
+        );
+      final addSeed = await Process.run('git', [
+        'add',
+        prdPath,
+        planJsonPath,
+        story1FisPath,
+        story2FisPath,
+      ], workingDirectory: fixtureDir);
+      if (addSeed.exitCode != 0) {
+        fail('Failed to stage plan-and-implement plan seed: ${addSeed.stderr}');
       }
-      final commitPrd = await Process.run('git', [
+      final commitSeed = await Process.run('git', [
         'commit',
         '-qm',
-        'Add plan-and-implement PRD fixture',
+        'Add pre-authored plan-and-implement plan fixture',
       ], workingDirectory: fixtureDir);
-      if (commitPrd.exitCode != 0) {
-        fail('Failed to commit plan-and-implement PRD fixture: ${commitPrd.stderr}');
+      if (commitSeed.exitCode != 0) {
+        fail('Failed to commit plan-and-implement plan seed: ${commitSeed.stderr}');
       }
       final variables = {
         'FEATURE': prdPath,
@@ -882,7 +999,7 @@ void main() {
         'BRANCH': 'main',
         'MAX_PARALLEL': '2',
       };
-      final run = await w.workflowService.start(definition, variables, headless: true);
+      final run = await w.workflowService.start(definition, variables);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
       final finalStatus = await completionFuture.timeout(
@@ -897,15 +1014,7 @@ void main() {
 
       expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
 
-      final coreSteps = [
-        'discover-plan-state',
-        'plan',
-        'implement',
-        'simplify-code',
-        'review-story',
-        'remediate',
-        're-review',
-      ];
+      final coreSteps = ['discover-plan-state', 'implement', 'simplify-code', 'review-story', 'remediate', 're-review'];
       expectStepOrderSubsequence(recorder.stepOrder, coreSteps);
       final remediateIndex = recorder.stepOrder.indexOf('remediate');
       expect(remediateIndex, isNonNegative, reason: 'remediate should run after forced review findings');
@@ -915,7 +1024,11 @@ void main() {
         expect(reviewIndex, lessThan(remediateIndex), reason: '$reviewStep should run before remediation');
       }
 
-      expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
+      expect(
+        recorder.count('plan'),
+        0,
+        reason: 'plan step must be skipped when a pre-authored plan.json + story FIS are discovered',
+      );
       expect(recorder.count('prd'), 0, reason: 'plan-and-implement requires a discovered PRD');
       expect(recorder.count('revise-prd'), 0, reason: 'plan-and-implement no longer revises PRDs');
 
@@ -944,17 +1057,23 @@ void main() {
       expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
       final remediateInputs = recorder.tracesForStep('remediate').map((trace) => trace.inputs).toList(growable: false);
       expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings input');
+      // remediate consumes the aggregated report via prompt interpolation of
+      // the canonical bare key ({{context.review_report_path}}); its inputs:
+      // declaration carries only story_results. Assert the interpolation
+      // source: the aggregate's canonical bare key in the run context.
+      final finalRun = await w.workflowService.get(run.id);
+      final finalContext = WorkflowContext.fromJson(finalRun?.contextJson ?? const <String, dynamic>{}).data;
       expect(
-        remediateInputs.any((inputs) => (inputs['review_findings']?.toString().trim() ?? '').endsWith('.md')),
+        (finalContext['review_report_path']?.toString().trim() ?? '').endsWith('.md'),
         isTrue,
-        reason: 'remediate should receive one markdown review report path',
+        reason: 'aggregate should publish the canonical bare markdown review_report_path that remediate interpolates',
       );
       expect(
         remediateInputs.any(
-          (inputs) => (inputs['architecture-review.review_findings']?.toString().trim() ?? '').isNotEmpty,
+          (inputs) => (inputs['architecture-review.review_report_path']?.toString().trim() ?? '').isNotEmpty,
         ),
         isFalse,
-        reason: 'architecture findings should be represented in the aggregate review_findings report',
+        reason: 'architecture findings should be represented in the aggregate review_report_path report',
       );
 
       expectWorktreeRecorded(recorder, 'implement');
@@ -975,12 +1094,12 @@ void main() {
       }
       expectDistinctWorktreePaths(worktreePathBySpec.values.toList(growable: false));
       expectStepArtifactOutputs(artifactDir, 'plan-review', const {
-        'plan-review.review_findings',
+        'plan-review.review_report_path',
         'plan-review.findings_count',
         'plan-review.gating_findings_count',
       });
       expectStepArtifactOutputs(artifactDir, 'architecture-review', const {
-        'architecture-review.review_findings',
+        'architecture-review.review_report_path',
         'architecture-review.findings_count',
         'architecture-review.gating_findings_count',
       });
@@ -998,7 +1117,13 @@ void main() {
         expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
         final branch = publishBranch!;
         createdBranches.add(branch);
-        expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir, ref: 'origin/$branch');
+        // The pre-authored plan seed (skipped `plan` step) must ride through to
+        // the published integration branch so per-story worktrees inherited it.
+        expectCommittedPaths(
+          projectDir: fixtureDir,
+          ref: 'origin/$branch',
+          relativePaths: const [planJsonPath, story1FisPath, story2FisPath],
+        );
         await assertDiffTouchesExpectedFiles(
           projectDir: fixtureDir,
           headRef: 'main',

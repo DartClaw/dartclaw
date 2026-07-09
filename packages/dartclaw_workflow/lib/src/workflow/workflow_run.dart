@@ -235,12 +235,6 @@ class WorkflowRun {
   /// Serialized workflow definition snapshot (definition at start time).
   final Map<String, dynamic> definitionJson;
 
-  /// Current loop ID for crash recovery (S04).
-  final String? currentLoopId;
-
-  /// Current loop iteration for crash recovery (S04).
-  final int? currentLoopIteration;
-
   /// Generalized execution cursor for node-oriented crash recovery.
   final WorkflowExecutionCursor? executionCursor;
 
@@ -265,8 +259,6 @@ class WorkflowRun {
     this.totalTokens = 0,
     this.currentStepIndex = 0,
     this.definitionJson = const {},
-    this.currentLoopId,
-    this.currentLoopIteration,
     this.executionCursor,
     WorkflowWorktreeBinding? workflowWorktree,
     List<WorkflowWorktreeBinding> workflowWorktrees = const [],
@@ -290,8 +282,6 @@ class WorkflowRun {
     int? totalTokens,
     int? currentStepIndex,
     Map<String, dynamic>? definitionJson,
-    Object? currentLoopId = _sentinel,
-    Object? currentLoopIteration = _sentinel,
     Object? executionCursor = _sentinel,
     Object? workflowWorktree = _sentinel,
     Object? workflowWorktrees = _sentinel,
@@ -308,10 +298,6 @@ class WorkflowRun {
     totalTokens: totalTokens ?? this.totalTokens,
     currentStepIndex: currentStepIndex ?? this.currentStepIndex,
     definitionJson: definitionJson ?? this.definitionJson,
-    currentLoopId: identical(currentLoopId, _sentinel) ? this.currentLoopId : currentLoopId as String?,
-    currentLoopIteration: identical(currentLoopIteration, _sentinel)
-        ? this.currentLoopIteration
-        : currentLoopIteration as int?,
     executionCursor: identical(executionCursor, _sentinel)
         ? this.executionCursor
         : executionCursor as WorkflowExecutionCursor?,
@@ -335,8 +321,6 @@ class WorkflowRun {
     'totalTokens': totalTokens,
     'currentStepIndex': currentStepIndex,
     'definitionJson': Map<String, dynamic>.from(definitionJson),
-    if (currentLoopId != null) 'currentLoopId': currentLoopId,
-    if (currentLoopIteration != null) 'currentLoopIteration': currentLoopIteration,
     if (executionCursor != null) 'executionCursor': executionCursor!.toJson(),
     if (workflowWorktrees.isNotEmpty)
       'workflowWorktrees': workflowWorktrees.map((binding) => binding.toJson()).toList(),
@@ -356,8 +340,6 @@ class WorkflowRun {
     totalTokens: (json['totalTokens'] as int?) ?? 0,
     currentStepIndex: (json['currentStepIndex'] as int?) ?? 0,
     definitionJson: _toStringDynamicMap(json['definitionJson']),
-    currentLoopId: json['currentLoopId'] as String?,
-    currentLoopIteration: json['currentLoopIteration'] as int?,
     executionCursor: _toExecutionCursor(json['executionCursor']),
     workflowWorktrees: _toWorkflowWorktreeBindings(json['workflowWorktrees'] ?? json['workflowWorktree']),
   );

@@ -87,7 +87,7 @@ void main() {
         config: config,
         apiClient: unreachableClient(),
         harnessFactory: fakeHarness(),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -119,7 +119,7 @@ void main() {
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -147,7 +147,7 @@ void main() {
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -175,7 +175,7 @@ void main() {
         config: config,
         apiClient: reachableClient(),
         harnessFactory: fakeHarness(),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -200,7 +200,7 @@ void main() {
         config: config,
         apiClient: reachableClient(),
         harnessFactory: fakeHarness(),
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -267,7 +267,7 @@ void main() {
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(unauthenticated: {'claude'}),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -309,7 +309,7 @@ void main() {
         config: config,
         apiClient: unreachableClient(),
         harnessFactory: factory,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: preflight,
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -346,7 +346,7 @@ void main() {
         apiClient: unreachableClient(),
         harnessFactory: fakeHarness(),
         // Production default — the verb must force it off, not rely on the flag.
-        runAndthenSkillsBootstrap: true,
+        runWorkflowSkillsBootstrap: true,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -379,7 +379,7 @@ void main() {
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
         // Production default — the verb must force it off, not rely on the flag.
-        runAndthenSkillsBootstrap: true,
+        runWorkflowSkillsBootstrap: true,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -411,7 +411,7 @@ void main() {
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
         interrupts: noInterrupts,
@@ -448,7 +448,7 @@ WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) 
     config: config,
     apiClient: unreachableClient(),
     harnessFactory: fakeHarness(),
-    runAndthenSkillsBootstrap: false,
+    runWorkflowSkillsBootstrap: false,
     providerAuthPreflight: FakeProviderAuthPreflight(),
     skillIntrospector: FakeSkillIntrospector(const {}),
     interrupts: noInterrupts,
@@ -474,7 +474,7 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
     config: config,
     dataDir: config.server.dataDir,
     harnessFactory: fakeHarness(),
-    runAndthenSkillsBootstrap: false,
+    runWorkflowSkillsBootstrap: false,
     providerAuthPreflight: FakeProviderAuthPreflight(),
     skillIntrospector: FakeSkillIntrospector(const {}),
   );
@@ -489,7 +489,7 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
         .listen((_) {
           if (!settled.isCompleted) settled.complete();
         });
-    final run = await wiring.workflowService.start(definition, const {}, headless: true);
+    final run = await wiring.workflowService.start(definition, const {});
     await settled.future.timeout(const Duration(seconds: 10));
     await sub.cancel();
     return run.id;

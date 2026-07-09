@@ -15,6 +15,11 @@ abstract class TaskRepository {
   /// Lists tasks ordered by newest first.
   Future<List<Task>> list({TaskStatus? status, TaskType? type});
 
+  /// Lists tasks whose `workflowRunId` is in [runIds], ordered by newest first.
+  ///
+  /// Empty [runIds] returns an empty list.
+  Future<List<Task>> listByWorkflowRunIds(Iterable<String> runIds);
+
   /// Persists an update to an existing task.
   Future<void> update(Task task);
 

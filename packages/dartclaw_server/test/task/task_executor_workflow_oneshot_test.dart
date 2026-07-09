@@ -7,10 +7,49 @@ import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunn
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion;
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'task_executor_test_support.dart';
+
+/// Strict execution-envelope schema (top-level `outputs` → envelope path) with a
+/// single declared narrative output `summary` plus the engine-owned `step_outcome`.
+final _summaryEnvelopeSchema = <String, dynamic>{
+  'type': 'object',
+  'additionalProperties': false,
+  'required': ['outputs', 'step_outcome'],
+  'properties': {
+    'outputs': {
+      'type': 'object',
+      'additionalProperties': false,
+      'required': ['summary'],
+      'properties': {
+        'summary': {'type': 'string'},
+      },
+    },
+    'step_outcome': {
+      'type': 'object',
+      'additionalProperties': false,
+      'required': ['outcome', 'reason'],
+      'properties': {
+        'outcome': {
+          'type': 'string',
+          'enum': ['succeeded', 'failed', 'needsInput'],
+        },
+        'reason': {'type': 'string'},
+      },
+    },
+  },
+};
+
+/// The `structured_output` a finalizer turn returns for [_summaryEnvelopeSchema].
+final _finalizerEnvelopeOutput = <String, dynamic>{
+  'outputs': {'summary': 'final'},
+  'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+};
 
 void main() {
   late FakeTaskWorker worker;
@@ -150,6 +189,219 @@ void main() {
     expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.structuredOutput, isA<Map<Object?, Object?>>());
   });
 
+  test(
+    'one-shot spawn carries the step-artifacts env, merged over merge-resolve env, and pre-creates the dir',
+    () async {
+      Map<String, String>? capturedEnv;
+      final cliRunner = echoCliRunner(
+        (_) => jsonEncode({'session_id': 'cli-session-env', 'result': 'Done.'}),
+        onEnv: (env) => capturedEnv = env,
+      );
+      final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+      addTearDown(oneShotExecutor.stop);
+
+      final stepArtifactsDir = p.join(ctx.tempDir.path, 'runs', 'wf-env', 'runtime-artifacts', 'steps', 'review');
+      expect(Directory(stepArtifactsDir).existsSync(), isFalse, reason: 'precondition: host must create the dir');
+      await tasks.create(
+        id: 'task-step-artifacts-env',
+        title: 'Review step',
+        description: 'Review --output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR"',
+        type: TaskType.coding,
+        autoStart: true,
+        agentExecutionId: 'ae-step-artifacts-env',
+        workflowRunId: 'wf-env',
+        provider: 'claude',
+        configJson: {
+          WorkflowTaskConfig.mergeResolveEnv: const {'MERGE_KEY': 'merge-val'},
+          WorkflowTaskConfig.stepArtifactsEnv: {'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir},
+        },
+      );
+      await seedWorkflowExecution(
+        'task-step-artifacts-env',
+        agentExecutionId: 'ae-step-artifacts-env',
+        workflowRunId: 'wf-env',
+      );
+
+      await oneShotExecutor.pollOnce();
+
+      expect(capturedEnv, isNotNull);
+      // Host-computed step artifacts dir reaches the spawn env, scoped to this task.
+      expect(capturedEnv!['DARTCLAW_STEP_ARTIFACTS_DIR'], stepArtifactsDir);
+      // Step-artifacts env merges over, not replacing, the merge-resolve entries.
+      expect(capturedEnv!['MERGE_KEY'], 'merge-val');
+      // The host owns dir creation — it exists before the agent's first turn.
+      expect(Directory(stepArtifactsDir).existsSync(), isTrue);
+    },
+  );
+
+  test('workflow oneshot cancellation records cancelled without taskError', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      providerImpls: const {'claude': _CancellingCliProvider()},
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-cancelled',
+      title: 'One-shot cancellation',
+      description: 'Teardown cancellation should be resumable.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-cancelled',
+      workflowRunId: 'wf-cancelled',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-cancelled',
+      agentExecutionId: 'ae-task-oneshot-cancelled',
+      workflowRunId: 'wf-cancelled',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    final updated = await tasks.get('task-oneshot-cancelled');
+    expect(updated?.status, TaskStatus.cancelled);
+    final events = eventService.listForTask('task-oneshot-cancelled');
+    expect(events.any((event) => event.kind == TaskEventKind.taskError), isFalse);
+  });
+
+  test('workflow oneshot genuine failure records failed with taskError', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      providerImpls: const {'claude': _FailingCliProvider()},
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-failed',
+      title: 'One-shot failure',
+      description: 'A genuine CLI failure should remain failed.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-failed',
+      workflowRunId: 'wf-failed',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-failed',
+      agentExecutionId: 'ae-task-oneshot-failed',
+      workflowRunId: 'wf-failed',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    final updated = await tasks.get('task-oneshot-failed');
+    expect(updated?.status, TaskStatus.failed);
+    final events = eventService.listForTask('task-oneshot-failed');
+    final taskErrors = events.where((event) => event.kind == TaskEventKind.taskError).toList();
+    expect(taskErrors.map((event) => event.details['message']), [
+      'Workflow one-shot claude command failed with exit code 1',
+    ]);
+  });
+
+  test('workflow oneshot genuine failure corrects dispose-cancelled task to failed', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      providerImpls: {
+        'claude': _CancelsThenFailsCliProvider(() {
+          return tasks.transition('task-oneshot-cancelled-then-failed', TaskStatus.cancelled, trigger: 'dispose');
+        }),
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-cancelled-then-failed',
+      title: 'One-shot cancelled then failed',
+      description: 'A genuine CLI failure should override a concurrent dispose cancellation.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-cancelled-then-failed',
+      workflowRunId: 'wf-cancelled-then-failed',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-cancelled-then-failed',
+      agentExecutionId: 'ae-task-oneshot-cancelled-then-failed',
+      workflowRunId: 'wf-cancelled-then-failed',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    final updated = await tasks.get('task-oneshot-cancelled-then-failed');
+    expect(updated?.status, TaskStatus.failed);
+    final events = eventService.listForTask('task-oneshot-cancelled-then-failed');
+    final taskErrors = events.where((event) => event.kind == TaskEventKind.taskError).toList();
+    expect(taskErrors.map((event) => event.details['message']), [
+      'Workflow one-shot claude command failed with exit code 17',
+    ]);
+  });
+
+  test('workflow oneshot non-zero exit completed before cancellation records failed with taskError', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    late FakeProcess process;
+    final processStarted = Completer<void>();
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        process = FakeProcess(killResult: false);
+        processStarted.complete();
+        return process;
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-race-failed',
+      title: 'One-shot race failure',
+      description: 'A CLI failure that already exited before teardown should remain failed.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-race-failed',
+      workflowRunId: 'wf-race-failed',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-race-failed',
+      agentExecutionId: 'ae-task-oneshot-race-failed',
+      workflowRunId: 'wf-race-failed',
+    );
+
+    final poll = oneShotExecutor.pollOnce();
+    await processStarted.future;
+    process.exit(17);
+    await cliRunner.cancelInflight();
+    await poll;
+    await oneShotExecutor.stop();
+
+    final updated = await tasks.get('task-oneshot-race-failed');
+    expect(updated?.status, TaskStatus.failed);
+    final events = eventService.listForTask('task-oneshot-race-failed');
+    final taskErrors = events.where((event) => event.kind == TaskEventKind.taskError).toList();
+    expect(taskErrors.map((event) => event.details['message']), [
+      'Workflow one-shot claude command failed with exit code 17',
+    ]);
+  });
+
   test('provider-less workflow oneshot uses configured default provider instead of pool runner provider', () async {
     String? executable;
     final cliRunner = echoCliRunner(
@@ -182,6 +434,40 @@ void main() {
     expect(processed, isTrue);
     expect(executable, 'codex');
     expect((await tasks.get('task-oneshot-default-provider'))!.status, TaskStatus.review);
+  });
+
+  test('workflow oneshot resolves step timeout from task config before global default', () async {
+    final provider = _RecordingTimeoutCliProvider();
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      providerImpls: {'claude': provider},
+    );
+    final oneShotExecutor = buildExecutor(
+      workflowCliRunner: cliRunner,
+      limits: const TaskExecutorLimits(defaultStepTimeout: Duration(seconds: 42)),
+    );
+    addTearDown(oneShotExecutor.stop);
+
+    Future<void> createAndPoll(String id, {Map<String, dynamic> configJson = const {}}) async {
+      await tasks.create(
+        id: id,
+        title: 'One-shot workflow timeout',
+        description: 'Run the workflow step.',
+        type: TaskType.coding,
+        autoStart: true,
+        agentExecutionId: 'ae-$id',
+        workflowRunId: 'wf-timeout',
+        provider: 'claude',
+        configJson: configJson,
+      );
+      await seedWorkflowExecution(id, agentExecutionId: 'ae-$id', workflowRunId: 'wf-timeout');
+      await oneShotExecutor.pollOnce();
+    }
+
+    await createAndPoll('task-global-timeout');
+    await createAndPoll('task-step-timeout', configJson: const {WorkflowTaskConfig.workflowTimeoutSeconds: 7});
+
+    expect(provider.stepTimeouts, [const Duration(seconds: 42), const Duration(seconds: 7)]);
   });
 
   test('workflow oneshot passes read-only allowedTools to CLI policy', () async {
@@ -961,4 +1247,369 @@ void main() {
       reason: 'extraction turn must not carry appendSystemPrompt',
     );
   });
+
+  test('workflow oneshot finalizer runs even with inline block / structured output', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    final cliRunner = echoCliRunner(
+      (args) => args.contains('--json-schema')
+          ? jsonEncode({'session_id': 'cli-session-final', 'structured_output': _finalizerEnvelopeOutput})
+          : jsonEncode({
+              'session_id': 'cli-session-final',
+              'result': 'Working...\n<workflow-context>{"summary":"inline"}</workflow-context>',
+            }),
+    );
+    final finalizerExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(finalizerExecutor.stop);
+
+    await tasks.create(
+      id: 'task-finalizer-inline',
+      title: 'Finalizer over inline',
+      description: 'Envelope step still finalizes even with a legacy inline block.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-finalizer-inline',
+      workflowRunId: 'wf-finalizer-inline',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-finalizer-inline',
+      agentExecutionId: 'ae-task-finalizer-inline',
+      workflowRunId: 'wf-finalizer-inline',
+      structuredSchema: _summaryEnvelopeSchema,
+      stepId: 'plan',
+    );
+
+    await finalizerExecutor.pollOnce();
+
+    final stored = (await workflowStepExecutions.getByTaskId('task-finalizer-inline'))?.structuredOutput;
+    expect(stored, isNotNull, reason: 'finalizer envelope must be persisted');
+    expect(stored![executionEnvelopeMarkerKey], executionEnvelopeVersion);
+    expect(
+      (stored['outputs'] as Map)['summary'],
+      'final',
+      reason: 'authoritative payload is the finalizer, not inline',
+    );
+    final events = eventService.listForTask('task-finalizer-inline');
+    final finalizerEvents = events.where((e) => e.kind.name == 'structuredOutputFinalizerUsed').toList();
+    expect(finalizerEvents, hasLength(1));
+    expect(finalizerEvents.single.details['stepId'], 'plan');
+    expect(finalizerEvents.single.details['outputKey'], 'summary');
+    expect(events.any((e) => e.kind.name == 'structuredOutputInlineUsed'), isFalse);
+  });
+
+  test('workflow oneshot no-tools invocation arguments (finalizer)', () async {
+    final capturedArgs = <List<String>>[];
+    final cliRunner = echoCliRunner(
+      (args) => args.contains('--json-schema')
+          ? jsonEncode({'session_id': 'cli-session-final', 'structured_output': _finalizerEnvelopeOutput})
+          : jsonEncode({'session_id': 'cli-session-final', 'result': 'Working...'}),
+      onArgs: (_, args) => capturedArgs.add(args),
+    );
+    final finalizerExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(finalizerExecutor.stop);
+
+    await tasks.create(
+      id: 'task-finalizer-notools',
+      title: 'Finalizer no-tools args',
+      description: 'The finalizer turn caps turns and drops write tools.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-finalizer-notools',
+      workflowRunId: 'wf-finalizer-notools',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-finalizer-notools',
+      agentExecutionId: 'ae-task-finalizer-notools',
+      workflowRunId: 'wf-finalizer-notools',
+      structuredSchema: _summaryEnvelopeSchema,
+      stepId: 'plan',
+    );
+
+    await finalizerExecutor.pollOnce();
+
+    final finalizerArgs = capturedArgs.firstWhere((a) => a.contains('--json-schema'));
+    final maxTurnsIndex = finalizerArgs.indexOf('--max-turns');
+    expect(maxTurnsIndex, isNonNegative, reason: 'claude finalizer must carry a tight turn cap');
+    expect(
+      finalizerArgs[maxTurnsIndex + 1],
+      '2',
+      reason:
+          'cap must allow one structured-output schema retry; a cap of 1 turns a single rejected '
+          'StructuredOutput attempt into error_max_turns and fails the whole step',
+    );
+    expect(
+      finalizerArgs,
+      isNot(contains('5')),
+      reason: 'legacy --max-turns 5 must not apply to the envelope finalizer',
+    );
+    // Read-only marker: the finalizer forces a deny-list policy regardless of the task's own readOnly.
+    expect(finalizerArgs, containsAll(['--permission-mode', 'dontAsk']));
+    final settingsIndex = finalizerArgs.indexOf('--settings');
+    expect(settingsIndex, isNonNegative);
+    final settings = jsonDecode(finalizerArgs[settingsIndex + 1]) as Map<String, dynamic>;
+    expect((settings['permissions'] as Map)['deny'], ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)']);
+  });
+
+  test('workflow oneshot finalizer token accounting over both turns', () async {
+    final cliRunner = echoCliRunner(
+      (args) => args.contains('--json-schema')
+          ? jsonEncode({
+              'session_id': 'cli-session-final',
+              'input_tokens': 600,
+              'output_tokens': 400,
+              'cache_read_tokens': 300,
+              'structured_output': _finalizerEnvelopeOutput,
+            })
+          : jsonEncode({
+              'session_id': 'cli-session-final',
+              'input_tokens': 200,
+              'output_tokens': 50,
+              'cache_read_tokens': 50,
+              'result': 'Working...',
+            }),
+    );
+    final finalizerExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(finalizerExecutor.stop);
+
+    await tasks.create(
+      id: 'task-finalizer-tokens',
+      title: 'Finalizer token accounting',
+      description: 'Token totals sum the main and finalizer turns.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-finalizer-tokens',
+      workflowRunId: 'wf-finalizer-tokens',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-finalizer-tokens',
+      agentExecutionId: 'ae-task-finalizer-tokens',
+      workflowRunId: 'wf-finalizer-tokens',
+      structuredSchema: _summaryEnvelopeSchema,
+      stepId: 'plan',
+    );
+
+    await finalizerExecutor.pollOnce();
+
+    final updated = await tasks.get('task-finalizer-tokens');
+    expect(updated?.status, TaskStatus.review);
+    // main (200/50/50) + finalizer (600/400/300): input 800, cacheRead 350, output 450.
+    expect(updated?.configJson['_workflowInputTokensNew'], 450);
+    expect(updated?.configJson['_workflowCacheReadTokens'], 350);
+    expect(updated?.configJson['_workflowOutputTokens'], 450);
+    final step = await workflowStepExecutions.getByTaskId('task-finalizer-tokens');
+    expect(step?.stepTokenBreakdown, {'inputTokensNew': 450, 'cacheReadTokens': 350, 'outputTokens': 450});
+  });
+
+  test('workflow oneshot finalizer missing provider session → failed', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    final cliRunner = echoCliRunner(
+      // Empty session_id everywhere: no resumable session ever materializes.
+      (args) => args.contains('--json-schema')
+          ? jsonEncode({'session_id': '', 'structured_output': _finalizerEnvelopeOutput})
+          : jsonEncode({'session_id': '', 'result': 'Working...'}),
+    );
+    final finalizerExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(finalizerExecutor.stop);
+
+    await tasks.create(
+      id: 'task-finalizer-nosession',
+      title: 'Finalizer missing session',
+      description: 'No resumable session is a finalizer failure.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-finalizer-nosession',
+      workflowRunId: 'wf-finalizer-nosession',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-finalizer-nosession',
+      agentExecutionId: 'ae-task-finalizer-nosession',
+      workflowRunId: 'wf-finalizer-nosession',
+      structuredSchema: _summaryEnvelopeSchema,
+      stepId: 'review',
+    );
+
+    await finalizerExecutor.pollOnce();
+
+    final updated = await tasks.get('task-finalizer-nosession');
+    expect(updated?.status, TaskStatus.failed);
+    final events = eventService.listForTask('task-finalizer-nosession');
+    final failedEvents = events.where((e) => e.kind.name == 'structuredOutputValidationFailed').toList();
+    expect(failedEvents, hasLength(1));
+    expect(failedEvents.single.details['stepId'], 'review');
+    expect(failedEvents.single.details['failureReason'], 'missing_provider_session');
+    expect(events.any((e) => e.kind.name == 'structuredOutputFinalizerUsed'), isFalse);
+    expect(
+      (await workflowStepExecutions.getByTaskId('task-finalizer-nosession'))?.structuredOutput,
+      isNull,
+      reason: 'no structured payload is persisted on finalizer failure',
+    );
+  });
+
+  test('workflow oneshot finalizer same-session re-ask then success', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    var finalizerCalls = 0;
+    final cliRunner = echoCliRunner((args) {
+      if (args.contains('--json-schema')) {
+        finalizerCalls++;
+        // First finalizer turn yields no structured payload; the re-ask succeeds.
+        return finalizerCalls == 1
+            ? jsonEncode({'session_id': 'cli-session-final', 'result': 'I could not produce it yet.'})
+            : jsonEncode({'session_id': 'cli-session-final', 'structured_output': _finalizerEnvelopeOutput});
+      }
+      return jsonEncode({'session_id': 'cli-session-final', 'result': 'Working...'});
+    });
+    final finalizerExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(finalizerExecutor.stop);
+
+    await tasks.create(
+      id: 'task-finalizer-reask',
+      title: 'Finalizer re-ask',
+      description: 'A same-session re-ask recovers the envelope.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-finalizer-reask',
+      workflowRunId: 'wf-finalizer-reask',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-finalizer-reask',
+      agentExecutionId: 'ae-task-finalizer-reask',
+      workflowRunId: 'wf-finalizer-reask',
+      structuredSchema: _summaryEnvelopeSchema,
+      stepId: 'plan',
+    );
+
+    await finalizerExecutor.pollOnce();
+
+    expect(finalizerCalls, 2, reason: 'one re-ask after the first empty finalizer turn');
+    final stored = (await workflowStepExecutions.getByTaskId('task-finalizer-reask'))?.structuredOutput;
+    expect(stored, isNotNull);
+    expect(stored![executionEnvelopeMarkerKey], executionEnvelopeVersion);
+    expect((stored['outputs'] as Map)['summary'], 'final');
+    final events = eventService.listForTask('task-finalizer-reask');
+    expect(events.where((e) => e.kind.name == 'structuredOutputFinalizerUsed'), hasLength(1));
+    expect(events.any((e) => e.kind.name == 'structuredOutputValidationFailed'), isFalse);
+  });
+
+  test('workflow oneshot finalizer rejects a malformed envelope instead of stamping it', () async {
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+    // A non-null but schema-invalid finalizer payload: `outputs` omits the
+    // required declared key `summary`. A provider/CLI regression could return
+    // this; stamping it would advance the step with empty declared outputs.
+    final cliRunner = echoCliRunner(
+      (args) => args.contains('--json-schema')
+          ? jsonEncode({
+              'session_id': 'cli-session-final',
+              'structured_output': {
+                'outputs': <String, dynamic>{},
+                'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+              },
+            })
+          : jsonEncode({'session_id': 'cli-session-final', 'result': 'Working...'}),
+    );
+    final finalizerExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(finalizerExecutor.stop);
+
+    await tasks.create(
+      id: 'task-finalizer-malformed',
+      title: 'Finalizer malformed envelope',
+      description: 'A malformed envelope is a validation failure, not a success.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-finalizer-malformed',
+      workflowRunId: 'wf-finalizer-malformed',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-finalizer-malformed',
+      agentExecutionId: 'ae-task-finalizer-malformed',
+      workflowRunId: 'wf-finalizer-malformed',
+      structuredSchema: _summaryEnvelopeSchema,
+      stepId: 'plan',
+    );
+
+    await finalizerExecutor.pollOnce();
+
+    final updated = await tasks.get('task-finalizer-malformed');
+    expect(updated?.status, TaskStatus.failed);
+    final events = eventService.listForTask('task-finalizer-malformed');
+    final failedEvents = events.where((e) => e.kind.name == 'structuredOutputValidationFailed').toList();
+    expect(failedEvents, hasLength(1));
+    expect(failedEvents.single.details['failureReason'], 'malformed_envelope');
+    expect(events.any((e) => e.kind.name == 'structuredOutputFinalizerUsed'), isFalse);
+    expect(
+      (await workflowStepExecutions.getByTaskId('task-finalizer-malformed'))?.structuredOutput,
+      isNull,
+      reason: 'a malformed envelope must not be persisted',
+    );
+  });
+}
+
+final class _RecordingTimeoutCliProvider implements CliProvider {
+  final stepTimeouts = <Duration?>[];
+
+  @override
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    stepTimeouts.add(request.stepTimeout);
+    return WorkflowCliTurnResult(
+      providerSessionId: 'recording-timeout-session',
+      responseText: 'Done.',
+      newInputTokens: 0,
+    );
+  }
+}
+
+final class _CancellingCliProvider implements CliProvider {
+  const _CancellingCliProvider();
+
+  @override
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async => WorkflowCliTurnResult.cancelled();
+}
+
+final class _FailingCliProvider implements CliProvider {
+  const _FailingCliProvider();
+
+  @override
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    throw StateError('Workflow one-shot claude command failed with exit code 1');
+  }
+}
+
+final class _CancelsThenFailsCliProvider implements CliProvider {
+  const _CancelsThenFailsCliProvider(this.cancelTask);
+
+  final Future<void> Function() cancelTask;
+
+  @override
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    await cancelTask();
+    throw StateError('Workflow one-shot claude command failed with exit code 17');
+  }
 }

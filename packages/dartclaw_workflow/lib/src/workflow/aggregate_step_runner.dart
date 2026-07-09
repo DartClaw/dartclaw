@@ -46,7 +46,7 @@ Future<StepOutcome> executeAggregateStep({
   return StepOutcome(
     step: step,
     outputs: {
-      'review_findings': mergedPath,
+      'review_report_path': mergedPath,
       'findings_count': findingsCount,
       'gating_findings_count': gatingFindingsCount,
       '${step.id}.status': 'success',

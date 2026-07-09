@@ -295,6 +295,8 @@ dartclaw workflow list
 dartclaw workflow list --json
 ```
 
+The human table includes a `VARIABLES` column naming each workflow's required variables (name only), so you can compose a `run` command without inspecting `--json`. The `--json` output is unchanged and carries the full variable objects (required flag, description, default) under `variables`.
+
 ### `workflow show`
 
 Print a workflow definition, either raw or fully resolved.
@@ -372,7 +374,10 @@ dartclaw workflow status <run-id> --standalone
 
 ```bash
 dartclaw workflow validate path/to/workflow.yaml
+dartclaw workflow validate path/to/workflow.yaml --skills   # also probe each step's provider for its skill ref
 ```
+
+`--skills` is opt-in and additive: after the structural validation it probes each agent step's referenced skill against that step's resolved provider and emits a **warning** (naming the step id, skill ref, and provider) for any ref the provider cannot resolve — catching a whole class of green-but-broken YAMLs before any tokens are spent. It never changes exit codes: unresolvable refs stay warnings, and if the provider CLI is missing or the probe otherwise fails the command still returns the structural verdict plus a note that skill resolution could not be checked. Default `validate` (without `--skills`) is unchanged and runs no probe.
 
 ### `workflow cleanup-skills`
 

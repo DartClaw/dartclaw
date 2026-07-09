@@ -21,7 +21,6 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         ArtifactCollector,
         BehaviorFileService,
         DiffGenerator,
-        GitCredentialPlan,
         HarnessPool,
         ProjectServiceImpl,
         PromptScope,
@@ -39,7 +38,8 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         WorkflowGitPortProcess,
         TaskService,
         TurnManager,
-        TurnRunner;
+        TurnRunner,
+        WorkflowCliProcessStarter;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         CliProviderAuthPreflight,
@@ -68,7 +68,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
+        WorkflowTurnOutcome,
+        resolveIntegrationBranchName;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show
         SearchDbFactory,
@@ -87,7 +88,7 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 
 import '../workflow_materializer.dart';
 import '../workflow_asset_source_resolver.dart';
-import 'andthen_skill_bootstrap.dart';
+import 'workflow_skill_bootstrap.dart';
 import 'credential_preflight.dart';
 import 'project_definition_paths.dart';
 import 'workflow_git_support.dart';
@@ -146,11 +147,12 @@ class CliWorkflowWiring {
   final TaskDbFactory _taskDbFactory;
   final AssetResolver assetResolver;
   final WorkflowStepOutputTransformer? workflowStepOutputTransformer;
-  final bool runAndthenSkillsBootstrap;
+  final bool runWorkflowSkillsBootstrap;
   final ProcessRunner? skillProvisionerProcessRunner;
   final SkillIntrospector? skillIntrospector;
   final ProviderAuthPreflight? providerAuthPreflight;
   final RemotePushService? remotePushServiceOverride;
+  final WorkflowCliProcessStarter? workflowCliProcessStarter;
 
   /// When true, the live source tree wins over the installed asset cache for
   /// both built-in skill provisioning and workflow YAML materialization. The
@@ -207,11 +209,12 @@ class CliWorkflowWiring {
     TaskDbFactory? taskDbFactory,
     AssetResolver? assetResolver,
     this.workflowStepOutputTransformer,
-    this.runAndthenSkillsBootstrap = true,
+    this.runWorkflowSkillsBootstrap = true,
     this.skillProvisionerProcessRunner,
     this.skillIntrospector,
     this.providerAuthPreflight,
     this.remotePushServiceOverride,
+    this.workflowCliProcessStarter,
     this.prCreator,
     this.preferSourceTreeAssets = false,
   }) : runtimeCwd = runtimeCwd ?? Directory.current.path,
@@ -324,7 +327,7 @@ class CliWorkflowWiring {
     final builtInSkillsSourceDir = preferSourceTreeAssets
         ? (sourceSkillsDir ?? assetSkillsDir)
         : (assetSkillsDir ?? sourceSkillsDir);
-    if (runAndthenSkillsBootstrap) {
+    if (runWorkflowSkillsBootstrap) {
       await bootstrapWorkflowSkills(
         config: config,
         dataDir: dataDir,
@@ -469,6 +472,7 @@ class CliWorkflowWiring {
           ),
       },
       eventBus: eventBus,
+      processStarter: workflowCliProcessStarter,
     );
     taskExecutor = TaskExecutor(
       services: TaskExecutorServices(
@@ -494,6 +498,7 @@ class CliWorkflowWiring {
         defaultProviderId: config.agent.provider,
         stallTimeout: config.governance.turnProgress.stallTimeout,
         stallAction: config.governance.turnProgress.stallAction,
+        defaultStepTimeout: config.governance.turnProgress.maxDuration,
       ),
       dataDir: dataDir,
       workspaceRoot: config.workspaceDir,
@@ -594,7 +599,10 @@ class CliWorkflowWiring {
     );
     await registry.loadFromDirectory(WorkflowMaterializer.builtInDir(dataDir), source: WorkflowSource.materialized);
     await registry.loadFromDirectory(WorkflowMaterializer.customDir(dataDir));
-    await registry.loadFromDirectory(p.join(dataDir, 'workflows'));
+    await registry.loadFromDeprecatedLegacyDirectory(
+      p.join(dataDir, 'workflows'),
+      replacementDirectory: WorkflowMaterializer.customDir(dataDir),
+    );
     for (final projectDef in config.projects.definitions.values) {
       await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
     }
@@ -610,7 +618,7 @@ class CliWorkflowWiring {
       await workflowService.dispose();
     }
     if (_harnessStarted) {
-      await workflowCliRunner.cancelInflight();
+      await workflowCliRunner.cancelInflight(cancelFutureProcesses: true);
       await taskExecutor.stop();
       await _cleanupTrackedWorkflowGit(this);
       await taskCancellationSubscriber.dispose();

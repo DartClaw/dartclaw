@@ -55,6 +55,7 @@ void main() {
               outputs: {
                 'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
                 'plan': OutputConfig(format: OutputFormat.path),
+                'technical_research': OutputConfig(format: OutputFormat.path),
               },
             ),
           ],
@@ -65,11 +66,13 @@ void main() {
           outputs: {
             'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
             'plan': OutputConfig(format: OutputFormat.path),
+            'technical_research': OutputConfig(format: OutputFormat.path),
           },
         ),
         context: WorkflowContext(
           data: {
             'plan': 'docs/plans/p/plan.md',
+            'technical_research': 'docs/plans/p/.technical-research.md',
             'story_specs': {
               'items': [
                 {'id': 'S01', 'title': 'One', 'spec_path': 'fis/s01.md'},

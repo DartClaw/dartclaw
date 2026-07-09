@@ -142,9 +142,7 @@ void main() {
   });
 
   test('POST /api/workflows/run-form returns swappable 200 fragment for precondition failures', () async {
-    workflows.startError = StateError(
-      'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
-    );
+    workflows.startError = const WorkflowStartPreconditionException('Workflow cannot start until alpha is clean.');
 
     final response = await handler(
       Request(
@@ -155,17 +153,15 @@ void main() {
       ),
     );
 
-    // Precondition StateError is a 409 on the JSON API, but the web form needs 200 to swap.
+    // Precondition failures are 409 on the JSON API, but the web form needs 200 to swap.
     expect(response.statusCode, 200);
     final body = await response.readAsString();
     expect(body, contains('form-error-text'));
-    expect(body, contains('Local-path project'));
+    expect(body, contains('Workflow cannot start'));
   });
 
   test('POST /api/workflows/run-form returns swappable 200 fragment for remote ref precondition failures', () async {
-    workflows.startError = StateError(
-      "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
-    );
+    workflows.startError = const WorkflowStartPreconditionException('Requested branch is unavailable.');
 
     final response = await handler(
       Request(
@@ -179,6 +175,6 @@ void main() {
     expect(response.statusCode, 200);
     final body = await response.readAsString();
     expect(body, contains('form-error-text'));
-    expect(body, contains('git fetch failed'));
+    expect(body, contains('Requested branch is unavailable'));
   });
 }

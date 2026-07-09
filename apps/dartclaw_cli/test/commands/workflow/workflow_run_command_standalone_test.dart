@@ -120,7 +120,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -133,8 +133,61 @@ steps:
 
       expect(output.first, contains('"type":"run_started"'));
       expect(output.any((line) => line.contains('"type":"workflow_step_completed"')), isTrue);
-      expect(output.last, contains('"type":"workflow_status_changed"'));
-      expect(output.last, contains('"newStatus":"completed"'));
+      expect(
+        output.any(
+          (line) => line.contains('"type":"workflow_status_changed"') && line.contains('"newStatus":"completed"'),
+        ),
+        isTrue,
+      );
+      // The settle-time digest is emitted as a single structured object (S04).
+      expect(output.last, contains('"type":"workflow_run_digest"'));
+      expect(output.last, contains('"nextActions"'));
+    });
+
+    test('standalone json failed step payload forwards reason and stays additive (S01/TI04)', () async {
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'failing.yaml')).writeAsStringSync('''
+name: failing
+description: A bash step that fails
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      echo "boom" >&2
+      exit 3
+''');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runWorkflowSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(() => runner.run(['run', 'failing', '--standalone', '--json']), throwsA(isA<FakeExit>()));
+
+      final stepCompleted = output
+          .where((line) => line.contains('"type":"workflow_step_completed"'))
+          .map((line) => jsonDecode(line) as Map<String, dynamic>)
+          .toList();
+      expect(stepCompleted, isNotEmpty);
+      final failed = stepCompleted.firstWhere((p) => p['success'] == false);
+      // The failed step's reason is plumbed onto the --json payload (S01) so an
+      // operator never has to open context.json to learn why a step stopped.
+      expect(failed['reason'], isNotNull);
+      // Existing keys remain present (additive contract — no rename/removal).
+      expect(failed.keys, containsAll(['type', 'runId', 'stepId', 'stepIndex', 'success', 'tokenCount']));
+      // A structured digest settles the run.
+      expect(output.last, contains('"type":"workflow_run_digest"'));
     });
 
     test('standalone --inline overrides an integration-branch git strategy to inline (S01)', () async {
@@ -162,7 +215,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -203,7 +256,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -267,7 +320,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -315,11 +368,14 @@ steps:
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
-      expect(output, [
-        '[workflow] Starting: source-only-skill (1 steps)',
-        '[workflow] Failed at step 1/1: Missing skills for provider "claude": '
-            'dartclaw-discover-andthen-spec. Available: 0 skills.',
-      ]);
+      expect(
+        output,
+        containsAllInOrder([
+          '[workflow] Starting: source-only-skill (1 steps)',
+          '[workflow] Failed at step 1/1: Missing skills for provider "claude": '
+              'dartclaw-discover-andthen-spec. Available: 0 skills.',
+        ]),
+      );
     });
 
     test('no-skill-bootstrap rejects skill missing from the effective provider root', () async {
@@ -363,11 +419,14 @@ steps:
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
-      expect(output, [
-        '[workflow] Starting: provider-mismatch (1 steps)',
-        '[workflow] Failed at step 1/1: Missing skills for provider "codex": '
-            'dartclaw-discover-andthen-spec. Available: 0 skills.',
-      ]);
+      expect(
+        output,
+        containsAllInOrder([
+          '[workflow] Starting: provider-mismatch (1 steps)',
+          '[workflow] Failed at step 1/1: Missing skills for provider "codex": '
+              'dartclaw-discover-andthen-spec. Available: 0 skills.',
+        ]),
+      );
     });
 
     test('suppresses --no-skill-bootstrap hint when a different reason was already surfaced', () async {
@@ -428,7 +487,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -459,7 +518,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -503,7 +562,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -553,7 +612,7 @@ steps:
       final wiring = CliWorkflowWiring(
         config: config,
         dataDir: config.server.dataDir,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
@@ -592,7 +651,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(unauthenticated: {'claude'}),
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -657,7 +716,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: preflight,
         skillIntrospector: FakeSkillIntrospector({}),
       );
@@ -693,17 +752,17 @@ steps:
       expect(requiredWorkflowProviders(definition, config), {'codex'});
     });
 
-    // Parallel foreach materializes a synthetic merge-resolve step on the workflow
-    // default provider, so derivation must include it alongside the declared step
-    // providers; serial foreach materializes nothing extra.
+    // Any foreach with mergeResolve enabled materializes the synthetic
+    // merge-resolve preflight step on the workflow default provider, so
+    // derivation includes it alongside the declared step providers.
     test('C-01 provider derivation includes synthetic merge-resolve default provider', () {
       config = _providerDerivationConfig(tempDir.path);
       expect(requiredWorkflowProviders(_mergeResolveDefinition(maxParallel: 2), config), {'claude', 'codex'});
     });
 
-    test('C-01 provider derivation excludes synthetic merge-resolve provider for serial foreach', () {
+    test('S03 provider derivation includes synthetic merge-resolve provider for serial foreach', () {
       config = _providerDerivationConfig(tempDir.path);
-      expect(requiredWorkflowProviders(_mergeResolveDefinition(), config), {'claude'});
+      expect(requiredWorkflowProviders(_mergeResolveDefinition(), config), {'claude', 'codex'});
     });
 
     test('S03 authenticated standalone run is behavior-unchanged (no added auth output)', () async {
@@ -718,7 +777,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );

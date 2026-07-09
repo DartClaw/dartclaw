@@ -32,13 +32,12 @@ export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/workflow/workflow_definition.dart'
     show
         ActionNode,
-        ExtractionConfig,
-        ExtractionType,
         ForeachNode,
         LoopNode,
         MapNode,
         MergeResolveConfig,
         MergeResolveEscalation,
+        OnErrorPolicy,
         OnFailurePolicy,
         OutputConfig,
         OutputFormat,
@@ -48,9 +47,7 @@ export 'src/workflow/workflow_definition.dart'
         WorkflowDefinition,
         WorkflowExternalArtifactMountMode,
         WorkflowGitArtifactsStrategy,
-        WorkflowGitCleanupStrategy,
         WorkflowGitExternalArtifactMount,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowLoop,
@@ -62,13 +59,15 @@ export 'src/workflow/workflow_definition.dart'
 export 'src/workflow/workflow_run.dart'
     show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
 export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;
+export 'src/workflow/workflow_runtime_artifacts_pruner.dart'
+    show RuntimeArtifactsPruneAction, RuntimeArtifactsPruneReport, WorkflowRuntimeArtifactsPruner;
 export 'src/workflow/workflow_task_binding_coordinator.dart' show WorkflowTaskBindingCoordinator;
 
 export 'src/workflow/context_extractor.dart' show ContextExtractor, StructuredOutputFallbackRecorder;
 export 'src/workflow/gate_evaluator.dart' show GateEvaluator;
 export 'src/workflow/map_context.dart' show MapContext;
 export 'src/workflow/missing_artifact_failure.dart' show MissingArtifactFailure;
-export 'src/workflow/output_resolver.dart' show FileSystemOutput, InlineOutput, NarrativeOutput, OutputResolver;
+export 'src/workflow/output_resolver.dart' show FileSystemOutput, InlineOutput, OutputResolver;
 export 'src/workflow/produced_artifact_resolver.dart'
     show
         ProducedArtifactResolver,
@@ -76,31 +75,20 @@ export 'src/workflow/produced_artifact_resolver.dart'
         StorySpecPathResolution,
         resolveStorySpecPathAgainstPlanDir,
         resolveStorySpecPaths;
+export 'src/workflow/execution_envelope_schema.dart' show buildFinalizerPrompt;
 export 'src/workflow/prompt_augmenter.dart' show PromptAugmenter;
 export 'src/workflow/schema_presets.dart'
     show
         SchemaPreset,
-        checklistPreset,
         defaultOutputResolverFor,
-        detectedFisPathPreset,
         diffSummaryPreset,
         findingsCountPreset,
-        fisPathPreset,
-        fileListPreset,
         gatingFindingsCountPreset,
+        narrativeTextPreset,
         nonNegativeIntegerPreset,
         outputResolverFor,
-        planPathPreset,
-        prdPathPreset,
-        remediationResultPreset,
-        remediationSummaryPreset,
         reviewReportPathPreset,
         schemaPresets,
-        specConfidencePreset,
-        specSourcePreset,
-        stateUpdateSummaryPreset,
-        storyPlanPreset,
-        storyResultPreset,
         storySpecsPreset,
         validationSummaryPreset,
         verdictPreset;
@@ -116,6 +104,8 @@ export 'src/skills/provider_auth_preflight.dart'
         ProviderAuthResult;
 export 'src/workflow/skill_introspector.dart'
     show SkillIntrospector, WorkflowPreflightException, WorkflowSkillPreflightConfig, skillIntrospectionPrompt;
+export 'src/workflow/workflow_skill_preflight.dart'
+    show WorkflowSkillCheckResult, WorkflowSkillCheckWarning, checkWorkflowSkillRefs;
 export 'src/workflow/skill_prompt_builder.dart' show SkillPromptBuilder;
 export 'src/workflow/step_config_resolver.dart'
     show
@@ -136,12 +126,26 @@ export 'src/workflow/workflow_definition_source.dart'
 export 'src/workflow/workflow_definition_validator.dart'
     show ValidationError, ValidationErrorType, ValidationReport, WorkflowDefinitionValidator;
 export 'src/workflow/merge_resolve_attempt_artifact.dart' show MergeResolveAttemptArtifact;
-export 'src/workflow/workflow_executor.dart' show WorkflowExecutor, dispatchStep;
+export 'src/workflow/workflow_executor.dart' show WorkflowExecutor;
 export 'src/workflow/workflow_git_port.dart'
-    show GitStatus, WorkflowGitCommit, WorkflowGitException, WorkflowGitMergeStrategy, WorkflowGitPort;
+    show
+        GitStatus,
+        WorkflowGitCommit,
+        WorkflowGitException,
+        WorkflowGitMergeStrategy,
+        WorkflowGitPort,
+        resolveIntegrationBranchName;
 export 'src/workflow/workflow_output_contract.dart'
     show
         StepOutcomePayload,
+        executionEnvelopeMarkerKey,
+        executionEnvelopeOutputsKey,
+        executionEnvelopeStepOutcomeKey,
+        executionEnvelopeVersion,
+        executionEnvelopeDeclaredOutputKeys,
+        isExecutionEnvelope,
+        isExecutionEnvelopeSchema,
+        reservedEnvelopeOutputKeys,
         stepOutcomeClose,
         stepOutcomeOpen,
         stepOutcomeTag,
@@ -157,26 +161,20 @@ export 'src/workflow/workflow_runner_types.dart'
         BashStepPolicy,
         MapStepResult,
         StepExecutionContext,
-        StepHandoff,
-        StepHandoffRetrying,
-        StepHandoffSuccess,
-        StepHandoffValidationFailed,
         StepOutcome,
         StepPromptConfiguration,
-        StepRetryState,
-        StepTokenBreakdown,
         StepValidationFailure,
         StorySpecOutputValidation,
         WorkflowStepOutputTransformer,
         isSupportedWorkflowRunnerNode;
 export 'src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
-export 'src/workflow/workflow_service.dart' show WorkflowService;
+export 'src/workflow/workflow_service.dart'
+    show WorkflowService, missingRequiredWorkflowVariables, missingRequiredWorkflowVariablesMessage;
 export 'src/workflow/workflow_service_deps.dart'
     show WorkflowGitContext, WorkflowPersistencePorts, WorkflowServiceOptions;
 export 'src/workflow/workflow_turn_adapter.dart'
     show
         WorkflowExecuteTurn,
-        WorkflowGitBootstrapResult,
         WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionError,
@@ -193,6 +191,7 @@ export 'src/workflow/workflow_view_helpers.dart'
         buildLoopInfo,
         formatContextForDisplay,
         stepStatusFromTask,
+        workflowBlockedOutcomeSummary,
         workflowCanApprove,
         workflowCanReject,
         workflowCanResume,

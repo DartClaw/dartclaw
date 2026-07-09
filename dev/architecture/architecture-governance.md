@@ -3,7 +3,7 @@
 Canonical reference for how DartClaw keeps package boundaries and structural
 constraints from drifting after a milestone ships.
 
-**Current through**: 0.18.0
+**Current through**: 0.20
 
 ---
 
@@ -57,7 +57,7 @@ boundary-governance layer that complements them.
 
 ## Current Fitness Functions
 
-[`arch_check.dart`](../../dev/tools/arch_check.dart) enforces seven
+[`arch_check.dart`](../../dev/tools/arch_check.dart) enforces eight
 checks:
 
 ### L1: Fast Structural Boundaries
@@ -82,10 +82,14 @@ checks:
 5. `dartclaw_core` LOC ceiling
    Guards against the core package returning to a god-module shape.
 
-6. Barrel export ceiling
+6. `dartclaw_workflow` LOC ceiling
+   Keeps workflow-engine growth visible and forces a stop-or-justify decision
+   before package size drifts silently.
+
+7. Barrel export ceiling
    Prevents public API surfaces from growing without deliberate review.
 
-7. Workspace package-count ceiling
+8. Workspace package-count ceiling
    Prevents premature decomposition and pubspec sprawl.
 
 `dev/tools/fitness/run_all.sh` is the broader CI fitness-suite entry point. It
@@ -100,6 +104,7 @@ intent should remain documented here:
 | Constraint | Current value | Why it exists |
 |---|---:|---|
 | `dartclaw_core` LOC ceiling | `<= 14900` | Preserve a lightweight runtime core (bumped 12500 → 14900 through 0.18 for the first-party ACP harness; see the rationale comments in `dev/tools/arch_check.dart`) |
+| `dartclaw_workflow` LOC ceiling | WARN `>= 24600`, hard `<= 25000` | Preserve the post-simplification workflow-engine size as a ratchet: current baseline usage is about 23,311 LOC, the hard ceiling carries about two milestones of headroom, and the WARN threshold fires a few hundred LOC before the cap so growth is planned or justified |
 | Barrel export ceiling | `<= 94` | Keep public package surfaces reviewable |
 | Workspace package count | `<= 14` | Avoid package proliferation without real need |
 

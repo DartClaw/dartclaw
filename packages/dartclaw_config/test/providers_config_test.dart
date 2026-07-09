@@ -51,6 +51,87 @@ providers:
       expect(config.warnings, isEmpty);
     });
 
+    test('parses claude approval and sandbox parity options', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    approval: unless-allow-listed
+    sandbox: workspace-write
+''');
+
+      final options = config.providers['claude']!.options;
+      expect(options['approval'], 'unless-allow-listed');
+      expect(options['sandbox'], 'workspace-write');
+      expect(ClaudeProviderOptions.approval(options), 'unless-allow-listed');
+      expect(ClaudeProviderOptions.isFullAccessApproval(options), isFalse);
+      expect(ClaudeProviderOptions.coarseSandbox(options), 'workspace-write');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('approval: never parses, opts into full access, and emits a loud security warning', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    approval: never
+''');
+
+      final options = config.providers['claude']!.options;
+      expect(options['approval'], 'never');
+      expect(ClaudeProviderOptions.isFullAccessApproval(options), isTrue);
+      expect(
+        config.warnings,
+        anyElement(allOf(contains('providers.claude.approval is "never"'), contains('FULL ACCESS'))),
+      );
+    });
+
+    test('non-full-access approval values do not emit the full-access warning', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    approval: on-request
+''');
+
+      expect(config.providers['claude']!.options['approval'], 'on-request');
+      expect(config.warnings, isNot(anyElement(contains('FULL ACCESS'))));
+    });
+
+    test('warns and drops invalid claude approval / sandbox values', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    approval: yolo
+    sandbox: full-send
+''');
+
+      final options = config.providers['claude']!.options;
+      expect(options.containsKey('approval'), isFalse);
+      expect(options.containsKey('sandbox'), isFalse);
+      expect(config.warnings, anyElement(contains('providers.claude.approval: "yolo"')));
+      expect(config.warnings, anyElement(contains('providers.claude.sandbox: "full-send"')));
+    });
+
+    test('preserves a raw map-valued claude sandbox block (advanced passthrough)', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    sandbox:
+      enabled: true
+      filesystem:
+        allowWrite: ["/tmp/build"]
+''');
+
+      final sandbox = config.providers['claude']!.options['sandbox'];
+      expect(sandbox, isA<Map<dynamic, dynamic>>());
+      expect((sandbox as Map<dynamic, dynamic>)['enabled'], isTrue);
+      expect(ClaudeProviderOptions.coarseSandbox(config.providers['claude']!.options), isNull);
+      expect(config.warnings, isEmpty);
+    });
+
     test('warns and defaults claude inherit_user_settings to true on invalid type', () {
       final config = loadYaml('''
 providers:

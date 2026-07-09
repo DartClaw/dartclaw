@@ -328,12 +328,20 @@ Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
       maxLength: 80,
     ),
     TaskEventKind.artifactCreated => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    TaskEventKind.structuredOutputFinalizerUsed => truncate(
+      'Structured envelope: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
     TaskEventKind.structuredOutputInlineUsed => truncate(
       'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
       80,
     ),
     TaskEventKind.structuredOutputFallbackUsed => truncate(
       'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
+    TaskEventKind.structuredOutputValidationFailed => truncate(
+      'Structured validation failed: ${details['outputKey']?.toString() ?? '(output)'}',
       80,
     ),
     TaskEventKind.pushBack => truncate(details['comment']?.toString() ?? 'Push-back', 80),

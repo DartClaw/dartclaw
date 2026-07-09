@@ -100,6 +100,47 @@ void main() {
       expect(html, contains('Job changes require a restart'));
     });
 
+    test('task-type entries are excluded from the Scheduled Jobs table (no phantom row)', () {
+      // Task-type jobs share the unified scheduling.jobs list but belong in the
+      // Scheduled Tasks table; a task entry (no top-level name) must not render
+      // as a blank, actionable row in Scheduled Jobs.
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        jobs: [
+          {
+            'type': 'task',
+            'schedule': '0 9 * * *',
+            'task': {'title': 'nightly digest'},
+          },
+        ],
+        systemJobNames: [],
+      );
+      expect(html, contains('No scheduled jobs configured'));
+      expect(html, isNot(contains('click->dc-scheduling#editJob')));
+      expect(html, isNot(contains('click->dc-scheduling#confirmDeleteJob')));
+    });
+
+    test('prompt jobs render even when a task-type entry is present', () {
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        jobs: [
+          {'name': 'my-cron', 'schedule': '0 7 * * *', 'delivery': 'announce', 'status': 'active'},
+          {
+            'type': 'task',
+            'schedule': '0 9 * * *',
+            'task': {'title': 'nightly digest'},
+          },
+        ],
+        systemJobNames: [],
+      );
+      expect(html, contains('my-cron'));
+      // Exactly one actionable row — the prompt job — proving the task entry
+      // added no second (phantom) row.
+      expect('click->dc-scheduling#editJob'.allMatches(html).length, 1);
+    });
+
     test('row-system class applied to system job rows', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,

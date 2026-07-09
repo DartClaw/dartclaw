@@ -52,14 +52,18 @@ steps:
     # this step writes the review artifact under the workflow runtime artifacts
     # directory and emits its absolute path.
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
+    # TARGET/BRANCH/PR_NUMBER/BASE_BRANCH are interpolated inline by design –
+    # they direct the review target, so they are direct arguments, not
+    # auto-framed. An empty BRANCH renders a dangling `branch=`; the review
+    # skill tolerates the empty value, so the rendering is left as-is (no
+    # template/engine conditional surface).
     prompt: |
-      --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" {{TARGET}}
+      --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{TARGET}}
       branch={{BRANCH}}
       pr={{PR_NUMBER}}
       base={{BASE_BRANCH}}
     outputs:
-      review_findings: review_report_path
+      review_report_path: review_report_path
       review-code.findings_count: findings_count
       review-code.gating_findings_count: gating_findings_count
 
@@ -77,24 +81,32 @@ steps:
       - id: remediate
         name: Remediate Findings
         skill: andthen:remediate-findings
-        inputs: [review_findings]
-        prompt: "--auto {{context.review_findings}}"
+        allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
+        prompt: "--auto {{context.review_report_path}}"
         outputs:
-          remediation_result: remediation_result
-          remediation_summary: remediation_summary
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
 
-      # Re-run the code review on the remediated implementation to decide whether another pass is needed.
+      # Re-run the code review on the remediated implementation to decide whether
+      # another pass is needed. The re-review must re-review the ORIGINAL review
+      # target (same TARGET/BRANCH/PR_NUMBER/BASE_BRANCH framing and modes as
+      # review-code) so the loop's exit gate is decided against the right diff
+      # scope – not against the prior pass's remediation summary. That summary is
+      # auto-framed as supporting context (<remediation_summary>), not the target.
+      # review-code passes no explicit --mode, so neither does this step.
       - id: re-review
         name: Re-review
         skill: andthen:review
         # File-backed review: later remediation iterations consume this report path.
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [review_findings, remediation_summary]
-        prompt: >-
-          --mode code --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
-          {{context.remediation_summary}}
+        inputs: [remediation_summary]
+        prompt: |
+          --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{TARGET}}
+          branch={{BRANCH}}
+          pr={{PR_NUMBER}}
+          base={{BASE_BRANCH}}
         outputs:
-          review_findings: review_report_path
+          review_report_path: review_report_path
           re-review.findings_count: findings_count
           re-review.gating_findings_count: gating_findings_count

@@ -38,7 +38,7 @@ part 'task_executor_helpers.dart';
 ///
 /// When `pool.maxConcurrentTasks > 0`, acquires a task runner from the pool.
 /// When `pool.maxConcurrentTasks == 0` (single-harness mode), falls back to
-/// using the primary runner directly when it is idle (S06 behavior).
+/// using the primary runner directly when it is idle.
 class TaskExecutor {
   TaskExecutor({
     required TaskExecutorServices services,
@@ -77,6 +77,7 @@ class TaskExecutor {
        _defaultProviderId = limits.defaultProviderId,
        _stallTimeout = limits.stallTimeout,
        _stallAction = limits.stallAction,
+       _defaultStepTimeout = limits.defaultStepTimeout,
        _eventBus = services.eventBus,
        _dataDir = dataDir;
 
@@ -111,6 +112,7 @@ class TaskExecutor {
   final String? _defaultProviderId;
   final Duration _stallTimeout;
   final TurnProgressAction _stallAction;
+  final Duration? _defaultStepTimeout;
   final EventBus? _eventBus;
   final String? _dataDir;
   final Duration pollInterval;
@@ -152,6 +154,7 @@ class TaskExecutor {
 
   Timer? _timer;
   Future<bool>? _inFlightPoll;
+  final Set<Future<void>> _activePoolTasks = <Future<void>>{};
 
   void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding) {
     _worktreeBinder.hydrate(binding);
@@ -169,6 +172,9 @@ class TaskExecutor {
     _timer?.cancel();
     _timer = null;
     await _inFlightPoll;
+    while (_activePoolTasks.isNotEmpty) {
+      await Future.wait(List<Future<void>>.from(_activePoolTasks), eagerError: false);
+    }
   }
 
   Future<bool> pollOnce() {
@@ -244,7 +250,7 @@ class TaskExecutor {
 
         didWork = true;
         _observer?.markBusy(runnerIndex, taskId: runningTask.id);
-        unawaited(_runPoolTask(runningTask, runner, runnerIndex: runnerIndex));
+        _trackPoolTask(_runPoolTask(runningTask, runner, runnerIndex: runnerIndex));
       }
       return didWork;
     }
@@ -549,21 +555,37 @@ class TaskExecutor {
         if (workflowProvider == null || workflowProvider.trim().isEmpty) {
           throw StateError('Workflow one-shot task ${task.id} has no provider and no configured default provider');
         }
-        final outcome = await _workflowOneShotRunner.execute(
-          task,
-          sessionId: session.id,
-          pendingMessage: pendingMessage,
-          provider: workflowProvider,
-          profileId: runnerProfileId ?? resolveProfile(task.type),
-          workingDirectory: worktreeInfo?.path ?? projectDirForTask,
-          modelOverride: modelOverride,
-          effortOverride: effortOverride,
-          allowedTools: _allowedTools(task),
-          readOnly: _isReadOnlyTask(task),
-          sandboxOverride: null,
-          stallTimeout: _stallTimeout,
-          stallAction: _stallAction,
-        );
+        final TurnOutcome outcome;
+        try {
+          outcome = await _workflowOneShotRunner.execute(
+            task,
+            sessionId: session.id,
+            pendingMessage: pendingMessage,
+            provider: workflowProvider,
+            profileId: runnerProfileId ?? resolveProfile(task.type),
+            workingDirectory: worktreeInfo?.path ?? projectDirForTask,
+            modelOverride: modelOverride,
+            effortOverride: effortOverride,
+            allowedTools: _allowedTools(task),
+            readOnly: _isReadOnlyTask(task),
+            sandboxOverride: null,
+            stallTimeout: _stallTimeout,
+            stallAction: _stallAction,
+            defaultStepTimeout: _defaultStepTimeout,
+          );
+        } on StateError catch (error, stackTrace) {
+          // A genuine one-shot provider failure must win even when dispose
+          // already raced this task to cancelled. Scope the cancelled->failed
+          // correction to this one-shot surface so generic cancellation (below,
+          // and the shared catch) never rewrites an intentional cancel.
+          _log.warning('Workflow one-shot failed for task ${task.id}: $error', error, stackTrace);
+          await _failureHandler.markFailedOrRetry(
+            task,
+            errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
+            correctCancelled: true,
+          );
+          return;
+        }
         _observer?.recordTurn(
           runnerIndex,
           inputTokens: outcome.inputTokens,
@@ -574,10 +596,20 @@ class TaskExecutor {
           cacheWriteTokens: outcome.cacheWriteTokens,
           toolCalls: outcome.toolCalls,
         );
+        if (outcome.status == TurnStatus.cancelled) {
+          final current = await _tasks.get(task.id);
+          if (current != null && !current.status.terminal) {
+            await _tasks.transition(task.id, TaskStatus.cancelled, trigger: 'system');
+          }
+          return;
+        }
         if (outcome.status != TurnStatus.completed) {
+          // A genuine provider failure must win even when dispose already raced
+          // this one-shot task to cancelled; scope the correction here only.
           await _failureHandler.markFailedOrRetry(
             task,
             errorSummary: outcome.errorMessage ?? 'Workflow one-shot execution failed',
+            correctCancelled: true,
           );
           return;
         }
@@ -690,8 +722,8 @@ class TaskExecutor {
         toolCalls: outcome.toolCalls,
       );
 
-      // S08: Record synchronous token update + tool call events (NF04 durability).
-      // Must execute before S07's fire-and-forget trace write.
+      // Record synchronous token update + tool call events for durability.
+      // Must execute before the fire-and-forget trace write.
       final recorder = _eventRecorder;
       if (recorder != null) {
         recorder.recordTokenUpdate(

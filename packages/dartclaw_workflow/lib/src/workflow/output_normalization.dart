@@ -97,7 +97,13 @@ dynamic deriveFromStructuredOutputs(
   required Map<String, dynamic> structuredOutputPayload,
 }) {
   if (outputs.containsKey(outputKey)) return outputs[outputKey];
-  final reviewCount = rfd.deriveReviewFindingCount(outputKey, outputs, workflowContextPayload, structuredOutputPayload);
+  final reviewCount = rfd.deriveReviewFindingCount(
+    outputKey,
+    outputs,
+    workflowContextPayload,
+    structuredOutputPayload,
+    gatingSeverity: step.gatingSeverity,
+  );
   if (reviewCount != null) return reviewCount;
 
   final lastDot = outputKey.lastIndexOf('.');
@@ -110,4 +116,22 @@ dynamic deriveFromStructuredOutputs(
     if (value is Map && value.containsKey(outputKey)) return value[outputKey];
   }
   return defaultContextOutput(step, outputs, outputKey);
+}
+
+/// Derives review count outputs before trusting direct model-emitted counters.
+dynamic deriveReviewCountFromStructuredOutputs(
+  WorkflowStep step,
+  Map<String, dynamic> outputs,
+  String outputKey, {
+  required Map<String, dynamic>? workflowContextPayload,
+  required Map<String, dynamic> structuredOutputPayload,
+}) {
+  if (!rfd.isReviewFindingCountKey(outputKey)) return null;
+  return rfd.deriveReviewFindingCount(
+    outputKey,
+    outputs,
+    workflowContextPayload,
+    structuredOutputPayload,
+    gatingSeverity: step.gatingSeverity,
+  );
 }

@@ -11,7 +11,7 @@ import 'cli_provider.dart';
 import 'claude_cli_provider.dart';
 import 'codex_cli_provider.dart';
 
-export 'cli_provider.dart' show CliProvider, CliTurnRequest;
+export 'cli_provider.dart' show CliProvider, CliTurnRequest, ProcessBackedCliProvider, WorkflowCliUsageBaseline;
 
 /// Starts a CLI provider subprocess and returns the long-lived [Process].
 typedef WorkflowCliProcessStarter =
@@ -103,6 +103,9 @@ class WorkflowCliTurnResult {
   /// End-to-end turn duration, including process startup and parsing.
   final Duration duration;
 
+  /// Whether the provider process was intentionally cancelled during teardown.
+  final bool cancelled;
+
   WorkflowCliTurnResult({
     required this.providerSessionId,
     required this.responseText,
@@ -114,7 +117,20 @@ class WorkflowCliTurnResult {
     required this.newInputTokens,
     this.totalCostUsd,
     this.duration = Duration.zero,
+    this.cancelled = false,
   });
+
+  WorkflowCliTurnResult.cancelled({this.duration = Duration.zero})
+    : providerSessionId = '',
+      responseText = '',
+      structuredOutput = null,
+      inputTokens = 0,
+      outputTokens = 0,
+      cacheReadTokens = 0,
+      cacheWriteTokens = 0,
+      newInputTokens = 0,
+      totalCostUsd = null,
+      cancelled = true;
 }
 
 /// Drives a CLI provider subprocess to execute one or more workflow turns.
@@ -195,6 +211,7 @@ class WorkflowCliRunner {
     String? appendSystemPrompt,
     String? sandboxOverride,
     Map<String, String>? extraEnvironment,
+    WorkflowCliUsageBaseline usageBaseline = const WorkflowCliUsageBaseline(),
   }) async {
     final providerConfig = providers[provider];
     if (providerConfig == null) {
@@ -231,6 +248,7 @@ class WorkflowCliRunner {
       appendSystemPrompt: appendSystemPrompt,
       sandboxOverride: sandboxOverride,
       extraEnvironment: extraEnvironment,
+      usageBaseline: usageBaseline,
       providerConfig: providerConfig,
       containerManager: containerManagers[profileId],
       processStarter: _processStarter,
@@ -242,8 +260,11 @@ class WorkflowCliRunner {
   }
 
   /// Requests cancellation of all in-flight CLI subprocesses.
-  Future<void> cancelInflight() async {
-    await Future.wait(_providerImpls.values.map((provider) => provider.cancelInflight()), eagerError: false);
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {
+    await Future.wait(
+      _providerImpls.values.map((provider) => provider.cancelInflight(cancelFutureProcesses: cancelFutureProcesses)),
+      eagerError: false,
+    );
   }
 
   static Future<Process> _defaultProcessStarter(

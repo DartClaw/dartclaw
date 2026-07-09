@@ -11,6 +11,7 @@ void main() {
     final classifier = FakeContentClassifier();
     final introspector = FakeSkillIntrospector(const {});
     final authPreflight = FakeProviderAuthPreflight();
+    final logs = captureRootLogs(() async {});
 
     expect(harness.state, WorkerState.idle);
     expect(channel.type, ChannelType.signal);
@@ -20,5 +21,6 @@ void main() {
     expect(classifier.result, 'safe');
     expect(introspector.calls, isEmpty);
     expect(authPreflight.probed, isEmpty);
+    expect(logs, completion(isEmpty));
   });
 }

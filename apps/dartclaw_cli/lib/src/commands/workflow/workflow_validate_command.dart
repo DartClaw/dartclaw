@@ -1,19 +1,26 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        CliSkillIntrospector,
+        SkillIntrospector,
         ValidationError,
         ValidationReport,
+        WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRoleDefault,
-        WorkflowRoleDefaults;
+        WorkflowRoleDefaults,
+        WorkflowSkillCheckResult,
+        checkWorkflowSkillRefs;
 
 import '../config_loader.dart';
 import '../serve_command.dart' show WriteLine;
+import 'workflow_provider_environment.dart';
+import 'workflow_skill_preflight_config.dart';
 
 /// Validates a workflow YAML file at the given path.
 ///
@@ -28,10 +35,18 @@ import '../serve_command.dart' show WriteLine;
 class WorkflowValidateCommand extends Command<void> {
   final DartclawConfig? _config;
   final WriteLine _writeLine;
+  final SkillIntrospector? _introspector;
 
-  WorkflowValidateCommand({DartclawConfig? config, WriteLine? writeLine})
+  WorkflowValidateCommand({DartclawConfig? config, WriteLine? writeLine, SkillIntrospector? introspector})
     : _config = config,
-      _writeLine = writeLine ?? stdout.writeln;
+      _writeLine = writeLine ?? stdout.writeln,
+      _introspector = introspector {
+    argParser.addFlag(
+      'skills',
+      negatable: false,
+      help: 'Probe each step\'s provider for its referenced skill and warn on unresolvable refs.',
+    );
+  }
 
   @override
   String get name => 'validate';
@@ -65,10 +80,11 @@ class WorkflowValidateCommand extends Command<void> {
     exitCode = 0;
 
     final ValidationReport report;
+    final WorkflowDefinition definition;
     final String workflowName;
     try {
       final content = await File(path).readAsString();
-      final definition = parser.parse(content, sourcePath: path);
+      definition = parser.parse(content, sourcePath: path);
       workflowName = definition.name;
       report = validator.validate(definition, continuityProviders: continuityProviders);
     } on FileSystemException catch (e) {
@@ -84,15 +100,52 @@ class WorkflowValidateCommand extends Command<void> {
       return;
     }
 
+    // Opt-in skill probe: never affects exit code (warnings/notes only) and
+    // never hard-fails — any unexpected error degrades to an informational note.
+    WorkflowSkillCheckResult? skillResult;
+    if (argResults!['skills'] as bool) {
+      try {
+        skillResult = await _checkSkills(config, definition);
+      } catch (e) {
+        skillResult = WorkflowSkillCheckResult(
+          unresolved: const [],
+          probeNotes: ['Skill resolution could not be checked: $e'],
+        );
+      }
+    }
+
     // --- Diagnostics output ---
-    _printReport(path, workflowName, report);
+    _printReport(path, workflowName, report, skillResult);
 
     if (report.hasErrors) {
       exitCode = 1;
     }
   }
 
-  void _printReport(String path, String workflowName, ValidationReport report) {
+  Future<WorkflowSkillCheckResult> _checkSkills(DartclawConfig config, WorkflowDefinition definition) {
+    final introspector =
+        _introspector ??
+        CliSkillIntrospector(
+          environmentForProvider: (providerId) => buildWorkflowProviderEnvironment(
+            providerId: providerId,
+            providerFamily: ProviderIdentity.resolveFamily(
+              providerId,
+              options: workflowProviderOptions(config, providerId),
+              executable: resolveWorkflowProviderExecutable(config, providerId),
+            ),
+            registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
+            baseEnvironment: Platform.environment,
+          ),
+        );
+    return checkWorkflowSkillRefs(
+      definition: definition,
+      introspector: introspector,
+      skillPreflightConfig: buildWorkflowSkillPreflightConfig(config),
+      roleDefaults: _workflowRoleDefaults(config),
+    );
+  }
+
+  void _printReport(String path, String workflowName, ValidationReport report, WorkflowSkillCheckResult? skillResult) {
     _writeLine('Validating: $path');
     _writeLine('');
 
@@ -112,22 +165,42 @@ class WorkflowValidateCommand extends Command<void> {
       _writeLine('');
     }
 
-    if (report.errors.isEmpty && report.warnings.isEmpty) {
+    final skillWarnings = skillResult?.unresolved ?? const [];
+    final skillNotes = skillResult?.probeNotes ?? const [];
+    if (skillWarnings.isNotEmpty) {
+      _writeLine('Skill warnings (${skillWarnings.length}):');
+      for (final w in skillWarnings) {
+        _writeLine('  [step=${w.stepId}] skill "${w.skill}" is not resolvable for provider "${w.provider}"');
+      }
+      _writeLine('');
+    }
+    if (skillNotes.isNotEmpty) {
+      _writeLine('Skill resolution not checked (${skillNotes.length}):');
+      for (final note in skillNotes) {
+        _writeLine('  $note');
+      }
+      _writeLine('');
+    }
+
+    if (report.errors.isEmpty && report.warnings.isEmpty && skillWarnings.isEmpty && skillNotes.isEmpty) {
       _writeLine('No issues found.');
       _writeLine('');
     }
 
+    // Skill warnings are advisory (opt-in probe): they widen the warning count
+    // and flip a clean run to "OK with warnings", but never to INVALID.
+    final totalWarnings = report.warnings.length + skillWarnings.length;
     final parts = <String>[];
     if (report.errors.isNotEmpty) {
       parts.add('${report.errors.length} error${report.errors.length == 1 ? '' : 's'}');
     }
-    if (report.warnings.isNotEmpty) {
-      parts.add('${report.warnings.length} warning${report.warnings.length == 1 ? '' : 's'}');
+    if (totalWarnings > 0) {
+      parts.add('$totalWarnings warning${totalWarnings == 1 ? '' : 's'}');
     }
 
     if (report.hasErrors) {
       _writeLine('Result: INVALID (${parts.join(', ')})');
-    } else if (report.hasWarnings) {
+    } else if (totalWarnings > 0) {
       _writeLine('Result: OK with warnings (${parts.join(', ')})');
     } else {
       _writeLine('Result: OK');

@@ -16,12 +16,14 @@ import 'workflow_cli_runner.dart';
 ///
 /// Owns command construction, JSONL streaming parse, temp-schema-file lifecycle,
 /// and [WorkflowCliTurnProgressEvent] emission for multi-turn Codex runs.
-class CodexCliProvider implements CliProvider {
+class CodexCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('CodexCliProvider');
 
-  final Set<Process> _inflight = <Process>{};
-
   CodexCliProvider();
+
+  static const _maxUsageEntries = 512;
+
+  final Map<String, _CodexUsageSnapshot> _usageByRequestKey = <String, _CodexUsageSnapshot>{};
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -46,7 +48,7 @@ class CodexCliProvider implements CliProvider {
         containerManager: req.containerManager,
         processStarter: req.processStarter,
       );
-      _inflight.add(process);
+      trackInflightProcess(process);
       supervisor = CliProcessSupervisor(
         process: process,
         provider: 'codex',
@@ -57,16 +59,12 @@ class CodexCliProvider implements CliProvider {
         eventBus: req.eventBus,
         log: req.log,
       )..start();
-      // Close stdin immediately – Codex 0.120.0+ reads from stdin when a pipe
-      // is detected, even when a prompt argument is provided. Without EOF the
-      // process blocks on "Reading additional input from stdin…" indefinitely.
-      await process.stdin.close();
-
       final stdoutBuffer = StringBuffer();
       final stderrBuffer = StringBuffer();
       final stdoutDone = Completer<void>();
       final stderrDone = Completer<void>();
       final codexState = _CodexStreamState();
+      var terminalResultRecorded = false;
 
       process.stdout
           .transform(utf8.decoder)
@@ -76,6 +74,10 @@ class CodexCliProvider implements CliProvider {
               stdoutBuffer.writeln(line);
               if (_handleLine(line, codexState, req: req, emitProgress: true)) {
                 supervisor?.recordParsedOutput();
+              }
+              if (!terminalResultRecorded && codexState.terminalResultRecorded) {
+                terminalResultRecorded = true;
+                supervisor?.recordTerminalResult();
               }
             },
             onError: (Object error, StackTrace stackTrace) {
@@ -98,6 +100,26 @@ class CodexCliProvider implements CliProvider {
             },
             cancelOnError: true,
           );
+      cancelFutureStartedProcessIfRequested(process);
+      // Close stdin immediately – Codex 0.120.0+ reads from stdin when a pipe
+      // is detected, even when a prompt argument is provided. Without EOF the
+      // process blocks on "Reading additional input from stdin…" indefinitely.
+      try {
+        await process.stdin.close();
+      } catch (_) {
+        if (cancellationRequestedFor(process)) {
+          final exitCode = await supervisor.waitForExitCode();
+          await stdoutDone.future;
+          await stderrDone.future;
+          stopwatch.stop();
+          final stdout = stdoutBuffer.toString();
+          if (_hasCodexFailureEvidence(stdout, stderrBuffer.toString())) {
+            throw _codexNonZeroExitError(exitCode, stdout, stderrBuffer.toString());
+          }
+          return WorkflowCliTurnResult.cancelled(duration: stopwatch.elapsed);
+        }
+        rethrow;
+      }
 
       final exitCode = await supervisor.waitForExitCode();
       await stdoutDone.future;
@@ -108,26 +130,25 @@ class CodexCliProvider implements CliProvider {
       stopwatch.stop();
 
       if (exitCode != 0) {
-        // For Codex --json mode, the real error is often in stdout (as JSON
-        // events like {"type":"error",...}), while stderr may only contain
-        // informational messages like "Reading additional input from stdin...".
-        final errorDetails = <String>[
-          if (stderr.trim().isNotEmpty) stderr.trim(),
-          if (stdout.trim().isNotEmpty)
-            'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
-        ];
-        throw StateError(
-          'Workflow one-shot codex command failed with exit code $exitCode'
-          '${errorDetails.isEmpty ? '' : ': ${errorDetails.join('; ')}'}',
+        final hasProviderFailureEvidence = _hasCodexFailureEvidence(stdout, stderr);
+        final cancellationResult = cancellationResultForNonZeroExit(
+          process: process,
+          supervisor: supervisor,
+          duration: stopwatch.elapsed,
+          hasProviderFailureEvidence: hasProviderFailureEvidence,
         );
+        if (cancellationResult != null) return cancellationResult;
+        if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
+          throw _codexNonZeroExitError(exitCode, stdout, stderr);
+        }
       }
 
-      return _parseResult(stdout, fallbackDuration: stopwatch.elapsed);
+      return _parseResult(stdout, req: req, fallbackDuration: stopwatch.elapsed);
     } finally {
       supervisor?.stop();
       final activeProcess = process;
       if (activeProcess != null) {
-        _inflight.remove(activeProcess);
+        untrackInflightProcess(activeProcess);
       }
       if (tempSchemaPath != null) {
         try {
@@ -137,12 +158,6 @@ class CodexCliProvider implements CliProvider {
         }
       }
     }
-  }
-
-  @override
-  Future<void> cancelInflight() async {
-    await Future.wait(_inflight.map(terminateCliProcess), eagerError: false);
-    _inflight.clear();
   }
 
   /// Exposed for command-vector assertions without spawning a process.
@@ -176,6 +191,42 @@ class CodexCliProvider implements CliProvider {
     );
     return _buildCommand(req).command;
   }
+
+  StateError _codexNonZeroExitError(int exitCode, String stdout, String stderr) {
+    // For Codex --json mode, the real error is often in stdout (as JSON events
+    // like {"type":"error",...}), while stderr may only contain informational
+    // messages like "Reading additional input from stdin...".
+    final errorDetails = <String>[
+      if (stderr.trim().isNotEmpty) stderr.trim(),
+      if (stdout.trim().isNotEmpty)
+        'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
+    ];
+    return StateError(
+      'Workflow one-shot codex command failed with exit code $exitCode'
+      '${errorDetails.isEmpty ? '' : ': ${errorDetails.join('; ')}'}',
+    );
+  }
+
+  bool _hasCodexFailureEvidence(String stdout, String stderr) {
+    for (final line in const LineSplitter().convert(stdout)) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is! Map<String, dynamic>) continue;
+        final type = stringValue(decoded['type']);
+        if (type == 'error' || type == 'turn.failed') return true;
+      } on FormatException {
+        continue;
+      }
+    }
+    return hasNonBenignStderr(stderr, _codexBenignStderrFragments);
+  }
+
+  // Codex prints this to stderr while draining a piped stdin; it is not a
+  // failure signal. Everything else on stderr is treated as genuine evidence
+  // so a stderr-only provider error is never masked as a cancellation.
+  static const List<String> _codexBenignStderrFragments = ['Reading additional input from stdin'];
 
   _CodexCommand _buildCommand(CliTurnRequest req) {
     // Codex CLI has no tool-allowlist flag. Sandbox and approval policy are
@@ -284,6 +335,7 @@ class CodexCliProvider implements CliProvider {
             _intValue(usage['cache_read_tokens']) ?? _intValue(usage['cached_input_tokens']) ?? state.cacheReadTokens;
         state.cacheWriteTokens = _intValue(usage['cache_write_tokens']) ?? state.cacheWriteTokens;
         state.turnCount++;
+        state.terminalResultRecorded = true;
 
         if (emitProgress) {
           final cumulativeTokens = state.inputTokens + state.outputTokens;
@@ -315,15 +367,19 @@ class CodexCliProvider implements CliProvider {
     return true;
   }
 
-  WorkflowCliTurnResult _parseResult(String stdout, {required Duration fallbackDuration}) {
+  WorkflowCliTurnResult _parseResult(String stdout, {required CliTurnRequest req, required Duration fallbackDuration}) {
     final state = _CodexStreamState();
     for (final line in const LineSplitter().convert(stdout)) {
-      _handleLine(line, state, req: _parseReq, emitProgress: false);
+      _handleLine(line, state, req: req, emitProgress: false);
     }
-    return _buildTurnResult(state, fallbackDuration: fallbackDuration);
+    return _buildTurnResult(state, req: req, fallbackDuration: fallbackDuration);
   }
 
-  WorkflowCliTurnResult _buildTurnResult(_CodexStreamState state, {required Duration fallbackDuration}) {
+  WorkflowCliTurnResult _buildTurnResult(
+    _CodexStreamState state, {
+    required CliTurnRequest req,
+    required Duration fallbackDuration,
+  }) {
     Map<String, dynamic>? structuredOutput;
     final trimmed = state.responseText.trim();
     if (trimmed.startsWith('{')) {
@@ -339,18 +395,64 @@ class CodexCliProvider implements CliProvider {
         );
       }
     }
+    final currentUsage = _CodexUsageSnapshot.fromState(state);
+    final usageKey = _usageKey(req, state);
+    final previousUsage = switch (usageKey) {
+      final String key => _usageByRequestKey[key] ?? _initialUsageBaseline(req, state),
+      _ => const _CodexUsageSnapshot(),
+    };
+    if (usageKey != null) {
+      // LRU-on-write with a size cap: the provider is a long-lived pooled
+      // singleton, so without eviction every session leaves a permanent entry.
+      _usageByRequestKey.remove(usageKey);
+      _usageByRequestKey[usageKey] = currentUsage;
+      while (_usageByRequestKey.length > _maxUsageEntries) {
+        _usageByRequestKey.remove(_usageByRequestKey.keys.first);
+      }
+    }
+
     return WorkflowCliTurnResult(
       providerSessionId: state.providerSessionId,
       responseText: state.responseText,
       structuredOutput: structuredOutput,
-      inputTokens: state.inputTokens,
-      outputTokens: state.outputTokens,
-      cacheReadTokens: state.cacheReadTokens,
-      cacheWriteTokens: state.cacheWriteTokens,
-      newInputTokens: math.max(0, state.inputTokens - state.cacheReadTokens),
+      inputTokens: _usageDelta(currentUsage.inputTokens, previousUsage.inputTokens),
+      outputTokens: _usageDelta(currentUsage.outputTokens, previousUsage.outputTokens),
+      cacheReadTokens: _usageDelta(currentUsage.cacheReadTokens, previousUsage.cacheReadTokens),
+      cacheWriteTokens: _usageDelta(currentUsage.cacheWriteTokens, previousUsage.cacheWriteTokens),
+      newInputTokens: _usageDelta(currentUsage.newInputTokens, previousUsage.newInputTokens),
       duration: fallbackDuration,
     );
   }
+
+  _CodexUsageSnapshot _initialUsageBaseline(CliTurnRequest req, _CodexStreamState state) {
+    final providerSessionId = _effectiveProviderSessionId(req, state);
+    final requestedProviderSessionId = req.providerSessionId?.trim();
+    if (providerSessionId.isEmpty || requestedProviderSessionId == null || requestedProviderSessionId.isEmpty) {
+      return const _CodexUsageSnapshot();
+    }
+    if (providerSessionId != requestedProviderSessionId) {
+      return const _CodexUsageSnapshot();
+    }
+    return _CodexUsageSnapshot.fromBaseline(req.usageBaseline);
+  }
+
+  String? _usageKey(CliTurnRequest req, _CodexStreamState state) {
+    final providerSessionId = _effectiveProviderSessionId(req, state);
+    if (providerSessionId.isEmpty) {
+      return null;
+    }
+    return '${req.sessionId ?? ''}\u0000$providerSessionId';
+  }
+
+  String _effectiveProviderSessionId(CliTurnRequest req, _CodexStreamState state) {
+    final parsed = state.providerSessionId.trim();
+    if (parsed.isNotEmpty) {
+      return parsed;
+    }
+    return req.providerSessionId?.trim() ?? '';
+  }
+
+  int _usageDelta(int current, int previous) => current >= previous ? current - previous : current;
 
   int _codexOutputTokens(Map<String, dynamic> usage, {required int fallback}) {
     final outputTokens = _intValue(usage['output_tokens']) ?? fallback;
@@ -386,18 +488,6 @@ class CodexCliProvider implements CliProvider {
     return '${singleLine.substring(0, maxLength)}...';
   }
 }
-
-// Minimal req used for the post-parse pass – no event emission, no spawning.
-final _parseReq = CliTurnRequest(
-  prompt: '',
-  workingDirectory: '',
-  profileId: '',
-  providerConfig: const WorkflowCliProviderConfig(executable: ''),
-  containerManager: null,
-  processStarter: (exe, args, {workingDirectory, environment}) => throw UnimplementedError(),
-  uuid: const Uuid(),
-  log: Logger('_codexParsePass'),
-);
 
 final class _CodexSandboxDecision {
   static const _rankBySandbox = <String, int>{'read-only': 0, 'workspace-write': 1, 'danger-full-access': 2};
@@ -454,6 +544,42 @@ class _CodexStreamState {
   int cacheReadTokens = 0;
   int cacheWriteTokens = 0;
   int turnCount = 0;
+  bool terminalResultRecorded = false;
+}
+
+final class _CodexUsageSnapshot {
+  final int inputTokens;
+  final int newInputTokens;
+  final int outputTokens;
+  final int cacheReadTokens;
+  final int cacheWriteTokens;
+
+  const _CodexUsageSnapshot({
+    this.inputTokens = 0,
+    this.newInputTokens = 0,
+    this.outputTokens = 0,
+    this.cacheReadTokens = 0,
+    this.cacheWriteTokens = 0,
+  });
+
+  factory _CodexUsageSnapshot.fromState(_CodexStreamState state) {
+    final newInputTokens = math.max(0, state.inputTokens - state.cacheReadTokens);
+    return _CodexUsageSnapshot(
+      inputTokens: state.inputTokens,
+      newInputTokens: newInputTokens,
+      outputTokens: state.outputTokens,
+      cacheReadTokens: state.cacheReadTokens,
+      cacheWriteTokens: state.cacheWriteTokens,
+    );
+  }
+
+  factory _CodexUsageSnapshot.fromBaseline(WorkflowCliUsageBaseline baseline) => _CodexUsageSnapshot(
+    inputTokens: baseline.inputTokens + baseline.cacheReadTokens,
+    newInputTokens: baseline.inputTokens,
+    outputTokens: baseline.outputTokens,
+    cacheReadTokens: baseline.cacheReadTokens,
+    cacheWriteTokens: baseline.cacheWriteTokens,
+  );
 }
 
 class _CodexCommand {

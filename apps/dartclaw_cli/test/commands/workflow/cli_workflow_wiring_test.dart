@@ -4,14 +4,17 @@ import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
-import 'package:dartclaw_cli/src/commands/workflow/andthen_skill_bootstrap.dart' show bootstrapWorkflowSkills;
+import 'package:dartclaw_cli/src/commands/workflow/workflow_skill_bootstrap.dart' show bootstrapWorkflowSkills;
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
     show restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowStartPreconditionException;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowStepExecutionRepository;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -114,6 +117,38 @@ steps:
     expect(wired.registry.getByName('ci-demo'), isNotNull);
   });
 
+  test('loads canonical custom workflows without legacy deprecation warning', () async {
+    final workflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
+    File(p.join(workflowsDir.path, 'my-review.yaml')).writeAsStringSync('''
+name: my-review
+description: Local review workflow
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'ok\\n'
+''');
+    final records = <LogRecord>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final sub = Logger.root.onRecord.listen(records.add);
+    addTearDown(() async {
+      await sub.cancel();
+      Logger.root.level = previousLevel;
+    });
+
+    final wired = fixture.wiring(fixture.config());
+
+    await wired.wirePreHarness();
+
+    expect(wired.registry.getByName('my-review'), isNotNull);
+    expect(
+      records.where((record) => record.level == Level.WARNING && record.message.toLowerCase().contains('deprecated')),
+      isEmpty,
+    );
+  });
+
   test('loads custom workflows with missing skills and fails at runtime preflight', () async {
     final workspaceWorkflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
     File(p.join(workspaceWorkflowsDir.path, 'invalid.yaml')).writeAsStringSync('''
@@ -148,7 +183,7 @@ steps:
         });
     addTearDown(sub.cancel);
 
-    final run = await wired.workflowService.start(definition!, const {}, headless: true);
+    final run = await wired.workflowService.start(definition!, const {});
     final event = await failed.future.timeout(const Duration(seconds: 5));
 
     expect(event.runId, run.id);
@@ -157,7 +192,7 @@ steps:
     expect(await wired.taskService.list(), isEmpty);
   });
 
-  test('loads workflow yaml files directly under the data-dir workflows folder', () async {
+  test('loads legacy workflow yaml files directly under the data-dir workflows folder and warns', () async {
     final workflowsDir = Directory(p.join(tempDir.path, 'workflows'))..createSync(recursive: true);
     File(p.join(workflowsDir.path, 'my-review.yaml')).writeAsStringSync('''
 name: my-review
@@ -169,12 +204,63 @@ steps:
     prompt: |
       printf 'ok\\n'
 ''');
+    final records = <LogRecord>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final sub = Logger.root.onRecord.listen(records.add);
+    addTearDown(() async {
+      await sub.cancel();
+      Logger.root.level = previousLevel;
+    });
 
     final wired = fixture.wiring(fixture.config());
 
     await wired.wire();
 
     expect(wired.registry.getByName('my-review'), isNotNull);
+    final warnings = records
+        .where(
+          (record) =>
+              record.level == Level.WARNING &&
+              record.message.toLowerCase().contains('deprecated') &&
+              record.message.contains('workflows/custom'),
+        )
+        .toList();
+    expect(warnings, hasLength(1));
+  });
+
+  test('project workflow definition wins over canonical custom definition', () async {
+    final customDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
+    File(p.join(customDir.path, 'dup.yaml')).writeAsStringSync('''
+name: dup
+description: Custom workflow
+steps:
+  - id: custom-step
+    name: Custom Step
+    prompt: Custom.
+''');
+    final projectDir = Directory(p.join(tempDir.path, 'live-project'))..createSync(recursive: true);
+    final projectWorkflowsDir = Directory(p.join(projectDir.path, 'workflows'))..createSync(recursive: true);
+    File(p.join(projectWorkflowsDir.path, 'dup.yaml')).writeAsStringSync('''
+name: dup
+description: Project workflow
+steps:
+  - id: project-step
+    name: Project Step
+    prompt: Project.
+''');
+
+    final cfg = fixture.config(
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path)},
+      ),
+    );
+    final wired = fixture.wiring(cfg);
+
+    await wired.wirePreHarness();
+
+    final definition = wired.registry.getByName('dup');
+    expect(definition?.description, 'Project workflow');
   });
 
   test('loads per-project workflows from configured localPath directories', () async {
@@ -226,12 +312,9 @@ steps:
     final definition = branchGuardDefinition();
 
     await expectLater(
-      () => wired.workflowService.start(definition, const {
-        'PROJECT': 'alpha',
-        'BRANCH': 'feature/local',
-      }, headless: true),
+      () => wired.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': 'feature/local'}),
       throwsA(
-        isA<StateError>().having(
+        isA<WorkflowStartPreconditionException>().having(
           (error) => error.message,
           'message',
           allOf([contains('feature/local'), contains('expected "main"')]),
@@ -255,10 +338,7 @@ steps:
     final definition = branchGuardDefinition();
 
     await expectLater(
-      () => wired.workflowService.start(definition, const {
-        'PROJECT': 'alpha',
-        'BRANCH': '--upload-pack=/tmp/pwn',
-      }, headless: true),
+      () => wired.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': '--upload-pack=/tmp/pwn'}),
       throwsFormatException,
     );
   });
@@ -279,7 +359,7 @@ steps:
 
     final definition = branchGuardDefinition();
 
-    final run = await wired.workflowService.start(definition, const {'PROJECT': 'alpha'}, headless: true);
+    final run = await wired.workflowService.start(definition, const {'PROJECT': 'alpha'});
     expect(run.variablesJson['BRANCH'], 'feature/local');
   });
 
@@ -320,7 +400,7 @@ steps:
           createdTask = await wired.taskService.get(event.taskId);
         });
 
-    final run = await wired.workflowService.start(definition, const {}, headless: true);
+    final run = await wired.workflowService.start(definition, const {});
     await waitFor(() => createdTask != null);
     await sub.cancel();
 
@@ -564,7 +644,7 @@ steps:
     final wired = fixture.wiring(
       fixture.config(),
       runtimeCwd: tempDir.path,
-      runAndthenSkillsBootstrap: true,
+      runWorkflowSkillsBootstrap: true,
       skillProvisionerProcessRunner: runner.run,
       environment: {'HOME': fakeHome},
     );
@@ -735,7 +815,7 @@ steps:
         final run = await wiring.workflowService.start(definition, const {
           'PROJECT': '_local',
           'BRANCH': 'runtime-feature',
-        }, headless: true);
+        });
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
       },
     );
@@ -827,7 +907,7 @@ steps:
             await wiring.taskService.transition(event.taskId, TaskStatus.accepted);
           });
       addTearDown(sub.cancel);
-      final run = await wiring.workflowService.start(definition, const {}, headless: true);
+      final run = await wiring.workflowService.start(definition, const {});
       runId = run.id;
       final current = await wiring.workflowService.get(run.id);
       if (current?.status == WorkflowRunStatus.completed && !completion.isCompleted) {
@@ -923,10 +1003,7 @@ steps:
           ],
         );
 
-        final run = await wiring.workflowService.start(definition, const {
-          'PROJECT': 'alpha',
-          'BRANCH': 'main',
-        }, headless: true);
+        final run = await wiring.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': 'main'});
         final deadline = DateTime.now().add(const Duration(seconds: 5));
         while (DateTime.now().isBefore(deadline)) {
           final updated = await wiring.workflowService.get(run.id);
@@ -970,6 +1047,126 @@ steps:
     ], workingDirectory: projectDir.path);
     expect(workflowBranchResult.exitCode, 0);
     expect((workflowBranchResult.stdout as String).trim(), workflowBranch);
+  });
+
+  test('standalone approval teardown records in-flight sibling one-shot task as cancelled', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = fixture.seedGitRepo('runtime-cwd', readme: '# runtime\n');
+    final processStarterEntered = Completer<void>();
+    final allowProcessStart = Completer<void>();
+    final processStarted = Completer<FakeProcess>();
+    final cancelled = Completer<void>();
+    final failedRunStatuses = <WorkflowRunStatusChangedEvent>[];
+    final taskErrorEvents = <TaskEventCreatedEvent>[];
+    final config = fixture.config();
+    var disposed = false;
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    final wiring = fixture.wiring(
+      config,
+      runtimeCwd: runtimeCwd.path,
+      autoDispose: false,
+      workflowCliProcessStarter: (exe, args, {workingDirectory, environment}) async {
+        if (!processStarterEntered.isCompleted) {
+          processStarterEntered.complete();
+        }
+        await allowProcessStart.future;
+        final process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+        if (!processStarted.isCompleted) {
+          processStarted.complete(process);
+        }
+        return process;
+      },
+    );
+    try {
+      await wiring.wire();
+      final taskStatusSub = wiring.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((event) => event.taskId == 'sibling-one-shot' && event.newStatus == TaskStatus.cancelled)
+          .listen((_) {
+            if (!cancelled.isCompleted) {
+              cancelled.complete();
+            }
+          });
+      addTearDown(taskStatusSub.cancel);
+      final runStatusSub = wiring.eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
+        if (event.newStatus == WorkflowRunStatus.failed) {
+          failedRunStatuses.add(event);
+        }
+      });
+      addTearDown(runStatusSub.cancel);
+      final taskEventSub = wiring.eventBus
+          .on<TaskEventCreatedEvent>()
+          .where((event) => event.taskId == 'sibling-one-shot' && event.kind == TaskEventKind.taskError.name)
+          .listen(taskErrorEvents.add);
+      addTearDown(taskEventSub.cancel);
+
+      final definition = WorkflowDefinition(
+        name: 'approval-hold-with-sibling',
+        description: 'Stops in approval while a sibling one-shot is in flight',
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+        ],
+      );
+      final run = await wiring.workflowService.start(definition, const {});
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (DateTime.now().isBefore(deadline)) {
+        final updated = await wiring.workflowService.get(run.id);
+        if (updated?.status == WorkflowRunStatus.awaitingApproval) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect((await wiring.workflowService.get(run.id))?.status, WorkflowRunStatus.awaitingApproval);
+
+      await wiring.taskService.create(
+        id: 'sibling-one-shot',
+        title: 'Sibling one-shot',
+        description: 'Still running when approval-held standalone run tears down.',
+        type: TaskType.analysis,
+        workflowRunId: run.id,
+        stepIndex: 1,
+        provider: 'claude',
+        agentExecutionId: 'ae-sibling-one-shot',
+        configJson: const {'reviewMode': 'auto-accept'},
+      );
+      final workflowStepExecutions = SqliteWorkflowStepExecutionRepository(wiring.taskDb);
+      await workflowStepExecutions.create(
+        WorkflowStepExecution(
+          taskId: 'sibling-one-shot',
+          agentExecutionId: 'ae-sibling-one-shot',
+          workflowRunId: run.id,
+          stepIndex: 1,
+          stepId: 'sibling',
+          stepType: WorkflowTaskType.agent.toJson(),
+        ),
+      );
+      await wiring.taskService.transition('sibling-one-shot', TaskStatus.queued, trigger: 'workflow');
+      unawaited(wiring.taskExecutor.pollOnce());
+      try {
+        await processStarterEntered.future.timeout(const Duration(seconds: 5));
+      } on TimeoutException {
+        final task = await wiring.taskService.get('sibling-one-shot');
+        fail('Sibling one-shot process starter did not run; task=${task?.status.name} config=${task?.configJson}');
+      }
+
+      final dispose = wiring.dispose();
+      allowProcessStart.complete();
+      final process = await processStarted.future.timeout(const Duration(seconds: 5));
+      await cancelled.future.timeout(const Duration(seconds: 5));
+      expect(process.killCalled, isTrue);
+      expect((await wiring.taskService.get('sibling-one-shot'))?.status, TaskStatus.cancelled);
+      await dispose;
+      disposed = true;
+      expect(taskErrorEvents, isEmpty);
+      expect(failedRunStatuses, isEmpty);
+    } finally {
+      if (!disposed) {
+        await wiring.dispose();
+      }
+      Directory.current = savedCwd;
+    }
   });
 
   test('standalone coding tasks use the configured project clone instead of cwd', () async {

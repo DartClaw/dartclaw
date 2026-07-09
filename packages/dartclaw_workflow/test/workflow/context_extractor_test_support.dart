@@ -9,7 +9,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
         ContextExtractor,
-        ExtractionConfig,
         MessageService,
         OutputConfig,
         OutputFormat,
@@ -34,7 +33,7 @@ const reviewSummaryProducers = <ReviewProducer>[
   (
     name: 'dartclaw-quick-review',
     stepId: 're-review',
-    summaryKey: 'review_findings',
+    summaryKey: 'review_report_path',
     totalKey: 're-review.findings_count',
     gatingKey: 're-review.gating_findings_count',
   ),
@@ -131,28 +130,35 @@ final class ContextExtractorTestHarness {
     return task;
   }
 
-  WorkflowStep makeStep({String id = 'step1', ExtractionConfig? extraction, Map<String, OutputConfig>? outputs}) {
-    return WorkflowStep(id: id, name: 'Step 1', prompts: ['Do something'], extraction: extraction, outputs: outputs);
+  WorkflowStep makeStep({String id = 'step1', Map<String, OutputConfig>? outputs}) {
+    return WorkflowStep(id: id, name: 'Step 1', prompts: ['Do something'], outputs: outputs);
   }
 
   WorkflowStep worktreeSourceStep(String outputKey, String source) {
     return WorkflowStep(
       id: 'coding-step',
       name: 'Fix',
-      type: WorkflowTaskType.agent,
+      taskType: WorkflowTaskType.agent,
       prompts: const ['Fix the bug'],
       outputs: {outputKey: OutputConfig(source: source)},
     );
   }
 
   WorkflowStep pathOutputStep(String key, {String id = 'step1'}) {
+    // The canonical review-report key gets review-artifact resolution from its
+    // preset (name-agnostic engine: no output-key-name magic). Other path keys
+    // stay bare and fall back to the uniform `**/*` glob.
     return makeStep(
       id: id,
-      outputs: {key: const OutputConfig(format: OutputFormat.path)},
+      outputs: {
+        key: key == 'review_report_path'
+            ? const OutputConfig(format: OutputFormat.path, schema: 'review_report_path')
+            : const OutputConfig(format: OutputFormat.path),
+      },
     );
   }
 
-  Map<String, OutputConfig> reviewOutputs(String stepId, {String pathKey = 'review_findings'}) => {
+  Map<String, OutputConfig> reviewOutputs(String stepId, {String pathKey = 'review_report_path'}) => {
     pathKey: const OutputConfig(format: OutputFormat.path),
     '$stepId.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
     '$stepId.gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
@@ -308,6 +314,51 @@ final class ContextExtractorTestHarness {
     return (await taskService.get(taskId))!;
   }
 
+  /// Seeds a task whose persisted `WorkflowStepExecution.structuredOutput` is
+  /// [envelope] (an execution-envelope payload, e.g.
+  /// `{outputs: {...}, step_outcome: {...}, _envelopeVersion: 1}`), mirroring
+  /// what the finalizer turn writes. Supports the project/run/worktree fields the
+  /// filesystem-claim resolution paths need.
+  Future<Task> buildTaskWithEnvelope(
+    String taskId,
+    Map<String, dynamic> envelope, {
+    String? sessionId,
+    String? projectId,
+    String? worktreePath,
+    String? workflowRunId,
+  }) async {
+    final agentExecutionId = 'ae-$taskId';
+    final runId = workflowRunId ?? 'wf-$taskId';
+    await agentExecutions.create(AgentExecution(id: agentExecutionId));
+    await taskService.create(
+      id: taskId,
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+      agentExecutionId: agentExecutionId,
+      workflowRunId: runId,
+      projectId: projectId,
+    );
+    if (sessionId != null) {
+      await taskService.updateFields(taskId, sessionId: sessionId);
+    }
+    if (worktreePath != null) {
+      await taskService.updateFields(taskId, worktreeJson: {'path': worktreePath});
+    }
+    await workflowStepExecutions.create(
+      WorkflowStepExecution(
+        taskId: taskId,
+        agentExecutionId: agentExecutionId,
+        workflowRunId: runId,
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson: jsonEncode(envelope),
+      ),
+    );
+    return (await taskService.get(taskId))!;
+  }
+
   File writeFile(String root, String relativePath, String content) {
     final file = File(p.join(root, relativePath));
     file.createSync(recursive: true);
@@ -333,6 +384,30 @@ final class ContextExtractorTestHarness {
     String? dataDir,
   }) {
     final path = runtimeReviewPath(runId, fileName, dataDir: dataDir);
+    File(path).writeAsStringSync(content);
+    return path;
+  }
+
+  /// The host-owned per-step artifacts dir the extractor captures review
+  /// reports from: `<runtime-artifacts>/steps/<stepId>[-<mapIterationIndex>]`.
+  Directory stepArtifactsDir(String runId, String stepId, {int? mapIterationIndex, String? dataDir}) {
+    final dirName = mapIterationIndex == null ? stepId : '$stepId-$mapIterationIndex';
+    return Directory(p.join(dataDir ?? tempDir.path, 'workflows', 'runs', runId, 'runtime-artifacts', 'steps', dirName))
+      ..createSync(recursive: true);
+  }
+
+  /// Writes a review report into the host-owned step artifacts dir and returns
+  /// its absolute path — the deterministic capture source.
+  String writeStepReview(
+    String runId,
+    String stepId,
+    String fileName, {
+    String content = '# Council Review\n',
+    int? mapIterationIndex,
+    String? dataDir,
+  }) {
+    final dir = stepArtifactsDir(runId, stepId, mapIterationIndex: mapIterationIndex, dataDir: dataDir);
+    final path = p.join(dir.path, fileName);
     File(path).writeAsStringSync(content);
     return path;
   }

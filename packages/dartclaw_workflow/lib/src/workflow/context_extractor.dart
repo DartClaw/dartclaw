@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show MessageService, Task, WorkflowStepExecutionRepository, WorkflowTaskService;
-import 'workflow_definition.dart'
-    show ExtractionConfig, ExtractionType, OutputConfig, OutputFormat, OutputMode, WorkflowStep;
+import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode, WorkflowStep;
 
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'context_output_defaults.dart';
+import 'diff_artifact_reader.dart';
 import 'filesystem_output_resolver.dart' as fs;
 import 'json_extraction.dart';
 import 'output_normalization.dart' as on_;
@@ -33,16 +33,13 @@ typedef StructuredOutputFallbackRecorder =
 
 /// Extracts context outputs from a completed task's artifacts and messages.
 ///
-/// Five extraction strategies (in priority order for each output key):
+/// Four extraction strategies (in priority order for each output key):
 /// 1. Explicit `setValue:` literal on the step's [OutputConfig] – short-circuits
 ///    everything below; writes the configured literal (including `null`)
 ///    verbatim to context. See `WorkflowStep.outputs[key].setValue`.
-/// 2. Explicit [ExtractionConfig] on the step (artifact lookup by name pattern).
-///    Skipped for the first context-output key when that key has `setValue:`
-///    configured so the legacy priority branch never beats `setValue`.
-/// 3. Workflow context tag: `<workflow-context>{...}</workflow-context>` in the last assistant message.
-/// 4. First `.md` artifact file content.
-/// 5. `diff.json` artifact for diff-related keys.
+/// 2. Workflow context tag: `<workflow-context>{...}</workflow-context>` in the last assistant message.
+/// 3. First `.md` artifact file content.
+/// 4. `diff.json` artifact when explicitly requested by the `diff_summary` output key.
 ///
 /// Automatic step metadata keys (`<stepId>.status`, `<stepId>.tokenCount`)
 /// are set by [WorkflowExecutor] – not by this class.
@@ -88,24 +85,25 @@ class ContextExtractor {
     // declaration of which context keys this step writes.
     final outputKeys = configs?.keys.toList(growable: false) ?? step.outputKeys;
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
-    final structuredOutputPayload = await _extractStructuredOutputPayload(task);
+    final (outputs: structuredOutputPayload, isEnvelope: structuredIsEnvelope) = await _extractStructuredOutputPayload(
+      task,
+    );
+    // Filesystem path/artifact claims arrive in the finalizer envelope's
+    // `outputs`; legacy transcripts still carry them inline. Prefer the
+    // structured (envelope) claim, falling back to the inline block. A `null`
+    // envelope path value means "no claim" (the schema declares path keys
+    // required+nullable so no-claim survives strict mode); it must NOT mask an
+    // inline claim or short-circuit the glob / reviews-dir backstop, so drop
+    // null-valued structured entries from the claim view.
+    final structuredClaims = <String, dynamic>{
+      for (final entry in structuredOutputPayload.entries)
+        if (entry.value != null) entry.key: entry.value,
+    };
+    final claimPayload = structuredClaims.isEmpty
+        ? workflowContextPayload
+        : <String, dynamic>{...?workflowContextPayload, ...structuredClaims};
 
-    // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
-    //    Skipped when the first output key has `setValue` configured – `setValue`
-    //    must win unconditionally over the legacy extraction-priority branch
-    //    (otherwise `extraction:` would silently beat `setValue:` for the first key only).
-    if (step.extraction != null && outputKeys.isNotEmpty) {
-      final firstKey = outputKeys.first;
-      final firstKeyHasSetValue = configs?[firstKey]?.hasSetValue ?? false;
-      if (!firstKeyHasSetValue) {
-        final extracted = await _applyExtractionConfig(step.extraction!, task);
-        if (extracted != null) {
-          outputs[firstKey] = extracted;
-        }
-      }
-    }
-
-    // 2. For each declared output key not yet extracted.
+    // 1. For each declared output key not yet extracted.
     for (final outputKey in outputKeys) {
       if (outputs.containsKey(outputKey)) continue;
 
@@ -147,69 +145,50 @@ class ContextExtractor {
       }
 
       final resolver = outputResolverFor(outputKey, config);
+      final derivedReviewCount = on_.deriveReviewCountFromStructuredOutputs(
+        step,
+        outputs,
+        outputKey,
+        workflowContextPayload: workflowContextPayload,
+        structuredOutputPayload: structuredOutputPayload,
+      );
+      if (derivedReviewCount != null) {
+        outputs[outputKey] = derivedReviewCount;
+        continue;
+      }
       switch (resolver) {
         case FileSystemOutput():
           // A step may declare a namespaced output key
-          // (`<stepId>.review_findings`, required when parallel steps would
+          // (`<stepId>.review_report_path`, required when parallel steps would
           // collide on a shared context key) while the invoking skill emits the
-          // bare canonical key (`review_findings`). Honor the agent's claim
+          // bare canonical key (`review_report_path`). Honor the agent's claim
           // under either form, mirroring the dual-key acceptance already used
           // for review counts (see findingsCountKeys). Each step extracts from
           // its own session payload, so the bare alias cannot cross-contaminate
           // a sibling step.
-          final claimKey = _fileSystemClaimKey(outputKey, step, workflowContextPayload);
+          final claimKey = _fileSystemClaimKey(outputKey, step, claimPayload);
           final resolvedFsOutput = await _resolveFileSystemOutput(
             resolver,
             outputKey: outputKey,
             step: step,
             task: task,
-            inlinePayload: claimKey == null ? null : workflowContextPayload?[claimKey],
+            inlinePayload: claimKey == null ? null : claimPayload?[claimKey],
             hasInlineClaim: claimKey != null,
-            workflowContextPayload: workflowContextPayload,
+            workflowContextPayload: claimPayload,
           );
           _assertArgumentSafeFileSystemOutput(resolvedFsOutput, outputKey);
           outputs[outputKey] = resolvedFsOutput;
           continue;
         case InlineOutput():
-          if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
-            outputs[outputKey] = on_.normalizePayloadValue(
-              workflowContextPayload[outputKey],
-              config,
-              _schemaValidator,
-              step.id,
-              outputKey,
-            );
-            continue;
-          }
-          if (structuredOutputPayload.containsKey(outputKey)) {
-            outputs[outputKey] = on_.normalizePayloadValue(
-              structuredOutputPayload[outputKey],
-              config,
-              _schemaValidator,
-              step.id,
-              outputKey,
-            );
-            continue;
-          }
-        case NarrativeOutput():
-          if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
-            outputs[outputKey] = on_.normalizePayloadValue(
-              workflowContextPayload[outputKey],
-              config,
-              _schemaValidator,
-              step.id,
-              outputKey,
-            );
-            continue;
-          }
-          if (structuredOutputPayload.containsKey(outputKey)) {
-            outputs[outputKey] = on_.normalizePayloadValue(
-              structuredOutputPayload[outputKey],
-              config,
-              _schemaValidator,
-              step.id,
-              outputKey,
-            );
+          if (_extractInlineOutput(
+            outputs,
+            outputKey,
+            config,
+            step,
+            workflowContextPayload: workflowContextPayload,
+            structuredOutputPayload: structuredOutputPayload,
+            structuredIsEnvelope: structuredIsEnvelope,
+          )) {
             continue;
           }
       }
@@ -237,7 +216,7 @@ class ContextExtractor {
 
       if (config != null && config.format != OutputFormat.text && config.format != OutputFormat.path) {
         // Format-aware extraction (json or lines).
-        final rawContent = await _extractRawContent(step, task, outputKey);
+        final rawContent = await _extractRawContent(task);
         if (rawContent == null || rawContent.isEmpty) {
           _log.warning(
             'No raw content for format-aware extraction of "$outputKey" '
@@ -282,9 +261,9 @@ class ContextExtractor {
         continue;
       }
 
-      // Try diff.json for diff-related keys.
-      if (outputKey.contains('diff') || outputKey.contains('changes')) {
-        final diffContent = await _extractDiffArtifact(task);
+      // Try diff.json for the canonical diff summary key.
+      if (outputKey == 'diff_summary') {
+        final diffContent = await readDiffArtifactSummary(_taskService, _dataDir, task);
         if (diffContent != null) {
           outputs[outputKey] = diffContent;
           continue;
@@ -314,6 +293,40 @@ class ContextExtractor {
     return outputs;
   }
 
+  /// Resolves an [InlineOutput] key from the structured
+  /// payload and the legacy inline block, writing into [outputs] and returning
+  /// whether a value was found.
+  ///
+  /// When the structured payload is a finalizer envelope it is primary
+  /// (envelope-first); for legacy flat payloads the historical inline-first
+  /// ordering is preserved so old transcripts still resolve.
+  bool _extractInlineOutput(
+    Map<String, dynamic> outputs,
+    String outputKey,
+    OutputConfig? config,
+    WorkflowStep step, {
+    required Map<String, dynamic>? workflowContextPayload,
+    required Map<String, dynamic> structuredOutputPayload,
+    required bool structuredIsEnvelope,
+  }) {
+    Object? normalize(Object? value) => on_.normalizePayloadValue(value, config, _schemaValidator, step.id, outputKey);
+    final inlineHasKey = workflowContextPayload != null && workflowContextPayload.containsKey(outputKey);
+    final structuredHasKey = structuredOutputPayload.containsKey(outputKey);
+    if (structuredIsEnvelope && structuredHasKey) {
+      outputs[outputKey] = normalize(structuredOutputPayload[outputKey]);
+      return true;
+    }
+    if (inlineHasKey) {
+      outputs[outputKey] = normalize(workflowContextPayload[outputKey]);
+      return true;
+    }
+    if (structuredHasKey) {
+      outputs[outputKey] = normalize(structuredOutputPayload[outputKey]);
+      return true;
+    }
+    return false;
+  }
+
   Future<Object?> _resolveFileSystemOutput(
     FileSystemOutput resolver, {
     required String outputKey,
@@ -323,45 +336,52 @@ class ContextExtractor {
     required bool hasInlineClaim,
     required Map<String, dynamic>? workflowContextPayload,
   }) async {
+    // Review artifacts are captured deterministically from the host-owned step
+    // artifacts dir — model-claimed paths and the worktree diff never apply.
+    if (rap.isReviewArtifactPathOutput(outputKey, step, resolver, workflowContextPayload)) {
+      return rap.resolveReviewArtifactFromStepDir(
+        outputKey: outputKey,
+        step: step,
+        task: task,
+        resolver: resolver,
+        workflowContextPayload: workflowContextPayload,
+        dataDir: _dataDir,
+        mapIterationIndex: await _mapIterationIndexFor(task),
+      );
+    }
     final claimedPaths = _claimedPaths(inlinePayload);
     final claimsExplicitlyEmpty = hasInlineClaim && _isExplicitlyEmptyPathClaim(inlinePayload);
     final git = _workflowGitPort;
     final worktreePath = (task.worktreeJson?['path'] as String?)?.trim() ?? '';
-    final preservesRuntimeArtifactsRoot = rap.isReviewArtifactPathOutput(
-      outputKey,
-      step,
-      resolver,
-      workflowContextPayload,
-    );
-    final existingClaims = _existingSafeFileClaims(
-      claimedPaths,
-      task,
-      resolver,
-      preserveRuntimeArtifactsRoot: preservesRuntimeArtifactsRoot,
-    );
+    final existingClaims = _existingSafeFileClaims(claimedPaths, task);
     List<String> changedMatches = const [];
     if (git != null && worktreePath.isNotEmpty) {
       final changedPaths = await git.diffNameOnly(worktreePath);
-      changedMatches = _safeChangedFileSystemMatches(
-        changedPaths.map(p.normalize).where(resolver.matches),
-        task,
-        resolver,
-      );
+      // `pathPattern` selects which diff entries are discovery candidates; the
+      // containment + existence boundary is applied in the helper.
+      changedMatches = _safeChangedFileSystemMatches(changedPaths.map(p.normalize).where(resolver.matches), task);
     }
     return fs.resolveFileSystemOutput(
       claimsExplicitlyEmpty: claimsExplicitlyEmpty,
       resolver,
       outputKey: outputKey,
-      step: step,
       task: task,
       claimedPaths: claimedPaths,
       changedMatches: changedMatches,
       existingClaims: existingClaims,
-      preservesRuntimeArtifactsRoot: preservesRuntimeArtifactsRoot,
-      workflowContextPayload: workflowContextPayload,
       git: git,
-      dataDir: _dataDir,
     );
+  }
+
+  /// The map-iteration index for a map-dispatched task, read from the
+  /// hydrated [WorkflowStepExecution] row (falling back to the repository),
+  /// so parallel iterations resolve their own disjoint step artifacts dirs.
+  Future<int?> _mapIterationIndexFor(Task task) async {
+    final hydrated = task.workflowStepExecution;
+    if (hydrated != null) return hydrated.mapIterationIndex;
+    final repo = _workflowStepExecutionRepository;
+    if (repo == null) return null;
+    return (await repo.getByTaskId(task.id))?.mapIterationIndex;
   }
 
   // Single-value relative `format: path` outputs are interpolated straight into
@@ -432,10 +452,9 @@ class ContextExtractor {
     return const <String>[];
   }
 
-  List<String> _safeChangedFileSystemMatches(Iterable<String> values, Task task, FileSystemOutput resolver) {
+  List<String> _safeChangedFileSystemMatches(Iterable<String> values, Task task) {
     return fs.safeChangedFileSystemMatches(
       values,
-      resolver,
       worktreeRoots: fs.worktreeFileSystemOutputRoots(task.worktreeJson),
       taskId: task.id,
       projectId: task.projectId,
@@ -444,16 +463,9 @@ class ContextExtractor {
     );
   }
 
-  Map<String, String> _existingSafeFileClaims(
-    List<String> values,
-    Task task,
-    FileSystemOutput resolver, {
-    required bool preserveRuntimeArtifactsRoot,
-  }) {
+  Map<String, String> _existingSafeFileClaims(List<String> values, Task task) {
     return fs.existingSafeFileClaims(
       values,
-      resolver,
-      preserveRuntimeArtifactsRoot: preserveRuntimeArtifactsRoot,
       roots: fs.fileSystemOutputRoots(
         worktreeJson: task.worktreeJson,
         workflowRunId: task.workflowRunId,
@@ -467,56 +479,49 @@ class ContextExtractor {
     );
   }
 
-  Future<Map<String, dynamic>> _extractStructuredOutputPayload(Task task) async {
+  /// The primary structured payload of declared domain outputs, and
+  /// whether it came from a finalizer envelope.
+  ///
+  /// For a finalizer envelope (marker-discriminated), returns the unwrapped
+  /// `outputs` object so downstream extraction reads declared model-derived
+  /// outputs directly; engine-owned `step_outcome` stays out of the output
+  /// map. Legacy flat payloads (pre-envelope rows, opt-out steps) pass through
+  /// unchanged as the compatibility fallback. [isEnvelope] lets extraction make
+  /// the envelope the primary source (envelope-first) while keeping the
+  /// historical inline-first ordering for legacy flat payloads.
+  Future<({Map<String, dynamic> outputs, bool isEnvelope})> _extractStructuredOutputPayload(Task task) async {
     final repo = _workflowStepExecutionRepository;
-    if (repo != null) {
-      return await WorkflowTaskConfig.readStructuredOutputPayload(task, repo) ?? const <String, dynamic>{};
+    if (repo == null) return (outputs: const <String, dynamic>{}, isEnvelope: false);
+    final payload = await WorkflowTaskConfig.readStructuredOutputPayload(task, repo);
+    if (payload == null) return (outputs: const <String, dynamic>{}, isEnvelope: false);
+    if (isExecutionEnvelope(payload)) {
+      final outputs = payload[executionEnvelopeOutputsKey];
+      return (
+        outputs: outputs is Map
+            ? outputs.map((key, value) => MapEntry(key.toString(), value))
+            : const <String, dynamic>{},
+        isEnvelope: true,
+      );
     }
-    return const <String, dynamic>{};
+    return (outputs: payload, isEnvelope: false);
   }
 
   /// Extracts raw text content for format-aware processing.
-  ///
-  /// Priority: explicit extraction config → last assistant message → first .md artifact.
-  Future<String?> _extractRawContent(WorkflowStep step, Task task, String outputKey) async {
-    // 1. Explicit extraction config.
-    if (step.extraction != null) {
-      return _applyExtractionConfig(step.extraction!, task);
-    }
-
-    // 2. Last assistant message content (full text for JSON extraction).
+  Future<String?> _extractRawContent(Task task) async {
     if (task.sessionId != null) {
       final messages = await _messageService.getMessagesTail(task.sessionId!, count: 5);
       final lastAssistant = messages.where((m) => m.role == 'assistant').lastOrNull;
       if (lastAssistant != null) return lastAssistant.content;
     }
 
-    // 3. First .md artifact.
     return _extractFirstMdArtifact(task);
-  }
-
-  Future<String?> _applyExtractionConfig(ExtractionConfig config, Task task) async {
-    switch (config.type) {
-      case ExtractionType.artifact:
-        return _extractArtifactByName(task, config.pattern);
-    }
-  }
-
-  Future<String?> _extractArtifactByName(Task task, String pattern) async {
-    final artifacts = await _taskService.listArtifacts(task.id);
-    for (final artifact in artifacts) {
-      if (artifact.name.contains(pattern) || artifact.path.contains(pattern)) {
-        return _readArtifactContent(task.id, artifact.path);
-      }
-    }
-    return null;
   }
 
   /// Parses the `<workflow-context>` payload from the most recent assistant
   /// message that contains one.
   ///
   /// Workflow one-shot execution may append a final bare-JSON extraction turn
-  /// after an earlier assistant message already emitted the authoritative
+  /// after an earlier assistant message already emitted the primary
   /// `<workflow-context>...</workflow-context>` block. Looking only at the last
   /// assistant message would silently drop mixed outputs such as text `prd`
   /// plus structured `stories`.
@@ -552,27 +557,6 @@ class ContextExtractor {
     return null;
   }
 
-  /// Returns a summary string from the `diff.json` artifact, if present.
-  Future<String?> _extractDiffArtifact(Task task) async {
-    final artifacts = await _taskService.listArtifacts(task.id);
-    for (final artifact in artifacts) {
-      if (artifact.path.endsWith('diff.json')) {
-        final raw = await _readArtifactContent(task.id, artifact.path);
-        if (raw == null) return null;
-        try {
-          final json = jsonDecode(raw) as Map<String, dynamic>;
-          final files = (json['files'] as int?) ?? 0;
-          final additions = (json['additions'] as int?) ?? 0;
-          final deletions = (json['deletions'] as int?) ?? 0;
-          return '$files files changed, +$additions -$deletions';
-        } catch (_) {
-          return raw; // Malformed diff_summary JSON – fall back to raw string.
-        }
-      }
-    }
-    return null;
-  }
-
   /// Reads the content of an artifact file.
   ///
   /// [path] may be absolute or relative to `<dataDir>/tasks/<taskId>/artifacts/`.
@@ -587,9 +571,17 @@ class ContextExtractor {
     }
   }
 
-  /// Parses the last well-formed `<step-outcome>` payload from [task]'s
-  /// assistant messages.
+  /// Resolves the semantic step outcome for [task].
+  ///
+  /// Reads the finalizer envelope's `step_outcome` first (the standard path);
+  /// falls back to parsing the last well-formed `<step-outcome>` tag from the
+  /// task's assistant messages for legacy transcripts and `emitsOwnOutcome`
+  /// steps. Returns null when neither source supplies a valid outcome, leaving
+  /// lifecycle-status fallback (and its counter) to the caller.
   Future<StepOutcomePayload?> extractStepOutcome(Task task) async {
+    final envelopeOutcome = await _extractEnvelopeStepOutcome(task);
+    if (envelopeOutcome != null) return envelopeOutcome;
+
     final sessionId = task.sessionId;
     if (sessionId == null || sessionId.isEmpty) return null;
 
@@ -600,5 +592,19 @@ class ContextExtractor {
       if (parsed != null) return parsed;
     }
     return null;
+  }
+
+  /// Reads `step_outcome` from the persisted finalizer envelope, when present
+  /// and carrying a valid protocol outcome.
+  Future<StepOutcomePayload?> _extractEnvelopeStepOutcome(Task task) async {
+    final repo = _workflowStepExecutionRepository;
+    if (repo == null) return null;
+    final payload = await WorkflowTaskConfig.readStructuredOutputPayload(task, repo);
+    if (!isExecutionEnvelope(payload)) return null;
+    final stepOutcome = payload![executionEnvelopeStepOutcomeKey];
+    if (stepOutcome is! Map) return null;
+    final outcome = stepOutcome['outcome']?.toString();
+    if (outcome != 'succeeded' && outcome != 'failed' && outcome != 'needsInput') return null;
+    return StepOutcomePayload(outcome: outcome!, reason: stepOutcome['reason']?.toString() ?? '');
   }
 }

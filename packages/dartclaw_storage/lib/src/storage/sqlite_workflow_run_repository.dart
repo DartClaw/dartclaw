@@ -34,9 +34,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         current_step_index INTEGER NOT NULL DEFAULT 0,
         definition_json TEXT NOT NULL DEFAULT '{}',
         execution_cursor_json TEXT,
-        workflow_worktree_json TEXT,
-        current_loop_id TEXT,
-        current_loop_iteration INTEGER
+        workflow_worktree_json TEXT
       )
     ''');
     final columns = _db.select('PRAGMA table_info(workflow_runs)').map((row) => row['name'] as String).toSet();
@@ -113,8 +111,8 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         id, definition_name, status, context_json, variables_json,
         started_at, updated_at, completed_at, error_message,
         total_tokens, current_step_index, definition_json,
-        execution_cursor_json, workflow_worktree_json, current_loop_id, current_loop_iteration
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        execution_cursor_json, workflow_worktree_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -136,8 +134,6 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
               ? null
               : {'items': run.workflowWorktrees.map((binding) => binding.toJson()).toList()},
         ),
-        run.currentLoopId,
-        run.currentLoopIteration,
       ]);
     } finally {
       stmt.close();
@@ -196,9 +192,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         current_step_index = ?,
         definition_json = ?,
         execution_cursor_json = ?,
-        workflow_worktree_json = COALESCE(?, workflow_worktree_json),
-        current_loop_id = ?,
-        current_loop_iteration = ?
+        workflow_worktree_json = COALESCE(?, workflow_worktree_json)
       WHERE id = ?
     ''');
     try {
@@ -218,8 +212,6 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
               ? null
               : {'items': run.workflowWorktrees.map((binding) => binding.toJson()).toList()},
         ),
-        run.currentLoopId,
-        run.currentLoopIteration,
         run.id,
       ]);
     } finally {
@@ -306,8 +298,6 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
       definitionJson: _decodeJson(row['definition_json'] as String),
       executionCursor: _decodeExecutionCursor(row['execution_cursor_json']),
       workflowWorktrees: _decodeWorkflowWorktreeBindings(row['workflow_worktree_json']),
-      currentLoopId: row['current_loop_id'] as String?,
-      currentLoopIteration: row['current_loop_iteration'] as int?,
     );
   }
 

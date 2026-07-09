@@ -2,8 +2,8 @@ name: review-and-remediate-inline
 description: >-
   Inline review + remediate for an already-implemented milestone, version, or
   feature. Reviews all changes on the current branch (diffed against
-  BASE_BRANCH) with the same multi-lens depth as plan-and-implement
-  (mixed review + Claude council pass + architecture review), runs a bounded
+  BASE_BRANCH) with the same multi-lens depth as plan-and-implement (gap review
+  + Claude code/security council pass + architecture review), runs a bounded
   remediation loop, then closes with the deterministic CI-equivalent
   verification gate. Unlike the built-in single-methodology code-review, nothing
   is implemented here – it only reviews existing changes and fixes what the
@@ -55,51 +55,65 @@ stepDefaults:
     model: "@workflow"
 
 steps:
-  # mixed-review, review-council, and architecture-review form a parallel group:
+  # gap-review, review-council, and architecture-review form a parallel group:
   # consecutive `parallel: true` steps run concurrently and merge outputs back
   # into context before the workflow continues serially. Each writes distinct
   # context keys so the merge is conflict-free. TARGET is operator-supplied and
   # is meant to direct the review, so it is interpolated inline (same contract
-  # as the built-in code-review's review target).
-  - id: mixed-review
-    name: Mixed Review
+  # as the built-in code-review's review target). Lenses are split to mirror
+  # plan/spec: a cheap @reviewer gap pass + a deep Claude code/security council
+  # pass + an architecture pass – disjoint lenses, so each adds coverage the
+  # others don't. When BRANCH is empty the `({{BRANCH}})` clause renders as empty
+  # parens `()`; the review skill tolerates the empty value, so the rendering is
+  # left as-is (no template/engine conditional surface).
+  - id: gap-review
+    name: Gap Review
     skill: andthen:review
     parallel: true
     onFailure: retry
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    # Requirements-vs-implementation fit (the gating PASS/FAIL lens the council
+    # cannot run – --council rejects a single gap/doc lens). The gap lens
+    # discovers the milestone's requirements baseline from the repo specs;
+    # TARGET directs scope. Runs on the @reviewer role (no provider pin).
     prompt: >-
-      --mode mixed --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --mode gap --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review the implementation of: {{TARGET}}. Scope the review to all changes
       on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and
       packages untouched by these changes.
     outputs:
-      mixed-review.review_findings: review_report_path
-      mixed-review.findings_count: findings_count
-      mixed-review.gating_findings_count: gating_findings_count
+      gap-review.review_report_path: review_report_path
+      gap-review.findings_count: findings_count
+      gap-review.gating_findings_count: gating_findings_count
 
   - id: review-council
-    name: Council Review
+    name: Code & Security Council Review
     skill: andthen:review
     parallel: true
-    onFailure: retry
+    # Advisory extra-perspective pass: the gap-review + architecture-review carry
+    # the gating signal, and the council writes its report to the reviews
+    # output-dir regardless. A council flake (provider stall, output-capture edge
+    # case) must not abort the whole run, so continue past its failure rather
+    # than failing the parallel barrier; its real findings still gate via the
+    # aggregator. Pinned to Claude opus – a multi-perspective adversarial review
+    # the @reviewer (codex) default cannot run (inherit_user_settings: true in
+    # the maintainer profile).
+    onFailure: continue
     maxRetries: 1
-    # Council pass pinned to Claude opus – a multi-perspective adversarial
-    # review that the @reviewer (codex) default cannot run. Requires Claude
-    # availability (inherit_user_settings: true in the maintainer profile).
     provider: claude
     model: opus[1m]
     effort: xhigh
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode mixed --council --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --mode code,security --council --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review the implementation of: {{TARGET}}. Scope the review to all changes
       on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and
       packages untouched by these changes.
     outputs:
-      review-council.review_findings: review_report_path
+      review-council.review_report_path: review_report_path
       review-council.findings_count: findings_count
       review-council.gating_findings_count: gating_findings_count
 
@@ -111,20 +125,22 @@ steps:
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode review --auto Review the architecture of: {{TARGET}}. Scope the
+      --mode review --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      Review the architecture of: {{TARGET}}. Scope the
       review to changes on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}}
       – skip packages untouched by these changes.
     outputs:
-      architecture-review.review_findings: review_report_path
+      architecture-review.review_report_path: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [mixed-review, review-council, architecture-review]
+    aggregateReviews: [gap-review, review-council, architecture-review]
     outputs:
-      review_findings: review_report_path
+      review_report_path: review_report_path
       findings_count: findings_count
       gating_findings_count: gating_findings_count
 
@@ -134,15 +150,20 @@ steps:
     maxIterations: 5
     entryGate: "gating_findings_count > 0"
     exitGate: "gating_findings_count == 0"
+    # On exhaustion, fall through to the deterministic verify-all → verify-fix-loop
+    # gate below instead of failing the run; that gate mechanically resolves
+    # guardrail-class residue and is the genuine fail point if it cannot.
+    onMaxIterations: continue
     steps:
       - id: remediate
         name: Remediate Findings
         skill: andthen:remediate-findings
         entryGate: "gating_findings_count > 0"
-        inputs: [review_findings]
-        prompt: "--auto {{context.review_findings}}"
+        prompt: "--auto {{context.review_report_path}}"
         outputs:
-          remediation_summary: remediation_summary
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
 
       # No session continuity – andthen:review reads the current workspace state
       # on each iteration.
@@ -152,13 +173,13 @@ steps:
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [remediation_summary]
         prompt: >-
-          --mode mixed --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          --mode gap,code,security --auto
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
           Review the implementation of: {{TARGET}}. Scope the review to all
           changes on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} –
           skip files and packages untouched by these changes.
         outputs:
-          review_findings: review_report_path
+          review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
 
@@ -205,7 +226,7 @@ steps:
       - id: verify-recheck
         name: Re-run Verification Gate
         type: bash
-        timeout: 60m
+        timeout: 90m
         script: >-
           bash ../workflows/custom/scripts/verify-gate.sh all
           {{workflow.runtime_artifacts_dir}}

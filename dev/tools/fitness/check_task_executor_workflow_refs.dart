@@ -33,44 +33,28 @@ void main(List<String> args) {
   for (var i = 0; i < sourceLines.length; i++) {
     final text = sourceLines[i];
     if (_pattern.hasMatch(text)) {
-      liveMatches.add(_Match(normalizedSource, i + 1, text.trimRight()));
+      liveMatches.add(_Match(i + 1, _stableIdentifier(text)));
     }
   }
 
   final allowlist = allowlistFile
       .readAsLinesSync()
       .where((line) => line.trim().isNotEmpty && !line.trimLeft().startsWith('#'))
-      .map((line) => _AllowlistEntry.parse(line, _canonicalize))
+      .map(_AllowlistEntry.parse)
       .toList(growable: false);
 
-  // Pair each live match to at most one allowlist entry within ±3 lines, choosing
-  // the nearest unmatched entry first. This prevents a single allowlist entry from
-  // silently covering several nearby matches in a densely-annotated file.
-  final consumed = <int>{};
+  final allowlistByIdentifier = {for (final entry in allowlist) entry.identifier: entry};
   final unexpected = <_Match>[];
   for (final match in liveMatches) {
-    int? bestIndex;
-    int bestDelta = 1 << 30;
-    for (var i = 0; i < allowlist.length; i++) {
-      if (consumed.contains(i)) continue;
-      final entry = allowlist[i];
-      if (entry.path != match.path) continue;
-      final delta = (entry.line - match.line).abs();
-      if (delta <= 3 && delta < bestDelta) {
-        bestDelta = delta;
-        bestIndex = i;
-      }
-    }
-    if (bestIndex == null) {
+    if (!allowlistByIdentifier.containsKey(match.identifier)) {
       unexpected.add(match);
-    } else {
-      consumed.add(bestIndex);
     }
   }
 
+  final liveIdentifiers = liveMatches.map((match) => match.identifier).toSet();
   final stale = <_AllowlistEntry>[
-    for (var i = 0; i < allowlist.length; i++)
-      if (!consumed.contains(i)) allowlist[i],
+    for (final entry in allowlist)
+      if (!liveIdentifiers.contains(entry.identifier)) entry,
   ];
 
   if (unexpected.isEmpty && stale.isEmpty) {
@@ -83,13 +67,13 @@ void main(List<String> args) {
   if (unexpected.isNotEmpty) {
     stderr.writeln('Unexpected workflow references in $normalizedSource:');
     for (final match in unexpected) {
-      stderr.writeln('  ${match.line}: ${match.text}');
+      stderr.writeln('  ${match.line}: ${match.identifier}');
     }
   }
   if (stale.isNotEmpty) {
     stderr.writeln('Stale allowlist entries:');
     for (final entry in stale) {
-      stderr.writeln('  ${entry.path}:${entry.line}: ${entry.reason}');
+      stderr.writeln('  ${entry.identifier} | ${entry.reason}');
     }
   }
   exitCode = 1;
@@ -109,35 +93,29 @@ String _canonicalize(String path) {
   }
 }
 
-class _Match {
-  final String path;
-  final int line;
-  final String text;
+String _stableIdentifier(String text) => text.trim().replaceAll(RegExp(r'\s+'), ' ');
 
-  _Match(this.path, this.line, this.text);
+class _Match {
+  final int line;
+  final String identifier;
+
+  _Match(this.line, this.identifier);
 }
 
 class _AllowlistEntry {
-  final String path;
-  final int line;
+  final String identifier;
   final String reason;
 
-  _AllowlistEntry(this.path, this.line, this.reason);
+  _AllowlistEntry(this.identifier, this.reason);
 
-  factory _AllowlistEntry.parse(String line, String Function(String) canonicalize) {
-    // Split from the right so colons inside the path (Windows drive letters) or
-    // inside the reason text don't confuse the parser. Format is `path:line:reason`.
-    final lastColon = line.lastIndexOf(':');
-    if (lastColon <= 0) {
+  factory _AllowlistEntry.parse(String line) {
+    final separator = line.indexOf('|');
+    if (separator <= 0 || separator == line.length - 1) {
       throw FormatException('Invalid allowlist entry: $line');
     }
-    final secondLastColon = line.lastIndexOf(':', lastColon - 1);
-    if (secondLastColon <= 0) {
-      throw FormatException('Invalid allowlist entry: $line');
-    }
-    final rawPath = line.substring(0, secondLastColon);
-    final lineNumber = int.parse(line.substring(secondLastColon + 1, lastColon));
-    final reason = line.substring(lastColon + 1);
-    return _AllowlistEntry(canonicalize(rawPath), lineNumber, reason);
+    final identifier = _stableIdentifier(line.substring(0, separator));
+    final reason = line.substring(separator + 1).trim();
+    if (reason.isEmpty) throw FormatException('Invalid allowlist entry: $line');
+    return _AllowlistEntry(identifier, reason);
   }
 }

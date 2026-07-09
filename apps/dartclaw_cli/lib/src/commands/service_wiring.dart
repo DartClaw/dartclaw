@@ -20,16 +20,17 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitContext,
         WorkflowGitIntegrationBranchResult,
         WorkflowPersistencePorts,
-        WorkflowGitPromotionConflict,
         WorkflowGitPromotionError,
-        WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
+        WorkflowRun,
+        workflowBlockedOutcomeSummary,
         WorkflowServiceOptions,
         WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
+        WorkflowTurnOutcome,
+        resolveIntegrationBranchName;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -38,7 +39,8 @@ import 'serve_command.dart';
 import 'wiring/channel_wiring.dart';
 import 'wiring/harness_wiring.dart';
 import 'workflow_materializer.dart';
-import 'workflow/andthen_skill_bootstrap.dart';
+import 'workflow/agent_text_scrub.dart';
+import 'workflow/workflow_skill_bootstrap.dart';
 import 'workflow/project_definition_paths.dart';
 import 'workflow/workflow_git_support.dart';
 import 'workflow/workflow_local_path_preflight.dart';
@@ -181,9 +183,9 @@ class ServiceWiring {
   /// When `false`, [wire] skips the [SkillProvisioner] bootstrap. Production
   /// callers leave the default. Tests opt out when they do not need native
   /// workflow skill materialization.
-  final bool runAndthenSkillsBootstrap;
+  final bool runWorkflowSkillsBootstrap;
 
-  /// Environment passed to [SkillProvisioner] when [runAndthenSkillsBootstrap]
+  /// Environment passed to [SkillProvisioner] when [runWorkflowSkillsBootstrap]
   /// is true. Defaults to [Platform.environment] in production. Tests inject a
   /// controlled `HOME` here so optional user-tier discovery cannot read the
   /// developer's real `~/.agents` or `~/.claude` trees.
@@ -210,7 +212,7 @@ class ServiceWiring {
     required this.resolvedAssets,
     this.outboundMcpTransportFactory,
     PostMcpStartupHook? postMcpStartupHook,
-    this.runAndthenSkillsBootstrap = true,
+    this.runWorkflowSkillsBootstrap = true,
     this.skillProvisionerEnvironment,
     this.skillProvisionerProcessRunner,
   }) : postMcpStartupHook = postMcpStartupHook ?? _startSpaceEvents;
@@ -227,7 +229,7 @@ class ServiceWiring {
 
     // 0.5. Skill bootstrap – must run before workflow execution so native
     // DartClaw skills are on disk for provider introspection and invocation.
-    await _wireAndthenSkillsBootstrap(builtInSkillsSourceDir);
+    await _wireWorkflowSkillsBootstrap(builtInSkillsSourceDir);
     final ctx = _WiringContext(
       eventBus: EventBus(),
       configNotifier: ConfigNotifier(config),
@@ -347,8 +349,8 @@ class ServiceWiring {
     return project;
   }
 
-  Future<void> _wireAndthenSkillsBootstrap(String? builtInSkillsSourceDir) async {
-    if (!runAndthenSkillsBootstrap) return;
+  Future<void> _wireWorkflowSkillsBootstrap(String? builtInSkillsSourceDir) async {
+    if (!runWorkflowSkillsBootstrap) return;
     await bootstrapWorkflowSkills(
       config: config,
       dataDir: dataDir,
@@ -617,7 +619,10 @@ class ServiceWiring {
       source: WorkflowSource.materialized,
     );
     await workflowRegistry.loadFromDirectory(WorkflowMaterializer.customDir(ctx.dataDir));
-    await workflowRegistry.loadFromDirectory(p.join(ctx.dataDir, 'workflows'));
+    await workflowRegistry.loadFromDeprecatedLegacyDirectory(
+      p.join(ctx.dataDir, 'workflows'),
+      replacementDirectory: WorkflowMaterializer.customDir(ctx.dataDir),
+    );
     for (final projectDef in config.projects.definitions.values) {
       await workflowRegistry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
     }

@@ -14,7 +14,7 @@ class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
     super.environment,
     super.stderrLine,
     super.interrupts,
-    super.runAndthenSkillsBootstrap,
+    super.runWorkflowSkillsBootstrap,
     super.skillIntrospector,
     super.providerAuthPreflight,
   }) {
@@ -41,7 +41,7 @@ class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
       await runStandaloneLifecycle(
         runId: runId,
         provisionTaskRunners: false,
-        runAndthenSkillsBootstrap: false,
+        runWorkflowSkillsBootstrap: false,
         action: (session) async {
           await session.wiring.workflowService.cancel(runId, feedback: feedback);
           final updated = await session.wiring.workflowService.get(runId);

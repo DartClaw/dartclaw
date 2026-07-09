@@ -20,12 +20,16 @@ Future<ProcessResult> _defaultProbe(String exe, List<String> args) async => _res
 
 Future<void> _noOpDelay(Duration _) async {}
 
-FakeProcess _bufferedFakeProcess() =>
-    FakeProcess(stdoutController: StreamController<List<int>>(), stderrController: StreamController<List<int>>());
+FakeProcess _bufferedFakeProcess() => FakeProcess(
+  stdoutController: StreamController<List<int>>(),
+  stderrController: StreamController<List<int>>(),
+  completeExitOnKill: true,
+);
 
 CapturingFakeProcess _bufferedCapturingFakeProcess() => CapturingFakeProcess(
   stdoutController: StreamController<List<int>>(),
   stderrController: StreamController<List<int>>(),
+  completeExitOnKill: true,
 );
 
 void _expectSecurityExecArgs(List<String> args) {

@@ -1,6 +1,9 @@
 # Temp files
 .agent_temp/
 
+# Review files
+dev/bundle/docs/specs/**/*-review*.md
+
 # Dart
 .dart_tool/
 .dart-tool/
@@ -37,6 +40,9 @@ service-account*.json
 .dartclaw-dev-test-*/
 dev/tools/dartclaw-workflows/.cache/
 dev/tools/dartclaw-workflows/.data/
+# Workflows test profile runtime data (materialized skills, markers, workspace
+# output). Curated seed files already tracked under this dir stay tracked.
+dev/testing/profiles/workflows/data/
 dev/state/STATE.local.md
 storages
 statics

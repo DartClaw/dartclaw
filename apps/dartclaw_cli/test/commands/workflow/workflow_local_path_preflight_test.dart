@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow/workflow_local_path_preflight.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowStartPreconditionException;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -38,7 +39,7 @@ void main() {
         allowDirty: false,
       ),
       throwsA(
-        isA<StateError>().having(
+        isA<WorkflowStartPreconditionException>().having(
           (error) => error.message,
           'message',
           allOf([contains('live-project'), contains('feature/local'), contains('dirty path count 1')]),
@@ -72,7 +73,13 @@ void main() {
         publishEnabled: true,
         allowDirty: false,
       ),
-      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('origin remote'))),
+      throwsA(
+        isA<WorkflowStartPreconditionException>().having(
+          (error) => error.message,
+          'message',
+          contains('origin remote'),
+        ),
+      ),
     );
   });
 
@@ -104,7 +111,13 @@ void main() {
         publishEnabled: false,
         allowDirty: false,
       ),
-      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('expected an attached branch'))),
+      throwsA(
+        isA<WorkflowStartPreconditionException>().having(
+          (error) => error.message,
+          'message',
+          contains('expected an attached branch'),
+        ),
+      ),
     );
   });
 
@@ -146,7 +159,7 @@ void main() {
           hasExplicitBranch: true,
         ),
         throwsA(
-          isA<StateError>().having(
+          isA<WorkflowStartPreconditionException>().having(
             (error) => error.message,
             'message',
             allOf([contains('live-project'), contains('feature/foo'), contains('"main"')]),

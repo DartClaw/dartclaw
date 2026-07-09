@@ -52,19 +52,19 @@ extension _WorkflowOneShotRunnerHelpers on WorkflowOneShotRunner {
     return extracted.inlinePayload.isEmpty ? null : Map<String, dynamic>.from(extracted.inlinePayload);
   }
 
-  Future<_SessionUsageSnapshot> _readSessionUsageSnapshot(String sessionId) async {
+  Future<WorkflowCliUsageBaseline> _readSessionUsageBaseline(String sessionId) async {
     try {
       final raw = await _kv?.get('session_cost:$sessionId');
-      if (raw == null) return const _SessionUsageSnapshot();
+      if (raw == null) return const WorkflowCliUsageBaseline();
       final json = jsonDecode(raw) as Map<String, dynamic>;
-      return _SessionUsageSnapshot(
+      return WorkflowCliUsageBaseline(
         inputTokens: (json['input_tokens'] as num?)?.toInt() ?? 0,
         outputTokens: (json['output_tokens'] as num?)?.toInt() ?? 0,
         cacheReadTokens: (json['cache_read_tokens'] as num?)?.toInt() ?? 0,
         cacheWriteTokens: (json['cache_write_tokens'] as num?)?.toInt() ?? 0,
       );
     } catch (_) {
-      return const _SessionUsageSnapshot(); // Malformed KV value — return zero snapshot.
+      return const WorkflowCliUsageBaseline(); // Malformed KV value — return zero snapshot.
     }
   }
 
@@ -99,16 +99,12 @@ extension _WorkflowOneShotRunnerHelpers on WorkflowOneShotRunner {
   }
 }
 
-final class _SessionUsageSnapshot {
-  final int inputTokens;
-  final int outputTokens;
-  final int cacheReadTokens;
-  final int cacheWriteTokens;
-
-  const _SessionUsageSnapshot({
-    this.inputTokens = 0,
-    this.outputTokens = 0,
-    this.cacheReadTokens = 0,
-    this.cacheWriteTokens = 0,
-  });
-}
+({int inputTokens, int newInputTokens, int outputTokens, int cacheReadTokens, int cacheWriteTokens}) _workflowCliUsage(
+  WorkflowCliTurnResult turnResult,
+) => (
+  inputTokens: turnResult.inputTokens,
+  newInputTokens: turnResult.newInputTokens,
+  outputTokens: turnResult.outputTokens,
+  cacheReadTokens: turnResult.cacheReadTokens,
+  cacheWriteTokens: turnResult.cacheWriteTokens,
+);

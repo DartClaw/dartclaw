@@ -11,9 +11,13 @@ import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
+        KvService,
+        MessageService,
         OutputConfig,
         SessionService,
         SessionType,
+        Task,
+        TaskArtifact,
         TaskStatus,
         TaskStatusChangedEvent,
         TaskType,
@@ -21,8 +25,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowExecutionCursor,
-        WorkflowGitCleanupStrategy,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
@@ -33,15 +35,24 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowWorktreeBinding,
         WorkflowStep,
+        WorkflowTaskService,
         WorkflowVariable,
         WorkflowGitContext,
+        WorkflowPersistencePorts,
         WorkflowStartResolution,
         WorkflowServiceOptions,
         WorkflowTurnAdapter;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskCancellationSubscriber, TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
+import 'package:dartclaw_storage/dartclaw_storage.dart'
+    show
+        SqliteAgentExecutionRepository,
+        SqliteExecutionRepositoryTransactor,
+        SqliteTaskRepository,
+        SqliteWorkflowRunRepository,
+        SqliteWorkflowStepExecutionRepository,
+        openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeTurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeTurnManager, flushAsync;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -81,8 +92,14 @@ void main() {
     WorkflowTurnAdapter? turnAdapter,
     WorkflowGitContext? gitContext,
     WorkflowServiceOptions options = const WorkflowServiceOptions(),
+    Map<String, Future<void>>? debugSeedActiveExecutors,
   }) {
-    return harness.lifecycleOnlyService(turnAdapter: turnAdapter, gitContext: gitContext, options: options);
+    return harness.lifecycleOnlyService(
+      turnAdapter: turnAdapter,
+      gitContext: gitContext,
+      options: options,
+      debugSeedActiveExecutors: debugSeedActiveExecutors,
+    );
   }
 
   void autoCompleteNewTasks([List<String>? titles]) {
@@ -169,8 +186,8 @@ void main() {
         integrationBranch: true,
         worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
         promotion: 'merge',
-        publish: WorkflowGitPublishStrategy(enabled: true),
-        cleanup: WorkflowGitCleanupStrategy(enabled: true),
+        publish: true,
+        cleanup: true,
         mergeResolve: MergeResolveConfig(enabled: true),
       ),
     );
@@ -226,6 +243,50 @@ void main() {
 
     final run = await workflowService.start(definition, {'topic': 'Dart programming'});
     expect(run.variablesJson['topic'], equals('Dart programming'));
+  });
+
+  test('start() reports all missing required variables in one error, excluding defaulted ones', () async {
+    // S03 shape: FEATURE + TARGET missing, MODE required-with-default satisfied.
+    final definition = makeDefinition(
+      variables: {
+        'FEATURE': const WorkflowVariable(required: true, description: 'feature'),
+        'TARGET': const WorkflowVariable(required: true, description: 'target'),
+        'MODE': const WorkflowVariable(required: true, description: 'mode', defaultValue: 'auto'),
+      },
+    );
+
+    expect(
+      () => workflowService.start(definition, const {}),
+      throwsA(
+        isA<ArgumentError>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('FEATURE'), contains('TARGET'), isNot(contains('MODE'))),
+        ),
+      ),
+    );
+  });
+
+  test('start() does not throw for a required variable that has a default value', () async {
+    final definition = makeDefinition(
+      variables: {'MODE': const WorkflowVariable(required: true, description: 'mode', defaultValue: 'auto')},
+    );
+    autoCompleteNewTasks();
+
+    final run = await workflowService.start(definition, const {});
+    expect(run.variablesJson['MODE'], equals('auto'));
+  });
+
+  test('start() treats an out-of-band projectId as satisfying a required PROJECT variable', () async {
+    // Parity with the server route, which injects PROJECT before validating —
+    // a required PROJECT supplied via projectId must not error standalone.
+    final definition = makeDefinition(
+      variables: {'PROJECT': const WorkflowVariable(required: true, description: 'project')},
+    );
+    autoCompleteNewTasks();
+
+    final run = await workflowService.start(definition, const {}, projectId: 'my-app');
+    expect(run.variablesJson['PROJECT'], equals('my-app'));
   });
 
   test('start() injects projectId into PROJECT when the workflow declares that variable', () async {
@@ -284,7 +345,7 @@ void main() {
         'BRANCH': WorkflowVariable(required: false, defaultValue: 'main'),
       },
       steps: const [
-        WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+        WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
       ],
     );
     final run = await workflowService.start(definition, const {});
@@ -305,7 +366,7 @@ void main() {
     final definition = makeDefinition(
       variables: const {'PROJECT': WorkflowVariable(required: false), 'BRANCH': WorkflowVariable(required: false)},
       steps: const [
-        WorkflowStep(id: 'coding-step', name: 'Coding', type: WorkflowTaskType.agent, prompts: ['Implement']),
+        WorkflowStep(id: 'coding-step', name: 'Coding', taskType: WorkflowTaskType.agent, prompts: ['Implement']),
       ],
     );
 
@@ -321,7 +382,7 @@ void main() {
     workflowService = lifecycleOnlyService();
     final definition = makeDefinition(
       steps: const [
-        WorkflowStep(id: 'coding-step', name: 'Coding', type: WorkflowTaskType.agent, prompts: ['Implement']),
+        WorkflowStep(id: 'coding-step', name: 'Coding', taskType: WorkflowTaskType.agent, prompts: ['Implement']),
       ],
     );
 
@@ -385,7 +446,7 @@ void main() {
       id: 'run-binding',
       definition: makeDefinition(
         steps: const [
-          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       ),
     );
@@ -421,7 +482,7 @@ void main() {
       status: WorkflowRunStatus.paused,
       definition: makeDefinition(
         steps: const [
-          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       ),
       workflowWorktree: const WorkflowWorktreeBinding(
@@ -457,7 +518,7 @@ void main() {
       status: WorkflowRunStatus.paused,
       definition: makeDefinition(
         steps: const [
-          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       ),
     );
@@ -517,6 +578,56 @@ void main() {
 
     final stored = await workflowService.get(run.id);
     expect(stored?.status, equals(WorkflowRunStatus.cancelled));
+  });
+
+  test('cancel() transitions only the run non-terminal child tasks to cancelled', () async {
+    final run = await insertRun(id: 'run-A', status: WorkflowRunStatus.running);
+    await insertRun(id: 'run-B', status: WorkflowRunStatus.running);
+
+    final queued = await taskService.create(
+      id: 'run-a-queued',
+      title: 'run A queued',
+      description: 'x',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: run.id,
+    );
+    final running = await taskService.create(
+      id: 'run-a-running',
+      title: 'run A running',
+      description: 'x',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: run.id,
+    );
+    await taskService.transition(running.id, TaskStatus.running, trigger: 'test');
+    final accepted = await taskService.create(
+      id: 'run-a-accepted',
+      title: 'run A accepted',
+      description: 'x',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: run.id,
+    );
+    await taskService.transition(accepted.id, TaskStatus.running, trigger: 'test');
+    await taskService.transition(accepted.id, TaskStatus.review, trigger: 'test');
+    await taskService.transition(accepted.id, TaskStatus.accepted, trigger: 'test');
+    final otherRun = await taskService.create(
+      id: 'run-b-running',
+      title: 'run B running',
+      description: 'x',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'run-B',
+    );
+    await taskService.transition(otherRun.id, TaskStatus.running, trigger: 'test');
+
+    await workflowService.cancel(run.id);
+
+    expect((await taskService.get(queued.id))?.status, TaskStatus.cancelled);
+    expect((await taskService.get(running.id))?.status, TaskStatus.cancelled);
+    expect((await taskService.get(accepted.id))?.status, TaskStatus.accepted);
+    expect((await taskService.get(otherRun.id))?.status, TaskStatus.running);
   });
 
   test('cancel() transitions paused to cancelled', () async {
@@ -585,7 +696,7 @@ void main() {
         ],
       );
       final run = await insertRun(
-        id: 'cancel-cleanup-${strategy?.cleanup?.enabled ?? 'default'}',
+        id: 'cancel-cleanup-${strategy?.cleanup ?? 'default'}',
         status: WorkflowRunStatus.running,
         variablesJson: const {'PROJECT': 'my-app'},
         definition: definition,
@@ -596,16 +707,8 @@ void main() {
 
     for (final row in const [
       (name: 'default strategy', strategy: null, expected: false),
-      (
-        name: 'cleanup.enabled: true',
-        strategy: WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
-        expected: false,
-      ),
-      (
-        name: 'cleanup.enabled: false',
-        strategy: WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
-        expected: true,
-      ),
+      (name: 'cleanup.enabled: true', strategy: WorkflowGitStrategy(cleanup: true), expected: false),
+      (name: 'cleanup.enabled: false', strategy: WorkflowGitStrategy(cleanup: false), expected: true),
     ]) {
       test('${row.name} sets preserveWorktrees=${row.expected}', () async {
         expect(await cancelAndCapturePreserve(row.strategy), row.expected);
@@ -638,6 +741,399 @@ void main() {
     expect((await taskService.get(task.id))?.status, TaskStatus.cancelled);
     expect(turns.cancelTurnCallCount, 1);
     expect(turns.cancelledSessionIds, ['session-cancel-turn']);
+  });
+
+  test('dispose() cancels active-run tasks, leaves inactive-run tasks untouched, and drains executors', () async {
+    final definition = makeDefinition();
+    final runA = await workflowService.start(definition, {});
+    final runB = await workflowService.start(definition, {});
+    final inactive = await taskService.create(
+      id: 'inactive-run-task',
+      title: 'inactive run task',
+      description: 'x',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'run-C',
+    );
+
+    Future<List<String>> taskIdsForRun(String runId) async {
+      for (var attempt = 0; attempt < 20; attempt += 1) {
+        final ids = (await taskService.listByWorkflowRunIds([runId])).map((task) => task.id).toList();
+        if (ids.isNotEmpty) {
+          return ids;
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+      return const [];
+    }
+
+    final runATasks = await taskIdsForRun(runA.id);
+    final runBTasks = await taskIdsForRun(runB.id);
+    expect(runATasks, isNotEmpty);
+    expect(runBTasks, isNotEmpty);
+
+    await workflowService.dispose();
+
+    for (final taskId in [...runATasks, ...runBTasks]) {
+      expect((await taskService.get(taskId))?.status, TaskStatus.cancelled);
+    }
+    expect((await taskService.get(inactive.id))?.status, TaskStatus.queued);
+  });
+
+  test('dispose() does not return until in-flight executor futures drain', () async {
+    // Hold a controllable in-flight executor future in the drain set, then prove
+    // dispose() blocks on `await Future.wait(_activeExecutors.values)`: if that
+    // drain were removed, dispose would complete before the gate is released.
+    final executorGate = Completer<void>();
+    var executorDrained = false;
+    final blockedExecutor = executorGate.future.then((_) => executorDrained = true);
+    final service = lifecycleOnlyService(debugSeedActiveExecutors: {'run-blocked': blockedExecutor});
+
+    var disposed = false;
+    final disposeFuture = service.dispose().then((_) => disposed = true);
+
+    await flushAsync();
+    expect(executorDrained, isFalse, reason: 'gate not released yet');
+    expect(disposed, isFalse, reason: 'dispose must await the in-flight executor before returning');
+
+    executorGate.complete();
+    await disposeFuture;
+
+    expect(executorDrained, isTrue);
+    expect(disposed, isTrue);
+  });
+
+  test('cancel() and dispose() use run-scoped task lookup instead of the full-table list path', () async {
+    final recordingTasks = _RecordingWorkflowTaskService(taskService);
+    workflowService = WorkflowService.lifecycleOnly(
+      repository: repository,
+      taskService: recordingTasks,
+      messageService: harness.messageService,
+      eventBus: eventBus,
+      kvService: harness.kvService,
+      dataDir: tempDir.path,
+    );
+    final run = await insertRun(id: 'run-A', status: WorkflowRunStatus.running);
+
+    await workflowService.cancel(run.id);
+
+    expect(recordingTasks.listCallCount, 0);
+    expect(recordingTasks.listByWorkflowRunIdsCalls, [
+      ['run-A'],
+    ]);
+
+    final disposeDb = openTaskDbInMemory();
+    final disposeEventBus = EventBus();
+    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
+    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
+    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+    final disposeTaskService = TaskService(
+      disposeTaskRepository,
+      agentExecutionRepository: disposeAgentExecutions,
+      executionTransactor: disposeTransactor,
+      eventBus: disposeEventBus,
+    );
+    final disposeRecordingTasks = _RecordingWorkflowTaskService(disposeTaskService);
+    final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-sessions'));
+    final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-kv.json'));
+    final disposeWorkflowService = WorkflowService(
+      repository: SqliteWorkflowRunRepository(disposeDb),
+      taskService: disposeRecordingTasks,
+      messageService: disposeMessages,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: disposeTaskRepository,
+        agentExecutionRepository: disposeAgentExecutions,
+        workflowStepExecutionRepository: disposeStepExecutions,
+        executionRepositoryTransactor: disposeTransactor,
+      ),
+      eventBus: disposeEventBus,
+      kvService: disposeKv,
+      dataDir: tempDir.path,
+    );
+    addTearDown(disposeWorkflowService.dispose);
+    addTearDown(disposeTaskService.dispose);
+    addTearDown(disposeMessages.dispose);
+    addTearDown(disposeKv.dispose);
+    addTearDown(disposeEventBus.dispose);
+    addTearDown(disposeDb.close);
+
+    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+    await Future<void>.delayed(Duration.zero);
+
+    await disposeWorkflowService.dispose();
+
+    expect(disposeRecordingTasks.listCallCount, 0);
+    expect(disposeRecordingTasks.listByWorkflowRunIdsCalls, [
+      [disposeRun.id],
+    ]);
+  });
+
+  test('dispose() snapshots active run ids before task lookup awaits', () async {
+    final disposeDb = openTaskDbInMemory();
+    final disposeEventBus = EventBus();
+    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
+    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
+    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+    final disposeTaskService = TaskService(
+      disposeTaskRepository,
+      agentExecutionRepository: disposeAgentExecutions,
+      executionTransactor: disposeTransactor,
+      eventBus: disposeEventBus,
+    );
+    final lookupStarted = Completer<void>();
+    final disposeRepository = SqliteWorkflowRunRepository(disposeDb);
+    late WorkflowRun disposeRun;
+    final disposeRecordingTasks = _RecordingWorkflowTaskService(
+      disposeTaskService,
+      beforeListByWorkflowRunIds: () async {
+        if (!lookupStarted.isCompleted) {
+          lookupStarted.complete();
+        }
+        for (var attempt = 0; attempt < 20; attempt += 1) {
+          final stored = await disposeRepository.getById(disposeRun.id);
+          if (stored?.status.terminal ?? false) {
+            return;
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+      },
+    );
+    final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-snapshot-sessions'));
+    final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-snapshot-kv.json'));
+    final disposeWorkflowService = WorkflowService(
+      repository: disposeRepository,
+      taskService: disposeRecordingTasks,
+      messageService: disposeMessages,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: disposeTaskRepository,
+        agentExecutionRepository: disposeAgentExecutions,
+        workflowStepExecutionRepository: disposeStepExecutions,
+        executionRepositoryTransactor: disposeTransactor,
+      ),
+      eventBus: disposeEventBus,
+      kvService: disposeKv,
+      dataDir: tempDir.path,
+    );
+    disposeEventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      try {
+        await disposeTaskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+        await disposeTaskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+        await disposeTaskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+      } on StateError {
+        // Dispose may cancel the task before the listener completes.
+      }
+    });
+    addTearDown(disposeWorkflowService.dispose);
+    addTearDown(disposeTaskService.dispose);
+    addTearDown(disposeMessages.dispose);
+    addTearDown(disposeKv.dispose);
+    addTearDown(disposeEventBus.dispose);
+    addTearDown(disposeDb.close);
+
+    disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+
+    final disposeFuture = disposeWorkflowService.dispose();
+    await lookupStarted.future;
+    await disposeFuture;
+
+    expect(disposeRecordingTasks.listByWorkflowRunIdsCalls, [
+      [disposeRun.id],
+    ]);
+  });
+
+  test('dispose() promotes queued active-run tasks before cancelling after promotion conflicts', () async {
+    for (final conflict in const [
+      'state-error',
+      'version-conflict',
+      'stored-queued-version-conflict',
+      'retry-running-version-conflict',
+      'retry-queued-version-conflict',
+    ]) {
+      final disposeDb = openTaskDbInMemory();
+      final disposeEventBus = EventBus();
+      final taskEvents = <TaskStatusChangedEvent>[];
+      final taskEventSub = disposeEventBus.on<TaskStatusChangedEvent>().listen(taskEvents.add);
+      final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+      final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
+      final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
+      final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+      final disposeTaskService = TaskService(
+        disposeTaskRepository,
+        agentExecutionRepository: disposeAgentExecutions,
+        executionTransactor: disposeTransactor,
+        eventBus: disposeEventBus,
+      );
+      var promotionAttempts = 0;
+      final disposeRecordingTasks = _RecordingWorkflowTaskService(
+        disposeTaskService,
+        beforeTransition: (taskId, newStatus) async {
+          if (newStatus == TaskStatus.running) {
+            promotionAttempts += 1;
+          }
+          if (promotionAttempts == 1 && newStatus == TaskStatus.running) {
+            if (conflict == 'stored-queued-version-conflict' ||
+                conflict == 'retry-running-version-conflict' ||
+                conflict == 'retry-queued-version-conflict') {
+              throw Exception('simulated queued version conflict');
+            }
+            await disposeTaskService.transition(taskId, TaskStatus.running, trigger: 'test-worker');
+            if (conflict == 'version-conflict') {
+              throw Exception('simulated version conflict');
+            }
+          }
+          if (promotionAttempts == 2 &&
+              conflict == 'retry-running-version-conflict' &&
+              newStatus == TaskStatus.running) {
+            await disposeTaskService.transition(taskId, TaskStatus.running, trigger: 'test-worker');
+            throw Exception('simulated retry version conflict');
+          }
+          if (promotionAttempts == 2 &&
+              conflict == 'retry-queued-version-conflict' &&
+              newStatus == TaskStatus.running) {
+            throw Exception('simulated retry queued version conflict');
+          }
+        },
+      );
+      final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-$conflict-sessions'));
+      final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-$conflict-kv.json'));
+      final disposeWorkflowService = WorkflowService(
+        repository: SqliteWorkflowRunRepository(disposeDb),
+        taskService: disposeRecordingTasks,
+        messageService: disposeMessages,
+        persistencePorts: WorkflowPersistencePorts(
+          taskRepository: disposeTaskRepository,
+          agentExecutionRepository: disposeAgentExecutions,
+          workflowStepExecutionRepository: disposeStepExecutions,
+          executionRepositoryTransactor: disposeTransactor,
+        ),
+        eventBus: disposeEventBus,
+        kvService: disposeKv,
+        dataDir: tempDir.path,
+      );
+      addTearDown(disposeWorkflowService.dispose);
+      addTearDown(disposeTaskService.dispose);
+      addTearDown(disposeMessages.dispose);
+      addTearDown(disposeKv.dispose);
+      addTearDown(taskEventSub.cancel);
+      addTearDown(disposeEventBus.dispose);
+      addTearDown(disposeDb.close);
+
+      final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+      Future<Task?> queuedTaskForRun() async {
+        for (var attempt = 0; attempt < 200; attempt += 1) {
+          final tasks = await disposeTaskService.listByWorkflowRunIds([disposeRun.id]);
+          for (final task in tasks) {
+            if (task.status == TaskStatus.queued) {
+              return task;
+            }
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        return null;
+      }
+
+      final task = await queuedTaskForRun();
+      expect(task, isNotNull, reason: conflict);
+
+      await disposeWorkflowService.dispose();
+
+      expect(
+        promotionAttempts,
+        conflict == 'retry-queued-version-conflict'
+            ? 3
+            : conflict == 'stored-queued-version-conflict' || conflict == 'retry-running-version-conflict'
+            ? 2
+            : 1,
+        reason: conflict,
+      );
+      expect((await disposeTaskService.get(task!.id))?.status, TaskStatus.cancelled, reason: conflict);
+      final taskStatuses = [
+        for (final event in taskEvents)
+          if (event.taskId == task.id) event.newStatus,
+      ];
+      final runningIndex = taskStatuses.indexOf(TaskStatus.running);
+      final cancelledIndex = taskStatuses.indexOf(TaskStatus.cancelled);
+      expect(runningIndex, isNonNegative, reason: conflict);
+      expect(cancelledIndex, isNonNegative, reason: conflict);
+      expect(runningIndex, lessThan(cancelledIndex), reason: conflict);
+    }
+  });
+
+  test('dispose() bounds queued promotion and falls back to direct cancellation under persistent conflicts', () async {
+    final disposeDb = openTaskDbInMemory();
+    final disposeEventBus = EventBus();
+    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
+    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
+    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+    final disposeTaskService = TaskService(
+      disposeTaskRepository,
+      agentExecutionRepository: disposeAgentExecutions,
+      executionTransactor: disposeTransactor,
+      eventBus: disposeEventBus,
+    );
+    var promotionAttempts = 0;
+    final disposeRecordingTasks = _RecordingWorkflowTaskService(
+      disposeTaskService,
+      beforeTransition: (taskId, newStatus) async {
+        // Promotion (queued -> running) persistently conflicts; the direct
+        // queued -> cancelled fallback is allowed to succeed.
+        if (newStatus == TaskStatus.running) {
+          promotionAttempts += 1;
+          throw Exception('persistent queued promotion conflict');
+        }
+      },
+    );
+    final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-persistent-sessions'));
+    final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-persistent-kv.json'));
+    final disposeWorkflowService = WorkflowService(
+      repository: SqliteWorkflowRunRepository(disposeDb),
+      taskService: disposeRecordingTasks,
+      messageService: disposeMessages,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: disposeTaskRepository,
+        agentExecutionRepository: disposeAgentExecutions,
+        workflowStepExecutionRepository: disposeStepExecutions,
+        executionRepositoryTransactor: disposeTransactor,
+      ),
+      eventBus: disposeEventBus,
+      kvService: disposeKv,
+      dataDir: tempDir.path,
+    );
+    addTearDown(disposeWorkflowService.dispose);
+    addTearDown(disposeTaskService.dispose);
+    addTearDown(disposeMessages.dispose);
+    addTearDown(disposeKv.dispose);
+    addTearDown(disposeEventBus.dispose);
+    addTearDown(disposeDb.close);
+
+    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+    Future<Task?> queuedTaskForRun() async {
+      for (var attempt = 0; attempt < 200; attempt += 1) {
+        final tasks = await disposeTaskService.listByWorkflowRunIds([disposeRun.id]);
+        for (final task in tasks) {
+          if (task.status == TaskStatus.queued) {
+            return task;
+          }
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      return null;
+    }
+
+    final task = await queuedTaskForRun();
+    expect(task, isNotNull);
+
+    // Must return rather than spinning on the persistent conflict.
+    await disposeWorkflowService.dispose();
+
+    // Promotion is bounded, then dispose falls back to a direct cancellation so
+    // the executor's task-wait completes and the drain finishes.
+    expect(promotionAttempts, WorkflowService.maxDisposePromotionAttempts);
+    expect((await disposeTaskService.get(task!.id))?.status, TaskStatus.cancelled);
   });
 
   test('cancel() is idempotent on already-terminal run', () async {
@@ -837,7 +1333,7 @@ void main() {
       final definition = makeDefinition(
         gitStrategy: gitStrategy,
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
@@ -1038,7 +1534,7 @@ void main() {
         runId: 'run-expired-cleanup',
         timeoutDeadline: DateTime.now().subtract(const Duration(seconds: 1)),
         variables: const {'PROJECT': 'my-app'},
-        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(cleanup: true),
       );
 
       await workflowService.recoverIncompleteRuns();
@@ -1284,8 +1780,8 @@ void main() {
     test('resume() accepts awaitingApproval run, clears approval-tracking keys, and flips status to running', () async {
       final definition = makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       await insertRun(
@@ -1399,8 +1895,8 @@ void main() {
       );
       final definition = makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       await insertRun(
@@ -1436,7 +1932,7 @@ void main() {
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'impl', name: 'Impl', prompts: ['Implement']),
-          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'publish', name: 'Publish', prompts: ['Publish']),
         ],
       );
@@ -1590,4 +2086,97 @@ void main() {
       }
     });
   });
+}
+
+final class _RecordingWorkflowTaskService implements WorkflowTaskService {
+  _RecordingWorkflowTaskService(
+    this._delegate, {
+    Future<void> Function()? beforeListByWorkflowRunIds,
+    Future<void> Function(String taskId, TaskStatus newStatus)? beforeTransition,
+  }) : _beforeListByWorkflowRunIds = beforeListByWorkflowRunIds,
+       _beforeTransition = beforeTransition;
+
+  final WorkflowTaskService _delegate;
+  final Future<void> Function()? _beforeListByWorkflowRunIds;
+  final Future<void> Function(String taskId, TaskStatus newStatus)? _beforeTransition;
+  int listCallCount = 0;
+  final listByWorkflowRunIdsCalls = <List<String>>[];
+
+  @override
+  Future<Task?> get(String id) => _delegate.get(id);
+
+  @override
+  Future<Task> create({
+    required String id,
+    required String title,
+    required String description,
+    required TaskType type,
+    bool autoStart = false,
+    String? goalId,
+    String? acceptanceCriteria,
+    String? createdBy,
+    String? provider,
+    String? model,
+    String? sessionId,
+    String? agentExecutionId,
+    String? projectId,
+    int? maxTokens,
+    String? workflowRunId,
+    int? stepIndex,
+    int maxRetries = 0,
+    Map<String, dynamic> configJson = const {},
+    DateTime? now,
+    String trigger = 'system',
+  }) => _delegate.create(
+    id: id,
+    title: title,
+    description: description,
+    type: type,
+    autoStart: autoStart,
+    goalId: goalId,
+    acceptanceCriteria: acceptanceCriteria,
+    createdBy: createdBy,
+    provider: provider,
+    model: model,
+    sessionId: sessionId,
+    agentExecutionId: agentExecutionId,
+    projectId: projectId,
+    maxTokens: maxTokens,
+    workflowRunId: workflowRunId,
+    stepIndex: stepIndex,
+    maxRetries: maxRetries,
+    configJson: configJson,
+    now: now,
+    trigger: trigger,
+  );
+
+  @override
+  Future<Task> transition(
+    String taskId,
+    TaskStatus newStatus, {
+    DateTime? now,
+    Map<String, dynamic>? configJson,
+    String trigger = 'system',
+  }) async {
+    await _beforeTransition?.call(taskId, newStatus);
+    return _delegate.transition(taskId, newStatus, now: now, configJson: configJson, trigger: trigger);
+  }
+
+  @override
+  Future<List<Task>> list({TaskStatus? status, TaskType? type}) {
+    listCallCount += 1;
+    return _delegate.list(status: status, type: type);
+  }
+
+  @override
+  Future<List<Task>> listByWorkflowRunIds(Iterable<String> runIds) async {
+    if (runIds is! List<String> || runIds.isNotEmpty) {
+      await _beforeListByWorkflowRunIds?.call();
+    }
+    listByWorkflowRunIdsCalls.add(runIds.toList(growable: false));
+    return _delegate.listByWorkflowRunIds(runIds);
+  }
+
+  @override
+  Future<List<TaskArtifact>> listArtifacts(String taskId) => _delegate.listArtifacts(taskId);
 }

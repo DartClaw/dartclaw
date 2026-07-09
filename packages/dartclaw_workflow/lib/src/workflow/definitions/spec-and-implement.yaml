@@ -65,20 +65,40 @@ steps:
     # and route attacker-controlled text through as instructions.
     workflowVariables: [FEATURE]
     outputs:
-      spec_path: detected_fis_path
-      spec_source: spec_source
-      spec_confidence: spec_confidence
+      spec_path:
+        format: path
+        pathPattern: '**/*.md'
+        schema:
+          type: string
+        description: Workspace-relative path to the existing implementation specification on disk, or empty when input requires spec synthesis.
+      spec_source:
+        schema: narrative_text
+        description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
+      spec_confidence:
+        schema: non_negative_integer
+        description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
 
   - id: spec
     name: Generate Specification
     skill: andthen:spec
     entryGate: "spec_source == synthesized"
-    workflowVariables: [FEATURE]
+    # FEATURE is interpolated inline by design – the spec skill is meant to act
+    # on the feature description, so it is a direct argument, not auto-framed
+    # (unlike the read-only detect-spec-input classifier).
     prompt: "--auto {{FEATURE}}"
     outputs:
-      spec_path: fis_path
-      spec_source: spec_source
-      spec_confidence: spec_confidence
+      spec_path:
+        format: path
+        pathPattern: '**/*.md'
+        schema:
+          type: string
+        description: Workspace-relative path to the implementation specification on disk.
+      spec_source:
+        schema: narrative_text
+        description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
+      spec_confidence:
+        schema: non_negative_integer
+        description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
 
   # `--fix` delegates remediation to andthen:remediate-findings in one
   # invocation. Skipped when spec was reused (confidence == 0) or already
@@ -88,16 +108,20 @@ steps:
     name: Revise Spec (low confidence)
     skill: andthen:review
     entryGate: "spec_confidence > 0 && spec_confidence < 7"
-    inputs: [spec_path, spec_confidence]
+    allowedTools: [shell, file_read, file_write, file_edit]
+    inputs: [spec_confidence]
+    # --fix runs remediation over the spec; the retry is for transient harness
+    # failures (provider/CLI exits), not semantic re-runs. Mirrors implement.
+    maxRetries: 1
     prompt: >-
       --mode doc --fix --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       {{context.spec_path}}
 
   - id: implement
     name: Implement
     skill: andthen:exec-spec
-    inputs: [spec_path]
+    allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
     # Task-level retry covers transient provider/CLI exits without retrying an
     # explicit semantic failed step outcome.
     maxRetries: 1
@@ -106,8 +130,10 @@ steps:
   - id: simplify-code
     name: Simplify Code
     skill: andthen:simplify-code
-    provider: "@executor"
-    model: "@executor"
+    # provider/model resolve to @executor via the `simplify-code` stepDefault.
+    # Fresh session (no continueSession) – single-feature scope, so the branch
+    # diff is enough context; plan-and-implement's per-story simplify keeps
+    # continueSession because it scopes to one story's session history.
     # Best-effort cleanup: red baseline or advisory blockage should be recorded
     # without parking the implementation workflow after the required work landed.
     onFailure: continue
@@ -128,14 +154,13 @@ steps:
     onFailure: retry
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    inputs: [spec_path]
     prompt: >-
       --mode gap --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.spec_path}},
       i.e. all the changes in the current branch.
     outputs:
-      integrated-review.review_findings: review_report_path
+      integrated-review.review_report_path: review_report_path
       integrated-review.findings_count: findings_count
       integrated-review.gating_findings_count: gating_findings_count
 
@@ -151,13 +176,12 @@ steps:
     onFailure: continue
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    inputs: [spec_path]
     prompt: >-
       --mode code,security --council --auto
-      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       {{context.spec_path}}
     outputs:
-      integrated-review-council.review_findings: review_report_path
+      integrated-review-council.review_report_path: review_report_path
       integrated-review-council.findings_count: findings_count
       integrated-review-council.gating_findings_count: gating_findings_count
 
@@ -167,14 +191,14 @@ steps:
     parallel: true
     onFailure: retry
     maxRetries: 1
-    inputs: [spec_path]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode review --auto {{context.spec_path}}. Scope the review to
-      changes introduced on the current branch (vs the base ref) – skip
-      packages untouched by this spec.
+      --mode review --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      {{context.spec_path}}. Scope the review to changes introduced on the
+      current branch (vs the base ref) – skip packages untouched by this spec.
     outputs:
-      architecture-review.review_findings: review_report_path
+      architecture-review.review_report_path: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
@@ -183,7 +207,7 @@ steps:
     type: aggregate-reviews
     aggregateReviews: [integrated-review, integrated-review-council, architecture-review]
     outputs:
-      review_findings: review_report_path
+      review_report_path: review_report_path
       findings_count: findings_count
       gating_findings_count: gating_findings_count
 
@@ -198,21 +222,24 @@ steps:
         name: Remediate Findings
         skill: andthen:remediate-findings
         entryGate: "gating_findings_count > 0"
-        inputs: [spec_path, review_findings]
-        prompt: "--auto {{context.review_findings}}"
+        allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
+        inputs: [spec_path]
+        prompt: "--auto {{context.review_report_path}}"
         outputs:
-          remediation_summary: remediation_summary
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
 
       - id: re-review
         name: Re-review Gaps
         skill: andthen:review
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [spec_path, remediation_summary]
+        inputs: [remediation_summary]
         prompt: >-
           --mode gap,code,security --auto
-          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
           Review implementation of {{context.spec_path}}.
         outputs:
-          review_findings: review_report_path
+          review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count

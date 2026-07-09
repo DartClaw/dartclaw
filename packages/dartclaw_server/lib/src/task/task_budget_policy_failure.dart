@@ -11,14 +11,28 @@ final class TaskFailureHandler {
   final TaskEventRecorder? _eventRecorder;
   final Logger _log;
 
-  Future<void> markFailed(Task task, {String? errorSummary}) async {
-    if (errorSummary != null && errorSummary.isNotEmpty) {
+  /// Whether a terminal task may still be overwritten to failed.
+  ///
+  /// Only a cancelled task, and only when the caller explicitly opts in via
+  /// [correctCancelled], is correctable. This keeps the narrow one-shot
+  /// dispose-cancel-vs-genuine-failure correction from leaking into generic
+  /// cancellation, which must stay cancelled.
+  static bool _correctable(TaskStatus status, bool correctCancelled) =>
+      correctCancelled && status == TaskStatus.cancelled;
+
+  Future<void> markFailed(
+    Task task, {
+    String? errorSummary,
+    bool recordError = true,
+    bool correctCancelled = false,
+  }) async {
+    if (recordError && errorSummary != null && errorSummary.isNotEmpty) {
       _log.warning('Task ${task.id} failed: $errorSummary');
       _eventRecorder?.recordError(task.id, message: errorSummary);
     }
     try {
       final current = await _tasks.get(task.id);
-      if (current == null || current.status.terminal) return;
+      if (current == null || (current.status.terminal && !_correctable(current.status, correctCancelled))) return;
       await _tasks.transition(
         task.id,
         TaskStatus.failed,
@@ -30,11 +44,20 @@ final class TaskFailureHandler {
     }
   }
 
-  Future<void> markFailedOrRetry(Task task, {required String errorSummary, bool retryable = true}) async {
+  Future<void> markFailedOrRetry(
+    Task task, {
+    required String errorSummary,
+    bool retryable = true,
+    bool correctCancelled = false,
+  }) async {
     if (errorSummary.isNotEmpty) _eventRecorder?.recordError(task.id, message: errorSummary);
     try {
       final current = await _tasks.get(task.id);
-      if (current == null || current.status.terminal) return;
+      if (current == null || (current.status.terminal && !_correctable(current.status, correctCancelled))) return;
+      if (current.status == TaskStatus.cancelled) {
+        await markFailed(task, errorSummary: errorSummary, recordError: false, correctCancelled: true);
+        return;
+      }
       if (retryable && current.maxRetries > 0 && current.retryCount < current.maxRetries) {
         final lastError = current.configJson['lastError'] as String?;
         if (lastError != null && _extractErrorClass(errorSummary) == _extractErrorClass(lastError)) {
@@ -42,7 +65,7 @@ final class TaskFailureHandler {
             'Task ${task.id}: same error class on retry '
             '(${current.retryCount + 1}/${current.maxRetries}), failing permanently',
           );
-          await markFailed(task, errorSummary: errorSummary);
+          await markFailed(task, errorSummary: errorSummary, recordError: false);
           return;
         }
         _log.info('Task ${task.id}: retry ${current.retryCount + 1}/${current.maxRetries}');
@@ -60,7 +83,7 @@ final class TaskFailureHandler {
         await _tasks.transition(task.id, TaskStatus.queued, trigger: 'retry');
         return;
       }
-      await markFailed(task, errorSummary: errorSummary);
+      await markFailed(task, errorSummary: errorSummary, recordError: false);
     } on StateError catch (error, stackTrace) {
       _log.warning('Failed to process retry/failure for task ${task.id}: $error', error, stackTrace);
     }

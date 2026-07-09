@@ -25,17 +25,30 @@ enum TurnProgressAction {
 
 /// Progress-aware turn stall detection config.
 class TurnProgressConfig {
+  /// Default stdout silence window for one-shot workflow CLI steps.
+  static const defaultStallTimeout = Duration(minutes: 5);
+
+  /// Default wall-clock ceiling for one-shot workflow CLI steps.
+  static const defaultMaxDuration = Duration(minutes: 30);
+
   /// Maximum silent period before the turn is considered stalled.
   final Duration stallTimeout;
 
   /// Action to take when the timeout elapses.
   final TurnProgressAction stallAction;
 
+  /// Wall-clock ceiling for one-shot workflow CLI steps.
+  final Duration maxDuration;
+
   /// Whether turn-progress monitoring is active.
   bool get enabled => stallTimeout > Duration.zero;
 
-  /// const TurnProgressConfig({this.stallTimeout = Duration.zero,.
-  const TurnProgressConfig({this.stallTimeout = Duration.zero, this.stallAction = TurnProgressAction.warn});
+  /// Creates turn-progress settings.
+  const TurnProgressConfig({
+    this.stallTimeout = defaultStallTimeout,
+    this.stallAction = TurnProgressAction.cancel,
+    this.maxDuration = defaultMaxDuration,
+  });
 
   /// Creates a [TurnProgressConfig.defaults] value.
   const TurnProgressConfig.defaults() : this();
@@ -43,11 +56,15 @@ class TurnProgressConfig {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TurnProgressConfig && stallTimeout == other.stallTimeout && stallAction == other.stallAction;
+      other is TurnProgressConfig &&
+          stallTimeout == other.stallTimeout &&
+          stallAction == other.stallAction &&
+          maxDuration == other.maxDuration;
 
   @override
-  int get hashCode => Object.hash(stallTimeout, stallAction);
+  int get hashCode => Object.hash(stallTimeout, stallAction, maxDuration);
 
   @override
-  String toString() => 'TurnProgressConfig(stallTimeout: $stallTimeout, stallAction: $stallAction)';
+  String toString() =>
+      'TurnProgressConfig(stallTimeout: $stallTimeout, stallAction: $stallAction, maxDuration: $maxDuration)';
 }

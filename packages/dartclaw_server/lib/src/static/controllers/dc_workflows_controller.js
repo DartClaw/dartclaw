@@ -403,7 +403,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + data.stepIndex + '"]');
     if (!stepCard) return;
 
-    const status = data.success ? 'completed' : 'failed';
+    const status = _mapStepCompletionStatus(data);
     const badge = stepCard.querySelector('.status-badge');
     if (badge) {
       badge.textContent = _wfTitleCase(status);
@@ -501,6 +501,22 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         return 'failed';
       default:
         return 'pending';
+    }
+  }
+
+  function _mapStepCompletionStatus(data) {
+    switch (data.outcome) {
+      case 'succeeded':
+        return 'completed';
+      case 'failed':
+        return 'failed';
+      case 'needsInput':
+      case 'blocked':
+        return 'interrupted';
+      case 'cancelled':
+        return 'cancelled';
+      default:
+        return data.success ? 'completed' : 'failed';
     }
   }
 

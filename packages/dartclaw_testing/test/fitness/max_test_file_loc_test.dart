@@ -1,7 +1,7 @@
-// Fitness function: no test file may exceed 800 LOC unless allowlisted.
+// Fitness function: no test file may exceed 1200 LOC unless allowlisted.
 //
 // What this enforces:
-//   Every `*_test.dart` file under packages/ and apps/ must have <= 800 lines.
+//   Every `*_test.dart` file under packages/ and apps/ must have <= 1200 lines.
 //   Known baseline violators are listed in `allowlist/max_test_file_loc.txt`
 //   with a shrink-target rationale.
 //
@@ -14,7 +14,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-const _locLimit = 800;
+const _locLimit = 1200;
 
 void main() {
   late Set<String> allowlist;

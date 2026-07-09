@@ -18,6 +18,9 @@ fi
 
 TESTS=(
   "packages/dartclaw_workflow/test/workflow/built_in_workflow_contracts_test.dart"
+  "packages/dartclaw_workflow/test/workflow/workflow_builtin_spec_and_implement_test.dart"
+  "packages/dartclaw_workflow/test/workflow/workflow_builtin_plan_and_implement_test.dart"
+  "packages/dartclaw_workflow/test/workflow/workflow_builtin_code_review_test.dart"
   "packages/dartclaw_workflow/test/workflow/context_extractor_test.dart"
   "packages/dartclaw_workflow/test/workflow/aggregate_step_runner_test.dart"
   "packages/dartclaw_workflow/test/workflow/step_dispatcher_test.dart"

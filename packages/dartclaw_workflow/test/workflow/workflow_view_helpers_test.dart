@@ -170,4 +170,41 @@ void main() {
       expect(formatContextForDisplay({}), isEmpty);
     });
   });
+
+  group('workflowBlockedOutcomeSummary', () {
+    test('returns the blocked reasons for controller-level blocked outcomes', () {
+      final run = _makeRun(
+        contextJson: const {
+          'data': {
+            'step.story-pipeline.outcome': 'blocked',
+            'step.story-pipeline.outcome.reason': "Foreach step 'story-pipeline': 1 item(s) blocked: S03",
+            'step.other.outcome': 'completed',
+          },
+        },
+      );
+      expect(workflowBlockedOutcomeSummary(run), "Foreach step 'story-pipeline': 1 item(s) blocked: S03");
+    });
+
+    test('falls back to a generic line when the blocked outcome has no reason', () {
+      final run = _makeRun(
+        contextJson: const {
+          'data': {'step.story-pipeline.outcome': 'blocked'},
+        },
+      );
+      expect(workflowBlockedOutcomeSummary(run), "Step 'story-pipeline' ended blocked.");
+    });
+
+    test('ignores per-item outcome keys and non-blocked values', () {
+      final run = _makeRun(
+        contextJson: const {
+          'data': {'step.implement[0].outcome': 'needsInput', 'step.review.outcome': 'completed'},
+        },
+      );
+      expect(workflowBlockedOutcomeSummary(run), isNull);
+    });
+
+    test('returns null for a run with no context data', () {
+      expect(workflowBlockedOutcomeSummary(_makeRun()), isNull);
+    });
+  });
 }

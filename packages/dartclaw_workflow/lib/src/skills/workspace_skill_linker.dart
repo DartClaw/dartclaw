@@ -1,11 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-
-import 'dc_native_skill_manifest.dart';
-import 'skill_provisioner.dart' show skillProvisionerMarkerFile;
 
 /// Creates a filesystem link from [linkPath] to [targetPath].
 typedef WorkspaceLinkFactory = void Function({required String targetPath, required String linkPath});
@@ -26,7 +22,7 @@ final class WorkspaceSkillInventory {
 
   factory WorkspaceSkillInventory.fromDataDir(String dataDir) {
     return WorkspaceSkillInventory(
-      skillNames: _discoverSkillNames(dataDir, _readManifestSkillNames(dataDir)),
+      skillNames: _discoverSkillNames(dataDir),
       agentMdNames: _discoverAgentNames(p.join(dataDir, '.claude', 'agents'), '.md'),
       agentTomlNames: _discoverAgentNames(p.join(dataDir, '.codex', 'agents'), '.toml'),
     );
@@ -110,7 +106,6 @@ final class WorkspaceSkillLinker {
     _materializePayload(
       sourcePath: sourcePath,
       destinationPath: destinationPath,
-      fingerprint: _fingerprintDirectory(source),
       copyFallback: () => _replaceDirectory(source, Directory(destinationPath)),
     );
   }
@@ -121,7 +116,6 @@ final class WorkspaceSkillLinker {
     _materializePayload(
       sourcePath: sourcePath,
       destinationPath: destinationPath,
-      fingerprint: _fingerprintFile(source),
       copyFallback: () => _replaceFile(source, File(destinationPath)),
     );
   }
@@ -129,7 +123,6 @@ final class WorkspaceSkillLinker {
   void _materializePayload({
     required String sourcePath,
     required String destinationPath,
-    required String fingerprint,
     required void Function() copyFallback,
   }) {
     final targetPath = p.absolute(sourcePath);
@@ -139,8 +132,8 @@ final class WorkspaceSkillLinker {
       if (p.normalize(p.absolute(link.targetSync())) == p.normalize(targetPath)) return;
       link.deleteSync();
     } else if (destination != FileSystemEntityType.notFound) {
-      final marker = _readManagedMarker(destinationPath);
-      if (marker == null) {
+      final managed = _hasManagedMarker(destinationPath);
+      if (!managed) {
         if (!_isReservedDartClawPayload(destinationPath)) {
           _log.fine('Preserving unmanaged workspace skill payload at $destinationPath');
           return;
@@ -148,8 +141,7 @@ final class WorkspaceSkillLinker {
         _log.warning('Replacing unmanaged reserved DartClaw workspace skill payload at $destinationPath');
         _deleteExisting(destinationPath);
       }
-      if (marker != null) {
-        if (marker.fingerprint == fingerprint) return;
+      if (managed) {
         _deleteExisting(destinationPath);
       }
     }
@@ -157,7 +149,7 @@ final class WorkspaceSkillLinker {
     Directory(p.dirname(destinationPath)).createSync(recursive: true);
     if (Platform.isWindows && !_symlinksEnabled) {
       copyFallback();
-      _writeManagedMarker(destinationPath, sourcePath, fingerprint);
+      _writeManagedMarker(destinationPath, sourcePath);
       return;
     }
 
@@ -165,36 +157,13 @@ final class WorkspaceSkillLinker {
       _linkFactory(targetPath: targetPath, linkPath: destinationPath);
     } on FileSystemException {
       copyFallback();
-      _writeManagedMarker(destinationPath, sourcePath, fingerprint);
+      _writeManagedMarker(destinationPath, sourcePath);
     }
   }
 
   void _replaceDirectory(Directory source, Directory destination) {
-    final parent = destination.parent;
-    parent.createSync(recursive: true);
-    final tempDir = Directory(p.join(parent.path, '.${p.basename(destination.path)}.dartclaw.tmp-$pid'));
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-    tempDir.createSync(recursive: true);
-
-    Directory? backupDir;
-    try {
-      _directoryCopier(source, tempDir);
-      if (destination.existsSync()) {
-        final backupPath = p.join(parent.path, '.${p.basename(destination.path)}.dartclaw.old-$pid');
-        destination.renameSync(backupPath);
-        backupDir = Directory(backupPath);
-      }
-      tempDir.renameSync(destination.path);
-    } catch (_) {
-      // Rollback partial swap: restore backup if destination missing, drop temp dir; rethrow original.
-      if (backupDir != null && backupDir.existsSync() && !destination.existsSync()) {
-        backupDir.renameSync(destination.path);
-      }
-      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      rethrow;
-    } finally {
-      if (backupDir != null && backupDir.existsSync()) backupDir.deleteSync(recursive: true);
-    }
+    if (destination.existsSync()) destination.deleteSync(recursive: true);
+    _directoryCopier(source, destination);
   }
 
   void _replaceFile(File source, File destination) {
@@ -248,7 +217,7 @@ final class WorkspaceSkillLinker {
         entry.deleteSync();
         continue;
       }
-      if (_readManagedMarker(entry.path) == null) continue;
+      if (!_hasManagedMarker(entry.path)) continue;
       _deleteExisting(entry.path);
       final marker = File(_markerPath(entry.path));
       if (marker.existsSync()) marker.deleteSync();
@@ -276,7 +245,7 @@ bool _isDartClawManagedName(String name) => RegExp(r'^dartclaw-[A-Za-z0-9._-]+$'
 
 String _withExtension(String name, String extension) => p.extension(name) == extension ? name : '$name$extension';
 
-List<String> _discoverSkillNames(String dataDir, Set<String>? manifestNames) {
+List<String> _discoverSkillNames(String dataDir) {
   final names = <String>{};
   for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
     final dir = Directory(root);
@@ -285,28 +254,10 @@ List<String> _discoverSkillNames(String dataDir, Set<String>? manifestNames) {
       if (entry is! Directory) continue;
       final name = p.basename(entry.path);
       if (!_isDartClawManagedName(name)) continue;
-      // The manifest (when provisioned) is the canonical DC-native inventory;
-      // a discovered `dartclaw-*` skill it omits is stale and must not link.
-      if (manifestNames != null && !manifestNames.contains(name)) continue;
       if (File(p.join(entry.path, 'SKILL.md')).existsSync()) names.add(name);
     }
   }
   return names.toList()..sort();
-}
-
-/// Canonical DC-native skill names persisted by `SkillProvisioner` to the
-/// data-dir marker, or `null` when no marker exists (un-provisioned data dir →
-/// wildcard discovery, preserving cold-start behavior).
-Set<String>? _readManifestSkillNames(String dataDir) {
-  final marker = File(p.join(dataDir, skillProvisionerMarkerFile));
-  if (!marker.existsSync()) return null;
-  final names = <String>{};
-  for (final rawLine in marker.readAsLinesSync()) {
-    final line = rawLine.trim();
-    if (line.isEmpty || line.startsWith('#')) continue;
-    if (dcNativeSkillNamePattern.hasMatch(line)) names.add(line);
-  }
-  return names.isEmpty ? null : names;
 }
 
 List<String> _discoverAgentNames(String dirPath, String extension) {
@@ -356,31 +307,15 @@ void _copyDirectorySync(Directory source, Directory destination) {
   }
 }
 
-void _writeManagedMarker(String destinationPath, String sourcePath, String fingerprint) {
+void _writeManagedMarker(String destinationPath, String sourcePath) {
   final marker = File(_markerPath(destinationPath));
   marker.parent.createSync(recursive: true);
   marker.writeAsStringSync(
-    jsonEncode({
-      'source': p.normalize(sourcePath),
-      'fingerprint': fingerprint,
-      'generatedAt': DateTime.now().toUtc().toIso8601String(),
-    }),
+    'source: ${p.normalize(sourcePath)}\ngeneratedAt: ${DateTime.now().toUtc().toIso8601String()}\n',
   );
 }
 
-_ManagedMarker? _readManagedMarker(String destinationPath) {
-  final marker = File(_markerPath(destinationPath));
-  if (!marker.existsSync()) return null;
-  try {
-    final data = jsonDecode(marker.readAsStringSync());
-    if (data is! Map) return null;
-    final fingerprint = data['fingerprint'];
-    if (fingerprint is! String) return null;
-    return _ManagedMarker(fingerprint);
-  } catch (_) {
-    return null; // Corrupted marker file – treat as absent; will be recreated on next link.
-  }
-}
+bool _hasManagedMarker(String destinationPath) => File(_markerPath(destinationPath)).existsSync();
 
 String _markerPath(String destinationPath) {
   final type = FileSystemEntity.typeSync(destinationPath, followLinks: false);
@@ -392,6 +327,7 @@ String _markerPath(String destinationPath) {
 
 void _deleteExisting(String path) {
   final type = FileSystemEntity.typeSync(path, followLinks: false);
+  final marker = File(_markerPath(path));
   switch (type) {
     case FileSystemEntityType.directory:
       Directory(path).deleteSync(recursive: true);
@@ -404,40 +340,5 @@ void _deleteExisting(String path) {
     default:
       return;
   }
-}
-
-String _fingerprintDirectory(Directory dir) {
-  final files = <({String relativePath, List<int> bytes})>[
-    for (final entity in dir.listSync(recursive: true, followLinks: false))
-      if (entity is File && p.basename(entity.path) != WorkspaceSkillLinker.managedMarkerName)
-        (relativePath: p.relative(entity.path, from: dir.path).replaceAll('\\', '/'), bytes: entity.readAsBytesSync()),
-  ]..sort((a, b) => a.relativePath.compareTo(b.relativePath));
-  final bytes = <int>[];
-  for (final file in files) {
-    bytes.addAll(utf8.encode(file.relativePath));
-    bytes.add(0);
-    bytes.addAll(file.bytes);
-    bytes.add(0xff);
-  }
-  return _fnv64(bytes);
-}
-
-String _fingerprintFile(File file) => _fnv64(file.readAsBytesSync());
-
-String _fnv64(List<int> bytes) {
-  var hash = _fnvOffsetBasis;
-  for (final byte in bytes) {
-    hash ^= byte & 0xff;
-    hash = (hash * _fnvPrime) & _fnvMask64;
-  }
-  return hash.toUnsigned(64).toRadixString(16).padLeft(16, '0');
-}
-
-const int _fnvOffsetBasis = 0xcbf29ce484222325;
-const int _fnvPrime = 0x100000001b3;
-const int _fnvMask64 = 0xFFFFFFFFFFFFFFFF;
-
-final class _ManagedMarker {
-  final String fingerprint;
-  const _ManagedMarker(this.fingerprint);
+  if (marker.existsSync()) marker.deleteSync();
 }

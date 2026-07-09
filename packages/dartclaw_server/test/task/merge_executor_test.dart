@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:dartclaw_server/src/task/merge_executor.dart';
 import 'package:dartclaw_server/src/task/worktree_manager.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show GitStatus, WorkflowGitCommit, WorkflowGitException, WorkflowGitMergeStrategy, WorkflowGitPort;
 import 'package:test/test.dart';
 
 void main() {
@@ -26,7 +28,7 @@ void main() {
     });
 
     test('throws PreMergeInvariantException when the index is already dirty', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr(' M lib/main.dart\n');
 
@@ -44,7 +46,7 @@ void main() {
     });
 
     test('throws PreMergeInvariantException when untracked files overlap with stash', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('?? foo.md\n');
       responses['stash show --name-only stash@{0}'] = pr('foo.md\nbar.md\n');
@@ -65,7 +67,7 @@ void main() {
     });
 
     test('throws PreMergeInvariantException when target branch SHA drifted', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse main'] = pr('new-sha\n');
 
@@ -106,12 +108,12 @@ void main() {
     });
 
     test('squash merge calls correct git commands in order', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       // rev-parse HEAD (record original)
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -125,7 +127,7 @@ void main() {
       // Verify the order of git commands
       expect(gitArgs[0], 'status --porcelain'); // pre-merge invariant
       expect(gitArgs[1], 'rev-parse HEAD'); // record original HEAD
-      expect(gitArgs[2], 'rev-parse --abbrev-ref HEAD'); // record original branch
+      expect(gitArgs[2], 'current-branch'); // record original branch
       expect(gitArgs[3], 'stash --include-untracked'); // stash
       expect(gitArgs[4], 'checkout main'); // checkout base ref
       expect(gitArgs[5], 'merge --squash dartclaw/task-t1'); // squash merge
@@ -135,11 +137,11 @@ void main() {
     });
 
     test('squash merge returns MergeSuccess with commit SHA', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('abc123\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('develop\n');
+      responses['current-branch'] = pr('develop\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -160,11 +162,11 @@ void main() {
     });
 
     test('merge strategy calls git merge --no-ff', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --no-ff dartclaw/task-t1 -m task(t1): Fix bug'] = pr('');
@@ -185,11 +187,11 @@ void main() {
     });
 
     test('merge conflict detected and returned with conflicting file list', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr(
@@ -215,11 +217,11 @@ void main() {
     });
 
     test('squash conflict restores clean state with reset --hard', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('', exitCode: 1, stderr: 'conflict');
@@ -235,11 +237,11 @@ void main() {
     });
 
     test('non-squash conflict still aborts the merge', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --no-ff dartclaw/task-t1 -m task(t1): Fix bug'] = pr('', exitCode: 1, stderr: 'conflict');
@@ -260,11 +262,11 @@ void main() {
     });
 
     test('uncommitted changes stashed before merge and restored after', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('develop\n');
+      responses['current-branch'] = pr('develop\n');
       responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -289,11 +291,11 @@ void main() {
       // Repro for the map/fan-in case: stashed untracked files collide with
       // the merge-introduced files. `git stash pop` fails and leaves the stash
       // in place unless we drop it.
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('integration\n');
+      responses['current-branch'] = pr('integration\n');
       responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -318,11 +320,11 @@ void main() {
     });
 
     test('stash pop failure for unrelated reason keeps the stash entry', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -338,11 +340,11 @@ void main() {
     });
 
     test('no stash pop when there were no uncommitted changes', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -356,10 +358,10 @@ void main() {
     });
 
     test('original branch restored after successful merge', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('feature-x\n');
+      responses['current-branch'] = pr('feature-x\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -375,10 +377,10 @@ void main() {
     });
 
     test('original branch restored after conflict', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('feature-y\n');
+      responses['current-branch'] = pr('feature-y\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('', exitCode: 1, stderr: 'conflict');
@@ -401,10 +403,10 @@ void main() {
     });
 
     test('detached HEAD restored by SHA after merge', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('deadbeef123\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('HEAD\n'); // detached
+      responses['current-branch'] = pr('HEAD\n'); // detached
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -420,7 +422,7 @@ void main() {
     });
 
     test('git failure on rev-parse throws WorktreeException', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('', exitCode: 128, stderr: 'fatal: not a git repository');
 
@@ -431,10 +433,10 @@ void main() {
     });
 
     test('git failure on checkout throws WorktreeException', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('original-sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('', exitCode: 1, stderr: 'error: pathspec not found');
 
@@ -445,10 +447,10 @@ void main() {
     });
 
     test('commit message follows task(id): title format', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-abc'] = pr('');
@@ -470,10 +472,10 @@ void main() {
     });
 
     test('handles nothing-to-commit as empty merge success', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -491,10 +493,10 @@ void main() {
     });
 
     test('default strategy is squash', () async {
-      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(mockRunner));
 
       responses['rev-parse HEAD'] = pr('sha\n');
-      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['current-branch'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
       responses['checkout main'] = pr('');
       responses['merge --squash dartclaw/task-t1'] = pr('');
@@ -517,4 +519,177 @@ void main() {
       expect(json['details'], 'Automatic merge failed');
     });
   });
+}
+
+final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
+  final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
+  processRunner;
+
+  const _ProcessRunnerGitPortForTest(this.processRunner);
+
+  @override
+  Future<String> revParse(String worktreePath, String ref) async {
+    final result = await _expect(['rev-parse', ref], worktreePath, 'Failed to resolve ref $ref');
+    return _stdout(result).trim();
+  }
+
+  @override
+  Future<String> currentBranch(String worktreePath) async {
+    final result = await _expect(['current-branch'], worktreePath, 'Failed to record current branch');
+    return _stdout(result).trim();
+  }
+
+  @override
+  Future<List<String>> diffNameOnly(
+    String worktreePath, {
+    String? against,
+    bool cached = false,
+    String? diffFilter,
+  }) async {
+    final args = <String>['diff'];
+    if (cached) {
+      args.add('--cached');
+    }
+    args.add('--name-only');
+    if (diffFilter != null && diffFilter.trim().isNotEmpty) {
+      args.add('--diff-filter=$diffFilter');
+    }
+    if (against != null && against.trim().isNotEmpty) {
+      args.add(against);
+    }
+    final result = await _expect(args, worktreePath, 'Failed to list changed paths');
+    final paths = _lines(_stdout(result)).toSet();
+    if (!cached && (diffFilter == null || diffFilter.trim().isEmpty)) {
+      paths.addAll(await untrackedFiles(worktreePath));
+    }
+    return paths.toList()..sort();
+  }
+
+  @override
+  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path}) async {
+    final result = await _git(['cat-file', '-e', '$ref:$path'], worktreePath);
+    return result.exitCode == 0;
+  }
+
+  @override
+  Future<GitStatus> status(String worktreePath) async {
+    final result = await _expect(['status', '--porcelain'], worktreePath, 'Failed to inspect status');
+    final modified = <String>[];
+    final untracked = <String>[];
+    for (final line in _lines(_stdout(result))) {
+      if (line.startsWith('?? ')) {
+        untracked.add(line.substring(3).trim());
+      } else if (line.length > 3) {
+        modified.add(line.substring(3).trim());
+      } else {
+        modified.add(line.trim());
+      }
+    }
+    return GitStatus(indexClean: modified.isEmpty, modified: modified, untracked: untracked);
+  }
+
+  @override
+  Future<List<String>> untrackedFiles(String worktreePath) async {
+    return (await status(worktreePath)).untracked;
+  }
+
+  @override
+  Future<List<String>> stashedPaths(String worktreePath, {int index = 0}) async {
+    final result = await _git(['stash', 'show', '--name-only', 'stash@{$index}'], worktreePath);
+    if (result.exitCode != 0) return const <String>[];
+    return _lines(_stdout(result));
+  }
+
+  @override
+  Future<void> add(String worktreePath, List<String> paths, {bool all = false}) async {
+    if (!all && paths.isEmpty) return;
+    await _expect(all ? <String>['add', '-A'] : <String>['add', '--', ...paths], worktreePath, 'Failed to stage paths');
+  }
+
+  @override
+  Future<WorkflowGitCommit> commit(
+    String worktreePath, {
+    required String message,
+    String? authorName,
+    String? authorEmail,
+  }) async {
+    final args = <String>[
+      if (authorName != null && authorName.trim().isNotEmpty) ...['-c', 'user.name=$authorName'],
+      if (authorEmail != null && authorEmail.trim().isNotEmpty) ...['-c', 'user.email=$authorEmail'],
+      'commit',
+      '-m',
+      message,
+    ];
+    await _expect(args, worktreePath, 'Failed to commit staged changes');
+    return WorkflowGitCommit(sha: await revParse(worktreePath, 'HEAD'), message: message);
+  }
+
+  @override
+  Future<void> checkout(String worktreePath, String ref) async {
+    await _expect(['checkout', ref], worktreePath, 'Failed to checkout $ref');
+  }
+
+  @override
+  Future<bool> stashPush(String worktreePath, {bool includeUntracked = true}) async {
+    final args = <String>['stash', if (includeUntracked) '--include-untracked'];
+    final result = await _expect(args, worktreePath, 'Failed to stash local changes');
+    return !_stdout(result).contains('No local changes to save');
+  }
+
+  @override
+  Future<void> stashPop(String worktreePath) async {
+    await _expect(['stash', 'pop'], worktreePath, 'Failed to restore stash');
+  }
+
+  @override
+  Future<void> stashDrop(String worktreePath, {int index = 0}) async {
+    await _expect(['stash', 'drop'], worktreePath, 'Failed to drop stash entry');
+  }
+
+  @override
+  Future<void> merge(
+    String worktreePath, {
+    required String ref,
+    required WorkflowGitMergeStrategy strategy,
+    String? message,
+  }) async {
+    final args = switch (strategy) {
+      WorkflowGitMergeStrategy.squash => <String>['merge', '--squash', ref],
+      WorkflowGitMergeStrategy.merge => <String>['merge', '--no-ff', ref, '-m', message ?? 'Merge $ref'],
+    };
+    await _expect(args, worktreePath, 'Failed to merge $ref');
+  }
+
+  @override
+  Future<void> mergeAbort(String worktreePath) async {
+    await _expect(['merge', '--abort'], worktreePath, 'Failed to abort merge');
+  }
+
+  @override
+  Future<void> resetHard(String worktreePath, String ref) async {
+    await _expect(['reset', '--hard', ref], worktreePath, 'Failed to reset');
+  }
+
+  Future<ProcessResult> _expect(List<String> args, String worktreePath, String message) async {
+    final result = await _git(args, worktreePath);
+    if (result.exitCode == 0) return result;
+    throw WorkflowGitException(
+      message,
+      args: args,
+      stdout: _stdout(result),
+      stderr: _stderr(result),
+      exitCode: result.exitCode,
+    );
+  }
+
+  Future<ProcessResult> _git(List<String> args, String worktreePath) {
+    return processRunner('git', args, workingDirectory: worktreePath);
+  }
+
+  static List<String> _lines(String output) =>
+      output.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+
+  static String _stdout(ProcessResult result) => result.stdout as String;
+
+  static String _stderr(ProcessResult result) => result.stderr as String;
 }

@@ -142,7 +142,7 @@ class FakeCliProvider implements CliProvider {
   }
 
   @override
-  Future<void> cancelInflight() async {}
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
 }
 
 class SigkillOnlyFakeProcess extends FakeProcess {
@@ -170,7 +170,7 @@ final class RecordingCliProvider implements CliProvider {
   }
 
   @override
-  Future<void> cancelInflight() async {}
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
 }
 
 class FakeContainerExecutor implements ContainerExecutor {

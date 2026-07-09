@@ -333,13 +333,13 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
 }) {
   final reviewConfig = switch (stepId) {
     'plan-review' when targetReviews.contains('plan-review') => (
-      findings: 'review_findings',
+      findings: 'review_report_path',
       count: 'findings_count',
       scopedCount: 'plan-review.findings_count',
       scopedGatingCount: 'plan-review.gating_findings_count',
     ),
     'architecture-review' when targetReviews.contains('architecture-review') => (
-      findings: 'architecture-review.review_findings',
+      findings: 'architecture-review.review_report_path',
       count: 'findings_count',
       scopedCount: 'architecture-review.findings_count',
       scopedGatingCount: 'architecture-review.gating_findings_count',
@@ -948,42 +948,18 @@ Map<String, dynamic> isolationDiagnosticsFor(E2EFixtureInstance fixture) => {
   'workflowWorkspaceDir': fixture.workflowWorkspaceDir,
 };
 
-void expectCommittedPlanArtifacts({required String projectDir, required Directory artifactDir, required String ref}) {
-  final planArtifacts = artifactDir
-      .listSync()
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.json'))
-      .map((file) => jsonDecode(file.readAsStringSync()) as Map<String, dynamic>)
-      .where((payload) => payload['stepKey'] == 'plan')
-      .toList(growable: false);
-  expect(planArtifacts, isNotEmpty, reason: 'Expected at least one preserved plan artifact.');
-
-  final requiredPaths = <String>{};
-  for (final payload in planArtifacts) {
-    final outputs = (payload['outputs'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
-    final planPath = outputs['plan'] as String?;
-    if (planPath != null && planPath.trim().isNotEmpty) {
-      requiredPaths.add(planPath.trim());
-    }
-    final storySpecs = outputs['story_specs'];
-    if (storySpecs is Map<Object?, Object?> && storySpecs['items'] is List<Object?>) {
-      for (final item in (storySpecs['items'] as List<Object?>).whereType<Map<Object?, Object?>>()) {
-        final specPath = item['spec_path']?.toString().trim();
-        if (specPath != null && specPath.isNotEmpty) {
-          requiredPaths.add(specPath);
-        }
-      }
-    }
-  }
-
+/// Asserts every [relativePaths] entry is present in the tree at git [ref]
+/// (e.g. `origin/<branch>`) within [projectDir]. Used to prove pre-authored
+/// plan seeds (skipped `plan` step) rode through to the published branch.
+void expectCommittedPaths({required String projectDir, required String ref, required List<String> relativePaths}) {
   final missing = <String>[];
-  for (final relativePath in requiredPaths) {
+  for (final relativePath in relativePaths) {
     final result = Process.runSync('git', ['cat-file', '-e', '$ref:$relativePath'], workingDirectory: projectDir);
     if (result.exitCode != 0) {
       missing.add(relativePath);
     }
   }
-  expect(missing, isEmpty, reason: 'Expected committed plan artifacts at $ref: $missing');
+  expect(missing, isEmpty, reason: 'Expected committed files at $ref: $missing');
 }
 
 void expectPublishSuccess(Map<String, dynamic> contextJson) {

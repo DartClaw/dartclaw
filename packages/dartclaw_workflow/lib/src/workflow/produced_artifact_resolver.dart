@@ -56,10 +56,6 @@ final class ProducedArtifactResolver {
     );
     required.addAll(storySpecs.specPaths);
 
-    for (final path in _technicalResearchSiblings(storySpecs.specPaths, outputs, planDir, projectRoot)) {
-      required.add(path);
-    }
-
     return ProducedArtifacts(
       requiredPaths: _sortedNormalized(required, projectRoot: projectRoot, runtimeArtifactsRoot: runtimeArtifactsRoot),
     );
@@ -141,45 +137,6 @@ List<String> _pathValues(Object? raw) {
   return const <String>[];
 }
 
-List<String> _technicalResearchSiblings(
-  List<String> specPaths,
-  Map<String, Object?> outputs,
-  String planDir,
-  String? projectRoot,
-) {
-  if (_pathValues(outputs['technical_research']).isNotEmpty) {
-    return const <String>[];
-  }
-  final dirs = <String>{};
-  final planPaths = _pathValues(outputs['plan']);
-  for (final planPath in planPaths) {
-    dirs.add(p.dirname(planPath));
-  }
-  if (planDir.isNotEmpty && planDir != '.') {
-    dirs.add(planDir);
-  }
-  for (final specPath in specPaths) {
-    final fisDir = p.dirname(specPath);
-    final parent = p.dirname(fisDir);
-    if (parent.isNotEmpty && parent != '.') {
-      dirs.add(parent);
-    }
-  }
-
-  return _sortedNormalized(
-    dirs
-        .map((dir) => p.join(dir, '.technical-research.md'))
-        .where((candidate) => _artifactPathExists(candidate, projectRoot)),
-    projectRoot: projectRoot,
-  );
-}
-
-bool _artifactPathExists(String path, String? projectRoot) {
-  if (projectRoot == null || projectRoot.isEmpty) return false;
-  final file = p.isAbsolute(path) ? File(path) : File(p.join(projectRoot, path));
-  return file.existsSync();
-}
-
 List<String> _sortedNormalized(Iterable<String> paths, {String? projectRoot, String? runtimeArtifactsRoot}) {
   final normalized = <String>{};
   for (final path in paths) {
@@ -228,9 +185,13 @@ void _validateStorySpecPathInput(String path) {
   }
   validateArgumentSafePath(path, fieldName: 'story_specs.items[].spec_path', rawPath: path);
   if (p.extension(path).toLowerCase() != '.md') {
-    throw FormatException('story_specs.items[].spec_path must be a markdown FIS path: $path');
+    throw FormatException('story_specs.items[].spec_path must be a markdown story-spec path: $path');
   }
-  if (!isFisMarkdownPath(path)) {
-    throw FormatException('story_specs.items[].spec_path must use an sNN-style markdown FIS basename: $path');
-  }
+  // The `spec_path` value is an explicit, plan-named pointer to a story spec the
+  // skill discovered – not an artifact to auto-locate. Its trust boundary is
+  // relative + argument-safe + markdown (enforced above), per ADR-041. The
+  // `sNN-` basename is a plan-authoring convention, not a safety or
+  // data-shape requirement; rejecting an explicitly-named existing story spec on
+  // it (e.g. `01-foo.md`) would discard a path the plan already authoritatively
+  // states. Discovery globs still key on `s*` where they auto-locate story specs.
 }

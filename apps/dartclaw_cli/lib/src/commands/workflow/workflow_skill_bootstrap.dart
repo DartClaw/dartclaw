@@ -25,7 +25,7 @@ Future<void> bootstrapWorkflowSkills({
   if (builtInSkillsSourceDir == null) {
     throw const SkillProvisionException(
       'built-in skills source missing or invalid: null. '
-      'Tests that intentionally skip this step set runAndthenSkillsBootstrap: false.',
+      'Tests that intentionally skip this step set runWorkflowSkillsBootstrap: false.',
     );
   }
 

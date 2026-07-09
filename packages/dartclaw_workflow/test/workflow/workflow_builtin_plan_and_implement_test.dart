@@ -67,27 +67,17 @@ void main() {
                   {
                     'id': 'S01',
                     'title': 'Story One',
-                    'description': 'First integration story',
-                    'acceptance_criteria': ['first passes'],
-                    'type': 'coding',
                     'dependencies': <String>[],
-                    'key_files': ['lib/a.dart'],
-                    'effort': 'small',
                     'spec_path': 'docs/specs/test/fis/s01-story-one.md',
-                    'fis_source': 'synthesized',
+                    'spec_source': 'synthesized',
                     'spec_confidence': 5,
                   },
                   {
                     'id': 'S02',
                     'title': 'Story Two',
-                    'description': 'Second integration story',
-                    'acceptance_criteria': ['second passes'],
-                    'type': 'coding',
                     'dependencies': ['S01'],
-                    'key_files': ['lib/b.dart'],
-                    'effort': 'small',
                     'spec_path': 'docs/specs/test/fis/s02-story-two.md',
-                    'fis_source': 'existing',
+                    'spec_source': 'existing',
                     'spec_confidence': 0,
                   },
                 ],
@@ -196,12 +186,7 @@ void main() {
                   {
                     'id': 'S01',
                     'title': 'Project Bound Story',
-                    'description': 'Verify project propagation',
-                    'acceptance_criteria': ['all coding steps use the workflow project'],
-                    'type': 'coding',
                     'dependencies': <String>[],
-                    'key_files': ['lib/a.dart'],
-                    'effort': 'small',
                     'spec_path': 'docs/specs/project-bound/fis/s01-project-bound-story.md',
                   },
                 ],
@@ -280,14 +265,12 @@ void main() {
                       'id': 'S01',
                       'title': 'Story One',
                       'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
-                      'acceptance_criteria': ['first passes'],
                       'dependencies': <String>[],
                     },
                     {
                       'id': 'S02',
                       'title': 'Story Two',
                       'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
-                      'acceptance_criteria': ['second passes'],
                       'dependencies': <String>[],
                     },
                   ],
@@ -353,12 +336,7 @@ void main() {
                   {
                     'id': 'S01',
                     'title': 'Minimal Story',
-                    'description': 'Verify discover prompt scope',
-                    'acceptance_criteria': ['discover prompt stays narrow'],
-                    'type': 'coding',
                     'dependencies': <String>[],
-                    'key_files': ['README.md'],
-                    'effort': 'small',
                     'spec_path': 'docs/specs/discovery/fis/s01-minimal-story.md',
                   },
                 ],
@@ -410,7 +388,6 @@ void main() {
                     'id': 'S01',
                     'title': 'Thin Story',
                     'spec_path': 'docs/specs/demo/fis/s01-thin-story.md',
-                    'acceptance_criteria': ['prompt includes authored feature'],
                     'dependencies': <String>[],
                   },
                 ],
@@ -464,13 +441,7 @@ void main() {
               'plan_source': 'synthesized',
               'story_specs': {
                 'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Story One',
-                    'spec_path': 'fis/s01-story-one.md',
-                    'acceptance_criteria': ['first passes'],
-                    'dependencies': <String>[],
-                  },
+                  {'id': 'S01', 'title': 'Story One', 'spec_path': 'fis/s01-story-one.md', 'dependencies': <String>[]},
                 ],
               },
             }),
@@ -483,7 +454,7 @@ void main() {
     final implementPrompt = trace.tasksForStep('implement').single.description;
     expect(implementPrompt, contains('docs/specs/demo/fis/s01-story-one.md'));
     expect(implementPrompt, isNot(contains('(story 1 of 1):')));
-    expectReviewOutputDir(trace.descriptionsByStep['plan-review']!.single);
+    expectReviewOutputDir(trace.tasksForStep('plan-review').single);
   });
 
   test(
@@ -548,23 +519,13 @@ void main() {
                     {
                       'id': 'S01',
                       'title': 'Loop Story Alpha',
-                      'description': 'First story for remediation loop',
-                      'acceptance_criteria': ['alpha passes'],
-                      'type': 'coding',
                       'dependencies': <String>[],
-                      'key_files': ['lib/a.dart'],
-                      'effort': 'small',
                       'spec_path': 'docs/specs/loop/fis/s01-loop-alpha.md',
                     },
                     {
                       'id': 'S02',
                       'title': 'Loop Story Beta',
-                      'description': 'Second story for remediation loop',
-                      'acceptance_criteria': ['beta passes'],
-                      'type': 'coding',
                       'dependencies': ['S01'],
-                      'key_files': ['lib/b.dart'],
-                      'effort': 'small',
                       'spec_path': 'docs/specs/loop/fis/s02-loop-beta.md',
                     },
                   ],
@@ -591,7 +552,7 @@ void main() {
               assistantContent: contextOutput({
                 ...reviewReportContext(
                   queued.stepKey,
-                  runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                   findingsCount: 2,
                 ),
                 'implementation_summary': 'Batch needs remediation',
@@ -672,7 +633,7 @@ void main() {
                   assistantContent: contextOutput({
                     ...reviewReportContext(
                       queued.stepKey,
-                      runtimeArtifactsDir: runtimeArtifactsDirForTask(queued.task, driver.tempDir.path),
+                      stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                       findingsCount: row.planReviewFindings,
                     ),
                   }),
@@ -972,12 +933,7 @@ final List<_DiscoveryRow> _discoveryMatrix = [
           {
             'id': 'S01',
             'title': 'Existing Story',
-            'description': 'Already planned story',
-            'acceptance_criteria': ['passes review'],
-            'type': 'coding',
             'dependencies': <String>[],
-            'key_files': ['lib/existing.dart'],
-            'effort': 'small',
             'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
           },
         ],

@@ -96,10 +96,32 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   ///
   /// If [directory] does not exist, this is a no-op (not an error).
   Future<void> loadFromDirectory(String directory, {WorkflowSource source = WorkflowSource.custom}) async {
+    await _loadFromDirectory(directory, source: source);
+  }
+
+  /// Loads the deprecated legacy custom-workflow drop folder.
+  ///
+  /// This preserves one-release compatibility for workflows placed directly in
+  /// `<dataDir>/workflows/`, while pointing authors at the canonical
+  /// `<dataDir>/workflows/custom/` location. The warning fires only when this
+  /// call registers at least one workflow, so ordinary installs with just the
+  /// `built-in/` and `custom/` subdirectories stay quiet.
+  Future<void> loadFromDeprecatedLegacyDirectory(String directory, {String? replacementDirectory}) async {
+    final loaded = await _loadFromDirectory(directory);
+    if (loaded == 0) return;
+    final replacement = replacementDirectory ?? p.join(directory, 'custom');
+    _log.warning(
+      'Deprecated workflow drop-folder "$directory" loaded $loaded workflow(s). '
+      'Move custom workflow YAMLs to "$replacement"; direct files in "$directory" will stop loading after this '
+      'one-release deprecation window.',
+    );
+  }
+
+  Future<int> _loadFromDirectory(String directory, {WorkflowSource source = WorkflowSource.custom}) async {
     final dir = Directory(directory);
     if (!await dir.exists()) {
       _log.fine('Workflow directory does not exist, skipping: $directory');
-      return;
+      return 0;
     }
 
     // Drop prior exclusion entries from this directory so a re-load reflects
@@ -111,6 +133,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
     final scopedDir = p.canonicalize(directory);
     _exclusions.removeWhere((excl) => p.canonicalize(p.dirname(excl.sourcePath)) == scopedDir);
 
+    var registeredCount = 0;
     await for (final entity in dir.list()) {
       if (entity is! File) continue;
       if (!entity.path.endsWith('.yaml')) continue;
@@ -168,6 +191,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
           sourcePath: entity.path,
           sourceFingerprint: _fingerprintString(content),
         );
+        registeredCount++;
         if (source == WorkflowSource.materialized) {
           _log.info('Loaded materialized workflow: ${definition.name}');
         } else {
@@ -191,6 +215,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
         _exclusions.add(WorkflowExclusion(sourcePath: entity.path, errors: ['file read error: $e']));
       }
     }
+    return registeredCount;
   }
 
   @override

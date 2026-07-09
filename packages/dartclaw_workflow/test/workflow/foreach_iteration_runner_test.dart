@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
+        OnFailurePolicy,
         OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -21,13 +22,14 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionError,
         WorkflowGitPromotionSuccess,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
         WorkflowRunStatus,
+        WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/workflow_budget_monitor.dart' show foreachScopeConsumedTokens;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -91,6 +93,30 @@ void main() {
       expect(result.finalRun?.status, equals(row.expectedRunStatus));
     });
   }
+
+  group('collection resolution parity (shared resolveIterationCollection)', () {
+    test('foreach auto-unwraps a single-key Map collection to its inner list', () async {
+      final result = await h.executeCountingQueuedTasks(
+        h.foreachRetryDefinition(),
+        WorkflowContext()
+          ..['items'] = {
+            'stories': ['alpha', 'beta'],
+          },
+      );
+      expect(result.taskCount, equals(2));
+      expect(result.finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('foreach rejects a non-List collection with the shared not-a-List message', () async {
+      final result = await h.executeCountingQueuedTasks(
+        h.foreachRetryDefinition(),
+        WorkflowContext()..['items'] = 'not a list',
+      );
+      expect(result.taskCount, equals(0));
+      expect(result.finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(result.finalRun?.errorMessage, contains("Foreach step 'controller': context key 'items' is not a List"));
+    });
+  });
 
   for (final row in [
     (
@@ -187,9 +213,14 @@ void main() {
       containsAll(['S01', 'S02']),
     );
     expect(finalRun?.contextJson['data']?['step.implement[0].outcome'], equals('needsInput'));
-    expect(finalRun?.contextJson['data']?['step.story-pipeline.outcome'], equals('failed'));
+    // needsInput is a recoverable hold (blocked), distinct from a hard failure;
+    // with no open dependent the run completes and reports the blocked item.
+    expect(finalRun?.contextJson['data']?['step.story-pipeline.outcome'], equals('blocked'));
+    // The reason names the blocked item ids so run-completion surfaces (digest,
+    // publish notes) can list what shipped unresolved.
+    expect(finalRun?.contextJson['data']?['step.story-pipeline.outcome.reason'], contains('S01'));
     final storyResults = finalRun?.contextJson['data']?['story_results'] as List<dynamic>;
-    expect(storyResults[0], isA<Map<Object?, Object?>>().having((value) => value['error'], 'error', isTrue));
+    expect(storyResults[0], isA<Map<Object?, Object?>>().having((value) => value['blocked'], 'blocked', isTrue));
     expect(
       storyResults[1],
       isA<Map<Object?, Object?>>().having(
@@ -242,7 +273,9 @@ void main() {
 
     final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-    expect(finalRun?.errorMessage, contains("Foreach step 'story-pipeline': 2 iteration(s) failed"));
+    // The needsInput item is now classed as blocked (recoverable), so only the
+    // hard-failed item counts as a failure; the run still fails on that failure.
+    expect(finalRun?.errorMessage, contains("Foreach step 'story-pipeline': 1 iteration(s) failed"));
     expect(finalRun?.contextJson['data']?['_approval.pending.stepId'], isNull);
   });
 
@@ -261,7 +294,7 @@ void main() {
         WorkflowStep(
           id: 'story-pipeline',
           name: 'Story Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'items',
           foreachSteps: ['implement'],
           maxParallel: 2,
@@ -605,12 +638,12 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
           ),
-          WorkflowStep(id: 'child', name: 'Child', type: WorkflowTaskType.agent, prompts: ['Do {{map.item.id}}']),
+          WorkflowStep(id: 'child', name: 'Child', taskType: WorkflowTaskType.agent, prompts: ['Do {{map.item.id}}']),
         ],
       );
 
@@ -713,7 +746,7 @@ steps:
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['implement'],
             maxParallel: 2,
@@ -722,7 +755,7 @@ steps:
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: WorkflowTaskType.agent,
+            taskType: WorkflowTaskType.agent,
             prompts: ['Build {{map.item.id}}'],
           ),
         ],
@@ -769,6 +802,235 @@ steps:
       expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
     });
 
+    WorkflowDefinition dependencyForeachDef() => WorkflowDefinition(
+      name: 'dep-foreach',
+      description: 'Dependency-aware foreach with controllable child outcome',
+      steps: const [
+        WorkflowStep(
+          id: 'fe',
+          name: 'FE',
+          taskType: WorkflowTaskType.foreach,
+          mapOver: 'stories',
+          foreachSteps: ['implement'],
+          maxParallel: 2,
+          outputs: {'results': OutputConfig()},
+        ),
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          taskType: WorkflowTaskType.agent,
+          prompts: ['Build {{map.item.id}}'],
+        ),
+      ],
+    );
+
+    // Drives each foreach child to the outcome keyed by its item id.
+    StreamSubscription<TaskStatusChangedEvent> driveByItemId(Map<String, String> outcomeById) {
+      return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await h.sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(e.taskId, sessionId: session.id);
+        final itemId = (task.configJson['displayScope'] as String?) ?? '';
+        final outcome = outcomeById[itemId] ?? 'succeeded';
+        await h.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<step-outcome>{"outcome":"$outcome","reason":"$outcome for $itemId"}</step-outcome>',
+        );
+        await h.completeTask(e.taskId);
+      });
+    }
+
+    test('blocked story with an open dependent pauses the run naming both stories', () async {
+      final definition = dependencyForeachDef();
+      final run = await h.insertRun(definition);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {
+            'id': 'S02',
+            'dependencies': <String>['S01'],
+          },
+        ];
+      final sub = driveByItemId({'S01': 'needsInput'});
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      expect(finalRun?.errorMessage, contains('S01'));
+      expect(finalRun?.errorMessage, contains('S02'));
+      expect(finalRun?.errorMessage, contains('blocked'));
+      // Guidance must match restore semantics: a blocked item stays pending,
+      // so resume genuinely re-runs it.
+      expect(finalRun?.errorMessage, contains('re-runs its full pipeline'));
+    });
+
+    test('S07 hard-failed story with an open dependent pauses the run naming both stories', () async {
+      final definition = dependencyForeachDef();
+      final run = await h.insertRun(definition);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {
+            'id': 'S02',
+            'dependencies': <String>['S01'],
+          },
+        ];
+      final sub = driveByItemId({'S01': 'failed'});
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      expect(finalRun?.errorMessage, contains('S01'));
+      expect(finalRun?.errorMessage, contains('S02'));
+      expect(finalRun?.errorMessage, contains('failed'));
+      // A failed item is restored as settled and never re-dispatched, so the
+      // guidance must steer the operator to a fresh run, not a futile resume.
+      expect(finalRun?.errorMessage, contains('Resume does not re-run a failed story'));
+      expect(finalRun?.errorMessage, isNot(contains('re-runs its full pipeline')));
+    });
+
+    test('resume keeps dependents blocked after restored prerequisite failure', () async {
+      final definition = dependencyForeachDef();
+      final run = await h.insertRun(definition);
+      final stories = [
+        {'id': 'S01', 'dependencies': <String>[]},
+        {
+          'id': 'S02',
+          'dependencies': <String>['S01'],
+        },
+      ];
+      final firstContext = WorkflowContext()..['stories'] = stories;
+      final firstSub = driveByItemId({'S01': 'failed'});
+
+      await h.executor.execute(run, definition, firstContext);
+      await firstSub.cancel();
+
+      final failedRun = await h.repository.getById('run-1');
+      expect(failedRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      expect(failedRun?.executionCursor, isNotNull);
+
+      final retryingRun = failedRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        completedAt: null,
+        updatedAt: DateTime.now(),
+      );
+      await h.repository.update(retryingRun);
+
+      final resumedTaskIds = <String>[];
+      final resumedSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) {
+        resumedTaskIds.add(e.taskId);
+      });
+
+      final resumedContext = WorkflowContext()..['stories'] = stories;
+      await h.executor.execute(retryingRun, definition, resumedContext, startCursor: retryingRun.executionCursor);
+      await resumedSub.cancel();
+
+      expect(resumedTaskIds, isEmpty, reason: 'A restored failed prerequisite must not unlock its dependent');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      expect(finalRun?.errorMessage, contains('S01'));
+      expect(finalRun?.errorMessage, contains('S02'));
+      expect(finalRun?.errorMessage, contains('failed'));
+    });
+
+    test('plain needsInput story under onFailure continue never holds its open dependent', () async {
+      // Pins the escalation discrimination: only a nested-loop escalation block
+      // (StepOutcome.requiresDependencyHold) forces the dependency hold under
+      // `onFailure: continue`; an ordinary agent needsInput must keep the
+      // record-blocked-and-advance behavior.
+      final definition = dependencyForeachDef();
+      final continueDef = definition.copyWith(
+        steps: [
+          definition.steps.first.copyWith(onFailure: OnFailurePolicy.continueWorkflow),
+          ...definition.steps.skip(1),
+        ],
+      );
+      final run = await h.insertRun(continueDef);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {
+            'id': 'S02',
+            'dependencies': <String>['S01'],
+          },
+        ];
+      final sub = driveByItemId({'S01': 'needsInput'});
+
+      await h.executor.execute(run, continueDef, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed), reason: 'no approval hold without escalation');
+      expect(finalRun?.contextJson['data']?['step.fe.outcome'], equals('blocked'));
+      expect(finalRun?.contextJson['_approval.pending.stepId'], isNull);
+    });
+
+    test('blocked story with no open dependent continues independent work', () async {
+      final definition = dependencyForeachDef();
+      final run = await h.insertRun(definition);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {'id': 'S02', 'dependencies': <String>[]},
+        ];
+      final sub = driveByItemId({'S01': 'needsInput'});
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.contextJson['data']?['step.fe.outcome'], equals('blocked'));
+      expect(finalRun?.contextJson['_approval.pending.stepId'], isNull);
+    });
+
+    test('hostile item id is scrubbed from the persisted controller-level blocked reason', () async {
+      // Item ids come from agent-produced collections, so they are untrusted:
+      // a crafted id must not smuggle terminal escapes or line breaks into the
+      // operator-facing blocked reason.
+      const hostileId = 'S\x1b[2J01\n\u009B\x1b[31mALERT';
+      final definition = dependencyForeachDef();
+      final run = await h.insertRun(definition);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': hostileId, 'dependencies': <String>[]},
+        ];
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"story needs human decision"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.contextJson['data']?['step.fe.outcome'], equals('blocked'));
+      final reason = finalRun?.contextJson['data']?['step.fe.outcome.reason'] as String?;
+      expect(reason, isNotNull);
+      expect(reason, contains('S01'));
+      expect(reason, contains('ALERT'));
+      expect(reason, isNot(contains('\x1b')));
+      expect(reason, isNot(contains('\u009B')));
+      expect(reason, isNot(contains('\n')));
+      expect(reason, isNot(contains('[2J')));
+    });
+
     test('promotion-aware foreach keeps dependents blocked until prerequisite is promoted', () async {
       final definition = WorkflowDefinition(
         name: 'promotion-aware-foreach',
@@ -778,13 +1040,13 @@ steps:
           integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
           promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
+          publish: false,
         ),
         steps: const [
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['implement'],
             maxParallel: 2,
@@ -1118,7 +1380,7 @@ steps:
         prompt: review
         outputs:
           gating_findings_count: gating_findings_count
-          review_findings: text
+          review_report_path: text
       - id: remediation
         name: Remediation Loop
         type: loop
@@ -1133,10 +1395,10 @@ steps:
             prompt: rr
             outputs:
               gating_findings_count: gating_findings_count
-              review_findings: text
+              review_report_path: text
 ''';
 
-    test('converges independently per item; review output never leaks (S03/S04)', () async {
+    test('converges independently per item; review output never leaks', () async {
       final def = WorkflowDefinitionParser().parse(nestedYaml);
       final run = h.makeRun(def);
       await h.repository.insert(run);
@@ -1158,7 +1420,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": ${converged ? 0 : 1}, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": ${converged ? 0 : 1}, "review_report_path": "rf"}</workflow-context>',
           );
         } else if (title.contains('Remediate')) {
           remediateByItem[currentItem] = remediateByItem[currentItem]! + 1;
@@ -1168,7 +1430,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
           );
         } else {
           await h.completeTask(e.taskId);
@@ -1186,18 +1448,623 @@ steps:
       // S04: the loop body's bare review keys live only inside each iteration's
       // context. The run-level context (asserted live, where the foreach writes
       // its per-child namespaced keys) holds no bare gating_findings_count /
-      // review_findings originating in the loop, and no ${loopStepId}[i].* keys
+      // review_report_path originating in the loop, and no ${loopStepId}[i].* keys
       // from the loop controller (which declares no outputs).
       expect(context['gating_findings_count'], isNull, reason: 'no bare loop count leaks to the parent');
-      expect(context['review_findings'], isNull, reason: 'no bare loop findings path leaks to the parent');
-      expect(context['remediation[0].review_findings'], isNull);
-      expect(context['remediation[1].review_findings'], isNull);
+      expect(context['review_report_path'], isNull, reason: 'no bare loop findings path leaks to the parent');
+      expect(context['remediation[0].review_report_path'], isNull);
+      expect(context['remediation[1].review_report_path'], isNull);
       expect(context['remediation[0].gating_findings_count'], isNull);
       // Sanity: the per-iteration loop state keys were cleared on convergence.
       expect(context.data.keys.where((k) => k.startsWith('_loop.remediation.foreach.')), isEmpty);
     });
 
-    test('resume restarts the nested loop at the right item/iteration/step (S05)', () async {
+    test('nested loop exhaustion with escalate blocks for review and pauses when a dependent is open', () async {
+      final escalateYaml = nestedYaml.replaceFirst(
+        '        maxIterations: 4',
+        '        maxIterations: 2\n        onMaxIterations: escalate',
+      );
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()
+        ..['items'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {
+            'id': 'S02',
+            'dependencies': <String>['S01'],
+          },
+        ];
+
+      var remediateCount = 0;
+      var reReviewCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        final title = task!.title;
+        if (title.contains('Remediate')) {
+          remediateCount++;
+          await h.completeTask(e.taskId);
+        } else {
+          if (title.contains('Re-review')) reReviewCount++;
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, '
+                '"review_report_path": "reports/story-review.md"}</workflow-context>',
+          );
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.awaitingApproval);
+      expect(finalRun?.errorMessage, contains('S01'));
+      expect(finalRun?.errorMessage, contains('S02'));
+      expect(finalRun?.errorMessage, contains('blocked'));
+      expect(finalRun?.errorMessage, contains('reports/story-review.md'));
+      expect(context['step.remediation[0].outcome'], 'needsInput');
+      expect(context['step.remediation[0].outcome.reason'], contains('max iterations'));
+      expect(context['step.remediation[0].outcome.reason'], contains('reports/story-review.md'));
+      expect(remediateCount, 2);
+      expect(reReviewCount, 2);
+      expect(finalRun?.executionCursor?.cancelledIndices, isEmpty);
+    });
+
+    test('nested loop without escalate still fails on exhaustion', () async {
+      final strictYaml = nestedYaml
+          .replaceFirst('    onFailure: continue\n', '')
+          .replaceFirst('    outputs: { story_results: { format: json } }\n', '');
+      final def = WorkflowDefinitionParser().parse(strictYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+          return;
+        }
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+        );
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.failed);
+      expect(finalRun?.errorMessage, contains("Foreach step 'per-item': 1 iteration(s) failed"));
+      expect(context['step.remediation[0].outcome'], 'failed');
+    });
+
+    test('cancelled loop body task pauses without failing and keeps the resume checkpoint', () async {
+      final def = WorkflowDefinitionParser().parse(nestedYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Review')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else if (task.title.contains('Remediate')) {
+          await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.paused);
+      expect(finalRun?.errorMessage, contains('resume re-runs the cancelled step'));
+      expect(finalRun?.executionCursor, isA<WorkflowExecutionCursor>());
+      final data = finalRun?.contextJson['data'] as Map<String, dynamic>?;
+      expect(data?['_loop.remediation.foreach.per-item[0].stepId'], 'remediate');
+      expect(data?['remediation[0].status'], 'cancelled');
+      expect(data?['step.remediation[0].outcome'], 'cancelled');
+      expect(data?['step.per-item.outcome'], isNull);
+      // While interrupted, the retained checkpoint is the single token source
+      // for the iteration (never-overlap invariant with the tokenCount key).
+      expect(data?['remediation[0].tokenCount'], isNull);
+    });
+
+    test('resume after a cancelled pause re-runs the cancelled step and converges', () async {
+      final def = WorkflowDefinitionParser().parse(nestedYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      var cancelNextRemediate = true;
+      var remediateRuns = 0;
+      var reviewRuns = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        final title = task!.title;
+        if (title.contains('Re-review')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else if (title.contains('Remediate')) {
+          remediateRuns++;
+          if (cancelNextRemediate) {
+            cancelNextRemediate = false;
+            await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+          } else {
+            await h.completeTask(e.taskId);
+          }
+        } else if (title.contains('Review')) {
+          reviewRuns++;
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+
+      final pausedRun = await h.repository.getById(run.id);
+      expect(pausedRun?.status, WorkflowRunStatus.paused);
+      expect(remediateRuns, 1);
+
+      // Resume from the exact persisted state the cancelled pause produced.
+      final resumedRun = pausedRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        updatedAt: DateTime.now(),
+      );
+      await h.repository.update(resumedRun);
+      final resumedContext = WorkflowContext.fromJson(
+        Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+      );
+      await h.executor.execute(resumedRun, def, resumedContext, startCursor: resumedRun.executionCursor);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.completed);
+      expect(reviewRuns, 1, reason: 'the completed review is not replayed on resume');
+      expect(remediateRuns, 2, reason: 'resume re-runs the cancelled remediate step');
+    });
+
+    test('parallel foreach cancellation leaves in-flight siblings unsettled and resumable', () async {
+      // Regression: a cancelled item must not pause the run while siblings are
+      // in flight – an aborted task wait would persist them as spurious hard
+      // failures ("failed to create task") that resume never re-dispatches.
+      final parallelYaml = nestedYaml.replaceFirst(
+        '    map_over: items\n',
+        '    map_over: items\n    max_parallel: 2\n',
+      );
+      final def = WorkflowDefinitionParser().parse(parallelYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A', 'B'];
+
+      // Record event order to pin the deferred pause: with an inline pause in
+      // the cancelled branch, the run would flip to `paused` before the second
+      // sibling's cancelled step event fired.
+      final order = <String>[];
+      final remediateSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen((e) {
+        // The foreach child is the nested loop step `remediation`; its cancelled
+        // body task surfaces as a cancelled step-completed event for that step.
+        if (e.stepId == 'remediation' && e.outcome == 'cancelled') order.add('cancelled:${e.taskId}');
+      });
+      final pauseSub = h.eventBus
+          .on<WorkflowRunStatusChangedEvent>()
+          .where((e) => e.newStatus == WorkflowRunStatus.paused)
+          .listen((_) => order.add('paused'));
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        final title = task!.title;
+        if (title.contains('Re-review')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else if (title.contains('Remediate')) {
+          // Teardown-style: every in-flight remediate ends cancelled.
+          await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+        } else if (title.contains('Review')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+      await remediateSub.cancel();
+      await pauseSub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.paused);
+      final cursor = finalRun?.executionCursor;
+      expect(cursor?.failedIndices, isEmpty, reason: 'no interrupted sibling may settle as a hard failure');
+      expect(cursor?.completedIndices, isEmpty, reason: 'interrupted items stay pending for resume');
+      expect(finalRun?.errorMessage, isNot(contains('failed to create task')));
+      final data = finalRun?.contextJson['data'] as Map<String, dynamic>?;
+      expect(data?['_loop.remediation.foreach.per-item[0].stepId'], 'remediate');
+      // The deferred pause fires only after both siblings settled their cancelled
+      // step events – an inline pause would interleave `paused` before the second.
+      expect(order.where((e) => e.startsWith('cancelled:')), hasLength(2));
+      expect(order.last, 'paused', reason: 'run pauses only after both siblings drain');
+    });
+
+    test('S01 single-story escalation pauses for review with no dependent anywhere', () async {
+      // Topology-independent hold: an escalated exhaustion is an explicit "a
+      // human must look" signal, so even a single-story plan (no dependents
+      // anywhere) pauses instead of shipping the residual in the settle digest.
+      final escalateYaml = nestedYaml.replaceFirst(
+        '        maxIterations: 4',
+        '        maxIterations: 2\n        onMaxIterations: escalate',
+      );
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()
+        ..['items'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+        ];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+          return;
+        }
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<workflow-context>{"gating_findings_count": 1, '
+              '"review_report_path": "reports/story-review.md"}</workflow-context>',
+        );
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.awaitingApproval, reason: 'escalated exhaustion always pauses');
+      expect(finalRun?.errorMessage, contains('S01'));
+      expect(finalRun?.errorMessage, contains('blocked'));
+      expect(finalRun?.errorMessage, contains('reports/story-review.md'));
+      expect(finalRun?.errorMessage, contains('re-runs its full pipeline'));
+      // The advance-and-digest settle is not taken – no controller-level blocked
+      // outcome is written when the escalated hold fires.
+      expect(context['step.per-item.outcome'], isNull);
+      expect(context['step.remediation[0].outcome'], 'needsInput');
+    });
+
+    test('S02 leaf story escalation pauses after its prerequisite completed', () async {
+      // Stories A→B, B depends on A. A converges (completes); B (the leaf, no
+      // dependent) exhausts with the escalation marker. The completed
+      // prerequisite must not suppress the topology-independent hold.
+      final escalateYaml = nestedYaml.replaceFirst(
+        '        maxIterations: 4',
+        '        maxIterations: 2\n        onMaxIterations: escalate',
+      );
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()
+        ..['items'] = [
+          {'id': 'A', 'dependencies': <String>[]},
+          {
+            'id': 'B',
+            'dependencies': <String>['A'],
+          },
+        ];
+
+      // Track the current item via its Review step; A (item 0) converges on the
+      // first re-review, B (item 1) never clears its gating finding.
+      var currentItem = -1;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        final title = task!.title;
+        if (title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+        } else if (title.contains('Re-review')) {
+          final converged = currentItem == 0;
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": ${converged ? 0 : 1}, '
+                '"review_report_path": "reports/story-review.md"}</workflow-context>',
+          );
+        } else {
+          currentItem++;
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, '
+                '"review_report_path": "reports/story-review.md"}</workflow-context>',
+          );
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.awaitingApproval);
+      expect(finalRun?.errorMessage, contains("Story 'B'"));
+      expect(finalRun?.errorMessage, contains('blocked'));
+      expect(finalRun?.errorMessage, isNot(contains('cannot proceed')), reason: 'no open dependent to name');
+      expect(context['step.remediation[1].outcome'], 'needsInput');
+    });
+
+    test('S05 resume after the topology-independent hold re-runs the blocked story', () async {
+      final escalateYaml = nestedYaml.replaceFirst(
+        '        maxIterations: 4',
+        '        maxIterations: 2\n        onMaxIterations: escalate',
+      );
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()
+        ..['items'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+        ];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+          return;
+        }
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+        );
+      });
+
+      await h.executor.execute(run, def, context);
+
+      final heldRun = await h.repository.getById(run.id);
+      expect(heldRun?.status, WorkflowRunStatus.awaitingApproval);
+      expect(
+        heldRun?.executionCursor?.completedIndices ?? const <int>[],
+        isEmpty,
+        reason: 'blocked item stays pending',
+      );
+
+      // Resume with the residual still unresolved: the blocked story must be
+      // re-dispatched (a task created for it), not immediately re-paused or
+      // skipped. Still exhausting, it re-holds.
+      final resumedRun = heldRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        updatedAt: DateTime.now(),
+      );
+      await h.repository.update(resumedRun);
+      final resumedContext = WorkflowContext.fromJson(
+        Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+      );
+      var resumeTaskCount = 0;
+      final resumeSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        _,
+      ) {
+        resumeTaskCount++;
+      });
+      await h.executor.execute(resumedRun, def, resumedContext, startCursor: resumedRun.executionCursor);
+      await sub.cancel();
+      await resumeSub.cancel();
+
+      expect(resumeTaskCount, greaterThan(0), reason: 'the blocked story is re-dispatched from scratch on resume');
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.awaitingApproval);
+      expect(finalRun?.errorMessage, contains('S01'));
+    });
+
+    test('parallel escalation of multiple leaf stories pauses naming all of them', () async {
+      // A per-map-item parallel plan can escalate several independent leaves in
+      // one settle; the pause reason must enumerate every marked story, not just
+      // the first, so the operator sees the full residual.
+      final escalateYaml = nestedYaml
+          .replaceFirst('    map_over: items\n', '    map_over: items\n    max_parallel: 2\n')
+          .replaceFirst('        maxIterations: 4', '        maxIterations: 2\n        onMaxIterations: escalate');
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()
+        ..['items'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {'id': 'S02', 'dependencies': <String>[]},
+        ];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+          return;
+        }
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+        );
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.awaitingApproval);
+      expect(finalRun?.errorMessage, contains("Stories 'S01', 'S02'"));
+      expect(finalRun?.errorMessage, contains('stories re-run their'));
+    });
+
+    test('a hard failure dominates a co-occurring escalation-marked block', () async {
+      // Insertion-point guard: the escalated hold sits after the hasFailures
+      // early-return, so a hard-failed story fails the run rather than being
+      // masked by a sibling's approval hold. Pins the deliberate precedence.
+      final escalateYaml = nestedYaml.replaceFirst(
+        '        maxIterations: 4',
+        '        maxIterations: 2\n        onMaxIterations: escalate',
+      );
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()
+        ..['items'] = [
+          {'id': 'A', 'dependencies': <String>[]},
+          {'id': 'B', 'dependencies': <String>[]},
+        ];
+
+      var currentItem = -1;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        final title = task!.title;
+        if (title.contains('Re-review')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else if (title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+        } else {
+          // Review marks the item boundary; item A (index 0) hard-fails, item B
+          // (index 1) escalate-blocks by never clearing its gating finding.
+          currentItem++;
+          if (currentItem == 0) {
+            await h.completeTask(e.taskId, status: TaskStatus.failed);
+          } else {
+            await h.completeTaskWithOutcome(
+              e.taskId,
+              outcomeContent:
+                  '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            );
+          }
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(
+        finalRun?.status,
+        WorkflowRunStatus.failed,
+        reason: 'a hard failure must not be masked by the escalated hold',
+      );
+    });
+
+    test('resume after an escalate hold re-runs the blocked story and re-holds', () async {
+      final escalateYaml = nestedYaml.replaceFirst(
+        '        maxIterations: 4',
+        '        maxIterations: 2\n        onMaxIterations: escalate',
+      );
+      final def = WorkflowDefinitionParser().parse(escalateYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final items = [
+        {'id': 'S01', 'dependencies': <String>[]},
+        {
+          'id': 'S02',
+          'dependencies': <String>['S01'],
+        },
+      ];
+      final context = WorkflowContext()..['items'] = items;
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Remediate')) {
+          await h.completeTask(e.taskId);
+          return;
+        }
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+        );
+      });
+
+      await h.executor.execute(run, def, context);
+
+      final heldRun = await h.repository.getById(run.id);
+      expect(heldRun?.status, WorkflowRunStatus.awaitingApproval);
+
+      // Approve/resume with the residual still unresolved: the blocked story
+      // re-runs and, still exhausting, must re-hold instead of advancing past
+      // the unreviewed dependent.
+      final resumedRun = heldRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        updatedAt: DateTime.now(),
+      );
+      await h.repository.update(resumedRun);
+      final resumedContext = WorkflowContext.fromJson(
+        Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+      );
+      await h.executor.execute(resumedRun, def, resumedContext, startCursor: resumedRun.executionCursor);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.awaitingApproval);
+      expect(finalRun?.errorMessage, contains('S01'));
+      expect(finalRun?.errorMessage, contains('S02'));
+      expect(finalRun?.errorMessage, contains('blocked'));
+    });
+
+    test('resume restarts the nested loop at the right item/iteration/step', () async {
       final def = WorkflowDefinitionParser().parse(nestedYaml);
       final perItemIndex = def.steps.indexWhere((s) => s.id == 'per-item');
       final run = h.makeRun(def);
@@ -1256,7 +2123,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 0, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
             tokenCount: 40,
           );
         } else if (title.contains('Review')) {
@@ -1301,7 +2168,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
             tokenCount: 60,
           );
         } else if (title.contains('Remediate')) {
@@ -1311,7 +2178,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
           );
         } else {
           await h.completeTask(e.taskId);
@@ -1330,6 +2197,57 @@ steps:
       // The consumed body tokens are still attributed to the run exactly once.
       final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.totalTokens, 120);
+    });
+
+    test('nested loop budget check does not double-count its retained checkpoint', () async {
+      final def = WorkflowDefinitionParser().parse(nestedYaml).copyWith(maxTokens: 250);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      var remediateCount = 0;
+      var reReviewCount = 0;
+      int? totalTokensBeforeThirdRemediate;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final t = await h.taskService.get(e.taskId);
+        final title = t!.title;
+        if (title.contains('Re-review')) {
+          reReviewCount++;
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            tokenCount: 100,
+          );
+        } else if (title.contains('Remediate')) {
+          remediateCount++;
+          if (remediateCount == 3) {
+            totalTokensBeforeThirdRemediate = (await h.repository.getById(run.id))?.totalTokens;
+          }
+          await h.completeTask(e.taskId);
+        } else if (title.contains('Review')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+          );
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      expect(reReviewCount, 3, reason: 'a double-counted checkpoint would stop before the third re-review');
+      expect(remediateCount, 3);
+      expect(totalTokensBeforeThirdRemediate, 0, reason: 'foreach-scope tokens must not inflate storage mid-loop');
+      expect(context['step.remediation[0].outcome.reason'], contains('budget'));
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.totalTokens, 300, reason: 'the foreach completion sum writes each loop token exactly once');
     });
 
     test('settled item tokens stop the next item before dispatch', () async {
@@ -1351,7 +2269,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 0, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
             tokenCount: 80,
           );
         } else if (title.contains('Remediate')) {
@@ -1361,7 +2279,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
             tokenCount: 30,
           );
         } else {
@@ -1404,7 +2322,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": ${currentItem == 0 ? 0 : 1}, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": ${currentItem == 0 ? 0 : 1}, "review_report_path": "rf"}</workflow-context>',
             tokenCount: 60,
           );
         } else if (title.contains('Remediate')) {
@@ -1415,7 +2333,7 @@ steps:
           await h.completeTaskWithOutcome(
             e.taskId,
             outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_findings": "rf"}</workflow-context>',
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
           );
         } else {
           await h.completeTask(e.taskId);
@@ -1436,6 +2354,230 @@ steps:
       expect(finalRun?.status, WorkflowRunStatus.failed);
       expect(finalRun?.errorMessage, contains('budget exhausted'));
       expect(finalRun?.totalTokens, 120, reason: 'both items attributed exactly once via the foreach sum');
+    });
+
+    test('checkpoint-retained resume does not double-count the checkpoint in the budget basis', () async {
+      final def = WorkflowDefinitionParser().parse(nestedYaml).copyWith(maxTokens: 250);
+      final perItemIndex = def.steps.indexWhere((s) => s.id == 'per-item');
+      final run = h.makeRun(def);
+      final cursor = WorkflowExecutionCursor.foreach(
+        stepId: 'per-item',
+        stepIndex: perItemIndex,
+        totalItems: 1,
+        completedSubStepIdsByIndex: {
+          0: ['review'],
+        },
+      );
+      final seeded = run.copyWith(executionCursor: cursor);
+      await h.repository.insert(seeded);
+      final seededContext = WorkflowContext()
+        ..['items'] = ['A']
+        ..['review[0].gating_findings_count'] = 1
+        ..['_loop.remediation.foreach.per-item[0].iteration'] = 3
+        ..['_loop.remediation.foreach.per-item[0].stepId'] = 'remediate'
+        ..['_loop.remediation.foreach.per-item[0].tokens'] = 200
+        ..['_loop.remediation.foreach.per-item[0].iterData'] = {
+          'gating_findings_count': 1,
+          'review_report_path': 'rf',
+          'map': {'item': 'A', 'index': 0, 'length': 1},
+        };
+      final context = WorkflowContext.fromJson(
+        Map<String, dynamic>.from(jsonDecode(jsonEncode(seededContext.toJson())) as Map),
+      );
+
+      var reviewCount = 0;
+      var remediateCount = 0;
+      var reReviewCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final t = await h.taskService.get(e.taskId);
+        final title = t!.title;
+        if (title.contains('Remediate')) {
+          remediateCount++;
+          await h.completeTask(e.taskId);
+        } else if (title.contains('Re-review')) {
+          reReviewCount++;
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            tokenCount: 100,
+          );
+        } else if (title.contains('Review')) {
+          reviewCount++;
+          await h.completeTask(e.taskId);
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(seeded, def, context, startCursor: cursor);
+      await sub.cancel();
+
+      expect(reviewCount, 0, reason: 'the completed review checkpoint is not replayed');
+      expect(remediateCount, 1, reason: 'basis 200 is below maxTokens, so resume advances one more iteration');
+      expect(reReviewCount, 1, reason: 'a double-counted checkpoint would stop immediately on resume');
+      expect(context['step.remediation[0].outcome.reason'], contains('budget'));
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.totalTokens, 300, reason: 'checkpoint 200 + resumed re-review 100 are counted once');
+    });
+  });
+
+  group('direct (non-loop) foreach child cancelled', () {
+    // Two direct children per item: the first settles before the second is
+    // interrupted, so the completed-sub-step checkpoint has something to protect.
+    const directChildYaml = r'''
+name: direct-child-cancel
+description: foreach with two direct children
+steps:
+  - id: pair
+    name: Pair
+    type: foreach
+    map_over: items
+    outputs: { results: { format: json } }
+    steps:
+      - id: first
+        name: First Child
+        prompt: a
+      - id: second
+        name: Second Child
+        prompt: b
+''';
+
+    test('cancelled direct child leaves the iteration unsettled and pauses the run', () async {
+      final def = WorkflowDefinitionParser().parse(directChildYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Second Child')) {
+          await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.paused, reason: 'teardown interruption pauses, never fails');
+      final cursor = finalRun?.executionCursor;
+      // Interrupted means unsettled: the iteration lands in no index set so
+      // resume re-dispatches it (cancelledIndices is the settled budget/dep/
+      // stall class that restore never re-dispatches).
+      expect(cursor?.completedIndices, isEmpty);
+      expect(cursor?.failedIndices, isEmpty);
+      expect(cursor?.cancelledIndices, isEmpty);
+      expect(cursor?.completedSubStepIdsByIndex[0], contains('first'), reason: 'earlier child stays checkpointed');
+      final data = finalRun?.contextJson['data'] as Map<String, dynamic>?;
+      expect(data?['step.second[0].outcome'], 'cancelled');
+      // A direct child has no loop checkpoint, so its partial attempt stays
+      // charged through the per-child token key until resume overwrites it
+      // (contrast: a nested loop drops the key – its retained checkpoint is
+      // the single budget source while interrupted).
+      expect(data?['second[0].tokenCount'], 0);
+    });
+
+    test('cancelled direct child keeps a non-zero partial token key in the budget basis', () async {
+      final def = WorkflowDefinitionParser().parse(directChildYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Second Child')) {
+          await h.completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent:
+                '<step-outcome>{"outcome":"succeeded","reason":"ignored by cancelled status"}</step-outcome>',
+            finalStatus: TaskStatus.cancelled,
+            tokenCount: 50,
+          );
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.paused);
+      expect(finalRun?.executionCursor?.completedSubStepIdsByIndex[0], contains('first'));
+      final data = finalRun?.contextJson['data'] as Map<String, dynamic>?;
+      expect(data?['second[0].tokenCount'], 50, reason: 'direct children do not use the loop-only key removal path');
+      expect(
+        foreachScopeConsumedTokens(data!, foreachStepId: 'pair', childStepIds: ['first', 'second']),
+        50,
+        reason: 'the retained direct-child partial remains in the mid-foreach budget basis',
+      );
+    });
+
+    test('resume after a direct-child cancelled pause re-dispatches only the cancelled child', () async {
+      final def = WorkflowDefinitionParser().parse(directChildYaml);
+      final run = h.makeRun(def);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['A'];
+
+      var cancelNextSecond = true;
+      var firstRuns = 0;
+      var secondRuns = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task!.title.contains('Second Child')) {
+          secondRuns++;
+          if (cancelNextSecond) {
+            cancelNextSecond = false;
+            await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+          } else {
+            await h.completeTask(e.taskId);
+          }
+        } else {
+          firstRuns++;
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, def, context);
+
+      final pausedRun = await h.repository.getById(run.id);
+      expect(pausedRun?.status, WorkflowRunStatus.paused);
+      expect(firstRuns, 1);
+      expect(secondRuns, 1);
+
+      // Resume from the exact persisted state the cancelled pause produced,
+      // exercising the production contextJson encode→decode round-trip.
+      final resumedRun = pausedRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        updatedAt: DateTime.now(),
+      );
+      await h.repository.update(resumedRun);
+      final resumedContext = WorkflowContext.fromJson(
+        Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+      );
+      await h.executor.execute(resumedRun, def, resumedContext, startCursor: resumedRun.executionCursor);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.completed);
+      expect(firstRuns, 1, reason: 'the completed earlier child is not replayed on resume');
+      expect(secondRuns, 2, reason: 'resume re-runs the cancelled child');
     });
   });
 }

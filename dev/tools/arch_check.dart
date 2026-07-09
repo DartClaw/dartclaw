@@ -19,9 +19,30 @@ import 'dart:io';
 // previous bump budgeted under-counted the lifecycle (acp_* totals ~1827 lines:
 // client, harness, protocol adapter, reverse-call handlers, target validation,
 // errors), all ADR-037 core-owned runtime. 0.18 tagged over the prior ceiling.
-const _coreLocCeiling = 14900;
-const _coreLocWarnThreshold = 14800;
-const _barrelExportCeiling = 94; // S34: +ClaudeSettingsBuilder +normalizeDynamicMap +intValue +stringValue
+//
+// 2026-06-29: re-baselined from a tripwire (the hard cap sat ~20 lines over
+// actual usage, so every legitimate core change failed CI) to a headroom model.
+// The hard cap carries roughly a milestone of growth above current usage; the
+// warn threshold fires ~700 lines before the cap as an early "plan to re-tighten
+// or justify" signal, not a failure. This stays a ratchet: when core LOC drops
+// (code moved to dartclaw_models/dartclaw_config, dead code removed), lower both
+// numbers back toward actual usage in the same change — do not let the headroom
+// become a permanent allowance. Current usage at re-baseline: ~14880.
+const _coreLocCeiling = 16500;
+const _coreLocWarnThreshold = 15800;
+// Headroom model (see core LOC note above): current dartclaw_workflow/lib usage
+// at baseline is ~23311. The ceiling carries room for ~2 milestones of workflow
+// engine growth; the warn threshold fires before the cap so growth is planned or
+// justified. This stays a ratchet: when workflow LOC drops after cleanup, lower
+// both numbers back toward actual usage in the same change.
+// Bumped 25000 -> 30000, warn 24600 -> 27000 (raised 2026-07-05, owner decision:
+// ceilings had no story headroom).
+const _workflowLocCeiling = 30000;
+const _workflowLocWarnThreshold = 27000;
+// Headroom model (see core LOC note above): max barrel is 90 (dartclaw_core) at
+// 2026-06-29; ceiling carries room for ~2 milestones of public-API growth. Keeps
+// the barrel from becoming a dumping ground without failing CI on every export.
+const _barrelExportCeiling = 110;
 const _workspacePackageCeiling = 14;
 const _workspaceAppNames = {'dartclaw_cli'};
 const _expectedWorkspaceDependencies = <String, Set<String>>{
@@ -84,6 +105,7 @@ Future<void> main() async {
     _checkCrossPackageSrcImports(repoRoot),
     _checkClaudeProviderOptionOwnership(repoRoot),
     _checkCoreLoc(repoRoot),
+    _checkWorkflowLoc(repoRoot),
     _checkBarrelExports(repoRoot),
     _checkWorkspacePackageCount(repoRoot),
   ];
@@ -281,21 +303,51 @@ _CheckResult _checkCrossPackageSrcImports(String repoRoot) {
 }
 
 _CheckResult _checkCoreLoc(String repoRoot) {
-  final libDir = Directory('$repoRoot/packages/dartclaw_core/lib');
+  final loc = _countDartLoc(Directory('$repoRoot/packages/dartclaw_core/lib'));
+  return _locCeilingResult(
+    name: 'L2 core LOC ceiling',
+    loc: loc,
+    path: 'packages/dartclaw_core/lib',
+    warnThreshold: _coreLocWarnThreshold,
+    ceiling: _coreLocCeiling,
+  );
+}
+
+_CheckResult _checkWorkflowLoc(String repoRoot) {
+  final loc = _countDartLoc(Directory('$repoRoot/packages/dartclaw_workflow/lib'));
+  return _locCeilingResult(
+    name: 'L2 workflow LOC ceiling',
+    loc: loc,
+    path: 'packages/dartclaw_workflow/lib',
+    warnThreshold: _workflowLocWarnThreshold,
+    ceiling: _workflowLocCeiling,
+  );
+}
+
+int _countDartLoc(Directory directory) {
   var loc = 0;
-  for (final file in libDir.listSync(recursive: true)) {
+  for (final file in directory.listSync(recursive: true)) {
     if (file is! File || !file.path.endsWith('.dart')) {
       continue;
     }
     loc += file.readAsLinesSync().length;
   }
+  return loc;
+}
 
+_CheckResult _locCeilingResult({
+  required String name,
+  required int loc,
+  required String path,
+  required int warnThreshold,
+  required int ceiling,
+}) {
   return _CheckResult(
-    name: 'L2 core LOC ceiling',
-    passed: loc <= _coreLocCeiling,
+    name: name,
+    passed: loc <= ceiling,
     detail:
-        '${loc >= _coreLocWarnThreshold ? 'WARN: ' : ''}$loc lines in packages/dartclaw_core/lib '
-        '(warn >= $_coreLocWarnThreshold, threshold <= $_coreLocCeiling).',
+        '${loc >= warnThreshold ? 'WARN: ' : ''}$loc lines in $path '
+        '(warn >= $warnThreshold, threshold <= $ceiling).',
   );
 }
 

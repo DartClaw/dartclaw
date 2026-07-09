@@ -4,6 +4,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
@@ -18,7 +19,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowStepCompletedEvent;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show executionEnvelopeMarkerKey, executionEnvelopeOutputsKey, executionEnvelopeVersion;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -43,9 +47,13 @@ void main() {
       String taskId, {
       required String outcomeContent,
       TaskStatus finalStatus = TaskStatus.accepted,
+      int? tokenCount,
     }) async {
       final session = await SessionService(baseDir: h.sessionsDir).createSession(type: SessionType.task);
       await h.taskService.updateFields(taskId, sessionId: session.id);
+      if (tokenCount != null) {
+        await h.kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
+      }
       await h.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
       await h.completeTask(taskId, status: finalStatus);
     }
@@ -171,6 +179,8 @@ void main() {
       final run = h.makeRun(definition);
       await h.repository.insert(run);
 
+      final stepEvents = <WorkflowStepCompletedEvent>[];
+      final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen(stepEvents.add);
       var taskCount = 0;
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
@@ -180,13 +190,20 @@ void main() {
         await completeTaskWithOutcome(
           e.taskId,
           outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"operator decision required"}</step-outcome>',
+          tokenCount: 17,
         );
       });
 
       await h.executor.execute(run, definition, WorkflowContext());
       await sub.cancel();
+      await stepSub.cancel();
 
       expect(taskCount, equals(1));
+      final failedEvent = stepEvents.singleWhere((event) => event.stepId == 'step1');
+      expect(failedEvent.success, isFalse);
+      expect(failedEvent.outcome, equals('needsInput'));
+      expect(failedEvent.reason, equals('operator decision required'));
+      expect(failedEvent.tokenCount, equals(17));
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
     });
@@ -283,7 +300,7 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
-    test('S01 onFailure retry with maxRetries 1 dispatches exactly two workflow tasks on persistent failure', () async {
+    test('onFailure retry with maxRetries 1 dispatches exactly two workflow tasks on persistent failure', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(
@@ -322,7 +339,7 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
 
-    test('S06 repeated identical workflow failure class short-circuits before exhausting maxRetries', () async {
+    test('repeated identical workflow failure class short-circuits before exhausting maxRetries', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(
@@ -394,6 +411,161 @@ void main() {
       expect(taskCount, equals(4), reason: 'maxRetries: 3 permits 4 total attempts without early-stop');
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('cancelled task with onFailure: retry dispatches no second attempt and pauses the run', () async {
+      // Teardown interruption precedes the retry policy – re-dispatching would
+      // start a new task mid-teardown.
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 2,
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(1), reason: 'a teardown-cancelled task must not be re-dispatched');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    });
+
+    test('cancelled task with onFailure: continue does not advance past the step', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.continueWorkflow,
+          ),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(1), reason: 'the next step must not be dispatched after a teardown-cancelled task');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.currentStepIndex, equals(0));
+    });
+
+    test('a step-outcome payload claiming cancelled on a succeeded task is ignored', () async {
+      // 'cancelled' is engine-derived only: the agent-facing whitelist rejects
+      // it, so a spoofed payload falls back to the engine status (succeeded).
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"cancelled","reason":"x"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.contextJson['data']?['step.step1.outcome'], equals('succeeded'));
+    });
+
+    test('a step-outcome payload claiming succeeded on a cancelled task is forced to cancelled', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"all good"}</step-outcome>',
+          finalStatus: TaskStatus.cancelled,
+        );
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused), reason: 'the step is never treated as success');
+      expect(finalRun?.contextJson['data']?['step.step1.outcome'], equals('cancelled'));
+    });
+
+    test('a markerless cancelled task does not increment the outcome fallback counter', () async {
+      // An expected teardown is not a missing-marker anomaly – the cancelled
+      // override returns before the ADR-022 fallback counter/warning path.
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
     });
 
     test('single step fails when context extraction throws an unexpected error', () async {
@@ -472,7 +644,7 @@ void main() {
         name: 'bash-zero-task',
         description: 'Bash step boundary',
         steps: const [
-          WorkflowStep(id: 'bash1', name: 'Bash', type: WorkflowTaskType.bash, prompts: ['echo ok']),
+          WorkflowStep(id: 'bash1', name: 'Bash', taskType: WorkflowTaskType.bash, prompts: ['echo ok']),
         ],
       );
 
@@ -538,11 +710,152 @@ void main() {
       final task = await h.taskService.get(capturedTaskId!);
       expect(task, isNotNull);
 
-      final allowedWorkflowKeys = {'_workflowInputTokensNew', '_workflowCacheReadTokens', '_workflowOutputTokens'};
+      final allowedWorkflowKeys = {
+        '_workflowInputTokensNew',
+        '_workflowCacheReadTokens',
+        '_workflowOutputTokens',
+        // Host-owned per-step artifacts dir env, exported on every workflow task.
+        '_workflowStepArtifactsEnv',
+      };
       final forbiddenWorkflowKeys = task!.configJson.keys
           .where((k) => k.startsWith('_workflow') && !allowedWorkflowKeys.contains(k))
           .toList();
       expect(forbiddenWorkflowKeys, isEmpty, reason: 'Found unexpected _workflow* keys: $forbiddenWorkflowKeys');
+    });
+  });
+
+  group('execution envelope step outcome (TI04)', () {
+    Map<String, dynamic> envelope({
+      required String outcome,
+      String reason = 'because',
+      Map<String, dynamic> outputs = const {},
+    }) => {
+      executionEnvelopeOutputsKey: outputs,
+      'step_outcome': {'outcome': outcome, 'reason': reason},
+      executionEnvelopeMarkerKey: executionEnvelopeVersion,
+    };
+
+    // Runs a single-step workflow, seeding [seedEnvelope] on the finalizer's
+    // WorkflowStepExecution and/or attaching [legacyOutcomeContent] before
+    // completing the task with [finalStatus].
+    Future<dynamic> runStep(
+      WorkflowStep step, {
+      Map<String, dynamic>? seedEnvelope,
+      String? legacyOutcomeContent,
+      TaskStatus finalStatus = TaskStatus.accepted,
+    }) async {
+      final definition = h.makeDefinition(steps: [step]);
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        if (seedEnvelope != null) await h.seedExecutionEnvelope(e.taskId, seedEnvelope);
+        if (legacyOutcomeContent != null) {
+          await h.completeTaskWithOutcome(e.taskId, outcomeContent: legacyOutcomeContent, finalStatus: finalStatus);
+        } else {
+          await h.completeTask(e.taskId, status: finalStatus);
+        }
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+      return h.repository.getById('run-1');
+    }
+
+    const plainStep = WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']);
+
+    test('resolves succeeded from the execution envelope step_outcome', () async {
+      final run = await runStep(
+        plainStep,
+        seedEnvelope: envelope(outcome: 'succeeded', reason: 'all good'),
+      );
+
+      expect(run?.status, equals(WorkflowRunStatus.completed));
+      expect(run?.contextJson['data']?['step.step1.outcome'], equals('succeeded'));
+      expect(run?.contextJson['data']?['step.step1.outcome.reason'], equals('all good'));
+      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
+    });
+
+    test('resolves failed from the execution envelope step_outcome on an accepted task', () async {
+      final run = await runStep(
+        plainStep,
+        seedEnvelope: envelope(outcome: 'failed', reason: 'could not comply'),
+      );
+
+      // The task lifecycle is `accepted` (would fall back to succeeded); the run
+      // fails only because the envelope's step_outcome was read.
+      expect(run?.status, equals(WorkflowRunStatus.failed));
+      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
+    });
+
+    test('resolves needsInput from the execution envelope step_outcome and holds for approval', () async {
+      final run = await runStep(
+        plainStep,
+        seedEnvelope: envelope(outcome: 'needsInput', reason: 'human needed'),
+      );
+
+      expect(run?.status, equals(WorkflowRunStatus.awaitingApproval));
+    });
+
+    test('lifecycle cancellation overrides a succeeded execution envelope outcome', () async {
+      final run = await runStep(
+        plainStep,
+        seedEnvelope: envelope(outcome: 'succeeded', reason: 'all good'),
+        finalStatus: TaskStatus.cancelled,
+      );
+
+      expect(run?.status, equals(WorkflowRunStatus.paused));
+      expect(run?.contextJson['data']?['step.step1.outcome'], equals('cancelled'));
+    });
+
+    test('lifecycle failure overrides a succeeded execution envelope outcome', () async {
+      final run = await runStep(
+        plainStep,
+        seedEnvelope: envelope(outcome: 'succeeded', reason: 'all good'),
+        finalStatus: TaskStatus.failed,
+      );
+
+      expect(run?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('emitsOwnOutcome step reads the legacy step-outcome tag, not an execution envelope step_outcome', () async {
+      // The finalizer envelope carries outputs only (no step_outcome) for
+      // emitsOwnOutcome steps; the model-authored tag is the designed channel.
+      final run = await runStep(
+        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do the work'], emitsOwnOutcome: true),
+        seedEnvelope: {
+          executionEnvelopeOutputsKey: const <String, dynamic>{},
+          executionEnvelopeMarkerKey: executionEnvelopeVersion,
+        },
+        legacyOutcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"self reported"}</step-outcome>',
+      );
+
+      expect(run?.status, equals(WorkflowRunStatus.completed));
+      expect(run?.contextJson['data']?['step.step1.outcome'], equals('succeeded'));
+      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
+    });
+
+    test('missing execution envelope falls back to the legacy step-outcome tag', () async {
+      final run = await runStep(
+        plainStep,
+        legacyOutcomeContent: '<step-outcome>{"outcome":"failed","reason":"legacy path"}</step-outcome>',
+      );
+
+      expect(run?.status, equals(WorkflowRunStatus.failed));
+      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
+    });
+
+    test('cancellation between the main turn and finalizer yields cancelled with no fallback counter', () async {
+      // No envelope was written (the finalizer never ran); a teardown-cancelled
+      // task resolves to `cancelled` and never charges the fallback counter.
+      final run = await runStep(plainStep, finalStatus: TaskStatus.cancelled);
+
+      expect(run?.status, equals(WorkflowRunStatus.paused));
+      expect(run?.contextJson['data']?['step.step1.outcome'], equals('cancelled'));
+      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
     });
   });
 }

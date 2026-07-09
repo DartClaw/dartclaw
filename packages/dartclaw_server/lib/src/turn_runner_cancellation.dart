@@ -227,8 +227,8 @@ extension TurnRunnerCancellation on TurnRunner {
         sessionId: sessionId,
         turnId: context.turnId,
         taskId: context.taskId,
-        state: state.name,
-        waitReason: waitReason.jsonName,
+        state: state,
+        waitReason: waitReason,
         canCancel: _canCancel(state, waitReason, runtimeWait: runtimeWait),
         waitingSince: wait?.waitingSince ?? runtimeWait?.waitingSince,
         stuckSince: wait?.stuckSince ?? runtimeWait?.stuckSince,
@@ -287,6 +287,8 @@ extension TurnRunnerCancellation on TurnRunner {
 class _RuntimeWaitTracker {
   final Duration waitWarningAfter;
   final Duration stuckAfter;
+  final SessionLockTimerFactory timerFactory;
+  final SessionLockNow now;
   final void Function() onWaiting;
   final void Function() onStuck;
 
@@ -297,10 +299,12 @@ class _RuntimeWaitTracker {
   _RuntimeWaitTracker({
     required this.waitWarningAfter,
     required this.stuckAfter,
+    required this.timerFactory,
+    required this.now,
     required TurnWaitReason initialReason,
     required this.onWaiting,
     required this.onStuck,
-  }) : _snapshot = _RuntimeWaitSnapshot(waitingSince: DateTime.now(), reason: initialReason) {
+  }) : _snapshot = _RuntimeWaitSnapshot(waitingSince: now(), reason: initialReason) {
     _schedule();
   }
 
@@ -309,7 +313,7 @@ class _RuntimeWaitTracker {
   void recordActivity(TurnWaitReason reason) {
     _waitingTimer?.cancel();
     _stuckTimer?.cancel();
-    _snapshot = _RuntimeWaitSnapshot(waitingSince: DateTime.now(), reason: reason);
+    _snapshot = _RuntimeWaitSnapshot(waitingSince: now(), reason: reason);
     _schedule();
   }
 
@@ -320,8 +324,8 @@ class _RuntimeWaitTracker {
 
   void _schedule() {
     if (waitWarningAfter > Duration.zero) {
-      _waitingTimer = Timer(waitWarningAfter, () {
-        _snapshot = _snapshot.copyWith(warningVisibleAt: DateTime.now());
+      _waitingTimer = timerFactory(waitWarningAfter, () {
+        _snapshot = _snapshot.copyWith(warningVisibleAt: now());
         onWaiting();
       });
     } else {
@@ -329,8 +333,8 @@ class _RuntimeWaitTracker {
     }
 
     if (stuckAfter > Duration.zero) {
-      _stuckTimer = Timer(stuckAfter, () {
-        _snapshot = _snapshot.copyWith(stuckSince: DateTime.now());
+      _stuckTimer = timerFactory(stuckAfter, () {
+        _snapshot = _snapshot.copyWith(stuckSince: now());
         onStuck();
       });
     }

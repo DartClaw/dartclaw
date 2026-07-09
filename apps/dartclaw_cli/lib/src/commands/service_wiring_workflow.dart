@@ -35,7 +35,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         if (requestedBranch != null && requestedBranch.isNotEmpty) {
           final safeRequestedBranch = normalizeGitRefOperand(requestedBranch, label: 'workflow BRANCH');
           if (resolvedProject.remoteUrl.isEmpty) {
-            final exists = await _localRefExists(resolvedProject.localPath, safeRequestedBranch);
+            final exists = await workflowLocalRefExists(resolvedProject.localPath, safeRequestedBranch);
             if (!exists) {
               throw ArgumentError('Ref "$safeRequestedBranch" not found in project repository');
             }
@@ -48,7 +48,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
 
       await ensureWorkflowProjectReady(
         project: resolvedProject,
-        publishEnabled: definition.gitStrategy?.publish?.enabled == true,
+        publishEnabled: definition.gitStrategy?.publish == true,
         allowDirty: allowDirtyLocalPath,
         hasExplicitBranch: (variables['BRANCH']?.trim().isNotEmpty ?? false),
       );
@@ -69,10 +69,8 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         resolvedProject,
         requestedBranch: baseRef,
       );
-      final integrationBranch = perMapItem
-          ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
-          : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
-      await _ensureLocalBranch(
+      final integrationBranch = resolveIntegrationBranchName(runId, perMapItem: perMapItem);
+      await ensureWorkflowLocalBranch(
         projectDir: resolvedProject.localPath,
         branch: integrationBranch,
         baseRef: effectiveBaseRef,
@@ -93,45 +91,17 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
           if (resolvedProject == null) {
             return WorkflowGitPromotionError('Project "$projectId" not found');
           }
-          try {
-            await commitWorkflowWorktreeChangesIfNeeded(
-              projectDir: resolvedProject.localPath,
-              branch: branch,
-              commitMessage: 'chore(workflow): ${storyId ?? runId} changes',
-            );
-          } catch (error) {
-            return WorkflowGitPromotionError(error.toString());
-          }
-          final expectedBaseShaResult = await _workflowGit([
-            'rev-parse',
-            integrationBranch,
-          ], workingDirectory: resolvedProject.localPath);
-          if (expectedBaseShaResult.exitCode != 0) {
-            return WorkflowGitPromotionError(
-              'Failed to record merge target "$integrationBranch": ${expectedBaseShaResult.stderr}',
-            );
-          }
-          final mergeExecutor = MergeExecutor(
+          return promoteWorkflowBranchLocally(
             projectDir: resolvedProject.localPath,
-            defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
-          );
-          final mergeResult = await mergeExecutor.merge(
+            runId: runId,
             branch: branch,
-            baseRef: integrationBranch,
-            taskId: storyId ?? runId,
-            taskTitle: storyId == null ? 'workflow promotion' : 'promote $storyId',
-            expectedBaseSha: (expectedBaseShaResult.stdout as String).trim(),
-            strategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+            integrationBranch: integrationBranch,
+            strategy: strategy,
+            storyId: storyId,
           );
-          return switch (mergeResult) {
-            MergeSuccess(:final commitSha) => WorkflowGitPromotionSuccess(commitSha: commitSha),
-            MergeConflict(:final conflictingFiles, :final details) => WorkflowGitPromotionConflict(
-              conflictingFiles: conflictingFiles,
-              details: details,
-            ),
-          };
         },
-    publishWorkflowBranch: ({required runId, required projectId, required branch}) {
+    publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+      final workflowRun = await storage.workflowRunRepository.getById(runId);
       return publishWorkflowBranchWithProjectAuth(
         runId: runId,
         projectId: projectId,
@@ -140,6 +110,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         taskService: storage.taskService,
         remotePushService: task.remotePushService,
         prCreator: task.prCreator,
+        notes: workflowPublishNotes(workflowRun),
       );
     },
     cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
@@ -158,16 +129,23 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
       if (config.workflow.cleanup.deleteRemoteBranchOnFailure && status == 'failed') {
         final pushedBranches = await pushedWorkflowBranches(storage.taskService, runTasks);
         for (final branch in pushedBranches) {
-          final result = await _workflowGit(['push', 'origin', '--delete', branch], workingDirectory: gitDir);
+          final result = await runWorkflowGitCommand(['push', 'origin', '--delete', branch], workingDirectory: gitDir);
           final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
           cleanupLog.info('Remote workflow branch cleanup for "$branch" $detail');
         }
       }
 
       for (final worktreePath in cleanupPlan.worktreePaths) {
-        final result = await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
+        final result = await runWorkflowGitCommand([
+          'worktree',
+          'remove',
+          '--force',
+          worktreePath,
+        ], workingDirectory: gitDir);
         if (result.exitCode != 0) {
-          cleanupLog.warning('Workflow worktree cleanup for "$worktreePath" failed: ${_processFailureDetail(result)}');
+          cleanupLog.warning(
+            'Workflow worktree cleanup for "$worktreePath" failed: ${workflowGitFailureDetail(result)}',
+          );
         }
       }
       final localBranches = cleanupPlan.branches.where((branch) => !branch.startsWith('origin/')).toSet();
@@ -182,9 +160,9 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         }
       }
       for (final branch in localBranches) {
-        final result = await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+        final result = await runWorkflowGitCommand(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
         if (result.exitCode != 0) {
-          cleanupLog.warning('Local workflow branch cleanup for "$branch" failed: ${_processFailureDetail(result)}');
+          cleanupLog.warning('Local workflow branch cleanup for "$branch" failed: ${workflowGitFailureDetail(result)}');
         }
       }
     },
@@ -213,6 +191,13 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         preAttemptSha: preAttemptSha,
       );
       return (sha: result.sha, isDirty: result.isDirty, cleanupError: result.cleanupError);
+    },
+    runResolverAttemptUnderLock: <T>({required projectId, required body}) async {
+      final resolvedProject = await project.projectService.get(projectId);
+      if (resolvedProject == null) {
+        throw ArgumentError('Project "$projectId" not found');
+      }
+      return runWorkflowGitResolverAttemptUnderLock<T>(projectDir: resolvedProject.localPath, body: body);
     },
     reserveTurn: ctx._serverTurns.reserveTurn,
     reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => ctx._serverTurns.reserveTurn(
@@ -246,46 +231,6 @@ String? _workflowFreshnessRefForProject(Project project, String? branch) {
   return branch;
 }
 
-Future<bool> _localRefExists(String workingDirectory, String ref) async {
-  final safeRef = normalizeGitRefOperand(ref, label: 'workflow ref');
-  final candidates = <String>{safeRef};
-  if (!safeRef.startsWith('origin/') && !safeRef.startsWith('refs/')) {
-    candidates.add('origin/$safeRef');
-  }
-  for (final candidate in candidates) {
-    final result = await _workflowGit([
-      'rev-parse',
-      '--verify',
-      '--quiet',
-      candidate,
-    ], workingDirectory: workingDirectory);
-    if (result.exitCode == 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
-Future<void> _ensureLocalBranch({
-  required String projectDir,
-  required String branch,
-  required String baseRef,
-  required bool remoteBacked,
-}) async {
-  final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
-  final safeBaseRef = normalizeGitRefOperand(baseRef, label: 'workflow base ref');
-  final normalizedBaseRef = remoteBacked && !safeBaseRef.startsWith('origin/') ? 'origin/$safeBaseRef' : safeBaseRef;
-  final existing = await _workflowGit(['rev-parse', '--verify', safeBranch], workingDirectory: projectDir);
-  if (existing.exitCode == 0) {
-    return;
-  }
-  final create = await _workflowGit(['branch', '--', safeBranch, normalizedBaseRef], workingDirectory: projectDir);
-  if (create.exitCode != 0) {
-    final stderr = (create.stderr as String).trim();
-    throw StateError('Failed to create workflow branch "$safeBranch" from "$normalizedBaseRef": $stderr');
-  }
-}
-
 Future<void> _persistWorkflowArtifact(
   TaskService taskService,
   String runId,
@@ -304,6 +249,16 @@ Future<void> _persistWorkflowArtifact(
   );
 }
 
+/// Derives the PR-body notes for a workflow publish: the run's blocked-outcome
+/// summary, scrubbed line-by-line. The scrub is defense-in-depth at this
+/// boundary – the summary embeds context reason strings and the PR body is an
+/// off-machine sink (alongside the engine-side sanitization and PrCreator's
+/// code-block framing). Null when the run row is missing or nothing blocked.
+String? workflowPublishNotes(WorkflowRun? run) {
+  if (run == null) return null;
+  return workflowBlockedOutcomeSummary(run)?.split('\n').map(scrubAgentReportedText).join('\n');
+}
+
 Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   required String runId,
   required String projectId,
@@ -312,6 +267,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   required TaskService taskService,
   required RemotePushService remotePushService,
   required PrCreator prCreator,
+  String? notes,
 }) async {
   final resolvedProject = await projectService.get(projectId);
   if (resolvedProject == null) {
@@ -321,6 +277,22 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
       remote: 'origin',
       prUrl: '',
       error: 'Project "$projectId" not found',
+    );
+  }
+
+  try {
+    await commitWorkflowWorktreeChangesIfNeeded(
+      projectDir: resolvedProject.localPath,
+      branch: branch,
+      commitMessage: 'workflow: prepare publish',
+    );
+  } catch (e) {
+    return WorkflowGitPublishResult(
+      status: WorkflowPublishStatus.failed,
+      branch: branch,
+      remote: 'origin',
+      prUrl: '',
+      error: 'Failed to commit pending worktree changes before publish: $e',
     );
   }
 
@@ -348,7 +320,12 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
               type: TaskType.coding,
               createdAt: DateTime.now(),
             );
-        final prResult = await prCreator.create(project: resolvedProject, task: syntheticTask, branch: branch);
+        final prResult = await prCreator.create(
+          project: resolvedProject,
+          task: syntheticTask,
+          branch: branch,
+          notes: notes,
+        );
         switch (prResult) {
           case PrCreated(:final url):
             await _persistWorkflowArtifact(
@@ -415,13 +392,6 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   }
 }
 
-class WorkflowGitCleanupPlan {
-  final Set<String> worktreePaths;
-  final Set<String> branches;
-
-  const WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
-}
-
 Future<Set<String>> pushedWorkflowBranches(TaskService taskService, List<Task> runTasks) async {
   final branches = <String>{};
   for (final task in runTasks) {
@@ -435,45 +405,7 @@ Future<Set<String>> pushedWorkflowBranches(TaskService taskService, List<Task> r
   return branches;
 }
 
-Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
-  return SafeProcess.git(
-    args,
-    plan: const GitCredentialPlan.none(),
-    workingDirectory: workingDirectory,
-    noSystemConfig: true,
-  );
-}
-
-String _processFailureDetail(ProcessResult result) {
-  final stderr = (result.stderr as String).trim();
-  final stdout = (result.stdout as String).trim();
-  final detail = stderr.isNotEmpty ? stderr : stdout;
-  return detail.isEmpty ? 'exit=${result.exitCode}' : 'exit=${result.exitCode}: $detail';
-}
-
-WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
-  final runToken = runId.replaceAll('-', '');
-  final worktreePaths = <String>{};
-  final branches = <String>{'dartclaw/workflow/$runToken', 'dartclaw/workflow/$runToken/integration'};
-
-  for (final task in runTasks) {
-    final worktree = task.worktreeJson;
-    if (worktree == null) continue;
-    final path = worktree['path'];
-    final branch = worktree['branch'];
-    if (path is String && path.trim().isNotEmpty) {
-      worktreePaths.add(path.trim());
-    }
-    if (branch is String && branch.trim().isNotEmpty) {
-      branches.add(branch.trim());
-    }
-  }
-  return WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches);
-}
-
-const _legacySessionCostFreshInputKey =
-    'new_'
-    'input_tokens';
+const _legacySessionCostFreshInputKey = 'new_input_tokens';
 final _serviceWiringLog = Logger('ServiceWiring');
 
 Future<void> _dropLegacySessionCostEntries(KvService kvService) async {

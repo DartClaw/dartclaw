@@ -229,7 +229,7 @@ void main() {
         expect(validator.validate(value, storySpecsPreset.schema), isEmpty);
       });
 
-      test('rejects out-of-enum plan.json risk and status values', () {
+      test('rejects out-of-enum risk but accepts any status value (status is opaque to the engine)', () {
         final value = {
           'items': [
             {
@@ -238,16 +238,17 @@ void main() {
               'spec_path': 'fis/s01-foundation.md',
               'dependencies': <String>[],
               'risk': 'extreme',
-              'status': 'shipped',
+              // Not in any framework plan vocabulary – status is a plain string.
+              'status': 'ready-for-dev',
             },
           ],
         };
 
         final warnings = validator.validate(value, storySpecsPreset.schema);
 
-        expect(warnings, hasLength(2));
+        expect(warnings, hasLength(1));
         expect(warnings.join('\n'), contains('risk'));
-        expect(warnings.join('\n'), contains('status'));
+        expect(warnings.join('\n'), isNot(contains('status')));
       });
     });
 

@@ -352,6 +352,97 @@ void main() {
       });
     });
 
+    test('terminal result arms grace kill without failing the parsed result', () {
+      fakeAsync((async) {
+        late FakeProcess fake;
+        final runner = claudeRunner(
+          processStarter: (exe, args, {workingDirectory, environment}) async {
+            fake = FakeProcess(completeExitOnKill: true, killExitCode: -1);
+            return fake;
+          },
+        );
+
+        WorkflowCliTurnResult? result;
+        Object? error;
+        unawaited(
+          runner
+              .executeTurn(
+                provider: 'claude',
+                prompt: 'done but stuck',
+                workingDirectory: Directory.systemTemp.path,
+                profileId: 'workspace',
+                stepName: 'Grace reap',
+                stallTimeout: const Duration(seconds: 30),
+                stallAction: TurnProgressAction.cancel,
+                stepTimeout: const Duration(minutes: 10),
+              )
+              .then<void>((value) => result = value, onError: (Object e) => error = e),
+        );
+
+        async.flushMicrotasks();
+        fake.emitStdout(jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': 'sess'}));
+        fake.emitStdout(jsonEncode({'type': 'result', 'session_id': 'sess', 'result': 'ok'}));
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 9));
+        async.flushMicrotasks();
+        expect(fake.killCalled, isFalse);
+
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        expect(fake.killCalled, isTrue);
+        expect(error, isNull);
+        expect(result?.responseText, 'ok');
+      });
+    });
+
+    test('terminal result disables stall cancellation during grace kill window', () {
+      fakeAsync((async) {
+        late FakeProcess fake;
+        final runner = claudeRunner(
+          processStarter: (exe, args, {workingDirectory, environment}) async {
+            fake = FakeProcess(completeExitOnKill: true, killExitCode: -1);
+            return fake;
+          },
+        );
+
+        WorkflowCliTurnResult? result;
+        Object? error;
+        unawaited(
+          runner
+              .executeTurn(
+                provider: 'claude',
+                prompt: 'done then quiet',
+                workingDirectory: Directory.systemTemp.path,
+                profileId: 'workspace',
+                stepName: 'Short stall grace',
+                stallTimeout: const Duration(seconds: 2),
+                stallAction: TurnProgressAction.cancel,
+                stepTimeout: const Duration(minutes: 10),
+              )
+              .then<void>((value) => result = value, onError: (Object e) => error = e),
+        );
+
+        async.flushMicrotasks();
+        fake.emitStdout(jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': 'sess'}));
+        fake.emitStdout(jsonEncode({'type': 'result', 'session_id': 'sess', 'result': 'ok'}));
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 3));
+        async.flushMicrotasks();
+        expect(fake.killCalled, isFalse);
+        expect(error, isNull);
+
+        async.elapse(const Duration(seconds: 7));
+        async.flushMicrotasks();
+
+        expect(fake.killCalled, isTrue);
+        expect(error, isNull);
+        expect(result?.responseText, 'ok');
+      });
+    });
+
     test('builds Codex one-shot args with explicit approval policy and sandbox override', () async {
       late List<String> arguments;
       final runner = codexRunner(

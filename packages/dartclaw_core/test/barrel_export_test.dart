@@ -134,6 +134,31 @@ void main() {
       expect(key.agentId, 'main');
     });
 
+    test('turn wait-state enums importable via barrel', () {
+      final event = TurnWaitStateChangedEvent(
+        sessionId: 's1',
+        turnId: 't1',
+        state: TurnWaitState.cancelling,
+        waitReason: TurnWaitReason.sessionLock,
+        canCancel: true,
+        timestamp: DateTime.now(),
+      );
+      expect(event.state, TurnWaitState.cancelling);
+      expect(event.waitReason, TurnWaitReason.sessionLock);
+      final label = switch (event.state) {
+        TurnWaitState.idle => 'idle',
+        TurnWaitState.running => 'running',
+        TurnWaitState.waiting => 'waiting',
+        TurnWaitState.stuck => 'stuck',
+        TurnWaitState.cancelling => 'cancelling',
+        TurnWaitState.cancelled => 'cancelled',
+        TurnWaitState.completed => 'completed',
+        TurnWaitState.failed => 'failed',
+      };
+      expect(label, 'cancelling');
+      expect(TurnWaitReason.providerTurn.jsonName, 'provider_turn');
+    });
+
     test('container executor symbols importable', () {
       expect(ContainerExecutor, isNotNull);
       expect(containerClaudeExecutable, contains('/claude'));

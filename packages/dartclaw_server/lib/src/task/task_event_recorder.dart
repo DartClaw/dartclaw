@@ -57,9 +57,32 @@ class TaskEventRecorder {
     _record(taskId, TaskEventKind.artifactCreated, {'name': name, 'kind': kind});
   }
 
-  /// Records that structured output was promoted directly from inline workflow context.
+  /// Records that the structured finalization envelope supplied the declared
+  /// outputs — the standard agent-step completion path.
+  void recordStructuredOutputFinalizerUsed(String taskId, {required String stepId, required String outputKey}) {
+    _record(taskId, TaskEventKind.structuredOutputFinalizerUsed, {'stepId': stepId, 'outputKey': outputKey});
+  }
+
+  /// Records that structured output was promoted from a legacy inline
+  /// `<workflow-context>` payload — a compatibility fallback, not the standard
+  /// path.
   void recordStructuredOutputInlineUsed(String taskId, {required String stepId, required String outputKey}) {
     _record(taskId, TaskEventKind.structuredOutputInlineUsed, {'stepId': stepId, 'outputKey': outputKey});
+  }
+
+  /// Records that a required finalizer envelope was missing or malformed, so the
+  /// step is treated as a workflow validation failure.
+  void recordStructuredOutputValidationFailed(
+    String taskId, {
+    required String stepId,
+    required String outputKey,
+    required String failureReason,
+  }) {
+    _record(taskId, TaskEventKind.structuredOutputValidationFailed, {
+      'stepId': stepId,
+      'outputKey': outputKey,
+      'failureReason': failureReason,
+    });
   }
 
   /// Records that structured-output extraction fell back to heuristic parsing.

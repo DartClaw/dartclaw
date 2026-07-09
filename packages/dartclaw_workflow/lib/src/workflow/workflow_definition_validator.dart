@@ -2,8 +2,11 @@ import 'workflow_definition.dart';
 import 'package:logging/logging.dart';
 
 import 'workflow_artifact_committer.dart' show workflowHasArtifactProducer;
+import 'output_resolver.dart' show FileSystemOutput;
 import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
 import 'schema_validator.dart' show SchemaValidator;
+import 'workflow_output_contract.dart'
+    show executionEnvelopeOutputsKey, executionEnvelopeStepOutcomeKey, reservedEnvelopeOutputKeys;
 import 'step_config_resolver.dart'
     show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig, workflowRoleDefaultAliases;
 import 'workflow_template_engine.dart';
@@ -16,6 +19,8 @@ part 'validation/workflow_output_schema_rules.dart';
 part 'validation/workflow_git_strategy_rules.dart';
 part 'validation/workflow_step_type_rules.dart';
 part 'validation/workflow_codex_allowed_tools_rules.dart';
+part 'validation/workflow_loop_policy_rules.dart';
+part 'validation/workflow_review_source_prefix_rules.dart';
 
 /// Classification of validation errors.
 enum ValidationErrorType {
@@ -24,6 +29,7 @@ enum ValidationErrorType {
   invalidReference,
   invalidGate,
   missingMaxIterations,
+  invalidLoopPolicy,
   contextInconsistency,
   loopOverlap,
   unsupportedProviderCapability,
@@ -77,10 +83,10 @@ class ValidationReport {
 /// accumulates errors and warnings in a single [ValidationReport].
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
-  static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
-  static final _gateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s+(isEmpty|isNotEmpty)$');
-  // `entryGate` supports bare keys and dotted context paths, mirroring how
+  // Gates support bare keys and dotted context paths, mirroring how
   // `GateEvaluator` resolves exact flat keys before nested map paths.
+  static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
+  static final _gateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
   static final _entryGateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
 
@@ -115,6 +121,7 @@ class WorkflowDefinitionValidator {
     _validateLoopMaxIterations(definition, errors);
     _validateLoopStepOverlap(definition, errors);
     _validateLoopFinalizers(definition, errors);
+    _validateLoopMaxIterationsPolicy(definition, errors);
     _validateStepDefaults(definition, errors);
     _validateGitStrategy(definition, errors, warnings);
     _validateStepDefaultsOrdering(definition, warnings);
@@ -125,6 +132,7 @@ class WorkflowDefinitionValidator {
     _validateMapStepConstraints(definition, errors);
     _validateAggregateReviewsConstraints(definition, errors);
     _validateAggregateReviewsPlacement(definition, errors);
+    _validateReviewSourcePrefixing(definition, errors);
     if (continuityProviders != null) {
       _validateMultiPromptProviders(definition, errors, continuityProviders);
     }

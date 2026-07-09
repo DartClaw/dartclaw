@@ -14,7 +14,7 @@ const storySpecsSchemaBody = {
           'title': {'type': 'string', 'description': 'Concise story title for display and logs.'},
           'spec_path': {
             'type': 'string',
-            'description': 'Workspace-relative argument-safe path to the authoritative sNN-style FIS markdown file.',
+            'description': 'Workspace-relative argument-safe path to the authoritative story-spec markdown file.',
           },
           'dependencies': {
             'type': 'array',
@@ -29,22 +29,20 @@ const storySpecsSchemaBody = {
             'enum': ['low', 'medium', 'high'],
             'description': 'Risk level from the source plan.',
           },
-          'status': {
+          'status': {'type': 'string', 'description': 'Lifecycle status from the source plan; opaque to the engine.'},
+          'spec_source': {
             'type': 'string',
-            'enum': ['pending', 'spec-ready', 'in-progress', 'done', 'skipped', 'blocked'],
-            'description': 'Current story status from the source plan.',
-          },
-          'fis_source': {
-            'type': 'string',
-            'enum': ['existing', 'synthesized'],
-            'description': 'Whether the FIS was reused from disk or synthesized by the plan step.',
+            'description':
+                'How the story spec was obtained; conventionally "existing" (reused from disk) or "synthesized" '
+                '(produced by the plan step).',
           },
           'spec_confidence': {
             'type': 'integer',
             'minimum': 0,
             'maximum': 10,
             'description':
-                'Planner confidence for synthesized FIS content. Meaningful only when fis_source is synthesized.',
+                'Planner confidence for synthesized story-spec content. Meaningful only when spec_source is '
+                'synthesized.',
           },
         },
       },

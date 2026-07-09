@@ -75,6 +75,7 @@ export 'src/in_memory_execution_repository_transactor.dart' show InMemoryExecuti
 export 'src/in_memory_session_service.dart' show InMemorySessionService;
 export 'src/in_memory_task_repository.dart' show InMemoryTaskRepository;
 export 'src/in_memory_workflow_step_execution_repository.dart' show InMemoryWorkflowStepExecutionRepository;
+export 'src/log_test_helpers.dart' show captureRootLogs;
 export 'src/null_io_sink.dart' show NullIoSink;
 export 'src/recording_message_queue.dart' show RecordingMessageQueue;
 export 'src/test_event_bus.dart' show TestEventBus;

@@ -1,5 +1,6 @@
 import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode;
 
+import 'review_scoring_fragment.dart';
 import 'schema_presets.dart';
 import 'workflow_output_contract.dart';
 
@@ -8,23 +9,64 @@ class PromptAugmenter {
   const PromptAugmenter();
 
   /// Returns [prompt] with appended output format and workflow-context instructions.
+  ///
+  /// [finalizerCoveredKeys] names the declared output keys the structured
+  /// finalization envelope (see `buildExecutionEnvelopeSchema`) claims: those
+  /// keys are excluded from every main-prompt output-contract section (their
+  /// instruction moves to the finalizer turn, `buildFinalizerPrompt`). The
+  /// remaining declared keys — `outputMode: prompt` opt-outs, canonical
+  /// `*_source` keys, and host-owned `setValue`/`source` keys — still render
+  /// their contract here. A non-finalizer step passes an empty set, so all
+  /// declared keys render (the historical behavior). Callers must supply the
+  /// step-gated set (empty unless `stepNeedsFinalizer` is true); the augmenter
+  /// does not re-derive finalizer eligibility.
+  ///
+  /// The `## Step Outcome Protocol` section stays gated by
+  /// [emitStepOutcomeProtocol] alone — re-rendering an envelope-excluded output
+  /// key never re-enables it.
   String augment(
     String prompt, {
     Map<String, OutputConfig>? outputs,
     List<String> outputKeys = const [],
     List<String>? outputExamples,
     bool emitStepOutcomeProtocol = false,
+    List<String> finalizerCoveredKeys = const [],
+    String gatingSeverity = defaultGatingSeverity,
   }) {
+    final covered = finalizerCoveredKeys.toSet();
+    final renderedOutputs = covered.isEmpty || outputs == null
+        ? outputs
+        : {
+            for (final entry in outputs.entries)
+              if (!covered.contains(entry.key)) entry.key: entry.value,
+          };
+    final renderedKeys = covered.isEmpty
+        ? outputKeys
+        : [
+            for (final key in outputKeys)
+              if (!covered.contains(key)) key,
+          ];
+
     final sections = <String>[];
 
-    final workflowContextSection = _buildWorkflowContextSection(outputs, outputKeys);
+    final workflowContextSection = _buildWorkflowContextSection(renderedOutputs, renderedKeys);
     if (workflowContextSection != null) sections.add(workflowContextSection);
 
-    final schemaSection = _buildSchemaSection(outputs, outputKeys);
+    final schemaSection = _buildSchemaSection(renderedOutputs, renderedKeys);
     if (schemaSection != null) sections.add(schemaSection);
 
-    final outputExamplesSection = _buildOutputExamplesSection(outputExamples);
-    if (outputExamplesSection != null) sections.add(outputExamplesSection);
+    final reviewScoringSection = _buildReviewScoringSection(renderedOutputs, gatingSeverity);
+    if (reviewScoringSection != null) sections.add(reviewScoringSection);
+
+    // `outputExamples` is unkeyed and can't be filtered per key. On a finalizer
+    // step (non-empty covered set) render it only when some declared key still
+    // renders; when every declared output is finalizer-covered it stays
+    // suppressed. A non-finalizer step renders it whenever examples exist.
+    final complementRenders = renderedKeys.isNotEmpty || (renderedOutputs?.isNotEmpty ?? false);
+    if (covered.isEmpty || complementRenders) {
+      final outputExamplesSection = _buildOutputExamplesSection(outputExamples);
+      if (outputExamplesSection != null) sections.add(outputExamplesSection);
+    }
 
     if (emitStepOutcomeProtocol) {
       sections.add(_buildStepOutcomeSection());
@@ -121,6 +163,15 @@ class PromptAugmenter {
   String? _buildOutputExamplesSection(List<String>? outputExamples) {
     if (outputExamples == null || outputExamples.isEmpty) return null;
     return '## Output Examples\n\n${outputExamples.join('\n\n')}';
+  }
+
+  String? _buildReviewScoringSection(Map<String, OutputConfig>? outputs, String gatingSeverity) {
+    if (outputs == null || outputs.isEmpty) return null;
+    final declaresReviewScoringOutput = outputs.values.any(
+      (config) => config.presetName == 'gating_findings_count' || config.presetName == 'verdict',
+    );
+    if (!declaresReviewScoringOutput) return null;
+    return reviewScoringFragmentFor(gatingSeverity);
   }
 
   void _writeWorkflowContextField(StringBuffer buf, String key, OutputConfig? config) {

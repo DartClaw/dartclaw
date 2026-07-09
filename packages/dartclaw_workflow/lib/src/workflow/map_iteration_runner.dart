@@ -27,32 +27,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
   }
 
   /// Reads the diff summary from the task's `diff.json` artifact, if present.
-  Future<String?> _readCodingDiff(Task task) async {
-    try {
-      final artifacts = await _taskService.listArtifacts(task.id);
-      for (final artifact in artifacts) {
-        if (artifact.path.endsWith('diff.json')) {
-          final file = File(
-            p.isAbsolute(artifact.path)
-                ? artifact.path
-                : p.join(_dataDir, 'tasks', task.id, 'artifacts', artifact.path),
-          );
-          if (!file.existsSync()) return null;
-          final raw = await file.readAsString();
-          try {
-            final json = jsonDecode(raw) as Map<String, dynamic>;
-            final files = (json['files'] as int?) ?? 0;
-            final additions = (json['additions'] as int?) ?? 0;
-            final deletions = (json['deletions'] as int?) ?? 0;
-            return '$files files changed, +$additions -$deletions';
-          } catch (_) {
-            return raw; // Malformed diff_summary JSON – fall back to raw string.
-          }
-        }
-      }
-    } catch (_) {} // Task config access failed – return null diff_summary.
-    return null;
-  }
+  Future<String?> _readCodingDiff(Task task) => readDiffArtifactSummary(_taskService, _dataDir, task);
 
   /// Extracts the worktree path from a task's `worktreeJson`, if available.
   String? _readWorktreePath(Task task) {
@@ -79,48 +54,17 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     required String? activeWorkspaceRoot,
     bool Function()? isCancelled,
   }) async {
-    // 1. Resolve collection from context.
-    final rawCollection = context[step.mapOver!];
-    if (rawCollection == null) {
-      return MapStepResult(
-        results: const [],
-        totalTokens: 0,
-        success: false,
-        error: "Map step '${step.id}': context key '${step.mapOver}' is null or missing",
-      );
+    // 1. Resolve collection from context (shared with the foreach controller).
+    final resolvedCollection = resolveIterationCollection(
+      context[step.mapOver!],
+      stepKind: 'Map',
+      stepId: step.id,
+      mapOverKey: step.mapOver!,
+    );
+    if (resolvedCollection.error != null) {
+      return MapStepResult(results: const [], totalTokens: 0, success: false, error: resolvedCollection.error);
     }
-    // Auto-unwrap: if the value is a Map with a single key whose value is a
-    // List, use that List (LLM output normalization).
-    final resolvedCollection = switch (rawCollection) {
-      final List<dynamic> list => list,
-      final Map<String, dynamic> map when map.length == 1 && map.values.first is List => () {
-        WorkflowExecutor._log.info(
-          'Map step \'${step.id}\': auto-unwrapped Map key \'${map.keys.first}\' '
-          'to List (${(map.values.first as List).length} items)',
-        );
-        return map.values.first as List<dynamic>;
-      }(),
-      final Map<Object?, Object?> map when map.length == 1 && map.values.first is List => () {
-        final normalized = map.map((key, value) => MapEntry(key.toString(), value));
-        WorkflowExecutor._log.info(
-          'Map step \'${step.id}\': auto-unwrapped Map key \'${normalized.keys.first}\' '
-          'to List (${(normalized.values.first as List).length} items)',
-        );
-        return normalized.values.first as List<dynamic>;
-      }(),
-      _ => null,
-    };
-    if (resolvedCollection == null) {
-      return MapStepResult(
-        results: const [],
-        totalTokens: 0,
-        success: false,
-        error:
-            "Map step '${step.id}': context key '${step.mapOver}' is not a List "
-            '(got ${rawCollection.runtimeType})',
-      );
-    }
-    final collection = resolvedCollection;
+    final collection = resolvedCollection.collection!;
     final maxItems = step.maxItems;
 
     // 2. Check maxItems.
@@ -193,7 +137,13 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     final effectiveMaxParallel = resolvedWorktreeMode == 'inline' ? 1 : maxParallel;
     final mapCtx = MapStepContext(collection: collection, maxParallel: effectiveMaxParallel, maxItems: maxItems);
     final completedIds = <String>{};
-    _restoreMapProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
+    restoreIterationProgress(
+      mapCtx,
+      completedIds,
+      resumeCursor,
+      nodeType: WorkflowExecutionCursorNodeType.map,
+      collectionLength: collection.length,
+    );
 
     // 7. Persist map tracking state.
     await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
@@ -201,38 +151,44 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     // 8. Resolve step config once for all iterations.
     final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);
 
+    // Finalizer wiring is per-step, not per-iteration: a map child that is a
+    // workflow-owned agent step with model-derived declared outputs finalizes
+    // through the structured envelope, exactly like a foreach child dispatched
+    // via step_dispatcher. Without this the child falls back to the legacy
+    // inline path with none of the envelope's re-ask/hard-fail robustness.
+    final mapNeedsFinalizer = stepNeedsFinalizer(step, step.outputs);
+    final mapFinalizerCoveredKeys = mapNeedsFinalizer
+        ? modelDerivedFinalizerKeys(step, step.outputs)
+        : const <String>[];
+    final mapStructuredSchema = mapNeedsFinalizer
+        ? buildExecutionEnvelopeSchema(
+            step,
+            step.outputs,
+            gatingSeverity: resolved.gatingSeverity ?? defaultGatingSeverity,
+          )
+        : null;
+
     // 9. Bounded concurrency dispatch loop.
     //    inFlight: index → Future that settles when the iteration completes/fails.
     //    pending: FIFO queue of indices yet to dispatch.
     //    completedIds: set of item IDs that have finished (for dep tracking).
-    final inFlight = <int, Future<void>>{};
     final settledIndices = mapCtx.completedIndices;
-    final pending = Queue<int>.from(
-      List.generate(collection.length, (i) => i).where((i) => !settledIndices.contains(i)),
+    final engine = _IterationDispatchEngine(
+      mapCtx: mapCtx,
+      depGraph: depGraph,
+      pendingIndices: List.generate(collection.length, (i) => i).where((i) => !settledIndices.contains(i)),
+      completedIds: completedIds,
+      promotedIds: promotedIds,
+      promotionAware: promotionAware,
     );
-    var inFlightWake = Completer<void>();
-    void wakeInFlightLoop() {
-      if (!inFlightWake.isCompleted) {
-        inFlightWake.complete();
-      }
-    }
-
-    Future<void> waitForInFlightWake() async {
-      if (inFlight.isEmpty) return;
-      await inFlightWake.future;
-      inFlightWake = Completer<void>();
-    }
 
     var totalTokens = 0;
 
-    while (pending.isNotEmpty || inFlight.isNotEmpty) {
+    while (engine.hasWork()) {
       // Check budget before dispatching more items.
       if (mapCtx.budgetExhausted) {
         // Cancel all remaining pending items.
-        while (pending.isNotEmpty) {
-          final cancelIdx = pending.removeFirst();
-          mapCtx.recordCancelled(cancelIdx, 'Cancelled: budget exhausted');
-        }
+        engine.cancelPending('Cancelled: budget exhausted');
         await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
         break;
       }
@@ -243,25 +199,11 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
 
       // Dispatch eligible items up to the concurrency cap.
       final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
-      final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
-      while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
+      while (engine.canDispatch(poolAvailable: poolAvailable)) {
         if ((isCancelled?.call() ?? false) || mapCtx.aborted) break;
         // Find the next dependency-eligible index from the pending queue.
-        int? nextIndex;
-        if (depGraph.hasDependencies) {
-          final ready = depGraph.getReady(promotionAware ? promotedIds : completedIds);
-          // Find first pending index that is in the ready set.
-          for (final idx in pending) {
-            if (ready.contains(idx)) {
-              nextIndex = idx;
-              break;
-            }
-          }
-        } else {
-          nextIndex = pending.first;
-        }
+        final nextIndex = engine.takeNextReadyIndex();
         if (nextIndex == null) break; // All remaining blocked on deps.
-        pending.remove(nextIndex);
 
         final iterIndex = nextIndex;
         final mapContext = MapContext(
@@ -280,7 +222,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
                 for (final key in step.inputs) key: context[key] ?? '',
               }, outputConfigs: _inputConfigsFor(definition, step.inputs))
             : null;
-        final effectiveOutputs = effectiveOutputsFor(step);
+        final effectiveOutputs = step.outputs;
         final effectiveOutputKeys = effectiveOutputKeysFor(step, effectiveOutputs);
         final effectiveProjectId = _resolveProjectIdWithMap(
           definition,
@@ -303,14 +245,16 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           outputs: effectiveOutputs,
           outputKeys: effectiveOutputKeys,
           outputExamples: step.outputExamples,
+          finalizerCoveredKeys: mapFinalizerCoveredKeys,
           autoFrameContext: step.autoFrameContext,
           inputs: step.inputs,
           variables: variableNames,
           resolvedInputValues: resolvedInputValues,
           templatePrompt: rawPrompt,
           provider: taskProvider,
+          gatingSeverity: resolved.gatingSeverity,
         );
-        final taskConfig = _buildStepConfig(
+        var taskConfig = _buildStepConfig(
           run,
           definition,
           step,
@@ -320,6 +264,9 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           effectivePromotion: promotionStrategy,
           effectiveOutputs: effectiveOutputs,
         );
+        if (mapStructuredSchema != null) {
+          taskConfig = {...taskConfig, '_workflowStructuredSchema': mapStructuredSchema};
+        }
         final iterTitle = '${definition.name} – ${step.name} (${iterIndex + 1}/${collection.length})';
 
         // Dispatch: create the task and await its completion in a detached future.
@@ -376,38 +323,37 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
             mapCtx.budgetExhausted = true;
           }
         })().catchError((_) {});
-        inFlight[iterIndex] = iterationFuture.whenComplete(() {
-          inFlight.remove(iterIndex);
-          mapCtx.inFlightCount = inFlight.length;
-          final itemId = mapCtx.itemId(iterIndex);
-          if (itemId != null) completedIds.add(itemId);
-          wakeInFlightLoop();
-        });
+        engine.track(
+          iterIndex,
+          iterationFuture,
+          onSettled: (iterIndex) {
+            final itemId = mapCtx.itemId(iterIndex);
+            if (itemId != null) completedIds.add(itemId);
+          },
+        );
       }
 
       // If nothing dispatched and nothing in-flight but items remain – deadlock.
-      if (inFlight.isEmpty && pending.isNotEmpty) {
+      if (engine.isDispatchStalled) {
         if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
           WorkflowExecutor._log.warning(
             "Workflow '${run.id}': map step '${step.id}' – "
-            '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
+            '${engine.pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
           );
           break;
         }
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': map step '${step.id}' – "
-          '${pending.length} items blocked by unsatisfiable dependencies (deadlock guard).',
+          '${engine.pending.length} items blocked by unsatisfiable dependencies (deadlock guard).',
         );
-        while (pending.isNotEmpty) {
-          mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: dependency deadlock');
-        }
+        engine.cancelPending('Cancelled: dependency deadlock');
         await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
         break;
       }
 
-      if (inFlight.isEmpty) break;
+      if (!engine.hasInFlight) break;
 
-      await waitForInFlightWake();
+      await engine.waitForWake();
 
       // Budget check after each completion.
       final refreshedRun = await _repository.getById(run.id) ?? run;
@@ -428,16 +374,20 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     }
 
     // 10. Wait for all remaining in-flight to settle.
-    if (inFlight.isNotEmpty) {
-      await Future.wait(inFlight.values, eagerError: false);
+    if (engine.hasInFlight) {
+      await Future.wait(engine.inFlight.values, eagerError: false);
     }
 
-    // Run left `running` (pause/cancel) mid-step: persist progress for resume
-    // and return null so the executor exits without marking the run completed,
-    // mirroring the single-step dispatcher's null return on abort.
+    // Aborted mid-step: either the run left `running` (pause/cancel) or a
+    // teardown-cancelled item flagged the abort while the run was still
+    // running. Persist progress for resume and return null so the executor
+    // exits without marking the run completed. The deferred _pauseRun covers
+    // the cancelled-while-running ordering and no-ops when the run already
+    // left `running` (mirroring the foreach controller's deferred pause).
     if (mapCtx.aborted) {
-      WorkflowExecutor._log.info("Workflow '${run.id}': map step '${step.id}' aborted; run no longer running");
+      WorkflowExecutor._log.info("Workflow '${run.id}': map step '${step.id}' aborted before settling all items");
       await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+      await _pauseRun(run, mapCtx.abortReason ?? "Map step '${step.id}' was interrupted and can be resumed.");
       return null;
     }
 
@@ -488,47 +438,6 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
   }
 
-  void _restoreMapProgress(
-    MapStepContext mapCtx,
-    Set<String> completedIds,
-    WorkflowExecutionCursor? cursor, {
-    required int collectionLength,
-  }) {
-    if (cursor == null || cursor.nodeType != WorkflowExecutionCursorNodeType.map) return;
-
-    final safeResultSlots = cursor.resultSlots.isEmpty
-        ? List<dynamic>.filled(collectionLength, null)
-        : List<dynamic>.from(cursor.resultSlots);
-    if (safeResultSlots.length < collectionLength) {
-      safeResultSlots.addAll(List<dynamic>.filled(collectionLength - safeResultSlots.length, null));
-    } else if (safeResultSlots.length > collectionLength) {
-      safeResultSlots.removeRange(collectionLength, safeResultSlots.length);
-    }
-
-    final failed = cursor.failedIndices.toSet();
-    final cancelled = cursor.cancelledIndices.toSet();
-    for (final index in cursor.completedIndices) {
-      if (index < 0 || index >= collectionLength) continue;
-      final slotValue = safeResultSlots[index];
-      if (cancelled.contains(index)) {
-        mapCtx.recordCancelled(index, _restoredMapCancellationMessage(slotValue));
-      } else if (failed.contains(index)) {
-        final restoredFailure = _restoredMapFailureMessage(slotValue);
-        if (restoredFailure.startsWith('promotion-conflict')) {
-          // Leave this iteration unsettled so resume can re-attempt promotion.
-          continue;
-        }
-        mapCtx.recordFailure(index, restoredFailure, _restoredMapTaskId(slotValue));
-      } else {
-        mapCtx.recordResult(index, slotValue);
-      }
-      final itemId = mapCtx.itemId(index);
-      if (itemId != null) {
-        completedIds.add(itemId);
-      }
-    }
-  }
-
   Future<void> _persistMapProgress(
     WorkflowRun run,
     WorkflowStep step,
@@ -564,16 +473,10 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
       updatedAt: DateTime.now(),
     );
 
+    // Inverse flush order to foreach (run row before context) is intentional: both
+    // persist the same cursor+context snapshot and resume rehydrates from the run
+    // cursor plus persisted context, so neither order opens a crash-recovery window.
     await _repository.update(updatedRun);
     await _persistContext(run.id, context);
   }
-
-  String _restoredMapFailureMessage(dynamic slotValue) =>
-      slotValue is Map && slotValue['message'] is String ? slotValue['message'] as String : 'Failed before restart';
-
-  String _restoredMapCancellationMessage(dynamic slotValue) =>
-      slotValue is Map && slotValue['message'] is String ? slotValue['message'] as String : 'Cancelled before restart';
-
-  String? _restoredMapTaskId(dynamic slotValue) =>
-      slotValue is Map && slotValue['task_id'] is String ? slotValue['task_id'] as String : null;
 }

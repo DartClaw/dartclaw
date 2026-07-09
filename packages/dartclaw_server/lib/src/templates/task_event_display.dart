@@ -8,8 +8,10 @@ String eventIconClass(TaskEventKind kind, {String? newStatus}) {
     TaskEventKind.statusChanged => _statusChangedIconClass(newStatus),
     TaskEventKind.toolCalled => 'icon-wrench',
     TaskEventKind.artifactCreated => 'icon-file-text',
+    TaskEventKind.structuredOutputFinalizerUsed => 'icon-file-json',
     TaskEventKind.structuredOutputInlineUsed => 'icon-file-json',
     TaskEventKind.structuredOutputFallbackUsed => 'icon-file-warning',
+    TaskEventKind.structuredOutputValidationFailed => 'icon-file-warning',
     TaskEventKind.pushBack => 'icon-message-circle',
     TaskEventKind.tokenUpdate => 'icon-gauge',
     TaskEventKind.taskError => 'icon-triangle-alert',
@@ -23,8 +25,10 @@ String eventKindClass(TaskEventKind kind, {bool? success}) {
     TaskEventKind.statusChanged => 'tl-event-status',
     TaskEventKind.toolCalled => (success == false) ? 'tl-event-error' : 'tl-event-tool',
     TaskEventKind.artifactCreated => 'tl-event-artifact',
+    TaskEventKind.structuredOutputFinalizerUsed => 'tl-event-tool',
     TaskEventKind.structuredOutputInlineUsed => 'tl-event-tool',
     TaskEventKind.structuredOutputFallbackUsed => 'tl-event-warning',
+    TaskEventKind.structuredOutputValidationFailed => 'tl-event-error',
     TaskEventKind.pushBack => 'tl-event-pushback',
     TaskEventKind.tokenUpdate => 'tl-event-token',
     TaskEventKind.taskError => 'tl-event-error',
@@ -46,8 +50,10 @@ String compactEventIconClass(TaskEventKind kind) {
     TaskEventKind.statusChanged => 'task-event-icon-status',
     TaskEventKind.toolCalled => 'task-event-icon-tool',
     TaskEventKind.artifactCreated => 'task-event-icon-artifact',
+    TaskEventKind.structuredOutputFinalizerUsed => 'task-event-icon-tool',
     TaskEventKind.structuredOutputInlineUsed => 'task-event-icon-tool',
     TaskEventKind.structuredOutputFallbackUsed => 'task-event-icon-warning',
+    TaskEventKind.structuredOutputValidationFailed => 'task-event-icon-error',
     TaskEventKind.pushBack => 'task-event-icon-pushback',
     TaskEventKind.tokenUpdate => 'task-event-icon-token',
     TaskEventKind.taskError => 'task-event-icon-error',
@@ -63,8 +69,10 @@ String compactEventIconChar(TaskEventKind kind) {
     TaskEventKind.statusChanged => '●', // ● filled circle
     TaskEventKind.toolCalled => '🔧', // 🔧 wrench
     TaskEventKind.artifactCreated => '📄', // 📄 page
+    TaskEventKind.structuredOutputFinalizerUsed => '📦', // 📦 envelope package
     TaskEventKind.structuredOutputInlineUsed => '📥', // 📥 inbox tray
     TaskEventKind.structuredOutputFallbackUsed => '⚠', // ⚠ warning
+    TaskEventKind.structuredOutputValidationFailed => '⚠', // ⚠ warning
     TaskEventKind.pushBack => '💬', // 💬 speech bubble
     TaskEventKind.tokenUpdate => '📊', // 📊 chart
     TaskEventKind.taskError => '⚠', // ⚠ warning

@@ -12,6 +12,7 @@ class TaskExecutorLimits {
     this.defaultProviderId = 'claude',
     this.stallTimeout = Duration.zero,
     this.stallAction = TurnProgressAction.warn,
+    this.defaultStepTimeout,
   });
 
   final int? maxMemoryBytes;
@@ -22,4 +23,5 @@ class TaskExecutorLimits {
   final String? defaultProviderId;
   final Duration stallTimeout;
   final TurnProgressAction stallAction;
+  final Duration? defaultStepTimeout;
 }

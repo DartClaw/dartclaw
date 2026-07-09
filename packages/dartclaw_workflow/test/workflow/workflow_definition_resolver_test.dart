@@ -30,6 +30,48 @@ void main() {
       );
     });
 
+    test('applies stepDefaults timeout to resolved steps', () {
+      const def = WorkflowDefinition(
+        name: 'timeout-default-demo',
+        description: 'test',
+        stepDefaults: [StepConfigDefault(match: 'review*', timeoutSeconds: 900)],
+        steps: [
+          WorkflowStep(id: 'review-code', name: 'Review Code', prompts: ['Review']),
+          WorkflowStep(id: 'review-fast', name: 'Review Fast', prompts: ['Review'], timeoutSeconds: 120),
+        ],
+      );
+
+      final resolved = resolver.resolve(def);
+      expect(resolved.stepDefaults, isNull);
+      expect(resolved.steps.firstWhere((s) => s.id == 'review-code').timeoutSeconds, 900);
+      expect(resolved.steps.firstWhere((s) => s.id == 'review-fast').timeoutSeconds, 120);
+
+      final reparsed = parser.parse(resolver.emitYaml(resolved), sourcePath: 'resolved:timeout-default-demo');
+      expect(reparsed.steps.firstWhere((s) => s.id == 'review-code').timeoutSeconds, 900);
+      expect(reparsed.steps.firstWhere((s) => s.id == 'review-fast').timeoutSeconds, 120);
+    });
+
+    test('applies stepDefaults gatingSeverity to resolved steps', () {
+      const def = WorkflowDefinition(
+        name: 'review-threshold-default-demo',
+        description: 'test',
+        stepDefaults: [StepConfigDefault(match: 'review*', gatingSeverity: 'critical')],
+        steps: [
+          WorkflowStep(id: 'review-code', name: 'Review Code', prompts: ['Review']),
+          WorkflowStep(id: 'review-medium', name: 'Review Medium', prompts: ['Review'], gatingSeverity: 'medium'),
+        ],
+      );
+
+      final resolved = resolver.resolve(def);
+      expect(resolved.stepDefaults, isNull);
+      expect(resolved.steps.firstWhere((s) => s.id == 'review-code').gatingSeverity, 'critical');
+      expect(resolved.steps.firstWhere((s) => s.id == 'review-medium').gatingSeverity, 'medium');
+
+      final reparsed = parser.parse(resolver.emitYaml(resolved), sourcePath: 'resolved:review-threshold-default-demo');
+      expect(reparsed.steps.firstWhere((s) => s.id == 'review-code').gatingSeverity, 'critical');
+      expect(reparsed.steps.firstWhere((s) => s.id == 'review-medium').gatingSeverity, 'medium');
+    });
+
     test('round-trips the three built-in workflows through emitYaml → parser', () async {
       for (final name in ['plan-and-implement.yaml', 'spec-and-implement.yaml', 'code-review.yaml']) {
         final def = await parser.parseFile(builtInWorkflowPath(name));
@@ -68,7 +110,7 @@ void main() {
           WorkflowStep(
             id: 'review',
             name: 'Review',
-            type: WorkflowTaskType.agent,
+            taskType: WorkflowTaskType.agent,
             prompts: ['Review'],
             entryGate: 'prd_source == synthesized',
           ),
@@ -120,7 +162,7 @@ void main() {
           WorkflowStep(
             id: 'stories',
             name: 'Stories',
-            type: WorkflowTaskType.foreach,
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             mapAlias: 'storyResult',
             foreachSteps: ['implement'],
@@ -134,6 +176,85 @@ void main() {
 
       final reparsed = parser.parse(yaml, sourcePath: 'resolved:foreach-alias-demo');
       expect(reparsed.steps.first.mapAlias, 'storyResult');
+    });
+
+    test('preserves foreach controller behavior fields through resolved YAML round-trip', () {
+      const def = WorkflowDefinition(
+        name: 'foreach-controller-fields-demo',
+        description: 'test',
+        variables: {'FEATURE': WorkflowVariable(required: true)},
+        steps: [
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            prompts: ['Plan'],
+            outputs: {'items': OutputConfig(), 'ready': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 'stories',
+            name: 'Stories',
+            taskType: WorkflowTaskType.foreach,
+            mapOver: 'items',
+            gate: 'plan.ready == true',
+            entryGate: 'items != null',
+            inputs: ['items'],
+            outputs: {'story_results': OutputConfig()},
+            outputExamples: ['{"story_results": []}'],
+            foreachSteps: ['implement'],
+            onFailure: OnFailurePolicy.continueWorkflow,
+            workflowVariables: ['FEATURE'],
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
+        ],
+      );
+
+      final yaml = resolver.emitYaml(resolver.resolve(def));
+      expect(yaml, contains('gate: plan.ready == true'));
+      expect(yaml, contains('entryGate: items != null'));
+      expect(yaml, contains('onFailure: continue'));
+      expect(yaml, contains('outputExamples:'));
+
+      final reparsed = parser.parse(yaml, sourcePath: 'resolved:foreach-controller-fields-demo');
+      final controller = reparsed.steps.firstWhere((step) => step.id == 'stories');
+      expect(controller.gate, 'plan.ready == true');
+      expect(controller.entryGate, 'items != null');
+      expect(controller.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(controller.outputExamples, ['{"story_results": []}']);
+      expect(controller.workflowVariables, ['FEATURE']);
+      expect(validator.validate(reparsed).errors, isEmpty);
+    });
+
+    test('sliceStep emits a foreach controller with its child subtree', () {
+      const def = WorkflowDefinition(
+        name: 'foreach-slice-demo',
+        description: 'test',
+        steps: [
+          WorkflowStep(
+            id: 'stories',
+            name: 'Stories',
+            taskType: WorkflowTaskType.foreach,
+            mapOver: 'items',
+            entryGate: 'items != null',
+            foreachSteps: ['implement'],
+            onFailure: OnFailurePolicy.continueWorkflow,
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
+        ],
+      );
+
+      final resolved = resolver.resolve(def);
+      final slice = resolver.sliceStep(resolved, 'stories');
+      expect(slice, isNotNull);
+
+      final yaml = resolver.emitYaml(slice!);
+      expect(yaml, contains('id: implement'));
+
+      final reparsed = parser.parse(yaml, sourcePath: 'slice:stories');
+      expect(reparsed.steps.map((step) => step.id), ['stories', 'implement']);
+      final controller = reparsed.steps.firstWhere((step) => step.id == 'stories');
+      expect(controller.foreachSteps, ['implement']);
+      expect(controller.entryGate, 'items != null');
+      expect(controller.onFailure, OnFailurePolicy.continueWorkflow);
     });
 
     test('emitYaml preserves workflow-level project and omits default agent step types', () {
@@ -150,7 +271,7 @@ void main() {
             outputs: {'project_index': OutputConfig()},
           ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement']),
-          WorkflowStep(id: 'check', name: 'Check', type: WorkflowTaskType.bash, prompts: null, workdir: '.'),
+          WorkflowStep(id: 'check', name: 'Check', taskType: WorkflowTaskType.bash, prompts: null, workdir: '.'),
         ],
       );
 
@@ -162,9 +283,39 @@ void main() {
 
       final reparsed = parser.parse(yaml, sourcePath: 'resolved:project-demo');
       expect(reparsed.project, 'demo-project');
-      expect(reparsed.steps.first.type, WorkflowTaskType.agent);
-      expect(reparsed.steps[1].type, WorkflowTaskType.agent);
-      expect(reparsed.steps[2].type, WorkflowTaskType.bash);
+      expect(reparsed.steps.first.taskType, WorkflowTaskType.agent);
+      expect(reparsed.steps[1].taskType, WorkflowTaskType.agent);
+      expect(reparsed.steps[2].taskType, WorkflowTaskType.bash);
+    });
+
+    test('top-level loop emits inline loop YAML that reparses cleanly', () {
+      const def = WorkflowDefinition(
+        name: 'loop-demo',
+        description: 'test',
+        steps: [
+          WorkflowStep(id: 'review-loop', name: 'Review Loop', taskType: WorkflowTaskType.loop),
+          WorkflowStep(id: 'review', name: 'Review', prompts: ['Review']),
+          WorkflowStep(id: 'finalize', name: 'Finalize', prompts: ['Finalize']),
+        ],
+        loops: [
+          WorkflowLoop(
+            id: 'review-loop',
+            steps: ['review'],
+            exitGate: 'review.status == done',
+            maxIterations: 3,
+            finally_: 'finalize',
+          ),
+        ],
+      );
+
+      final yaml = resolver.emitYaml(resolver.resolve(def));
+
+      expect(yaml, contains('type: loop'));
+      expect(yaml, isNot(contains('loops:')));
+      final reparsed = parser.parse(yaml, sourcePath: 'resolved:loop-demo');
+      expect(reparsed.loops.single.id, 'review-loop');
+      expect(reparsed.loops.single.finally_, 'finalize');
+      expect(validator.validate(reparsed).errors, isEmpty);
     });
 
     test('variable substitution replaces {{VAR}} but leaves {{context.*}} alone', () {
@@ -176,7 +327,7 @@ void main() {
           const WorkflowStep(
             id: 'step-1',
             name: 'Example',
-            type: WorkflowTaskType.agent,
+            taskType: WorkflowTaskType.agent,
             prompts: ['Build {{REQUIREMENTS}} using {{context.prior_step.output}}.'],
             outputs: {'result': OutputConfig()},
           ),
@@ -184,6 +335,79 @@ void main() {
       );
       final resolved = resolver.resolve(def, variableBindings: {'REQUIREMENTS': 'a new API endpoint'});
       expect(resolved.steps.first.prompts!.first, 'Build a new API endpoint using {{context.prior_step.output}}.');
+    });
+
+    test('foreach-nested inline loop preserves onMaxIterations: fail through emit round-trip (TI06)', () {
+      const yaml = '''
+name: nested-loop-policy
+description: Foreach-nested loop keeps the default fail policy
+steps:
+  - id: produce
+    name: Produce
+    prompt: Produce items
+    outputs:
+      items: lines
+  - id: pipeline
+    name: Pipeline
+    type: foreach
+    map_over: items
+    steps:
+      - id: story-loop
+        name: Story Loop
+        type: loop
+        maxIterations: 2
+        exitGate: "review.status == done"
+        onMaxIterations: fail
+        steps:
+          - id: review
+            name: Review
+            prompt: Review the story
+''';
+      final def = parser.parse(yaml);
+      final nested = def.loops.singleWhere((loop) => loop.id == 'story-loop');
+      expect(nested.onMaxIterations, 'fail');
+
+      final reparsed = parser.parse(
+        resolver.emitYaml(resolver.resolve(def)),
+        sourcePath: 'resolved:nested-loop-policy',
+      );
+      final reNested = reparsed.loops.singleWhere((loop) => loop.id == 'story-loop');
+      expect(reNested.onMaxIterations, 'fail', reason: 'emit → reparse must preserve the nested loop policy');
+      expect(validator.validate(reparsed).errors, isEmpty);
+    });
+
+    test('foreach-nested inline loop with onMaxIterations: continue is rejected by validation (TI06)', () {
+      const yaml = '''
+name: nested-loop-continue
+description: Foreach-nested loop cannot opt into continue
+steps:
+  - id: produce
+    name: Produce
+    prompt: Produce items
+    outputs:
+      items: lines
+  - id: pipeline
+    name: Pipeline
+    type: foreach
+    map_over: items
+    steps:
+      - id: story-loop
+        name: Story Loop
+        type: loop
+        maxIterations: 2
+        exitGate: "review.status == done"
+        onMaxIterations: continue
+        steps:
+          - id: review
+            name: Review
+            prompt: Review the story
+''';
+      final def = parser.parse(yaml);
+      final report = validator.validate(def);
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.invalidLoopPolicy && e.loopId == 'story-loop'),
+        true,
+      );
     });
   });
 }

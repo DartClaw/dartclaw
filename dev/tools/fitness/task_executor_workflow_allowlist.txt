@@ -1,20 +1,20 @@
-# file:line:reason
-# Paths are relative to the workspace root (the directory the check is invoked from).
-# The check canonicalizes paths before comparison so absolute paths also work locally.
+# identifier | reason
+# The identifier is the normalized matching source line, not a file:line key, so
+# unrelated line shifts in task_executor.dart do not require allowlist edits.
 #
 # Curated 2026-05-02 after the 0.16.4 task_executor decomposition: most workflow
 # orchestration moved into WorkflowWorktreeBinder + WorkflowOneShotRunner, so the
 # remaining refs in task_executor are limited to dependency wiring and a single
 # delegation entry point + the workflow-orchestrated execution dispatch.
-packages/dartclaw_server/lib/src/task/task_executor.dart:7:workflow-repository-and-binding-import
-packages/dartclaw_server/lib/src/task/task_executor.dart:64:workflow-cli-runner-wiring
-packages/dartclaw_server/lib/src/task/task_executor.dart:65:workflow-step-execution-repository-wiring
-packages/dartclaw_server/lib/src/task/task_executor.dart:66:workflow-run-repository-wiring
-packages/dartclaw_server/lib/src/task/task_executor.dart:98:workflow-cli-runner-field
-packages/dartclaw_server/lib/src/task/task_executor.dart:99:workflow-step-execution-repository-field
-packages/dartclaw_server/lib/src/task/task_executor.dart:100:workflow-run-repository-field
-packages/dartclaw_server/lib/src/task/task_executor.dart:139:workflow-run-repository-binder-arg
-packages/dartclaw_server/lib/src/task/task_executor.dart:142:workflow-one-shot-runner-creation
-packages/dartclaw_server/lib/src/task/task_executor.dart:143:workflow-one-shot-runner-cli-runner-arg
-packages/dartclaw_server/lib/src/task/task_executor.dart:144:workflow-one-shot-runner-step-execution-repository-arg
-packages/dartclaw_server/lib/src/task/task_executor.dart:552:workflow-one-shot-runner-execute
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository, WorkflowWorktreeBinding; | workflow-repository-and-binding-import
+_workflowCliRunner = runners.workflowCliRunner, | workflow-cli-runner-wiring
+_workflowStepExecutionRepository = services.workflowStepExecutionRepository, | workflow-step-execution-repository-wiring
+_workflowRunRepository = services.workflowRunRepository, | workflow-run-repository-wiring
+final WorkflowCliRunner? _workflowCliRunner; | workflow-cli-runner-field
+final WorkflowStepExecutionRepository? _workflowStepExecutionRepository; | workflow-step-execution-repository-field
+final WorkflowRunRepository? _workflowRunRepository; | workflow-run-repository-field
+workflowRunRepository: _workflowRunRepository, | workflow-run-repository-binder-arg
+late final WorkflowOneShotRunner _workflowOneShotRunner = WorkflowOneShotRunner( | workflow-one-shot-runner-creation
+runner: _workflowCliRunner, | workflow-one-shot-runner-cli-runner-arg
+workflowStepExecutionRepository: _workflowStepExecutionRepository, | workflow-one-shot-runner-step-execution-repository-arg
+outcome = await _workflowOneShotRunner.execute( | workflow-one-shot-runner-execute

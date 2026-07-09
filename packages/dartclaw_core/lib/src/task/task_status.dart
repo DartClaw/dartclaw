@@ -45,6 +45,10 @@ enum TaskStatus {
       TaskStatus.running,
       TaskStatus.failed,
     },
+    // Cancelled is terminal; the sole outbound edge exists only for the gated
+    // one-shot correction where a dispose-cancel raced a genuine provider
+    // failure. Generic cancellation must never be rewritten to failed.
+    TaskStatus.cancelled: {TaskStatus.failed},
     TaskStatus.failed: {TaskStatus.queued}, // retry path: re-queue after failure
   };
 

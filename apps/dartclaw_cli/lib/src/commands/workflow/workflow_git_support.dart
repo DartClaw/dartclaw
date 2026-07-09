@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
+import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock, Task;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
@@ -16,6 +16,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         PushSuccess;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        resolveIntegrationBranchName,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionError,
         WorkflowGitPromotionResult,
@@ -100,6 +101,84 @@ String _processFailureDetail(ProcessResult result) {
   final stdout = (result.stdout as String).trim();
   final detail = stderr.isNotEmpty ? stderr : stdout;
   return detail.isEmpty ? 'exit=${result.exitCode}' : 'exit=${result.exitCode}: $detail';
+}
+
+Future<ProcessResult> runWorkflowGitCommand(List<String> args, {required String workingDirectory}) {
+  return _workflowGit(args, workingDirectory: workingDirectory);
+}
+
+String workflowGitFailureDetail(ProcessResult result) => _processFailureDetail(result);
+
+Future<bool> workflowLocalRefExists(String workingDirectory, String ref) async {
+  final safeRef = normalizeGitRefOperand(ref, label: 'workflow ref');
+  final candidates = <String>{safeRef};
+  if (!safeRef.startsWith('origin/') && !safeRef.startsWith('refs/')) {
+    candidates.add('origin/$safeRef');
+  }
+  for (final candidate in candidates) {
+    try {
+      final result = await _workflowGit([
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        candidate,
+      ], workingDirectory: workingDirectory);
+      if (result.exitCode == 0) return true;
+    } on ProcessException {
+      return false;
+    }
+  }
+  return false;
+}
+
+Future<void> ensureWorkflowLocalBranch({
+  required String projectDir,
+  required String branch,
+  required String baseRef,
+  bool remoteBacked = false,
+}) async {
+  final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
+  final safeBaseRef = normalizeGitRefOperand(baseRef, label: 'workflow base ref');
+  final normalizedBaseRef = remoteBacked && !safeBaseRef.startsWith('origin/') ? 'origin/$safeBaseRef' : safeBaseRef;
+  final existing = await _workflowGit(['rev-parse', '--verify', safeBranch], workingDirectory: projectDir);
+  if (existing.exitCode == 0) {
+    return;
+  }
+  final create = await _workflowGit(['branch', '--', safeBranch, normalizedBaseRef], workingDirectory: projectDir);
+  if (create.exitCode != 0) {
+    final stderr = (create.stderr as String).trim();
+    throw StateError('Failed to create workflow branch "$safeBranch" from "$normalizedBaseRef": $stderr');
+  }
+}
+
+class WorkflowGitCleanupPlan {
+  final Set<String> worktreePaths;
+  final Set<String> branches;
+
+  const WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+}
+
+WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
+  final worktreePaths = <String>{};
+  final branches = <String>{
+    resolveIntegrationBranchName(runId, perMapItem: false),
+    resolveIntegrationBranchName(runId, perMapItem: true),
+  };
+
+  for (final task in runTasks) {
+    final worktree = task.worktreeJson;
+    if (worktree == null) continue;
+    final path = worktree['path'];
+    final branch = worktree['branch'];
+    if (path is String && path.trim().isNotEmpty) {
+      worktreePaths.add(path.trim());
+    }
+    if (branch is String && branch.trim().isNotEmpty) {
+      branches.add(branch.trim());
+    }
+  }
+
+  return WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches);
 }
 
 String _repoLockKey(String projectDir) {
@@ -319,7 +398,7 @@ Future<WorkflowGitPromotionResult> _promoteWorkflowBranchLocallyUnlocked({
     );
     // Sweep pending changes in the integration worktree too. In inline mode
     // the integration branch is checked out in the project root while
-    // upstream artifact-producing steps (andthen:prd / andthen:plan) run
+    // upstream artifact-producing steps run
     // there; anything they wrote that the artifact committer did not add
     // (intermediate files, STATE/LEARNINGS edits, untracked research docs)
     // would leave a dirty index/tree and fail MergeExecutor's pre-merge

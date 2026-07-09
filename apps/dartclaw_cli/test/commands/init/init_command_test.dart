@@ -342,7 +342,7 @@ void main() {
       expect(Directory(p.join(tempDir.path, 'dartclaw')).existsSync(), isFalse);
       expect(
         File(p.join(tempDir.path, '.dartclaw', '.gitignore')).readAsStringSync(),
-        '*\n!.gitignore\n!dartclaw.yaml\n!workflows/\n!workflows/**\nworkflows/built-in/\nworkflows/runs/\n',
+        '*\n!.gitignore\n!dartclaw.yaml\n!workflows/\n!workflows/**\nworkflows/**/.DS_Store\nworkflows/built-in/\nworkflows/runs/\n',
       );
       expect(output, contains('Run a workflow: dartclaw workflow run --standalone code-review'));
       expect(output.any((line) => line.contains('--config')), isFalse);

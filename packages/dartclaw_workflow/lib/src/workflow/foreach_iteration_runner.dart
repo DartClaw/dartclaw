@@ -13,45 +13,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     WorkflowExecutionCursor? resumeCursor,
     bool Function()? isCancelled,
   }) async {
-    final rawCollection = context[controllerStep.mapOver!];
-    if (rawCollection == null) {
-      return MapStepResult(
-        results: const [],
-        totalTokens: 0,
-        success: false,
-        error: "Foreach step '${controllerStep.id}': context key '${controllerStep.mapOver}' is null or missing",
-      );
+    final resolvedCollection = resolveIterationCollection(
+      context[controllerStep.mapOver!],
+      stepKind: 'Foreach',
+      stepId: controllerStep.id,
+      mapOverKey: controllerStep.mapOver!,
+    );
+    if (resolvedCollection.error != null) {
+      return MapStepResult(results: const [], totalTokens: 0, success: false, error: resolvedCollection.error);
     }
-    final resolvedCollection = switch (rawCollection) {
-      final List<dynamic> list => list,
-      final Map<String, dynamic> map when map.length == 1 && map.values.first is List => () {
-        WorkflowExecutor._log.info(
-          'Foreach step \'${controllerStep.id}\': auto-unwrapped Map key \'${map.keys.first}\' '
-          'to List (${(map.values.first as List).length} items)',
-        );
-        return map.values.first as List<dynamic>;
-      }(),
-      final Map<Object?, Object?> map when map.length == 1 && map.values.first is List => () {
-        final normalized = map.map((key, value) => MapEntry(key.toString(), value));
-        WorkflowExecutor._log.info(
-          'Foreach step \'${controllerStep.id}\': auto-unwrapped Map key \'${normalized.keys.first}\' '
-          'to List (${(normalized.values.first as List).length} items)',
-        );
-        return normalized.values.first as List<dynamic>;
-      }(),
-      _ => null,
-    };
-    if (resolvedCollection == null) {
-      return MapStepResult(
-        results: const [],
-        totalTokens: 0,
-        success: false,
-        error:
-            "Foreach step '${controllerStep.id}': context key '${controllerStep.mapOver}' is not a List "
-            '(got ${rawCollection.runtimeType})',
-      );
-    }
-    final collection = resolvedCollection;
+    final collection = resolvedCollection.collection!;
     final maxItems = controllerStep.maxItems;
     if (maxItems != null && collection.length > maxItems) {
       return MapStepResult(
@@ -124,35 +95,32 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     final effectiveMaxParallel = resolvedWorktreeMode == 'inline' ? 1 : maxParallel;
     final mapCtx = MapStepContext(collection: collection, maxParallel: effectiveMaxParallel, maxItems: maxItems);
     final completedIds = <String>{};
-    _restoreForeachProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
+    restoreIterationProgress(
+      mapCtx,
+      completedIds,
+      resumeCursor,
+      nodeType: WorkflowExecutionCursorNodeType.foreach,
+      collectionLength: collection.length,
+      markFailedAndCancelledItemsReady: false,
+    );
     if (resumeCursor?.completedSubStepIdsByIndex.isNotEmpty == true) {
       context['_foreach.${controllerStep.id}.completedSubStepIdsByIndex'] = resumeCursor!.completedSubStepIdsByIndex
           .map((key, value) => MapEntry('$key', value));
     }
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-    final inFlight = <int, Future<void>>{};
-    // Maps in-flight iteration index → task id for drain cancellation.
-    final iterTaskIds = <int, String>{};
+    final firstTaskIds = <int, String>{};
     final settledIndices = mapCtx.completedIndices;
-    final pending = Queue<int>.from(
-      List.generate(collection.length, (i) => i).where((i) => !settledIndices.contains(i)),
+    final engine = _IterationDispatchEngine(
+      mapCtx: mapCtx,
+      depGraph: depGraph,
+      pendingIndices: List.generate(collection.length, (i) => i).where((i) => !settledIndices.contains(i)),
+      completedIds: completedIds,
+      promotedIds: promotedIds,
+      promotionAware: promotionAware,
     );
-    var inFlightWake = Completer<void>();
-    void wakeInFlightLoop() {
-      if (!inFlightWake.isCompleted) {
-        inFlightWake.complete();
-      }
-    }
-
-    Future<void> waitForInFlightWake() async {
-      if (inFlight.isEmpty) return;
-      await inFlightWake.future;
-      inFlightWake = Completer<void>();
-    }
 
     var totalTokens = 0;
-    // Drain-failure message is set by the drain path; when non-null, abort loop.
-    String? drainFailureMessage;
+    String? serializeFailureMessage;
     // Controller-level failure message (budget exhaustion, unexpected exceptions).
     String? controllerFailureMessage;
     void emitCancelledIterationEvents(Iterable<int> indices) {
@@ -174,42 +142,38 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     }
 
     int? pendingSerializeRemainingIteration() {
-      final serializeIter = context['_merge_resolve.${controllerStep.id}.serializing_iter_index'];
-      if (serializeIter is! int ||
-          context['_merge_resolve.${controllerStep.id}.serialize_remaining_phase'] == 'drained') {
-        return null;
-      }
-      return serializeIter;
+      final state = _SerializeRemainingState.read(context, stepId: controllerStep.id);
+      if (state == null || state.phase == _SerializeRemainingPhase.drained) return null;
+      return state.iterIndex;
     }
 
     Future<void> enactSerializeRemaining(int serializeIter) async {
-      final drainResult = await _drainAndRequeue(
+      final serializeResult = await _enactSerializeRemaining(
         run: run,
         controllerStep: controllerStep,
         context: context,
         mapCtx: mapCtx,
-        pending: pending,
-        inFlight: inFlight,
-        iterTaskIds: iterTaskIds,
+        pending: engine.pending,
+        inFlight: engine.inFlight,
         failingIterIndex: serializeIter,
         stepIndex: stepIndex,
         promotedIds: promotedIds,
       );
-      if (drainResult != null) {
-        drainFailureMessage = drainResult;
+      if (serializeResult != null) {
+        serializeFailureMessage = serializeResult;
       }
     }
 
-    while (pending.isNotEmpty || inFlight.isNotEmpty || pendingSerializeRemainingIteration() != null) {
-      if (drainFailureMessage != null) break;
+    while (engine.hasWork(hasSerializedWork: pendingSerializeRemainingIteration() != null)) {
+      if (serializeFailureMessage != null) break;
+      final serializeIter = pendingSerializeRemainingIteration();
+      if (serializeIter != null) {
+        await enactSerializeRemaining(serializeIter);
+        continue;
+      }
       if (mapCtx.budgetExhausted) {
         controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
-        final cancelledByBudget = <int>[];
-        while (pending.isNotEmpty) {
-          final cancelledIndex = pending.removeFirst();
-          mapCtx.recordCancelled(cancelledIndex, 'Cancelled: budget exhausted');
-          cancelledByBudget.add(cancelledIndex);
-        }
+        final cancelledByBudget = engine.cancelPending('Cancelled: budget exhausted');
         await _persistForeachProgress(
           run,
           controllerStep,
@@ -221,27 +185,18 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         emitCancelledIterationEvents(cancelledByBudget);
         break;
       }
-      final isSerialMode = context['_merge_resolve.${controllerStep.id}.serialize_remaining_phase'] != null;
+      // An aborted item stops all further dispatch; in-flight siblings settle
+      // on their own paths before the run pauses.
+      if (mapCtx.aborted) break;
+      final isSerialMode = _SerializeRemainingState.read(context, stepId: controllerStep.id) != null;
       final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
-      final concurrencyCap = isSerialMode ? 1 : mapCtx.effectiveConcurrency(poolAvailable);
-      while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
+      while (engine.canDispatch(poolAvailable: poolAvailable, serialMode: isSerialMode)) {
         // Skip if cancelled.
         if (mapCtx.budgetExhausted) break;
+        if (mapCtx.aborted) break;
         if (isCancelled?.call() ?? false) break;
-        int? nextIndex;
-        if (depGraph.hasDependencies) {
-          final ready = depGraph.getReady(promotionAware ? promotedIds : completedIds);
-          for (final pendingIndex in pending) {
-            if (ready.contains(pendingIndex)) {
-              nextIndex = pendingIndex;
-              break;
-            }
-          }
-        } else {
-          nextIndex = pending.first;
-        }
+        final nextIndex = engine.takeNextReadyIndex();
         if (nextIndex == null) break;
-        pending.remove(nextIndex);
 
         final iterIndex = nextIndex;
         final mapContext = MapContext(
@@ -288,8 +243,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               promotedIds: promotedIds,
               projectId: effectiveProjectId,
               controllerMaxParallel: maxParallel,
-              iterTaskIds: iterTaskIds,
+              firstTaskIds: firstTaskIds,
               activeWorkspaceRoot: activeWorkspaceRoot,
+              // A serialize-exhausted iteration removes itself from `inFlight`
+              // when it returns the sentinel. Re-queue it so the serialize
+              // enactment still sees it if a sibling snapshots `inFlight`
+              // after this removal — otherwise a distinct exhausted iteration
+              // could be dropped from the serial queue.
+              requeueSerializeExhausted: (idx) {
+                if (!engine.pending.contains(idx)) engine.pending.add(idx);
+              },
               isCancelled: isCancelled,
             );
           } catch (e, st) {
@@ -306,7 +269,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                 mapCtx: mapCtx,
                 iterIndex: iterIndex,
                 failureMessage: 'Unexpected iteration error: $e',
-                taskId: iterTaskIds[iterIndex],
+                taskId: firstTaskIds[iterIndex],
                 run: run,
                 step: controllerStep,
                 iterTokens: 0,
@@ -325,33 +288,61 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             mapCtx.budgetExhausted = true;
           }
         })().catchError((_) {});
-        inFlight[iterIndex] = iterationFuture.whenComplete(() {
-          inFlight.remove(iterIndex);
-          mapCtx.inFlightCount = inFlight.length;
-          iterTaskIds.remove(iterIndex);
-          final itemId = mapCtx.itemId(iterIndex);
-          if (itemId != null) completedIds.add(itemId);
-          wakeInFlightLoop();
-        });
+        engine.track(
+          iterIndex,
+          iterationFuture,
+          onSettled: (iterIndex) {
+            final itemId = mapCtx.itemId(iterIndex);
+            // Only a genuinely successful prerequisite makes its dependents ready.
+            // A failed or blocked item must keep its dependents undispatched so the
+            // controller can pause for a human when an open dependent exists. An
+            // aborted pass adds no ready ids: interrupted items settle in no index
+            // set, so without the guard they would read as succeeded.
+            final succeeded =
+                !mapCtx.aborted &&
+                !mapCtx.failedIndices.contains(iterIndex) &&
+                !mapCtx.blockedIndices.contains(iterIndex) &&
+                !mapCtx.cancelledIndices.contains(iterIndex);
+            if (itemId != null && succeeded) completedIds.add(itemId);
+          },
+        );
       }
-      final serializeIter = pendingSerializeRemainingIteration();
-      if (serializeIter != null) {
-        await enactSerializeRemaining(serializeIter);
-        continue;
-      }
-      if (inFlight.isEmpty && pending.isNotEmpty) {
-        if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
+      if (engine.isDispatchStalled) {
+        if (depGraph.hasDependencies &&
+            (controllerStep.onFailure != OnFailurePolicy.continueWorkflow || mapCtx.hasBlocked)) {
+          final hold = _foreachDependencyHold(
+            depGraph,
+            mapCtx,
+            engine.pending,
+            includeFailures: controllerStep.onFailure != OnFailurePolicy.continueWorkflow,
+          );
+          if (hold != null) {
+            await _persistForeachProgress(
+              run,
+              controllerStep,
+              context,
+              mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
+            final refreshedRun = await _repository.getById(run.id) ?? run;
+            await _transitionStepAwaitingApproval(
+              refreshedRun,
+              controllerStep,
+              context,
+              stepIndex: stepIndex,
+              reason: hold,
+            );
+            return null;
+          }
+        }
+        if (promotionAware && depGraph.hasDependencies && (mapCtx.failedIndices.isNotEmpty || mapCtx.hasBlocked)) {
           WorkflowExecutor._log.warning(
             "Workflow '${run.id}': foreach step '${controllerStep.id}' – "
-            '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
+            '${engine.pending.length} items remain blocked on unresolved dependencies; leaving them pending for resume.',
           );
           if (controllerStep.onFailure == OnFailurePolicy.continueWorkflow) {
-            final cancelledByDep = <int>[];
-            while (pending.isNotEmpty) {
-              final cancelledIndex = pending.removeFirst();
-              mapCtx.recordCancelled(cancelledIndex, 'Cancelled: dependency failed');
-              cancelledByDep.add(cancelledIndex);
-            }
+            final cancelledByDep = engine.cancelPending('Cancelled: dependency failed');
             await _persistForeachProgress(
               run,
               controllerStep,
@@ -370,14 +361,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             : 'Cancelled: dispatch stall';
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': foreach step '${controllerStep.id}' – "
-          '${pending.length} items stalled; cancelling.',
+          '${engine.pending.length} items stalled; cancelling.',
         );
-        final cancelledByStall = <int>[];
-        while (pending.isNotEmpty) {
-          final cancelledIndex = pending.removeFirst();
-          mapCtx.recordCancelled(cancelledIndex, cancellationMessage);
-          cancelledByStall.add(cancelledIndex);
-        }
+        final cancelledByStall = engine.cancelPending(cancellationMessage);
         await _persistForeachProgress(
           run,
           controllerStep,
@@ -389,15 +375,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         emitCancelledIterationEvents(cancelledByStall);
         break;
       }
-      if (inFlight.isEmpty) break;
-      await waitForInFlightWake();
-
-      // If serialize-remaining fired during this tick, perform drain + re-queue.
-      final completedSerializeIter = pendingSerializeRemainingIteration();
-      if (completedSerializeIter != null) {
-        await enactSerializeRemaining(completedSerializeIter);
-        continue;
-      }
+      if (!engine.hasInFlight) break;
+      await engine.waitForWake();
 
       final refreshedRun = await _repository.getById(run.id) ?? run;
       run = refreshedRun;
@@ -420,11 +399,64 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
       }
     }
-    if (drainFailureMessage != null) {
-      return MapStepResult(results: const [], totalTokens: 0, success: false, error: drainFailureMessage);
+    if (serializeFailureMessage != null) {
+      return MapStepResult(results: const [], totalTokens: 0, success: false, error: serializeFailureMessage);
     }
-    if (inFlight.isNotEmpty) {
-      await Future.wait(inFlight.values, eagerError: false);
+    if (engine.hasInFlight) {
+      final activeSerializeState = _SerializeRemainingState.read(context, stepId: controllerStep.id);
+      if (activeSerializeState != null && activeSerializeState.phase == _SerializeRemainingPhase.enacting) {
+        final remainingTimeout = _remainingSerializeRemainingSettleTimeout(
+          activeSerializeState,
+          _serializeRemainingSettleTimeout,
+        );
+        if (remainingTimeout == Duration.zero) {
+          return MapStepResult(
+            results: const [],
+            totalTokens: 0,
+            success: false,
+            error:
+                "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
+                '${engine.inFlight.length} in-flight iteration(s) after '
+                '${_serializeRemainingSettleTimeout.inMilliseconds}ms',
+          );
+        }
+        try {
+          await Future.wait(engine.inFlight.values, eagerError: false).timeout(remainingTimeout);
+        } on TimeoutException {
+          return MapStepResult(
+            results: const [],
+            totalTokens: 0,
+            success: false,
+            error:
+                "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
+                '${engine.inFlight.length} in-flight iteration(s) after '
+                '${_serializeRemainingSettleTimeout.inMilliseconds}ms',
+          );
+        }
+      } else {
+        await Future.wait(engine.inFlight.values, eagerError: false);
+      }
+    }
+    if (mapCtx.aborted) {
+      WorkflowExecutor._log.info(
+        "Workflow '${run.id}': foreach step '${controllerStep.id}' aborted before settling all items",
+      );
+      await _persistForeachProgress(
+        run,
+        controllerStep,
+        context,
+        mapCtx,
+        stepIndex: stepIndex,
+        promotedIds: promotedIds,
+      );
+      // Deferred pause: siblings have settled, so no in-flight task wait gets
+      // aborted into a spurious failure. No-ops when a teardown or hold
+      // already moved the run off `running`.
+      await _pauseRun(
+        run,
+        mapCtx.abortReason ?? "Foreach step '${controllerStep.id}' was interrupted and can be resumed.",
+      );
+      return null;
     }
     for (var i = 0; i < collection.length; i++) {
       for (final childStep in childSteps) {
@@ -432,6 +464,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         if (t is int) totalTokens += t;
       }
     }
+    // Surface the controller-level token total under the same `<stepId>.tokenCount`
+    // key non-foreach steps use, so the settle-time digest reports per-story tokens
+    // for the foreach controller row (foreach otherwise only writes per-child keys).
+    context['${controllerStep.id}.tokenCount'] = totalTokens;
     _eventBus.fire(
       MapStepCompletedEvent(
         runId: run.id,
@@ -441,6 +477,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         successCount: mapCtx.successCount,
         failureCount: mapCtx.failedIndices.length,
         cancelledCount: mapCtx.cancelledCount,
+        blockedCount: mapCtx.blockedCount,
         totalTokens: totalTokens,
         timestamp: DateTime.now(),
       ),
@@ -453,6 +490,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         error: controllerFailureMessage,
       );
     }
+    final escalatedHold = _foreachEscalatedHold(mapCtx);
     if (mapCtx.hasFailures) {
       for (final index in mapCtx.failedIndices) {
         final slot = mapCtx.results[index];
@@ -474,12 +512,56 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         success: false,
         error:
             controllerFailureMessage ??
-            (hasPromotionConflict
+            (escalatedHold != null
+                ? "foreach-hard-failure-with-escalation: Foreach step '${controllerStep.id}': "
+                      '${mapCtx.failedIndices.length} iteration(s) failed; escalation-marked blocked item(s) '
+                      'also require review'
+                : hasPromotionConflict
                 ? "promotion-conflict: foreach step '${controllerStep.id}' has unresolved promotion conflicts"
                 : hasPromotionFailure
                 ? "promotion-failure: foreach step '${controllerStep.id}' has unpromoted item failures"
                 : "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed"),
       );
+    }
+    // An escalated remediation exhaustion (`onMaxIterations: escalate`) is an
+    // explicit "a human must look" signal, so a blocked item carrying the
+    // escalation marker forces an approval hold on the settle path independent
+    // of dependency topology – a leaf or single-story plan must not ship its
+    // residual in the settle digest only. Unmarked blocked items keep advancing
+    // in the branch below. Persist-before-transition mirrors the dependency-hold
+    // seam so a crash resumes at the persisted cursor with the item still pending.
+    if (escalatedHold != null) {
+      await _persistForeachProgress(
+        run,
+        controllerStep,
+        context,
+        mapCtx,
+        stepIndex: stepIndex,
+        promotedIds: promotedIds,
+      );
+      final refreshedRun = await _repository.getById(run.id) ?? run;
+      await _transitionStepAwaitingApproval(
+        refreshedRun,
+        controllerStep,
+        context,
+        stepIndex: stepIndex,
+        reason: escalatedHold,
+      );
+      return null;
+    }
+    if (mapCtx.hasBlocked) {
+      // No hard failures, no escalation marker, and no pause: blocked items had
+      // no open dependents, so the run advances and the digest reports them.
+      // Mark the controller-level outcome blocked (recoverable) – never from
+      // inside an iteration. The reason names the blocked items so downstream
+      // surfaces (digest, publish notes) can list what shipped unresolved.
+      final blockedIds = [
+        for (final index in mapCtx.blockedIndices.toList()..sort()) mapCtx.itemId(index) ?? 'item #$index',
+      ];
+      context['step.${controllerStep.id}.outcome'] = 'blocked';
+      context['step.${controllerStep.id}.outcome.reason'] =
+          "Foreach step '${controllerStep.id}': ${mapCtx.blockedCount} item(s) blocked (recoverable): "
+          '${_sanitizeAgentReportedText(blockedIds.join(', '))}';
     }
     return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
   }
@@ -500,8 +582,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     required Set<String> promotedIds,
     required String? projectId,
     required int? controllerMaxParallel,
-    required Map<int, String> iterTaskIds,
+    required Map<int, String> firstTaskIds,
     required String? activeWorkspaceRoot,
+    required void Function(int iterIndex) requeueSerializeExhausted,
     bool Function()? isCancelled,
   }) async {
     // Check for cancellation before doing any work for this iteration.
@@ -522,6 +605,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     int iterTokens = 0;
     Map<String, dynamic> iterResult = {};
     String? firstTaskId;
+    void recordFirstTaskId(String taskId) {
+      firstTaskIds.putIfAbsent(iterIndex, () => taskId);
+      firstTaskId ??= taskId;
+    }
+
     final completedSubStepIds = _completedForeachSubStepIds(context, controllerStep.id, iterIndex);
 
     Future<void> persistProgress() =>
@@ -590,6 +678,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               isCancelled: isCancelled,
               mapContext: mapContext,
               enclosingMaxParallel: controllerMaxParallel,
+              onFirstTaskCreated: recordFirstTaskId,
             )
           : null;
       final result = await _executeStep(
@@ -601,21 +690,39 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         stepIndex: childStepIndex,
         mapCtx: mapContext,
         enclosingMaxParallel: controllerMaxParallel,
+        onFirstTaskCreated: recordFirstTaskId,
         nestedLoopScope: nestedLoopScope,
       );
       if (result == null) {
+        final latest = await _repository.getById(run.id);
+        final status = latest?.status ?? run.status;
+        if (status == WorkflowRunStatus.paused ||
+            status == WorkflowRunStatus.awaitingApproval ||
+            status == WorkflowRunStatus.cancelled) {
+          // The task wait was aborted by a run-level transition (teardown,
+          // pause, or a sibling's dependency hold) – not a task-creation
+          // failure. Leave the iteration unsettled so resume re-runs it,
+          // mirroring the map dispatcher's abort seam.
+          mapCtx.aborted = true;
+          await persistProgress();
+          mapCtx.inFlightCount--;
+          return;
+        }
         await failAndReturn("Foreach child step '${childStep.id}' failed to create task", null);
         return;
       }
       if (childIndex == 0) {
         firstTaskId = result.task?.id;
-        if (firstTaskId != null) iterTaskIds[iterIndex] = firstTaskId;
       }
       final tokenCount = result.tokenCount;
       iterTokens += tokenCount;
       context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
       if (!result.success) {
-        _mergeStepResultIntoContext(iterContext, result, fallbackStatus: 'failed');
+        _mergeStepResultIntoContext(
+          iterContext,
+          result,
+          fallbackStatus: result.outcome == 'cancelled' ? 'cancelled' : 'failed',
+        );
         for (final entry in result.outputs.entries) {
           context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
         }
@@ -627,13 +734,25 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
           context['step.${childStep.id}[$iterIndex].outcome.reason'] = result.outcomeReason!;
         }
-        if (result.awaitingApproval &&
-            controllerStep.onFailure != OnFailurePolicy.continueWorkflow &&
-            !_hasPriorForeachFailures(mapCtx, iterIndex)) {
-          iterResult[childStep.id] = Map<String, dynamic>.from(result.outputs);
-          completedSubStepIds.add(childStep.id);
-          _writeCompletedForeachSubStepIds(context, controllerStep.id, iterIndex, completedSubStepIds);
+        if (result.outcome == 'cancelled') {
+          final reason =
+              result.outcomeReason ?? "Foreach child step '${childStep.id}' was interrupted and can be resumed.";
+          // Outcome 'cancelled' means run-teardown interruption – synthesized
+          // by a nested loop or resolved from a direct child's cancelled task.
+          // A nested loop's retained checkpoint is the single budget source
+          // while interrupted, so dropping the per-child token key keeps
+          // workflow_budget_monitor's never-overlap invariant. A non-loop
+          // child (no checkpoint) keeps its token key.
+          if (childStep.taskType == WorkflowTaskType.loop) {
+            context.remove('${childStep.id}[$iterIndex].tokenCount');
+          }
+          // The run pause is deferred to the controller so in-flight siblings
+          // settle on their own paths instead of having their task waits
+          // aborted into spurious hard failures.
+          mapCtx.aborted = true;
+          mapCtx.abortReason ??= reason;
           await persistProgress();
+          mapCtx.inFlightCount--;
           _eventBus.fire(
             WorkflowStepCompletedEvent(
               runId: run.id,
@@ -643,19 +762,60 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               totalSteps: definition.steps.length,
               taskId: result.task?.id ?? '',
               success: false,
+              outcome: result.outcome,
+              reason: reason,
               tokenCount: tokenCount,
               timestamp: DateTime.now(),
               displayScope: _mapItemDisplayScope(mapContext),
             ),
           );
-          final refreshedRun = await _repository.getById(run.id) ?? run;
-          run = refreshedRun;
-          await _transitionStepAwaitingApproval(
-            run,
-            childStep,
-            context,
-            stepIndex: childStepIndex,
-            reason: result.outcomeReason ?? "Foreach child step '${childStep.id}' requires input",
+          return;
+        }
+        // A `needsInput` child is a recoverable hold (blocked), distinct from a
+        // hard failure. Record it so it stays retryable; the controller decides
+        // whether an open dependent forces a run-level pause.
+        final isBlocked = result.outcome == 'needsInput';
+        if (isBlocked) {
+          final reason = result.outcomeReason ?? "Foreach child step '${childStep.id}' requires input";
+          _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
+          mapCtx.recordBlocked(
+            iterIndex,
+            'blocked: $reason',
+            result.task?.id,
+            requiresDependencyHold: result.requiresDependencyHold,
+          );
+          await persistProgress();
+          mapCtx.inFlightCount--;
+          _eventBus.fire(
+            WorkflowStepCompletedEvent(
+              runId: run.id,
+              stepId: childStep.id,
+              stepName: childStep.name,
+              stepIndex: childStepIndex,
+              totalSteps: definition.steps.length,
+              taskId: result.task?.id ?? '',
+              success: false,
+              outcome: result.outcome,
+              reason: reason,
+              tokenCount: tokenCount,
+              timestamp: DateTime.now(),
+              displayScope: _mapItemDisplayScope(mapContext),
+            ),
+          );
+          _eventBus.fire(
+            MapIterationCompletedEvent(
+              runId: run.id,
+              stepId: controllerStep.id,
+              iterationIndex: iterIndex,
+              totalIterations: mapCtx.collection.length,
+              itemId: mapCtx.itemId(iterIndex),
+              taskId: result.task?.id ?? '',
+              success: false,
+              outcome: result.outcome,
+              reason: reason,
+              tokenCount: tokenCount,
+              timestamp: DateTime.now(),
+            ),
           );
           return;
         }
@@ -669,6 +829,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             totalSteps: definition.steps.length,
             taskId: result.task?.id ?? '',
             success: false,
+            outcome: result.outcome,
+            reason: result.outcomeReason,
             tokenCount: tokenCount,
             timestamp: DateTime.now(),
             displayScope: _mapItemDisplayScope(mapContext),
@@ -716,12 +878,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       final storyBranch = (iterContext['${branchStep.id}.branch'] as String?)?.trim();
       final promote = _turnAdapter?.promoteWorkflowBranch;
       final storyId = mapCtx.itemId(iterIndex);
+      final projectIdValue = projectId;
+      final integrationBranchValue = integrationBranch;
 
       if (promote == null) {
         await failAndReturn('promotion failed: host promotion callback is not configured', firstTaskId);
         return;
       }
-      if (projectId == null || projectId.isEmpty) {
+      if (projectIdValue == null || projectIdValue.isEmpty) {
         await failAndReturn('promotion failed: foreach iteration has no project binding', firstTaskId);
         return;
       }
@@ -729,102 +893,121 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         await failAndReturn('promotion failed: task worktree branch is unavailable', firstTaskId);
         return;
       }
-      if (integrationBranch == null || integrationBranch.isEmpty) {
+      if (integrationBranchValue == null || integrationBranchValue.isEmpty) {
         await failAndReturn('promotion failed: integration branch is not initialized', firstTaskId);
         return;
       }
-      final promotionResult = await callPromote(
-        promote: promote,
-        runId: run.id,
-        projectId: projectId,
-        branch: storyBranch,
-        integrationBranch: integrationBranch,
-        strategy: promotionStrategy,
-        storyId: storyId,
-        conflictingFiles: const [],
-        conflictDetails: '',
-        mergeResolveEnabled: definition.gitStrategy?.mergeResolve.enabled == true,
-      );
-      switch (promotionResult) {
-        case PromotionSuccess(:final commitSha):
-          if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
-          context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
-          context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
-        case PromotionConflict(:final conflictingFiles, :final details):
-          final mergeResolveConfig = definition.gitStrategy?.mergeResolve;
-          if (mergeResolveConfig != null && mergeResolveConfig.enabled) {
-            final resolveResult = await _resolveMergePromotionConflict(
-              run: run,
-              definition: definition,
-              controllerStep: controllerStep,
-              stepIndex: stepIndex,
-              iterIndex: iterIndex,
-              context: context,
-              mapCtx: mapCtx,
-              mapContext: mapContext,
-              promotedIds: promotedIds,
-              storyBranch: storyBranch,
-              integrationBranch: integrationBranch,
-              promotionStrategy: promotionStrategy,
-              storyId: storyId,
-              firstTaskId: firstTaskId,
-              iterTokens: iterTokens,
-              initialConflictingFiles: conflictingFiles,
-              initialConflictDetails: details,
-              projectId: projectId,
-              config: mergeResolveConfig,
-              controllerMaxParallel: controllerMaxParallel,
-              activeWorkspaceRoot: activeWorkspaceRoot,
-            );
-            if (resolveResult == null) {
-              await failAndReturn('merge-resolve failed', firstTaskId);
-              return;
-            }
-            switch (resolveResult) {
-              case WorkflowGitPromotionSuccess(:final commitSha):
-                if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
-                context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
-                context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
-              case WorkflowGitPromotionSerializeRemaining():
-                // Outer loop detects serializing_iter_index and drains siblings.
-                _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
-                mapCtx.inFlightCount--;
-                return;
-              case WorkflowGitPromotionConflict():
-              case WorkflowGitPromotionError():
-                final conflictMsg =
-                    'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+      var stopAfterPromotion = false;
+      await (runPromotionSpan<void>(
+        lockPromotionSpan: _turnAdapter?.runResolverAttemptUnderLock,
+        projectId: projectIdValue,
+        body: () async {
+          final promotionResult = await callPromote(
+            promote: promote,
+            runId: run.id,
+            projectId: projectIdValue,
+            branch: storyBranch,
+            integrationBranch: integrationBranchValue,
+            strategy: promotionStrategy,
+            storyId: storyId,
+            conflictingFiles: const [],
+            conflictDetails: '',
+            mergeResolveEnabled: definition.gitStrategy?.mergeResolve.enabled == true,
+          );
+          switch (promotionResult) {
+            case PromotionSuccess(:final commitSha):
+              if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
+              context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
+              context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
+            case PromotionConflict(:final conflictingFiles, :final details):
+              final mergeResolveConfig = definition.gitStrategy?.mergeResolve;
+              if (mergeResolveConfig != null && mergeResolveConfig.enabled) {
+                final resolveResult = await _resolveMergePromotionConflict(
+                  run: run,
+                  definition: definition,
+                  controllerStep: controllerStep,
+                  stepIndex: stepIndex,
+                  iterIndex: iterIndex,
+                  context: context,
+                  mapCtx: mapCtx,
+                  mapContext: mapContext,
+                  promotedIds: promotedIds,
+                  storyBranch: storyBranch,
+                  integrationBranch: integrationBranchValue,
+                  promotionStrategy: promotionStrategy,
+                  storyId: storyId,
+                  firstTaskId: firstTaskId,
+                  iterTokens: iterTokens,
+                  initialConflictingFiles: conflictingFiles,
+                  initialConflictDetails: details,
+                  projectId: projectIdValue,
+                  config: mergeResolveConfig,
+                  controllerMaxParallel: controllerMaxParallel,
+                  activeWorkspaceRoot: activeWorkspaceRoot,
+                  onFirstTaskCreated: recordFirstTaskId,
+                );
+                if (resolveResult == null) {
+                  await failAndReturn('merge-resolve failed', firstTaskId);
+                  stopAfterPromotion = true;
+                  return;
+                }
+                switch (resolveResult) {
+                  case WorkflowGitPromotionSuccess(:final commitSha):
+                    if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
+                    context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
+                    context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
+                  case WorkflowGitPromotionSerializeRemaining():
+                    // Outer loop detects the typed serialize state and lets siblings settle.
+                    // Re-queue first so this iteration stays visible after it leaves
+                    // `inFlight` (BPC: distinct concurrent exhausted iters).
+                    requeueSerializeExhausted(iterIndex);
+                    _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
+                    mapCtx.inFlightCount--;
+                    stopAfterPromotion = true;
+                    return;
+                  case WorkflowGitPromotionConflict():
+                  case WorkflowGitPromotionError():
+                    final conflictMsg =
+                        'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+                    context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
+                    context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
+                    await failAndReturn(conflictMsg, firstTaskId);
+                    stopAfterPromotion = true;
+                    return;
+                }
+              } else {
+                // merge-resolve disabled – byte-identical to pre-feature behavior.
                 context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
                 context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
-                await failAndReturn(conflictMsg, firstTaskId);
+                await failAndReturn(
+                  'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}',
+                  firstTaskId,
+                );
+                stopAfterPromotion = true;
                 return;
-            }
-          } else {
-            // merge-resolve disabled – byte-identical to pre-feature behavior.
-            context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
-            context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
-            await failAndReturn(
-              'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}',
-              firstTaskId,
-            );
-            return;
+              }
+            case PromotionError(:final failureMessage):
+              context['${controllerStep.id}[$iterIndex].promotion'] = 'failed';
+              await failAndReturn(failureMessage, firstTaskId);
+              stopAfterPromotion = true;
+              return;
+            case PromotionSerializeRemaining():
+              // Direct promote() never returns this sentinel; only merge-resolve does.
+              requeueSerializeExhausted(iterIndex);
+              _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
+              mapCtx.inFlightCount--;
+              stopAfterPromotion = true;
+              return;
+            case PromotionNotConfigured():
+            case PromotionNoProjectBinding():
+            case PromotionNoBranch():
+            case PromotionNoIntegrationBranch():
+              // These are handled above via explicit guard checks before callPromote.
+              break;
           }
-        case PromotionError(:final failureMessage):
-          context['${controllerStep.id}[$iterIndex].promotion'] = 'failed';
-          await failAndReturn(failureMessage, firstTaskId);
-          return;
-        case PromotionSerializeRemaining():
-          // Direct promote() never returns this sentinel; only merge-resolve does.
-          _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
-          mapCtx.inFlightCount--;
-          return;
-        case PromotionNotConfigured():
-        case PromotionNoProjectBinding():
-        case PromotionNoBranch():
-        case PromotionNoIntegrationBranch():
-          // These are handled above via explicit guard checks before callPromote.
-          break;
-      }
+        },
+      ));
+      if (stopAfterPromotion) return;
     }
     mapCtx.recordResult(iterIndex, iterResult);
     await persistProgress();
@@ -842,44 +1025,6 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-  }
-
-  void _restoreForeachProgress(
-    MapStepContext mapCtx,
-    Set<String> completedIds,
-    WorkflowExecutionCursor? cursor, {
-    required int collectionLength,
-  }) {
-    if (cursor == null || cursor.nodeType != WorkflowExecutionCursorNodeType.foreach) return;
-    final safeResultSlots = cursor.resultSlots.isEmpty
-        ? List<dynamic>.filled(collectionLength, null)
-        : List<dynamic>.from(cursor.resultSlots);
-    if (safeResultSlots.length < collectionLength) {
-      safeResultSlots.addAll(List<dynamic>.filled(collectionLength - safeResultSlots.length, null));
-    } else if (safeResultSlots.length > collectionLength) {
-      safeResultSlots.removeRange(collectionLength, safeResultSlots.length);
-    }
-    final failed = cursor.failedIndices.toSet();
-    final cancelled = cursor.cancelledIndices.toSet();
-    for (final index in cursor.completedIndices) {
-      if (index < 0 || index >= collectionLength) continue;
-      final slotValue = safeResultSlots[index];
-      if (cancelled.contains(index)) {
-        mapCtx.recordCancelled(index, _restoredMapCancellationMessage(slotValue));
-      } else if (failed.contains(index)) {
-        final restoredFailure = _restoredMapFailureMessage(slotValue);
-        if (restoredFailure.startsWith('promotion-conflict')) {
-          continue; // Leave unsettled so resume can re-attempt promotion.
-        }
-        mapCtx.recordFailure(index, restoredFailure, _restoredMapTaskId(slotValue));
-      } else {
-        mapCtx.recordResult(index, slotValue);
-      }
-      final itemId = mapCtx.itemId(index);
-      if (itemId != null) {
-        completedIds.add(itemId);
-      }
-    }
   }
 
   Future<void> _persistForeachProgress(
@@ -919,13 +1064,134 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       },
       updatedAt: DateTime.now(),
     );
+    // Inverse flush order to map (context before run row) is intentional and
+    // crash-recovery-safe: resume rehydrates from the same run cursor + context
+    // snapshot regardless of which write lands first.
     await _persistContext(run.id, context);
     await _repository.update(updatedRun);
   }
 }
 
-bool _hasPriorForeachFailures(MapStepContext mapCtx, int currentIndex) =>
-    mapCtx.failedIndices.any((index) => index != currentIndex);
+/// Builds a pause reason when a still-open (pending) foreach item depends on an
+/// item that settled blocked or hard-failed; returns null when no such hold exists.
+///
+/// Implements the dependency-aware pause: an open dependent of a blocked or
+/// hard-failed prerequisite can force a human checkpoint rather than silently
+/// cancelling. Promotion-conflict/-failure indices are excluded – those carry
+/// their own resume-cursor recovery path and must not be collapsed into a pause.
+String? _foreachDependencyHold(
+  DependencyGraph depGraph,
+  MapStepContext mapCtx,
+  Iterable<int> pending, {
+  bool includeFailures = true,
+}) {
+  bool isPromotionFailure(int index) {
+    final slot = mapCtx.results[index];
+    final message = slot is Map ? slot['message'] as String? : null;
+    if (message == null) return false;
+    return message.startsWith('promotion-conflict') || message.startsWith('promotion failed:');
+  }
+
+  bool blockedRequiresDependencyHold(int index) {
+    if (includeFailures) return true;
+    final slot = mapCtx.results[index];
+    return slot is Map && slot[MapStepContext.requiresDependencyHoldKey] == true;
+  }
+
+  final settledIds = <String>{};
+  final candidateIndices = {
+    for (final index in mapCtx.blockedIndices)
+      if (blockedRequiresDependencyHold(index)) index,
+    if (includeFailures) ...mapCtx.failedIndices,
+  };
+  for (final index in candidateIndices) {
+    if (mapCtx.failedIndices.contains(index) && isPromotionFailure(index)) continue;
+    final id = depGraph.idAt(index);
+    if (id != null) settledIds.add(id);
+  }
+  if (settledIds.isEmpty) return null;
+  for (final dependentIndex in pending) {
+    for (final blockerId in settledIds) {
+      if (!depGraph.dependentIndicesOf(blockerId).contains(dependentIndex)) continue;
+      final dependentId = depGraph.idAt(dependentIndex) ?? 'item #$dependentIndex';
+      final blockerIndex = depGraph.indexOfId(blockerId);
+      final state = blockerIndex != null && mapCtx.blockedIndices.contains(blockerIndex) ? 'blocked' : 'failed';
+      final blockerDetail = blockerIndex == null ? null : _foreachBlockerDetail(mapCtx.results[blockerIndex]);
+      // Resume guidance must match restore semantics: a blocked item stays
+      // pending (resume re-runs it); a failed item is restored as settled and
+      // is never re-dispatched, so resume would re-pause on the same hold.
+      final resumeGuidance = state == 'blocked'
+          ? 'On resume the blocked story re-runs its full pipeline from scratch in a fresh worktree – '
+                'land manual fixes on the integration branch or in the spec, not on the abandoned story branch.'
+          : 'Resume does not re-run a failed story – cancel this run and start a fresh one after resolving '
+                'the failure.';
+      return "Story '$blockerId' settled $state; dependent story '$dependentId' cannot proceed. "
+          "${blockerDetail == null ? '' : 'Blocker detail (step-reported): $blockerDetail. '}"
+          '$resumeGuidance';
+    }
+  }
+  return null;
+}
+
+/// Builds a pause reason when a foreach item settled blocked carrying the
+/// escalation marker (`MapStepContext.requiresDependencyHoldKey`, written by a
+/// nested loop exhausting under `onMaxIterations: escalate`); returns null when
+/// no escalation-marked blocked item exists.
+///
+/// Unlike [_foreachDependencyHold] this does not require an open dependent: an
+/// escalated exhaustion is an explicit "a human must look" signal, so a leaf or
+/// single-story plan holds for review rather than shipping the residual in the
+/// settle digest only. Resume re-runs the still-pending blocked story from
+/// scratch, matching the blocked-story dependency-hold guidance.
+String? _foreachEscalatedHold(MapStepContext mapCtx) {
+  final markedIndices = [
+    for (final index in mapCtx.blockedIndices.toList()..sort())
+      if (mapCtx.results[index] case final Map<dynamic, dynamic> slot
+          when slot[MapStepContext.requiresDependencyHoldKey] == true)
+        index,
+  ];
+  if (markedIndices.isEmpty) return null;
+  final storyIds = [for (final index in markedIndices) mapCtx.itemId(index) ?? 'item #$index'];
+  // First blocker's step-reported detail; a parallel plan can escalate several
+  // leaves at once, so the id list names them all while one detail keeps the
+  // reason bounded.
+  final blockerDetail = _foreachBlockerDetail(mapCtx.results[markedIndices.first]);
+  final subject = storyIds.length == 1
+      ? "Story '${storyIds.single}'"
+      : "Stories ${storyIds.map((id) => "'$id'").join(', ')}";
+  final verb = storyIds.length == 1 ? 'story re-runs its' : 'stories re-run their';
+  return '$subject settled blocked after escalated remediation exhaustion; run paused for review. '
+      "${blockerDetail == null ? '' : 'Blocker detail (step-reported): $blockerDetail. '}"
+      'On resume the blocked $verb full pipeline from scratch in a fresh worktree – '
+      'land manual fixes on the integration branch or in the spec, not on the abandoned story branch.';
+}
+
+String? _foreachBlockerDetail(dynamic resultSlot) {
+  if (resultSlot is! Map) return null;
+  final message = resultSlot['message'];
+  if (message is! String) return null;
+  final trimmed = message.trim();
+  if (trimmed.isEmpty) return null;
+  final detail = trimmed.startsWith('blocked: ') ? trimmed.substring('blocked: '.length) : trimmed;
+  return _sanitizeAgentReportedText(detail);
+}
+
+/// Flattens and bounds agent-reported text before embedding it in an
+/// operator-facing reason: ANSI/CSI escape sequences are removed, whitespace
+/// collapses to single spaces, any remaining control characters – including
+/// the C1 range (U+0080–U+009F, single-code-point CSI/OSC introducers some
+/// terminals honor) – are stripped, and the value is truncated. Agent output
+/// is untrusted; the surrounding engine-built sentence must stay
+/// authoritative.
+String _sanitizeAgentReportedText(String value, {int maxLength = 300}) {
+  final flattened = value
+      .replaceAll(RegExp(r'\x1B\[[0-9;]*[A-Za-z]'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '')
+      .trim();
+  if (flattened.length <= maxLength) return flattened;
+  return '${flattened.substring(0, maxLength)}…';
+}
 
 Set<String> _completedForeachSubStepIds(WorkflowContext context, String stepId, int iterIndex) {
   final byIndex = _completedForeachSubStepsByIndex(context, stepId);
@@ -969,8 +1235,6 @@ void _restoreCompletedForeachSubStep(
     final restoredKey = entry.key.substring(prefix.length);
     if (_isForeachSubStepContextMetadataKey(restoredKey)) {
       target['$childStepId.$restoredKey'] = entry.value;
-    } else if (restoredKey.startsWith('$childStepId.')) {
-      target[restoredKey] = entry.value;
     } else {
       target[restoredKey] = entry.value;
     }
@@ -990,15 +1254,11 @@ Map<String, dynamic> _restoredForeachSubStepOutputs(WorkflowContext source, Work
   };
 }
 
-bool _isForeachSubStepMetadataKey(String key) =>
-    key == 'status' ||
-    key == 'tokenCount' ||
-    key == 'sessionId' ||
-    key == 'providerSessionId' ||
-    key.endsWith('.providerSessionId');
-
 bool _isForeachSubStepContextMetadataKey(String key) =>
     key == 'status' || key == 'tokenCount' || key == 'sessionId' || key == 'providerSessionId';
+
+bool _isForeachSubStepMetadataKey(String key) =>
+    _isForeachSubStepContextMetadataKey(key) || key.endsWith('.providerSessionId');
 
 void _persistForeachSubStepSessionKeys(
   WorkflowContext target,

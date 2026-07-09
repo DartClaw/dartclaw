@@ -46,7 +46,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
   void _validateAggregateReviewsConstraints(WorkflowDefinition definition, List<ValidationError> errors) {
     final requiredAggregatorOutputs = <String, (OutputFormat, bool Function(String?))>{
-      'review_findings': (OutputFormat.path, isReviewReportPathPreset),
+      'review_report_path': (OutputFormat.path, isReviewReportPathPreset),
       'findings_count': (OutputFormat.json, _isFindingsCountPreset),
       'gating_findings_count': (OutputFormat.json, _isGatingFindingsCountPreset),
     };
@@ -152,7 +152,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         _contextErr(
           step.id,
           'Aggregate-reviews step "${step.id}" outputs must declare exactly '
-          '{review_findings, findings_count, gating_findings_count}.',
+          '{review_report_path, findings_count, gating_findings_count}.',
         ),
       );
       return;
@@ -276,17 +276,6 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         );
       }
 
-      if (step.onError case final onError? when onError != 'pause' && onError != 'continue' && onError != 'fail') {
-        warnings.add(
-          _err(
-            ValidationErrorType.hybridStepConstraint,
-            'Step "${step.id}" uses unsupported onError value "$onError". '
-            'Supported values are "pause", "continue", and legacy "fail". '
-            'Unknown values currently behave like "pause".',
-            stepId: step.id,
-          ),
-        );
-      }
       // continueSession validation.
       if (step.continueSession != null) {
         final stepIndex = definition.steps.indexWhere((s) => s.id == step.id);

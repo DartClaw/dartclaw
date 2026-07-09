@@ -1,7 +1,9 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show OutputConfig, OutputFormat, PromptAugmenter, SkillPromptBuilder, WorkflowStep;
+    show OutputConfig, OutputFormat, OutputMode, PromptAugmenter, SkillPromptBuilder, WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart'
+    show buildExecutionEnvelopeSchema, buildFinalizerPrompt, modelDerivedFinalizerKeys;
 import 'package:test/test.dart';
 
 void main() {
@@ -281,15 +283,15 @@ void main() {
 
     test('description from outputConfigs rendered between header and value', () {
       final result = SkillPromptBuilder.formatContextSummary(
-        {'story_plan': 'stories-here'},
+        {'story_specs': 'stories-here'},
         outputConfigs: {
-          'story_plan': const OutputConfig(
+          'story_specs': const OutputConfig(
             format: OutputFormat.json,
             description: 'Ordered list of implementation stories.',
           ),
         },
       );
-      expect(result, contains('## Story Plan'));
+      expect(result, contains('## Story Specs'));
       expect(result, contains('Ordered list of implementation stories.'));
       expect(result, endsWith('stories-here'));
     });
@@ -340,12 +342,12 @@ void main() {
 
     test('whitespace-only inline description falls back to preset description', () {
       final result = SkillPromptBuilder.formatContextSummary(
-        {'story_result': 'r'},
+        {'diff_summary': 'd'},
         outputConfigs: {
-          'story_result': const OutputConfig(format: OutputFormat.text, schema: 'story_result', description: '   '),
+          'diff_summary': const OutputConfig(format: OutputFormat.text, schema: 'diff_summary', description: '   '),
         },
       );
-      expect(result, contains('unrelated sibling or baseline failures are non-blocking'));
+      expect(result, contains('Compact description of file-level changes'));
     });
 
     test('non-string Map value renders via Dart toString (debug format)', () {
@@ -416,7 +418,7 @@ void main() {
     });
 
     test('returns empty map when no step produces any wanted key', () {
-      const step = WorkflowStep(id: 'a', name: 'A', type: WorkflowTaskType.agent);
+      const step = WorkflowStep(id: 'a', name: 'A', taskType: WorkflowTaskType.agent);
       expect(SkillPromptBuilder.collectInputConfigs([step], ['missing']), isEmpty);
     });
 
@@ -424,13 +426,13 @@ void main() {
       const first = WorkflowStep(
         id: 'a',
         name: 'A',
-        type: WorkflowTaskType.agent,
+        taskType: WorkflowTaskType.agent,
         outputs: {'summary': OutputConfig(format: OutputFormat.text, description: 'From A')},
       );
       const second = WorkflowStep(
         id: 'b',
         name: 'B',
-        type: WorkflowTaskType.agent,
+        taskType: WorkflowTaskType.agent,
         outputs: {'summary': OutputConfig(format: OutputFormat.text, description: 'From B')},
       );
       final result = SkillPromptBuilder.collectInputConfigs([first, second], ['summary']);
@@ -441,7 +443,7 @@ void main() {
       const step = WorkflowStep(
         id: 'a',
         name: 'A',
-        type: WorkflowTaskType.agent,
+        taskType: WorkflowTaskType.agent,
         outputs: {'known': OutputConfig(format: OutputFormat.text)},
       );
       final result = SkillPromptBuilder.collectInputConfigs([step], ['known', 'missing']);
@@ -452,7 +454,7 @@ void main() {
       const first = WorkflowStep(
         id: 'a',
         name: 'A',
-        type: WorkflowTaskType.agent,
+        taskType: WorkflowTaskType.agent,
         outputs: {
           'alpha': OutputConfig(format: OutputFormat.text, description: 'A-alpha'),
           'beta': OutputConfig(format: OutputFormat.text, description: 'A-beta'),
@@ -464,12 +466,143 @@ void main() {
       const second = WorkflowStep(
         id: 'b',
         name: 'B',
-        type: WorkflowTaskType.agent,
+        taskType: WorkflowTaskType.agent,
         outputs: {'alpha': OutputConfig(format: OutputFormat.text, description: 'B-alpha')},
       );
       final result = SkillPromptBuilder.collectInputConfigs([first, second], ['alpha', 'beta']);
       expect(result['alpha']?.description, 'A-alpha');
       expect(result['beta']?.description, 'A-beta');
+    });
+  });
+
+  group('finalizer output contract (TI05)', () {
+    const reviewStep = WorkflowStep(
+      id: 'plan-review',
+      name: 'Plan Review',
+      taskType: WorkflowTaskType.agent,
+      prompts: ['Review the plan'],
+      outputs: {
+        'review_report_path': OutputConfig(
+          format: OutputFormat.path,
+          description: 'Absolute review report path under the workflow runtime artifacts directory.',
+        ),
+        'verdict': OutputConfig(format: OutputFormat.json, schema: 'verdict', outputMode: OutputMode.structured),
+      },
+    );
+
+    test('all-covered finalizer skill prompt omits the output-contract and step-outcome sections', () {
+      final result = builder.build(
+        skill: 'dartclaw-review',
+        resolvedPrompt: 'Review this.',
+        outputs: reviewStep.outputs,
+        outputKeys: const ['review_report_path', 'verdict'],
+        finalizerCoveredKeys: const ['review_report_path', 'verdict'],
+      );
+
+      expect(result, "Use the 'dartclaw-review' skill.\n\nReview this.");
+      expect(result, isNot(contains('## Workflow Output Contract')));
+      expect(result, isNot(contains('## Step Outcome Protocol')));
+      expect(result, isNot(contains('## Required Output Format')));
+      expect(result, isNot(contains('## Review Finding Scoring')));
+    });
+
+    test('non-finalizer path renders every declared key; finalizer path excludes exactly the covered set', () {
+      const mixedStep = WorkflowStep(
+        id: 'detect-spec-input',
+        name: 'Detect Spec Input',
+        taskType: WorkflowTaskType.agent,
+        prompts: ['Classify the input'],
+        outputs: {
+          'spec_path': OutputConfig(format: OutputFormat.path),
+          'spec_source': OutputConfig(format: OutputFormat.text, schema: 'narrative_text'),
+          // JSON + schema parses to structured mode (the raw constructor would
+          // otherwise default to prompt and read as an opt-out).
+          'spec_confidence': OutputConfig(
+            format: OutputFormat.json,
+            schema: 'non_negative_integer',
+            outputMode: OutputMode.structured,
+          ),
+        },
+      );
+      const outputKeys = ['spec_path', 'spec_source', 'spec_confidence'];
+
+      final nonFinalizer = builder.build(
+        skill: 'dartclaw-discover-andthen-spec',
+        resolvedPrompt: 'Classify.',
+        outputs: mixedStep.outputs,
+        outputKeys: outputKeys,
+      );
+      expect(nonFinalizer, contains('"spec_path"'));
+      expect(nonFinalizer, contains('"spec_source"'));
+      expect(nonFinalizer, contains('"spec_confidence"'));
+
+      final finalizer = builder.build(
+        skill: 'dartclaw-discover-andthen-spec',
+        resolvedPrompt: 'Classify.',
+        outputs: mixedStep.outputs,
+        outputKeys: outputKeys,
+        finalizerCoveredKeys: modelDerivedFinalizerKeys(mixedStep, mixedStep.outputs),
+      );
+      // Only spec_source survives — spec_path (filesystem) and spec_confidence
+      // (narrative preset) are envelope-covered.
+      expect(modelDerivedFinalizerKeys(mixedStep, mixedStep.outputs), ['spec_path', 'spec_confidence']);
+      expect(finalizer, contains('"spec_source"'));
+      expect(finalizer, isNot(contains('"spec_path"')));
+      expect(finalizer, isNot(contains('"spec_confidence"')));
+    });
+
+    test('opt-out and schema-less JSON outputs stay out of the derived covered set and keep their contract', () {
+      // Every key the envelope cannot or must not claim keeps its main-prompt
+      // instruction channel: an explicit `outputMode: prompt` opt-out and a
+      // schema-less `format: json` output (no envelope representation).
+      final step = WorkflowStep(
+        id: 'mixed-with-uncoverables',
+        name: 'Mixed With Uncoverables',
+        taskType: WorkflowTaskType.agent,
+        prompts: const ['Produce the outputs'],
+        outputs: {
+          'spec_path': const OutputConfig(format: OutputFormat.path),
+          'opt_out': OutputConfig(
+            format: OutputFormat.json,
+            schema: const {
+              'type': 'object',
+              'required': ['note'],
+              'properties': {
+                'note': {'type': 'string'},
+              },
+            },
+            outputMode: OutputMode.prompt,
+          ),
+          'raw_blob': const OutputConfig(format: OutputFormat.json),
+        },
+      );
+
+      final covered = modelDerivedFinalizerKeys(step, step.outputs);
+      expect(covered, ['spec_path']);
+      final envelope = buildExecutionEnvelopeSchema(step, step.outputs)!;
+      final outputsSchema = envelope['properties']['outputs'] as Map<String, dynamic>;
+      expect(outputsSchema['required'], ['spec_path']);
+
+      final prompt = builder.build(
+        skill: 'dartclaw-discover-andthen-spec',
+        resolvedPrompt: 'Produce.',
+        outputs: step.outputs,
+        outputKeys: const ['spec_path', 'opt_out', 'raw_blob'],
+        finalizerCoveredKeys: covered,
+      );
+      expect(prompt, contains('"opt_out"'));
+      expect(prompt, contains('"raw_blob"'));
+      expect(prompt, isNot(contains('"spec_path"')));
+    });
+
+    test('finalizer prompt for a review step carries field descriptions and the scoring rule', () {
+      final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs, gatingSeverity: 'critical')!;
+      final finalizerPrompt = buildFinalizerPrompt(schema);
+
+      expect(finalizerPrompt, contains('## Declared Outputs'));
+      expect(finalizerPrompt, contains('Absolute review report path under the workflow runtime artifacts directory.'));
+      expect(finalizerPrompt, contains('Review Finding Scoring'));
+      expect(finalizerPrompt, contains('at or above `critical`'));
     });
   });
 }

@@ -50,7 +50,8 @@ void main() {
       processRunner: _successfulProcessResult,
     );
     taskFileGuard = TaskFileGuard();
-    mergeExecutor = MergeExecutor(projectDir: tempDir.path, processRunner: _successfulProcessResult);
+    final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
+    mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
     agentObserver = AgentObserver(
       pool: HarnessPool(
         runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
@@ -252,7 +253,8 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config) {
     processRunner: _successfulProcessResult,
   );
   final taskFileGuard = TaskFileGuard();
-  final mergeExecutor = MergeExecutor(projectDir: tempDir.path, processRunner: _successfulProcessResult);
+  final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
+  final mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
   final agentObserver = AgentObserver(
     pool: HarnessPool(
       runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],

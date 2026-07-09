@@ -82,7 +82,7 @@ steps:
   - id: review-findings
     skill: dartclaw-review
     outputs:
-      review_findings:
+      verdict:
         format: json
         schema: verdict
 

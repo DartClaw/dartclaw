@@ -58,6 +58,9 @@ void main() {
       expect(yaml['agent']['provider'], 'claude');
       expect(yaml['agent']['model'], 'sonnet');
       expect(yaml['data_dir'], tempDir.path);
+      expect(yaml['governance']['turn_progress']['stall_timeout'], '300s');
+      expect(yaml['governance']['turn_progress']['stall_action'], 'cancel');
+      expect(yaml['governance']['turn_progress']['max_duration'], '1800s');
     });
 
     test('workflow track keeps data_dir relative to the config folder', () async {
@@ -351,7 +354,7 @@ New preference
       final raw = File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync();
       expect(raw, startsWith('# DartClaw — standalone workflow config'));
       expect(raw, contains('dartclaw workflow run --standalone <name>'));
-      expect(raw, contains('Drop custom workflow YAMLs in ./.dartclaw/workflows/'));
+      expect(raw, contains('Drop custom workflow YAMLs in ./.dartclaw/workflows/custom/'));
       // Block style, not a single-line flow map.
       expect(raw, contains('\nagent:\n'));
       expect(raw, contains('\n  provider: claude'));
@@ -367,7 +370,7 @@ New preference
       expect(yaml['gateway'], isNull);
       expect(
         File(p.join(tempDir.path, '.gitignore')).readAsStringSync(),
-        '*\n!.gitignore\n!dartclaw.yaml\n!workflows/\n!workflows/**\nworkflows/built-in/\nworkflows/runs/\n',
+        '*\n!.gitignore\n!dartclaw.yaml\n!workflows/\n!workflows/**\nworkflows/**/.DS_Store\nworkflows/built-in/\nworkflows/runs/\n',
       );
       expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isFalse);
       expect(File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).existsSync(), isFalse);

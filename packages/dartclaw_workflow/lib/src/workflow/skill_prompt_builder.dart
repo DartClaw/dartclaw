@@ -2,6 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'workflow_definition.dart' show OutputConfig, WorkflowStep;
 
 import 'prompt_augmenter.dart';
+import 'review_scoring_fragment.dart';
 
 /// Builds the effective agent prompt for a skill-aware workflow step.
 ///
@@ -46,12 +47,14 @@ class SkillPromptBuilder {
     List<String> outputKeys = const [],
     List<String>? outputExamples,
     bool emitStepOutcomeProtocol = false,
+    List<String> finalizerCoveredKeys = const [],
     bool autoFrameContext = true,
     List<String> inputs = const [],
     List<String> variables = const [],
     Map<String, Object?> resolvedInputValues = const {},
     String? templatePrompt,
     String? provider,
+    String? gatingSeverity,
   }) {
     final String prompt;
     var caseUsedSummary = false;
@@ -103,6 +106,8 @@ class SkillPromptBuilder {
       outputKeys: outputKeys,
       outputExamples: outputExamples,
       emitStepOutcomeProtocol: emitStepOutcomeProtocol,
+      finalizerCoveredKeys: finalizerCoveredKeys,
+      gatingSeverity: gatingSeverity ?? defaultGatingSeverity,
     );
   }
 
@@ -146,9 +151,9 @@ class SkillPromptBuilder {
       final tagName = key.replaceAll('.', '_');
 
       // Detection A: tag already present – require a proper tag boundary
-      // (`>`, whitespace, or `/>` for self-closing) so `<prd>` doesn't
-      // suppress auto-injection when the prompt mentions `<prdfoo>` or
-      // `<prd-review>` elsewhere.
+      // (`>`, whitespace, or `/>` for self-closing) so `<spec>` doesn't
+      // suppress auto-injection when the prompt mentions `<specfoo>` or
+      // `<spec-review>` elsewhere.
       if (_tagBoundaryRegExp(tagName).hasMatch(prompt)) return;
 
       // Detection B: template references the value inline. Uses a
@@ -183,9 +188,9 @@ class SkillPromptBuilder {
   }
 
   /// Regex matching `<tag>`, `<tag ...>`, or `<tag/>` with a proper tag
-  /// boundary so prefix collisions (`<prdfoo>` when looking for `<prd>`)
+  /// boundary so prefix collisions (`<specfoo>` when looking for `<spec>`)
   /// don't accidentally suppress auto-injection. Case-sensitive – matches
-  /// the FIS Detection A contract.
+  /// the Detection A contract.
   static RegExp _tagBoundaryRegExp(String tagName) => RegExp('<${RegExp.escape(tagName)}(?:[\\s/>])');
 
   /// Regex matching `{{ name }}` with optional internal whitespace, matching

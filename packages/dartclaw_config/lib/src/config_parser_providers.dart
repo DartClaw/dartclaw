@@ -118,6 +118,8 @@ ProvidersConfig _parseProviders(
       options[ClaudeProviderOptions.inheritUserSettingsKey] = ClaudeProviderOptions.normalizeInheritUserSettings(
         inheritUserSettingsRaw,
       );
+      _validateClaudeApproval(providerId, options, warns);
+      _validateClaudeSandbox(providerId, options, warns);
     }
 
     entries[providerId] = ProviderEntry(
@@ -128,6 +130,47 @@ ProvidersConfig _parseProviders(
   }
 
   return ProvidersConfig(entries: entries);
+}
+
+/// Validates the Claude `approval` provider option in place: an unrecognised
+/// value warns and is dropped so the run keeps the current allow-list default.
+/// A valid `approval: never` emits a loud security warning — on the one-shot CLI
+/// path it removes all tool gating (no hooks, no allow-list), so off-container it
+/// leaves no containment at all.
+void _validateClaudeApproval(String providerId, Map<String, dynamic> options, List<String> warns) {
+  final raw = options[ClaudeProviderOptions.approvalKey];
+  if (raw == null) return;
+  if (raw is! String || !ClaudeProviderOptions.approvalValues.contains(raw)) {
+    warns.add(
+      'Invalid value for providers.$providerId.approval: "$raw" — ignoring '
+      '(accepted: ${ClaudeProviderOptions.approvalValues.join(', ')})',
+    );
+    options.remove(ClaudeProviderOptions.approvalKey);
+    return;
+  }
+  if (raw == 'never') {
+    warns.add(
+      'providers.$providerId.approval is "never" — this opts Claude one-shot runs into FULL ACCESS: '
+      'no tool prompt gating and no static allow-list. The one-shot path has no hooks, so off-container '
+      '(host path) this grants unrestricted filesystem access. Use only for fully trusted runs.',
+    );
+  }
+}
+
+/// Validates the Claude `sandbox` provider option in place. A map value is a raw
+/// native Claude settings block and passes through untouched; a string value
+/// must be one of the coarse parity values, else it warns and is dropped. Other
+/// types warn and are dropped.
+void _validateClaudeSandbox(String providerId, Map<String, dynamic> options, List<String> warns) {
+  final raw = options[ClaudeProviderOptions.sandboxKey];
+  if (raw == null || raw is Map) return;
+  if (raw is! String || !ClaudeProviderOptions.sandboxValues.contains(raw)) {
+    warns.add(
+      'Invalid value for providers.$providerId.sandbox: "$raw" — ignoring '
+      '(accepted: ${ClaudeProviderOptions.sandboxValues.join(', ')}, or a raw settings map)',
+    );
+    options.remove(ClaudeProviderOptions.sandboxKey);
+  }
 }
 
 McpServersConfig _parseMcpServers(

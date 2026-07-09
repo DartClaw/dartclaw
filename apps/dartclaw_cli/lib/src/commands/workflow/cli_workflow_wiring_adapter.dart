@@ -16,7 +16,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(CliWorkflowWiring w, _CliWorkflowW
         final requested = variables['BRANCH']?.trim();
         if (requested != null && requested.isNotEmpty) {
           final safeRequested = normalizeGitRefOperand(requested, label: 'workflow BRANCH');
-          final exists = await _localRefExists(workflowProjectDir, safeRequested);
+          final exists = await workflowLocalRefExists(workflowProjectDir, safeRequested);
           if (!exists) {
             throw ArgumentError('Ref "$safeRequested" not found in project repository');
           }
@@ -30,7 +30,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(CliWorkflowWiring w, _CliWorkflowW
       if (resolvedProject != null) {
         await ensureWorkflowProjectReady(
           project: resolvedProject,
-          publishEnabled: definition.gitStrategy?.publish?.enabled == true,
+          publishEnabled: definition.gitStrategy?.publish == true,
           allowDirty: allowDirtyLocalPath,
           hasExplicitBranch: (variables['BRANCH']?.trim().isNotEmpty ?? false),
         );
@@ -47,10 +47,8 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(CliWorkflowWiring w, _CliWorkflowW
           : ((baseRef.trim().isNotEmpty)
                 ? normalizeGitRefOperand(baseRef, label: 'workflow base ref')
                 : (await _resolveSymbolicHeadBranch(await _resolveWorkflowProjectDir(w, projectId)) ?? 'main'));
-      final integrationBranch = perMapItem
-          ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
-          : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
-      await _ensureLocalBranch(
+      final integrationBranch = resolveIntegrationBranchName(runId, perMapItem: perMapItem);
+      await ensureWorkflowLocalBranch(
         projectDir: await _resolveWorkflowProjectDir(w, projectId),
         branch: integrationBranch,
         baseRef: effectiveBaseRef,

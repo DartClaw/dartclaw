@@ -1,8 +1,5 @@
 /// Declares where a workflow output should be resolved from.
 sealed class OutputResolver {
-  /// Whether this resolver reads from authoritative ground truth.
-  bool get authoritative;
-
   const OutputResolver();
 
   /// Serializes the resolver for tests and future DSL metadata.
@@ -14,9 +11,10 @@ sealed class OutputResolver {
       'filesystem' => FileSystemOutput(
         pathPattern: json['pathPattern'] as String? ?? '**/*',
         listMode: json['listMode'] as bool? ?? false,
+        preferPatterns: (json['preferPatterns'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       ),
       'inline' => InlineOutput(schemaKey: json['schemaKey'] as String? ?? ''),
-      'narrative' => NarrativeOutput(schemaKey: json['schemaKey'] as String? ?? ''),
+      'narrative' => InlineOutput(schemaKey: json['schemaKey'] as String? ?? ''),
       final kind => throw FormatException('Unknown output resolver kind "$kind"'),
     };
   }
@@ -30,16 +28,27 @@ final class FileSystemOutput extends OutputResolver {
   /// Whether the output expects multiple matching paths.
   final bool listMode;
 
-  @override
-  bool get authoritative => true;
+  /// Ordered basename preferences that pick a single winner when the worktree
+  /// diff yields multiple matches for a non-list output.
+  ///
+  /// Each entry is a bare basename compared case-insensitively; the first entry
+  /// with exactly one matching candidate wins. Empty means no preference (a
+  /// multi-match then surfaces as an ambiguity failure). This is the generic,
+  /// declarative replacement for hard-coded framework basenames in the engine.
+  final List<String> preferPatterns;
 
-  const FileSystemOutput({required this.pathPattern, required this.listMode});
+  const FileSystemOutput({required this.pathPattern, required this.listMode, this.preferPatterns = const []});
 
   /// Returns true when [path] matches [pathPattern].
   bool matches(String path) => _globMatches(pathPattern, path);
 
   @override
-  Map<String, Object?> toJson() => {'kind': 'filesystem', 'pathPattern': pathPattern, 'listMode': listMode};
+  Map<String, Object?> toJson() => {
+    'kind': 'filesystem',
+    'pathPattern': pathPattern,
+    'listMode': listMode,
+    if (preferPatterns.isNotEmpty) 'preferPatterns': preferPatterns,
+  };
 }
 
 /// Resolves non-path outputs directly from the inline workflow-context payload.
@@ -47,27 +56,10 @@ final class InlineOutput extends OutputResolver {
   /// Output field name this resolver belongs to.
   final String schemaKey;
 
-  @override
-  bool get authoritative => false;
-
   const InlineOutput({required this.schemaKey});
 
   @override
   Map<String, Object?> toJson() => {'kind': 'inline', 'schemaKey': schemaKey};
-}
-
-/// Resolves narrative outputs from inline payload first, then extraction turn.
-final class NarrativeOutput extends OutputResolver {
-  /// Output field name this resolver belongs to.
-  final String schemaKey;
-
-  @override
-  bool get authoritative => false;
-
-  const NarrativeOutput({required this.schemaKey});
-
-  @override
-  Map<String, Object?> toJson() => {'kind': 'narrative', 'schemaKey': schemaKey};
 }
 
 bool _globMatches(String pattern, String path) {

@@ -362,7 +362,10 @@ a:hover { text-decoration: underline; }
 }
 
 @media (max-width: 768px) {
-  .topbar .menu-toggle { display: block; }
+  /* Keep the toggle clickable above the open sidebar drawer (z-index 20) and
+     scrim (15) — the topbar is not a stacking context, so a positioned toggle
+     competes with the fixed sidebar in the root context. */
+  .topbar .menu-toggle { display: block; position: relative; z-index: 30; }
 }
 
 .topbar .session-title {
@@ -3989,6 +3992,14 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* Why-paused banner (reuses .banner + .banner-warning/.banner-info) sits inside
+   the page flow, so soften the full-width top-banner treatment. */
+.workflow-pause-banner {
+  margin-bottom: var(--sp-4);
+  border: var(--border);
+  border-radius: var(--radius);
 }
 
 /* Progress bar */

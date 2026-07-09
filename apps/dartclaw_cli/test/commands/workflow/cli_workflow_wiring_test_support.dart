@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowCliProcessStarter;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -113,15 +114,16 @@ final class CliWorkflowWiringFixture {
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
-    bool runAndthenSkillsBootstrap = false,
+    bool runWorkflowSkillsBootstrap = false,
     bool autoDispose = true,
     Map<String, String>? environment,
     ProcessRunner? skillProvisionerProcessRunner,
+    WorkflowCliProcessStarter? workflowCliProcessStarter,
   }) {
     final wired = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
-      runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
+      runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
       environment: environment ?? {'HOME': p.join(tempDir.path, 'fake-home')},
       runtimeCwd: runtimeCwd,
       harnessFactory: harnessFactory ?? harnessFactoryFor(() => FakeAgentHarness()),
@@ -132,6 +134,7 @@ final class CliWorkflowWiringFixture {
       // real provider CLI; tests that exercise the gate inject their own.
       providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
       skillProvisionerProcessRunner: skillProvisionerProcessRunner,
+      workflowCliProcessStarter: workflowCliProcessStarter,
     );
     if (autoDispose) {
       addTearDown(wired.dispose);
@@ -144,13 +147,20 @@ final class CliWorkflowWiringFixture {
     DartclawConfig config, {
     String? runtimeCwd,
     HarnessFactory? harnessFactory,
+    WorkflowCliProcessStarter? workflowCliProcessStarter,
     required Future<T> Function(CliWorkflowWiring wiring) body,
   }) async {
     final savedCwd = Directory.current;
     Directory.current = currentDirectory;
     CliWorkflowWiring? wired;
     try {
-      wired = wiring(config, runtimeCwd: runtimeCwd, harnessFactory: harnessFactory, autoDispose: false);
+      wired = wiring(
+        config,
+        runtimeCwd: runtimeCwd,
+        harnessFactory: harnessFactory,
+        workflowCliProcessStarter: workflowCliProcessStarter,
+        autoDispose: false,
+      );
       await wired.wire();
       return await body(wired);
     } finally {

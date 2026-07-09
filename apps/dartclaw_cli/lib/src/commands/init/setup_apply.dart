@@ -22,7 +22,7 @@ class SetupApply {
       '# Minimal subset of the full DartClaw config: no HTTP server, channels, or\n'
       '# container. Runs workflows in-process, no server required:\n'
       '#   dartclaw workflow run --standalone <name>\n'
-      '# Drop custom workflow YAMLs in ./.dartclaw/workflows/ to run them by name.\n';
+      '# Drop custom workflow YAMLs in ./.dartclaw/workflows/custom/ to run them by name.\n';
 
   // Commit the config and any custom workflow YAMLs; ignore runtime state
   // (local DB, sessions, logs, worktrees) and materialized built-in workflows.
@@ -35,6 +35,7 @@ class SetupApply {
       '!dartclaw.yaml\n'
       '!workflows/\n'
       '!workflows/**\n'
+      'workflows/**/.DS_Store\n'
       'workflows/built-in/\n'
       'workflows/runs/\n';
 
@@ -96,6 +97,9 @@ class SetupApply {
     } else {
       _remove(editor, ['agent', 'model']);
     }
+    _set(editor, ['governance', 'turn_progress', 'stall_timeout'], '300s');
+    _set(editor, ['governance', 'turn_progress', 'stall_action'], 'cancel');
+    _set(editor, ['governance', 'turn_progress', 'max_duration'], '1800s');
     for (final providerId in const ['claude', 'codex']) {
       final selected = state.providers.contains(providerId);
       if (!selected) {

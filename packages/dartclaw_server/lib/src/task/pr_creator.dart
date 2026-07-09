@@ -66,7 +66,15 @@ class PrCreator {
        _apiRunner = apiRunner;
 
   /// Creates a GitHub PR for the given [branch].
-  Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async {
+  ///
+  /// [notes] is an optional operator-facing addendum (e.g. unresolved workflow
+  /// items) appended to the PR body under its own heading.
+  Future<PrCreationResult> create({
+    required Project project,
+    required Task task,
+    required String branch,
+    String? notes,
+  }) async {
     final auth = describeProjectAuth(project, _credentials);
     if (auth == null || !auth.compatible) {
       return PrCreationFailed(
@@ -105,7 +113,7 @@ class PrCreator {
         headers: headers,
         body: jsonEncode({
           'title': task.title,
-          'body': _buildPrBody(task),
+          'body': _buildPrBody(task, notes: notes),
           'head': branch,
           'base': project.defaultBranch,
           if (project.pr.draft) 'draft': true,
@@ -153,10 +161,16 @@ class PrCreator {
     }
   }
 
-  String _buildPrBody(Task task) {
+  String _buildPrBody(Task task, {String? notes}) {
     final parts = <String>[task.description];
     if (task.acceptanceCriteria != null) {
       parts.add('\n### Acceptance Criteria\n${task.acceptanceCriteria}');
+    }
+    if (notes != null && notes.trim().isNotEmpty) {
+      // Fenced code block: notes carry agent-influenced item ids, and GitHub
+      // interprets @mentions, closes-#N keywords, and links anywhere in a PR
+      // body – a code block neutralizes all three while staying readable.
+      parts.add('\n### Unresolved items\n```\n${notes.trim()}\n```');
     }
     parts.add('\n---\n_Created by DartClaw task ${task.id}_');
     return parts.join('\n');

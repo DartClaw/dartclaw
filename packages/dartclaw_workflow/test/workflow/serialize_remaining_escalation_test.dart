@@ -1,4 +1,4 @@
-// S61 component tests: serialize-remaining escalation — drain, re-queue, event.
+// S61 component tests: serialize-remaining escalation — settle, serial retry, event.
 //
 // Tests cover the seven scenarios from the FIS plus BPC-11/12/13/23/32
 // and the TI01 event class shape.
@@ -28,7 +28,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutor,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
@@ -53,8 +52,14 @@ void main() {
     WorkflowTurnAdapter? turnAdapter,
     WorkflowStepOutputTransformer? outputTransformer,
     required Directory dir,
+    Duration serializeRemainingSettleTimeout = const Duration(seconds: 30),
   }) {
-    return h.makeExecutor(turnAdapter: turnAdapter, outputTransformer: outputTransformer, dataDir: dir.path);
+    return h.makeExecutor(
+      turnAdapter: turnAdapter,
+      outputTransformer: outputTransformer,
+      dataDir: dir.path,
+      serializeRemainingSettleTimeout: serializeRemainingSettleTimeout,
+    );
   }
 
   Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) =>
@@ -68,6 +73,7 @@ void main() {
     required String escalation,
     int maxAttempts = 1,
     int maxParallel = 2,
+    bool secondChild = false,
   }) {
     return WorkflowDefinition(
       name: 'mr-wf',
@@ -77,7 +83,7 @@ void main() {
         integrationBranch: true,
         worktree: const WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
         promotion: 'merge',
-        publish: const WorkflowGitPublishStrategy(enabled: false),
+        publish: false,
         mergeResolve: MergeResolveConfig(
           enabled: true,
           maxAttempts: maxAttempts,
@@ -90,13 +96,14 @@ void main() {
         WorkflowStep(
           id: 'pipeline',
           name: 'Story Pipeline',
-          type: WorkflowTaskType.foreach,
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'stories',
           maxParallel: maxParallel,
-          foreachSteps: const ['implement'],
+          foreachSteps: secondChild ? const ['implement', 'verify'] : const ['implement'],
           outputs: const {'results': OutputConfig()},
         ),
         WorkflowStep(id: 'implement', name: 'Implement Story', prompts: const ['Implement {{map.item.id}}']),
+        if (secondChild) WorkflowStep(id: 'verify', name: 'Verify Story', prompts: const ['Verify {{map.item.id}}']),
       ],
     );
   }
@@ -159,7 +166,7 @@ void main() {
       }
       // Inject branch for coding steps so promotion has a branch to merge.
       final result = Map<String, dynamic>.from(outputs);
-      if (step.type == WorkflowTaskType.agent) {
+      if (step.taskType == WorkflowTaskType.agent) {
         result['${step.id}.branch'] = 'story-branch-${task.id}';
       }
       return result;
@@ -171,7 +178,7 @@ void main() {
   codingWithBranchTransformer() {
     return (run, definition, step, task, outputs) {
       final result = Map<String, dynamic>.from(outputs);
-      if (step.type == WorkflowTaskType.agent) {
+      if (step.taskType == WorkflowTaskType.agent) {
         result['${step.id}.branch'] = 'story-branch-${task.id}';
       }
       return result;
@@ -196,8 +203,8 @@ void main() {
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
       final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
-      // S01 succeeds on promote. S02 conflicts → merge-resolve fails → serialize-remaining.
-      // After re-queue, S02 retries and succeeds.
+      // S01 succeeds on promote. S02 conflicts, merge-resolve fails, then
+      // serialize-remaining requeues S02 at the head for a serial retry.
       final s02PromoteCount = <int>[0];
       final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
@@ -211,8 +218,8 @@ void main() {
             }) async {
               if (storyId == 'S02') {
                 s02PromoteCount[0]++;
-                // First two calls conflict (initial + merge-resolve retry); third succeeds (serial re-run).
-                if (s02PromoteCount[0] <= 2) {
+                // Initial promotion conflicts; the serial re-run succeeds.
+                if (s02PromoteCount[0] == 1) {
                   return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/story.dart'], details: 'conflict');
                 }
               }
@@ -256,11 +263,97 @@ void main() {
       expect(evt.foreachStepId, 'pipeline');
       expect(evt.failingIterationIndex, 1); // S02 is index 1
       expect(evt.failedAttemptNumber, 1);
-      expect(evt.drainedIterationCount, 0); // last-unfinished case
 
       // Workflow must complete (S02 re-run succeeded serially).
       final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('two distinct iterations exhausting merge-resolve are both re-queued; neither is dropped', () async {
+      // Regression: when a second distinct in-flight iteration exhausts
+      // merge-resolve while the first is already `enacting`, it returned the
+      // idempotent serialize sentinel and removed itself from `inFlight` before
+      // the serial queue saw it — so it was neither the typed state's iterIndex
+      // nor in `pending`, and was dropped from the rebuilt serial queue (null
+      // result slot). Every serialize-exhausted iteration must stay queue-visible.
+      final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 3);
+      final run = makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+            {'id': 'S02'},
+            {'id': 'S03'},
+          ],
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      // S01 always succeeds. S02 and S03 both conflict on their first (parallel)
+      // promote, then succeed on the serial re-run after siblings settle.
+      final promoteCounts = <String, int>{};
+      final adapter = standardTurnAdapter(
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              if (storyId == 'S02' || storyId == 'S03') {
+                final attempt = (promoteCounts[storyId!] ?? 0) + 1;
+                promoteCounts[storyId] = attempt;
+                if (attempt == 1) {
+                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/story.dart'], details: 'conflict');
+                }
+              }
+              return WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}');
+            },
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
+      );
+
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: adapter,
+        outputTransformer: codingWithMergeResolveFailTransformer(),
+      );
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(
+        finalRun?.status,
+        equals(WorkflowRunStatus.completed),
+        reason: 'both exhausted iterations must be re-queued and complete',
+      );
+      final results = finalRun?.contextJson['data']?['results'] as List<Object?>?;
+      expect(results, isNotNull);
+      expect(results, hasLength(3), reason: 'all three stories must retain a result slot');
+      expect(
+        results!.every((value) => value != null),
+        isTrue,
+        reason: 'no exhausted iteration may be dropped with a null result slot: $results',
+      );
     });
   });
 
@@ -335,6 +428,14 @@ void main() {
 
       // Only ONE serialization event even though S02 exhausted attempts twice (BPC-11).
       expect(serializationEvents, hasLength(1));
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      final results = finalRun?.contextJson['data']?['results'] as List<Object?>?;
+      expect(results, isNotNull);
+      expect(
+        results![1],
+        isA<Map<Object?, Object?>>().having((value) => value['message'], 'message', contains('conflict')),
+      );
     });
   });
 
@@ -400,37 +501,6 @@ void main() {
     });
   });
 
-  group('TI11 — drain latency ≤ 30 seconds (BPC-23)', () {
-    test('drain with 4 siblings completes within 30s simulated time', () async {
-      // Verify drain timeout math: with 4 siblings each settling quickly,
-      // total drain wall-time must be ≤ 30s. We assert the 30s timeout is
-      // the per-sibling cap, so N siblings settle in at most 30s total
-      // (they are awaited sequentially). Any stuck sibling beyond 30s
-      // triggers the stuck-task error path.
-      //
-      // This is a timing constraint test: we confirm the 30s constant in
-      // _drainAndRequeue matches BPC-23. The actual value is checked by
-      // inspecting the production code rather than using fake_async (the
-      // fake_async integration requires the executor loop to run inside
-      // FakeAsync.run, which conflicts with the SQLite-based harness).
-      //
-      // The authoritative runtime guarantee is: each sibling awaited with
-      // a 30-second TimeoutException guard per the _drainAndRequeue
-      // implementation. This test confirms the constant value is correct.
-      const drainTimeout = Duration(seconds: 30);
-      expect(drainTimeout.inSeconds, equals(30));
-
-      // Also confirm the stuck-task error message format contains a task id
-      // (BPC-32). We simulate this by checking the MapStepResult error message
-      // format from the production code path (no real executor run needed).
-      const exampleTaskId = 'task-stuck-abc123';
-      final errorMsg =
-          'serialize-remaining drain failed: task $exampleTaskId did not honor cancellation within timeout';
-      expect(errorMsg, contains(exampleTaskId));
-      expect(errorMsg, contains('serialize-remaining drain failed'));
-    });
-  });
-
   group('enabled:false — no serialization event emitted', () {
     test('merge_resolve.enabled=false yields normal promotion-conflict failure (no event)', () async {
       final definition = WorkflowDefinition(
@@ -441,7 +511,7 @@ void main() {
           integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
           promotion: 'squash',
-          publish: WorkflowGitPublishStrategy(enabled: false),
+          publish: false,
           mergeResolve: MergeResolveConfig(enabled: false),
         ),
         steps: const [
@@ -494,20 +564,8 @@ void main() {
     });
   });
 
-  group('S2 — edge: mid-flight siblings drained', () {
-    test('event drainedIterationCount reflects actual in-flight siblings (accurate, not hardcoded 0)', () async {
-      // Verify the HIGH-1 fix: drainedIterationCount is computed from actual in-flight siblings
-      // at the moment _drainAndRequeue runs, NOT hardcoded to 0.
-      //
-      // We hold S03 in-flight by delaying its task completion until after the serialization
-      // event fires. Sequence:
-      //   1. All 3 tasks queued — S03's task id recorded as the 3rd distinct new task.
-      //   2. S01 completes → promotes successfully.
-      //   3. S02 completes → conflicts → merge-resolve fails → serialize-remaining fires.
-      //   4. Event fires → releaseS03.complete() → S03 can now be completed.
-      //   5. Drain runs with S03 still in inFlight → drainedIterationCount=1.
-      //
-      // We track S03's task id as the 3rd task that gets queued (creation order = dispatch order).
+  group('S2 — edge: mid-flight siblings settle', () {
+    test('serialize event fires while sibling settles without cancellation', () async {
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 3);
       final run = makeRun(definition, id: 'run-s2');
       await h.repository.insert(run);
@@ -525,7 +583,6 @@ void main() {
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
       final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
-      // Track which tasks have been queued; hold the 3rd distinct task (S03) until event fires.
       final queuedTaskIds = <String>[];
       final releaseS03 = Completer<void>();
       final releaseOnEvent = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen((_) {
@@ -573,7 +630,6 @@ void main() {
             'createdAt': DateTime.now().toIso8601String(),
           },
         );
-        // Track queued order; hold the 3rd distinct task (S03) until drain event fires.
         if (!queuedTaskIds.contains(e.taskId)) {
           queuedTaskIds.add(e.taskId);
         }
@@ -590,13 +646,10 @@ void main() {
       await eventSub.cancel();
       await releaseOnEvent.cancel();
 
-      // Exactly one event (BPC-11); drainedIterationCount must reflect the sibling count
-      // accurately (HIGH-1 fix — was always 0 before).
       expect(serializationEvents, hasLength(1));
       final evt = serializationEvents.first;
       expect(evt.failingIterationIndex, 1); // S02 is index 1
-      // S03 was the held sibling — at least 1 sibling drained.
-      expect(evt.drainedIterationCount, greaterThanOrEqualTo(1));
+      expect((await h.taskService.get(queuedTaskIds[2]))?.status, equals(TaskStatus.accepted));
 
       // Workflow completes (serial re-runs all succeed).
       final finalRun = await h.repository.getById(run.id);
@@ -604,58 +657,504 @@ void main() {
     });
   });
 
-  group('S4 — error: stuck task during drain', () {
-    test('sibling that ignores cancel within timeout causes workflow failure with task id', () async {
-      // Story 2 exhausts merge-resolve; drain tries to cancel story 3 (sibling).
-      // Story 3's task never settles — drain times out; workflow → failed with task id in message.
-      //
-      // We simulate a stuck sibling by completing the initial tasks promptly but giving
-      // story 3 a task that never calls back after cancellation. We shorten the drain timeout
-      // by intercepting via a custom TurnAdapter that hangs story 3 after cancel is issued.
-      //
-      // Implementation note: the test uses a Completer that never completes to simulate
-      // story 3 hanging. We can't actually wait 30s in a test, so instead we verify the
-      // stuck-task error message format (BPC-32). The real 30s path is covered by TI11.
-      // Here we instead confirm the workflow → failed path works by injecting a long-hanging
-      // story 3 future and verifying the failure message contains the expected prefix.
-      //
-      // Since actually waiting 30s is not feasible, this test is a best-effort structural
-      // check that documents S4 coverage intent. It verifies: (1) the workflow eventually
-      // reaches failed status when drain cannot complete, (2) the error path is reachable.
-      //
-      // A full stuck-sibling test would need fake_async integration with the SQLite harness,
-      // which is out of scope for this test suite. See TI11 for the timeout constant check.
-      const exampleStuckTaskId = 'task-stuck-xyz';
-      final stuckMsg =
-          'serialize-remaining drain failed: task $exampleStuckTaskId did not honor cancellation within timeout';
-      // BPC-32: message must contain the task id and the drain-failed prefix.
-      expect(stuckMsg, contains(exampleStuckTaskId));
-      expect(stuckMsg, contains('serialize-remaining drain failed'));
-      expect(stuckMsg, contains('did not honor cancellation within timeout'));
+  group('settle vs interruption', () {
+    test('a genuinely cancelled in-flight sibling pauses instead of being un-aborted', () async {
+      final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 3);
+      final run = makeRun(definition, id: 'run-settle-interruption');
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+            {'id': 'S02'},
+            {'id': 'S03'},
+          ],
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      // S02 conflicts on its first (parallel) promote and succeeds on the
+      // serial retry; S01 and S03 always promote cleanly.
+      final s02PromoteCount = <int>[0];
+      final adapter = standardTurnAdapter(
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              if (storyId == 'S02') {
+                s02PromoteCount[0]++;
+                if (s02PromoteCount[0] == 1) {
+                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/story.dart'], details: 'conflict');
+                }
+              }
+              return WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}');
+            },
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
+      );
+
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: adapter,
+        outputTransformer: codingWithMergeResolveFailTransformer(),
+      );
+
+      final s03TaskIds = <String>[];
+      final releaseS03 = Completer<void>();
+      final cancelS03OnEvent = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen((_) async {
+        while (s03TaskIds.isEmpty) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        await h.taskService.transition(s03TaskIds.first, TaskStatus.cancelled, trigger: 'operator-cancel');
+        if (!releaseS03.isCompleted) releaseS03.complete();
+      });
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await h.taskService.get(e.taskId);
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        if (task?.configJson['displayScope'] == 'S03') {
+          s03TaskIds.add(e.taskId);
+          if (s03TaskIds.length == 1) {
+            await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+            await releaseS03.future;
+            return;
+          }
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+      await cancelS03OnEvent.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(
+        finalRun?.status,
+        equals(WorkflowRunStatus.paused),
+        reason: 'a genuine sibling cancellation during settle must not be masked by the old abort reset',
+      );
+      expect(s03TaskIds, hasLength(1), reason: 'the cancelled sibling is not re-dispatched as a settle casualty');
+      expect((await h.taskService.get(s03TaskIds.first))?.status, equals(TaskStatus.cancelled));
     });
   });
 
-  group('S5 — crash recovery during drain', () {
-    test('resume with serialize_remaining_phase=enacting resumes in serial mode, no second event', () async {
-      // Simulate server crash mid-drain: pre-seed context with serialize_remaining_phase='enacting'
-      // (the state that persists when the server crashes after is_serial_mode is set but before
-      // drain completes). On resume, the foreach controller reads this phase, enters serial mode,
-      // and must NOT fire a second WorkflowSerializationEnactedEvent.
+  group('first-task attribution', () {
+    test('an unexpected later-child failure is attributed to the write-once first task id', () async {
+      final definition = makeMergeResolveDefinition(
+        escalation: 'fail',
+        maxAttempts: 1,
+        maxParallel: 1,
+        secondChild: true,
+      );
+      final run = makeRun(definition, id: 'run-first-task-attribution');
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: makeAdapter(conflictIds: {}),
+        outputTransformer: (run, definition, step, task, outputs) {
+          if (step.id == 'verify') throw StateError('simulated later-child crash');
+          return codingWithBranchTransformer()(run, definition, step, task, outputs);
+        },
+      );
+
+      final queuedTaskIds = <String>[];
+      final iterationEvents = <MapIterationCompletedEvent>[];
+      final iterSub = h.eventBus.on<MapIterationCompletedEvent>().listen(iterationEvents.add);
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        queuedTaskIds.add(e.taskId);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+      await iterSub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(queuedTaskIds, hasLength(2));
+      expect(iterationEvents.single.taskId, equals(queuedTaskIds.first));
+    });
+  });
+
+  group('S4/S5 — error: stuck sibling during settle', () {
+    test('settle-timeout fails the run and cancels active tasks by workflow run id', () async {
+      final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 3);
+      final run = makeRun(definition, id: 'run-settle-timeout');
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+            {'id': 'S02'},
+            {'id': 'S03'},
+          ],
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      final s03TaskIds = <String>[];
+      final cancelledByRun = <String>[];
+      final cancelSub = h.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((e) => e.newStatus == TaskStatus.cancelled && e.trigger == 'serialize-remaining-settle-timeout')
+          .listen((e) => cancelledByRun.add(e.taskId));
+
+      final s02PromoteCount = <int>[0];
+      final adapter = standardTurnAdapter(
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              if (storyId == 'S02') {
+                s02PromoteCount[0]++;
+                if (s02PromoteCount[0] == 1) {
+                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/story.dart'], details: 'conflict');
+                }
+              }
+              return WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}');
+            },
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
+      );
+
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: adapter,
+        outputTransformer: codingWithMergeResolveFailTransformer(),
+        serializeRemainingSettleTimeout: Duration.zero,
+      );
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await h.taskService.get(e.taskId);
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        if (task?.configJson['displayScope'] == 'S03') {
+          s03TaskIds.add(e.taskId);
+          await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+          return;
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+      await cancelSub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(finalRun?.errorMessage, contains('serialize-remaining settle-timeout'));
+      expect(s03TaskIds, hasLength(1));
+      expect(cancelledByRun, contains(s03TaskIds.single));
+      expect((await h.taskService.get(s03TaskIds.single))?.status, equals(TaskStatus.cancelled));
+    });
+
+    test('settle-timeout keeps one deadline after another sibling settles', () async {
+      final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 4);
+      final run = makeRun(definition, id: 'run-settle-timeout-deadline');
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+            {'id': 'S02'},
+            {'id': 'S03'},
+            {'id': 'S04'},
+          ],
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      final serializationStarted = Completer<void>();
+      final settleStopwatch = Stopwatch();
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen((_) {
+        if (!serializationStarted.isCompleted) {
+          settleStopwatch.start();
+          serializationStarted.complete();
+        }
+      });
+      final s03TaskIds = <String>[];
+      final s04TaskIds = <String>[];
+
+      final s02PromoteCount = <int>[0];
+      final adapter = standardTurnAdapter(
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              if (storyId == 'S02') {
+                s02PromoteCount[0]++;
+                if (s02PromoteCount[0] == 1) {
+                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/story.dart'], details: 'conflict');
+                }
+              }
+              return WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}');
+            },
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
+      );
+
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: adapter,
+        outputTransformer: codingWithMergeResolveFailTransformer(),
+        serializeRemainingSettleTimeout: const Duration(milliseconds: 300),
+      );
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await h.taskService.get(e.taskId);
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        if (task?.configJson['displayScope'] == 'S03') {
+          s03TaskIds.add(e.taskId);
+          await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+          unawaited(
+            Future<void>(() async {
+              await serializationStarted.future;
+              await Future<void>.delayed(const Duration(milliseconds: 200));
+              await completeTask(e.taskId);
+            }),
+          );
+          return;
+        }
+        if (task?.configJson['displayScope'] == 'S04') {
+          s04TaskIds.add(e.taskId);
+          await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+          return;
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+      await eventSub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(finalRun?.errorMessage, contains('serialize-remaining settle-timeout'));
+      expect(s03TaskIds, hasLength(1));
+      expect(s04TaskIds, hasLength(1));
+      expect(settleStopwatch.elapsedMilliseconds, lessThan(450));
+      expect((await h.taskService.get(s03TaskIds.single))?.status, equals(TaskStatus.accepted));
+      expect((await h.taskService.get(s04TaskIds.single))?.status, equals(TaskStatus.cancelled));
+    });
+  });
+
+  group('S5 — crash recovery during serialize settle', () {
+    test('pending serialize state enters serial mode before dispatching earlier pending work', () async {
+      final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 2);
+      final run = makeRun(definition, id: 'run-pending-before-dispatch');
+      await h.repository.insert(run);
+
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+            {'id': 'S02'},
+            {'id': 'S03'},
+          ],
+          '_merge_resolve.serializeRemaining': {
+            'stepId': 'pipeline',
+            'phase': 'enacting',
+            'iterIndex': 1,
+            'failedAttemptNumber': 1,
+            'eventEmitted': true,
+          },
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      final adapter = standardTurnAdapter(
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}'),
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
+      );
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: adapter,
+        outputTransformer: codingWithBranchTransformer(),
+      );
+
+      final queuedScopes = <Object?>[];
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await h.taskService.get(e.taskId);
+        queuedScopes.add(task?.configJson['displayScope']);
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(queuedScopes, isNotEmpty);
+      expect(queuedScopes.first, equals('S02'));
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('pending serialize state is enacted before budget cancellation', () async {
+      final definition = makeMergeResolveDefinition(
+        escalation: 'serialize-remaining',
+        maxAttempts: 1,
+        maxParallel: 1,
+      ).copyWith(maxTokens: 1);
+      final run = makeRun(definition, id: 'run-serialize-before-budget');
+      await h.repository.insert(run);
+
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
+      );
+
+      final serializationEvents = <WorkflowSerializationEnactedEvent>[];
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+
+      final executor = makeExecutor(
+        dir: h.tempDir,
+        turnAdapter: makeAdapter(conflictIds: {'S01'}),
+        outputTransformer: codingWithMergeResolveFailTransformer(),
+      );
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await h.taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
+            'branch': 'story-branch-${e.taskId}',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"completed"}</step-outcome>',
+          tokenCount: 10,
+        );
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+      await eventSub.cancel();
+
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(finalRun?.errorMessage, contains('budget exhausted'));
+      expect(serializationEvents, hasLength(1));
+      expect(
+        finalRun?.contextJson['data']?['_merge_resolve.serializeRemaining'],
+        isA<Map<Object?, Object?>>()
+            .having((state) => state['phase'], 'phase', 'drained')
+            .having((state) => state['eventEmitted'], 'eventEmitted', isTrue),
+      );
+    });
+
+    test('resume with serialize state enacting resumes in serial mode, no second event', () async {
+      // Simulate server crash mid-settle: pre-seed typed serialize state in `enacting`.
+      // On resume, the foreach controller enters serial mode and must not fire a
+      // second WorkflowSerializationEnactedEvent when eventEmitted is already true.
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 2);
       final run = makeRun(definition, id: 'run-s5');
       await h.repository.insert(run);
 
-      // Pre-seed context as if crash happened after enacting but before drain completed.
-      // serializing_iter_index=1 (S02), serialize_remaining_phase='enacting'.
+      // Pre-seed context as if crash happened after enacting but before sibling settle completed.
       final context = WorkflowContext(
         data: {
           'stories': [
             {'id': 'S01'},
             {'id': 'S02'},
           ],
-          '_merge_resolve.pipeline.serialize_remaining_phase': 'enacting',
-          '_merge_resolve.pipeline.serializing_iter_index': 1,
-          '_merge_resolve.pipeline.failed_attempt_number': 1,
+          '_merge_resolve.serializeRemaining': {
+            'stepId': 'pipeline',
+            'phase': 'enacting',
+            'iterIndex': 1,
+            'failedAttemptNumber': 1,
+            'eventEmitted': true,
+          },
         },
         variables: const {'PROJECT': 'test-project', 'BRANCH': 'main'},
       );
@@ -703,13 +1202,7 @@ void main() {
       await sub.cancel();
       await eventSub.cancel();
 
-      // Resume from crash-mid-drain: phase='enacting' means drain will run but the
-      // idempotency check in _handleMergeResolveEscalation (context[phaseKey] != null)
-      // prevents a second event from firing via that path. The outer-loop drain path
-      // fires the event in _drainAndRequeue — but only once (phase advances to 'drained').
-      // Either 0 or 1 events is acceptable here depending on whether drain was re-entered:
-      // what MUST NOT happen is 2 or more events.
-      expect(serializationEvents.length, lessThanOrEqualTo(1));
+      expect(serializationEvents, isEmpty);
 
       // Workflow must complete (serial re-run succeeds).
       final finalRun = await h.repository.getById(run.id);
@@ -720,7 +1213,7 @@ void main() {
   group('S6 — edge: already-promoted iterations untouched', () {
     test('stories 1+2 already promoted, story 3 exhausts attempts, only 3+4 re-queued', () async {
       // 4 stories; story 3 exhausts merge-resolve.
-      // After drain: stories 1+2 must NOT appear in serial queue (already promoted).
+      // After serial-mode enactment: stories 1+2 must NOT appear in the serial queue (already promoted).
       // Stories 3 (failing, at head) and 4 (sibling) enter serial queue.
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 4);
       final run = makeRun(definition, id: 'run-s6');
@@ -800,10 +1293,6 @@ void main() {
       expect(serializationEvents, hasLength(1));
       final evt = serializationEvents.first;
       expect(evt.failingIterationIndex, 2); // S03 is index 2
-      // Stories 1+2 were already promoted — drainedIterationCount reflects only in-flight siblings.
-      // S04 was the only in-flight sibling when S03 exhausted attempts, so count=1.
-      expect(evt.drainedIterationCount, greaterThanOrEqualTo(0));
-
       // Workflow must complete.
       final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));

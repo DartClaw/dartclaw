@@ -1100,11 +1100,23 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsStringSync('release notes');
       expect(nested.existsSync(), isTrue);
-      final previousCwd = Directory.current;
-      Directory.current = tempDir;
-      addTearDown(() => Directory.current = previousCwd);
+      final localProject = Project(
+        id: '_local',
+        name: 'local',
+        remoteUrl: '',
+        localPath: tempDir.path,
+        status: ProjectStatus.ready,
+        createdAt: DateTime.utc(2026),
+      );
+      final projectHandler = sessionRoutes(
+        sessions,
+        messages,
+        turns,
+        worker,
+        projectService: FakeProjectService(localProject: localProject),
+      ).call;
 
-      final res = await handler(
+      final res = await projectHandler(
         Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/references?q=release_notes')),
       );
 

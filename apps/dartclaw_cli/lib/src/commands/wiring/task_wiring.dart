@@ -241,6 +241,7 @@ class TaskWiring {
         defaultProviderId: config.agent.provider,
         stallTimeout: config.governance.turnProgress.stallTimeout,
         stallAction: config.governance.turnProgress.stallAction,
+        defaultStepTimeout: config.governance.turnProgress.maxDuration,
       ),
       onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
@@ -279,7 +280,7 @@ class TaskWiring {
   }
 
   Future<void> dispose() async {
-    await _workflowCliRunner.cancelInflight();
+    await _workflowCliRunner.cancelInflight(cancelFutureProcesses: true);
     await _taskExecutor.stop();
     _agentObserver.dispose();
     await _taskCancellationSubscriber.dispose();

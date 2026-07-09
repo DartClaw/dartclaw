@@ -7,6 +7,7 @@ import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunn
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
 import 'package:sqlite3/sqlite3.dart';
@@ -305,7 +306,8 @@ void main() {
         processRunner: _successfulProcessResult,
       );
       taskFileGuard = TaskFileGuard();
-      mergeExecutor = MergeExecutor(projectDir: tempDir.path, processRunner: _successfulProcessResult);
+      final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
+      mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
       agentObserver = _buildAgentObserver(worker, messages);
       server =
           (DartclawServerBuilder()

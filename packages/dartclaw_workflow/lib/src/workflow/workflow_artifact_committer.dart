@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, Task;
 import 'workflow_definition.dart'
-    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowNode, WorkflowStep;
+    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -12,7 +12,6 @@ import 'produced_artifact_resolver.dart';
 import 'workflow_context.dart';
 import 'workflow_git_port.dart';
 import 'workflow_run_paths.dart';
-import 'workflow_runner_types.dart';
 import 'workflow_template_engine.dart';
 
 final _log = Logger('WorkflowArtifactCommitter');
@@ -48,6 +47,13 @@ final class ArtifactCommitPolicy {
 /// Outcome of an artifact auto-commit attempt.
 final class ArtifactCommitResult {
   final List<String> committedPaths;
+
+  /// Paths the committer produced but did not commit (no-op or failure detail).
+  ///
+  /// Diagnostic only: run control flow keys off [failed]/[fatal]/[failureReason],
+  /// never off this list. It records which produced artifacts were skipped (no
+  /// staged change) or named in a failure (missing at HEAD, unsafe path) so a
+  /// test or operator can attribute the no-commit. Do not gate behavior on it.
   final List<String> skippedPaths;
   final String? commitSha;
   final String? failureReason;
@@ -74,17 +80,6 @@ final class ArtifactCommitResult {
   }) : this._(failureReason: failureReason, skippedPaths: skippedPaths, fatal: fatal);
 
   bool get failed => failureReason != null;
-}
-
-/// Commits path artifacts for successful handoffs when the workflow requests it.
-Future<ArtifactCommitResult> maybeCommitArtifacts(
-  WorkflowNode node,
-  StepHandoff handoff,
-  ArtifactCommitPolicy policy,
-) async {
-  if (handoff is! StepHandoffSuccess) return const ArtifactCommitResult.skipped();
-  if (!node.stepIds.contains(policy.step.id)) return const ArtifactCommitResult.skipped();
-  return maybeCommitStepArtifacts(policy);
 }
 
 /// Commits any path outputs produced by [policy.step].

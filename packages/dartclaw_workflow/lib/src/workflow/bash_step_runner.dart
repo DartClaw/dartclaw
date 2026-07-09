@@ -11,7 +11,6 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'json_extraction.dart';
-import 'shell_escape.dart';
 import 'workflow_context.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_template_engine.dart';
@@ -68,7 +67,7 @@ Future<StepOutcome> executeBashStep({
   final String resolvedCommand;
   try {
     validateBashCommandTemplate(rawCommand);
-    resolvedCommand = resolveBashCommand(rawCommand, context);
+    resolvedCommand = resolveBashCommand(rawCommand, context, templateEngine: templateEngine);
   } catch (e) {
     return bashFailure(step, 'command substitution failed: $e');
   }
@@ -219,36 +218,14 @@ String resolveBashWorkdir({
 
 /// Resolves template references in a shell command.
 ///
-/// `{{context.key}}`, `{{workflow.key}}`, and `{{VAR}}` substitutions are shell-escaped via
-/// [shellEscape] — callers must not double-escape.
-String resolveBashCommand(String command, WorkflowContext context) {
-  return command.replaceAllMapped(RegExp(r'\{\{([^}]+)\}\}'), (match) {
-    final ref = match.group(1)!.trim();
-    if (ref.startsWith('context.')) {
-      final key = ref.substring('context.'.length);
-      final value = context[key];
-      if (value == null) {
-        _log.warning(
-          'Bash command template reference {{$ref}} resolved to empty string '
-          '(key "$key" not in context)',
-        );
-        return shellEscape('');
-      }
-      return shellEscape(value.toString());
-    }
-    if (ref.startsWith('workflow.')) {
-      final value = context.systemVariable(ref);
-      if (value == null) {
-        throw ArgumentError('Bash command references undefined workflow system variable: {{$ref}}');
-      }
-      return shellEscape(value);
-    }
-    final value = context.variable(ref);
-    if (value == null) {
-      throw ArgumentError('Bash command references undefined variable: {{$ref}}');
-    }
-    return shellEscape(value);
-  });
+/// `{{context.key}}`, `{{workflow.key}}`, and `{{VAR}}` substitutions are
+/// shell-escaped through the template engine's [EscapeMode.shell] (the single
+/// escaping implementation) — callers must not double-escape.
+///
+/// Resolves against the no-map engine path, so `{{map.*}}` references are not
+/// supported in bash commands and resolve as undefined variables.
+String resolveBashCommand(String command, WorkflowContext context, {WorkflowTemplateEngine? templateEngine}) {
+  return (templateEngine ?? WorkflowTemplateEngine()).resolve(command, context, escape: EscapeMode.shell);
 }
 
 /// Heuristically rejects the most common shell-re-parsing patterns that
@@ -257,9 +234,10 @@ String resolveBashCommand(String command, WorkflowContext context) {
 /// substitution, command substitution `$(...)`, and backticks. The matcher
 /// is intentionally narrow — it does not catch every quoting/wrapping shape
 /// (e.g. `bash -c "echo {{context.x}}"`, `xargs -I {}`, parameter
-/// expansion). The primary safety guarantee is `shellEscape` in
-/// [resolveBashCommand], which always emits single-quoted output; this
-/// validator is defense-in-depth on top of that escaping.
+/// expansion). The primary safety guarantee is the template engine's
+/// [EscapeMode.shell] in [resolveBashCommand], which always emits
+/// single-quoted output; this validator is defense-in-depth on top of that
+/// escaping.
 void validateBashCommandTemplate(String command) {
   if (!command.contains(RegExp(r'\{\{\s*context\.'))) return;
   final riskyPatterns = <RegExp>[

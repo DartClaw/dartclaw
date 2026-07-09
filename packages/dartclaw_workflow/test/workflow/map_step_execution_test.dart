@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -9,12 +10,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MapStepCompletedEvent,
         OnFailurePolicy,
         OutputConfig,
+        OutputFormat,
+        StepConfigDefault,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowGitCleanupStrategy,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
@@ -22,7 +23,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
-        WorkflowTaskType;
+        WorkflowTaskType,
+        isExecutionEnvelopeSchema;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -91,7 +93,7 @@ void main() {
         WorkflowStep(
           id: mapStepId,
           name: mapStepName,
-          type: mapStepType,
+          taskType: mapStepType,
           prompts: [prompt],
           mapOver: collectionKey,
           maxParallel: maxParallel,
@@ -391,6 +393,107 @@ void main() {
       );
     });
 
+    test('teardown-cancelled item with retries configured pauses without retry or failure record', () async {
+      final definition = mapDefinition(
+        name: 'map-cancelled-pause',
+        description: 'Map teardown-cancelled pause test',
+        onFailure: OnFailurePolicy.retry,
+        maxRetries: 1,
+      );
+      final run = await insertRun(definition);
+      final context = itemsContext(['a', 'b']);
+
+      final queuedTitles = <String>[];
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        queuedTitles.add(task?.title ?? '');
+        // Second item is torn down mid-run; the first settles normally so a
+        // completed sibling proves interruption is scoped to the one item.
+        if ((task?.title ?? '').contains('(2/2)')) {
+          await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(
+        queuedTitles,
+        hasLength(2),
+        reason: 'the abort seam must bypass onFailure: retry – no second attempt mid-teardown',
+      );
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused), reason: 'interrupted, not failed, not left running');
+      expect(finalRun?.errorMessage, contains('interrupted and can be resumed'));
+      final cursor = finalRun?.executionCursor;
+      // Unsettled means resumable: the interrupted item lands in no index set
+      // (cancelledIndices is the settled class restore never re-dispatches).
+      expect(cursor?.completedIndices, equals([0]));
+      expect(cursor?.failedIndices, isEmpty);
+      expect(cursor?.cancelledIndices, isEmpty);
+    });
+
+    test('resume after a cancelled map item pause re-dispatches only the unsettled item', () async {
+      final definition = mapDefinition(
+        name: 'map-cancelled-resume',
+        description: 'Map teardown-cancelled resume test',
+        onFailure: OnFailurePolicy.retry,
+        maxRetries: 1,
+      );
+      final run = await insertRun(definition);
+      final context = itemsContext(['a', 'b']);
+
+      var cancelNextSecondItem = true;
+      final queuedTitles = <String>[];
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        queuedTitles.add(task?.title ?? '');
+        if ((task?.title ?? '').contains('(2/2)') && cancelNextSecondItem) {
+          cancelNextSecondItem = false;
+          await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+        } else {
+          await h.completeTask(e.taskId);
+        }
+      });
+
+      await h.executor.execute(run, definition, context);
+
+      final pausedRun = await h.repository.getById('run-1');
+      expect(pausedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(queuedTitles, hasLength(2));
+
+      // Resume from the exact persisted state the cancelled pause produced,
+      // exercising the production contextJson encode→decode round-trip.
+      final resumedRun = pausedRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        updatedAt: DateTime.now(),
+      );
+      await h.repository.update(resumedRun);
+      final resumedContext = WorkflowContext.fromJson(
+        Map<String, dynamic>.from(jsonDecode(jsonEncode(resumedRun.contextJson)) as Map),
+      );
+      await h.executor.execute(resumedRun, definition, resumedContext, startCursor: resumedRun.executionCursor);
+      await sub.cancel();
+
+      expect(
+        queuedTitles.sublist(2),
+        hasLength(1),
+        reason: 'the completed sibling is not replayed – only the unsettled item re-dispatches',
+      );
+      expect(queuedTitles.last, contains('(2/2)'));
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('S02 map item wait timeout is terminal, not retried', () async {
       // Regression: a per-item timeout is an infra failure, not an OC02 outcome
       // failure, so it must not consume the workflow retry budget.
@@ -462,7 +565,7 @@ void main() {
           integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
           promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
+          publish: false,
         ),
         steps: const [
           WorkflowStep(
@@ -555,6 +658,139 @@ void main() {
       await sub.cancel();
 
       expect(taskIds.length, equals(3), reason: '3 tasks should be created, one per item');
+    });
+
+    test('direct map review inherits gatingSeverity for prompt scoring and verdict extraction', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-review-threshold',
+        description: 'Direct map review threshold',
+        stepDefaults: const [StepConfigDefault(match: 'review-*', gatingSeverity: 'critical')],
+        steps: const [
+          WorkflowStep(
+            id: 'review-items',
+            name: 'Review Items',
+            prompts: ['Review {{map.item}}'],
+            mapOver: 'items',
+            outputs: {
+              'verdict': OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+              'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+              'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+            },
+          ),
+        ],
+      );
+      final run = await insertRun(definition);
+      final context = WorkflowContext()..['items'] = ['item-a'];
+      final descriptions = <String>[];
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await h.taskService.get(e.taskId);
+        descriptions.add(task?.description ?? '');
+        final payload = {
+          'verdict': {
+            'findings_count': 1,
+            'findings': [
+              {'severity': 'high', 'location': 'a.dart:1', 'description': 'high finding'},
+            ],
+          },
+        };
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<workflow-context>${jsonEncode(payload)}</workflow-context>'
+              '<step-outcome>{"outcome":"succeeded","reason":"review complete"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(descriptions.single, contains('## Review Finding Scoring'));
+      expect(descriptions.single, contains('at or above `critical`'));
+      expect(descriptions.single, isNot(contains('at or above `high`')));
+      expect(context['review-items[0].findings_count'], 1);
+      expect(
+        context['review-items[0].gating_findings_count'],
+        0,
+        reason: 'high findings must not gate when a direct map review inherits critical threshold',
+      );
+    });
+
+    test('map agent child with model-derived outputs finalizes through the envelope', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-finalizer',
+        description: 'Map agent child finalizer wiring',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            outputs: {'summary': OutputConfig(format: OutputFormat.text)},
+          ),
+        ],
+      );
+      final run = await insertRun(definition);
+      final context = WorkflowContext()..['items'] = ['item-a'];
+      Map<String, dynamic>? childSchema;
+      var childDescription = '';
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await h.taskService.get(e.taskId);
+        childDescription = task?.description ?? '';
+        childSchema = (await h.workflowStepExecutionRepository.getByTaskId(e.taskId))?.structuredSchema;
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"done"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(
+        isExecutionEnvelopeSchema(childSchema),
+        isTrue,
+        reason: 'a map agent child with model-derived outputs must persist the finalizer envelope like a foreach child',
+      );
+      // TI05: the finalizer handles outputs, so the main prompt drops the
+      // legacy output-contract section.
+      expect(childDescription, isNot(contains('## Workflow Output Contract')));
+    });
+
+    test('map agent child with only host-owned outputs gets no finalizer envelope', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-no-finalizer',
+        description: 'Map host-owned outputs skip the finalizer',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            outputs: {'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x')},
+          ),
+        ],
+      );
+      final run = await insertRun(definition);
+      final context = WorkflowContext()..['items'] = ['item-a'];
+      Map<String, dynamic>? childSchema = {'sentinel': true};
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        childSchema = (await h.workflowStepExecutionRepository.getByTaskId(e.taskId))?.structuredSchema;
+        await h.completeTask(e.taskId);
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(isExecutionEnvelopeSchema(childSchema), isFalse);
     });
 
     // `gitStrategy.worktree: auto` resolves at dispatch through
@@ -872,6 +1108,24 @@ void main() {
       });
     }
 
+    test('auto-unwraps a single-key Map collection to its inner list', () async {
+      final definition = producedMapDefinition();
+
+      final run = await insertRun(definition);
+      final context = WorkflowContext()
+        ..['items'] = {
+          'stories': ['a', 'b', 'c'],
+        };
+
+      final sub = completeQueuedTasks();
+      await h.executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      final updatedRun = await h.repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect((context['mapped'] as List).length, equals(3));
+    });
+
     test('empty collection succeeds with empty result array', () async {
       final definition = producedMapDefinition();
 
@@ -905,7 +1159,7 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         maxItems: 3,
-        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(cleanup: true),
       );
 
       final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
@@ -932,7 +1186,7 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         maxItems: 1,
-        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+        gitStrategy: const WorkflowGitStrategy(cleanup: false),
       );
 
       final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
@@ -959,7 +1213,7 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         maxItems: 1,
-        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(cleanup: true),
       );
 
       final run = h
@@ -988,7 +1242,7 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         maxItems: 1,
-        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(cleanup: true),
       );
 
       final run = h

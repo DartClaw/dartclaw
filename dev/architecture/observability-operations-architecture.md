@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.18.0
+**Current through**: 0.20
 
 ---
 
@@ -284,7 +284,7 @@ Workflow-owned one-shot CLI turns now treat **observability** and **persistence*
 - Persisted task/session usage remains cumulative and uses the unified keys `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `total_tokens`, `effective_tokens`, `estimated_cost_usd`, `turn_count`, and `provider`.
 - For Codex, fresh input is derived as `input_tokens - cache_read_tokens`; for Claude, the provider already reports fresh input directly. This keeps budget checks and per-turn attribution on the same semantic footing across harnesses.
 - Legacy `session_cost:*` KV entries carrying the old workflow-only schema are dropped once at boot. Readers null-coalesce missing keys so the first post-upgrade render remains safe even before a fresh turn lands.
-- Long-running workflow-owned Codex turns now emit `WorkflowCliTurnProgressEvent` and per-turn log lines based on **delta from the previous cumulative snapshot**, so operators can observe a 40-minute `implement` step without waiting for process exit.
+- Long-running workflow-owned one-shot provider runs emit `WorkflowCliTurnProgressEvent`, so operators can observe a 40-minute `implement` step without waiting for process exit. Codex emits on `turn.completed` based on **delta from the previous cumulative snapshot**; claude emits once per completed assistant message using latest input/cache tokens and summed output tokens.
 
 Budget semantics are intentionally layered:
 

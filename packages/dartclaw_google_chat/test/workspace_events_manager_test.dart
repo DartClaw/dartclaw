@@ -123,8 +123,12 @@ void main() {
   });
 
   tearDown(() {
-    if (tempDir.existsSync()) {
-      tempDir.deleteSync(recursive: true);
+    try {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    } on PathNotFoundException {
+      // Async renewal cleanup can race the test teardown on macOS temp dirs.
     }
   });
 

@@ -34,6 +34,7 @@ void main() {
             TaskStatus.running,
             TaskStatus.failed,
           },
+          TaskStatus.cancelled: {TaskStatus.failed},
         };
 
         for (final from in expected.keys) {
@@ -52,11 +53,22 @@ void main() {
         expect(TaskStatus.review.canTransitionTo(TaskStatus.interrupted), isFalse);
       });
 
-      test('has no outbound transitions from accepted, rejected, cancelled', () {
-        for (final terminal in const [TaskStatus.accepted, TaskStatus.rejected, TaskStatus.cancelled]) {
+      test('has no outbound transitions from accepted and rejected', () {
+        for (final terminal in const [TaskStatus.accepted, TaskStatus.rejected]) {
           for (final target in TaskStatus.values) {
             expect(terminal.canTransitionTo(target), isFalse, reason: '$terminal should not transition to $target');
           }
+        }
+      });
+
+      test('cancelled can only transition to failed for late genuine failures', () {
+        expect(TaskStatus.cancelled.canTransitionTo(TaskStatus.failed), isTrue);
+        for (final target in TaskStatus.values.where((s) => s != TaskStatus.failed)) {
+          expect(
+            TaskStatus.cancelled.canTransitionTo(target),
+            isFalse,
+            reason: 'cancelled should not transition to $target',
+          );
         }
       });
 
@@ -88,7 +100,7 @@ void main() {
           },
           TaskStatus.accepted: const {},
           TaskStatus.rejected: const {},
-          TaskStatus.cancelled: const {},
+          TaskStatus.cancelled: {TaskStatus.failed},
           TaskStatus.failed: {TaskStatus.queued}, // retry path
         };
 
@@ -112,13 +124,14 @@ void main() {
         }
       });
 
-      test('validTransitions contains non-terminal states plus failed (retry path)', () {
+      test('validTransitions contains non-terminal states plus terminal correction paths', () {
         expect(TaskStatus.validTransitions.keys, {
           TaskStatus.draft,
           TaskStatus.queued,
           TaskStatus.running,
           TaskStatus.interrupted,
           TaskStatus.review,
+          TaskStatus.cancelled, // correction path: cancelled → failed
           TaskStatus.failed, // retry path: failed → queued
         });
       });

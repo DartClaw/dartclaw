@@ -4,18 +4,19 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowStepExecution;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
-        ExtractionConfig,
-        ExtractionType,
         MessageService,
         MissingArtifactFailure,
         OutputConfig,
         OutputFormat,
         OutputMode,
-        SessionService;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor;
+        SessionService,
+        WorkflowDefinitionParser;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor, FileSystemOutput;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show executionEnvelopeMarkerKey, executionEnvelopeVersion;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway;
 import 'package:logging/logging.dart';
@@ -161,352 +162,191 @@ void main() {
     expect(outputs['spec_path'], safePath);
   });
 
-  test('allows missing review report path when scoped review count is explicitly clean', () async {
-    final taskWithSession = await harness.buildTaskWithContext('task-clean-review-missing-path', {
-      'review_findings': '/tmp/dartclaw/runtime-artifacts/reviews/re-review-clean.md',
-      're-review.findings_count': 0,
-      're-review.gating_findings_count': 0,
-    }, prefix: 'Re-review completed with no findings.');
-    final step = harness.makeStep(id: 're-review', outputs: harness.reviewOutputs('re-review'));
+  test('resolves an explicitly claimed existing path whose name does not match the output discovery glob', () async {
+    // Regression: a `format: path` output's discovery glob is a selector for an
+    // unnamed artifact in the worktree diff — not a filter on a path the skill
+    // claimed explicitly. A committed PRD named `prd-brief.md` (absent from the
+    // diff, filename not matching a narrow prd glob) must still resolve from the
+    // explicit claim; the trust boundary is containment + existence, not the glob
+    // (ADR-041).
+    final worktree = harness.createWorktree('worktree-explicit-nonglob-prd');
+    const prdPath = 'docs/specs/demo/prd-brief.md';
+    harness.writeWorktreeFile(worktree, prdPath, '# PRD Brief\n');
+    // Empty diff: a committed PRD is not listed by `git diff --name-only`.
+    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, const []));
 
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['review_findings'], isEmpty);
-    expect(outputs['re-review.findings_count'], 0);
-    expect(outputs['re-review.gating_findings_count'], 0);
-  });
-
-  test('rejects missing review report path when scoped review count is nonzero', () async {
-    final taskWithSession = await harness.buildTaskWithContext('task-nonzero-review-missing-path', {
-      'review_findings': '/tmp/dartclaw/runtime-artifacts/reviews/re-review-finding.md',
-      're-review.findings_count': 1,
-      're-review.gating_findings_count': 1,
-    }, prefix: 'Re-review found an issue.');
-    final step = harness.makeStep(id: 're-review', outputs: harness.reviewOutputs('re-review'));
-
-    await expectLater(
-      extractor.extract(step, taskWithSession),
-      throwsA(
-        isA<MissingArtifactFailure>()
-            .having((failure) => failure.fieldName, 'fieldName', 'review_findings')
-            .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
-      ),
-    );
-  });
-
-  test('allows missing clean review report for workflow-defined findings output names', () async {
-    final taskWithSession = await harness.buildTaskWithContext('task-custom-clean-review-missing-path', {
-      'audit_report': '/tmp/dartclaw/runtime-artifacts/reviews/custom-clean.md',
-      'custom-review.findings_count': 0,
-      'custom-review.gating_findings_count': 0,
-    }, prefix: 'Custom review completed with no findings.');
-    final step = harness.makeStep(
-      id: 'custom-review',
-      outputs: harness.reviewOutputs('custom-review', pathKey: 'audit_report'),
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['audit_report'], isEmpty);
-    expect(outputs['custom-review.findings_count'], 0);
-    expect(outputs['custom-review.gating_findings_count'], 0);
-  });
-
-  test('uses changed architecture review report file when assistant claims a stale report path', () async {
-    final worktree = harness.createWorktree('worktree-review-report');
-    final actualPath = 'docs/specs/demo/plan-architecture-codex-2026-04-28.md';
-    harness.writeWorktreeFile(worktree, actualPath, '# Architecture Review\n');
-    final localExtractor = harness.extractorWithGit(
-      harness.gitWithUntracked(worktree, [actualPath, 'docs/specs/demo/unrelated.md']),
-    );
-    final claimedPath = 'docs/specs/demo/plan-architecture-codex-codex-2026-04-28.md';
-    final outputs = await harness.extractPathOutputFromContext(
-      localExtractor,
-      'architecture_review_findings',
-      'task-review-report-path',
-      {'architecture_review_findings': claimedPath, 'architecture-review.findings_count': 0},
-      prefix: 'Architecture review completed.\n\nNo architecture findings of concern.',
+    final taskWithWorktree = await harness.buildTaskWithContext(
+      'task-explicit-nonglob-prd',
+      {'prd': prdPath},
+      prefix: 'PRD discovered.',
+      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
       worktreePath: worktree.path,
     );
+    final step = harness.pathOutputStep('prd');
 
-    expect(outputs['architecture_review_findings'], actualPath);
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['prd'], prdPath);
   });
 
-  test('uses changed review findings file when assistant claims a stale report path', () async {
-    final worktree = harness.createWorktree('worktree-plan-review-report');
-    final actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
-    harness.writeWorktreeFile(worktree, actualPath, '# Plan Review\n');
-    final localExtractor = harness.extractorWithGit(
-      harness.gitWithUntracked(worktree, [actualPath, 'docs/specs/demo/architecture-notes.md']),
-    );
-    final claimedPath = 'docs/specs/demo/plan-review-codex-codex-2026-04-28.md';
-    final outputs = await harness.extractPathOutputFromContext(
-      localExtractor,
-      'review_findings',
-      'task-plan-review-report-path',
-      {'review_findings': claimedPath, 'plan-review.findings_count': 0},
-      prefix: 'Plan review completed.\n\nNo findings of concern.',
-      worktreePath: worktree.path,
-    );
-
-    expect(outputs['review_findings'], actualPath);
-  });
-
-  test('normalizes absolute in-worktree review findings claims to relative paths', () async {
-    final worktree = harness.createWorktree('worktree-absolute-review-report');
-    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
-    harness.writeWorktreeFile(worktree, actualPath, '# Plan Review\n');
-    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [actualPath]));
-    final outputs = await harness.extractPathOutputFromContext(
-      localExtractor,
-      'review_findings',
-      'task-absolute-plan-review-report-path',
-      {'review_findings': p.join(worktree.path, actualPath)},
-      prefix: 'Plan review completed.',
-      worktreePath: worktree.path,
-    );
-
-    expect(outputs['review_findings'], actualPath);
-  });
-
-  test('normalizes project-basename-prefixed review findings claims to relative paths', () async {
-    final projectRoot = Directory(p.join(tempDir.path, 'projects', 'workflow-test-todo-app'))
-      ..createSync(recursive: true);
-    const actualPath = 'docs/specs/demo/mixed-review-codex-2026-04-30.md';
-    File(p.join(projectRoot.path, actualPath))
-      ..createSync(recursive: true)
-      ..writeAsStringSync('# Mixed Review\n');
-
-    final outputs = await harness.extractPathOutputFromContext(
-      extractor,
-      'review_findings',
-      'task-project-basename-plan-review-report-path',
-      {'review_findings': 'workflow-test-todo-app/$actualPath', 'plan-review.findings_count': 2},
-      prefix: 'Review completed.',
-      projectId: 'workflow-test-todo-app',
-    );
-
-    expect(outputs['review_findings'], actualPath);
-  });
-
-  test('normalizes project-prefixed claims inside workflow-owned worktrees', () async {
-    final worktree = harness.createWorktree(p.join('worktrees', 'wf-run-map-0'));
-    const actualPath = 'docs/reviews/mixed-review-codex-2026-04-30.md';
-    harness.writeWorktreeFile(worktree, actualPath, '# Mixed Review\n');
-
-    final outputs = await harness.extractPathOutputFromContext(
-      extractor,
-      'review_findings',
-      'task-worktree-project-prefixed-plan-review-report-path',
-      {'review_findings': 'workflow-test-todo-app/$actualPath'},
-      prefix: 'Review completed.',
-      projectId: 'workflow-test-todo-app',
-      worktreePath: worktree.path,
-    );
-
-    expect(outputs['review_findings'], actualPath);
-  });
-
-  test('keeps absolute review findings under the workflow runtime artifacts dir readable', () async {
-    final reportPath = harness.writeRuntimeReview('run-runtime', 'integrated-review-codex-2026-04-30.md');
-
-    final outputs = await harness.extractPathOutputFromContext(
-      extractor,
-      'review_findings',
-      'task-runtime-artifacts-review-report-path',
-      {'review_findings': reportPath},
-      prefix: 'Review completed.',
-      projectId: 'workflow-test-todo-app',
-      workflowRunId: 'run-runtime',
-    );
-
-    expect(outputs['review_findings'], reportPath);
-  });
-
-  test('materializes diagnostic clean review artifact when runtime report claim is missing', () async {
-    final reportPath = harness.runtimeReviewPath('run-runtime-missing-clean', 'integrated-review-codex-2026-04-30.md');
-    final claimedReportPath = reportPath.startsWith('/var/') ? '/private$reportPath' : reportPath;
+  test('captures the newest review report from the host step artifacts dir, ignoring the model claim', () async {
+    const runId = 'run-step-capture';
+    const stepId = 'plan-review-council';
+    final reportPath = harness.writeStepReview(runId, stepId, 'council-20260706.md', content: '# Council Review\n');
 
     final outputs = await harness.extractStepFromContext(
       extractor,
-      harness.makeStep(id: 'integrated-review', outputs: harness.reviewOutputs('integrated-review')),
-      'task-runtime-artifacts-missing-clean-review-report',
+      harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)),
+      'task-step-capture',
       {
-        'review_findings': claimedReportPath,
-        'integrated-review.findings_count': 0,
-        'integrated-review.gating_findings_count': 0,
+        // A bogus model-claimed path must be ignored — the host reads the dir.
+        'review_report_path': '/totally/wrong/claimed-path.md',
+        '$stepId.findings_count': 4,
+        '$stepId.gating_findings_count': 2,
       },
-      prefix: 'Review completed with no findings.',
-      projectId: 'workflow-test-todo-app',
-      workflowRunId: 'run-runtime-missing-clean',
-    );
-
-    expect(outputs['review_findings'], claimedReportPath);
-    expect(File(claimedReportPath).existsSync(), isTrue);
-    expect(File(claimedReportPath).readAsStringSync(), contains('did not leave a markdown report on disk'));
-  });
-
-  test('materializes diagnostic clean review artifact when report claim is omitted', () async {
-    const runId = 'run-runtime-unclaimed-clean';
-    final runtimeReviewsDir = harness.runtimeReviewsDir(runId);
-
-    final outputs = await harness.extractStepFromContext(
-      extractor,
-      harness.makeStep(id: 'integrated-review', outputs: harness.reviewOutputs('integrated-review')),
-      'task-runtime-artifacts-unclaimed-clean-review-report',
-      {'integrated-review.findings_count': 0, 'integrated-review.gating_findings_count': 0},
-      prefix: 'Review completed with no findings.',
-      projectId: 'workflow-test-todo-app',
+      prefix: 'Council review complete.',
       workflowRunId: runId,
     );
-    final reportPath = outputs['review_findings'] as String;
 
-    expect(reportPath, startsWith(runtimeReviewsDir.path));
+    expect(outputs['review_report_path'], reportPath);
+    expect(outputs['review_report_path'], isNot(contains('claimed-path')));
+    expect(p.isAbsolute(outputs['review_report_path'] as String), isTrue);
+    expect(outputs['$stepId.findings_count'], 4);
+    expect(outputs['$stepId.gating_findings_count'], 2);
+  });
+
+  test('captures into the namespaced review path output key', () async {
+    const runId = 'run-namespaced-capture';
+    const stepId = 'plan-review-council';
+    final reportPath = harness.writeStepReview(runId, stepId, 'council.md');
+
+    final outputs = await harness.extractStepFromContext(
+      extractor,
+      harness.makeStep(
+        id: stepId,
+        outputs: harness.reviewOutputs(stepId, pathKey: '$stepId.review_report_path'),
+      ),
+      'task-namespaced-capture',
+      {'$stepId.findings_count': 6, '$stepId.gating_findings_count': 0},
+      prefix: 'Council review complete.',
+      workflowRunId: runId,
+    );
+
+    expect(outputs['$stepId.review_report_path'], reportPath);
+    expect(outputs['$stepId.findings_count'], 6);
+  });
+
+  test('selects the newest .md when the step dir holds multiple reports', () async {
+    const runId = 'run-multiple-reports';
+    const stepId = 'integrated-review';
+    final older = harness.writeStepReview(runId, stepId, 'older.md');
+    final newer = harness.writeStepReview(runId, stepId, 'newer.md');
+    File(older).setLastModifiedSync(DateTime(2026, 4, 1));
+    File(newer).setLastModifiedSync(DateTime(2026, 4, 2));
+
+    final outputs = await harness.extractStepFromContext(
+      extractor,
+      harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)),
+      'task-multiple-reports',
+      {'$stepId.findings_count': 1, '$stepId.gating_findings_count': 1},
+      prefix: 'Review complete.',
+      workflowRunId: runId,
+    );
+
+    expect(outputs['review_report_path'], newer);
+  });
+
+  test('ignores non-.md files an agent drops in the step dir', () async {
+    const runId = 'run-ignore-nonmd';
+    const stepId = 'integrated-review';
+    harness.stepArtifactsDir(runId, stepId); // ensure the dir exists
+    harness.writeStepReview(runId, stepId, 'notes.txt', content: 'scratch');
+    final reportPath = harness.writeStepReview(runId, stepId, 'report.md');
+
+    final outputs = await harness.extractStepFromContext(
+      extractor,
+      harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)),
+      'task-ignore-nonmd',
+      {'$stepId.findings_count': 1, '$stepId.gating_findings_count': 1},
+      prefix: 'Review complete.',
+      workflowRunId: runId,
+    );
+
+    expect(outputs['review_report_path'], reportPath);
+  });
+
+  test('materializes a clean-review stub in the step dir when the report is missing and findings are zero', () async {
+    const runId = 'run-clean-stub';
+    const stepId = 'integrated-review';
+    final stepDir = harness.stepArtifactsDir(runId, stepId);
+
+    final outputs = await harness.extractStepFromContext(
+      extractor,
+      harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)),
+      'task-clean-stub',
+      {'$stepId.findings_count': 0, '$stepId.gating_findings_count': 0},
+      prefix: 'Review complete with no findings.',
+      workflowRunId: runId,
+    );
+    final reportPath = outputs['review_report_path'] as String;
+
+    expect(reportPath, startsWith(stepDir.path));
     expect(reportPath, endsWith('.md'));
     expect(File(reportPath).existsSync(), isTrue);
     expect(File(reportPath).readAsStringSync(), contains('did not leave a markdown report on disk'));
   });
 
-  test('honors an absolute review-report claim when the data dir is nested inside the worktree', () async {
-    const runId = 'run-nested-data';
-    final worktree = harness.createWorktree('worktree-nested-data');
-    final nestedDataDir = p.join(worktree.path, '.data');
-    final reportPath = harness.writeRuntimeReview(
-      runId,
-      '0.18-plan-mixed-review.md',
-      content: '# Council Review\n\nVerdict: PASS.\n',
-      dataDir: nestedDataDir,
-    );
-
-    harness.writeWorktreeFile(worktree, 'lib/a.dart', '// a\n');
-    harness.writeWorktreeFile(worktree, 'CHANGELOG.md', '# changelog\n');
-    final localExtractor = harness.extractorWithGit(
-      harness.gitWithUntracked(worktree, ['lib/a.dart', 'CHANGELOG.md']),
-      dataDir: nestedDataDir,
-    );
-
-    final outputs = await harness.extractStepFromContext(
-      localExtractor,
-      harness.makeStep(
-        id: 'plan-review-council',
-        outputs: harness.reviewOutputs('plan-review-council', pathKey: 'plan-review-council.review_findings'),
-      ),
-      'task-nested-data-council',
-      {
-        'plan-review-council.review_findings': reportPath,
-        'plan-review-council.findings_count': 38,
-        'plan-review-council.gating_findings_count': 19,
-      },
-      prefix: 'Council review complete.',
-      workflowRunId: runId,
-      worktreePath: worktree.path,
-    );
-
-    expect(outputs['plan-review-council.review_findings'], reportPath);
-    expect(outputs['plan-review-council.gating_findings_count'], 19);
-  });
-
-  test('captures namespaced review path output from the bare claim key the skill emits', () async {
-    const runId = 'run-namespaced-council-path';
-    final reportPath = harness.writeRuntimeReview(
-      runId,
-      's09-mixed-review-council-20260607-195648.md',
-      content: '# Council Review\n\nVerdict: PASS.\n',
-    );
+  test('materializes the clean-review stub for custom findings output names too', () async {
+    const runId = 'run-custom-clean-stub';
+    const stepId = 'custom-review';
+    final stepDir = harness.stepArtifactsDir(runId, stepId);
 
     final outputs = await harness.extractStepFromContext(
       extractor,
       harness.makeStep(
-        id: 'plan-review-council',
-        outputs: harness.reviewOutputs('plan-review-council', pathKey: 'plan-review-council.review_findings'),
+        id: stepId,
+        outputs: harness.reviewOutputs(stepId, pathKey: 'audit_report'),
       ),
-      'task-namespaced-council-path',
-      {
-        'review_findings': reportPath,
-        'plan-review-council.findings_count': 6,
-        'plan-review-council.gating_findings_count': 0,
-      },
-      prefix: 'Council review complete.',
+      'task-custom-clean-stub',
+      {'$stepId.findings_count': 0, '$stepId.gating_findings_count': 0},
+      prefix: 'Custom review complete with no findings.',
       workflowRunId: runId,
     );
+    final reportPath = outputs['audit_report'] as String;
 
-    expect(outputs['plan-review-council.review_findings'], reportPath);
-    expect(outputs['plan-review-council.findings_count'], 6);
-    expect(outputs['plan-review-council.gating_findings_count'], 0);
+    expect(reportPath, startsWith(stepDir.path));
+    expect(File(reportPath).existsSync(), isTrue);
   });
 
-  test('locates unclaimed review report in runtime-artifacts output dir instead of worktree diff', () async {
-    const runId = 'run-unclaimed-council-review';
-    final reportPath = harness.writeRuntimeReview(
-      runId,
-      's09-mixed-review-council-20260607.md',
-      content: '# Council Review\n\nVerdict: PASS.\n',
+  test('throws MissingArtifactFailure when the report is missing and findings are nonzero', () async {
+    const runId = 'run-missing-nonzero';
+    const stepId = 're-review';
+    harness.stepArtifactsDir(runId, stepId); // empty step dir
+
+    await expectLater(
+      harness.extractStepFromContext(
+        extractor,
+        harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)),
+        'task-missing-nonzero',
+        {'$stepId.findings_count': 1, '$stepId.gating_findings_count': 1},
+        prefix: 'Review found an issue but left no report.',
+        workflowRunId: runId,
+      ),
+      throwsA(
+        isA<MissingArtifactFailure>()
+            .having((failure) => failure.fieldName, 'fieldName', 'review_report_path')
+            .having((failure) => failure.reason, 'reason', 'no review artifact found in the step artifacts dir'),
+      ),
     );
-
-    final worktree = harness.createWorktree('worktree-unclaimed-council');
-    harness.writeWorktreeFile(worktree, 'lib/a.dart', '// a\n');
-    harness.writeWorktreeFile(worktree, 'CHANGELOG.md', '# changelog\n');
-    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, ['lib/a.dart', 'CHANGELOG.md']));
-
-    final outputs = await harness.extractStepFromContext(
-      localExtractor,
-      harness.makeStep(id: 'plan-review-council', outputs: harness.reviewOutputs('plan-review-council')),
-      'task-unclaimed-council-review',
-      {'plan-review-council.findings_count': 5, 'plan-review-council.gating_findings_count': 4},
-      prefix: 'Council review complete. Verdict: READY — PASS.',
-      workflowRunId: runId,
-      worktreePath: worktree.path,
-    );
-
-    expect(outputs['review_findings'], reportPath);
-    expect(outputs['review_findings'], isNot(contains('worktree-unclaimed-council')));
-    expect(outputs['plan-review-council.findings_count'], 5);
-    expect(outputs['plan-review-council.gating_findings_count'], 4);
   });
 
-  test('does not materialize clean review artifact through runtime artifact symlink', () async {
-    const runId = 'run-runtime-symlink';
-    final runtimeArtifactsDir = Directory(p.join(tempDir.path, 'workflows', 'runs', runId, 'runtime-artifacts'))
-      ..createSync(recursive: true);
-    final outsideDir = Directory(p.join(tempDir.path, 'outside-reviews'))..createSync(recursive: true);
-    final reviewsLink = Link(p.join(runtimeArtifactsDir.path, 'reviews'));
-    try {
-      reviewsLink.createSync(outsideDir.path);
-    } on FileSystemException {
-      markTestSkipped('Symlinks are not available on this filesystem');
-    }
-
-    final claimedReportPath = p.join(reviewsLink.path, 'integrated-review-codex-2026-04-30.md');
-
-    final task = await harness.buildTaskWithContext(
-      'task-runtime-artifacts-symlink-clean-review-report',
-      {
-        'review_findings': claimedReportPath,
-        'integrated-review.findings_count': 0,
-        'integrated-review.gating_findings_count': 0,
-      },
-      prefix: 'Review completed with no findings.',
-      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
-      projectId: 'workflow-test-todo-app',
-      workflowRunId: runId,
-    );
-    final step = harness.makeStep(id: 'integrated-review', outputs: harness.reviewOutputs('integrated-review'));
-
-    final outputs = await extractor.extract(step, task);
-
-    expect(outputs['review_findings'], isEmpty);
-    expect(File(claimedReportPath).existsSync(), isFalse);
-    expect(File(p.join(outsideDir.path, p.basename(claimedReportPath))).existsSync(), isFalse);
-  });
-
-  test('keeps absolute review findings readable when data dir is relative', () async {
+  test('captures with an absolute value even when the data dir is relative', () async {
     final relativeDataDir = '.dartclaw-dev-test-${DateTime.now().microsecondsSinceEpoch}';
     try {
-      const runId = 'run-runtime-relative-datadir';
+      const runId = 'run-relative-datadir';
+      const stepId = 'integrated-review';
       final reportPath = p.normalize(
-        p.absolute(
-          harness.writeRuntimeReview(runId, 'integrated-review-codex-2026-04-30.md', dataDir: relativeDataDir),
-        ),
+        p.absolute(harness.writeStepReview(runId, stepId, 'review.md', dataDir: relativeDataDir)),
       );
       final localExtractor = ContextExtractor(
         taskService: taskService,
@@ -514,121 +354,153 @@ void main() {
         dataDir: relativeDataDir,
       );
 
-      final task = await harness.buildTaskWithContext(
-        'task-runtime-artifacts-relative-datadir-review-report-path',
-        {'review_findings': reportPath},
-        prefix: 'Review completed.',
-        suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
-        projectId: 'workflow-test-todo-app',
+      final outputs = await harness.extractStepFromContext(
+        localExtractor,
+        harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)),
+        'task-relative-datadir',
+        {'$stepId.findings_count': 2, '$stepId.gating_findings_count': 1},
+        prefix: 'Review complete.',
         workflowRunId: runId,
       );
-      final step = harness.pathOutputStep('review_findings');
-
-      final outputs = await localExtractor.extract(step, task);
 
       expect(p.isRelative(relativeDataDir), isTrue);
-      expect(p.basename(relativeDataDir), startsWith('.dartclaw-dev'));
-      expect(outputs['review_findings'], reportPath);
+      expect(outputs['review_report_path'], reportPath);
+      expect(p.isAbsolute(outputs['review_report_path'] as String), isTrue);
     } finally {
       final dataDir = Directory(relativeDataDir);
       if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
     }
   });
 
-  test('keeps runtime-root-relative review findings readable as absolute paths', () async {
-    final reportPath = harness.writeRuntimeReview('run-runtime-relative', 'integrated-review-codex-2026-04-30.md');
-    final worktree = harness.createWorktree('worktree-runtime-relative-review-report');
+  test(
+    'captures from the step dir in the nested-.dartclaw profile, ignoring a dirty worktree and stale claim',
+    () async {
+      // Maintainer profile: data dir nested inside the worktree. The host-owned
+      // step dir is the only source — the dirty worktree and the model claim are
+      // both irrelevant, so the nested case is trivially correct.
+      const runId = 'run-nested-data';
+      const stepId = 'plan-review-council';
+      final worktree = harness.createWorktree('worktree-nested-data');
+      final nestedDataDir = p.join(worktree.path, '.data');
+      final reportPath = harness.writeStepReview(runId, stepId, 'council.md', dataDir: nestedDataDir);
+
+      harness.writeWorktreeFile(worktree, 'lib/a.dart', '// a\n');
+      harness.writeWorktreeFile(worktree, 'CHANGELOG.md', '# changelog\n');
+      final localExtractor = harness.extractorWithGit(
+        harness.gitWithUntracked(worktree, ['lib/a.dart', 'CHANGELOG.md']),
+        dataDir: nestedDataDir,
+      );
+
+      final outputs = await harness.extractStepFromContext(
+        localExtractor,
+        harness.makeStep(
+          id: stepId,
+          outputs: harness.reviewOutputs(stepId, pathKey: '$stepId.review_report_path'),
+        ),
+        'task-nested-data-council',
+        {
+          '$stepId.review_report_path': 'CHANGELOG.md',
+          '$stepId.findings_count': 38,
+          '$stepId.gating_findings_count': 19,
+        },
+        prefix: 'Council review complete.',
+        workflowRunId: runId,
+        worktreePath: worktree.path,
+      );
+
+      expect(outputs['$stepId.review_report_path'], reportPath);
+      expect(outputs['$stepId.gating_findings_count'], 19);
+    },
+  );
+
+  test('per-map-iteration steps resolve their own disjoint step dir', () async {
+    const runId = 'run-map-iteration';
+    const stepId = 'story-review';
+    // Iteration 2's report lives in `steps/story-review-2`; iteration 0's dir
+    // holds a decoy that must not be captured.
+    harness.writeStepReview(runId, stepId, 'iter0.md', content: '# iter 0\n', mapIterationIndex: 0);
+    final iter2Report = harness.writeStepReview(runId, stepId, 'iter2.md', content: '# iter 2\n', mapIterationIndex: 2);
+
+    final task = await harness.buildTaskWithContext(
+      'task-map-iteration',
+      {'$stepId.findings_count': 3, '$stepId.gating_findings_count': 1},
+      prefix: 'Story review complete.',
+      workflowRunId: runId,
+    );
+    // Seed the side-table row carrying the map iteration index the extractor reads.
+    await harness.workflowStepExecutions.create(
+      WorkflowStepExecution(
+        taskId: task.id,
+        agentExecutionId: 'ae-map-iteration',
+        workflowRunId: runId,
+        stepIndex: 0,
+        stepId: stepId,
+        mapIterationIndex: 2,
+      ),
+    );
+
+    final outputs = await extractor.extract(harness.makeStep(id: stepId, outputs: harness.reviewOutputs(stepId)), task);
+
+    expect(outputs['review_report_path'], iter2Report);
+    expect(outputs['review_report_path'], isNot(contains('iter0')));
+  });
+
+  test('non-review path output with the same collision keeps the worktree copy (worktree-first default)', () async {
+    // A non-review format:path key is not preserveRuntimeArtifactsRoot, so
+    // the documented worktree-first order stands even in the nested profile.
+    const runId = 'run-non-review-collision';
+    final worktree = harness.createWorktree('worktree-non-review-collision');
+    final nestedDataDir = p.join(worktree.path, '.data');
+    const relativeClaim = 'artifacts/output.txt';
+    // Runtime-artifacts copy under a consumer-created subdir.
+    final runtimeArtifactsDir = p.join(nestedDataDir, 'workflows', 'runs', runId, 'runtime-artifacts');
+    harness.writeFile(runtimeArtifactsDir, relativeClaim, 'runtime copy\n');
+    harness.writeWorktreeFile(worktree, relativeClaim, 'worktree copy\n');
+    final localExtractor = harness.extractorWithGit(
+      harness.gitWithUntracked(worktree, [relativeClaim]),
+      dataDir: nestedDataDir,
+    );
+
+    final outputs = await harness.extractStepFromContext(
+      localExtractor,
+      harness.pathOutputStep('artifact'),
+      'task-non-review-collision',
+      {'artifact': relativeClaim},
+      prefix: 'Done.',
+      workflowRunId: runId,
+      worktreePath: worktree.path,
+    );
+
+    expect(outputs['artifact'], relativeClaim);
+  });
+
+  test('custom-workflow claim under an absent non-engine subdir surfaces MissingArtifactFailure', () async {
+    // TD-095: the engine pre-creates only reviews/ + merge-resolve/. A custom
+    // step claiming a missing file under a subdir it never created (and that the
+    // engine does not own) must fail clearly, not borrow an unrelated file. The
+    // claim points into the runtime-artifacts `screenshots/` dir that no
+    // consumer created, and the worktree has no changed file to substitute.
+    const runId = 'run-missing-custom-subdir';
+    final worktree = harness.createWorktree('worktree-missing-custom-subdir');
+    // Engine-created reviews/ exists; screenshots/ never created.
+    final runtimeArtifactsDir = harness.runtimeReviewsDir(runId).parent.path;
     final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, const []));
 
     final task = await harness.buildTaskWithContext(
-      'task-runtime-artifacts-relative-review-report-path',
-      {'review_findings': 'reviews/integrated-review-codex-2026-04-30.md'},
-      prefix: 'Review completed.',
+      'task-missing-custom-subdir',
+      {'shot': p.join(runtimeArtifactsDir, 'screenshots', 'shot.png')},
+      prefix: 'Captured screenshot.',
       suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
-      projectId: 'workflow-test-todo-app',
-      workflowRunId: 'run-runtime-relative',
+      workflowRunId: runId,
       worktreePath: worktree.path,
     );
-    final step = harness.pathOutputStep('review_findings');
+    final step = harness.pathOutputStep('shot');
 
-    final outputs = await localExtractor.extract(step, task);
-
-    expect(outputs['review_findings'], reportPath);
+    await expectLater(localExtractor.extract(step, task), throwsA(isA<MissingArtifactFailure>()));
   });
 
-  test('prefers explicit runtime artifacts review findings over changed worktree review files', () async {
-    final runtimeReportPath = harness.writeRuntimeReview(
-      'run-runtime-precedence',
-      'integrated-review-codex-2026-04-30.md',
-    );
-    final worktree = harness.createWorktree('worktree-runtime-precedence-review-report');
-    const staleWorktreeReport = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
-    harness.writeWorktreeFile(worktree, staleWorktreeReport, '# Stale Worktree Review\n');
-    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [staleWorktreeReport]));
-
-    final task = await harness.buildTaskWithContext(
-      'task-runtime-artifacts-review-report-precedence',
-      {'review_findings': runtimeReportPath},
-      prefix: 'Review completed.',
-      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
-      projectId: 'workflow-test-todo-app',
-      workflowRunId: 'run-runtime-precedence',
-      worktreePath: worktree.path,
-    );
-    final step = harness.pathOutputStep('review_findings');
-
-    final outputs = await localExtractor.extract(step, task);
-
-    expect(outputs['review_findings'], runtimeReportPath);
-  });
-
-  test('ignores absolute outside-worktree review findings claims in favor of changed report files', () async {
-    final worktree = harness.createWorktree('worktree-outside-review-report');
-    final outsideDir = Directory(p.join(tempDir.path, 'outside-worktree'))..createSync();
-    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
-      ..writeAsStringSync('# Outside Review\n');
-    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
-    harness.writeWorktreeFile(worktree, actualPath, '# Plan Review\n');
-    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [actualPath]));
-
-    final taskWithWorktree = await harness.buildTaskWithContext(
-      'task-outside-plan-review-report-path',
-      {'review_findings': outsideReport.path},
-      prefix: 'Plan review completed.',
-      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
-      worktreePath: worktree.path,
-    );
-    final step = harness.pathOutputStep('review_findings');
-
-    final outputs = await localExtractor.extract(step, taskWithWorktree);
-
-    expect(outputs['review_findings'], actualPath);
-  });
-
-  test('prefers changed review findings files over stale existing claims', () async {
-    final worktree = harness.createWorktree('worktree-stale-existing-review-report');
-    const stalePath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
-    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
-    harness.writeWorktreeFile(worktree, stalePath, '# Stale Plan Review\n');
-    harness.writeWorktreeFile(worktree, actualPath, '# Plan Review\n');
-    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [actualPath]));
-
-    final taskWithWorktree = await harness.buildTaskWithContext(
-      'task-stale-existing-plan-review-report-path',
-      {'review_findings': stalePath},
-      prefix: 'Plan review completed.',
-      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
-      worktreePath: worktree.path,
-    );
-    final step = harness.pathOutputStep('review_findings');
-
-    final outputs = await localExtractor.extract(step, taskWithWorktree);
-
-    expect(outputs['review_findings'], actualPath);
-  });
-
-  test('ignores symlinked review findings claims that resolve outside the worktree', () async {
-    final worktree = harness.createWorktree('worktree-symlink-review-report');
+  test('ignores symlinked non-review path claims that resolve outside the worktree', () async {
+    final worktree = harness.createWorktree('worktree-symlink-report');
     final outsideDir = Directory(p.join(tempDir.path, 'outside-symlink-target'))..createSync();
     final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
       ..writeAsStringSync('# Outside Review\n');
@@ -641,21 +513,21 @@ void main() {
     final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [actualPath]));
 
     final taskWithWorktree = await harness.buildTaskWithContext(
-      'task-symlink-plan-review-report-path',
-      {'review_findings': symlinkPath},
-      prefix: 'Plan review completed.',
+      'task-symlink-report-path',
+      {'report': symlinkPath},
+      prefix: 'Report generated.',
       suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
       worktreePath: worktree.path,
     );
-    final step = harness.pathOutputStep('review_findings');
+    final step = harness.pathOutputStep('report');
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
-    expect(outputs['review_findings'], actualPath);
+    expect(outputs['report'], actualPath);
   });
 
-  test('filters unsafe diff-derived review findings paths', () async {
-    final worktree = harness.createWorktree('worktree-unsafe-diff-review-report');
+  test('filters unsafe diff-derived non-review path matches', () async {
+    final worktree = harness.createWorktree('worktree-unsafe-diff-report');
     final outsideDir = Directory(p.join(tempDir.path, 'outside-diff-target'))..createSync();
     final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
       ..writeAsStringSync('# Outside Review\n');
@@ -667,36 +539,12 @@ void main() {
       harness.gitWithUntracked(worktree, [symlinkPath, outsideReport.path]),
     );
 
-    final taskWithWorktree = await harness.buildTask(
-      'task-unsafe-diff-plan-review-report-path',
-      worktreePath: worktree.path,
-    );
-    final step = harness.pathOutputStep('review_findings');
+    final taskWithWorktree = await harness.buildTask('task-unsafe-diff-report-path', worktreePath: worktree.path);
+    final step = harness.pathOutputStep('report');
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
-    expect(outputs['review_findings'], '');
-  });
-
-  test('does not validate diff-derived review paths against project root fallback', () async {
-    final worktree = harness.createWorktree('worktree-project-root-fallback');
-    final projectRoot = Directory(p.join(tempDir.path, 'projects', 'demo-project'))..createSync(recursive: true);
-    const reportPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
-    File(p.join(projectRoot.path, reportPath))
-      ..createSync(recursive: true)
-      ..writeAsStringSync('# Project Root Review\n');
-    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [reportPath]));
-
-    final taskWithWorktree = await harness.buildTask(
-      'task-diff-project-root-fallback',
-      projectId: 'demo-project',
-      worktreePath: worktree.path,
-    );
-    final step = harness.pathOutputStep('review_findings');
-
-    final outputs = await localExtractor.extract(step, taskWithWorktree);
-
-    expect(outputs['review_findings'], '');
+    expect(outputs['report'], '');
   });
 
   test('resolves list path outputs from workflow git diff', () async {
@@ -798,7 +646,12 @@ void main() {
     );
   });
 
-  test('prefers plan.json when the default plan resolver also sees plan.md', () async {
+  // TI09 parity: the canonical-basename tie-break is now declarative
+  // (`preferPatterns:` on the filesystem output), not a hard-coded engine
+  // preference on the `plan`/`prd` output key. With the declaration, resolution
+  // is byte-identical to the old framework-basename behavior, including the
+  // dirty-worktree multi-match case.
+  test('preferPatterns picks plan.json when the diff also sees plan.md', () async {
     final worktree = harness.createWorktree('worktree-plan-json-preferred');
     harness.writeWorktreeFile(worktree, 'docs/specs/demo/plan.json', '{"schemaVersion":"1","stories":[]}');
     harness.writeWorktreeFile(worktree, 'docs/specs/demo/plan.md', '# Plan\n');
@@ -806,14 +659,25 @@ void main() {
       harness.gitWithUntracked(worktree, ['docs/specs/demo/plan.md', 'docs/specs/demo/plan.json']),
     );
     final taskWithWorktree = await harness.buildTask('task-plan-json-preferred', worktreePath: worktree.path);
-    final step = harness.makeStep(outputs: const {'plan': OutputConfig(format: OutputFormat.path)});
+    final step = harness.makeStep(
+      outputs: const {
+        'plan': OutputConfig(
+          format: OutputFormat.path,
+          resolverOverride: FileSystemOutput(
+            pathPattern: '**/*',
+            listMode: false,
+            preferPatterns: ['plan.json', 'plan.md'],
+          ),
+        ),
+      },
+    );
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
     expect(outputs['plan'], 'docs/specs/demo/plan.json');
   });
 
-  test('prefers canonical prd.md when the default PRD resolver also sees dashed drafts', () async {
+  test('preferPatterns picks canonical prd.md when the diff also sees dashed drafts', () async {
     final worktree = harness.createWorktree('worktree-prd-preferred');
     harness.writeWorktreeFile(worktree, 'docs/specs/demo/prd.md', '# PRD\n');
     harness.writeWorktreeFile(worktree, 'docs/specs/demo/draft-prd.md', '# Draft\n');
@@ -821,11 +685,37 @@ void main() {
       harness.gitWithUntracked(worktree, ['docs/specs/demo/draft-prd.md', 'docs/specs/demo/prd.md']),
     );
     final taskWithWorktree = await harness.buildTask('task-prd-preferred', worktreePath: worktree.path);
-    final step = harness.pathOutputStep('prd');
+    final step = harness.makeStep(
+      outputs: const {
+        'prd': OutputConfig(
+          format: OutputFormat.path,
+          resolverOverride: FileSystemOutput(pathPattern: '**/*', listMode: false, preferPatterns: ['prd.md']),
+        ),
+      },
+    );
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
     expect(outputs['prd'], 'docs/specs/demo/prd.md');
+  });
+
+  test('without preferPatterns the engine applies no built-in plan/prd preference', () async {
+    // Regression guard: the hard-coded prd.md/plan.json/plan.md basenames were
+    // removed from the resolver, so a bare `plan` path output that sees both
+    // plan.json and plan.md is now an ambiguity, not a silent plan.json pick.
+    final worktree = harness.createWorktree('worktree-no-builtin-pref');
+    harness.writeWorktreeFile(worktree, 'docs/specs/demo/plan.json', '{"schemaVersion":"1","stories":[]}');
+    harness.writeWorktreeFile(worktree, 'docs/specs/demo/plan.md', '# Plan\n');
+    final localExtractor = harness.extractorWithGit(
+      harness.gitWithUntracked(worktree, ['docs/specs/demo/plan.md', 'docs/specs/demo/plan.json']),
+    );
+    final taskWithWorktree = await harness.buildTask('task-no-builtin-pref', worktreePath: worktree.path);
+    final step = harness.makeStep(outputs: const {'plan': OutputConfig(format: OutputFormat.path)});
+
+    await expectLater(
+      localExtractor.extract(step, taskWithWorktree),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Multiple filesystem artifacts'))),
+    );
   });
 
   test('uses inline values for narrative-only outputs', () async {
@@ -858,6 +748,39 @@ void main() {
     expect(outputs['summary'], 'Inline summary');
     expect(outputs['confidence'], 8);
     expect(fallbackCalls, isEmpty);
+  });
+
+  test('extracts parsed inline and narrative resolver aliases byte-identically', () async {
+    const sharedText = 'Same extractor payload\nwith two lines';
+    final session = await sessionService.getOrCreateMainSession();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({'inline_summary': sharedText, 'narrative_summary': sharedText})}</workflow-context>',
+    );
+    final taskWithSession = await harness.buildTask('task-resolver-alias-inline-narrative', sessionId: session.id);
+    final definition = WorkflowDefinitionParser().parse('''
+name: resolver-alias-workflow
+description: Checks resolver aliases at extraction time
+steps:
+  - id: extract
+    name: Extract
+    prompt: Extract
+    outputs:
+      inline_summary:
+        format: text
+        resolver: inline
+      narrative_summary:
+        format: text
+        resolver: narrative
+''');
+
+    final outputs = await extractor.extract(definition.steps.single, taskWithSession);
+
+    expect(outputs['inline_summary'], sharedText);
+    expect(outputs['narrative_summary'], sharedText);
+    expect(outputs['narrative_summary'], outputs['inline_summary']);
   });
 
   test('resolves mixed filesystem and inline narrative outputs', () async {
@@ -924,7 +847,7 @@ void main() {
       final step = harness.makeStep(
         outputs: const {
           'prd': OutputConfig(format: OutputFormat.text),
-          'stories': OutputConfig(format: OutputFormat.json, schema: 'story_plan'),
+          'stories': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
         },
       );
       final outputs = await extractor.extract(step, taskWithSession);
@@ -991,7 +914,7 @@ void main() {
     );
   });
 
-  test('extracts diff.json artifact for diff-related key', () async {
+  test('extracts diff.json artifact for canonical diff_summary key', () async {
     final task = await harness.createTaskWithArtifact(
       name: 'diff.json',
       kind: ArtifactKind.data,
@@ -1005,20 +928,6 @@ void main() {
     expect(outputs['diff_summary'], contains('-12'));
   });
 
-  test('ExtractionConfig with artifact type finds named artifact', () async {
-    final task = await harness.createTaskWithArtifact(
-      name: 'special-report.md',
-      content: 'Special report content here.',
-    );
-
-    final step = harness.makeStep(
-      outputs: {'report': OutputConfig()},
-      extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
-    );
-    final outputs = await extractor.extract(step, task);
-    expect(outputs['report'], equals('Special report content here.'));
-  });
-
   test('large content value (>10K chars) is returned without truncation', () async {
     final largeContent = 'x' * 15000;
     final task = await harness.createTaskWithArtifact(name: 'large.md', content: largeContent);
@@ -1029,7 +938,7 @@ void main() {
     expect(outputs['large_output'], equals(largeContent));
   });
 
-  test('multiple output keys: diff key extracts diff.json, plain key falls back to empty', () async {
+  test('dead diff/changes convention fallback does not read diff.json', () async {
     final task = await harness.createTaskWithArtifact(
       name: 'diff.json',
       kind: ArtifactKind.data,
@@ -1039,7 +948,7 @@ void main() {
     final step = harness.makeStep(outputs: {'notes': OutputConfig(), 'diff_changes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['notes'], equals(''));
-    expect(outputs['diff_changes'], contains('1 files changed'));
+    expect(outputs['diff_changes'], equals(''));
   });
 
   test('structured output mode reads provider payload from task config', () async {
@@ -1184,12 +1093,18 @@ void main() {
             'findings_count': 3,
             'findings': [
               {
-                'severity': gatingCount == 0 ? 'low' : 'medium',
+                'severity': gatingCount == 0 ? 'low' : 'high',
                 'location': 'lib/workflow.dart:1',
                 'description': 'Representative review finding',
               },
+              {'severity': 'low', 'location': 'lib/workflow.dart:2', 'description': 'Low severity review finding'},
+              {
+                'severity': 'low',
+                'location': 'lib/workflow.dart:3',
+                'description': 'Another low severity review finding',
+              },
             ],
-            'summary': gatingCount == 0 ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
+            'summary': gatingCount == 0 ? 'Only LOW findings remain.' : 'A HIGH finding remains.',
           };
         }
         final taskId = 'task-${producer.stepId}-$gatingCount';
@@ -1212,7 +1127,7 @@ void main() {
 
   test('review producer outputs derive scoped counts from verdict findings when scoped keys are missing', () async {
     for (final producer in reviewSummaryProducers.where((producer) => producer.summaryKey != null)) {
-      for (final testCase in const [(gatingCount: 0, severity: 'low'), (gatingCount: 1, severity: 'medium')]) {
+      for (final testCase in const [(gatingCount: 0, severity: 'low'), (gatingCount: 0, severity: 'medium')]) {
         final payload = <String, Object?>{
           producer.summaryKey!: {
             'pass': testCase.gatingCount == 0,
@@ -1230,10 +1145,10 @@ void main() {
                 'description': 'Another low severity review finding',
               },
             ],
-            'summary': testCase.gatingCount == 0 ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
+            'summary': testCase.severity == 'low' ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
           },
         };
-        final taskId = 'task-${producer.stepId}-derived-${testCase.gatingCount}';
+        final taskId = 'task-${producer.stepId}-derived-${testCase.severity}';
         final task = await harness.buildTaskWithAssistantMessage(
           taskId,
           '<workflow-context>${jsonEncode(payload)}</workflow-context>',
@@ -1251,7 +1166,40 @@ void main() {
     }
   });
 
-  test('file-backed review producers fall back to total count when gating count is missing', () async {
+  test('review producer outputs prefer explicit counters over structured verdict counts', () async {
+    for (final producer in reviewSummaryProducers.where((producer) => producer.summaryKey != null)) {
+      final payload = <String, Object?>{
+        'findings_count': 0,
+        'gating_findings_count': 0,
+        producer.totalKey: 0,
+        producer.gatingKey: 0,
+        producer.summaryKey!: {
+          'pass': false,
+          'findings_count': 2,
+          'findings': [
+            {'severity': 'critical', 'location': 'lib/workflow.dart:1', 'description': 'Critical finding'},
+            {'severity': 'low', 'location': 'lib/workflow.dart:2', 'description': 'Low finding'},
+          ],
+          'summary': 'A critical finding remains.',
+        },
+      };
+      final task = await harness.buildTaskWithAssistantMessage(
+        'task-${producer.stepId}-contradictory-counts',
+        '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+      );
+      final step = harness.makeStep(
+        id: producer.stepId,
+        outputs: harness.reviewCountOutputs(producer, includeSummary: true),
+      );
+
+      final outputs = await extractor.extract(step, task);
+
+      expect(outputs[producer.totalKey], 0, reason: producer.name);
+      expect(outputs[producer.gatingKey], 0, reason: producer.name);
+    }
+  });
+
+  test('file-backed review producers do not substitute total count when gating count is missing', () async {
     const producers = <ReviewProducer>[
       (
         name: 'dartclaw-review',
@@ -1271,7 +1219,10 @@ void main() {
 
     for (final producer in producers) {
       for (final findingsCount in const [0, 2]) {
-        final payload = <String, Object?>{'review_findings': 'docs/specs/review.md', producer.totalKey: findingsCount};
+        final payload = <String, Object?>{
+          'review_report_path': 'docs/specs/review.md',
+          producer.totalKey: findingsCount,
+        };
         final taskId = 'task-${producer.stepId}-file-backed-$findingsCount';
         final task = await harness.buildTaskWithAssistantMessage(
           taskId,
@@ -1282,7 +1233,7 @@ void main() {
         final outputs = await extractor.extract(step, task);
 
         expect(outputs[producer.totalKey], findingsCount, reason: producer.name);
-        expect(outputs[producer.gatingKey], findingsCount, reason: producer.name);
+        expect(outputs[producer.gatingKey], isNot(findingsCount), reason: producer.name);
       }
     }
   });
@@ -1320,16 +1271,16 @@ void main() {
         final outputs = await extractor.extract(step, task);
 
         expect(outputs[producer.totalKey], payload['findings_count'], reason: producer.name);
-        expect(
-          outputs[producer.gatingKey],
-          payload['gating_findings_count'] ?? payload['findings_count'],
-          reason: producer.name,
-        );
+        if (payload.containsKey('gating_findings_count')) {
+          expect(outputs[producer.gatingKey], payload['gating_findings_count'], reason: producer.name);
+        } else {
+          expect(outputs[producer.gatingKey], isNot(payload['findings_count']), reason: producer.name);
+        }
       }
     }
   });
 
-  test('file-backed review producers prefer scoped total over unscoped gating fallback', () async {
+  test('file-backed review producers keep unscoped gating alias independent from scoped total', () async {
     final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
     final task = await harness.buildTaskWithAssistantMessage(
       'task-plan-review-scoped-total-wins',
@@ -1346,30 +1297,33 @@ void main() {
     final outputs = await extractor.extract(step, task);
 
     expect(outputs['plan-review.findings_count'], 2);
-    expect(outputs['plan-review.gating_findings_count'], 2);
+    expect(outputs['plan-review.gating_findings_count'], 0);
   });
 
-  test('file-backed review producers prefer scoped total over already-extracted unscoped gating fallback', () async {
-    final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
-    final task = await harness.buildTaskWithAssistantMessage(
-      'task-plan-review-extracted-unscoped-gating',
-      '<workflow-context>${jsonEncode(payload)}</workflow-context>',
-    );
-    final step = harness.makeStep(
-      id: 'plan-review',
-      outputs: const {
-        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
-        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
-        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
-      },
-    );
+  test(
+    'file-backed review producers keep already-extracted unscoped gating alias independent from scoped total',
+    () async {
+      final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
+      final task = await harness.buildTaskWithAssistantMessage(
+        'task-plan-review-extracted-unscoped-gating',
+        '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+      );
+      final step = harness.makeStep(
+        id: 'plan-review',
+        outputs: const {
+          'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+          'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+          'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        },
+      );
 
-    final outputs = await extractor.extract(step, task);
+      final outputs = await extractor.extract(step, task);
 
-    expect(outputs['gating_findings_count'], 0);
-    expect(outputs['plan-review.findings_count'], 2);
-    expect(outputs['plan-review.gating_findings_count'], 2);
-  });
+      expect(outputs['gating_findings_count'], 0);
+      expect(outputs['plan-review.findings_count'], 2);
+      expect(outputs['plan-review.gating_findings_count'], 0);
+    },
+  );
 
   group('worktree source outputs', () {
     for (final testCase in const [
@@ -1446,24 +1400,263 @@ void main() {
       final outputs = await extractor.extract(step, task);
       expect(outputs['k'], 'extracted content');
     });
+  });
 
-    test('setValue wins over extraction at first-key position', () async {
-      // Reproduces the precedence guard against the legacy ExtractionConfig
-      // priority branch in extract() – without the guard, extraction would
-      // silently beat setValue for the first output key only.
-      final task = await harness.createTaskWithArtifact(
-        name: 'special-report.md',
-        content: 'Special report content here.',
-        artifactId: 'art-precedence',
-      );
-
-      final step = harness.makeStep(
-        extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
-        outputs: const {'k': OutputConfig(setValue: 'wins')},
-      );
+  group('execution envelope outputs (TI03)', () {
+    test('extracts declared outputs from the envelope outputs subobject first', () async {
+      final task = await harness.buildTaskWithEnvelope('task-envelope-outputs', {
+        'outputs': {'summary': 'X'},
+        'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      });
+      final step = harness.makeStep(outputs: {'summary': const OutputConfig(format: OutputFormat.text)});
 
       final outputs = await extractor.extract(step, task);
-      expect(outputs['k'], 'wins');
+
+      expect(outputs['summary'], 'X');
+    });
+
+    test('falls back to a legacy flat structured payload with no envelope marker', () async {
+      final task = await harness.buildTaskWithEnvelope('task-legacy-flat', {'summary': 'Y'});
+      final step = harness.makeStep(outputs: {'summary': const OutputConfig(format: OutputFormat.text)});
+
+      final outputs = await extractor.extract(step, task);
+
+      expect(outputs['summary'], 'Y');
+    });
+
+    test('does not crash on a malformed envelope whose outputs is missing or not a map', () async {
+      final cases = <(String, Map<String, dynamic>)>[
+        (
+          'missing',
+          {
+            'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+            executionEnvelopeMarkerKey: executionEnvelopeVersion,
+          },
+        ),
+        ('nonmap', {'outputs': 'not-a-map', executionEnvelopeMarkerKey: executionEnvelopeVersion}),
+      ];
+      for (final (label, envelope) in cases) {
+        final task = await harness.buildTaskWithEnvelope('task-malformed-envelope-$label', envelope);
+        final step = harness.makeStep(outputs: {'summary': const OutputConfig(format: OutputFormat.text)});
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs['summary'], '', reason: label);
+      }
+    });
+
+    test('execution envelope outputs win over a legacy inline workflow-context block', () async {
+      final session = await sessionService.getOrCreateMainSession();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: 'Done.\n\n<workflow-context>{"summary":"inline"}</workflow-context>',
+      );
+      final task = await harness.buildTaskWithEnvelope('task-envelope-wins-over-inline', {
+        'outputs': {'summary': 'envelope'},
+        'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      }, sessionId: session.id);
+      final step = harness.makeStep(outputs: {'summary': const OutputConfig(format: OutputFormat.text)});
+
+      final outputs = await extractor.extract(step, task);
+
+      expect(outputs['summary'], 'envelope');
+    });
+
+    test('a legacy flat structured payload keeps the historical inline-first ordering', () async {
+      final session = await sessionService.getOrCreateMainSession();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: 'Done.\n\n<workflow-context>{"summary":"inline"}</workflow-context>',
+      );
+      final task = await harness.buildTaskWithEnvelope('task-flat-inline-first', {
+        'summary': 'flat',
+      }, sessionId: session.id);
+      final step = harness.makeStep(outputs: {'summary': const OutputConfig(format: OutputFormat.text)});
+
+      final outputs = await extractor.extract(step, task);
+
+      expect(outputs['summary'], 'inline');
+    });
+  });
+
+  group('envelope-excluded *_source precedence', () {
+    // On a finalizer step the envelope claims covered keys but never `*_source`
+    // (host-owned). The excluded key falls through to the inline block, and the
+    // `synthesized` floor only fills when it is still blank — so an inline
+    // `spec_source: existing` must win over the default.
+    final sourceOutputs = {
+      'spec_source': const OutputConfig(format: OutputFormat.text, schema: 'narrative_text'),
+      'summary': const OutputConfig(format: OutputFormat.text),
+    };
+
+    test('an inline-emitted spec_source wins over the synthesized default when the envelope omits it', () async {
+      final session = await sessionService.getOrCreateMainSession();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: 'Classified.\n\n<workflow-context>{"spec_source":"existing"}</workflow-context>',
+      );
+      final task = await harness.buildTaskWithEnvelope('task-source-inline-wins', {
+        'outputs': {'summary': 'X'},
+        'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      }, sessionId: session.id);
+
+      final outputs = await extractor.extract(harness.makeStep(outputs: sourceOutputs), task);
+
+      expect(outputs['spec_source'], 'existing');
+      expect(outputs['summary'], 'X');
+    });
+
+    test('an omitted spec_source still falls back to the synthesized default', () async {
+      final task = await harness.buildTaskWithEnvelope('task-source-omitted-default', {
+        'outputs': {'summary': 'X'},
+        'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      });
+
+      final outputs = await extractor.extract(harness.makeStep(outputs: sourceOutputs), task);
+
+      expect(outputs['spec_source'], 'synthesized');
+      expect(outputs['summary'], 'X');
+    });
+  });
+
+  group('finalizer filesystem (TI06)', () {
+    test('captures a review report from the step dir, ignoring the envelope claim', () async {
+      const runId = 'run-envelope-review';
+      // pathOutputStep default step id is 'step1'; the report lives in its dir.
+      final reportPath = harness.writeStepReview(runId, 'step1', 'integrated-review-codex-2026-04-30.md');
+      final task = await harness.buildTaskWithEnvelope(
+        'task-envelope-review-path',
+        {
+          // A wrong envelope claim must be ignored — the host reads the dir.
+          'outputs': {'review_report_path': '/totally/wrong/claimed-path.md'},
+          'step_outcome': {'outcome': 'succeeded', 'reason': 'clean'},
+          executionEnvelopeMarkerKey: executionEnvelopeVersion,
+        },
+        projectId: 'workflow-test-todo-app',
+        workflowRunId: runId,
+      );
+      final step = harness.pathOutputStep('review_report_path');
+
+      final outputs = await extractor.extract(step, task);
+
+      expect(outputs['review_report_path'], reportPath);
+    });
+
+    test('a missing required file claim fails even when the envelope claims succeeded', () async {
+      final task = await harness.buildTaskWithEnvelope('task-envelope-missing-artifact', {
+        'outputs': {'prd': 'docs/prd.md'},
+        'step_outcome': {'outcome': 'succeeded', 'reason': 'wrote prd'},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      });
+      final step = harness.pathOutputStep('prd');
+
+      await expectLater(
+        extractor.extract(step, task),
+        throwsA(
+          isA<MissingArtifactFailure>()
+              .having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/prd.md'])
+              .having((failure) => failure.missingPaths, 'missingPaths', ['docs/prd.md']),
+        ),
+      );
+    });
+
+    test('a null envelope review-path claim still captures the step-dir report over a dirty worktree', () async {
+      // The envelope declares path-claim keys required+nullable; a `null` value
+      // means "no claim". The host reads the step dir regardless — a dirty
+      // worktree is irrelevant to review-report capture.
+      const runId = 'run-envelope-null-review-claim';
+      const stepId = 'plan-review-council';
+      final reportPath = harness.writeStepReview(
+        runId,
+        stepId,
+        's09-mixed-review-council-20260607.md',
+        content: '# Council Review\n\nVerdict: PASS.\n',
+      );
+      final worktree = harness.createWorktree('worktree-envelope-null-review');
+      harness.writeWorktreeFile(worktree, 'lib/a.dart', '// a\n');
+      harness.writeWorktreeFile(worktree, 'CHANGELOG.md', '# changelog\n');
+      final localExtractor = ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+        workflowGitPort: harness.gitWithUntracked(worktree, ['lib/a.dart', 'CHANGELOG.md']),
+        workflowStepExecutionRepository: harness.workflowStepExecutions,
+      );
+      final task = await harness.buildTaskWithEnvelope(
+        'task-envelope-null-review-claim',
+        {
+          'outputs': {
+            '$stepId.review_report_path': null,
+            '$stepId.findings_count': 5,
+            '$stepId.gating_findings_count': 4,
+          },
+          'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+          executionEnvelopeMarkerKey: executionEnvelopeVersion,
+        },
+        workflowRunId: runId,
+        worktreePath: worktree.path,
+      );
+      final step = harness.makeStep(
+        id: stepId,
+        outputs: harness.reviewOutputs(stepId, pathKey: '$stepId.review_report_path'),
+      );
+
+      final outputs = await localExtractor.extract(step, task);
+
+      expect(outputs['$stepId.review_report_path'], reportPath);
+      expect(outputs['$stepId.review_report_path'], isNotEmpty);
+    });
+
+    test('a garbled envelope review-path claim is ignored in favor of the step-dir report', () async {
+      // A garbled/nonexistent claimed path on a review output must never reach
+      // the worktree diff — the host captures the report from the step dir.
+      const runId = 'run-stale-review-claim';
+      const stepId = 'review-story';
+      final reportPath = harness.writeStepReview(
+        runId,
+        stepId,
+        's10-review-story-20260704.md',
+        content: '# Story Review\n\nVerdict: PASS.\n',
+      );
+      final worktree = harness.createWorktree('worktree-stale-review-claim');
+      harness.writeWorktreeFile(worktree, 'lib/a.dart', '// a\n');
+      harness.writeWorktreeFile(worktree, 'CHANGELOG.md', '# changelog\n');
+      final localExtractor = ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+        workflowGitPort: harness.gitWithUntracked(worktree, ['lib/a.dart', 'CHANGELOG.md']),
+        workflowStepExecutionRepository: harness.workflowStepExecutions,
+      );
+      final task = await harness.buildTaskWithEnvelope(
+        'task-stale-review-claim',
+        {
+          'outputs': {
+            '$stepId.review_report_path': '/var/folders/nonexistent/garbled/TODO',
+            '$stepId.findings_count': 0,
+            '$stepId.gating_findings_count': 0,
+          },
+          'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+          executionEnvelopeMarkerKey: executionEnvelopeVersion,
+        },
+        workflowRunId: runId,
+        worktreePath: worktree.path,
+      );
+      final step = harness.makeStep(
+        id: stepId,
+        outputs: harness.reviewOutputs(stepId, pathKey: '$stepId.review_report_path'),
+      );
+
+      final outputs = await localExtractor.extract(step, task);
+
+      expect(outputs['$stepId.review_report_path'], reportPath);
     });
   });
 }

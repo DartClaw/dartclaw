@@ -3,12 +3,17 @@ import 'package:test/test.dart';
 
 void main() {
   group('TaskEventKind.fromName', () {
-    test('resolves all 9 known kinds', () {
+    test('resolves all known kinds', () {
       expect(TaskEventKind.fromName('statusChanged'), TaskEventKind.statusChanged);
       expect(TaskEventKind.fromName('toolCalled'), TaskEventKind.toolCalled);
       expect(TaskEventKind.fromName('artifactCreated'), TaskEventKind.artifactCreated);
+      expect(TaskEventKind.fromName('structuredOutputFinalizerUsed'), TaskEventKind.structuredOutputFinalizerUsed);
       expect(TaskEventKind.fromName('structuredOutputInlineUsed'), TaskEventKind.structuredOutputInlineUsed);
       expect(TaskEventKind.fromName('structuredOutputFallbackUsed'), TaskEventKind.structuredOutputFallbackUsed);
+      expect(
+        TaskEventKind.fromName('structuredOutputValidationFailed'),
+        TaskEventKind.structuredOutputValidationFailed,
+      );
       expect(TaskEventKind.fromName('pushBack'), TaskEventKind.pushBack);
       expect(TaskEventKind.fromName('tokenUpdate'), TaskEventKind.tokenUpdate);
       expect(TaskEventKind.fromName('error'), TaskEventKind.taskError);
@@ -95,14 +100,16 @@ void main() {
       expect(restored.details['comment'], 'Needs more work');
     });
 
-    test('round-trip with all 9 event kinds', () {
+    test('round-trip with all event kinds', () {
       final ts = DateTime.utc(2026, 3, 24);
       final kinds = [
         TaskEventKind.statusChanged,
         TaskEventKind.toolCalled,
         TaskEventKind.artifactCreated,
+        TaskEventKind.structuredOutputFinalizerUsed,
         TaskEventKind.structuredOutputInlineUsed,
         TaskEventKind.structuredOutputFallbackUsed,
+        TaskEventKind.structuredOutputValidationFailed,
         TaskEventKind.pushBack,
         TaskEventKind.tokenUpdate,
         TaskEventKind.taskError,

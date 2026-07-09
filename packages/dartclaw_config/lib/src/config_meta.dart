@@ -274,6 +274,20 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
+    'workflow.runtime_artifacts_retention.mode': FieldMeta(
+      yamlPath: 'workflow.runtime_artifacts_retention.mode',
+      jsonKey: 'workflow.runtimeArtifactsRetention.mode',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['warn', 'enforce'],
+    ),
+    'workflow.runtime_artifacts_retention.prune_after_days': FieldMeta(
+      yamlPath: 'workflow.runtime_artifacts_retention.prune_after_days',
+      jsonKey: 'workflow.runtimeArtifactsRetention.pruneAfterDays',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
     'worker_timeout': FieldMeta(
       yamlPath: 'worker_timeout',
       jsonKey: 'workerTimeout',
@@ -1153,6 +1167,12 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.enum_,
       mutability: ConfigMutability.restart,
       allowedValues: ['warn', 'cancel', 'ignore'],
+    ),
+    'governance.turn_progress.max_duration': FieldMeta(
+      yamlPath: 'governance.turn_progress.max_duration',
+      jsonKey: 'governance.turnProgress.maxDuration',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
     ),
     'governance.queue_strategy': FieldMeta(
       yamlPath: 'governance.queue_strategy',

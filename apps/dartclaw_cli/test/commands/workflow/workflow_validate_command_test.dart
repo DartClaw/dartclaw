@@ -3,8 +3,40 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_validate_command.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillIntrospector;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+/// Records probe calls and returns a fixed set so `--skills` resolution is
+/// deterministic and machine-independent.
+class _FakeSkillIntrospector implements SkillIntrospector {
+  final Set<String> available;
+  final Object? throwOnProbe;
+  int calls = 0;
+
+  _FakeSkillIntrospector(this.available, {this.throwOnProbe});
+
+  @override
+  Future<Set<String>> listAvailable({
+    required String provider,
+    String? executable,
+    Map<String, dynamic> providerOptions = const <String, dynamic>{},
+  }) async {
+    calls++;
+    if (throwOnProbe != null) throw throwOnProbe!;
+    return available;
+  }
+}
+
+const _skillStepYaml = '''
+name: skill-workflow
+description: Workflow with a skill step.
+steps:
+  - id: review
+    name: Review
+    skill: andthen:reveiw
+    provider: claude
+''';
 
 const _validYaml = '''
 name: test-workflow
@@ -19,10 +51,19 @@ const _warningsOnlyYaml = '''
 name: warning-workflow
 description: Workflow with a soft validation warning.
 steps:
-  - id: step1
-    name: Step 1
+  - id: work
+    name: Work
     prompt: Do the thing.
-    onError: future-mode
+  - id: approval-loop
+    name: Approval Loop
+    type: loop
+    maxIterations: 3
+    exitGate: "work.done == true"
+    steps:
+      - id: gate
+        name: Gate
+        type: approval
+        prompt: Approve to continue.
 ''';
 
 const _validationErrorYaml = '''
@@ -192,6 +233,54 @@ void main() {
       expect(exitCode, 1, reason: 'Hard-error definition should exit 1');
     });
 
+    test('--skills: unresolvable skill ref warns naming step id, skill, and provider', () async {
+      final introspector = _FakeSkillIntrospector({'andthen:review', 'andthen:spec'});
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+      final skillCommand = WorkflowValidateCommand(config: config, writeLine: output.add, introspector: introspector);
+      final skillRunner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(skillCommand);
+      final path = writeFixture('skill.yaml', _skillStepYaml);
+
+      await skillRunner.run(['validate', path, '--skills']);
+
+      final joined = output.join('\n');
+      expect(exitCode, 0, reason: 'skill warnings are advisory, never INVALID');
+      expect(introspector.calls, 1);
+      expect(joined, contains('Skill warnings'));
+      expect(joined, contains('step=review'));
+      expect(joined, contains('andthen:reveiw'));
+      expect(joined, contains('provider "claude"'));
+      expect(joined, contains('Result: OK with warnings'));
+    });
+
+    test('without --skills: no probe is invoked and a resolvable-skill workflow stays clean', () async {
+      final introspector = _FakeSkillIntrospector({'andthen:review'});
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+      final skillCommand = WorkflowValidateCommand(config: config, writeLine: output.add, introspector: introspector);
+      final skillRunner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(skillCommand);
+      final path = writeFixture('skill.yaml', _skillStepYaml);
+
+      await skillRunner.run(['validate', path]);
+
+      final joined = output.join('\n');
+      expect(introspector.calls, 0, reason: 'probe must only run under --skills');
+      expect(joined, isNot(contains('Skill warnings')));
+    });
+
+    test('--skills: probe failure degrades to a note, never a hard failure', () async {
+      final introspector = _FakeSkillIntrospector(const {}, throwOnProbe: const ProcessException('claude', []));
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+      final skillCommand = WorkflowValidateCommand(config: config, writeLine: output.add, introspector: introspector);
+      final skillRunner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(skillCommand);
+      final path = writeFixture('skill.yaml', _skillStepYaml);
+
+      await skillRunner.run(['validate', path, '--skills']);
+
+      final joined = output.join('\n');
+      expect(exitCode, 0, reason: 'a failed probe must not fail validation');
+      expect(joined, contains('Skill resolution not checked'));
+      expect(joined, isNot(contains('Skill warnings')));
+    });
+
     test('output sections: errors appear before warnings', () async {
       // A workflow with both errors and warnings.
       const bothYaml = '''
@@ -202,10 +291,19 @@ steps:
     name: Gate
     type: approval
     parallel: true
-  - id: future-step
-    name: Future
-    prompt: p
-    onError: future-mode
+  - id: work
+    name: Work
+    prompt: Do the thing.
+  - id: approval-loop
+    name: Approval Loop
+    type: loop
+    maxIterations: 3
+    exitGate: "work.done == true"
+    steps:
+      - id: loop-gate
+        name: Loop Gate
+        type: approval
+        prompt: Approve to continue.
 ''';
       final path = writeFixture('both.yaml', bothYaml);
       await runner.run(['validate', path]);

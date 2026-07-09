@@ -14,11 +14,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalRequestedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowGitCleanupStrategy,
         WorkflowGitException,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
-        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
@@ -58,7 +56,7 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'publish-fail',
         description: 'Publish failure preservation test',
-        gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(publish: true),
         steps: const [],
         variables: {'PROJECT': const WorkflowVariable(required: false)},
       );
@@ -103,7 +101,7 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'publish-fail-context',
         description: 'Publish failure context preservation',
-        gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(publish: true),
         steps: const [],
         variables: {'PROJECT': const WorkflowVariable(required: false)},
       );
@@ -142,7 +140,7 @@ void main() {
     WorkflowDefinition makePublishDef({String? id}) => WorkflowDefinition(
       name: id ?? 'publish-boundary',
       description: 'Publish boundary test',
-      gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+      gitStrategy: const WorkflowGitStrategy(publish: true),
       steps: const [],
       variables: {'PROJECT': const WorkflowVariable(required: false)},
     );
@@ -342,7 +340,7 @@ void main() {
         variables: {'PROJECT': const WorkflowVariable(required: false)},
       );
       final run = WorkflowRun(
-        id: 'cleanup-config-${strategy?.cleanup?.enabled ?? 'default'}',
+        id: 'cleanup-config-${strategy?.cleanup ?? 'default'}',
         definitionName: definition.name,
         status: WorkflowRunStatus.running,
         startedAt: DateTime.now(),
@@ -360,21 +358,45 @@ void main() {
     });
 
     test('cleanup.enabled: true → preserveWorktrees=false', () async {
-      expect(
-        await runCompletionAndCaptureCleanup(
-          const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
-        ),
-        equals([false]),
-      );
+      expect(await runCompletionAndCaptureCleanup(const WorkflowGitStrategy(cleanup: true)), equals([false]));
     });
 
     test('cleanup.enabled: false → preserveWorktrees=true', () async {
-      expect(
-        await runCompletionAndCaptureCleanup(
-          const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+      expect(await runCompletionAndCaptureCleanup(const WorkflowGitStrategy(cleanup: false)), equals([true]));
+    });
+
+    test('malformed persisted definition preserves worktrees', () async {
+      final cleanupCalls = <bool>[];
+      final executor = h.makeExecutor(
+        turnAdapter: standardTurnAdapter(
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add(preserveWorktrees);
+              },
         ),
-        equals([true]),
       );
+
+      const definition = WorkflowDefinition(
+        name: 'cleanup-config-malformed',
+        description: 'Cleanup config parse failure',
+        gitStrategy: WorkflowGitStrategy(cleanup: true),
+        steps: [],
+        variables: {'PROJECT': WorkflowVariable(required: false)},
+      );
+      final run = WorkflowRun(
+        id: 'cleanup-config-malformed',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project'},
+        definitionJson: const {'steps': 'not-a-list'},
+      );
+      await h.repository.insert(run);
+
+      await executor.execute(run, definition, WorkflowContext(variables: const {'PROJECT': 'my-project'}));
+
+      expect(cleanupCalls, equals([true]));
     });
   });
 }

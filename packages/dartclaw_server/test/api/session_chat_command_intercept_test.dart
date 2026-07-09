@@ -141,7 +141,7 @@ void main() {
 
     expect(response.statusCode, 200);
     final body = await response.readAsString();
-    expect(body, contains('Required variable'));
+    expect(body, contains('Missing required variable(s)'));
     expect(body, contains('REPO'));
     expect(await messages.getMessages(session.id), isEmpty);
     expect(turns.reserveCalled, isFalse);

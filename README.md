@@ -17,7 +17,9 @@ _Agentic powers. No dependency black holes. Secure by design._
 
 ## Installation
 
-The recommended install path is **Homebrew** — it fetches the prebuilt `dartclaw` binary plus companion assets, with no Dart toolchain required:
+### Homebrew (macOS & Linux) — recommended
+
+Homebrew installs the prebuilt `dartclaw` binary plus companion assets, with no Dart toolchain required. Prebuilt binaries are published for **macOS** (Apple Silicon and Intel) and **Linux** (x64 and arm64):
 
 ```bash
 brew tap DartClaw/dartclaw
@@ -36,9 +38,9 @@ dartclaw serve
 
 You also need at least one agent CLI (`claude` or `codex`) installed — see [Prerequisites](#prerequisites). For full setup and provider auth, see [Getting Started](docs/guide/getting-started.md).
 
-### From source (development)
+### From source (any platform)
 
-For source-based development and `--dev` hot-reload workflows, build the standalone binary from a checkout (requires the Dart SDK — see [Prerequisites](#prerequisites)):
+On a platform without a prebuilt binary, or for development and `--dev` hot-reload workflows, build the standalone binary from a checkout (requires the Dart SDK — see [Prerequisites](#prerequisites)):
 
 ```bash
 git clone <repo-url> && cd dartclaw
@@ -52,14 +54,14 @@ The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dar
 
 ## What is DartClaw?
 
-DartClaw is a security-conscious AI agent runtime built as a single AOT-compiled Dart binary with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex.
+DartClaw is a security-conscious AI agent runtime built as a single AOT-compiled Dart binary with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex — plus any ACP-compliant agent (Goose, Mistral Vibe, …) added through configuration alone, with zero code changes.
 
 The host talks to agent runtimes through the `AgentHarness` abstract interface. `HarnessFactory` selects the provider-specific implementation, `HarnessPool` manages mixed workers, and the guard chain applies the same canonical tool policy across providers.
 
 ```
-                                                          ┌─── claude binary (JSONL)
-User ─→ HTTP / WhatsApp / Signal / Google Chat ─→ Dart Host ─→ Guards ─→ Container ─┤
-                                                  │                      │           └─── codex binary (JSON-RPC)
+                                                          ┌─── claude binary (JSONL over stdio)
+User ─→ HTTP / WhatsApp / Signal / Google Chat ─→ Dart Host ─→ Guards ─→ Container ─┼─── codex binary (JSON-RPC)
+                                                  │                      │           └─── ACP agents (Goose, Vibe, …)
                                             Guard Chain            network:none
                                             Audit Logger         Credential Proxy
                                            Content Guard          Mount Allowlist
@@ -73,8 +75,11 @@ Two layers with clear trust boundaries:
 
 ## Key Highlights
 
-- **Multi-provider harnesses** -- Claude Code and Codex out of the box; provider selection stays behind `AgentHarness`.
+- **Universal agent harness** -- Claude Code (JSONL) and Codex (JSON-RPC) are first-class, and any ACP-compliant agent (Goose, Mistral Vibe, …) is added through config alone; provider selection stays behind `AgentHarness`.
+- **Context Engine** -- an LLM-maintained wiki, temporal knowledge graph, and memory synthesized into compact, citation-backed packets served to agents over MCP (`context_research`), with a read-only Knowledge UI.
 - **Defense-in-depth** -- container isolation, guard chain, credential proxy, HTTP auth, and fail-closed policy.
+- **Agent delegation & outbound MCP** -- Claude can delegate to allowlisted agents (`delegate_to_agent`), and DartClaw consumes external MCP servers through a guard-mediated, audited egress boundary.
+- **Workflows** -- built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows, runnable server-backed or in a zero-server standalone mode.
 - **Crowd coding** -- WhatsApp, Signal, and Google Chat groups collaboratively steer a shared agent session.
 - **Task orchestration** -- background tasks, review queue, task types, goals, and provider overrides.
 - **Runtime governance** -- rate limits, token budgets, loop detection, and emergency controls.
@@ -145,7 +150,8 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 - **[Workspace](docs/guide/workspace.md)** -- behavior files, memory, prompt assembly
 - **[Security](docs/guide/security.md)** -- guards, containers, credential proxy, canonical tool taxonomy
 - **[Tasks](docs/guide/tasks.md)** -- task orchestration, review workflow, coding tasks, provider overrides
-- **[Agents](docs/guide/agents.md)** -- subagent delegation, model selection, provider-aware pool
+- **[Workflows](docs/guide/workflows.md)** -- built-in YAML workflows, server-backed and zero-server standalone runs
+- **[Agents](docs/guide/agents.md)** -- subagent delegation, ACP agent registration, model selection, provider-aware pool
 - **[Channels](docs/guide/whatsapp.md)** -- [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) setup and access control
 - **[Scheduling](docs/guide/scheduling.md)** -- heartbeat, cron jobs
 - **[Search & Memory](docs/guide/search.md)** -- search agent, FTS5/QMD hybrid search

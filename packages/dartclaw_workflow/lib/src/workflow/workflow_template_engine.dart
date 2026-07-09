@@ -3,7 +3,28 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 
 import 'map_context.dart';
+import 'shell_escape.dart';
 import 'workflow_context.dart';
+
+/// Context-correct escaping applied to substituted values by
+/// [WorkflowTemplateEngine.resolve] / [WorkflowTemplateEngine.resolveWithMap].
+///
+/// The enum is intentionally extensible (`json`/`html` could join later) but
+/// only the modes a current caller needs are implemented.
+enum EscapeMode {
+  /// Verbatim substitution — the default; preserves prompt and commit-message
+  /// rendering byte-for-byte.
+  raw,
+
+  /// Single-quote-wrapped shell escaping via [shellEscape], so a substituted
+  /// value carrying shell metacharacters is inert data, not active syntax.
+  ///
+  /// Intended for scalar substitutions. A composite resolved value — a
+  /// JSON-encoded `{{map.item}}` or a bullet-list array field — is escaped as
+  /// one single-quoted argument: safe (inert), but collapsed into a single
+  /// token rather than expanded.
+  shell,
+}
 
 /// Resolves `{{variable}}` and `{{context.key}}` references in templates.
 ///
@@ -37,7 +58,14 @@ class WorkflowTemplateEngine {
   /// - `{{context.KEY}}` resolves against accumulated context data
   /// - Missing variables throw [ArgumentError] (fail-fast at start time)
   /// - Missing context keys resolve to empty string with a log warning
-  String resolve(String template, WorkflowContext context) {
+  ///
+  /// [escape] selects context-correct escaping for every substituted value
+  /// (default [EscapeMode.raw] keeps substitution verbatim). Under
+  /// [EscapeMode.shell] resolved values — including the missing-context
+  /// empty-string fallback — are single-quote-wrapped via [shellEscape];
+  /// fail-fast paths for undefined variables and workflow system variables are
+  /// unchanged.
+  String resolve(String template, WorkflowContext context, {EscapeMode escape = EscapeMode.raw}) {
     return template.replaceAllMapped(_pattern, (match) {
       final ref = match.group(1)!.trim();
       if (ref.startsWith('context.')) {
@@ -48,24 +76,30 @@ class WorkflowTemplateEngine {
             'Template reference {{$ref}} resolved to empty string '
             '(key "$key" not in context)',
           );
-          return '';
+          return _applyEscape('', escape);
         }
-        return value.toString();
+        return _applyEscape(value.toString(), escape);
       }
       if (ref.startsWith('workflow.')) {
         final value = context.systemVariable(ref);
         if (value == null) {
           throw ArgumentError('Template references undefined workflow system variable: {{$ref}}');
         }
-        return value;
+        return _applyEscape(value, escape);
       }
       final value = context.variable(ref);
       if (value == null) {
         throw ArgumentError('Template references undefined variable: {{$ref}}');
       }
-      return value;
+      return _applyEscape(value, escape);
     });
   }
+
+  /// Applies [escape] to a resolved substitution [value].
+  String _applyEscape(String value, EscapeMode escape) => switch (escape) {
+    EscapeMode.raw => value,
+    EscapeMode.shell => shellEscape(value),
+  };
 
   /// Resolves all template references in [template] against [context] and [mapCtx].
   ///
@@ -84,20 +118,30 @@ class WorkflowTemplateEngine {
   /// legacy `map.*` references continue to resolve against the same iteration.
   ///
   /// When [mapCtx] is null, delegates to [resolve] (backward compat).
-  String resolveWithMap(String template, WorkflowContext context, MapContext? mapCtx) {
-    if (mapCtx == null) return resolve(template, context);
+  ///
+  /// [escape] selects context-correct escaping for every substituted value
+  /// (default [EscapeMode.raw]); it is applied at every resolution seam —
+  /// variable, `context.*`, `workflow.*`, `map.*`/alias, and indexed-context
+  /// references — so no path is left raw under [EscapeMode.shell].
+  String resolveWithMap(
+    String template,
+    WorkflowContext context,
+    MapContext? mapCtx, {
+    EscapeMode escape = EscapeMode.raw,
+  }) {
+    if (mapCtx == null) return resolve(template, context, escape: escape);
     final alias = mapCtx.alias;
     return template.replaceAllMapped(_pattern, (match) {
       final ref = match.group(1)!.trim();
 
       // Legacy `map.*` — always binds to the innermost context.
       if (ref == 'map' || ref.startsWith('map.')) {
-        return _resolveMapRef(ref, 'map', mapCtx);
+        return _applyEscape(_resolveMapRef(ref, 'map', mapCtx), escape);
       }
 
       // Author-supplied alias (e.g. `as: story` → `{{story.item}}`).
       if (alias != null && (ref == alias || ref.startsWith('$alias.'))) {
-        return _resolveMapRef(ref, alias, mapCtx);
+        return _applyEscape(_resolveMapRef(ref, alias, mapCtx), escape);
       }
 
       // context.key[<prefix>.index] or context.key[<prefix>.index].field
@@ -114,9 +158,9 @@ class WorkflowTemplateEngine {
               '(expected "map" or the controller alias "${alias ?? '—'}") — '
               'resolving to empty string.',
             );
-            return '';
+            return _applyEscape('', escape);
           }
-          return _resolveIndexedContext(key, dotSuffix, context, mapCtx);
+          return _applyEscape(_resolveIndexedContext(key, dotSuffix, context, mapCtx), escape);
         }
         // Plain context reference — use normal resolution
         final value = context[keyPart];
@@ -125,9 +169,9 @@ class WorkflowTemplateEngine {
             'Template reference {{$ref}} resolved to empty string '
             '(key "$keyPart" not in context)',
           );
-          return '';
+          return _applyEscape('', escape);
         }
-        return value.toString();
+        return _applyEscape(value.toString(), escape);
       }
 
       if (ref.startsWith('workflow.')) {
@@ -135,7 +179,7 @@ class WorkflowTemplateEngine {
         if (value == null) {
           throw ArgumentError('Template references undefined workflow system variable: {{$ref}}');
         }
-        return value;
+        return _applyEscape(value, escape);
       }
 
       // Variable reference
@@ -143,7 +187,7 @@ class WorkflowTemplateEngine {
       if (value == null) {
         throw ArgumentError('Template references undefined variable: {{$ref}}');
       }
-      return value;
+      return _applyEscape(value, escape);
     });
   }
 
@@ -240,7 +284,7 @@ class WorkflowTemplateEngine {
       return _traverseMap(element, segments, 'context.$key[map.index].$dotSuffix');
     }
 
-    // Auto-extract .text from Map elements (supports S07 structured results)
+    // Auto-extract .text from Map elements (supports structured results)
     if (element is Map && element.containsKey('text')) {
       return element['text'].toString();
     }

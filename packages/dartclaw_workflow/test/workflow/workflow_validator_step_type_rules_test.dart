@@ -171,7 +171,7 @@ void main() {
             WorkflowStep(
               id: 's',
               name: 'S',
-              type: type,
+              taskType: type,
               prompts:
                   type == WorkflowTaskType.bash ||
                       type == WorkflowTaskType.approval ||
@@ -196,7 +196,7 @@ void main() {
         description: 'd',
         steps: const [
           WorkflowStep(id: 'loop-step', name: 'Loop', prompts: ['p']),
-          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval),
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval),
         ],
         loops: [
           const WorkflowLoop(
@@ -222,7 +222,7 @@ void main() {
         description: 'd',
         steps: const [
           WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval),
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval),
           WorkflowStep(id: 's2', name: 'S2', prompts: ['p']),
         ],
       );
@@ -238,7 +238,7 @@ void main() {
     final hybridCases = [
       (
         name: 'approval step with parallel:true is a hard error',
-        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, parallel: true)],
+        steps: const [WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, parallel: true)],
         stepId: 'gate',
         continuityProviders: null,
         expectedError: ValidationErrorType.hybridStepConstraint,
@@ -246,7 +246,12 @@ void main() {
       (
         name: 'bash step with multi-prompt list is a hard error',
         steps: const [
-          WorkflowStep(id: 'build', name: 'Build', type: WorkflowTaskType.bash, prompts: ['dart analyze', 'dart test']),
+          WorkflowStep(
+            id: 'build',
+            name: 'Build',
+            taskType: WorkflowTaskType.bash,
+            prompts: ['dart analyze', 'dart test'],
+          ),
         ],
         stepId: 'build',
         continuityProviders: null,
@@ -258,7 +263,7 @@ void main() {
           WorkflowStep(
             id: 'gate',
             name: 'Gate',
-            type: WorkflowTaskType.approval,
+            taskType: WorkflowTaskType.approval,
             prompts: ['Approve?', 'Still approve?'],
           ),
         ],
@@ -268,14 +273,14 @@ void main() {
       ),
       (
         name: 'approval step without parallel:true produces no error',
-        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval)],
+        steps: const [WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval)],
         stepId: 'gate',
         continuityProviders: null,
         expectedError: null,
       ),
       (
         name: 'bash step produces no hybrid constraint errors',
-        steps: const [WorkflowStep(id: 's', name: 'Build', type: WorkflowTaskType.bash, workdir: '/workspace')],
+        steps: const [WorkflowStep(id: 's', name: 'Build', taskType: WorkflowTaskType.bash, workdir: '/workspace')],
         stepId: 's',
         continuityProviders: null,
         expectedError: null,
@@ -457,18 +462,6 @@ void main() {
       expect(hasError(report.errors, type: ValidationErrorType.hybridStepConstraint, stepId: 's2'), isTrue);
     });
 
-    test('unsupported onError value produces a warning', () {
-      final def = WorkflowDefinition(
-        name: 'wf',
-        description: 'd',
-        steps: const [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p'], onError: 'retry'),
-        ],
-      );
-      final report = validator.validate(def);
-      expect(report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 's'), isTrue);
-    });
-
     test('ValidationReport.isEmpty is true when both errors and warnings are empty', () {
       final def = buildDef();
       final report = validator.validate(def);
@@ -488,7 +481,7 @@ void main() {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.approval)],
+        steps: const [WorkflowStep(id: 's', name: 'S', taskType: WorkflowTaskType.approval)],
         loops: [
           WorkflowLoop(id: 'loop', steps: ['s'], maxIterations: 1, exitGate: 's.done == true'),
         ],
@@ -505,7 +498,7 @@ void main() {
           name: 'continueSession on bash step is a hard error',
           steps: const [
             WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-            WorkflowStep(id: 's2', name: 'S2', type: WorkflowTaskType.bash, prompts: ['echo hi']),
+            WorkflowStep(id: 's2', name: 'S2', taskType: WorkflowTaskType.bash, prompts: ['echo hi']),
             WorkflowStep(id: 's3', name: 'S3', prompts: ['p'], continueSession: '@previous'),
           ],
           loops: const <WorkflowLoop>[],
@@ -517,7 +510,7 @@ void main() {
           name: 'continueSession on approval step is a hard error',
           steps: const [
             WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-            WorkflowStep(id: 's2', name: 'S2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+            WorkflowStep(id: 's2', name: 'S2', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
             WorkflowStep(id: 's3', name: 'S3', prompts: ['p'], continueSession: '@previous'),
           ],
           loops: const <WorkflowLoop>[],
@@ -532,7 +525,7 @@ void main() {
             WorkflowStep(
               id: 's2',
               name: 'S2',
-              type: WorkflowTaskType.bash,
+              taskType: WorkflowTaskType.bash,
               prompts: ['echo hi'],
               continueSession: '@previous',
             ),

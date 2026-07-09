@@ -20,7 +20,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowGitCleanupStrategy,
         WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
@@ -242,7 +241,7 @@ void main() {
           const WorkflowStep(
             id: 'gate',
             name: 'Review Gate',
-            type: WorkflowTaskType.approval,
+            taskType: WorkflowTaskType.approval,
             prompts: ['Please review'],
           ),
         ],
@@ -281,7 +280,7 @@ void main() {
           const WorkflowStep(
             id: 'gate',
             name: 'Review Gate',
-            type: WorkflowTaskType.approval,
+            taskType: WorkflowTaskType.approval,
             prompts: ['Please review'],
           ),
         ],
@@ -305,7 +304,7 @@ void main() {
           const WorkflowStep(
             id: 'gate',
             name: 'Review Gate',
-            type: WorkflowTaskType.approval,
+            taskType: WorkflowTaskType.approval,
             prompts: ['Please review'],
           ),
         ],
@@ -345,7 +344,7 @@ void main() {
     test('approval step without timeoutSeconds waits indefinitely (no auto-cancel)', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       final run = h.makeRun(definition);
@@ -363,7 +362,7 @@ void main() {
       final step = const WorkflowStep(
         id: 'gate',
         name: 'Gate',
-        type: WorkflowTaskType.approval,
+        taskType: WorkflowTaskType.approval,
         prompts: ['Approve?'],
         timeoutSeconds: 1,
       );
@@ -441,12 +440,12 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'approval-cleanup',
         description: 'Approval timeout cleanup test',
-        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        gitStrategy: const WorkflowGitStrategy(cleanup: true),
         steps: const [
           WorkflowStep(
             id: 'gate',
             name: 'Gate',
-            type: WorkflowTaskType.approval,
+            taskType: WorkflowTaskType.approval,
             prompts: ['Approve?'],
             timeoutSeconds: 1,
           ),
@@ -469,7 +468,7 @@ void main() {
           const WorkflowStep(
             id: 'gate',
             name: 'Gate',
-            type: WorkflowTaskType.approval,
+            taskType: WorkflowTaskType.approval,
             prompts: ['Review result: {{context.prior_output}}'],
           ),
         ],

@@ -107,11 +107,23 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
         detailBadge = titleCase(artifactKind);
         detailBadgeClass = 'type-badge-$artifactKind';
       }
+    case TaskEventKind.structuredOutputFinalizerUsed:
+      label = 'Structured finalization envelope';
+      detail = truncate(details['outputKey']?.toString() ?? '(output)', 60);
     case TaskEventKind.structuredOutputInlineUsed:
       label = 'Structured output used inline';
       detail = truncate(details['outputKey']?.toString() ?? '(output)', 60);
     case TaskEventKind.structuredOutputFallbackUsed:
       label = 'Structured output fallback';
+      final outputKey = details['outputKey']?.toString();
+      final failureReason = details['failureReason']?.toString();
+      if (outputKey != null && failureReason != null) {
+        detail = '$outputKey ($failureReason)';
+      } else if (outputKey != null) {
+        detail = outputKey;
+      }
+    case TaskEventKind.structuredOutputValidationFailed:
+      label = 'Structured output validation failed';
       final outputKey = details['outputKey']?.toString();
       final failureReason = details['failureReason']?.toString();
       if (outputKey != null && failureReason != null) {

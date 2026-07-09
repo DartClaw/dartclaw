@@ -12,8 +12,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskStatus,
         WorkflowApprovalResolvedEvent,
         WorkflowRunStatusChangedEvent,
-        WorkflowTaskService,
-        atomicWriteJson;
+        WorkflowTaskService;
 import 'workflow_definition.dart'
     show
         WorkflowDefinition,
@@ -28,15 +27,36 @@ import 'package:uuid/uuid.dart';
 
 import 'workflow_context.dart';
 import 'workflow_approval_policy.dart';
+import 'workflow_cleanup_policy.dart';
 import 'context_extractor.dart';
 import '../skills/provider_auth_preflight.dart';
 import 'gate_evaluator.dart';
 import 'skill_introspector.dart';
 import 'step_config_resolver.dart';
 import 'workflow_executor.dart';
+import 'workflow_context_persistence.dart';
 import 'workflow_run_paths.dart';
 import 'workflow_service_deps.dart';
 import 'workflow_turn_adapter.dart';
+
+/// Returns the required variables that are missing from [variables], applying
+/// the single canonical rule shared by standalone starts and the server start
+/// route: a variable is missing only when it is `required`, has no
+/// `defaultValue`, and is not present in [variables]. Order follows the
+/// definition's declaration order.
+List<String> missingRequiredWorkflowVariables(WorkflowDefinition definition, Map<String, String> variables) {
+  final missing = <String>[];
+  for (final entry in definition.variables.entries) {
+    if (entry.value.required && entry.value.defaultValue == null && !variables.containsKey(entry.key)) {
+      missing.add(entry.key);
+    }
+  }
+  return missing;
+}
+
+/// The canonical aggregate error message for a non-empty [missing] list.
+String missingRequiredWorkflowVariablesMessage(List<String> missing) =>
+    'Missing required variable(s): ${missing.join(', ')}';
 
 /// Public API facade for workflow lifecycle management.
 ///
@@ -72,10 +92,18 @@ class WorkflowService {
   final _cancelFlags = <String, bool>{};
 
   // Active executor futures per run ID.
-  final _activeExecutors = <String, Future<void>>{};
+  final Map<String, Future<void>> _activeExecutors;
 
   // Approval timeout timers keyed by "<runId>:<stepId>".
   final _approvalTimeoutTimers = <String, Timer>{};
+
+  /// Upper bound on transition attempts when promoting a queued child task to
+  /// `running` during [dispose]. A persistent storage/service transition
+  /// conflict would otherwise keep `dispose()` retrying indefinitely; once this
+  /// bound is hit, promotion is abandoned and dispose falls back to a direct
+  /// cancellation of the still-queued task, so the awaited executor drains and
+  /// shutdown always makes progress.
+  static const int maxDisposePromotionAttempts = 8;
 
   WorkflowService({
     required WorkflowRunRepository repository,
@@ -111,6 +139,7 @@ class WorkflowService {
     required KvService kvService,
     required String dataDir,
     WorkflowServiceOptions options = const WorkflowServiceOptions(),
+    Map<String, Future<void>>? debugSeedActiveExecutors,
   }) : this._(
          repository: repository,
          taskService: taskService,
@@ -121,6 +150,7 @@ class WorkflowService {
          kvService: kvService,
          dataDir: dataDir,
          options: options,
+         debugSeedActiveExecutors: debugSeedActiveExecutors,
        );
 
   WorkflowService._({
@@ -134,7 +164,12 @@ class WorkflowService {
     required String dataDir,
     WorkflowPersistencePorts? persistencePorts,
     required WorkflowServiceOptions options,
-  }) : _repository = repository,
+    // Test-only: pre-populate the active-executor drain set so a unit test can
+    // hold a controllable in-flight executor future and assert that [dispose]
+    // awaits it before returning.
+    Map<String, Future<void>>? debugSeedActiveExecutors,
+  }) : _activeExecutors = {...?debugSeedActiveExecutors},
+       _repository = repository,
        _taskService = taskService,
        _messageService = messageService,
        _turnAdapter = turnAdapter,
@@ -164,30 +199,33 @@ class WorkflowService {
     Map<String, String> variables, {
     String? projectId,
     bool allowDirtyLocalPath = false,
-    bool headless = false,
     bool inline = false,
     WorkflowApprovalPolicy? approvals,
   }) async {
-    // Validate required variables.
-    for (final entry in definition.variables.entries) {
-      if (entry.value.required && !variables.containsKey(entry.key)) {
-        throw ArgumentError('Required variable "${entry.key}" not provided');
-      }
+    // A projectId supplied out-of-band satisfies a declared PROJECT variable
+    // before validation, mirroring the server start route so required-variable
+    // validation is mode-independent.
+    final trimmedProjectId = projectId?.trim();
+    final providedVariables = <String, String>{...variables};
+    if (trimmedProjectId != null &&
+        trimmedProjectId.isNotEmpty &&
+        definition.variables.containsKey('PROJECT') &&
+        !providedVariables.containsKey('PROJECT')) {
+      providedVariables['PROJECT'] = trimmedProjectId;
+    }
+
+    // Validate required variables (shared rule with the server start route).
+    final missing = missingRequiredWorkflowVariables(definition, providedVariables);
+    if (missing.isNotEmpty) {
+      throw ArgumentError(missingRequiredWorkflowVariablesMessage(missing));
     }
 
     // Apply defaults for optional variables.
     final resolvedVariables = <String, String>{
       for (final entry in definition.variables.entries)
         if (entry.value.defaultValue != null) entry.key: entry.value.defaultValue!,
-      ...variables,
+      ...providedVariables,
     };
-    final trimmedProjectId = projectId?.trim();
-    if (trimmedProjectId != null &&
-        trimmedProjectId.isNotEmpty &&
-        definition.variables.containsKey('PROJECT') &&
-        !resolvedVariables.containsKey('PROJECT')) {
-      resolvedVariables['PROJECT'] = trimmedProjectId;
-    }
 
     final resolver = _turnAdapter?.resolveStartContext;
     if (resolver != null) {
@@ -217,11 +255,7 @@ class WorkflowService {
       data: {workflowApprovalsContextKey: effectiveApprovals.yamlValue},
     );
 
-    // Apply headless mode (override step review modes to auto-accept) and/or
-    // inline mode (override the git strategy to run on the current branch). The
-    // two transforms compose so `--inline` works with headless standalone runs.
     var effectiveDefinition = definition;
-    if (headless) effectiveDefinition = _applyHeadlessMode(effectiveDefinition);
     if (inline) effectiveDefinition = _applyInlineMode(effectiveDefinition);
     _ensureTaskPersistenceAvailable(_persistencePorts, effectiveDefinition);
 
@@ -243,7 +277,7 @@ class WorkflowService {
     await _repository.update(run);
 
     // Persist initial (empty) context.
-    await _persistContext(runId, context);
+    await persistWorkflowContext(dataDir: _dataDir, runId: runId, context: context);
 
     // Fire status changed event.
     _fireStatusChanged(
@@ -295,36 +329,9 @@ class WorkflowService {
       );
     }
 
-    // Record approval outcome if this was an approval-paused run.
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     if (pendingApprovalStepId != null) {
-      _clearApprovalTimeoutTimer(runId, pendingApprovalStepId);
-      final resolvedAt = DateTime.now().toIso8601String();
-      final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
-      context['$pendingApprovalStepId.status'] = 'accepted';
-      context['$pendingApprovalStepId.approval.status'] = 'approved';
-      context['$pendingApprovalStepId.approval.resolved_at'] = resolvedAt;
-      await _persistContext(runId, context);
-      final updatedContext = _snapshotContextJson(
-        run.contextJson,
-        context,
-        removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
-        extraFlat: {
-          '$pendingApprovalStepId.status': 'accepted',
-          '$pendingApprovalStepId.approval.status': 'approved',
-          '$pendingApprovalStepId.approval.resolved_at': resolvedAt,
-        },
-      );
-      run = run.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
-      await _repository.update(run);
-      _eventBus.fire(
-        WorkflowApprovalResolvedEvent(
-          runId: runId,
-          stepId: pendingApprovalStepId,
-          approved: true,
-          timestamp: DateTime.now(),
-        ),
-      );
+      run = await _recordApprovalResolution(run: run, stepId: pendingApprovalStepId, approved: true);
     }
 
     // Load definition from snapshot.
@@ -375,7 +382,7 @@ class WorkflowService {
       context.remove('step.$failingStepId.outcome');
       context.remove('step.$failingStepId.outcome.reason');
     }
-    await _persistContext(runId, context);
+    await persistWorkflowContext(dataDir: _dataDir, runId: runId, context: context);
 
     final running = run.copyWith(
       status: WorkflowRunStatus.running,
@@ -414,40 +421,13 @@ class WorkflowService {
     var run = await _repository.getById(runId);
     if (run == null || run.status.terminal) return;
 
-    // Record approval rejection if this was an approval-paused run.
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     if (pendingApprovalStepId != null) {
-      _clearApprovalTimeoutTimer(runId, pendingApprovalStepId);
-      final resolvedAt = DateTime.now().toIso8601String();
-      final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
-      context['$pendingApprovalStepId.status'] = 'rejected';
-      context['$pendingApprovalStepId.approval.status'] = 'rejected';
-      context['$pendingApprovalStepId.approval.resolved_at'] = resolvedAt;
-      if (feedback != null) {
-        context['$pendingApprovalStepId.approval.feedback'] = feedback;
-      }
-      await _persistContext(runId, context);
-      final updatedContext = _snapshotContextJson(
-        run.contextJson,
-        context,
-        removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
-        extraFlat: {
-          '$pendingApprovalStepId.status': 'rejected',
-          '$pendingApprovalStepId.approval.status': 'rejected',
-          '$pendingApprovalStepId.approval.resolved_at': resolvedAt,
-          '$pendingApprovalStepId.approval.feedback': ?feedback,
-        },
-      );
-      run = run.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
-      await _repository.update(run);
-      _eventBus.fire(
-        WorkflowApprovalResolvedEvent(
-          runId: runId,
-          stepId: pendingApprovalStepId,
-          approved: false,
-          feedback: feedback,
-          timestamp: DateTime.now(),
-        ),
+      run = await _recordApprovalResolution(
+        run: run,
+        stepId: pendingApprovalStepId,
+        approved: false,
+        feedback: feedback,
       );
     }
 
@@ -471,10 +451,8 @@ class WorkflowService {
     // Cancel all non-terminal child tasks.
     // Host-side wiring is responsible for reacting to running->cancelled task
     // transitions and terminating any active turn bound to the task session.
-    final allTasks = await _taskService.list();
-    final workflowTasks = allTasks.where(
-      (t) => t.workflowRunId == runId && (t.status == TaskStatus.queued || t.status == TaskStatus.running),
-    );
+    final runTasks = await _taskService.listByWorkflowRunIds([runId]);
+    final workflowTasks = runTasks.where((t) => t.status == TaskStatus.queued || t.status == TaskStatus.running);
     for (final task in workflowTasks) {
       try {
         await _taskService.transition(task.id, TaskStatus.cancelled, trigger: 'workflow-cancel');
@@ -597,18 +575,34 @@ class WorkflowService {
     }
 
     // Cancel in-flight child tasks to unblock executors waiting on task completion.
-    final allTasks = await _taskService.list();
-    for (final task in allTasks) {
-      if (task.workflowRunId != null && _activeExecutors.containsKey(task.workflowRunId) && !task.status.terminal) {
-        try {
-          if (task.status == TaskStatus.queued) {
-            await _taskService.transition(task.id, TaskStatus.running, trigger: 'dispose');
+    final activeRunIds = _activeExecutors.keys.toList(growable: false);
+    final activeRunTasks = await _taskService.listByWorkflowRunIds(activeRunIds);
+    for (final task in activeRunTasks) {
+      if (!task.status.terminal) {
+        var taskToCancel = task;
+        if (task.status == TaskStatus.queued) {
+          final promoted = await _promoteQueuedTaskForDispose(task);
+          if (promoted == null) {
+            continue;
           }
-          await _taskService.transition(task.id, TaskStatus.cancelled, trigger: 'dispose');
+          taskToCancel = promoted;
+        }
+
+        if (!taskToCancel.status.canTransitionTo(TaskStatus.cancelled)) {
+          continue;
+        }
+        try {
+          await _taskService.transition(taskToCancel.id, TaskStatus.cancelled, trigger: 'dispose');
         } on StateError {
-          // Ignore — already transitioned concurrently.
+          final current = await _taskService.get(taskToCancel.id);
+          if (current != null && !current.status.terminal) {
+            _log.warning(
+              'Failed to cancel task ${taskToCancel.id} during dispose: '
+              'status changed concurrently to ${current.status.name}',
+            );
+          }
         } catch (e) {
-          _log.warning('Failed to cancel task ${task.id} during dispose: $e');
+          _log.warning('Failed to cancel task ${taskToCancel.id} during dispose: $e');
         }
       }
     }
@@ -623,27 +617,50 @@ class WorkflowService {
     _approvalTimeoutTimers.clear();
   }
 
+  Future<Task?> _promoteQueuedTaskForDispose(Task task) async {
+    var current = task;
+    var attempts = 0;
+    while (current.status == TaskStatus.queued) {
+      if (attempts >= maxDisposePromotionAttempts) {
+        _log.warning(
+          'Abandoning queued-task promotion for ${current.id} during dispose after '
+          '$attempts transition conflicts; attempting direct cancellation so shutdown can drain',
+        );
+        return current;
+      }
+      attempts++;
+      try {
+        return await _taskService.transition(current.id, TaskStatus.running, trigger: 'dispose');
+      } catch (_) {
+        final reread = await _taskService.get(current.id);
+        if (reread == null || reread.status.terminal) {
+          return null;
+        }
+        current = reread;
+        if (current.status == TaskStatus.queued) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+    }
+    return current;
+  }
+
   WorkflowExecutionCursor? _resumeCursor(WorkflowRun run, WorkflowDefinition definition) {
     final cursor = run.executionCursor;
     if (cursor != null) {
       return cursor;
     }
 
-    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
-    if (currentLoopId == null) return null;
-    final currentIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
-    final currentLoopStepId = run.contextJson['_loop.current.stepId'] as String?;
-    final loop = definition.loops.where((candidate) => candidate.id == currentLoopId).firstOrNull;
+    final loopId = run.contextJson['_loop.current.id'] as String?;
+    if (loopId == null) return null;
+    final iteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
+    final loopStepId = run.contextJson['_loop.current.stepId'] as String?;
+    final loop = definition.loops.where((candidate) => candidate.id == loopId).firstOrNull;
     if (loop == null) return null;
-    final fallbackStepId = currentLoopStepId ?? loop.steps.first;
+    final fallbackStepId = loopStepId ?? loop.steps.first;
     final stepIndex = definition.steps.indexWhere((step) => step.id == fallbackStepId);
     if (stepIndex < 0) return null;
-    return WorkflowExecutionCursor.loop(
-      loopId: currentLoopId,
-      stepIndex: stepIndex,
-      iteration: currentIteration,
-      stepId: currentLoopStepId,
-    );
+    return WorkflowExecutionCursor.loop(loopId: loopId, stepIndex: stepIndex, iteration: iteration, stepId: loopStepId);
   }
 
   void _logResumeCursor(WorkflowRun run, WorkflowExecutionCursor? cursor, {required String action}) {
@@ -676,9 +693,6 @@ class WorkflowService {
     WorkflowContext context, {
     int startFromStepIndex = 0,
     WorkflowExecutionCursor? startCursor,
-    int? startFromLoopIndex,
-    int? startFromLoopIteration,
-    String? startFromLoopStepId,
   }) {
     final executor = WorkflowExecutor(
       executionContext: StepExecutionContext(
@@ -726,9 +740,6 @@ class WorkflowService {
           context,
           startFromStepIndex: startFromStepIndex,
           startCursor: startCursor,
-          startFromLoopIndex: startFromLoopIndex,
-          startFromLoopIteration: startFromLoopIteration,
-          startFromLoopStepId: startFromLoopStepId,
           isCancelled: () => _cancelFlags[run.id] ?? false,
         );
         final current = await _repository.getById(run.id);
@@ -804,10 +815,47 @@ class WorkflowService {
     return definition.steps[stepIndex].id;
   }
 
-  Future<void> _persistContext(String runId, WorkflowContext context) async {
-    final file = File(workflowRunContextJson(dataDir: _dataDir, runId: runId));
-    await file.parent.create(recursive: true);
-    await atomicWriteJson(file, context.toJson());
+  Future<WorkflowRun> _recordApprovalResolution({
+    required WorkflowRun run,
+    required String stepId,
+    required bool approved,
+    String? feedback,
+  }) async {
+    _clearApprovalTimeoutTimer(run.id, stepId);
+    final resolvedAt = DateTime.now().toIso8601String();
+    final stepStatus = approved ? 'accepted' : 'rejected';
+    final approvalStatus = approved ? 'approved' : 'rejected';
+    final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
+    context['$stepId.status'] = stepStatus;
+    context['$stepId.approval.status'] = approvalStatus;
+    context['$stepId.approval.resolved_at'] = resolvedAt;
+    if (!approved && feedback != null) {
+      context['$stepId.approval.feedback'] = feedback;
+    }
+    await persistWorkflowContext(dataDir: _dataDir, runId: run.id, context: context);
+    final updatedContext = _snapshotContextJson(
+      run.contextJson,
+      context,
+      removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
+      extraFlat: {
+        '$stepId.status': stepStatus,
+        '$stepId.approval.status': approvalStatus,
+        '$stepId.approval.resolved_at': resolvedAt,
+        if (!approved) '$stepId.approval.feedback': ?feedback,
+      },
+    );
+    final updatedRun = run.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
+    await _repository.update(updatedRun);
+    _eventBus.fire(
+      WorkflowApprovalResolvedEvent(
+        runId: run.id,
+        stepId: stepId,
+        approved: approved,
+        feedback: feedback,
+        timestamp: DateTime.now(),
+      ),
+    );
+    return updatedRun;
   }
 
   Future<void> _invokeWorkflowGitCleanup(WorkflowRun run) async {
@@ -815,22 +863,11 @@ class WorkflowService {
     if (cleanup == null) return;
     final projectId = _cleanupProjectId(run);
     if (projectId == null || projectId.isEmpty) return;
-    final preserveWorktrees = !_resolveCleanupEnabled(run);
+    final preserveWorktrees = !workflowCleanupEnabledForRun(run, _log);
     try {
       await cleanup(runId: run.id, projectId: projectId, status: run.status.name, preserveWorktrees: preserveWorktrees);
     } catch (e, st) {
       _log.warning("Workflow '${run.id}' cleanup callback failed", e, st);
-    }
-  }
-
-  bool _resolveCleanupEnabled(WorkflowRun run) {
-    try {
-      return WorkflowDefinition.fromJson(run.definitionJson).gitStrategy?.cleanupEnabled ?? true;
-    } catch (e, st) {
-      // Preserve worktrees/branches when we can't read the operator's intent —
-      // destroying potential evidence on a parse failure is the worst default.
-      _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
-      return false;
     }
   }
 
@@ -884,19 +921,6 @@ class WorkflowService {
         timestamp: DateTime.now(),
       ),
     );
-  }
-
-  /// Applies headless mode by overriding all step review modes to auto-accept.
-  WorkflowDefinition _applyHeadlessMode(WorkflowDefinition definition) {
-    // Reconstruct from JSON with modified steps.
-    final json = definition.toJson();
-    final steps = (json['steps'] as List).map((s) {
-      final step = Map<String, dynamic>.from(s as Map);
-      step['review'] = 'never';
-      return step;
-    }).toList();
-    json['steps'] = steps;
-    return WorkflowDefinition.fromJson(json);
   }
 
   /// Applies inline mode by overriding the git strategy to run on the current
@@ -956,7 +980,7 @@ class WorkflowService {
     context['$stepId.status'] = 'cancelled';
     context['$stepId.approval.status'] = 'timed_out';
     context['$stepId.approval.cancel_reason'] = 'timeout';
-    await _persistContext(run.id, context);
+    await persistWorkflowContext(dataDir: _dataDir, runId: run.id, context: context);
 
     final cancelled = run.copyWith(
       status: WorkflowRunStatus.cancelled,

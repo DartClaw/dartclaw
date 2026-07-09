@@ -102,6 +102,28 @@ void main() {
       expect(joined, contains('materialized'));
     });
 
+    test('human output names each workflow\'s required variables', () async {
+      await runner.run(['list']);
+
+      final joined = output.join('\n');
+      expect(joined, contains('VARIABLES'));
+      // plan-and-implement declares FEATURE as required.
+      expect(joined, contains('FEATURE'));
+    });
+
+    test('--json output is unchanged by the human variables column', () async {
+      await runner.run(['list', '--json']);
+
+      // The human-only column must not leak into the machine output.
+      expect(output.first, isNot(contains('VARIABLES')));
+      final decoded = jsonDecode(output.first) as List<dynamic>;
+      final planEntry = decoded.cast<Map<String, dynamic>>().firstWhere(
+        (e) => e['name'] == 'plan-and-implement',
+        orElse: () => <String, dynamic>{},
+      );
+      expect((planEntry['variables'] as Map?)?.containsKey('FEATURE'), isTrue);
+    });
+
     test('json output is valid JSON array', () async {
       await runner.run(['list', '--json']);
 
@@ -131,7 +153,25 @@ void main() {
       expect(totalLine, contains('materialized'));
     });
 
-    test('lists custom workflows placed directly under data-dir workflows', () async {
+    test('lists custom workflows from the canonical data-dir workflows custom folder', () async {
+      final workflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'my-review.yaml')).writeAsStringSync('''
+name: my-review
+description: Canonical custom workflow
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'ok\\n'
+''');
+
+      await runner.run(['list', '--standalone']);
+
+      expect(output.join('\n'), contains('my-review'));
+    });
+
+    test('lists legacy custom workflows placed directly under data-dir workflows', () async {
       final workflowsDir = Directory(p.join(tempDir.path, 'workflows'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'my-review.yaml')).writeAsStringSync('''
 name: my-review

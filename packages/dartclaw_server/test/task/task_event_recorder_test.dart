@@ -83,6 +83,32 @@ void main() {
     expect(events[0].details['kind'], 'diff');
   });
 
+  test('recordStructuredOutputFinalizerUsed inserts structuredOutputFinalizerUsed event', () {
+    recorder.recordStructuredOutputFinalizerUsed('task-4f', stepId: 'plan', outputKey: 'stories');
+
+    final events = eventService.listForTask('task-4f');
+    expect(events, hasLength(1));
+    expect(events[0].kind.name, 'structuredOutputFinalizerUsed');
+    expect(events[0].details['stepId'], 'plan');
+    expect(events[0].details['outputKey'], 'stories');
+  });
+
+  test('recordStructuredOutputValidationFailed inserts structuredOutputValidationFailed event', () {
+    recorder.recordStructuredOutputValidationFailed(
+      'task-4v',
+      stepId: 'review',
+      outputKey: 'verdict',
+      failureReason: 'missing_envelope',
+    );
+
+    final events = eventService.listForTask('task-4v');
+    expect(events, hasLength(1));
+    expect(events[0].kind.name, 'structuredOutputValidationFailed');
+    expect(events[0].details['stepId'], 'review');
+    expect(events[0].details['outputKey'], 'verdict');
+    expect(events[0].details['failureReason'], 'missing_envelope');
+  });
+
   test('recordStructuredOutputInlineUsed inserts structuredOutputInlineUsed event', () {
     recorder.recordStructuredOutputInlineUsed('task-4a', stepId: 'plan', outputKey: 'stories');
 

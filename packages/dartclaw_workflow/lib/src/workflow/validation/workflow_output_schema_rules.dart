@@ -14,6 +14,22 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
       for (final entry in step.outputs!.entries) {
         final key = entry.key;
         final config = entry.value;
+
+        // `outputs` and `step_outcome` are the execution envelope's top-level
+        // keys — a declared output using either would collide with the finalizer
+        // shape, so they are reserved host-side.
+        if (reservedEnvelopeOutputKeys.contains(key)) {
+          errors.add(
+            _err(
+              ValidationErrorType.invalidReference,
+              'Step "${step.id}" output "$key" uses a reserved execution-envelope key name. '
+              '"$executionEnvelopeOutputsKey" and "$executionEnvelopeStepOutcomeKey" are reserved by the host.',
+              stepId: step.id,
+            ),
+          );
+          continue;
+        }
+
         final description = config.description?.trim();
         if (description != null && description.isNotEmpty) {
           descriptionsByOutput.putIfAbsent(key, () => <(String, String)>[]).add((step.id, description));
@@ -77,6 +93,25 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           final unsupportedDiagnostics = schemaValidator.checkUnsupportedKeywords(config.inlineSchema!, path: key);
           for (final diagnostic in unsupportedDiagnostics) {
             errors.add(_contextErr(step.id, 'Step "${step.id}" output "$key" inline schema: $diagnostic'));
+          }
+        }
+
+        // `preferPatterns` break a multi-match tie by bare basename, compared
+        // against a candidate's `p.basename`. A path separator could never
+        // equal a basename, so reject separators and empties as authoring bugs.
+        final resolverOverride = config.resolverOverride;
+        if (resolverOverride is FileSystemOutput) {
+          for (final pattern in resolverOverride.preferPatterns) {
+            if (pattern.trim().isEmpty || pattern.contains('/') || pattern.contains(r'\')) {
+              errors.add(
+                _err(
+                  ValidationErrorType.invalidReference,
+                  'Step "${step.id}" output "$key": preferPatterns entries must be non-empty bare basenames '
+                  '(no path separators): "$pattern".',
+                  stepId: step.id,
+                ),
+              );
+            }
           }
         }
 

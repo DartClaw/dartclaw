@@ -1,11 +1,9 @@
 @Tags(['slow'])
 library;
 
-import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/asset_downloader.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolutionRequest, AssetResolver, dartclawVersion;
+import 'package:dartclaw_server/dartclaw_server.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -21,238 +19,125 @@ String _repoRoot() {
         Directory(p.join(current, 'apps')).existsSync()) {
       return current;
     }
-
     final parent = p.dirname(current);
-    if (parent == current) {
-      throw StateError('Unable to locate repository root from $start');
-    }
+    if (parent == current) throw StateError('Unable to locate repository root from $start');
     current = parent;
   }
 }
 
-Future<ProcessResult> _runCommand(
-  String executable,
-  List<String> arguments, {
-  required String workingDirectory,
-  Map<String, String>? environment,
-}) {
-  return Process.run(executable, arguments, workingDirectory: workingDirectory, environment: environment);
-}
+String _hostOsName() => switch ((Process.runSync('uname', ['-s']).stdout as String).trim()) {
+  'Darwin' => 'macos',
+  'Linux' => 'linux',
+  final value => value.toLowerCase(),
+};
 
-String _readFile(String path) => File(path).readAsStringSync();
+String _hostArchName() => switch ((Process.runSync('uname', ['-m']).stdout as String).trim()) {
+  'x86_64' || 'amd64' => 'x64',
+  'aarch64' || 'arm64' => 'arm64',
+  final value => value.toLowerCase(),
+};
 
-String _hostOsName() {
-  final result = Process.runSync('uname', ['-s']);
-  if (result.exitCode != 0) {
-    throw StateError('uname -s failed: ${result.stderr}');
-  }
-  final raw = (result.stdout as String).trim();
-  return switch (raw) {
-    'Darwin' => 'macos',
-    'Linux' => 'linux',
-    _ => raw.toLowerCase(),
-  };
-}
-
-String _hostArchName() {
-  final result = Process.runSync('uname', ['-m']);
-  if (result.exitCode != 0) {
-    throw StateError('uname -m failed: ${result.stderr}');
-  }
-  final raw = (result.stdout as String).trim();
-  return switch (raw) {
-    'x86_64' || 'amd64' => 'x64',
-    'aarch64' || 'arm64' => 'arm64',
-    _ => raw.toLowerCase(),
-  };
-}
+String _hostLibraryName() => _hostOsName() == 'macos' ? 'libsqlite3.dylib' : 'libsqlite3.so';
 
 String _hashFile(String path) {
-  try {
-    final sha256sum = Process.runSync('sha256sum', [path]);
-    if (sha256sum.exitCode == 0) {
-      return (sha256sum.stdout as String).trim().split(RegExp(r'\s+')).first;
+  for (final command in [
+    ('sha256sum', [path]),
+    ('shasum', ['-a', '256', path]),
+  ]) {
+    try {
+      final result = Process.runSync(command.$1, command.$2);
+      if (result.exitCode == 0) return (result.stdout as String).trim().split(RegExp(r'\s+')).first;
+    } on ProcessException {
+      continue;
     }
-  } on ProcessException {
-    // Fall through to the macOS/BSD checksum tool.
   }
-
-  final shasum = Process.runSync('shasum', ['-a', '256', path]);
-  if (shasum.exitCode == 0) {
-    return (shasum.stdout as String).trim().split(RegExp(r'\s+')).first;
-  }
-
   throw StateError('No SHA-256 checksum tool found.');
 }
 
 List<String> _tarEntries(String archivePath) {
   final result = Process.runSync('tar', ['-tzf', archivePath]);
-  if (result.exitCode != 0) {
-    throw StateError('tar -tzf failed for $archivePath: ${result.stderr}');
-  }
+  if (result.exitCode != 0) throw StateError('tar failed: ${result.stderr}');
   return (result.stdout as String).trim().split('\n').where((line) => line.isNotEmpty).toList();
-}
-
-Future<HttpServer> _startReleaseServer(Future<void> Function(HttpRequest request) handler) {
-  return HttpServer.bind(InternetAddress.loopbackIPv4, 0).then((server) {
-    server.listen((request) => unawaited(handler(request)));
-    return server;
-  });
-}
-
-Uri _releaseBaseUri(HttpServer server) {
-  return Uri.parse('http://${server.address.host}:${server.port}/releases/download/v$dartclawVersion/');
 }
 
 void main() {
   final repoRoot = _repoRoot();
-  final buildScriptPath = p.join(repoRoot, 'dev', 'tools', 'build.sh');
+  final buildScript = p.join(repoRoot, 'dev', 'tools', 'build.sh');
   final buildDir = Directory(p.join(repoRoot, 'build'));
   final version = dartclawVersion;
-  final osName = _hostOsName();
-  final archName = _hostArchName();
-  final platformArchive = p.join(buildDir.path, 'dartclaw-v$version-$osName-$archName.tar.gz');
-  final platformSha = '$platformArchive.sha256';
-  final assetArchive = p.join(buildDir.path, 'dartclaw-assets-v$version.tar.gz');
-  final assetSha = '$assetArchive.sha256';
-  final sumsFile = p.join(buildDir.path, 'SHA256SUMS.txt');
 
   tearDown(() {
-    if (buildDir.existsSync()) {
-      buildDir.deleteSync(recursive: true);
-    }
+    if (buildDir.existsSync()) buildDir.deleteSync(recursive: true);
   });
 
-  test('produces the expected binary and release archives', () async {
-    if (buildDir.existsSync()) {
-      buildDir.deleteSync(recursive: true);
-    }
+  test('produces a bundled-binary platform archive and checksums', () async {
+    final result = await Process.run('bash', [buildScript], workingDirectory: repoRoot);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
-    final result = await _runCommand('bash', [buildScriptPath], workingDirectory: repoRoot);
-    expect(result.exitCode, 0, reason: result.stderr.toString());
-
-    final binaryPath = p.join(buildDir.path, 'dartclaw');
+    final archive = p.join(buildDir.path, 'dartclaw-v$version-${_hostOsName()}-${_hostArchName()}.tar.gz');
+    final archiveSha = '$archive.sha256';
+    final sums = p.join(buildDir.path, 'SHA256SUMS.txt');
+    final binaryPath = p.join(buildDir.path, 'bin', 'dartclaw');
     expect(File(binaryPath).existsSync(), isTrue);
-    expect(File(platformArchive).existsSync(), isTrue);
-    expect(File(platformSha).existsSync(), isTrue);
-    expect(File(assetArchive).existsSync(), isTrue);
-    expect(File(assetSha).existsSync(), isTrue);
-    expect(File(sumsFile).existsSync(), isTrue);
-
-    final platformEntries = _tarEntries(platformArchive);
-    final assetEntries = _tarEntries(assetArchive);
-    expect(platformEntries, contains('bin/dartclaw'));
-    expect(platformEntries, contains('share/dartclaw/templates/layout.html'));
-    expect(platformEntries, contains('share/dartclaw/static/stimulus.min.js'));
-    expect(platformEntries, contains('share/dartclaw/static/controllers/index.js'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-spec/SKILL.md'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-plan/SKILL.md'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate-workflow/SKILL.md'));
-    // The DC-native skill manifest is load-bearing: SkillProvisioner reads it at
-    // runtime to enumerate the skills to copy. It must ship in the archive.
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-native-skills.txt'));
-    expect(platformEntries, contains('share/dartclaw/workflows/spec-and-implement.yaml'));
-    expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
-    expect(platformEntries, contains('share/dartclaw/workflows/code-review.yaml'));
-    expect(platformEntries, contains('VERSION'));
-
-    expect(assetEntries, isNot(contains('bin/dartclaw')));
-    expect(assetEntries, contains('templates/layout.html'));
-    expect(assetEntries, contains('static/stimulus.min.js'));
-    expect(assetEntries, contains('static/controllers/index.js'));
-    expect(assetEntries, contains('skills/dartclaw-discover-andthen-spec/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-discover-andthen-plan/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-validate-workflow/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-native-skills.txt'));
-    expect(assetEntries, contains('workflows/spec-and-implement.yaml'));
-    expect(assetEntries, contains('workflows/plan-and-implement.yaml'));
-    expect(assetEntries, contains('workflows/code-review.yaml'));
-    expect(assetEntries, contains('VERSION'));
-
-    final platformHash = _hashFile(platformArchive);
-    final assetHash = _hashFile(assetArchive);
+    expect(File(archive).existsSync(), isTrue);
+    expect(File(archiveSha).existsSync(), isTrue);
+    expect(File(sums).existsSync(), isTrue);
     expect(
-      _readFile(sumsFile).trim(),
-      equals(
-        '$platformHash  ${p.basename(platformArchive)}\n'
-        '$assetHash  ${p.basename(assetArchive)}',
-      ),
-    );
-    expect(_readFile(platformSha).trim(), equals('$platformHash  ${p.basename(platformArchive)}'));
-    expect(_readFile(assetSha).trim(), equals('$assetHash  ${p.basename(assetArchive)}'));
-
-    final tempHome = Directory.systemTemp.createTempSync('dartclaw_build_tool_test_');
-    addTearDown(() {
-      if (tempHome.existsSync()) {
-        tempHome.deleteSync(recursive: true);
-      }
-    });
-
-    final archiveBytes = File(assetArchive).readAsBytesSync();
-    final checksumBody = _readFile(assetSha);
-    final server = await _startReleaseServer((request) async {
-      final response = request.response;
-      switch (request.uri.path) {
-        case '/releases/download/v$dartclawVersion/dartclaw-assets-v$dartclawVersion.tar.gz.sha256':
-          response
-            ..statusCode = HttpStatus.ok
-            ..headers.contentType = ContentType.text
-            ..write(checksumBody);
-          break;
-        case '/releases/download/v$dartclawVersion/dartclaw-assets-v$dartclawVersion.tar.gz':
-          response
-            ..statusCode = HttpStatus.ok
-            ..headers.contentType = ContentType.binary
-            ..contentLength = archiveBytes.length
-            ..add(archiveBytes);
-          break;
-        default:
-          response.statusCode = HttpStatus.notFound;
-      }
-      await response.close();
-    });
-    addTearDown(() => server.close(force: true));
-
-    final stderrLines = <String>[];
-    final downloader = AssetDownloader(
-      homeDir: tempHome.path,
-      releaseBaseUri: _releaseBaseUri(server),
-      stderrLine: stderrLines.add,
+      buildDir.listSync().whereType<File>().any((file) => p.basename(file.path).startsWith('dartclaw-assets-')),
+      isFalse,
     );
 
-    final installPath = await downloader.download();
+    final retiredCommand = Process.runSync(binaryPath, ['assets']);
+    expect(retiredCommand.exitCode, 64);
+    expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
 
-    expect(installPath, p.join(tempHome.path, '.dartclaw', 'assets', 'v$dartclawVersion'));
-    expect(stderrLines.single, startsWith('Downloading assets for v$dartclawVersion ('));
-    expect(File(p.join(installPath, 'templates', 'layout.html')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'static', 'stimulus.min.js')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'static', 'controllers', 'index.js')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'skills', 'dartclaw-discover-andthen-plan', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'workflows', 'plan-and-implement.yaml')).existsSync(), isTrue);
+    final entries = _tarEntries(archive);
+    expect(entries, containsAll(['VERSION', 'bin/', 'bin/dartclaw', 'lib/', 'lib/${_hostLibraryName()}']));
+    expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
 
-    final resolved = AssetResolver(
-      resolvedExecutable: p.join(tempHome.path, 'bin', 'dartclaw'),
-      homeDir: tempHome.path,
-    ).resolveAssets(const AssetResolutionRequest.noConfiguredAssets());
-    expect(resolved, isNotNull);
-    expect(resolved!.root, installPath);
+    final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
+    expect(File(archiveSha).readAsStringSync().trim(), checksumLine);
+    expect(File(sums).readAsStringSync().trim(), checksumLine);
+
+    // Regression guard for the bundled-SQLite migration: a binary built without
+    // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
+    // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
+    // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
+    final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
+    addTearDown(() => smokeDir.deleteSync(recursive: true));
+    Directory(p.join(smokeDir.path, 'workspace')).createSync(recursive: true);
+    File(
+      p.join(smokeDir.path, 'workspace', 'MEMORY.md'),
+    ).writeAsStringSync('## general\n- [2026-02-23 10:00] Bundled sqlite smoke entry\n');
+    final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
+    File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
+
+    final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
+    expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
+    expect(rebuild.stdout, contains('Rebuilt index:'));
   }, timeout: const Timeout(Duration(minutes: 15)));
 
-  test('produces target-stamped release archives', () {
+  test('produces target-stamped stub archives without a bundled library', () {
     for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
       final result = Process.runSync(
         'bash',
-        [buildScriptPath],
+        [buildScript],
         workingDirectory: repoRoot,
         environment: {'DARTCLAW_RELEASE_TARGET': target, 'DARTCLAW_BUILD_SKIP_COMPILE': '1'},
       );
-      expect(result.exitCode, 0, reason: result.stderr.toString());
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
       final archive = File(p.join(buildDir.path, 'dartclaw-v$version-$target.tar.gz'));
       expect(archive.existsSync(), isTrue);
       expect(File('${archive.path}.sha256').existsSync(), isTrue);
-      expect(_readFile(sumsFile), contains('dartclaw-v$version-$target.tar.gz'));
+      expect(File(p.join(buildDir.path, 'bin', 'dartclaw')).existsSync(), isTrue);
+
+      final entries = _tarEntries(archive.path);
+      expect(entries, containsAll(['VERSION', 'bin/', 'bin/dartclaw']));
+      // The compile stub emits no native library, so no lib/ is staged.
+      expect(entries.any((entry) => entry.startsWith('lib/')), isFalse);
+      expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
+      expect(File(p.join(buildDir.path, 'SHA256SUMS.txt')).readAsStringSync().trim().split('\n'), hasLength(1));
     }
   });
 }

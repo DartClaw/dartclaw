@@ -1,7 +1,10 @@
 import 'dart:io';
 
 import 'package:meta/meta.dart';
+import 'package:path/path.dart' as p;
 import 'package:trellis/trellis.dart';
+
+import '../generated/embedded_assets.g.dart';
 
 /// Expected template files that must exist for the server to start.
 const expectedTemplates = [
@@ -60,6 +63,12 @@ void initTemplates(String basePath, {bool devMode = false}) {
   _templateLoader!.validate();
 }
 
+/// Initializes the global [templateLoader] from assets compiled into the binary.
+void initEmbeddedTemplates({Map<String, String>? assets}) {
+  _templateLoader = TemplateLoaderService.embedded(assets ?? embeddedServerAssets);
+  _templateLoader!.validate();
+}
+
 /// Resets the global template loader to uninitialized state.
 ///
 /// Only for use in tests to ensure isolation between test suites.
@@ -78,7 +87,7 @@ void resetTemplates() {
 /// In [devMode], templates are re-read from disk on each [source] call and
 /// the Trellis engine watches for file changes to clear its DOM cache.
 class TemplateLoaderService {
-  final String _basePath;
+  final String? _basePath;
   final bool devMode;
   final Map<String, String> _sources = {};
   late final Trellis trellis;
@@ -88,13 +97,21 @@ class TemplateLoaderService {
     _initializeTrellis();
   }
 
+  TemplateLoaderService.embedded(Map<String, String> assets) : _basePath = null, devMode = false {
+    for (final entry in assets.entries) {
+      if (!entry.key.startsWith('templates/') || !entry.key.endsWith('.html')) continue;
+      _sources[p.basenameWithoutExtension(entry.key)] = entry.value;
+    }
+    _initializeTrellis();
+  }
+
   /// Returns the raw source string for a named template.
   ///
   /// In dev mode, re-reads from disk so edits take effect immediately.
   /// Throws [StateError] if the template was not loaded at init time.
   String source(String name) {
     if (devMode) {
-      final file = File('$_basePath/$name.html');
+      final file = File('${_basePath!}/$name.html');
       if (file.existsSync()) {
         final content = file.readAsStringSync();
         _sources[name] = content;
@@ -119,7 +136,7 @@ class TemplateLoaderService {
     final errors = <String, String>{};
 
     for (final name in expectedTemplates) {
-      final content = _readFilesystemTemplate(name);
+      final content = _sources[name];
       if (content == null) {
         missing.add('$name.html');
         continue;
@@ -150,7 +167,7 @@ class TemplateLoaderService {
   Map<String, String> _loadFilesystemSources() {
     final sources = <String, String>{};
     for (final name in expectedTemplates) {
-      final file = File('$_basePath/$name.html');
+      final file = File('${_basePath!}/$name.html');
       if (file.existsSync()) {
         sources[name] = file.readAsStringSync();
       }
@@ -158,17 +175,9 @@ class TemplateLoaderService {
     return sources;
   }
 
-  String? _readFilesystemTemplate(String name) {
-    final file = File('$_basePath/$name.html');
-    if (!file.existsSync()) {
-      return null;
-    }
-    return _sources[name] ?? file.readAsStringSync();
-  }
-
   void _initializeTrellis() {
     if (devMode) {
-      trellis = Trellis(loader: FileSystemLoader(_basePath, devMode: true), devMode: true);
+      trellis = Trellis(loader: FileSystemLoader(_basePath!, devMode: true), devMode: true);
     } else {
       trellis = Trellis(loader: MapLoader(_sources));
     }

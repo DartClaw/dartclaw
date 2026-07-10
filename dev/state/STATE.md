@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-09 07:14 CEST
+Last Updated: 2026-07-10 09:28 CEST
 
 ### Implemented Features (through 0.18)
 
@@ -24,19 +24,15 @@ Last Updated: 2026-07-09 07:14 CEST
 
 ## Current Phase
 
-**0.20 — Workflow Hardening, Simplification & Polish: release-ready, awaiting tag.**
+**0.20.1 — Embedded Binary Assets (ADR-047): Release-ready, awaiting tag.**
 
-> Rebranded from 0.19.1 on 2026-07-04 (owner decision): the milestone outgrew its maintenance label — 25+ stories centered on workflow robustness, simplification, and polish. Downstream planned versions shift accordingly (Windows 0.20→0.21, Workflow DSL v2 0.21→0.22; a further 2026-07-06 renumber then led with the UX/app track — 0.22 Afterglow, 0.23 Chat — moving the workflow track to 0.24/0.25) in both repos' roadmaps.
+**Status**: Implementation and review complete; release prep done 2026-07-10. S01 generated and drift-gated the embedded maps; S02 rewired every consumer, removed runtime downloads/sidecars, reduced releases to binary-only archives, and passed the isolated AOT/browser proof. The final gap/code review converged with no notable findings. Version pins → 0.20.1 (all packages, `dartclawVersion`, Homebrew formula), CHANGELOG `[0.20.1]` dated 2026-07-10.
 
-**Status**: Release prep run 2026-07-09. Version pins bumped to `0.20.0` in lockstep (13 pubspecs + `version.dart` + Homebrew template); CHANGELOG `[0.20.0]` dated; the milestone bundle integrated into the private canonical PRD (`dartclaw-private/docs/specs/0.20/prd.md`) and the public `dev/bundle/` removed. All 34 stories + the residue plan (S01–S08) shipped and green; scope-frozen on `feat/0.20` awaiting squash-merge + `v0.20.0` tag. Automated gates (`release_check.sh`: bundle-empty, version lockstep, format, analyze, fitness, workspace tests) plus the manual live + UI-smoke gates are the pre-tag verification.
-
-**Previous**: 0.19.0 — Context Engine (squash-merged to `main` and tagged `v0.19.0` on 2026-06-26). 0.18 — Universal Agent Harness (tagged `v0.18.0` on 2026-06-11). 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
+**Previous**: 0.20.0 — Workflow Hardening, Simplification & Polish (squash-merged to `main` and tagged `v0.20.0` on 2026-07-09). 0.19.0 — Context Engine (tagged `v0.19.0` on 2026-06-26). 0.18 — Universal Agent Harness (tagged `v0.18.0` on 2026-06-11). 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
 
 ## Active Stories
 
-**workflow-simplification-residue** (0.20): plan bundle specced 2026-07-06 — 8 stories, 3 phases, all FIS written (`dev/bundle/docs/specs/0.20/workflow-simplification-residue/plan.json`). S01–S08 implemented 2026-07-07. S08 replaced merge-resolve cancel-and-requeue with bounded let-settle serialization, removed live task-id threading, preserved serial re-conflict termination, and routed settle-timeout force-fail through run-scoped task cancellation. Final gate green: format, analyze, workspace tests (`+5450 ~13`), architecture, fitness, workflow-contract, focused serialize/merge/event tests, foreach + merge-resolve integration tests, and `git diff --check`. FR7 ships no code (ADR-046 §E1); FR8 (S07) is tests-only; FR9 (S08) is the sole E-track impl. Full gap+code re-review 2026-07-08 (report in the spec dir, gitignored): all 6 Fix findings remediated same-day (`8d6c453c` + `0c68f452`) — incl. a pre-existing resolver bug the new variables unknown-field check exposed (emitted YAML dropped variable defaults: `defaultValue` vs parser's `default`) and the S04 visual validation actually executed (PASS; evidence in `.agent_temp/visual-validation/`) — and all 9 Note findings closed by owner decision (7 fixed, D6 recopy window / legacy null-settle-deadline resume / silent frame-skip explicitly accepted). CHANGELOG 0.20.0 carries the bundle's user-facing notes. Gate after remediation: `+5455 ~13` green.
-
-**0.20 tech-debt follow-on (2026-07-08/09 cleanup pass)**: the ROADMAP-listed 0.20 tech-debt items are all dispositioned. TD-109 (HIGH security), TD-113, and TD-112 are **closed** (the first two were stale — already resolved in-tree; TD-109's untested wiring is now regression-guarded, `c42d54f5`); TD-111 (wait-state event/SSE typing refactor) is **closed** — the turn wait-state event is now typed with the `dartclaw_core` enums (`ba33e8bf`). TD-070 stays ADR-043-deferred. See `dev/state/TECH-DEBT-BACKLOG.md` for the closure evidence.
+None — 0.20.1 (embedded assets, ADR-047) is release-ready and awaiting tag. Shipped history lives in `CHANGELOG.md`.
 
 ## Blockers
 

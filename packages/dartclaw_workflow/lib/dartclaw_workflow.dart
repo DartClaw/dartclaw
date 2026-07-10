@@ -1,6 +1,8 @@
 /// Unified workflow parsing, registry, validation, and execution utilities.
 library;
 
+export 'src/generated/embedded_assets.g.dart' show embeddedWorkflowAssets;
+
 export 'package:dartclaw_core/dartclaw_core.dart'
     show
         ArtifactKind,

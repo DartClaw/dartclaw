@@ -8,8 +8,9 @@ cd "$ROOT_DIR"
 # literals (andthen / dartclaw-discover-andthen, case-insensitive).
 #
 # Scan scope: packages/dartclaw_workflow/lib/src/ only.
-# Within that scope, one subtree is excluded:
+# Within that scope, two subtrees are excluded:
 #   - **/definitions/*.yaml  (built-in workflow YAMLs reference skills by name — legitimate)
+#   - **/generated/*         (generated embedded assets are data, not engine code)
 #
 # Note: packages/dartclaw_workflow/skills/ (bundled skill payloads at the package root) is
 # outside the scan scope entirely and is not affected by these excludes.
@@ -23,6 +24,7 @@ cd "$ROOT_DIR"
 
 matches="$(rg -i 'andthen' packages/dartclaw_workflow/lib/src/ \
   -g '!**/definitions/*.yaml' \
+  -g '!**/generated/*' \
   --with-filename -n 2>/dev/null || true)"
 matches="$(printf '%s' "$matches" | sed '/^$/d')"
 
@@ -30,6 +32,7 @@ if [[ -n "$matches" ]]; then
   echo "Fitness function failed: andthen/dartclaw-discover-andthen literals in workflow engine source outside excluded built-in workflow YAMLs."
   echo "Excluded subtree within packages/dartclaw_workflow/lib/src/:"
   echo "  **/definitions/*.yaml  (built-in workflow YAMLs)"
+  echo "  **/generated/*         (generated embedded asset data)"
   echo "Offending references:"
   echo "$matches"
   exit 1
@@ -52,4 +55,4 @@ if [[ -n "$scoring_matches" ]]; then
   exit 1
 fi
 
-echo "Fitness function passed: no framework-coupling literals in packages/dartclaw_workflow/lib/src/ (excluding definitions/*.yaml), and no framework-specific scoring concepts in scoring-path files."
+echo "Fitness function passed: no framework-coupling literals in workflow engine source (excluding definitions/*.yaml and generated assets), and no framework-specific scoring concepts in scoring-path files."

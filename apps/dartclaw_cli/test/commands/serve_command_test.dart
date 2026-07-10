@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_cli/src/asset_downloader.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
@@ -23,7 +22,6 @@ import 'package:test/test.dart';
 import '../helpers/log_service_capture.dart';
 
 late String _templatesDir;
-late String _staticDir;
 late List<LogRecord> _testLogRecords;
 late StreamSubscription<LogRecord> _testLogSubscription;
 late List<String> _expectedSevereLogSubstrings;
@@ -47,13 +45,7 @@ Future<List<LogRecord>> _captureExpectedServeLogs(
 }
 
 AssetResolver _assetResolverFor(Directory tempDir) {
-  final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
-  final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-  Link(p.join(assetRoot.path, 'templates')).createSync(_templatesDir);
-  Link(p.join(assetRoot.path, 'static')).createSync(_staticDir);
-  Directory(p.join(assetRoot.path, 'skills')).createSync(recursive: true);
-  Directory(p.join(assetRoot.path, 'workflows')).createSync(recursive: true);
-  return AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw'));
+  return const AssetResolver();
 }
 
 class _ExitIntercept implements Exception {
@@ -79,18 +71,6 @@ class _FakeWorkerService extends FakeAgentHarness {
   }) async => {'ok': true};
 }
 
-class _FailingAssetDownloader extends AssetDownloader {
-  bool called = false;
-
-  _FailingAssetDownloader() : super(homeDir: '/tmp', releaseBaseUri: Uri.parse('http://127.0.0.1/'));
-
-  @override
-  Future<String> download() async {
-    called = true;
-    throw StateError('download should not be called in offline mode');
-  }
-}
-
 const _missingBinary = 'dartclaw-definitely-missing-binary-12345';
 
 HarnessFactory _harnessFactoryFor(AgentHarness harness) {
@@ -105,7 +85,6 @@ void main() {
 
   setUpAll(() async {
     _templatesDir = await _resolveDartclawServerAssetDir('templates');
-    _staticDir = await _resolveDartclawServerAssetDir('static');
   });
 
   setUp(() {
@@ -168,7 +147,7 @@ void main() {
       expect(options.containsKey('static-dir'), isTrue);
       expect(options.containsKey('templates-dir'), isTrue);
       expect(options.containsKey('worker-timeout'), isTrue);
-      expect(options.containsKey('offline'), isTrue);
+      expect(options.containsKey('offline'), isFalse);
     });
 
     group('port validation', () {
@@ -354,117 +333,9 @@ channels:
       expect(worker.stopped, isFalse);
     });
 
-    test('offline mode with missing assets exits before download with the actionable message', () async {
-      final stderrLines = <String>[];
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_offline_test_');
-      final downloader = _FailingAssetDownloader();
-      final configPath = p.join(tempDir.path, 'dartclaw.yaml');
-      File(configPath).writeAsStringSync('# test config\n');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
-
-      final config = DartclawConfig(
-        server: ServerConfig(
-          dataDir: tempDir.path,
-          staticDir: p.join(tempDir.path, 'missing-static'),
-          templatesDir: p.join(tempDir.path, 'missing-templates'),
-          claudeExecutable: Platform.resolvedExecutable,
-        ),
-      );
-
-      final command = ServeCommand(
-        config: config,
-        stderrLine: stderrLines.add,
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: AssetResolver(
-          resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
-          homeDir: p.join(tempDir.path, 'home'),
-        ),
-        runWorkflowSkillsBootstrap: false,
-        assetDownloader: downloader,
-      );
-      final localRunner = DartclawRunner()..addCommand(command);
-
-      await expectLater(
-        localRunner.run(['serve', '--offline', '--config', configPath]),
-        throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-      );
-
-      expect(
-        stderrLines.single,
-        'Assets for ${downloader.version} not found. Run \'dartclaw assets download\' or install without --offline.',
-      );
-      expect(downloader.called, isFalse);
-    });
-
-    test('offline mode uses source-tree filesystem assets before download', () async {
-      final stderrLines = <String>[];
-      final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_source_tree_test_');
-      final downloader = _FailingAssetDownloader();
-      final realTemplatesDir = _templatesDir;
-      final realStaticDir = _staticDir;
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
-
-      final config = DartclawConfig(
-        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-        server: ServerConfig(
-          dataDir: tempDir.path,
-          staticDir: realStaticDir,
-          templatesDir: realTemplatesDir,
-          claudeExecutable: Platform.resolvedExecutable,
-        ),
-      );
-
-      final command = ServeCommand(
-        config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stderrLine: stderrLines.add,
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: AssetResolver(
-          resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
-          homeDir: p.join(tempDir.path, 'home'),
-        ),
-        assetDownloader: downloader,
-        runWorkflowSkillsBootstrap: false,
-      );
-      final localRunner = DartclawRunner()..addCommand(command);
-
-      await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve', '--offline']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
-        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
-      );
-
-      expect(stderrLines.join('\n'), isNot(contains('Assets for ${downloader.version} not found.')));
-      expect(downloader.called, isFalse);
-      expect(worker.started, isTrue);
-      expect(worker.stopped, isTrue);
-    });
-
-    test('uses a discovered asset root for filesystem templates and static assets', () async {
+    test('uses embedded templates and static assets without filesystem assets', () async {
       final worker = _FakeWorkerService();
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_asset_root_test_');
-      final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
-      final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-      final realTemplatesDir = _templatesDir;
-      final realStaticDir = _staticDir;
-
-      Link(p.join(assetRoot.path, 'templates')).createSync(realTemplatesDir);
-      Link(p.join(assetRoot.path, 'static')).createSync(realStaticDir);
-      Directory(p.join(assetRoot.path, 'skills')).createSync(recursive: true);
-      Directory(p.join(assetRoot.path, 'workflows')).createSync(recursive: true);
-
       addTearDown(() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
@@ -491,7 +362,7 @@ channels:
         },
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
+        assetResolver: const AssetResolver(),
         runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);

@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_list_command.dart';
@@ -9,53 +8,14 @@ import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-// Resolved via package URI in setUpAll. This avoids depending on
-// Directory.current (mutated concurrently by sibling test files) or
-// Platform.script (synthetic in test runner mode), both of which made
-// the upward filesystem walk flaky under default-concurrency runs.
-Future<String> _resolveBuiltInWorkflowDefinitionsDir() async {
-  final uri = await Isolate.resolvePackageUri(
-    Uri.parse('package:dartclaw_workflow/src/workflow/definitions/code-review.yaml'),
-  );
-  if (uri == null || !uri.isScheme('file')) {
-    throw StateError('Could not resolve dartclaw_workflow definitions dir via package URI');
-  }
-  return p.dirname(uri.toFilePath());
-}
-
 void main() {
   late Directory tempDir;
-  // Shared mock asset root populated once. Lets WorkflowListCommand resolve
-  // the built-in workflow source via AssetResolver instead of walking up
-  // from Directory.current — which is unsafe during parallel test runs.
-  late Directory sharedAssetTempDir;
-  late AssetResolver sharedAssetResolver;
+  const sharedAssetResolver = AssetResolver();
 
   group('WorkflowListCommand', () {
     late List<String> output;
     late WorkflowListCommand command;
     late CommandRunner<void> runner;
-
-    setUpAll(() async {
-      final builtInDefinitionsDir = await _resolveBuiltInWorkflowDefinitionsDir();
-      sharedAssetTempDir = Directory.systemTemp.createTempSync('workflow_list_assets_');
-      final assetRoot = Directory(p.join(sharedAssetTempDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-      Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
-      Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
-      final workflowsDir = Directory(p.join(assetRoot.path, 'workflows'))..createSync(recursive: true);
-      for (final entity in Directory(builtInDefinitionsDir).listSync(followLinks: false)) {
-        if (entity is File && entity.path.endsWith('.yaml')) {
-          entity.copySync(p.join(workflowsDir.path, p.basename(entity.path)));
-        }
-      }
-      sharedAssetResolver = AssetResolver(resolvedExecutable: p.join(sharedAssetTempDir.path, 'bin', 'dartclaw'));
-    });
-
-    tearDownAll(() {
-      if (sharedAssetTempDir.existsSync()) {
-        sharedAssetTempDir.deleteSync(recursive: true);
-      }
-    });
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('workflow_list_command_test_');
@@ -189,25 +149,11 @@ steps:
       expect(output.join('\n'), contains('my-review'));
     });
 
-    test('uses installed assets when available', () async {
-      final assetRoot = Directory(p.join(tempDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-      Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
-      Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
-      final workflowsDir = Directory(p.join(assetRoot.path, 'workflows'))..createSync(recursive: true);
-      File(p.join(workflowsDir.path, 'installed-workflow.yaml')).writeAsStringSync('''
-name: installed-workflow
-description: Installed workflow for testing.
-steps:
-  - id: step1
-    name: Step 1
-    prompt: Do the thing.
-''');
-
-      final installedResolver = AssetResolver(resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'));
+    test('uses embedded workflows when no installed assets exist', () async {
       final installedOutput = <String>[];
       final installedCommand = WorkflowListCommand(
         config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
-        assetResolver: installedResolver,
+        assetResolver: sharedAssetResolver,
         writeLine: installedOutput.add,
       );
       final installedRunner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(installedCommand);
@@ -215,7 +161,7 @@ steps:
       await installedRunner.run(['list']);
 
       final joined = installedOutput.join('\n');
-      expect(joined, contains('installed-workflow'));
+      expect(joined, contains('code-review'));
       expect(joined, contains('materialized'));
     });
   });

@@ -48,7 +48,8 @@ void main() {
       if (!srcDir.existsSync()) continue;
       for (final entity in srcDir.listSync(recursive: true).whereType<File>()) {
         if (!entity.path.endsWith('.dart')) continue;
-        final relativePath = _relativeTo(entity.path, repoRoot);
+        final relativePath = _relativeTo(entity.path, repoRoot).replaceAll('\\', '/');
+        if (relativePath.contains('/lib/src/generated/')) continue;
         if (allowlist.contains(relativePath)) continue;
         final loc = entity.readAsLinesSync().length;
         if (loc > _locLimit) {

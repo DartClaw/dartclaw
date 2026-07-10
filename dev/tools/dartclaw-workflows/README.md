@@ -114,11 +114,11 @@ Set `-v MAX_PARALLEL=1` to make story execution inline and sequential when you w
 
 ## Host Selection and Isolation
 
-By default `run.sh` AOT-compiles the host CLI to a content-addressed file under `.cache/bin/dartclaw-<key>` and execs that binary instead of `dart run`. The running process holds its binary by inode, so a workflow rewriting `dartclaw_server` / `dartclaw_workflow` / etc. in this checkout cannot disturb the host process – and a concurrent `run.sh` that triggers a rebuild writes a *new* content-addressed artifact rather than overwriting the running one.
+By default `run.sh` AOT-builds the host CLI with `dart build cli` (which runs the sqlite3 native build hooks and bundles the library) into a content-addressed directory under `.cache/bin/dartclaw-<key>/` (`bin/dartclaw` + a sibling `lib/`), and execs the inner binary instead of `dart run`. The running process holds its binary by inode, so a workflow rewriting `dartclaw_server` / `dartclaw_workflow` / etc. in this checkout cannot disturb the host process – and a concurrent `run.sh` that triggers a rebuild writes a *new* content-addressed artifact rather than overwriting the running one.
 
-The cache key combines: HEAD sha, `pubspec.lock` hash, the diff hash of `apps/`+`packages/`+`pubspec.{yaml,lock}`, the contents of any untracked files in that scope, and the local `dart --version` output. Edits outside that scope (docs, CI, this script itself) do not trigger a rebuild; edits inside it – including untracked-file additions and dart SDK upgrades – do. A stable `.cache/bin/dartclaw` symlink points at the most recently produced versioned binary for operator convenience.
+The cache key combines: HEAD sha, `pubspec.lock` hash, the diff hash of `apps/`+`packages/`+`pubspec.{yaml,lock}`, the contents of any untracked files in that scope, and the local `dart --version` output. Edits outside that scope (docs, CI, this script itself) do not trigger a rebuild; edits inside it – including untracked-file additions and dart SDK upgrades – do. A stable `.cache/bin/dartclaw` symlink points at `dartclaw-<key>/bin/dartclaw` for the most recently produced version, for operator convenience.
 
-**Scope of isolation.** AOT pins the *statically compiled host code*. Anything the running host loads from the source tree or environment at runtime (e.g. user-scope installed AndThen plugin/skills, DC-native provisioned skill files, vendored assets) is *not* frozen by this mechanism; isolate those by running workflows in worktrees (the default) rather than `--allow-dirty-localpath` on the live checkout.
+**Scope of isolation.** AOT pins the statically compiled host code and embedded built-ins. Anything the running host loads from the source tree or environment at runtime (for example user-scope AndThen skills or checkout-local assets selected by the maintainer profile) is not frozen by this mechanism; isolate those by running workflows in worktrees (the default) rather than `--allow-dirty-localpath` on the live checkout.
 
 Host modes:
 
@@ -130,7 +130,7 @@ Host modes:
 - `DARTCLAW_WORKFLOWS_JIT=1` – compatibility alias for `DARTCLAW_WORKFLOWS_HOST=jit`.
 - `DARTCLAW_WORKFLOWS_REBUILD=1` – force a rebuild even when the cache key matches.
 
-`system` and explicit `path` mode default `DARTCLAW_WORKFLOWS_PREFER_SOURCE=0`, so the installed or external binary uses its normal asset resolution order. Set `DARTCLAW_WORKFLOWS_PREFER_SOURCE=1` when you intentionally want that binary to load checkout-local workflow YAMLs and skills.
+`system` and explicit `path` mode default `DARTCLAW_WORKFLOWS_PREFER_SOURCE=0`, so the installed or external binary uses embedded built-ins unless it is run from a discoverable checkout. Set `DARTCLAW_WORKFLOWS_PREFER_SOURCE=1` when you intentionally want checkout-local workflow YAMLs and skills.
 
 Examples:
 
@@ -148,7 +148,7 @@ Standalone runtime state lives under `.dartclaw/` (the data dir):
 
 - `.dartclaw/dartclaw.yaml` – committed maintainer config.
 - `.dartclaw/workflows/custom/` – committed inline variants + `scripts/verify-gate.sh`.
-- `.dartclaw/workflows/built-in/` – built-in YAMLs materialized from `packages/dartclaw_workflow/lib/src/workflow/definitions/` (gitignored; marker-tracked by `WorkflowMaterializer`).
+- `.dartclaw/workflows/built-in/` – built-in YAMLs materialized from the checkout in local-source modes or from embedded content otherwise (gitignored; marker-tracked by `WorkflowMaterializer`).
 - `.dartclaw/workflows/runs/` – per-run execution state and context (gitignored).
 - local DB + `.dartclaw/worktrees/` – gitignored runtime state.
 

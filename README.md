@@ -19,7 +19,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 
 ### Homebrew (macOS & Linux) — recommended
 
-Homebrew installs the prebuilt `dartclaw` binary plus companion assets, with no Dart toolchain required. Prebuilt binaries are published for **macOS** (Apple Silicon and Intel) and **Linux** (x64 and arm64):
+Homebrew installs the self-contained prebuilt `dartclaw` binary, with no Dart toolchain required. Prebuilt binaries are published for **macOS** (Apple Silicon and Intel) and **Linux** (x64 and arm64):
 
 ```bash
 brew tap DartClaw/dartclaw
@@ -46,15 +46,15 @@ On a platform without a prebuilt binary, or for development and `--dev` hot-relo
 git clone <repo-url> && cd dartclaw
 dart pub get
 bash dev/tools/build.sh
-./build/dartclaw init
-./build/dartclaw serve
+./build/bin/dartclaw init
+./build/bin/dartclaw serve
 ```
 
-The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
+The build produces `build/bin/dartclaw` next to a `build/lib/` holding the bundled SQLite library; keep the two directories together when relocating. The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
 
 ## What is DartClaw?
 
-DartClaw is a security-conscious AI agent runtime built as a single AOT-compiled Dart binary with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex — plus any ACP-compliant agent (Goose, Mistral Vibe, …) added through configuration alone, with zero code changes.
+DartClaw is a security-conscious AI agent runtime built as an AOT-compiled Dart binary (shipping alongside a bundled SQLite library in a sibling `lib/`) with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex — plus any ACP-compliant agent (Goose, Mistral Vibe, …) added through configuration alone, with zero code changes.
 
 The host talks to agent runtimes through the `AgentHarness` abstract interface. `HarnessFactory` selects the provider-specific implementation, `HarnessPool` manages mixed workers, and the guard chain applies the same canonical tool policy across providers.
 
@@ -85,7 +85,7 @@ Two layers with clear trust boundaries:
 - **Runtime governance** -- rate limits, token budgets, loop detection, and emergency controls.
 - **Channels** -- DM/group access control, configurable scoping, mention gating, and thread-bound task sessions.
 - **Parallel execution** -- heterogeneous workers with per-provider pools and session serialization.
-- **AOT compilation** -- one native binary, zero Node.js/npm, minimal attack surface.
+- **AOT compilation** -- a native binary plus a bundled SQLite library, zero Node.js/npm, minimal attack surface.
 
 ## Prerequisites
 
@@ -98,8 +98,8 @@ Two layers with clear trust boundaries:
 ### AOT Binary
 
 ```bash
-dart compile exe apps/dartclaw_cli/bin/dartclaw.dart -o dartclaw
-./dartclaw serve
+bash dev/tools/build.sh
+./build/bin/dartclaw serve
 ```
 
 ## Project Structure

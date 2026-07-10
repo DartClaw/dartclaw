@@ -620,8 +620,8 @@ class WorkflowRunCommand extends Command<void> {
   /// Reads the `DARTCLAW_WORKFLOWS_PREFER_SOURCE` env var.
   ///
   /// The maintainer profile (`dev/tools/dartclaw-workflows/run.sh`) sets this
-  /// to `1` so that live source-tree edits to skills and workflow YAMLs win
-  /// over a stale `~/.dartclaw/assets/v<version>/` install. Currently
+  /// to `1` so live source-tree edits to skills and workflow YAMLs win over
+  /// embedded built-ins. Currently
   /// consulted only on the `--standalone` path; a connected `dartclaw run`
   /// dispatches to whatever the running server's wiring decided at startup,
   /// so this env var has no effect there. The maintainer `run.sh` only

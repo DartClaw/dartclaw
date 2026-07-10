@@ -43,6 +43,28 @@ void main() {
       expect(File(p.join(dataDir, '.claude', 'skills', 'dartclaw-review', 'SKILL.md')).existsSync(), isFalse);
     });
 
+    test('materializes native skills from embedded assets', () async {
+      final assets = <String, String>{
+        'skills/dartclaw-native-skills.txt': 'dartclaw-embedded\n',
+        'skills/dartclaw-embedded/SKILL.md': '---\nname: dartclaw-embedded\n---\n',
+        'skills/dartclaw-embedded/references/guide.md': '# Embedded\n',
+      };
+      final provisioner = SkillProvisioner(dataDir: dataDir, embeddedAssets: assets);
+
+      await provisioner.ensureCacheCurrent();
+
+      for (final root in ['.agents/skills', '.claude/skills']) {
+        expect(
+          File(p.join(dataDir, root, 'dartclaw-embedded', 'SKILL.md')).readAsStringSync(),
+          assets['skills/dartclaw-embedded/SKILL.md'],
+        );
+        expect(
+          File(p.join(dataDir, root, 'dartclaw-embedded', 'references', 'guide.md')).readAsStringSync(),
+          '# Embedded\n',
+        );
+      }
+    });
+
     test('fails when a bundled DC-native skill is missing', () async {
       Directory(p.join(sourceDir, _dcNativeSkillNames.first)).deleteSync(recursive: true);
       final provisioner = SkillProvisioner(dataDir: dataDir, dcNativeSkillsSourceDir: sourceDir);

@@ -48,8 +48,10 @@ import 'auth/auth_rate_limiter.dart';
 import 'auth/origin_host_guard.dart';
 import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
+import 'asset_resolver.dart';
 import 'behavior/heartbeat_scheduler.dart';
 import 'health/health_service.dart';
+import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
@@ -69,6 +71,7 @@ import 'task/task_review_service.dart';
 import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
+import 'embedded_static_handler.dart';
 import 'templates/sidebar.dart' show NavItem, SidebarData, buildSidebar;
 import 'turn_manager.dart' show TurnManager;
 import 'web/dashboard_page.dart';
@@ -320,11 +323,14 @@ class DartclawServer {
   }
 
   void _mountStaticRoutes(Router router) {
-    router.mount('/static/', _filesystemStaticHandler());
+    final handler = _core.assetSource == AssetSource.embedded
+        ? createEmbeddedStaticHandler(embeddedServerAssets)
+        : _filesystemStaticHandler();
+    router.mount('/static/', handler);
   }
 
   Handler _filesystemStaticHandler() {
-    final staticHandler = createStaticHandler(_core.staticDir, defaultDocument: null);
+    final staticHandler = createStaticHandler(_core.staticDir!, defaultDocument: null);
 
     return (Request request) async {
       final response = await staticHandler(request);

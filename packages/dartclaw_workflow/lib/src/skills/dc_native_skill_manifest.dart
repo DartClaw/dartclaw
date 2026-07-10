@@ -21,21 +21,26 @@ List<String> readDcNativeSkillManifest(String sourceDir) {
   if (!manifest.existsSync()) {
     throw FormatException('DC-native skills manifest missing at ${manifest.path}');
   }
+  return parseDcNativeSkillManifest(manifest.readAsStringSync(), sourceLabel: manifest.path);
+}
+
+/// Parses and validates a bundled DC-native skill manifest.
+List<String> parseDcNativeSkillManifest(String content, {required String sourceLabel}) {
   final names = <String>[];
   final seen = <String>{};
-  for (final rawLine in manifest.readAsLinesSync()) {
+  for (final rawLine in content.split('\n')) {
     final line = rawLine.trim();
     if (line.isEmpty || line.startsWith('#')) continue;
     if (!dcNativeSkillNamePattern.hasMatch(line)) {
-      throw FormatException('Invalid DC-native skill name "$line" in ${manifest.path}');
+      throw FormatException('Invalid DC-native skill name "$line" in $sourceLabel');
     }
     if (!seen.add(line)) {
-      throw FormatException('Duplicate DC-native skill name "$line" in ${manifest.path}');
+      throw FormatException('Duplicate DC-native skill name "$line" in $sourceLabel');
     }
     names.add(line);
   }
   if (names.isEmpty) {
-    throw FormatException('DC-native skills manifest at ${manifest.path} is empty');
+    throw FormatException('DC-native skills manifest at $sourceLabel is empty');
   }
   return names;
 }

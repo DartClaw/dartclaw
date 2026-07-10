@@ -1,5 +1,4 @@
-export 'asset_resolver.dart'
-    show AssetResolver, ResolvedAssets, AssetResolutionRequest, AssetSource, WorkflowAssetPolicy;
+export 'asset_resolver.dart' show AssetResolver, ResolvedAssets, AssetResolutionRequest, AssetSource;
 export 'concurrency/session_lock_manager.dart' show SessionLockManager;
 export 'emergency/emergency_stop_handler.dart' show EmergencyStopHandler, EmergencyStopResult;
 export 'maintenance/session_maintenance_service.dart'

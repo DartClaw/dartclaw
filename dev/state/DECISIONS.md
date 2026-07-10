@@ -61,7 +61,8 @@
 | [044](../adrs/044-workflow-orchestration-agent-architecture.md) | Workflow Orchestration Agent — In-Engine Decision-Object Seam, Dedicated Scope, Hybrid Anti-Thrash, Per-Hold Lifecycle | Proposed (targets 0.25) | Workflow / agent |
 | [045](../adrs/045-pluggable-database-backend.md) | Pluggable Database Backend — SQLite Default, PostgreSQL Opt-In | Proposed (targets post-0.20) | Storage |
 | [046](../adrs/046-workflow-iteration-internals-e-track.md) | Workflow Iteration-Internals E-Track — Design Verdicts for Map/Foreach Consolidation (E1), Token Attribution (E3), Merge-Resolve Serialization (E4) | Proposed (0.20 E-track FR7/8/9 — E1 keep-both/no-code, E3 coverage-only, E4 Refine-gated) | Workflow / iteration |
-| [047](../adrs/047-embedded-binary-assets.md) | Embedded Binary Assets — Generated Dart Source Replaces the Sidecar/Download Model | Proposed (targets 0.20.1) | Distribution / assets |
+| [047](../adrs/047-embedded-binary-assets.md) | Embedded Binary Assets — Generated Dart Source Replaces the Sidecar/Download Model | Accepted (implemented 0.20.1; single-file framing amended by ADR-048) | Distribution / assets |
+| [048](../adrs/048-release-builds-dart-build-bundled-sqlite.md) | Release Builds Use `dart build cli` with Bundled SQLite | Accepted (implemented; ships post-0.20.1) | Distribution / build |
 
 ## Superseded
 

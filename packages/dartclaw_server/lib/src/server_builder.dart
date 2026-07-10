@@ -39,6 +39,7 @@ import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'turn_manager.dart' show TurnManager;
 import 'workspace/workspace_git_sync.dart';
+import 'asset_resolver.dart';
 
 /// Builder for [DartclawServer].
 ///
@@ -51,6 +52,7 @@ class DartclawServerBuilder {
   MessageService? messages;
   AgentHarness? worker;
   String? staticDir;
+  AssetSource assetSource = AssetSource.sourceTreeDefault;
   BehaviorFileService? behavior;
 
   // Turn management (optional — if not set, uses sessions/worker/behavior)
@@ -185,7 +187,10 @@ class DartclawServerBuilder {
     final s = sessions ?? (throw StateError('sessions is required'));
     final m = messages ?? (throw StateError('messages is required'));
     final w = worker ?? (throw StateError('worker is required'));
-    final sd = staticDir ?? (throw StateError('staticDir is required'));
+    final sd = staticDir;
+    if (assetSource != AssetSource.embedded && sd == null) {
+      throw StateError('staticDir is required for filesystem assets');
+    }
     final turns = buildTurns();
 
     final eventRecorder =
@@ -204,6 +209,7 @@ class DartclawServerBuilder {
         messages: m,
         worker: w,
         staticDir: sd,
+        assetSource: assetSource,
         authEnabled: authEnabled,
         gatewayToken: gatewayToken,
         runtimeConfig: runtimeConfig,

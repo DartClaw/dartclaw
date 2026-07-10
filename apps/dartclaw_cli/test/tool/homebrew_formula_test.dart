@@ -29,7 +29,20 @@ void main() {
   final repoRoot = _repoRoot();
   final formula = File(p.join(repoRoot, 'package', 'homebrew', 'dartclaw.rb')).readAsStringSync();
 
-  test('Homebrew formula installs release assets and verifies runtime version', () {
+  // Spawn the tool from a copy outside the workspace: `dart run` inside the repo
+  // triggers the sqlite3 build hooks and rewrites the shared
+  // .dart_tool/native_assets.yaml, racing the test runner's own concurrent suite
+  // compilation (VM aborts with "File not formatted as yaml"). The tool imports
+  // only dart:io, so a detached copy runs hook-free and hermetic.
+  final toolDir = Directory.systemTemp.createTempSync('dc-formula-tool');
+  final toolPath = p.join(toolDir.path, 'render_homebrew_formula.dart');
+  File(p.join(repoRoot, 'dev', 'tools', 'render_homebrew_formula.dart')).copySync(toolPath);
+  tearDownAll(() => toolDir.deleteSync(recursive: true));
+
+  ProcessResult runTool(List<String> args) =>
+      Process.runSync(Platform.resolvedExecutable, [toolPath, ...args], workingDirectory: toolDir.path);
+
+  test('Homebrew formula installs only the binary and verifies runtime version', () {
     expect(formula, contains('version "$dartclawVersion"'));
     expect(formula, isNot(contains('REPLACE_WITH')));
     expect(RegExp(r'sha256 "[0-9a-f]{64}"').allMatches(formula), hasLength(4));
@@ -39,7 +52,8 @@ void main() {
     }
 
     expect(formula, contains('bin.install "bin/dartclaw"'));
-    expect(formula, contains('pkgshare.install Dir["share/dartclaw/*"]'));
+    expect(formula, isNot(contains('pkgshare')));
+    expect(formula, isNot(contains('share/${'dartclaw'}')));
     expect(formula, contains('test do'));
     expect(formula, contains('shell_output("#{bin}/dartclaw --version").strip'));
     expect(formula, contains('version.to_s'));
@@ -67,9 +81,7 @@ void main() {
     }
 
     final outPath = p.join(tempDir.path, 'rendered.rb');
-    final result = Process.runSync(Platform.resolvedExecutable, [
-      'run',
-      p.join(repoRoot, 'dev', 'tools', 'render_homebrew_formula.dart'),
+    final result = runTool([
       '--formula',
       p.join(repoRoot, 'package', 'homebrew', 'dartclaw.rb'),
       '--checksums-dir',
@@ -78,7 +90,7 @@ void main() {
       dartclawVersion,
       '--output',
       outPath,
-    ], workingDirectory: repoRoot);
+    ]);
     expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
     final rendered = File(outPath).readAsStringSync();
@@ -97,16 +109,14 @@ void main() {
     final tempDir = Directory.systemTemp.createTempSync('dc-formula-drift');
     addTearDown(() => tempDir.deleteSync(recursive: true));
 
-    final result = Process.runSync(Platform.resolvedExecutable, [
-      'run',
-      p.join(repoRoot, 'dev', 'tools', 'render_homebrew_formula.dart'),
+    final result = runTool([
       '--formula',
       p.join(repoRoot, 'package', 'homebrew', 'dartclaw.rb'),
       '--checksums-dir',
       tempDir.path,
       '--version',
       '0.0.0-nonmatching',
-    ], workingDirectory: repoRoot);
+    ]);
     expect(result.exitCode, isNonZero);
     expect('${result.stderr}', contains('lockstep'));
   });

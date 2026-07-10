@@ -5,11 +5,15 @@ name: Checks
 
 on:
   push:
+    # The branch filter also excludes tag pushes, so release tagging does not re-run Checks.
+    branches: ['**']
   pull_request:
 
 jobs:
   check:
     name: Check
+    # Same-repo PR branches already run via push; keep pull_request for fork PRs only.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,6 +29,14 @@ jobs:
 
       - name: Format check
         run: dart format --line-length=120 --output=none --set-exit-if-changed .
+
+      - name: Embedded asset drift check
+        run: |
+          git ls-files --error-unmatch -- \
+            packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
+            packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
+          dart run dev/tools/embed_assets.dart
+          git diff --exit-code -- '**/generated/embedded_assets.g.dart'
 
       - name: Analyze
         run: dart analyze --fatal-infos

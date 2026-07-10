@@ -1,53 +1,29 @@
-import 'dart:io';
-
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:path/path.dart' as p;
+import 'package:dartclaw_server/src/embedded_static_handler.dart';
+import 'package:dartclaw_server/src/version.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-import '../test_utils.dart';
-
 void main() {
-  setUpAll(() => initTemplates(resolveTemplatesDir()));
-  tearDownAll(() => resetTemplates());
-
-  late Directory tempDir;
-  late SessionService sessions;
-  late MessageService messages;
-  late FakeAgentHarness worker;
-  late DartclawServer server;
-
-  setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_static_test_');
-    final staticDir = Directory(p.join(tempDir.path, 'static'))..createSync(recursive: true);
-    File(p.join(staticDir.path, 'fixture.js')).writeAsStringSync('console.log("filesystem");');
-    sessions = SessionService(baseDir: tempDir.path);
-    messages = MessageService(baseDir: tempDir.path);
-    worker = FakeAgentHarness();
-
-    server =
-        (DartclawServerBuilder()
-              ..sessions = sessions
-              ..messages = messages
-              ..worker = worker
-              ..staticDir = staticDir.path
-              ..behavior = BehaviorFileService(workspaceDir: tempDir.path))
-            .build();
+  final handler = createEmbeddedStaticHandler({
+    'static/tokens.css': ':root { --color: blue; }',
+    'static/app.js': 'console.log("embedded");',
   });
 
-  tearDown(() async {
-    await worker.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  test('serves embedded bytes with content and version-keyed cache headers', () async {
+    final response = await handler(Request('GET', Uri.parse('http://localhost/tokens.css')));
+
+    expect(response.statusCode, 200);
+    expect(response.headers['content-type'], startsWith('text/css'));
+    expect(response.headers['cache-control'], contains('public'));
+    expect(response.headers['etag'], contains(dartclawVersion));
+    expect(await response.readAsString(), ':root { --color: blue; }');
   });
 
-  test('GET /static/fixture.js serves filesystem bytes with the cache header', () async {
-    final response = await server.handler(Request('GET', Uri.parse('http://localhost/static/fixture.js')));
+  test('returns 404 for misses and traversal attempts', () async {
+    final missing = await handler(Request('GET', Uri.parse('http://localhost/nope.js')));
+    final traversal = await handler(Request('GET', Uri.parse('http://localhost/%2E%2E/secrets')));
 
-    expect(response.statusCode, equals(200));
-    expect(response.headers['content-type'], startsWith('text/javascript'));
-    expect(response.headers['cache-control'], equals('public, max-age=86400'));
-    expect(await response.readAsString(), contains('filesystem'));
+    expect(missing.statusCode, 404);
+    expect(traversal.statusCode, 404);
   });
 }

@@ -608,7 +608,11 @@ class ServiceWiring {
         .map((r) => r.providerId)
         .toSet();
     final resolvedWorkflowsDir = ctx.resolvedAssets.workflowsDir;
-    await WorkflowMaterializer.materialize(dataDir: ctx.dataDir, sourceDir: resolvedWorkflowsDir, allowFallback: false);
+    await WorkflowMaterializer.materialize(
+      dataDir: ctx.dataDir,
+      sourceDir: resolvedWorkflowsDir,
+      discoverSourceTree: false,
+    );
     final workflowRegistry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),

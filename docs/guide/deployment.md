@@ -80,50 +80,27 @@ Use the repo build entrypoint to produce the production binary from source:
 bash dev/tools/build.sh
 ```
 
-`dev/tools/build.sh` compiles `apps/dartclaw_cli/bin/dartclaw.dart` to `build/dartclaw` and also produces the
-release artifacts that carry the asset tree separately from the binary: `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz`,
-`build/dartclaw-assets-v{VERSION}.tar.gz`, and `build/SHA256SUMS.txt`. Release targets use `macos-arm64`,
-`macos-x64`, `linux-x64`, and `linux-arm64`. The binary does not embed templates, static assets, skills, or workflows;
-packaged installs discover those files from the filesystem instead.
+`dev/tools/build.sh` runs `dart build cli` to produce `build/bin/dartclaw` alongside a bundled SQLite library in
+`build/lib/` (`libsqlite3.dylib` on macOS, `libsqlite3.so` on Linux), then packs `VERSION`, `bin/dartclaw`, and
+`lib/` into `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` plus its checksum. The binary resolves the library
+relative to itself, so `bin/` and `lib/` must stay siblings. Templates, static assets, skills, and workflows are
+embedded in the executable, so it needs no companion asset files and no first-run network request. `dart build cli`
+cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`) must be built on
+a native runner for that OS/arch.
 
 ```bash
-build/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw
+build/bin/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw
 ```
 
 ### Running Outside the Source Tree
 
-The notes below apply only to clone-based or development runs where DartClaw is intentionally reading files from
-the workspace. `dart run ...` and `dartclaw serve --dev` continue to use the source tree so template hot-reload
-and local workflow editing keep working.
-
-| Asset | Source-checkout path | Packaged install path |
-|-------|----------------------|---------------------|
-| Templates | `packages/dartclaw_server/lib/src/templates` | `../share/dartclaw/templates` |
-| Static assets | `packages/dartclaw_server/lib/src/static` | `../share/dartclaw/static` |
-| Skills | `packages/dartclaw_workflow/skills` | `../share/dartclaw/skills` |
-| Workflows | `packages/dartclaw_workflow/lib/src/workflow/definitions` | `../share/dartclaw/workflows` |
-
-If you run from a checkout without a packaged asset tree, template and workflow loading use the source-tree files
-above. If you run a bare binary without local assets, `dartclaw serve` downloads the matching asset archive into
-`~/.dartclaw/assets/v{VERSION}/` unless `--offline` is set.
-
-**Workarounds**:
-
-```bash
-# Option 1: Run from the source root (simplest for dev)
-cd /path/to/dartclaw-public
-build/dartclaw serve --config /path/to/your/dartclaw.yaml
-
-# Option 2: Override the source-tree directories explicitly
-mkdir -p packages/dartclaw_server/lib/src
-ln -s /path/to/dartclaw-public/packages/dartclaw_server/lib/src/templates \
-      packages/dartclaw_server/lib/src/templates
-```
+Clone-based and development runs can still read the workspace directly. `dart run ...`, `dartclaw serve --dev`,
+and explicit `--source-dir` / `--templates-dir` / `--static-dir` overrides take precedence over embedded content,
+preserving template hot-reload and local workflow edits. Packaged installs use embedded content automatically.
 
 When you install a service from the repository root for a clone-based deployment, `dartclaw service install`
 automatically carries `--source-dir` into the generated unit so background services keep the right runtime
-context. Packaged installs do not need that workaround because they resolve the companion assets from
-`../share/dartclaw/` or the downloaded asset cache.
+context. Packaged installs need no source path because their assets are embedded.
 
 **Note**: This limitation also affects `dart run` when `cwd` is not the pub workspace root — for example, when you want DartClaw's `_local` project to point at a different repository. See [Projects & Git § Limitations](projects-and-git.md#limitations-and-future-considerations) for details.
 

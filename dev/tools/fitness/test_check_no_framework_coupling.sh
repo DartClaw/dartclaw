@@ -18,6 +18,11 @@ steps:
   - skill: andthen:review
 YAML
 
+mkdir -p "$TMPDIR/packages/dartclaw_workflow/lib/src/generated"
+cat > "$TMPDIR/packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart" <<'DART'
+const embeddedPath = 'skills/dartclaw-discover-andthen-plan/SKILL.md';
+DART
+
 # Synthesize a rogue mixed-case literal under lib/src/skills. This is engine
 # code, not the package-root bundled skill payload directory, so the gate must
 # scan it.
@@ -35,11 +40,11 @@ if bash dev/tools/fitness/check_no_framework_coupling.sh >/dev/null 2>&1; then
   exit 1
 fi
 
-# Remove the rogue file; script must pass with allowed built-in YAML literals.
+# Remove the rogue file; script must pass with allowed built-in YAML and generated-data literals.
 rm "$TMPDIR/packages/dartclaw_workflow/lib/src/skills/rogue.dart"
 if ! bash dev/tools/fitness/check_no_framework_coupling.sh >/dev/null 2>&1; then
-  echo "FAIL: fitness script reported failure on a clean synthetic tree with allowed built-in YAML literals"
+  echo "FAIL: fitness script reported failure on a clean synthetic tree with allowed built-in YAML/generated literals"
   exit 1
 fi
 
-echo "OK: fitness script detects rogue AndThen literals and permits built-in YAML literals"
+echo "OK: fitness script detects rogue AndThen literals and permits built-in YAML/generated literals"

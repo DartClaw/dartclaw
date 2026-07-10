@@ -4,24 +4,15 @@
 
 ## Active Milestone
 
-### 0.20 — Workflow Hardening, Simplification & Polish
+### 0.20.1 — Embedded Binary Assets (ADR-047)
 
-**Status: Release-ready, awaiting tag.** Opened 2026-06-26 from the `v0.19.0` tag as maintenance milestone 0.19.1 (tech debt + test-suite hardening); rebranded to 0.20 on 2026-07-04 after the scope grew into a full workflow-feature hardening/simplification/polish release (25+ stories: teardown-cancellation honesty, nested-loop escalation, framework-neutral severity scoring, preset relocation, output-contract hygiene, vocabulary neutralization, execution envelope, escalation-visibility fix, YAGNI trims, authoring/operator UX polish). Planned versions previously labeled 0.20/0.21 shifted to 0.21/0.22; a 2026-07-06 renumber then moved the workflow track to 0.24/0.25 and made 0.22/0.23 lead with the UX/app track (see Planned).
-
-Headline: **test-suite speed + log-noise hardening** (spec via `andthen:spec` first). The workspace suite runs ~5 min — dominated by the serialized `-j 1` workflow+server+cli gate — and floods output with `SEVERE` lines from injected negative-path tests (fake `serveFn` bind-failure, mock asset downloads), which makes a green run look broken and would bury a real failure. Profile the serialized suite, reduce the slowest tests, and capture/silence expected-error logs so output is clean.
-
-The open `dev/state/TECH-DEBT-BACKLOG.md` items, dispositioned in the 2026-07-08 cleanup pass:
-- TD-109 (HIGH security): **closed** — already resolved in-tree (per-turn session-scoped tool scoping); the untested TurnRunner apply/clear wiring is now regression-guarded.
-- TD-113 (test determinism): **closed** — already resolved by the 0.20 test-suite hardening (injected fake timers into the turn wait/stall monitors).
-- TD-112 (cohesion, decision-needed): **closed** — decided keep-status-quo (extracting a `TurnWaitMonitor` now is speculative per KISS/YAGNI; revisit on trigger).
-- TD-070 (WorkflowCliRunner location): **deferred** — ADR-043 keep-status-quo, pinned; no code.
-- TD-111 (wait-state typing): **closed** — the turn wait-state event now carries the `dartclaw_core` `TurnWaitState`/`TurnWaitReason` enums across the sealed-event + SSE-wire contract (`ba33e8bf`).
+**Status: Release-ready – awaiting tag.** Opened 2026-07-10 from the `v0.20.0` tag; release prep completed the same day (version pins → 0.20.1, CHANGELOG dated). ADR-047 now compiles the four built-in asset directories into the AOT binary, with source-tree precedence for development and a binary-only release/install contract. Both stories in the private `docs/specs/0.20.1/` bundle and their final gap/code review are complete.
 
 ## Planned
 
-### 0.21 — Windows Support & Cross-Platform Hardening (Next)
+### 0.21 — Windows Support & Cross-Platform Hardening (Next major)
 
-Shifted from the 0.20 label by the 2026-07-04 rebrand; scope unchanged (see private repo specs).
+Shifted from the 0.20 label by the 2026-07-04 rebrand; scope unchanged (see private repo specs). Sequenced after the 0.20.1 point release.
 
 ### 0.22 — Afterglow Design-System Overhaul
 
@@ -40,6 +31,10 @@ Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.20 — Workflow Hardening, Simplification & Polish ✅
+
+Tagged `v0.20.0` on 2026-07-09. Maintenance/hardening milestone (rebranded from 0.19.1): workflow robustness honesty (teardown-cancellation, nested-loop escalation, always-on one-shot timeouts), DartClaw-owned framework-neutral review scoring, output-contract + vocabulary simplification, a two-pass simplification of `dartclaw_workflow` (+ a LOC fitness ceiling), authoring/operator UX polish (live CLI spinner, standalone-run observability, why-paused parity), and test-suite speed + log-noise hardening. 34 stories + the workflow-simplification-residue plan (S01–S08) + the E-track iteration-internals design pass (ADR-046). Tech debt TD-109/111/112/113 closed; TD-070 deferred (ADR-043). See `CHANGELOG.md` for details.
 
 ### 0.19 — Context Engine ✅
 

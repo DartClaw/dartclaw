@@ -62,6 +62,8 @@ Pipeline: YAML → `WorkflowDefinitionParser.parse` → `WorkflowDefinitionValid
 - Workflow-spawned tasks always use `reviewMode: auto-accept`. Human checkpoints are structural – author an explicit review or `approval` step.
 - Role aliases (`@executor`, `@reviewer`, `@planner`, `@workflow`) skip continuity-provider validation; runtime `WorkflowExecutor._resolveContinueSessionProvider` handles family-mismatch fallback.
 - DC-native skill names live in `packages/dartclaw_workflow/skills/dartclaw-native-skills.txt`; never wildcard-delete, update when adding under `skills/`.
+- `lib/src/generated/embedded_assets.g.dart` is checked-in generated output. Never hand-edit it; run `dart run dev/tools/embed_assets.dart` after editing package-root skills or built-in workflow definitions.
+- Compiled hosts consume that map through the package barrel, then materialize workflow YAML and native skills to disk for harness access. Source-tree content still wins in checkout and maintainer live-edit modes.
 - **The DC-native skill cache is manifest-projected on write.** `SkillProvisioner.ensureCacheCurrent` copies manifest-listed skills into both provider roots and purges any `dartclaw-*` skill dir the manifest omits. `WorkspaceSkillInventory.fromDataDir` reads the resulting cache; workspace materialization markers only protect linked/copied workspace payloads from overwriting user-owned files.
 
 ## Load-bearing invariants

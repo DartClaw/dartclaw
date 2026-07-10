@@ -54,12 +54,14 @@ class SkillProvisioner {
   static final _log = Logger('SkillProvisioner');
 
   final String dataDir;
-  final String dcNativeSkillsSourceDir;
+  final String? dcNativeSkillsSourceDir;
+  final Map<String, String>? embeddedAssets;
   final DirectoryCopier _copyDirectory;
 
   SkillProvisioner({
     required this.dataDir,
-    required this.dcNativeSkillsSourceDir,
+    this.dcNativeSkillsSourceDir,
+    this.embeddedAssets,
     Map<String, String>? environment,
     ProcessRunner? processRunner,
     DirectoryCopier? directoryCopier,
@@ -80,13 +82,21 @@ class SkillProvisioner {
   }
 
   List<String> _readManifestNames() {
-    if (!Directory(dcNativeSkillsSourceDir).existsSync()) {
-      throw SkillProvisionException(
-        'DC-native skills source missing at $dcNativeSkillsSourceDir – check the bundled assets layout.',
-      );
-    }
     try {
-      return readDcNativeSkillManifest(dcNativeSkillsSourceDir);
+      final sourceDir = dcNativeSkillsSourceDir;
+      if (sourceDir != null) {
+        if (!Directory(sourceDir).existsSync()) {
+          throw SkillProvisionException('DC-native skills source missing at $sourceDir.');
+        }
+        return readDcNativeSkillManifest(sourceDir);
+      }
+
+      final manifestKey = 'skills/$dcNativeSkillManifestFile';
+      final manifest = embeddedAssets?[manifestKey];
+      if (manifest == null) {
+        throw SkillProvisionException('DC-native skills manifest missing from embedded assets.');
+      }
+      return parseDcNativeSkillManifest(manifest, sourceLabel: manifestKey);
     } on FormatException catch (e) {
       throw SkillProvisionException(e.message);
     }
@@ -106,19 +116,47 @@ class SkillProvisioner {
     Directory(dest.claudeSkillsDir).createSync(recursive: true);
 
     for (final name in manifestNames) {
-      final source = Directory(p.join(dcNativeSkillsSourceDir, name));
-      if (!source.existsSync()) {
-        throw SkillProvisionException('DC-native skill "$name" missing at ${source.path}');
-      }
       for (final destPath in [p.join(dest.codexSkillsDir, name), p.join(dest.claudeSkillsDir, name)]) {
         if (Directory(destPath).existsSync()) {
           _log.fine('Refreshing DartClaw-native skill at $destPath');
         }
-        await _copyDirectory(source, Directory(destPath));
+        final sourceDir = dcNativeSkillsSourceDir;
+        if (sourceDir != null) {
+          final source = Directory(p.join(sourceDir, name));
+          if (!source.existsSync()) {
+            throw SkillProvisionException('DC-native skill "$name" missing at ${source.path}');
+          }
+          await _copyDirectory(source, Directory(destPath));
+        } else {
+          _materializeEmbeddedSkill(name, Directory(destPath));
+        }
       }
     }
 
     _purgeNonManifestDcNativeSkills(dest, manifestNames.toSet());
+  }
+
+  void _materializeEmbeddedSkill(String name, Directory destination) {
+    final prefix = 'skills/$name/';
+    final entries = embeddedAssets?.entries.where((entry) => entry.key.startsWith(prefix)).toList() ?? const [];
+    if (entries.isEmpty) {
+      throw SkillProvisionException('DC-native skill "$name" missing from embedded assets.');
+    }
+
+    if (destination.existsSync()) destination.deleteSync(recursive: true);
+    destination.createSync(recursive: true);
+    for (final entry in entries) {
+      final relative = entry.key.substring(prefix.length);
+      final segments = p.posix.split(relative);
+      if (relative.isEmpty ||
+          p.posix.isAbsolute(relative) ||
+          segments.any((segment) => segment == '..' || segment == '.')) {
+        throw SkillProvisionException('Invalid embedded skill asset path "${entry.key}".');
+      }
+      final target = File(p.joinAll([destination.path, ...segments]));
+      target.parent.createSync(recursive: true);
+      target.writeAsStringSync(entry.value);
+    }
   }
 
   /// Deletes every managed `dartclaw-*` skill directory absent from the manifest.

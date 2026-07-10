@@ -185,7 +185,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ## Tooling / Verification
 
-- **Asset resolution precedence must treat explicit source paths as intent, not freshness hints.** Dev/testing profile runs pass `--source-dir` specifically to exercise the checkout, so a populated `~/.dartclaw/assets/v<version>` cache must never shadow those templates/static assets even when its `VERSION` matches. The cache version marker only catches cross-version leftovers; within a development cycle the version can lag content, so startup must log the resolved asset source and wire templates, static files, skills, and workflow definitions from one resolved asset session.
+- **Asset resolution precedence must treat explicit source paths as intent.** Dev/testing profiles pass `--source-dir` specifically to exercise the checkout, so embedded assets must never shadow local templates, static files, skills, or workflow definitions. Startup logs the selected provenance; explicit, dev, and source-tree paths all win before the embedded fallback.
 - **Workflow Codex E2E needs real `CODEX_API_KEY`** even when the binary starts cleanly. Empty creds surface as websocket `401 Unauthorized` on the first live turn — environment blocker, not product regression.
 - **Path-output test stubs must materialize claimed files under the same roots production validation probes.** For workflow tests, write files under task worktree, `dataDir/projects/<projectId>`, and discovered `project_root` when relevant; otherwise stricter path validation correctly coerces outputs to empty.
 - **Nested `dart run` subprocesses inside `dart test` can stall on build hooks.** Use `Platform.resolvedExecutable` against the script path from the package root.

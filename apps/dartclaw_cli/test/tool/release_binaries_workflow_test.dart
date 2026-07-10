@@ -33,7 +33,7 @@ void main() {
       'macos-arm64': 'macos-15',
       'macos-x64': 'macos-15-intel',
       'linux-x64': 'ubuntu-latest',
-      'linux-arm64': 'ubuntu-latest',
+      'linux-arm64': 'ubuntu-24.04-arm',
     };
 
     for (final entry in expectedTargets.entries) {
@@ -53,8 +53,8 @@ void main() {
     expect(workflow, contains('bash dev/tools/check_versions.sh "\$DARTCLAW_VERSION"'));
     expect(workflow, contains('TAG_VERSION="\${GITHUB_REF_NAME#v}"'));
     expect(workflow, contains('Tag \$GITHUB_REF_NAME does not match dartclawVersion \$DARTCLAW_VERSION'));
-    expect(workflow, contains('build/dartclaw-assets-v\${{ env.DARTCLAW_VERSION }}.tar.gz'));
-    expect(workflow, contains('build/dartclaw-assets-v\${{ env.DARTCLAW_VERSION }}.tar.gz.sha256'));
+    expect(workflow, isNot(contains('publish_assets')));
+    expect(workflow, isNot(contains('dartclaw-assets')));
     expect(workflow, contains('SHA256SUMS.txt'));
     // The aggregate-checksums job has no checkout, so `gh release download`
     // must get the repo from GH_REPO or it fails with "not a git repository".

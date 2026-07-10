@@ -114,7 +114,7 @@ class WorkflowShowCommand extends ConnectedCommand {
     var authoredYaml = registry.authoredYaml(name);
 
     if (definition == null || authoredYaml == null) {
-      final sourceDir = WorkflowMaterializer.resolveBuiltInWorkflowSourceDir(assetResolver: _assetResolver);
+      final sourceDir = WorkflowMaterializer.resolveBuiltInWorkflowSourceDir();
       if (sourceDir != null) {
         final file = File(p.join(sourceDir, '$name.yaml'));
         if (file.existsSync()) {

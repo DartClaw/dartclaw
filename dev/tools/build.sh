@@ -3,12 +3,23 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-APP_ENTRY="$ROOT_DIR/apps/dartclaw_cli/bin/dartclaw.dart"
 VERSION_FILE="$ROOT_DIR/packages/dartclaw_server/lib/src/version.dart"
 TARGET="${DARTCLAW_RELEASE_TARGET:-}"
 SKIP_COMPILE="${DARTCLAW_BUILD_SKIP_COMPILE:-}"
 
-dart run "$ROOT_DIR/dev/tools/sync_version.dart"
+stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
+cleanup() {
+  rm -rf "$stage_root"
+}
+trap cleanup EXIT INT TERM
+
+# Run the version sync from a copy outside the workspace: `dart run` inside the
+# repo rebuilds the shared .dart_tool/native_assets.yaml (sqlite3 hooks), and a
+# concurrently loading test-runner VM that reads the file mid-write aborts with
+# "File not formatted as yaml". The tool imports only dart:io, so a detached
+# copy runs hook-free.
+cp "$ROOT_DIR/dev/tools/sync_version.dart" "$stage_root/"
+(cd "$stage_root" && dart sync_version.dart "$ROOT_DIR")
 
 version="$(sed -n "s/.*dartclawVersion = '\([^']*\)'.*/\1/p" "$VERSION_FILE" | head -n1)"
 if [[ -z "$version" ]]; then
@@ -42,48 +53,34 @@ target_arch_name() {
   echo "${target##*-}"
 }
 
-target_os_name_for_dart() {
-  local os="$1"
-  case "$os" in
-    macos | linux) echo "$os" ;;
-    *) echo "Unsupported release target OS: $os" >&2; exit 1 ;;
-  esac
-}
-
-target_arch_name_for_dart() {
-  local arch="$1"
-  case "$arch" in
-    x64 | arm64) echo "$arch" ;;
-    *) echo "Unsupported release target arch: $arch" >&2; exit 1 ;;
-  esac
-}
-
+# Build the release binary with `dart build cli`, which runs the sqlite3 native
+# build hooks and emits a bundle with the executable plus its bundled
+# libsqlite3 in a sibling lib/. `dart compile exe` cannot be used: its
+# build-hook detection classifies by the workspace-root pubspec (where sqlite3
+# is absent), so it silently produces a binary with no sqlite native-asset
+# mapping (dart-lang/sdk#62593). `dart build cli` cannot cross-compile, so each
+# target must be built on a native runner for that OS/arch.
 compile_binary() {
   local target_os="$1"
   local target_arch="$2"
 
+  mkdir -p "$BUILD_DIR/bin"
+
   if [[ -n "$SKIP_COMPILE" ]]; then
-    printf '#!/usr/bin/env sh\nprintf "%%s\\n" "%s"\n' "$version" > "$BUILD_DIR/dartclaw"
-    chmod 755 "$BUILD_DIR/dartclaw"
+    printf '#!/usr/bin/env sh\nprintf "%%s\\n" "%s"\n' "$version" > "$BUILD_DIR/bin/dartclaw"
+    chmod 755 "$BUILD_DIR/bin/dartclaw"
     return
   fi
 
-  if [[ "$target_os" == "linux" ]]; then
-    dart compile exe \
-      --target-os "$(target_os_name_for_dart "$target_os")" \
-      --target-arch "$(target_arch_name_for_dart "$target_arch")" \
-      "$APP_ENTRY" \
-      -o "$BUILD_DIR/dartclaw"
-    return
+  if [[ "$target_os" != "$(platform_name)" || "$target_arch" != "$(arch_name)" ]]; then
+    echo "Target $target_os-$target_arch requires a native $target_os-$target_arch runner" >&2
+    exit 1
   fi
 
-  if [[ "$target_os" == "$(platform_name)" && "$target_arch" == "$(arch_name)" ]]; then
-    dart compile exe "$APP_ENTRY" -o "$BUILD_DIR/dartclaw"
-    return
-  fi
-
-  echo "Target $target_os-$target_arch requires a native $target_os-$target_arch runner" >&2
-  exit 1
+  local cli_stage="$stage_root/cli"
+  (cd "$ROOT_DIR/apps/dartclaw_cli" && dart build cli -t bin/dartclaw.dart -o "$cli_stage")
+  cp "$cli_stage/bundle/bin/dartclaw" "$BUILD_DIR/bin/dartclaw"
+  cp -R "$cli_stage/bundle/lib" "$BUILD_DIR/lib"
 }
 
 sha256_file() {
@@ -96,70 +93,35 @@ sha256_file() {
   fi
 }
 
-copy_tree() {
-  local source_dir="$1"
-  local destination_dir="$2"
-
-  if [[ ! -d "$source_dir" ]]; then
-    echo "Missing expected source tree: $source_dir" >&2
-    exit 1
-  fi
-
-  mkdir -p "$destination_dir"
-  cp -R "$source_dir"/. "$destination_dir"/
-}
-
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
-cleanup() {
-  rm -rf "$stage_root"
-}
-trap cleanup EXIT INT TERM
-
 platform_stage="$stage_root/platform"
-assets_stage="$stage_root/assets"
-shared_root_name="dartclaw"
 
-mkdir -p "$platform_stage/bin" "$platform_stage/share/$shared_root_name" "$assets_stage"
+mkdir -p "$platform_stage/bin"
 printf '%s\n' "$version" > "$platform_stage/VERSION"
-printf '%s\n' "$version" > "$assets_stage/VERSION"
 
 release_os="$(platform_name)"
 release_arch="$(arch_name)"
 if [[ -n "$TARGET" ]]; then
   release_os="$(target_os_name "$TARGET")"
   release_arch="$(target_arch_name "$TARGET")"
-  compile_binary "$release_os" "$release_arch"
-else
-  compile_binary "$release_os" "$release_arch"
+fi
+compile_binary "$release_os" "$release_arch"
+
+cp "$BUILD_DIR/bin/dartclaw" "$platform_stage/bin/dartclaw"
+
+platform_entries=(VERSION bin)
+if [[ -d "$BUILD_DIR/lib" ]]; then
+  cp -R "$BUILD_DIR/lib" "$platform_stage/lib"
+  platform_entries+=(lib)
 fi
 
-cp "$BUILD_DIR/dartclaw" "$platform_stage/bin/dartclaw"
-
-copy_tree "$ROOT_DIR/packages/dartclaw_server/lib/src/templates" "$platform_stage/share/$shared_root_name/templates"
-copy_tree "$ROOT_DIR/packages/dartclaw_server/lib/src/static" "$platform_stage/share/$shared_root_name/static"
-copy_tree "$ROOT_DIR/packages/dartclaw_workflow/skills" "$platform_stage/share/$shared_root_name/skills"
-copy_tree "$ROOT_DIR/packages/dartclaw_workflow/lib/src/workflow/definitions" "$platform_stage/share/$shared_root_name/workflows"
-
-copy_tree "$ROOT_DIR/packages/dartclaw_server/lib/src/templates" "$assets_stage/templates"
-copy_tree "$ROOT_DIR/packages/dartclaw_server/lib/src/static" "$assets_stage/static"
-copy_tree "$ROOT_DIR/packages/dartclaw_workflow/skills" "$assets_stage/skills"
-copy_tree "$ROOT_DIR/packages/dartclaw_workflow/lib/src/workflow/definitions" "$assets_stage/workflows"
-
 platform_archive="$BUILD_DIR/dartclaw-v${version}-${release_os}-${release_arch}.tar.gz"
-asset_archive="$BUILD_DIR/dartclaw-assets-v${version}.tar.gz"
 platform_sha="$platform_archive.sha256"
-asset_sha="$asset_archive.sha256"
 
-COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$platform_stage" -czf "$platform_archive" VERSION bin share
-COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$assets_stage" -czf "$asset_archive" VERSION templates static skills workflows
+COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$platform_stage" -czf "$platform_archive" "${platform_entries[@]}"
 
-{
-  printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")"
-  printf '%s  %s\n' "$(sha256_file "$asset_archive")" "$(basename "$asset_archive")"
-} > "$BUILD_DIR/SHA256SUMS.txt"
+printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")" > "$BUILD_DIR/SHA256SUMS.txt"
 
 printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")" > "$platform_sha"
-printf '%s  %s\n' "$(sha256_file "$asset_archive")" "$(basename "$asset_archive")" > "$asset_sha"

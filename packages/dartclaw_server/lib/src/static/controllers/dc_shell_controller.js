@@ -213,6 +213,7 @@ export default class DcShellController extends Stimulus.Controller {
     const menuToggle = document.querySelector('.menu-toggle');
     if (menuToggle) {
       menuToggle.setAttribute('aria-label', open ? 'Close sidebar' : 'Open sidebar');
+      menuToggle.setAttribute('data-icon', open ? 'x' : 'menu');
     }
   }
 

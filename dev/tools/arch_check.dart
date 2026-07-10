@@ -327,7 +327,8 @@ _CheckResult _checkWorkflowLoc(String repoRoot) {
 int _countDartLoc(Directory directory) {
   var loc = 0;
   for (final file in directory.listSync(recursive: true)) {
-    if (file is! File || !file.path.endsWith('.dart')) {
+    final normalizedPath = file.path.replaceAll('\\', '/');
+    if (file is! File || !normalizedPath.endsWith('.dart') || normalizedPath.contains('/lib/src/generated/')) {
       continue;
     }
     loc += file.readAsLinesSync().length;

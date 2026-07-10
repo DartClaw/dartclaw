@@ -16,6 +16,7 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..taskEventService = storage.taskEventService
     ..worker = harness.harness
     ..staticDir = ctx.resolvedAssets.staticDir
+    ..assetSource = ctx.resolvedAssets.source
     ..behavior = harness.behavior
     ..memoryFile = storage.memoryFile
     ..memoryService = storage.memory

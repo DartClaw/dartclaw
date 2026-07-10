@@ -155,7 +155,7 @@ String _requiredVariablesLabel(WorkflowDefinition definition) {
 /// extracted here for reuse.
 Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetResolver? assetResolver}) async {
   final registry = WorkflowRegistry(parser: WorkflowDefinitionParser(), validator: WorkflowDefinitionValidator());
-  await WorkflowMaterializer.materialize(dataDir: config.server.dataDir, assetResolver: assetResolver);
+  await WorkflowMaterializer.materialize(dataDir: config.server.dataDir);
   await registry.loadFromDirectory(
     WorkflowMaterializer.builtInDir(config.server.dataDir),
     source: WorkflowSource.materialized,

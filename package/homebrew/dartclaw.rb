@@ -1,7 +1,7 @@
 class Dartclaw < Formula
   desc "Security-conscious AI agent runtime"
   homepage "https://github.com/DartClaw/dartclaw"
-  version "0.20.0"
+  version "0.20.1"
   license "MIT"
 
   on_macos do
@@ -30,7 +30,7 @@ class Dartclaw < Formula
 
   def install
     bin.install "bin/dartclaw"
-    pkgshare.install Dir["share/dartclaw/*"]
+    lib.install Dir["lib/*"]
   end
 
   test do

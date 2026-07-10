@@ -248,6 +248,8 @@ Terminal-aesthetic design language for a developer-focused AI agent runtime. Cat
 - `showcase.html` — interactive component reference
 - `assets/` — local copies of the brand logos so the folder is self-contained (canonical originals: repo-root `assets/`)
 
+**Source-of-truth scope** – these files are the normative design-system spec, not byte mirrors of the served copies under `packages/dartclaw_server/lib/src/static/`. The served files may deliberately extend the spec with live-only implementation details (compatibility aliases in `tokens.css`, page-specific rules in `components.css`); such extensions are not drift. `icons.css` is the exception: its icon inventory is kept in strict sync – every icon the served file defines must exist here and in the vocabulary table below (enforced by `packages/dartclaw_server/test/static/design_system_icons_sync_test.dart`).
+
 ## Overview
 
 DartClaw is an AI agent runtime aimed at developers and operators. The UI should feel like a high-quality terminal application: dense but readable, instrumented but calm, with deliberate use of color to communicate state rather than to decorate.
@@ -661,6 +663,11 @@ Static 1px section separators.
 | `scheduling` | `calendar-clock` | `--icon-calendar-clock` | Scheduling nav |
 | `tasks` | `clipboard-list` | `--icon-clipboard-list` | Tasks nav |
 | `projects` | `folder-kanban` | `--icon-folder-kanban` | Projects nav |
+| `folder-git` | `folder-git` | `--icon-folder-git` | Repository projects |
+| `workflows` | `workflow` | `--icon-workflow` | Workflows nav |
+| `database` | `database` | `--icon-database` | Knowledge nav |
+| `search` | `search` | `--icon-search` | Research nav |
+| `clock` | `clock` | `--icon-clock` | Timeline nav |
 | `terminal` | `terminal` | `--icon-terminal` | Workspace/Agent |
 | `new-session` | `square-pen` | `--icon-square-pen` | New Session button |
 | — | `message-circle` | `--icon-message-circle` | Active session |
@@ -680,6 +687,9 @@ Static 1px section separators.
 | `chevron-right` | `chevron-right` | `--icon-chevron-right` | Expand toggle |
 | `pencil` | `pencil` | `--icon-pencil` | Edit button |
 | `square` | `square` | `--icon-square` | Stop button |
+| `file-text` | `file-text` | `--icon-file-text` | Artifact/document |
+| `gauge` | `gauge` | `--icon-gauge` | Token meter |
+| `wrench` | `wrench` | `--icon-wrench` | Tool invocation |
 | — | `check` | `--icon-check` | Success/confirm |
 | — | `circle-check` | `--icon-circle-check` | Health status OK |
 | — | `circle-x` | `--icon-circle-x` | Error/fail status |

@@ -56,15 +56,21 @@ dart run dartclaw_cli:dartclaw workflow validate <path>
 # Install / sync dependencies (workspace root)
 dart pub get
 
-# NOTE: No codegen step needed (Drift ORM removed per ADR-002)
+# Regenerate checked-in embedded asset libraries after editing built-in templates,
+# static files, skills, or workflow definitions. Never hand-edit the generated files.
+dart run dev/tools/embed_assets.dart
 
-# Build the standalone binary
-make build
+# Verify generated asset libraries are current.
+git ls-files --error-unmatch -- \
+  packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
+  packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
+dart run dev/tools/embed_assets.dart
+git diff --exit-code -- '**/generated/embedded_assets.g.dart'
+
+# Build the standalone binary via `dart build cli`. Produces build/bin/dartclaw
+# plus a bundled SQLite library in the sibling build/lib/ (keep the two together;
+# the binary resolves the library relative to itself) and the release tarball.
 bash dev/tools/build.sh
-
-# Repo-wide checks and cleanup
-make check
-make clean
 ```
 
 
@@ -137,8 +143,11 @@ hooks:
 ```
 
 Use this only to unblock local iteration. Do not commit it as the project default, and do not treat results from this
-mode as the canonical release/CI verification path. Before relying on it, confirm the host SQLite build exposes the
-features DartClaw uses, especially FTS5:
+mode as the canonical release/CI verification path. Release builds run `dart build cli` (via `dev/tools/build.sh`),
+which bundles its own SQLite library from the sqlite3 build hooks, so the `hooks.user_defines.sqlite3.source: system`
+block must stay uncommitted — committing it would make release binaries depend on the host SQLite (and Windows'
+`winsqlite3.dll` lacks FTS5). Before relying on it, confirm the host SQLite build exposes the features DartClaw uses,
+especially FTS5:
 
 ```bash
 sqlite3 ':memory:' "pragma compile_options;" | rg FTS5

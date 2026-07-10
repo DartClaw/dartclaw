@@ -37,7 +37,7 @@ Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROP
 
 ## Install DartClaw
 
-Homebrew is the only package manager for DartClaw releases. It installs the `dartclaw` binary and companion assets:
+Homebrew is the only package manager for DartClaw releases. It installs the self-contained `dartclaw` binary:
 
 ```bash
 brew tap DartClaw/dartclaw
@@ -60,10 +60,12 @@ If you are working from a source checkout, build the standalone binary directly:
 git clone <repo-url> && cd dartclaw
 dart pub get
 bash dev/tools/build.sh
-build/dartclaw --version
+build/bin/dartclaw --version
 ```
 
-All command examples below use `dartclaw`. If you have not installed it onto `PATH`, replace `dartclaw` with `build/dartclaw`.
+The build produces `build/bin/dartclaw` alongside a `build/lib/` holding the bundled SQLite library; keep the two directories together when relocating.
+
+All command examples below use `dartclaw`. If you have not installed it onto `PATH`, replace `dartclaw` with `build/bin/dartclaw`.
 
 ## Quick Start
 
@@ -121,9 +123,7 @@ Existing installs can adopt the structure by running `dartclaw init --personaliz
 Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten. Review the drafts and apply
 them with `dartclaw init --apply-drafts`.
 
-**Important**: Standalone binaries produced by `bash dev/tools/build.sh` ship the `dartclaw` executable plus companion assets. Packaged installs discover those assets from the filesystem (`../share/dartclaw/` in Homebrew, or `~/.dartclaw/assets/v{VERSION}/` after the first-run download fallback) rather than embedding web UI, static assets, skills, or workflows in the binary. When you run from a clone with `dart run` or `--dev`, DartClaw still reads templates, static assets, skills, and workflows from the source tree, and `dartclaw service install` keeps `--source-dir` in checkout-backed service units. For those clone-based runs, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
-
-If you install only the bare binary, the first `dartclaw serve` run downloads the matching asset archive unless you pass `--offline`.
+**Important**: Standalone binaries produced by `bash dev/tools/build.sh` embed the web UI, static assets, skills, and workflows — no companion asset files and no first-run network request. The executable does ship with a bundled SQLite library in a sibling `lib/` (`build/bin/dartclaw` + `build/lib/libsqlite3.*`); the two directories must move together, since the binary resolves the library relative to itself. Clone-based `dart run`, `--dev`, and explicit source-directory runs still read from the source tree for live editing. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
 
 ## Run from Source
 

@@ -2,7 +2,7 @@
 
 The CLI has two execution modes for workflow operations:
 
-Examples in this page use `dartclaw` as the command name. If you are running from a source checkout, use `build/dartclaw` after `bash dev/tools/build.sh`, or replace `dartclaw` with `dart run dartclaw_cli:dartclaw`.
+Examples in this page use `dartclaw` as the command name. If you are running from a source checkout, use `build/bin/dartclaw` after `bash dev/tools/build.sh`, or replace `dartclaw` with `dart run dartclaw_cli:dartclaw`.
 
 - `connected mode` is the default. Commands talk to a running DartClaw server over the loopback API.
 - `standalone mode` is explicit. Commands run local logic in-process without using the server API.

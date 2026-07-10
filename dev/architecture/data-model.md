@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.18.0 (map/foreach `maxItems` is opt-in; omitted means uncapped)
+**Current through**: 0.20.1 (built-in workflow and skill sources are embedded with source-tree precedence)
 
 ---
 
@@ -648,7 +648,7 @@ WorkflowSummary                              # discovery projection, not persist
 | `MapIterationCompletedEvent` | `runId`, `stepId`, `iterationIndex`, `totalIterations`, `itemId?`, `taskId`, `success`, `tokenCount` | A single map/fan-out iteration settles (success or failure) |
 | `MapStepCompletedEvent` | `runId`, `stepId`, `stepName`, `totalIterations`, `successCount`, `failureCount`, `cancelledCount`, `totalTokens` | All iterations of a map step have settled |
 
-**Storage**: Workflow definitions are YAML files parsed at runtime (not persisted to DB). Shipped workflow YAML files live in the asset tree and are materialized into `<workspaceDir>/workflows/` on startup as `WorkflowSource.materialized`, so the registry can load them from the filesystem without embedding prompt-bearing definitions. In source checkouts, the canonical YAML files remain under `packages/dartclaw_workflow/lib/src/workflow/definitions/` for editing and dev runs. Built-in `dartclaw-*` skills are also filesystem assets, discovered via the asset root and materialized to harness-visible skill directories with `.dartclaw-managed` provenance markers. Workflow execution state is persisted in two layers: lightweight context/status snapshots live on `WorkflowRun.contextJson` in SQLite, while the fuller `WorkflowContext` JSON is written under the workflow data directory and reloaded for resume/recovery paths.
+**Storage**: Workflow definitions are YAML files parsed at runtime (not persisted to DB). Shipped definitions compile into the `dartclaw_workflow` embedded map and are materialized into `<dataDir>/workflows/built-in/` as `WorkflowSource.materialized`, because registries and spawned harnesses require real files. In source checkouts, canonical YAML under `packages/dartclaw_workflow/lib/src/workflow/definitions/` wins for editing and dev runs. Built-in `dartclaw-*` skills follow the same source precedence and materialize into provider-visible skill directories. Workflow execution state is persisted in two layers: lightweight context/status snapshots live on `WorkflowRun.contextJson` in SQLite, while the fuller `WorkflowContext` JSON is written under the workflow data directory and reloaded for resume/recovery paths.
 
 **Discovery contract**: listing surfaces do not materialize full prompt-bearing definitions. `WorkflowDefinitionSource.listSummaries()` projects `WorkflowSummary` records for browsers and pickers, while detail/execution paths fetch the full `WorkflowDefinition` by name. This keeps discovery payloads small while preserving a single definition source of truth.
 

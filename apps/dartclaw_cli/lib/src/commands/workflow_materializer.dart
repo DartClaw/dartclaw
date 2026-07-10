@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolutionRequest, AssetResolver;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show embeddedWorkflowAssets;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -24,49 +24,30 @@ class WorkflowMaterializer {
 
   /// Copies built-in workflow YAMLs into `<dataDir>/workflows/built-in/`.
   ///
-  /// The source directory is resolved from the installed asset root when
-  /// available. In source checkouts, it falls back to the checked-out
-  /// workflow definitions directory.
-  ///
-  /// When [preferSourceTree] is true the candidate-root walk runs before the
-  /// asset-resolver lookup so a live source checkout always wins over an
-  /// installed asset cache. The maintainer profile sets this so its runs
-  /// pick up workflow YAML edits without requiring the asset cache to be
-  /// pruned by hand.
+  /// A supplied or discovered source tree wins over the embedded fallback.
   static Future<int> materialize({
     required String dataDir,
-    AssetResolver? assetResolver,
     String? sourceDir,
     bool preferSourceTree = false,
-    bool allowFallback = true,
+    bool discoverSourceTree = true,
+    Iterable<String>? candidateRootsForTesting,
+    Map<String, String>? embeddedAssets,
   }) async {
     final targetRoot = Directory(builtInDir(dataDir))..createSync(recursive: true);
-    final resolvedSourceDir =
-        sourceDir ??
-        (allowFallback
-            ? resolveBuiltInWorkflowSourceDir(assetResolver: assetResolver, preferSourceTree: preferSourceTree)
-            : null);
-    if (resolvedSourceDir == null) {
-      _log.warning('Built-in workflow source tree not found; skipping workflow materialization');
-      return 0;
-    }
-
-    final sourceRoot = Directory(resolvedSourceDir);
-    if (!sourceRoot.existsSync()) {
-      _log.warning('Built-in workflow source tree does not exist: $resolvedSourceDir');
-      return 0;
-    }
-
-    final sourceFiles =
-        sourceRoot.listSync(followLinks: false).whereType<File>().where((file) => file.path.endsWith('.yaml')).toList()
-          ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+    final discoveredSourceDir = discoverSourceTree
+        ? resolveBuiltInWorkflowSourceDir(candidateRootsForTesting: candidateRootsForTesting)
+        : null;
+    final resolvedSourceDir = preferSourceTree
+        ? (discoveredSourceDir ?? sourceDir)
+        : (sourceDir ?? discoveredSourceDir);
+    final sourceContents = _workflowSources(resolvedSourceDir, embeddedAssets ?? embeddedWorkflowAssets);
 
     var copiedCount = 0;
-    for (final sourceFile in sourceFiles) {
-      final filename = p.basename(sourceFile.path);
+    for (final entry in sourceContents.entries) {
+      final filename = entry.key;
       final targetFile = File(p.join(targetRoot.path, filename));
       final existedBefore = targetFile.existsSync();
-      final sourceContent = sourceFile.readAsStringSync();
+      final sourceContent = entry.value;
       final sourceFingerprint = _fingerprintString(sourceContent);
       if (existedBefore) {
         final managedState = _readManagedState(targetFile);
@@ -97,7 +78,7 @@ class WorkflowMaterializer {
       _log.info('${existedBefore ? "Updated" : "Materialized"} built-in workflow: $filename');
     }
 
-    final sourceNames = sourceFiles.map((file) => p.basename(file.path)).toSet();
+    final sourceNames = sourceContents.keys.toSet();
     for (final entity in targetRoot.listSync(followLinks: false)) {
       if (entity is! File || !entity.path.endsWith('.yaml')) continue;
       final filename = p.basename(entity.path);
@@ -122,54 +103,46 @@ class WorkflowMaterializer {
 
   /// Resolves the directory containing the built-in workflow YAML source.
   ///
-  /// When [preferSourceTree] is true the candidate-root walk runs first; this
-  /// matters when both a live source checkout and a stale installed asset
-  /// cache are reachable from the same machine.
-  ///
   /// [candidateRootsForTesting] overrides the default candidate-root list
   /// (`Platform.script` dir, `Platform.resolvedExecutable` dir,
   /// `Directory.current.path`). Tests use this to pin the source-tree walk to
   /// a fixture directory deterministically — `Platform.script` and
   /// `Platform.resolvedExecutable` cannot otherwise be controlled.
-  static String? resolveBuiltInWorkflowSourceDir({
-    AssetResolver? assetResolver,
-    bool preferSourceTree = false,
-    Iterable<String>? candidateRootsForTesting,
-  }) {
-    String? assetWorkflowsDir() {
-      final workflowsDir = assetResolver
-          ?.resolveAssets(const AssetResolutionRequest.noConfiguredAssets())
-          ?.rootWorkflowsDir;
-      if (workflowsDir != null && Directory(workflowsDir).existsSync()) {
-        return workflowsDir;
+  static String? resolveBuiltInWorkflowSourceDir({Iterable<String>? candidateRootsForTesting}) {
+    final Iterable<String> roots;
+    if (candidateRootsForTesting != null) {
+      roots = candidateRootsForTesting;
+    } else {
+      final defaults = <String>{};
+      if (Platform.script.scheme == 'file') {
+        defaults.add(p.dirname(Platform.script.toFilePath()));
       }
-      return null;
+      defaults.add(p.dirname(Platform.resolvedExecutable));
+      defaults.add(Directory.current.path);
+      roots = defaults;
+    }
+    for (final root in roots) {
+      final resolved = _searchUpwardsForDefinitions(root);
+      if (resolved != null) return resolved;
+    }
+    return null;
+  }
+
+  static Map<String, String> _workflowSources(String? sourceDir, Map<String, String> assets) {
+    if (sourceDir != null) {
+      final root = Directory(sourceDir);
+      if (root.existsSync()) {
+        final files =
+            root.listSync(followLinks: false).whereType<File>().where((file) => file.path.endsWith('.yaml')).toList()
+              ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+        return {for (final file in files) p.basename(file.path): file.readAsStringSync()};
+      }
     }
 
-    String? sourceTreeWorkflowsDir() {
-      final Iterable<String> roots;
-      if (candidateRootsForTesting != null) {
-        roots = candidateRootsForTesting;
-      } else {
-        final defaults = <String>{};
-        if (Platform.script.scheme == 'file') {
-          defaults.add(p.dirname(Platform.script.toFilePath()));
-        }
-        defaults.add(p.dirname(Platform.resolvedExecutable));
-        defaults.add(Directory.current.path);
-        roots = defaults;
-      }
-      for (final root in roots) {
-        final resolved = _searchUpwardsForDefinitions(root);
-        if (resolved != null) return resolved;
-      }
-      return null;
-    }
-
-    if (preferSourceTree) {
-      return sourceTreeWorkflowsDir() ?? assetWorkflowsDir();
-    }
-    return assetWorkflowsDir() ?? sourceTreeWorkflowsDir();
+    final entries =
+        assets.entries.where((entry) => entry.key.startsWith('workflows/') && entry.key.endsWith('.yaml')).toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    return {for (final entry in entries) p.basename(entry.key): entry.value};
   }
 
   static String? _searchUpwardsForDefinitions(String startDir) {

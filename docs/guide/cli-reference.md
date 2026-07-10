@@ -2,7 +2,7 @@
 
 Reference for the `dartclaw` command-line interface.
 
-Examples in this page use `dartclaw` as the command name. If you are running from a source checkout, use `build/dartclaw` after `bash dev/tools/build.sh`, or replace `dartclaw` with `dart run dartclaw_cli:dartclaw`.
+Examples in this page use `dartclaw` as the command name. If you are running from a source checkout, use `build/bin/dartclaw` after `bash dev/tools/build.sh`, or replace `dartclaw` with `dart run dartclaw_cli:dartclaw`.
 
 Global flags:
 
@@ -14,7 +14,6 @@ dartclaw --server localhost:4000 workflow runs
 Top-level command families:
 
 - `agents`
-- `assets`
 - `config`
 - `deploy`
 - `google-auth`

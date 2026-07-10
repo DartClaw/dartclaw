@@ -54,7 +54,6 @@
 | Package | Purpose |
 |---------|---------|
 | `args` | Command-line argument parsing |
-| `archive` | Tar/tar.gz extraction for asset downloads and release archive handling |
 
 ### Dev Dependencies
 
@@ -115,5 +114,5 @@ Workspace-wide `analysis_options.yaml`:
 | `dart format` | Code formatting | 120-char page width |
 | `dart analyze` | Static analysis | Strict mode enabled |
 | `dart test` | Test runner | Four-layer pyramid (unit/integration/acceptance/E2E) |
-| `dart compile exe` | AOT compilation | Produces single native binary |
+| `dart build cli` | AOT compilation + native build hooks | Produces `bin/dartclaw` + bundled `lib/libsqlite3.*` |
 | `dart pub` | Package management | Workspace-aware |

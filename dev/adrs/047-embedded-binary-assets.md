@@ -1,6 +1,6 @@
 # ADR-047: Embedded Binary Assets — Generated Dart Source Replaces the Sidecar/Download Model
 
-**Status:** Proposed — 2026-07-07. Targets 0.20.1 (before 0.21 Windows, whose release-artifact story it simplifies). FIS bundle in private repo `docs/specs/0.20.1/`.
+**Status:** Accepted — 2026-07-10. Implemented in 0.20.1 (before 0.21 Windows, whose release-artifact story it simplifies). FIS bundle in private repo `docs/specs/0.20.1/`. Amended by [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (2026-07-10): release artifacts are no longer single-file — `dart build cli` bundles the SQLite native library in a sibling `lib/` on every platform. Text assets remain embedded per this ADR.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-018](018-cli-onboarding-architecture.md) (CLI onboarding — introduced the asset download path), [ADR-038](038-homebrew-formula-publication.md) (Homebrew formula — consumes the platform archive this ADR simplifies)
@@ -9,10 +9,10 @@
 
 ## Context
 
-The AOT-compiled `dartclaw` binary needs 93 built-in text files (~1.2 MB) at runtime: server Trellis templates (448 K), vendored static web assets (692 K), workflow skills (32 K), and built-in workflow YAML definitions (36 K). `dart compile exe` produces machine code plus a small runtime only — it has no asset-bundling mechanism — so these files currently ship *outside* the binary:
+The AOT-compiled `dartclaw` binary needs 93 built-in text files (~1.2 MB) at runtime: server Trellis templates (448 K), vendored static web assets (692 K), workflow skills (32 K), and built-in workflow YAML definitions (36 K). Before this decision, these files shipped outside the binary through:
 
-- a `share/dartclaw/` sidecar tree inside the platform release archive, and
-- a runtime-downloaded `dartclaw-assets-v<version>.tar.gz` from GitHub releases (`AssetDownloader`, `dartclaw assets download`) with sha256 verification and `VERSION`-skew handling.
+- a sidecar tree inside the platform release archive, and
+- a runtime-downloaded asset archive with checksum and version-skew handling.
 
 Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: explicit config → dev source tree → installed-alongside-binary → downloaded cache → source-tree default). The costs: a multi-file install contract, a runtime network dependency with its own failure modes, version-skew surface between binary and assets, release-pipeline weight (extra archive + checksum), and a broken story for SDK consumers — anyone embedding `dartclaw_server` in their own compiled binary gets no assets at all.
 
@@ -42,7 +42,7 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 
 **Positive**
 - True single-file binary; Homebrew formula and 0.21 Windows/Scoop artifacts ship one executable with no asset staging.
-- No runtime download, checksum, or version-skew failure modes; `dartclaw assets download` support surface disappears.
+- No runtime download, checksum, or version-skew failure modes; the former asset-management subcommand disappears.
 - pub packages become self-contained — SDK consumers' own compiled binaries get working templates/static/skills.
 - Net code deletion: downloader + CLI command + two resolver provenance paths + release-pipeline steps.
 
@@ -54,7 +54,7 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 
 ## Alternatives Considered
 
-1. **SDK hooks / data assets** (`dart build cli` + `package:data_assets`) — rejected for now. Data assets are experimental (labs.dart.dev, v0.20.0), standalone-Dart support and the `dart:asset` runtime API are unbuilt (dart-lang/sdk#56217, #54003), and `dart compile exe` *fails* when hooks are present. Decisive even at stability: `dart build` outputs a bundle *directory* (sidecar files) — it never yields a single file. Note: 0.21's use of `dart build cli` for the bundled-SQLite *code* asset on Windows is orthogonal and compatible.
+1. **SDK hooks / data assets** (`dart build cli` + `package:data_assets`) — rejected for now. Data assets are experimental (labs.dart.dev, v0.20.0), standalone-Dart support and the `dart:asset` runtime API are unbuilt (dart-lang/sdk#56217, #54003), and `dart compile exe` *fails* when hooks are present. Decisive even at stability: `dart build` outputs a bundle *directory* (sidecar files) — it never yields a single file. Note: the use of `dart build cli` for the bundled-SQLite *code* asset ([ADR-048](048-release-builds-dart-build-bundled-sqlite.md), all platforms) is orthogonal and compatible — code assets bundle via hooks, text assets stay embedded.
 2. **Executable self-append** (Deno/bun-style blob trailer read via `Platform.resolvedExecutable`) — rejected. No supported contract (sdk#39576 open since 2019), and appending bytes invalidates macOS code signatures / fails notarization (Apple TN2206).
 3. **Keep the sidecar/download model** — rejected; it is the problem under decision (multi-file install, network dependency, skew surface, broken SDK-consumer story).
 4. **`package:embed`** (annotation + build_runner, actively maintained) — viable off-the-shelf equivalent, rejected in favor of a ~100-line bespoke script to avoid adopting build_runner into the toolchain (zero-magic posture). Revisit if generator maintenance ever exceeds the dependency cost.

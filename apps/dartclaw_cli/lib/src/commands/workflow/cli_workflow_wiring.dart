@@ -124,14 +124,6 @@ class CliWorkflowPrResult {
 typedef CliWorkflowPrCreator =
     Future<CliWorkflowPrResult> Function({required String runId, required String projectId, required String branch});
 
-String? _assetResolverHome(Map<String, String>? environment) {
-  final env = environment ?? Platform.environment;
-  final home = env['HOME']?.trim();
-  if (home != null && home.isNotEmpty) return home;
-  final userProfile = env['USERPROFILE']?.trim();
-  return userProfile == null || userProfile.isEmpty ? null : userProfile;
-}
-
 /// Minimal service graph for headless workflow execution.
 ///
 /// Constructs only what [WorkflowService] + [TaskExecutor] need to run
@@ -154,11 +146,10 @@ class CliWorkflowWiring {
   final RemotePushService? remotePushServiceOverride;
   final WorkflowCliProcessStarter? workflowCliProcessStarter;
 
-  /// When true, the live source tree wins over the installed asset cache for
-  /// both built-in skill provisioning and workflow YAML materialization. The
+  /// When true, the live source tree wins over embedded built-ins for skill
+  /// provisioning and workflow YAML materialization. The
   /// maintainer profile (`dev/tools/dartclaw-workflows/run.sh`) sets this so
-  /// edits to checked-out skills/YAMLs take effect without pruning
-  /// `~/.dartclaw/assets/v<version>/` by hand.
+  /// edits to checked-out skills and YAMLs take effect immediately.
   final bool preferSourceTreeAssets;
 
   /// Optional hook invoked after a successful standalone publish push to
@@ -222,7 +213,7 @@ class CliWorkflowWiring {
        _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
-       assetResolver = assetResolver ?? AssetResolver(homeDir: _assetResolverHome(environment));
+       assetResolver = assetResolver ?? const AssetResolver();
 
   Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath, WorkspaceSkillLinker linker) async {
     final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
@@ -322,7 +313,7 @@ class CliWorkflowWiring {
     eventBus = EventBus();
     final workspaceSkillLinker = WorkspaceSkillLinker();
     final resolvedAssets = assetResolver.resolveAssets(const AssetResolutionRequest.noConfiguredAssets());
-    final assetSkillsDir = resolvedAssets?.rootSkillsDir;
+    final assetSkillsDir = resolvedAssets.skillsDir;
     final sourceSkillsDir = WorkflowAssetSourceResolver.resolveBuiltInSkillsSourceDir();
     final builtInSkillsSourceDir = preferSourceTreeAssets
         ? (sourceSkillsDir ?? assetSkillsDir)
@@ -592,11 +583,7 @@ class CliWorkflowWiring {
       validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),
       continuityProviders: continuityProviders,
     );
-    await WorkflowMaterializer.materialize(
-      dataDir: dataDir,
-      assetResolver: assetResolver,
-      preferSourceTree: preferSourceTreeAssets,
-    );
+    await WorkflowMaterializer.materialize(dataDir: dataDir, preferSourceTree: preferSourceTreeAssets);
     await registry.loadFromDirectory(WorkflowMaterializer.builtInDir(dataDir), source: WorkflowSource.materialized);
     await registry.loadFromDirectory(WorkflowMaterializer.customDir(dataDir));
     await registry.loadFromDeprecatedLegacyDirectory(

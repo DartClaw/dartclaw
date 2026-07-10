@@ -13,9 +13,11 @@
 # The spec.sh / plan.sh / review.sh wrappers run the inline variants
 # (--standalone --allow-dirty-localpath) against the current branch.
 #
-# By default the host is AOT-compiled to a content-addressed file under
-# .cache/bin/dartclaw-<key> and exec'd. Concurrent invocations cannot clobber a
-# binary that a running process holds open. The cache key combines HEAD sha,
+# By default the host is AOT-built (via `dart build cli`, which bundles the
+# sqlite3 native library) into a content-addressed directory under
+# .cache/bin/dartclaw-<key>/ (bin/dartclaw + a sibling lib/), and the inner
+# binary is exec'd. Concurrent invocations cannot clobber a binary that a
+# running process holds open. The cache key combines HEAD sha,
 # pubspec.lock hash, the diff hash of apps/+packages/+pubspec.* , the contents
 # of any untracked files in the same scope, and the local dart SDK version.
 # Restricted scope avoids needless rebuilds from doc-only edits.
@@ -32,18 +34,15 @@
 #   DARTCLAW_WORKFLOWS_JIT=1       alias for DARTCLAW_WORKFLOWS_HOST=jit
 #   DARTCLAW_WORKFLOWS_REBUILD=1   force AOT rebuild even if the cache key matches
 #   DARTCLAW_WORKFLOWS_PREFER_SOURCE=0
-#                                  fall back to default asset-resolver order
-#                                  (asset cache wins over source tree). The
-#                                  local-source host modes set this to 1 by
-#                                  default so live edits to skills/workflow
-#                                  YAMLs apply.
+#                                  use normal source-discovery behavior. Local
+#                                  host modes set this to 1 by default so live
+#                                  edits to skills/workflow YAMLs apply.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 CONFIG="${REPO_ROOT}/.dartclaw/dartclaw.yaml"
-ENTRY="${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart"
 BIN_DIR="${SCRIPT_DIR}/.cache/bin"
 BIN_TO_EXEC=""
 HOST_MODE="${DARTCLAW_WORKFLOWS_HOST:-auto}"
@@ -142,12 +141,12 @@ ensure_binary() {
   key="$(compute_build_key)"
   versioned="${BIN_DIR}/dartclaw-${key}"
 
-  if [ -z "${DARTCLAW_WORKFLOWS_REBUILD:-}" ] && [ -x "$versioned" ]; then
-    BIN_TO_EXEC="$versioned"
+  if [ -z "${DARTCLAW_WORKFLOWS_REBUILD:-}" ] && [ -x "${versioned}/bin/dartclaw" ]; then
+    BIN_TO_EXEC="${versioned}/bin/dartclaw"
     return
   fi
 
-  echo "[dartclaw-workflows] compiling host binary (key=${key:0:12})..." >&2
+  echo "[dartclaw-workflows] building host binary (key=${key:0:12})..." >&2
 
   ( cd "$REPO_ROOT" && dart pub get >&2 )
 
@@ -156,27 +155,52 @@ ensure_binary() {
   # rebuild.
   key="$(compute_build_key)"
   versioned="${BIN_DIR}/dartclaw-${key}"
-  if [ -z "${DARTCLAW_WORKFLOWS_REBUILD:-}" ] && [ -x "$versioned" ]; then
-    BIN_TO_EXEC="$versioned"
+  if [ -z "${DARTCLAW_WORKFLOWS_REBUILD:-}" ] && [ -x "${versioned}/bin/dartclaw" ]; then
+    BIN_TO_EXEC="${versioned}/bin/dartclaw"
     return
   fi
 
-  # Compile to a unique tempfile, then atomically rename. A crashed compile
-  # leaves only the tempfile (with a unique suffix); the published `versioned`
-  # path is only ever a fully-written binary because `mv -f` is atomic on the
-  # same filesystem. Concurrent invocations for the same key produce
-  # equivalent output and race harmlessly to the same final path; the running
-  # process holds its binary by inode and is unaffected by the rename.
+  # Build with `dart build cli`, which runs the sqlite3 native build hooks and
+  # emits `<tmp>/bundle/bin/dartclaw` + `<tmp>/bundle/lib/` (see ADR-048;
+  # `dart compile exe` silently omits the sqlite native-asset mapping here).
+  # bin/ and lib/ must stay siblings in the published cache entry: the binary
+  # resolves the library relative to its own resolved executable path.
   local tmp="${versioned}.tmp.$$"
-  ( cd "$REPO_ROOT" && dart compile exe "$ENTRY" -o "$tmp" >&2 )
-  mv -f "$tmp" "$versioned"
+  rm -rf "$tmp"
+  ( cd "$REPO_ROOT/apps/dartclaw_cli" && dart build cli -t bin/dartclaw.dart -o "$tmp" >&2 )
 
-  # Stable symlink for operator convenience (lsof, manual invocation). The
-  # exec below uses the versioned path directly so swapping this symlink in a
-  # concurrent run cannot affect the running process.
-  ln -sfn "dartclaw-${key}" "${BIN_DIR}/dartclaw"
+  # Publish by moving the staged bundle into place, adapted for directories:
+  # plain `mv -f dir existing-dir` nests the source inside the target instead
+  # of replacing it, so we only `mv` when the final path is absent. If a
+  # concurrent run already published a valid bundle for this key, discard our
+  # tempdir and use theirs. If the final path exists but is not a valid
+  # bin/+lib/ bundle (e.g. a stale flat-file binary from the old
+  # `dart compile exe` cache layout), remove it first. The running process
+  # holds its binary by inode and is unaffected either way.
+  if [ -e "$versioned" ] && [ ! -x "${versioned}/bin/dartclaw" ]; then
+    rm -rf "$versioned"
+  fi
+  if [ -x "${versioned}/bin/dartclaw" ]; then
+    rm -rf "$tmp"
+  else
+    mv "$tmp/bundle" "$versioned"
+    rm -rf "$tmp"
+  fi
+  # The absent-check and `mv` above are not atomic together: a run that loses
+  # the race after its check nests its bundle *inside* the winner's published
+  # dir (the winner's bin/+lib/ stay intact). A real bundle never contains a
+  # `bundle/` entry, so drop the inert junk; leftovers self-heal on later runs.
+  rm -rf "${versioned}/bundle"
 
-  BIN_TO_EXEC="$versioned"
+  # Stable symlink for operator convenience (lsof, manual invocation), pointed
+  # directly at the inner executable so it stays runnable on its own (the
+  # binary resolves lib/ relative to its own resolved path, which symlink
+  # resolution follows). The exec below uses the versioned path directly so
+  # swapping this symlink in a concurrent run cannot affect the running
+  # process.
+  ln -sfn "dartclaw-${key}/bin/dartclaw" "${BIN_DIR}/dartclaw"
+
+  BIN_TO_EXEC="${versioned}/bin/dartclaw"
 }
 
 select_cached_binary() {
@@ -186,14 +210,14 @@ select_cached_binary() {
   key="$(compute_build_key)"
   versioned="${BIN_DIR}/dartclaw-${key}"
 
-  if [ ! -x "$versioned" ]; then
+  if [ ! -x "${versioned}/bin/dartclaw" ]; then
     echo "[dartclaw-workflows] no cached host binary for current key (${key:0:12})" >&2
     echo "[dartclaw-workflows] Run with DARTCLAW_WORKFLOWS_HOST=auto to build it." >&2
     exit 1
   fi
 
-  echo "[dartclaw-workflows] using cached host binary: $versioned" >&2
-  BIN_TO_EXEC="$versioned"
+  echo "[dartclaw-workflows] using cached host binary: ${versioned}/bin/dartclaw" >&2
+  BIN_TO_EXEC="${versioned}/bin/dartclaw"
 }
 
 select_explicit_binary() {
@@ -280,11 +304,8 @@ run_host() {
 resolve_host_mode
 
 # Local-source host modes run against this checkout. Tell the standalone CLI to
-# prefer the checked-out skills/workflow-YAMLs over any
-# `~/.dartclaw/assets/v<version>/` install — otherwise a stale asset cache
-# (e.g. left over from a `dartclaw init` for an earlier dev cycle) wins and
-# materializes outdated workflow definitions, silently excluding them at load
-# time when their skill refs no longer resolve.
+# prefer checked-out skills and workflow YAMLs so live edits win over the
+# binary's embedded snapshot.
 # Use `${X-1}` (no colon): only substitutes when the var is unset. An explicit
 # empty-string override (e.g. `DARTCLAW_WORKFLOWS_PREFER_SOURCE=`) passes
 # through and the Dart side reads it as "off" — `:-1` would silently turn that

@@ -91,6 +91,11 @@ void main() {
       expect(chatSource, contains('finalizeTurn(options = {})'));
     });
 
+    test('mobile menu toggle swaps its glyph in sync with open state', () {
+      final shellSource = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
+      expect(shellSource, contains("menuToggle.setAttribute('data-icon', open ? 'x' : 'menu')"));
+    });
+
     test('projects controller owns project actions on direct page load', () {
       final source = File('$baseDir/controllers/dc_projects_controller.js').readAsStringSync();
       expect(source, contains('data-project-dialog-open'));

@@ -823,7 +823,7 @@ Environment: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, and `CLAUDE_CODE_EXPERIMENT
 
 ### Single-User, Single-Binary
 
-DartClaw targets one user, one deployment. AOT-compiled to a single native binary via `dart compile exe`. No Node.js, no npm, no Deno at runtime.
+DartClaw targets one user, one deployment. AOT-compiled via `dart build cli` to a native binary plus a bundled SQLite library in a sibling `lib/`. No Node.js, no npm, no Deno at runtime.
 
 Runtime dependencies:
 - `claude` CLI binary (~185-234 MB, Bun standalone — installed via `curl -fsSL https://claude.ai/install.sh | bash`)

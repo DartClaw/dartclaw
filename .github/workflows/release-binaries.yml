@@ -23,22 +23,18 @@ jobs:
             os_name: linux
             arch_name: x64
             target: linux-x64
-            publish_assets: true
-          - runs_on: ubuntu-latest
+          - runs_on: ubuntu-24.04-arm
             os_name: linux
             arch_name: arm64
             target: linux-arm64
-            publish_assets: false
           - runs_on: macos-15
             os_name: macos
             arch_name: arm64
             target: macos-arm64
-            publish_assets: false
           - runs_on: macos-15-intel
             os_name: macos
             arch_name: x64
             target: macos-x64
-            publish_assets: false
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -79,14 +75,6 @@ jobs:
           files: |
             build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.target }}.tar.gz
             build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.target }}.tar.gz.sha256
-
-      - name: Publish shared asset release files
-        if: matrix.publish_assets
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: |
-            build/dartclaw-assets-v${{ env.DARTCLAW_VERSION }}.tar.gz
-            build/dartclaw-assets-v${{ env.DARTCLAW_VERSION }}.tar.gz.sha256
 
   checksums:
     name: Publish aggregate checksums

@@ -6,8 +6,7 @@ import 'package:path/path.dart' as p;
 class WorkflowAssetSourceResolver {
   const WorkflowAssetSourceResolver._();
 
-  /// Finds `packages/dartclaw_workflow/skills` in source checkouts and
-  /// deterministic installed layouts.
+  /// Finds `packages/dartclaw_workflow/skills` in a source checkout.
   ///
   /// Trust assumption: the candidate roots (`Platform.script`,
   /// `Platform.resolvedExecutable`, `Directory.current`) and the path from
@@ -37,13 +36,8 @@ class WorkflowAssetSourceResolver {
   static String? _searchUpwardsForSkills(String startDir) {
     var current = p.normalize(startDir);
     while (true) {
-      for (final relative in const [
-        ['packages', 'dartclaw_workflow', 'skills'],
-        ['data', 'skills'],
-      ]) {
-        final candidate = p.joinAll([current, ...relative]);
-        if (Directory(candidate).existsSync()) return candidate;
-      }
+      final candidate = p.join(current, 'packages', 'dartclaw_workflow', 'skills');
+      if (Directory(candidate).existsSync()) return candidate;
 
       final parent = p.dirname(current);
       if (parent == current) break;

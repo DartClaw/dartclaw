@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Release archives now bundle SQLite** – each platform archive contains `bin/dartclaw` plus `lib/libsqlite3.*` (the bundled SQLite library) instead of a single file; the binary resolves the library from its sibling `lib/`, so the two must stay together. The Homebrew formula installs both. Release builds now use `dart build cli` instead of `dart compile exe`, which cannot cross-compile — Linux arm64 moves to a native `ubuntu-24.04-arm` runner.
+
+### Fixed
+
+- **Linux release binaries crashed at the first SQLite call** – `dart compile exe` embedded no sqlite native-asset mapping (its build-hook check misclassifies the pub workspace, dart-lang/sdk#62593), so released binaries shipped without a SQLite library. macOS masked the bug because the OS preloads the system `libsqlite3`; Linux binaries aborted with `Couldn't resolve native function 'sqlite3_initialize'`. Release builds now use `dart build cli`, which bundles a working SQLite (with FTS5) next to the binary.
+
+## [0.20.1] - 2026-07-10
+
+### Added
+
+- **Embedded binary assets** – built-in templates, static web assets, skills, and workflow definitions are now compiled into the `dartclaw` binary as checked-in generated libraries (base64-encoded, drift-gated in CI). A bare compiled binary is fully self-sufficient: it serves the web UI and materializes built-in skills/workflows with no `share/` tree, no asset cache, and no network access. Startup reports the new `embedded` asset provenance.
+
+### Changed
+
+- **Asset resolution collapsed to `explicit config → dev/source tree → embedded`** – the installed-alongside-binary and downloaded-cache tiers (and their version-skew handling) are gone. Dev workflows are unchanged: source checkouts, `--dev`, and explicit `--templates-dir`/`--static-dir` overrides still read files directly from disk with live edits.
+- **Single-file releases** – release builds produce only the per-platform binary archive (no more `dartclaw-assets-*.tar.gz`), and the Homebrew formula installs just the binary.
+
+### Removed
+
+- **`dartclaw assets` command and runtime asset downloads** – the `assets download` CLI command, the `~/.dartclaw/assets` cache, and the GitHub asset-fetch fallback are removed. Assets ship inside the binary; explicit directory overrides remain as the operator escape hatch.
+
+### Fixed
+
+- **Mobile sidebar toggle glyph** – the topbar menu button now swaps its icon between the hamburger and an × in sync with the drawer's open state (matching its aria-label), giving sighted users a visual close affordance at mobile widths.
+
 ## [0.20.0] - 2026-07-09
 
 ### Added

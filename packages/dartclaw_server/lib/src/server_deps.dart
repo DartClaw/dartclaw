@@ -9,7 +9,8 @@ class ServerCoreDeps {
   final SessionService sessions;
   final MessageService messages;
   final AgentHarness worker;
-  final String staticDir;
+  final String? staticDir;
+  final AssetSource assetSource;
   final bool authEnabled;
   final String? gatewayToken;
   final RuntimeConfig? runtimeConfig;
@@ -30,6 +31,7 @@ class ServerCoreDeps {
     required this.messages,
     required this.worker,
     required this.staticDir,
+    required this.assetSource,
     required this.authEnabled,
     required this.gatewayToken,
     required this.runtimeConfig,

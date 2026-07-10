@@ -10,7 +10,6 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Handler;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
-import '../asset_downloader.dart';
 import 'config_loader.dart';
 import 'reload_trigger_service.dart';
 import 'service_wiring.dart';
@@ -31,7 +30,6 @@ class ServeCommand extends Command<void> {
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
   final AssetResolver _assetResolver;
-  late final AssetDownloader _assetDownloader;
   final bool _runWorkflowSkillsBootstrap;
   static final _log = Logger('ServeCommand');
 
@@ -51,7 +49,6 @@ class ServeCommand extends Command<void> {
     WriteLine? stderrLine,
     ExitFn? exitFn,
     AssetResolver? assetResolver,
-    AssetDownloader? assetDownloader,
     bool runWorkflowSkillsBootstrap = true,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
@@ -62,10 +59,7 @@ class ServeCommand extends Command<void> {
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
        _runWorkflowSkillsBootstrap = runWorkflowSkillsBootstrap,
-       _assetResolver = assetResolver ?? AssetResolver() {
-    _assetDownloader =
-        assetDownloader ??
-        AssetDownloader(homeDir: _assetResolver.homeDir, version: _assetResolver.version, stderrLine: _stderrLine);
+       _assetResolver = assetResolver ?? const AssetResolver() {
     argParser
       ..addOption('port', abbr: 'p', defaultsTo: '3333', help: 'Port to listen on')
       ..addOption('host', abbr: 'H', defaultsTo: 'localhost', help: 'Host to bind to')
@@ -86,7 +80,6 @@ class ServeCommand extends Command<void> {
         defaultsTo: 'INFO',
         help: 'Minimum log level',
       )
-      ..addFlag('offline', negatable: false, help: 'Do not download assets when missing')
       ..addFlag('dev', negatable: false, help: 'Enable dev mode (template hot-reload)');
   }
 
@@ -224,27 +217,17 @@ class ServeCommand extends Command<void> {
       explicitlyConfigured: explicitlyConfiguredAssets,
       devMode: config.server.devMode,
     );
-    ResolvedAssets? resolvedAssets = _assetResolver.resolveAssets(assetRequest);
+    final resolvedAssets = _assetResolver.resolveAssets(assetRequest);
 
     try {
-      if (resolvedAssets == null) {
-        if (argResults!['offline'] == true) {
-          _stderrLine(
-            'Assets for ${_assetDownloader.version} not found. Run \'dartclaw assets download\' or install without --offline.',
-          );
-          _exitFn(1);
-        }
-
-        final downloadedRoot = await _assetDownloader.download();
-        resolvedAssets = ResolvedAssets.fromRoot(downloadedRoot, AssetSource.downloadedCache);
-      }
       _log.info('Assets: ${resolvedAssets.describe()}');
-      initTemplates(resolvedAssets.templatesDir, devMode: config.server.devMode);
+      if (resolvedAssets.source == AssetSource.embedded) {
+        initEmbeddedTemplates();
+      } else {
+        initTemplates(resolvedAssets.templatesDir!, devMode: config.server.devMode);
+      }
     } on StateError catch (e) {
       _stderrLine('ERROR: ${_assetStartupError(e, resolvedAssets)}');
-      _exitFn(1);
-    } on AssetDownloadException catch (error) {
-      _stderrLine(error.message);
       _exitFn(1);
     }
 
@@ -409,13 +392,10 @@ class ServeCommand extends Command<void> {
   }
 }
 
-String _assetStartupError(StateError error, ResolvedAssets? resolvedAssets) {
-  if (resolvedAssets == null) {
-    return error.message;
-  }
+String _assetStartupError(StateError error, ResolvedAssets resolvedAssets) {
   return '${error.message}\n'
-      'Resolved assets: ${resolvedAssets.source.name} at ${resolvedAssets.sourcePath}\n'
-      'Remedy: run with --source-dir <repo> or remove ~/.dartclaw/assets/v$dartclawVersion';
+      'Resolved assets: ${resolvedAssets.describe()}\n'
+      'Remedy: run with --source-dir <repo> or regenerate the embedded assets.';
 }
 
 bool _assetDirsDifferFromDefaults(DartclawConfig config) {

@@ -1,10 +1,11 @@
 #!/usr/bin/env dart
 
 // Syncs packages/dartclaw_server/lib/src/version.dart from pubspec.yaml.
+// Optional first argument: repo root (defaults to walking up from the script).
 import 'dart:io';
 
-void main() {
-  final root = _repoRoot();
+void main(List<String> args) {
+  final root = args.isNotEmpty ? args.first : _repoRoot();
   final pubspec = File('$root/packages/dartclaw_server/pubspec.yaml');
   final out = File('$root/packages/dartclaw_server/lib/src/version.dart');
   String? version;

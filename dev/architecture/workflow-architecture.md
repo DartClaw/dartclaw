@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.18.0 (map/foreach `maxItems` is opt-in; omitted means uncapped)
+**Current through**: 0.20.1 (built-in definitions and native skills are embedded with source-tree precedence)
 
 ---
 
@@ -779,23 +779,23 @@ The shipped built-in workflow library contains 3 workflows:
 
 (`research-and-evaluate` was removed in 0.16.4 — the three remaining built-ins all use skill-backed thin wrappers around the `dartclaw-*` skill surface.)
 
-The runtime ships four DC-native `dartclaw-*` skills as filesystem assets
-under the shared asset root: `dartclaw-discover-andthen-spec`,
+The runtime embeds four DC-native `dartclaw-*` skills:
+`dartclaw-discover-andthen-spec`,
 `dartclaw-discover-andthen-plan`, `dartclaw-validate-workflow`, and
 `dartclaw-merge-resolve`. At startup, `SkillProvisioner` (see §11) copies those
 skills into the native user-tier harness roots. Workflow execution then checks
 authored refs against the provider-visible skill list during runtime preflight;
 there is no DartClaw skill-discovery registry in the execution path.
 
-The built-in workflow definitions are shipped as YAML files under the shared
-asset root and materialized into `<dataDir>/workflows/definitions/` on startup
-(`WorkflowMaterializer.definitionsDir(dataDir)`). `WorkflowMaterializer` writes
+The built-in workflow definitions are embedded and materialized into
+`<dataDir>/workflows/built-in/` on startup (`WorkflowMaterializer.builtInDir(dataDir)`).
+Source-checkout YAML wins before the embedded fallback so maintainer edits remain live. `WorkflowMaterializer` writes
 each shipped definition with a sibling `.dartclaw-managed.json` fingerprint
 file — a 16-hex-char FNV-1a 64-bit hash of the source content (cheap drift
 detector, not a cryptographic integrity proof). On re-materialization the
 source-vs-fingerprint comparison decides the outcome: source matches fingerprint ⇒ skip;
 destination modified locally (fingerprint drift) ⇒ preserve the local edit and
-warn; source removed from the asset tree ⇒ delete only when destination is
+warn; source removed from the active built-in set ⇒ delete only when destination is
 unmodified. `WorkflowRegistry` then loads that directory as
 `WorkflowSource.materialized`; project-custom workflows load second under
 `WorkflowSource.custom`. Materialized names always win on collision — a

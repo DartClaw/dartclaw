@@ -24,15 +24,15 @@ Last Updated: 2026-07-10 09:28 CEST
 
 ## Current Phase
 
-**0.20.1 — Embedded Binary Assets (ADR-047): Release-ready, awaiting tag.**
+**0.21 — Windows Support & Cross-Platform Hardening: Opening.**
 
-**Status**: Implementation and review complete; release prep done 2026-07-10. S01 generated and drift-gated the embedded maps; S02 rewired every consumer, removed runtime downloads/sidecars, reduced releases to binary-only archives, and passed the isolated AOT/browser proof. The final gap/code review converged with no notable findings. Version pins → 0.20.1 (all packages, `dartclawVersion`, Homebrew formula), CHANGELOG `[0.20.1]` dated 2026-07-10.
+**Status**: Milestone opened 2026-07-11 from the `v0.20.1` tag. Plan exists (10 stories, 3 phases — `dartclaw-private/docs/specs/0.21/plan.json`); S0a/S0b validation spikes already resolved GO. No stories started yet.
 
-**Previous**: 0.20.0 — Workflow Hardening, Simplification & Polish (squash-merged to `main` and tagged `v0.20.0` on 2026-07-09). 0.19.0 — Context Engine (tagged `v0.19.0` on 2026-06-26). 0.18 — Universal Agent Harness (tagged `v0.18.0` on 2026-06-11). 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
+**Previous**: 0.20.1 — Embedded Binary Assets (ADR-047 embedded assets + ADR-048 `dart build cli`/bundled-SQLite release builds; squash-merged and tagged `v0.20.1` on 2026-07-11). 0.20.0 — Workflow Hardening, Simplification & Polish (tagged `v0.20.0` on 2026-07-09). 0.19.0 — Context Engine (tagged `v0.19.0` on 2026-06-26). 0.18 — Universal Agent Harness (tagged `v0.18.0` on 2026-06-11). 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
 
 ## Active Stories
 
-None — 0.20.1 (embedded assets, ADR-047) is release-ready and awaiting tag. Shipped history lives in `CHANGELOG.md`.
+None — 0.21 is opening. Shipped history lives in `CHANGELOG.md`.
 
 ## Blockers
 

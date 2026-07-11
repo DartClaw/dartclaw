@@ -4,15 +4,11 @@
 
 ## Active Milestone
 
-### 0.20.1 — Embedded Binary Assets (ADR-047)
+### 0.21 — Windows Support & Cross-Platform Hardening
 
-**Status: Release-ready – awaiting tag.** Opened 2026-07-10 from the `v0.20.0` tag; release prep completed the same day (version pins → 0.20.1, CHANGELOG dated). ADR-047 now compiles the four built-in asset directories into the AOT binary, with source-tree precedence for development and a binary-only release/install contract. Both stories in the private `docs/specs/0.20.1/` bundle and their final gap/code review are complete.
+**Status: Opening.** Opened 2026-07-11 from the `v0.20.1` tag. Native Windows binary for the core runtime plus cross-platform hardening and explicit graceful degradation for Unix-coupled features. Plan: 10 stories, 3 phases (private repo `docs/specs/0.21/`); the S0a/S0b validation spikes are resolved GO.
 
 ## Planned
-
-### 0.21 — Windows Support & Cross-Platform Hardening (Next major)
-
-Shifted from the 0.20 label by the 2026-07-04 rebrand; scope unchanged (see private repo specs). Sequenced after the 0.20.1 point release.
 
 ### 0.22 — Afterglow Design-System Overhaul
 
@@ -31,6 +27,10 @@ Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.20.1 — Embedded Binary Assets ✅
+
+Tagged `v0.20.1` on 2026-07-11. ADR-047: the four built-in asset directories (server templates + static, workflow skills + definitions) compile into the AOT binary as checked-in, drift-gated generated libraries; asset resolution collapses to `explicit config → dev/source tree → embedded`; the `dartclaw assets` command, asset cache, and release assets tarball are deleted. Plus ADR-048: release binaries built via `dart build cli` with bundled SQLite (`bin/dartclaw` + sibling `lib/libsqlite3.*`), fixing Linux binaries crashing at first SQLite call. See `CHANGELOG.md` for details.
 
 ### 0.20 — Workflow Hardening, Simplification & Polish ✅
 

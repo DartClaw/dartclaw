@@ -27,6 +27,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import '../fixtures/e2e_fixture.dart';
 import '_support/workflow_test_paths.dart';
 
 String _stepIsolationFixtureTemplateDir(String fixturesRoot) => p.join(fixturesRoot, 'workflow-step-isolation');
@@ -242,6 +243,7 @@ void main() {
   late final WorkflowDefinition planDefinition;
   late final WorkflowDefinition specDefinition;
   late final WorkflowCliRunner runner;
+  late final String executorModel;
   late final Directory artifactDir;
   late Directory tempDir;
   late String fixtureDir;
@@ -267,9 +269,11 @@ void main() {
     // `SafeProcess.start` runs with `includeParentEnvironment: false`, so the
     // spawned `codex` binary only sees whatever environment the provider
     // config hands through. Propagate PATH + HOME explicitly so tests running
-    // outside the server wiring can still locate the binary.
+    // outside the server wiring can still locate the binary. CODEX_HOME
+    // propagates the workflow-live profile's hermetic codex home when run.sh
+    // exports it.
     final inheritedEnv = <String, String>{
-      for (final key in const ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL'])
+      for (final key in const ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'CODEX_HOME'])
         if (Platform.environment[key] != null) key: Platform.environment[key]!,
     };
     runner = WorkflowCliRunner(
@@ -281,6 +285,9 @@ void main() {
         ),
       },
     );
+    // Reuses the E2EFixture preset + DARTCLAW_TEST_EXECUTOR_MODEL precedence to
+    // pin --model on the one-shot spawns below.
+    executorModel = E2EFixture(provider: 'codex').executorModel;
     artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
   });
 
@@ -361,8 +368,11 @@ void main() {
     // by the skill (e.g. plan.md) against an actual filesystem root.
     await taskService.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': fixtureDir});
 
+    // Pin --model: a codex one-shot without it falls back to the operator's
+    // CODEX_HOME config.toml model, which breaks hermeticity.
     final turnResult = await runner.executeTurn(
       provider: 'codex',
+      model: executorModel,
       prompt: prompt,
       workingDirectory: fixtureDir,
       profileId: 'default',

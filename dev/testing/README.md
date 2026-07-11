@@ -17,7 +17,7 @@ This directory hosts everything needed to run DartClaw against pre-configured en
 | `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Feature-visibility flags on so Health/Memory/Tasks/Projects/Workflows all render with seeded content. |
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Requires `GITHUB_TOKEN` for publish runs. |
 | `workflow-contract` | n/a | `bash dev/testing/profiles/workflow-contract/run.sh` | Fast deterministic workflow contract checks. Use while iterating on workflow YAML, gates, output contracts, and resolver behavior. |
-| `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Captures logs and summarizes warning patterns. |
+| `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Runs a fail-fast provider preflight (version, codex bundled-tool quarantine check, one pinned-model round-trip; `--skip-preflight` to skip) and exports a hermetic codex `CODEX_HOME` so operator dotfiles can't override fixture models. Captures logs and summarizes warning patterns. |
 
 Each profile resolves the repo root from `dev/testing/profiles/<name>/run.sh`, copies its seed data to a writable temp directory by default, and starts `dartclaw_cli` in `--dev` mode. Set `DARTCLAW_<PROFILE>_DATA_DIR` (e.g. `DARTCLAW_VISUAL_DATA_DIR=/tmp/visual`) to persist runtime state across runs.
 

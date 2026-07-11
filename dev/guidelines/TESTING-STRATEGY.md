@@ -261,6 +261,8 @@ DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-4-7 \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
+**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and one round-trip on the pinned executor model (skip with `--skip-preflight`). For codex it also writes a profile-owned hermetic `CODEX_HOME` under the log dir (`auth.json` seeded from the operator's `~/.codex`, `config.toml` pinning the executor-model preset) and exports it, so operator dotfiles (`~/.codex/config.toml` model/effort) can't override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct one-shot spawns.
+
 ### Visual / UI Smoke Tests (Manual)
 
 **What**: Browser-based visual validation of the HTMX web UI. Manual or agent-driven via `chrome-devtools` MCP / `agent-browser`.

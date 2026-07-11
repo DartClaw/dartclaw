@@ -44,6 +44,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **App-server tests must drive handshake responses while `start()` is in flight.** `start()` correctly blocks on `initialize → initialized → thread/start`; awaiting `start()` before emitting responses deadlocks.
 - **Approval-path sanitization is local containment only**, not transport mutation. Don't try to rewrite `tool_input` before the provider sees it.
 - **Exec-mode shutdown must not await a pending `Process.start`.** One-shot harness `stop()` must complete the turn completer immediately and defer cleanup until spawn settles.
+- **One-shot codex spawns without `--model` inherit the operator's `~/.codex/config.toml`.** A `codex exec` that omits `--model` (and the skill-introspection probe) silently falls back to `CODEX_HOME/config.toml` `model`/`model_reasoning_effort`. A user-level `model = "gpt-5.6-sol"` override once broke the entire live workflow sweep (10 failures) because the installed CLI predated that model. Any live codex spawn path must pin `--model` or run under a controlled `CODEX_HOME`; `workflow-live/run.sh` now exports a hermetic `CODEX_HOME` (auth-seeded, model-pinned) and its step-isolation spawns pass `--model` explicitly.
 
 ### Turn Routing
 - **Provider-routed sessions need turn-reservation bookkeeping in `TurnManager`.** When provider selection happens at reserve time, all of `executeTurn` / `waitForOutcome` / `releaseTurn` must hit the same runner.

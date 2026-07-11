@@ -8,7 +8,7 @@ See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and s
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.17
+**Last refreshed for**: DartClaw 0.20.1
 
 ---
 
@@ -95,7 +95,7 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 4. **Workflows** (only if a workflow run is live) — run rows with `N/M` step progress
 5. **Chats** (always) — `New Chat` button, then chat rows; "No chats yet" placeholder when empty
 6. **Archived** (collapsible — only if any archived chats exist)
-7. **SYSTEM** nav (always — see TC-16 for full enumeration)
+7. **SYSTEM** nav (always — see TC-17 for full enumeration)
 
 **Fail:** sections render in wrong order; `New Chat` button labeled `+ New Session` (legacy);
 `Workspace` section missing when a main session exists; SYSTEM nav absent
@@ -192,8 +192,8 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 1. Navigate to `/settings`
 
 **Pass:**
-- Tabbed editor with sections including: Agent, Server, Sessions, Memory, Scheduling, Channels,
-  Security, Providers
+- Tabbed editor with sections including: Agent, Workflows, Server, Sessions, Memory, Context,
+  Scheduling, Channels, Providers, Security
 - Channel cards visible for WhatsApp, Signal, Google Chat (each links to `/settings/channels/<type>`)
 - Security card lists active guards
 - Providers section shows configured harnesses (Claude/Codex) with status
@@ -307,7 +307,7 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 **Pass:**
 - New session created; navigates to `/sessions/<new-id>`
 - New session at top of `Chats` list
-- Empty chat state in main area; topbar input shows "New Session"
+- Empty chat state in main area; topbar input shows "New Chat"
 - ℹ button present in topbar
 
 **Fail:** No navigation; session missing from sidebar; ℹ button missing on a new session
@@ -320,13 +320,17 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 2. Confirm each lands on the correct page and the correct nav item is highlighted
 
 **Pass — full SYSTEM nav (registration order, conditional items in italic):**
-Health → Settings → Memory → Scheduling → Tasks → *Projects* → *Workflows*
+Health → Settings → Memory → Knowledge → Research → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
+
+The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge`,
+Research → `/knowledge/research`, Timeline → `/knowledge/timeline` — three separate nav
+items, not one.
 
 Conditional items appear when:
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
-Plain profile typically shows all 7.
+Plain profile typically shows all 10.
 
 **Fail:** Any link missing when its service is configured; wrong page loads; active state not updated
 
@@ -527,7 +531,7 @@ immediately after success (not on the next 30s poll)
 - When channel is disabled in config (plain profile): page renders in unpaired/disabled state with
   a clear pointer to enable + pair (e.g., link to `/pairing` for WhatsApp/Signal)
 - Mention/group access sections render with the correct "disabled" visual class
-- "← Back" link returns to settings
+- "← Settings" link in topbar returns to settings (labelled with the destination, not "Back")
 
 **Fail:** Plain HTML stub or 500 error in unpaired state; broken back link
 
@@ -560,5 +564,5 @@ Before reporting smoke-test results, confirm the test environment is sound:
 
 - `lsof -ti:3335` returns a PID
 - `curl -s http://localhost:3335/health` returns `200`
-- The auth token works: `curl -s -H "Cookie: dartclaw-token=devtoken0" http://localhost:3335/` returns the app, not the login page
+- The auth token works: `curl -s -L -b /tmp/dc-jar -c /tmp/dc-jar "http://localhost:3335/?token=devtoken0"` returns the app, not the login page (auto-auth sets the `dart_session` cookie; there is no `dartclaw-token` cookie)
 - No `error`-level entries in `list_console_messages` immediately after first authenticated load

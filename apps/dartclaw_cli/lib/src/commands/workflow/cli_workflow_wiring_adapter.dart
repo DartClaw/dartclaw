@@ -1,6 +1,10 @@
 part of 'cli_workflow_wiring.dart';
 
 WorkflowTurnAdapter _buildWorkflowTurnAdapter(CliWorkflowWiring w, _CliWorkflowWiringCtx ctx) {
+  final turns = ctx.turns;
+
+  StateError providerRequired() => StateError('Agent workflow step requires a configured provider harness');
+
   return WorkflowTurnAdapter(
     workflowWorkspaceDir: w.config.workflow.workspaceDir ?? p.join(w.dataDir, 'workflow-workspace'),
     resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
@@ -145,24 +149,32 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(CliWorkflowWiring w, _CliWorkflowW
       final projectDir = await _resolveWorkflowProjectDir(w, projectId);
       return runWorkflowGitResolverAttemptUnderLock<T>(projectDir: projectDir, body: body);
     },
-    reserveTurn: ctx.turnsOrThrow.reserveTurn,
-    reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => ctx.turnsOrThrow.reserveTurn(
-      sessionId,
-      agentName: 'task',
-      behaviorOverride: BehaviorFileService(
-        workspaceDir: workflowWorkspaceDir,
-        maxMemoryBytes: w.config.memory.maxBytes,
-        compactInstructions: w.config.context.compactInstructions,
-        identifierPreservation: w.config.context.identifierPreservation,
-        identifierInstructions: w.config.context.identifierInstructions,
-      ),
-      promptScope: PromptScope.task,
-    ),
-    executeTurn: ctx.turnsOrThrow.executeTurn,
+    reserveTurn: (sessionId) => turns?.reserveTurn(sessionId) ?? Future<String>.error(providerRequired()),
+    reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) =>
+        turns?.reserveTurn(
+          sessionId,
+          agentName: 'task',
+          behaviorOverride: BehaviorFileService(
+            workspaceDir: workflowWorkspaceDir,
+            maxMemoryBytes: w.config.memory.maxBytes,
+            compactInstructions: w.config.context.compactInstructions,
+            identifierPreservation: w.config.context.identifierPreservation,
+            identifierInstructions: w.config.context.identifierInstructions,
+          ),
+          promptScope: PromptScope.task,
+        ) ??
+        Future<String>.error(providerRequired()),
+    executeTurn: (sessionId, turnId, messages, {required source, required resume}) {
+      final boundTurns = turns;
+      if (boundTurns == null) throw providerRequired();
+      boundTurns.executeTurn(sessionId, turnId, messages, source: source, resume: resume);
+    },
     waitForOutcome: (sessionId, turnId) async {
-      final outcome = await ctx.turnsOrThrow.waitForOutcome(sessionId, turnId);
+      final boundTurns = turns;
+      if (boundTurns == null) throw providerRequired();
+      final outcome = await boundTurns.waitForOutcome(sessionId, turnId);
       return WorkflowTurnOutcome(status: outcome.status.name);
     },
-    availableRunnerCount: () => ctx.turnsOrThrow.availableRunnerCount,
+    availableRunnerCount: () => turns?.availableRunnerCount ?? 0,
   );
 }

@@ -144,6 +144,40 @@ steps:
       expect(output.last, contains('"nextActions"'));
     });
 
+    test('bash-only workflow neither probes nor starts the logged-out default provider', () async {
+      final harnesses = <_ThrowOnStartHarness>[];
+      final factory = HarnessFactory()
+        ..register('claude', (_) {
+          final harness = _ThrowOnStartHarness();
+          harnesses.add(harness);
+          return harness;
+        });
+      final preflight = FakeProviderAuthPreflight(unauthenticated: {'claude'});
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runWorkflowSkillsBootstrap: false,
+        providerAuthPreflight: preflight,
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone']),
+        throwsA(isA<FakeExit>().having((error) => error.code, 'code', 0)),
+      );
+
+      expect(preflight.probed, isEmpty, reason: 'a deterministic workflow has no provider auth dependency');
+      expect(harnesses.every((harness) => !harness.startCalled), isTrue);
+      expect(output.any((line) => line.contains('[workflow] Completed')), isTrue);
+    });
+
     test('standalone json failed step payload forwards reason and stays additive (S01/TI04)', () async {
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
       File(p.join(workflowsDir.path, 'failing.yaml')).writeAsStringSync('''
@@ -631,9 +665,16 @@ steps:
     });
 
     test('S01 logged-out referenced provider aborts before any harness starts', () async {
-      // ci-demo's bash step resolves to the default provider 'claude', which the
-      // injected preflight reports unauthenticated. The harness start() throws,
-      // so reaching it would surface a StateError instead of the friendly path.
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'agent-auth.yaml')).writeAsStringSync('''
+name: agent-auth
+description: Agent workflow requiring the default provider
+steps:
+  - id: inspect
+    name: Inspect
+    type: agent
+    prompt: Inspect the repository.
+''');
       final created = <_ThrowOnStartHarness>[];
       final factory = HarnessFactory()
         ..register('claude', (_) {
@@ -658,7 +699,7 @@ steps:
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
-        () => runner.run(['run', 'ci-demo', '--standalone']),
+        () => runner.run(['run', 'agent-auth', '--standalone']),
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
@@ -668,7 +709,7 @@ steps:
         reason: 'provider-named remediation expected: $output',
       );
       expect(created.every((harness) => !harness.startCalled), isTrue, reason: 'no harness.start() reached');
-      expect(output.every((line) => !line.contains('standalone-ok')), isTrue, reason: 'no workflow step ran');
+      expect(output.every((line) => !line.contains('[workflow] Starting')), isTrue, reason: 'no workflow step ran');
     });
 
     test('S02 unreferenced logged-out default provider does not block a single-provider run', () async {
@@ -750,6 +791,18 @@ steps:
       );
 
       expect(requiredWorkflowProviders(definition, config), {'codex'});
+    });
+
+    test('provider derivation returns no providers for a deterministic workflow', () {
+      final definition = WorkflowDefinition(
+        name: 'bash-only',
+        description: 'No agent execution',
+        steps: const [
+          WorkflowStep(id: 'shell-check', name: 'Shell Check', taskType: WorkflowTaskType.bash, prompts: ['printf ok']),
+        ],
+      );
+
+      expect(requiredWorkflowProviders(definition, config), isEmpty);
     });
 
     // Any foreach with mergeResolve enabled materializes the synthetic

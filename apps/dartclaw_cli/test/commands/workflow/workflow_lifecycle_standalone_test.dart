@@ -247,11 +247,11 @@ void main() {
     });
 
     test('S04 resume --standalone aborts before harness start when a referenced provider is logged out', () async {
-      // The seeded run's bash step resolves to the default provider claude,
+      // The seeded run's agent step resolves to the default provider claude,
       // which the injected preflight reports unauthenticated. Resume must abort
       // with the friendly remediation before the harness start() (which throws)
       // is reached.
-      final seed = await seedRun(WorkflowRunStatus.paused);
+      final seed = await seedRun(WorkflowRunStatus.paused, definition: singleAgentDefinition());
       final started = <_ThrowOnStartHarness>[];
       final factory = HarnessFactory()
         ..register('claude', (_) {
@@ -498,16 +498,17 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
   }
 }
 
-Future<({Database db, String runId})> seedRun(WorkflowRunStatus status) async {
+Future<({Database db, String runId})> seedRun(WorkflowRunStatus status, {WorkflowDefinition? definition}) async {
   final db = openTaskDbInMemory();
   final now = DateTime.now();
+  final effectiveDefinition = definition ?? singleBashDefinition();
   final run = WorkflowRun(
     id: 'seed-${status.name}',
-    definitionName: 'seed-wf',
+    definitionName: effectiveDefinition.name,
     status: status,
     startedAt: now,
     updatedAt: now,
-    definitionJson: singleBashDefinition().toJson(),
+    definitionJson: effectiveDefinition.toJson(),
     contextJson: const {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}},
   );
   await SqliteWorkflowRunRepository(db).insert(run);
@@ -588,6 +589,15 @@ WorkflowDefinition singleBashDefinition() => WorkflowDefinition(
   description: 'Minimal single-step workflow for guard-rejection seeding',
   steps: const [
     WorkflowStep(id: 's1', name: 'Step 1', taskType: WorkflowTaskType.bash, prompts: ["printf 'ok\\n'"]),
+  ],
+  variables: const {},
+);
+
+WorkflowDefinition singleAgentDefinition() => WorkflowDefinition(
+  name: 'seed-agent-wf',
+  description: 'Minimal single-step agent workflow for provider auth tests',
+  steps: const [
+    WorkflowStep(id: 's1', name: 'Step 1', taskType: WorkflowTaskType.agent, prompts: ['Inspect.']),
   ],
   variables: const {},
 );

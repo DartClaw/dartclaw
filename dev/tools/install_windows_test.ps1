@@ -110,6 +110,10 @@ try {
   Expand-Archive -LiteralPath $artifact -DestinationPath $expectedRoot
   Assert-InstalledLayout -InstallRoot $expectedRoot
 
+  $testVersion = $Version
+  . $script:Installer -Version $testVersion
+  $originalDirectoryMover = (Get-Command Move-DartClawDirectory).ScriptBlock
+
   $installRoot = Join-Path $tempRoot 'DartClaw'
   $result = Invoke-InstallerProcess -InstallRoot $installRoot -LocalArtifact $artifact
   Assert-InstallerPassed -Result $result
@@ -197,10 +201,6 @@ try {
   }
   Assert-InstallerPassed -Result $result
   Assert-TreeHashesEqual -ExpectedRoot $expectedRoot -ActualRoot $wow64Root
-
-  $testVersion = $Version
-  . $script:Installer -Version $testVersion
-  $originalDirectoryMover = (Get-Command Move-DartClawDirectory).ScriptBlock
 
   Set-Content -LiteralPath (Join-Path $installRoot 'VERSION') -Value 'older-version' -NoNewline
   Set-Content -LiteralPath (Join-Path $installRoot 'bin/dartclaw.exe') -Value 'older-executable' -NoNewline

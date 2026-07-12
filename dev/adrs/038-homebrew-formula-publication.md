@@ -20,7 +20,8 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 - The in-repo template carries the real structure, `version` (lockstepped to `dartclawVersion`, test-enforced), URLs, and **placeholder SHA256 digests** — the digests are the only build-derived part.
 - A Dart renderer (`dev/tools/render_homebrew_formula.dart`) injects the four verified per-platform digests, asserting version lockstep and exactly one digest slot per target.
 - A `homebrew` job in the `Release Binaries` workflow (`needs: build`) downloads the platform `.sha256` release assets, renders the formula, and pushes it to the tap using a `HOMEBREW_TAP_TOKEN` secret. The job no-ops (does not fail the release) when the secret is absent.
-- Auth is a **fine-grained PAT** scoped to only the tap repo (`contents:write`), stored as the `HOMEBREW_TAP_TOKEN` secret on the main repo.
+- Auth is a **fine-grained PAT** scoped to the Homebrew tap and Scoop bucket repositories (`contents:write`), stored as
+  the `HOMEBREW_TAP_TOKEN` secret on the main repo.
 - Provider CLIs (`claude`, `codex`, Goose, Vibe) remain explicit operator prerequisites, **not** `depends_on` Homebrew dependencies (test-enforced).
 
 ## Consequences
@@ -30,7 +31,8 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 - Single source of truth: the formula's reviewable, testable structure lives with the code; the tap holds only generated output.
 - No release-time drift — version + digests are injected from the build, so the documented `brew install` always tracks the tag.
 - The renderer is unit-tested and fails loud on lockstep drift or a missing/duplicate digest slot, instead of producing a silently-wrong formula.
-- Least-privilege publication (PAT scoped to the tap only); absent secret degrades gracefully rather than red-failing the release.
+- Least-privilege publication (PAT scoped to the two generated distribution repositories); absent secret degrades
+  gracefully rather than red-failing the release.
 
 ### Negative
 
@@ -41,8 +43,8 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 
 Windows distribution uses the same canonical-template and generated-mirror decision. `package/scoop/dartclaw.json` is
 reviewed and structurally tested in the main repo; `dev/tools/render_scoop_manifest.dart` injects the verified Windows
-ZIP digest; the release workflow publishes the result as `bucket/dartclaw.json` in `DartClaw/scoop-dartclaw` using a
-fine-grained, bucket-scoped `SCOOP_BUCKET_TOKEN`.
+ZIP digest; the release workflow publishes the result as `bucket/dartclaw.json` in `DartClaw/scoop-dartclaw` using the
+same distribution-scoped `HOMEBREW_TAP_TOKEN` as Homebrew.
 
 Scoop requires the install-time `architecture.64bit.url` to contain the concrete release version. `$version`
 substitution is valid only in `autoupdate.architecture.64bit.url`; `#{version}` is not Scoop syntax. This package-manager
@@ -52,7 +54,8 @@ rule refines the template shape without changing the publication architecture.
 
 1. **Formula only in the tap repo, patched in place** (the xcodeproj-cli pattern) — rejected: that project fuses one universal macOS binary (1 digest, simple `sed`); DartClaw has four platform digests, and keeping the canonical structure in the main repo retains code review + the existing formula test.
 2. **`brew bump-formula-pr` / GoReleaser** — rejected for now: heavier toolchain for a single tap; the Dart renderer reuses the existing AOT/asset pipeline with zero new dependencies, consistent with the zero-npm/zero-third-party posture.
-3. **GitHub App token instead of a PAT** — rejected: more setup for a single-tap push; a fine-grained, tap-scoped PAT is sufficient and least-privilege.
+3. **GitHub App token instead of a PAT** — rejected: more setup for two generated distribution repositories; one
+   fine-grained PAT restricted to those repositories is sufficient.
 4. **Manual formula update each release** (pre-0.18 status quo) — rejected: proven to drift (stale version, placeholder digests, wrong license) and breaks the documented install path.
 
 ## References

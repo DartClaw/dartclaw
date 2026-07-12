@@ -136,8 +136,8 @@ void main() {
     expect(render['run'], contains('dev/tools/render_scoop_manifest.dart'));
     expect(publish['run'], contains('DartClaw/scoop-dartclaw.git'));
     expect(publish['run'], contains('bucket/dartclaw.json'));
-    expect((publish['env'] as YamlMap)['SCOOP_BUCKET_TOKEN'], r'${{ secrets.SCOOP_BUCKET_TOKEN }}');
-    expect(publish['run'], contains('SCOOP_BUCKET_TOKEN not configured; skipping bucket update.'));
+    expect((publish['env'] as YamlMap)['HOMEBREW_TAP_TOKEN'], r'${{ secrets.HOMEBREW_TAP_TOKEN }}');
+    expect(publish['run'], contains('HOMEBREW_TAP_TOKEN not configured; skipping bucket update.'));
   });
 }
 

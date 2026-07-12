@@ -1,6 +1,6 @@
 # Windows Scoop Qualification Evidence
 
-**Status**: LOCAL MANIFEST FLOW QUALIFIED; HOSTED INSTALL PENDING WINDOWS RELEASE AND PUBLICATION TOKEN
+**Status**: LOCAL MANIFEST FLOW QUALIFIED; HOSTED INSTALL PENDING WINDOWS RELEASE AND SHARED-TOKEN AUTHORIZATION
 
 **Run timestamp**: `2026-07-12T16:56:19Z`
 **Qualification workflow**: [GitHub Actions run 29201029703](https://github.com/DartClaw/dartclaw/actions/runs/29201029703)
@@ -29,6 +29,6 @@
 
 ## Remaining Release Gate
 
-Create a fine-grained token with `contents:write` limited to `DartClaw/scoop-dartclaw`, store it as
-`SCOOP_BUCKET_TOKEN` on `DartClaw/dartclaw`, then confirm the first 0.21 tag publishes both the Windows ZIP and the
-rendered bucket manifest. Repeat the hosted install procedure before calling Scoop release-ready.
+Ensure the existing `HOMEBREW_TAP_TOKEN` has `contents:write` on both `DartClaw/homebrew-dartclaw` and
+`DartClaw/scoop-dartclaw`, then confirm the first 0.21 tag publishes both the Windows ZIP and rendered bucket manifest.
+Repeat the hosted install procedure before calling Scoop release-ready.

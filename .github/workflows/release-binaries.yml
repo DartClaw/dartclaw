@@ -279,16 +279,16 @@ jobs:
 
       - name: Publish manifest to Scoop bucket
         env:
-          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          if [ -z "$SCOOP_BUCKET_TOKEN" ]; then
-            echo "SCOOP_BUCKET_TOKEN not configured; skipping bucket update." >&2
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN not configured; skipping bucket update." >&2
             echo "Re-render locally and push package/scoop/dartclaw.json to the bucket manually." >&2
             exit 0
           fi
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git clone --depth 1 "https://x-access-token:${SCOOP_BUCKET_TOKEN}@github.com/DartClaw/scoop-dartclaw.git" scoop-repo
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/DartClaw/scoop-dartclaw.git" scoop-repo
           mkdir -p scoop-repo/bucket
           cp rendered-dartclaw.json scoop-repo/bucket/dartclaw.json
           cd scoop-repo

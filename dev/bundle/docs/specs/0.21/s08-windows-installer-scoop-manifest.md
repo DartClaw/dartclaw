@@ -235,3 +235,12 @@ New:
 
 The checked Structural Criterion and TI03/TI05 text still preserve the invalid historical `#{version}` wording. The
 sanctioned design-change operation cannot edit those sections, so the reconciliation ledger remains blocking.
+
+#### DECISION NOTE: shared-distribution-publication-token
+
+Decision-Key: shared-distribution-publication-token
+Altitude: fis-local
+Affected surface: Release workflow authentication for Homebrew and Scoop publication
+Decision: Both publication jobs use the existing HOMEBREW_TAP_TOKEN secret, backed by one fine-grained PAT restricted to the Homebrew tap and Scoop bucket repositories with contents write access.
+Rationale: Both repositories are generated distribution mirrors in the same trust boundary; one scoped credential avoids redundant secret provisioning and rotation.
+Evidence: Owner decision on 2026-07-12 to reuse HOMEBREW_TAP_TOKEN for Scoop publication.

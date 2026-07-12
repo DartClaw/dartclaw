@@ -4,9 +4,11 @@ import 'dart:io';
 
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'canonical_tool.dart';
+import 'process_lifecycle.dart';
 import 'process_types.dart';
 
 typedef AcpPermissionDecision = Future<AcpPermissionResult> Function(AcpPermissionRequest request);
@@ -36,6 +38,8 @@ final class AcpReverseCallHandlers {
   final int hostOutputByteLimit;
   final Map<String, _AcpTerminal> _terminals = {};
   int _nextTerminalId = 0;
+
+  static final _log = Logger('AcpReverseCallHandlers');
 
   Map<String, bool> get capabilityFlags => {'readTextFile': true, 'writeTextFile': true, 'terminal': true};
 
@@ -122,17 +126,42 @@ final class AcpReverseCallHandlers {
   Future<Map<String, dynamic>> releaseTerminal(Object? params) async {
     final terminal = _terminalFor(params, 'terminal/release');
     _audit(method: 'terminal/release');
-    _terminals.remove(terminal.id);
-    terminal.process.kill();
-    return {'ok': true};
+    final result = await _terminateTerminal(terminal);
+    if (result.exitConfirmed) {
+      _terminals.remove(terminal.id);
+    }
+    return {'ok': result.exitConfirmed};
   }
 
   Future<void> disposeTerminals() async {
     final terminals = List<_AcpTerminal>.from(_terminals.values);
-    _terminals.clear();
-    for (final terminal in terminals) {
-      terminal.process.kill();
+    final results = await Future.wait(
+      terminals.map((terminal) async => (terminal: terminal, result: await _terminateTerminal(terminal))),
+    );
+    for (final (:terminal, :result) in results) {
+      if (result.exitConfirmed) _terminals.remove(terminal.id);
     }
+  }
+
+  Future<ProcessTerminationResult> _terminateTerminal(_AcpTerminal terminal) {
+    final active = terminal.termination;
+    if (active != null) return active;
+
+    final termination = killWithEscalation(terminal.process, label: 'ACP ${terminal.id}', log: _log);
+    terminal.termination = termination;
+    unawaited(
+      termination.then<void>(
+        (result) {
+          if (!result.exitConfirmed && identical(terminal.termination, termination)) {
+            terminal.termination = null;
+          }
+        },
+        onError: (Object _, StackTrace _) {
+          if (identical(terminal.termination, termination)) terminal.termination = null;
+        },
+      ),
+    );
+    return termination;
   }
 
   Future<Map<String, dynamic>> requestPermission(Object? params) async {
@@ -331,6 +360,7 @@ final class _AcpTerminal {
   final String id;
   final Process process;
   final int outputByteLimit;
+  Future<ProcessTerminationResult>? termination;
   final _output = <int>[];
   bool _attached = false;
   bool truncated = false;

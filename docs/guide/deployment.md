@@ -1,6 +1,7 @@
 # Deployment
 
-DartClaw is designed for always-on deployment on a Mac Mini or Linux server.
+DartClaw runs on macOS, Linux, and native Windows x64. The built-in background-service commands currently target
+macOS and Linux; on native Windows, run `dartclaw serve` in a terminal or under operator-managed process supervision.
 
 ## Quick Deploy
 
@@ -59,13 +60,32 @@ The old `dartclaw deploy` workflow generated root-scoped system daemons (macOS L
 
 ## Standalone Binary
 
-Homebrew is the only package manager for DartClaw releases. It installs the versioned platform archive for your host:
+Use Homebrew for macOS/Linux releases:
 
 ```bash
 brew tap DartClaw/dartclaw
 brew install dartclaw
 dartclaw --version
 ```
+
+On Windows x64, use the checksum-verifying PowerShell installer:
+
+```powershell
+irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
+```
+
+It installs `dartclaw-v<version>-windows-x64.zip` at `%LOCALAPPDATA%\Programs\DartClaw` by default and persists
+`%LOCALAPPDATA%\Programs\DartClaw\bin` on the user `PATH`. Re-run the command to upgrade atomically, then open a new
+terminal. A Scoop bucket is planned but not yet published or independently qualified. After publication, its commands
+will be:
+
+```powershell
+scoop bucket add dartclaw https://github.com/DartClaw/scoop-dartclaw
+scoop install dartclaw/dartclaw
+scoop update dartclaw
+```
+
+See [Windows](windows.md) for provider setup, smoke validation, and capability limits.
 
 DartClaw does not install provider CLIs. Install and verify `claude`, `codex`, Goose, Vibe, or any future provider binary separately before selecting that provider in configuration:
 
@@ -82,11 +102,13 @@ bash dev/tools/build.sh
 
 `dev/tools/build.sh` runs `dart build cli` to produce `build/bin/dartclaw` alongside a bundled SQLite library in
 `build/lib/` (`libsqlite3.dylib` on macOS, `libsqlite3.so` on Linux), then packs `VERSION`, `bin/dartclaw`, and
-`lib/` into `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` plus its checksum. The binary resolves the library
+`lib/` into `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` plus its checksum. Windows releases are built natively
+with `dev/tools/build_windows.ps1` and packaged as `dartclaw-v<version>-windows-x64.zip` with
+`bin/dartclaw.exe` and `lib/sqlite3.dll`. The binary resolves the library
 relative to itself, so `bin/` and `lib/` must stay siblings. Templates, static assets, skills, and workflows are
 embedded in the executable, so it needs no companion asset files and no first-run network request. `dart build cli`
-cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`) must be built on
-a native runner for that OS/arch.
+cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`, `windows-x64`)
+must be built on a native runner for that OS/arch.
 
 ```bash
 build/bin/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw

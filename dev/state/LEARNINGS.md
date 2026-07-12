@@ -19,6 +19,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ## Agent Harness Protocols
 
 - **Terminal result maps are outcomes, not success.** A resolved harness future can carry `stop_reason:error`; translate it before guarding or persisting streamed assistant text.
+- **Process ownership ends after confirmed exit.** Await the shared termination helper before removing a managed child; keep unconfirmed exit observable.
 
 ### Process lifecycle
 - **Pre-signalled termination must carry acceptance, not an attempted flag.** Typed results lie if callers discard `Process.kill()`'s bool; thread nullable acceptance to suppress duplicate kills.
@@ -193,6 +194,11 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ## Tooling / Verification
 
 - **Failure injection must hit the claimed transition.** A pre-backup lock does not prove post-backup rollback; fail the second move and assert complete-tree restoration.
+- **PowerShell pipeline cardinality is unstable.** Wrap possibly empty pipeline output in `@(...)` before `.Count`; null/scalar shapes fail under strict mode.
+- **Installer activation needs atomic directory renames.** `Move-Item` can partially move a tree; same-volume `[IO.Directory]::Move` preserves rollback.
+- **PowerShell response URIs vary by version.** PS 5.1 uses `ResponseUri`; PS 7 may require `RequestMessage.RequestUri`.
+- **Config guards must parse configuration syntax.** YAML-shaped regex misses flow maps, tags, and quoting; use the real parser for semantic invariants.
+- **Credential-free process smoke still needs a startup seam.** Skipping provider turns does not skip harness startup; use a protocol-valid local stub.
 - **PowerShell native stderr can terminate probes**: Under `ErrorActionPreference=Stop`, use a bounded `Continue` scope around native commands so warnings do not bypass `LASTEXITCODE` handling.
 - **Scoop root URLs do not interpolate.** Use concrete architecture URLs; `$version` works only under `autoupdate`, and `#{version}` is invalid.
 - **Asset resolution precedence must treat explicit source paths as intent.** Dev/testing profiles pass `--source-dir` specifically to exercise the checkout, so embedded assets must never shadow local templates, static files, skills, or workflow definitions. Startup logs the selected provenance; explicit, dev, and source-tree paths all win before the embedded fallback.

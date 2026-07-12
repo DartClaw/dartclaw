@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/harness/acp_reverse_call_handlers.dart' show AcpReverseCallHandlers;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import 'acp_test_support.dart';
@@ -41,6 +45,9 @@ void main() {
     });
 
     tearDown(() async {
+      for (final terminal in terminalProcesses) {
+        terminal.exit(0);
+      }
       await harness.dispose();
       if (workspace.existsSync()) {
         await workspace.delete(recursive: true);
@@ -139,26 +146,161 @@ void main() {
       expect(output['result'], containsPair('truncated', true));
     });
 
-    test('terminal release kills a live host-created process', () async {
+    test('terminal release waits for a live host-created process to exit', () async {
       acpProcess.sendHostRequest(350, 'terminal/create', {'command': 'sleep 60'});
       await acpProcess.waitForResponse(350);
       final terminal = terminalProcesses.single;
 
       acpProcess.sendHostRequest(351, 'terminal/release', {'terminalId': 'terminal-1'});
+      await pumpEventQueue();
+      expect(terminal.killCalled, isTrue);
+      expect(acpProcess.capturedStdinJson.where((message) => message['id'] == 351), isEmpty);
+
+      terminal.exit(0);
       final release = await acpProcess.waitForResponse(351);
 
       expect(release['result'], containsPair('ok', true));
       expect(terminal.killCalled, isTrue);
     });
 
-    test('stop kills host-created terminal processes', () async {
+    test('unconfirmed terminal release reports failure, warns, and retains ownership', () {
+      fakeAsync((async) {
+        final process = CapturingFakeProcess();
+        final handlers = AcpReverseCallHandlers(
+          cwd: workspace.path,
+          terminalProcessFactory:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+                  process,
+        );
+        final warnings = <LogRecord>[];
+        final subscription = Logger(
+          'AcpReverseCallHandlers',
+        ).onRecord.where((record) => record.level >= Level.WARNING).listen(warnings.add);
+        Map<String, dynamic>? release;
+        Map<String, dynamic>? retained;
+
+        unawaited(
+          handlers
+              .createTerminal({'command': 'sleep 60'})
+              .then((_) => handlers.releaseTerminal({'terminalId': 'terminal-1'}))
+              .then((value) async {
+                release = value;
+                retained = await handlers.terminalOutput({'terminalId': 'terminal-1'});
+              }),
+        );
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 3));
+        async.flushMicrotasks();
+
+        expect(release, containsPair('ok', false));
+        expect(warnings, isNotEmpty);
+        expect(warnings.last.message, allOf(contains('ACP terminal-1'), contains('could not be confirmed')));
+        expect(retained, containsPair('output', ''), reason: 'an unconfirmed process remains owned for later cleanup');
+
+        final firstAttemptSignals = process.killSignals.length;
+        Map<String, dynamic>? retry;
+        Object? lookupError;
+        unawaited(
+          handlers
+              .releaseTerminal({'terminalId': 'terminal-1'})
+              .then((value) {
+                retry = value;
+                return handlers.terminalOutput({'terminalId': 'terminal-1'});
+              })
+              .then<void>((_) {}, onError: (Object error, StackTrace _) => lookupError = error),
+        );
+        async.flushMicrotasks();
+        expect(process.killSignals.length, greaterThan(firstAttemptSignals));
+
+        process.exit(0);
+        async.flushMicrotasks();
+
+        expect(retry, containsPair('ok', true));
+        expect('$lookupError', contains('Unknown ACP terminal'));
+        unawaited(subscription.cancel());
+      });
+    });
+
+    test('terminal disposal starts every termination within one grace window', () {
+      fakeAsync((async) {
+        final processes = List.generate(3, (_) => CapturingFakeProcess());
+        var nextProcess = 0;
+        final handlers = AcpReverseCallHandlers(
+          cwd: workspace.path,
+          terminalProcessFactory:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+                  processes[nextProcess++],
+        );
+        var disposed = false;
+
+        unawaited(
+          Future.wait(
+            List.generate(3, (_) => handlers.createTerminal({'command': 'sleep 60'})),
+          ).then((_) => handlers.disposeTerminals()).then((_) => disposed = true),
+        );
+        async.flushMicrotasks();
+
+        expect(processes.every((process) => process.killCalled), isTrue);
+        expect(disposed, isFalse);
+
+        for (final process in processes) {
+          process.exit(0);
+        }
+        async.flushMicrotasks();
+
+        expect(disposed, isTrue);
+      });
+    });
+
+    test('overlapping release and disposal share one termination attempt', () {
+      fakeAsync((async) {
+        final process = CapturingFakeProcess();
+        final handlers = AcpReverseCallHandlers(
+          cwd: workspace.path,
+          terminalProcessFactory:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+                  process,
+        );
+        Map<String, dynamic>? release;
+        var disposed = false;
+
+        unawaited(
+          handlers.createTerminal({'command': 'sleep 60'}).then((_) {
+            unawaited(handlers.releaseTerminal({'terminalId': 'terminal-1'}).then((value) => release = value));
+            unawaited(handlers.disposeTerminals().then((_) => disposed = true));
+          }),
+        );
+        async.flushMicrotasks();
+
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+        expect(disposed, isFalse);
+        expect(release, isNull);
+
+        process.exit(0);
+        async.flushMicrotasks();
+
+        expect(release, containsPair('ok', true));
+        expect(disposed, isTrue);
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+      });
+    });
+
+    test('stop waits for host-created terminal processes to exit', () async {
       acpProcess.sendHostRequest(400, 'terminal/create', {'command': 'sleep 60'});
       await acpProcess.waitForResponse(400);
       final terminal = terminalProcesses.single;
+      var stopped = false;
 
-      await harness.stop();
+      final stopFuture = harness.stop().then((_) => stopped = true);
+      await pumpEventQueue();
+      expect(terminal.killCalled, isTrue);
+      expect(stopped, isFalse);
+
+      terminal.exit(0);
+      await stopFuture;
 
       expect(terminal.killCalled, isTrue);
+      expect(stopped, isTrue);
     });
   });
 }

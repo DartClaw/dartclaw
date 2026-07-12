@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.19
+**Current through**: 0.21
 
 ---
 
@@ -66,6 +66,11 @@ Each layer operates independently. A failure at one layer does not compromise th
 ### Pragmatic Mode
 
 When Docker is unavailable (`container.enabled: false`), Layers 1 and 2 are absent. Guards (Layer 3) become the primary security boundary. This mode is suitable for personal use on a trusted machine with a single operator.
+
+On native Windows, container isolation is unavailable even when Docker itself is installed. The accepted boundary
+depends on a Unix-domain credential-proxy socket and owner-only POSIX file permissions. Enabling containers therefore
+fails closed through `PlatformCapabilities.containerIsolationAvailable` and an `UnsupportedCapabilityError` that
+directs the operator to a POSIX host or WSL. Native Windows support covers the core runtime, not POSIX isolation parity.
 
 ---
 
@@ -460,6 +465,9 @@ ADR-016 makes provider selection first-class, so sandbox settings need to reflec
 
 The worktree rows are intentionally narrower than the Docker rows: they assume a trusted host-side task workspace and preserve Codex's own sandboxing instead of widening to `danger-full-access`. That keeps task execution deterministic while still respecting the per-provider boundary described in ADR-016.
 
+These provider-sandbox rows describe qualified POSIX hosts. Claude's native sandbox is unavailable on native Windows,
+and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL when this isolation boundary is required.
+
 ### Container Health Monitoring
 
 `ContainerHealthMonitor` runs periodic health checks (every 10 seconds by default) on all managed containers. State transitions (healthy -> unhealthy, unhealthy -> healthy) are surfaced as `ContainerCrashedEvent` and `ContainerStartedEvent` via the EventBus.
@@ -477,6 +485,10 @@ The agent needs API access to provider backends, but API keys must never be expo
 ### The Solution: Credential Proxy
 
 The Dart host runs a `CredentialProxy` — an HTTP proxy on a Unix socket that injects API credentials into outbound requests. The container connects to this proxy via a `socat` TCP-to-Unix-socket bridge. This remains the boundary for containerized Claude Code deployments.
+
+This boundary is POSIX-only. DartClaw does not replace it with a weaker native-Windows credential transport; native
+Windows container isolation remains unavailable until an equivalent fail-closed design covers credential transport,
+Windows ACLs, and Docker host behavior.
 
 ```
 Container (network:none)                     Host

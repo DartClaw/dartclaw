@@ -60,6 +60,9 @@ dartclaw init --non-interactive --provider claude --auth-claude oauth --model-cl
   --container --container-image dartclaw-agent:latest
 ```
 
+Container isolation is POSIX-only. On native Windows, `--container` fails closed and points to POSIX/WSL; see the
+[Windows capability matrix](windows.md#capability-matrix).
+
 #### Deferred steps after server start
 
 Some channel features require the server to be running before they can complete. The wizard notes these explicitly and does not simulate them:
@@ -173,7 +176,7 @@ gateway:
 
 # --- Container Isolation ---
 container:
-  enabled: true                  # false = pragmatic mode (guards only)
+  enabled: true                  # POSIX only; false = pragmatic mode (guards only)
   image: dartclaw-sandbox:latest
   mount_allowlist:
     - ~/projects
@@ -596,6 +599,9 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 - `approval` — the **prompt-gating** axis (Claude permission-mode). Accepted values: `on-request`, `unless-allow-listed`, `never`. Claude's one-shot path has no interactive prompt channel, so `on-request`/`unless-allow-listed` keep the default `dontAsk` + static allow-list; only `approval: never` opts a trusted run into **full access** (permission bypass, no allow-list). Full access is refused under the restricted container profile, where hooks are disabled and a bypass cannot fail closed.
 - `sandbox` — the **OS-isolation** axis (Claude `sandbox` settings block). Accepted coarse values: `read-only` (sandbox on, all writes denied), `workspace-write` (sandbox on, working-dir + session-temp writes), `danger-full-access` (sandbox off). A map value is passed through verbatim as a raw native Claude `sandbox` block for advanced per-path/network rules.
+
+Claude's native sandbox is unavailable on native Windows, and restrictive Codex sandbox modes are unverified there.
+Use a qualified POSIX host or WSL when provider sandboxing is a required boundary; see [Windows](windows.md#capability-matrix).
 
 The axes never cross: setting `sandbox: danger-full-access` disables OS isolation but does **not** relax prompt gating, and `approval: never` does **not** change the sandbox block. Invalid values warn and fall back to the default. The raw `permissionMode`/`sandbox`/`permissions` passthrough remains available as the advanced escape hatch.
 

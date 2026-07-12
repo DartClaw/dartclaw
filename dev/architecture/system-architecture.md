@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.19 (outbound MCP client, context_research, and knowledge UI)
+**Current through**: 0.21 (native Windows x64 runtime and typed platform capabilities)
 
 ---
 
@@ -64,6 +64,31 @@ DartClaw is a **2-layer agent runtime**. The Dart host is the control plane (ful
 Design rationale: [ADR-001 (SDK Integration & Security Architecture)](../adrs/001-sdk-integration-and-security-architecture.md)
 
 Provider-specific credential and interception details live in [Security Architecture](security-architecture.md). Protocol details live in [Control Protocol & Harness Architecture](control-protocol.md).
+
+### Platform Capability Surface
+
+`dartclaw_config` owns the immutable `PlatformCapabilities` policy surface defined by
+[ADR-049](../adrs/049-typed-platform-capability-surface.md). Consumers query this surface instead of scattering raw
+operating-system checks across lifecycle, workflow, reload, and isolation code. It covers:
+
+- home-directory resolution with `HOME` then `USERPROFILE` fallback;
+- executable lookup command data (`which` on POSIX, `where` on Windows);
+- Bash shell policy and POSIX signal/file-permission availability;
+- process-termination semantics and container-isolation availability; and
+- `UnsupportedCapabilityError`, which names the capability, attempted context, and remediation.
+
+The Windows constraints are explicit:
+
+| Area | Native Windows contract |
+|---|---|
+| Process lifecycle | `Process.kill()` is an unconditional hard terminate; no SIGTERM-to-SIGKILL escalation is claimed |
+| Config reload | `gateway.reload.mode: auto` uses debounced file watching; SIGUSR1 is POSIX-only |
+| Storage/search | Release bundles carry FTS5-enabled `lib/sqlite3.dll`; DartClaw does not use system `winsqlite3.dll` |
+| Bash workflow steps | Git Bash is required and selected through executable lookup; absence is an explicit failed step |
+| Container isolation | Unavailable and fail-closed; remediation points to a POSIX host or WSL |
+
+The capability value is deterministic policy only. Consumers retain ownership of subprocess I/O, executable lookup,
+and context-specific remediation text.
 
 ---
 
@@ -829,7 +854,7 @@ Runtime dependencies:
 - `claude` CLI binary (~185-234 MB, Bun standalone — installed via `curl -fsSL https://claude.ai/install.sh | bash`)
 - `codex` CLI binary (required for `codex` workers)
 - Docker (OrbStack on macOS, native Engine on Linux) — for container isolation
-- SQLite (system library) — for search index and task persistence
+- Bundled SQLite library (`lib/sqlite3.*`; `lib/sqlite3.dll` on Windows) — for search index and task persistence
 - Channel sidecars (optional): GOWA binary (WhatsApp), signal-cli (Signal)
 
 ### Claude Container Isolation Topology

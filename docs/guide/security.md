@@ -90,16 +90,21 @@ Mutation and test endpoints return `403` for requests without admin access.
 
 ## Container Isolation
 
-When Docker is available, DartClaw runs the claude binary inside a container with:
+On supported POSIX hosts, when Docker is available, DartClaw runs the claude binary inside a container with:
 - `network:none` -- no direct internet access
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
 - Credential proxy (Unix socket) for API access
 - Mount allowlist for workspace files
 
+Container isolation is unavailable on native Windows even when Docker is installed. Its credential-proxy socket and
+owner-only permissions require POSIX facilities, so `container.enabled: true` fails closed and directs the operator to
+a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
+
 ### Pragmatic Mode
 
-Without Docker, guards serve as the primary security boundary. This is suitable for personal use on a trusted machine.
+Without container isolation, guards serve as the primary security boundary. This is suitable for personal use on a
+trusted machine, but it is not isolation parity.
 
 ## HTTP Authentication
 

@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.18**
+> Current through: **0.21**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -318,7 +318,9 @@ Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-r
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 
-> DartClaw runs without Docker in development mode. This is acceptable for local use where you trust the agent. For any networked or shared deployment, container isolation is essential.
+> DartClaw runs without Docker in development mode. This is acceptable for local use where you trust the agent. For
+> any networked or shared deployment, container isolation is essential. Native Windows cannot provide this boundary;
+> enabling it fails closed and points to a POSIX host or WSL.
 
 For full security details, see the [Security guide](security.md).
 
@@ -434,7 +436,7 @@ That model is exposed through:
 - **Config API** — `GET/PATCH /api/config` reads from disk and writes with YAML round-trip preservation (comments survive edits)
 - **Config validation** — `ConfigMeta` registry with validators, ensuring invalid values are rejected before write
 - **Backup on write** — every config change creates a `.bak` file
-- **Hot-reload triggers** — `gateway.reload.mode` supports `off`, `signal`, and `auto`; `signal` uses `SIGUSR1`, while `auto` adds file watching with debounce for atomic-save workflows
+- **Hot-reload triggers** — `gateway.reload.mode` supports `off`, `signal`, and `auto`; `auto` uses debounced file watching on every platform and additionally registers SIGUSR1 on POSIX, while `signal` is POSIX-only
 - **Graceful restart** — restart-required changes still drain active turns (30s timeout), restart services, and send an SSE banner to connected clients
 
 For the full config reference, see the [Configuration guide](configuration.md).

@@ -1,19 +1,28 @@
 # Native Windows Bash-Step Qualification Evidence
 
-**Status**: NOT RUN
+**Status**: QUALIFIED
 
-No native Windows host was available during the 2026-07-11 implementation run. This file is intentionally not a
-passing qualification record. Run `dev/testing/scenarios/windows-bash-step.md` on native Windows x64 with Git Bash,
-then replace this block with the latest completed run containing:
+**Run timestamp**: `2026-07-12T05:51:29.5672121+00:00`
+**Qualification workflow**: [GitHub Actions run 29181756146](https://github.com/DartClaw/dartclaw/actions/runs/29181756146)
+**Host**: Microsoft Windows 10.0.26100, native X64
+**Source revision**: `d9b2e9d612fd0fdef1305553dccc15f43b2fd32e`
+**Artifact/source under test**: source checkout at `D:\a\dartclaw\dartclaw`
+**Dart**: 3.12.0 stable, `windows_x64`
+**Resolved Bash**: `C:\Program Files\Git\bin\bash.exe`
+**Git Bash**: GNU bash 5.3.9(1)-release, `x86_64-pc-cygwin`
+**Native cwd**: `C:\DartClaw Bash Step Qualification\workspace with spaces`
+**Workflow run**: `988ace7c-5ad2-4fd8-b415-a75db222cb21`
 
-- run timestamp and operator
-- native OS and architecture
-- source revision plus checkout/release artifact under test
-- Dart version and resolved `bash.exe`
-- native cwd containing a drive letter and spaces
-- Git Bash POSIX-style `pwd`
-- quoted relative-file result for `fixture file.txt`
-- allowlisted environment result
-- basic POSIX command result
-- Git Bash version
-- workflow status and exit code
+## Result
+
+- Workflow status: `completed`.
+- `qualify-bash.status`: `success`.
+- `qualify-bash.exitCode`: `0`.
+- Git Bash cwd: `/c/DartClaw Bash Step Qualification/workspace with spaces`.
+- Quoted relative file: `relative_file=relative-file-ok`.
+- Allowlisted environment: `allowlisted_env=allowlist-ok`.
+- Basic POSIX pipeline: `posix_result=2`.
+
+The resolved executable path proves Git Bash was selected. The result qualifies native cwd mapping, spaces in the cwd
+and filename, quoted relative access, configured environment propagation, version capture, and basic POSIX commands.
+It does not claim arbitrary Windows path translation inside command arguments.

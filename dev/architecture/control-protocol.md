@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.18
+**Current through**: 0.21
 
 ---
 
@@ -1005,7 +1005,11 @@ DartClaw passes `approval_policy` and `sandbox` as per-turn settings in every `t
 >
 > **Impact on DartClaw**: A stuck approval holds DartClaw's `SessionLockManager` per-session lock for up to `worker_timeout` (default 600s), blocking all other messages to that session. In crowd-coding with a shared session, this blocks the entire workshop.
 >
-> **Recommended configuration**: Set `approval: never` + `sandbox: danger-full-access` in the Codex provider config. This bypasses Codex's internal approval gate while DartClaw's own defense-in-depth (guard chain, container isolation, `TaskFileGuard`) remains fully active. Also reduce `worker_timeout` to 120s for shared-session scenarios.
+> **Recommended configuration**: Set `approval: never` + `sandbox: danger-full-access` in the Codex provider config.
+> This bypasses Codex's internal approval gate. On POSIX deployments with containers enabled, the guard chain,
+> container isolation, and `TaskFileGuard` remain active. Native Windows has no container-isolation parity and
+> restrictive Codex sandbox modes were not qualified for 0.21. Also reduce `worker_timeout` to 120s for shared-session
+> scenarios.
 
 ### Crash recovery and history replay
 

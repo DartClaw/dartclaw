@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.18.0
+**Current through**: 0.21
 
 ---
 

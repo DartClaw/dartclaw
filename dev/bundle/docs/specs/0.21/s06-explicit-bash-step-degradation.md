@@ -81,7 +81,7 @@
   - **When** the step runs
   - **Then** the step outcome has `success = false` and `${step.id}.status = 'failed'`, and the error is the structured unsupported-capability error whose message contains `bash steps require Git Bash on Windows`, names the bash/shell capability, and points at remediation (install Git Bash / use POSIX / WSL) — and no `status = 'success'` outcome is ever produced
 
-- [ ] **S05 [OC02] [TI04] Windows host with Git Bash qualifies the run**
+- [x] **S05 [OC02] [TI04] Windows host with Git Bash qualifies the run**
   - **Given** a native Windows host with Git Bash installed and a `type: bash` step whose native cwd contains a drive letter and spaces and whose fixture filename also contains spaces
   - **When** the step runs (via the Windows runtime smoke path or recorded manual evidence)
   - **Then** the step completes successfully; evidence records the native cwd, its Git Bash POSIX-style `pwd`, successful quoted relative-file access, an allowlisted env value, a basic POSIX command result, and the Git Bash version
@@ -153,7 +153,7 @@ spec   | docs/specs/0.21/s01-platform-capability-surface.md#implementation-tasks
   - Map the TI01 structured error onto `bashFailure(step, '<error message>')` so `success = false`, `${step.id}.status = 'failed'`, and `${step.id}.error` carries the message; assert no `status = 'success'` path is reachable when bash is unresolved.
   - **Verify**: `Test: executeBashStep with a windows surface + empty bash lookup returns a StepOutcome where success is false, outputs['${step.id}.status'] == 'failed', and outputs['${step.id}.error'] contains 'bash steps require Git Bash on Windows'; no outcome has status 'success'`
 
-- [ ] **TI04** On a native Windows host with Git Bash, a bash step is qualified for version capture, working directory, environment propagation, path handling, and basic POSIX command execution.
+- [x] **TI04** On a native Windows host with Git Bash, a bash step is qualified for version capture, working directory, environment propagation, path handling, and basic POSIX command execution.
   - Add `dev/testing/scenarios/windows-bash-step.md` as the committed manual scenario and record the latest completed run in `dev/testing/evidence/windows-bash-step.md`. The scenario uses a Windows cwd with a drive letter and spaces plus a relative fixture filename containing spaces. The evidence records native cwd, Git Bash `pwd`, quoted relative access, Git Bash version, an allowlisted env value, a POSIX command result, OS/arch, and artifact/source under test. It does not claim automatic argument-path conversion.
   - **Verify**: `Inspection/run: both stable paths exist; latest evidence identifies OS/arch + artifact/source, and from a native cwd containing drive letter/spaces records the corresponding Git Bash pwd, quoted relative-file success, env/POSIX command result, and bash version`
 

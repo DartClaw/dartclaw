@@ -61,32 +61,32 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC03] Full Windows smoke run reports every layer green with providers configured**
+- [x] **S01 [OC01,OC03] Full Windows smoke run reports every layer green with providers configured**
   - **Given** the built `dartclaw-v<version>-windows-x64.zip` artifact (or an equivalent source build) on a native Windows x64 host with Claude and Codex credentials available
   - **When** the Windows smoke path runs end-to-end
   - **Then** it produces a report with a per-layer result for server startup, Web UI load, FTS5 search, config reload, Claude turn, and Codex turn — all passing — plus environment metadata (OS/arch, Dart SDK version, DartClaw version, provider versions, loaded SQLite module path), and the overall verdict is that Windows is supported
 
-- [ ] **S02 [OC01] FTS5 search layer round-trips a MATCH against the bundled module**
+- [x] **S02 [OC01] FTS5 search layer round-trips a MATCH against the bundled module**
   - **Given** the smoke run started `dartclaw serve` from the Windows artifact with seeded searchable content
   - **When** the FTS5 search layer issues a search that exercises an FTS5 `MATCH`
   - **Then** the seeded record is returned and the recorded loaded SQLite module path is the bundle's `sqlite3.dll` (not `winsqlite3.dll` or an on-PATH DLL), proving real FTS5 search rather than a stubbed response
 
-- [ ] **S03 [OC01] Config-reload layer applies a change via the file-watch (`auto`) mechanism without restart**
+- [x] **S03 [OC01] Config-reload layer applies a change via the file-watch (`auto`) mechanism without restart**
   - **Given** the smoke server running with `gateway.reload.mode: auto` (the Windows-supported file-watch path named by S04)
   - **When** the reload layer atomically rewrites the config file with a valid reloadable change
   - **Then** the running server applies the change without a restart and the reload layer records success naming the file-watch (`auto`) mechanism — not SIGUSR1
 
-- [ ] **S04 [OC01,OC03] Both harness turns complete through DartClaw and are recorded per provider**
+- [x] **S04 [OC01,OC03] Both harness turns complete through DartClaw and are recorded per provider**
   - **Given** the smoke server on Windows with Claude and Codex configured
   - **When** the harness layer drives one full DartClaw-managed prompt/response turn for each provider
   - **Then** each turn completes over stdio without a parse/transport error and the evidence records both provider versions and both turn results, so a run that exercised only one provider is not reported as a complete harness pass
 
-- [ ] **S05 [OC02] Missing credentials in CI skip harness layers explicitly and require recorded manual evidence for both providers**
+- [x] **S05 [OC02] Missing credentials in CI skip harness layers explicitly and require recorded manual evidence for both providers**
   - **Given** a CI smoke run on Windows x64 with no Claude or Codex credentials
   - **When** the smoke path runs
   - **Then** server/UI/FTS5/reload still run; Claude/Codex are marked skipped; valid manual evidence for both provider turns promotes the overall status to `supported`, while absent/stale/mismatched evidence leaves it `incomplete` and not release-ready. Native Windows ARM64 evidence may cover only the architecture-neutral provider transport slice; x64-sensitive layers remain x64 CI gates.
 
-- [ ] **S06 [OC04] A single failed layer is named and produces the failed verdict**
+- [x] **S06 [OC04] A single failed layer is named and produces the failed verdict**
   - **Given** a smoke run where one runtime layer fails (e.g. config reload does not apply, or the Codex turn errors)
   - **When** the smoke path completes
   - **Then** the report identifies the specific failed layer, remaining layers retain their results, overall status is `failed`, and release-ready is false
@@ -94,12 +94,12 @@
 
 ## Structural Criteria
 
-- [ ] The smoke path extends the existing `dev/testing/` convention (a profile/runner plus, for provider gaps, a scenario-style manual profile) rather than introducing a parallel test framework.
-- [ ] The smoke evidence output includes, at minimum, the fields named by FR8/FR7 validation: OS/arch, Dart SDK version, DartClaw version, provider versions (when the harness layers run), loaded SQLite module path, FTS5 result, config-reload result, and server/Web-UI result.
-- [ ] The reload layer uses the file-watch (`auto`) mechanism named by S04's `sharedDecision`; no SIGUSR1/signal reload is asserted as the Windows path.
-- [ ] The smoke path consumes the S02 artifact contract verbatim — asset `dartclaw-v<version>-windows-x64.zip` unpacking to the pinned zip-root `{VERSION,bin,lib}` layout (no `bundle/` or `share/` wrapper) — and does not redefine artifact naming or layout.
-- [ ] The release-readiness reminder (`dev/tools/release_check.sh` manual gates and/or `dev/testing/README.md`) names the Windows smoke path and the both-provider recorded-manual-evidence condition, without altering automated-gate behavior.
-- [ ] Existing POSIX testing profiles, scenarios, and `dev/tools/release_check.sh` automated gates remain unchanged and green.
+- [x] The smoke path extends the existing `dev/testing/` convention (a profile/runner plus, for provider gaps, a scenario-style manual profile) rather than introducing a parallel test framework.
+- [x] The smoke evidence output includes, at minimum, the fields named by FR8/FR7 validation: OS/arch, Dart SDK version, DartClaw version, provider versions (when the harness layers run), loaded SQLite module path, FTS5 result, config-reload result, and server/Web-UI result.
+- [x] The reload layer uses the file-watch (`auto`) mechanism named by S04's `sharedDecision`; no SIGUSR1/signal reload is asserted as the Windows path.
+- [x] The smoke path consumes the S02 artifact contract verbatim — asset `dartclaw-v<version>-windows-x64.zip` unpacking to the pinned zip-root `{VERSION,bin,lib}` layout (no `bundle/` or `share/` wrapper) — and does not redefine artifact naming or layout.
+- [x] The release-readiness reminder (`dev/tools/release_check.sh` manual gates and/or `dev/testing/README.md`) names the Windows smoke path and the both-provider recorded-manual-evidence condition, without altering automated-gate behavior.
+- [x] Existing POSIX testing profiles, scenarios, and `dev/tools/release_check.sh` automated gates remain unchanged and green.
 
 
 ## Scope & Boundaries
@@ -138,31 +138,31 @@
 
 ### Implementation Tasks
 
-- [ ] **TI01** Windows smoke runner boots the server from the artifact and reports the server-startup and Web UI layers
+- [x] **TI01** Windows smoke runner boots the server from the artifact and reports the server-startup and Web UI layers
   - A PowerShell smoke runner under `dev/testing/` unpacks/locates the `dartclaw-v<version>-windows-x64.zip` zip-root `{VERSION,bin,lib}` layout, rejects an obsolete `share/` sidecar, starts `dartclaw serve` with a seeded (`plain`-style) config, and records server-startup (process up + health/ready) and Web-UI-load results. Follow the `dev/testing/profiles/plain/run.sh` seed/run shape; reuse its seed corpus.
   - **Verify**: `Test/smoke: runner locates dartclaw-v<version>-windows-x64.zip unpacking to the zip-root {VERSION,bin,lib} layout with no share/ sidecar, records server-startup=pass and web-ui=pass against a live serve, and fails the server layer (named) if serve does not come up` (covers S01)
 
-- [ ] **TI02** FTS5-search layer round-trips a MATCH and records the loaded SQLite module path
+- [x] **TI02** FTS5-search layer round-trips a MATCH and records the loaded SQLite module path
   - The search layer issues a query exercising an FTS5 `MATCH` against seeded content and records the loaded SQLite module path; a non-bundle module (`winsqlite3.dll` or on-PATH `sqlite3.dll`) is a failed storage layer. Reuse the FTS5 usage shape from `packages/dartclaw_storage/lib/src/storage/memory_service.dart`.
   - **Verify**: `Test/smoke: FTS5 layer returns the seeded record for a MATCH query and records the loaded module path = bundle sqlite3.dll; a non-bundle module marks the storage layer failed` (covers S02)
 
-- [ ] **TI03** Config-reload layer applies a change via file-watch (`auto`) without restart
+- [x] **TI03** Config-reload layer applies a change via file-watch (`auto`) without restart
   - The reload layer starts (or reuses) the smoke server with `gateway.reload.mode: auto`, atomically rewrites the config with a valid reloadable change, and confirms the change applied without a restart; the recorded result names the file-watch (`auto`) mechanism, never SIGUSR1. Consumes S04's `auto` reload path.
   - **Verify**: `Test/smoke: reload layer applies a valid config change with mode 'auto' without restarting serve and records the mechanism as file-watch/"auto"` (covers S03)
 
-- [ ] **TI04** Harness layers drive one Claude turn and one Codex turn, credential-gated, recorded per provider
+- [x] **TI04** Harness layers drive one Claude turn and one Codex turn, credential-gated, recorded per provider
   - With credentials, drive and record both turns. Without them, mark each provider skipped. Accept an optional provider-evidence path, defaulting to S07's stable `dev/testing/evidence/windows-harness-turns.md`; validate native Windows OS/architecture, same DartClaw commit/source or release version, provider versions, timestamps, and both passing results before treating skipped provider layers as covered. ARM64 evidence covers only provider transport.
   - **Verify**: `Test/smoke: with credentials, Claude-turn and Codex-turn layers each record a completed turn + provider version; without credentials each records skipped (not pass)` (covers S04, S05)
 
-- [ ] **TI05** Layered evidence report computes the settled tri-state status and release readiness
+- [x] **TI05** Layered evidence report computes the settled tri-state status and release readiness
   - Write `dev/testing/evidence/windows-runtime-smoke.md` with environment metadata and every layer's `pass | fail | skipped` result. Compute: any executed failure → `failed`; otherwise any required skip without validated replacement evidence → `incomplete`; otherwise `supported`. Set release-ready true only for `supported`. Name all failed, skipped, and replacement-evidence-backed layers.
   - **Verify**: `Tests/table: all pass => supported/ready; provider skips + valid matching evidence => supported/ready; provider skips + absent/stale/mismatched evidence => incomplete/not-ready; any executed failure => failed/not-ready`
 
-- [ ] **TI06** A documented manual smoke profile records both-provider evidence when CI is impractical
+- [x] **TI06** A documented manual smoke profile records both-provider evidence when CI is impractical
   - `dev/testing/scenarios/windows-runtime-smoke.md` documents the full procedure and how to supply S07 provider evidence. It states that ARM64 Parallels evidence is valid only for provider transport and cannot replace x64 artifact, SQLite, installer, or core runtime proof.
   - **Verify**: `Inspection: scenario names both stable evidence paths, metadata validation, tri-state table, ARM64 provider-only allowance, and x64-sensitive gates`
 
-- [ ] **TI07** Release-readiness reminder names the Windows smoke path and the recorded-manual-evidence rule
+- [x] **TI07** Release-readiness reminder names the Windows smoke path and the recorded-manual-evidence rule
   - The `dev/tools/release_check.sh` manual-gates reminder (and/or the `dev/testing/README.md` profile table) references the Windows smoke path and states that a credential-only CI skip is release-ready only with recorded both-provider manual evidence. Extend the existing manual-gates reminder block in `release_check.sh`; do not change automated-gate behavior.
   - **Verify**: `Grep: release_check.sh manual-gates output (or dev/testing/README.md) names the Windows smoke path and the both-provider recorded-manual-evidence condition; automated gate steps are unchanged` (proves the release-readiness Structural coverage of the FR8 binding constraint)
 
@@ -174,7 +174,7 @@
 
 
 ## Final Validation Checklist
-- [ ] The four verdict-table cases pass exactly; no uncovered skip or executed failure reports `supported`/release-ready.
+- [x] The four verdict-table cases pass exactly; no uncovered skip or executed failure reports `supported`/release-ready.
 
 
 ## Implementation Observations

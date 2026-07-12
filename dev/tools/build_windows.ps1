@@ -9,13 +9,32 @@ $ErrorActionPreference = 'Stop'
 $script:RootDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
 function Assert-NoSystemSqliteOverride {
-  $matches = & git -C $script:RootDir grep -n -E 'source:[[:space:]]*system' -- '*pubspec.yaml' 2>$null
-  $exitCode = $LASTEXITCODE
-  if ($exitCode -eq 0) {
-    throw "Windows artifact validation failed: committed SQLite source: system override found:`n$($matches -join "`n")"
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $pubspecs = @(& git -C $script:RootDir ls-files -- '*pubspec.yaml' 2>$null)
+    $gitExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
   }
-  if ($exitCode -ne 1) {
+  if ($gitExitCode -ne 0) {
     throw "Windows artifact validation failed: unable to inspect pubspecs for SQLite source overrides."
+  }
+
+  $checker = Join-Path $script:RootDir 'apps/dartclaw_cli/tool/check_system_sqlite_override.dart'
+  $paths = @($pubspecs | ForEach-Object { Join-Path $script:RootDir $_ })
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = @(& dart run $checker @paths 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -eq 1) {
+    throw "Windows artifact validation failed: committed SQLite source: system override found:`n$($output -join "`n")"
+  }
+  if ($exitCode -ne 0) {
+    throw "Windows artifact validation failed: unable to parse pubspecs for SQLite source overrides:`n$($output -join "`n")"
   }
 }
 

@@ -80,42 +80,42 @@ Reconciled shipped mechanism (S04 FIS): Windows-supported reload is the file-wat
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Windows install + upgrade documented with the correct asset name**
+- [x] **S01 [OC01] [TI01] Windows install + upgrade documented with the correct asset name**
   - **Given** the user guide install/upgrade pages
   - **When** a Windows reader looks for how to install and upgrade DartClaw
   - **Then** the guide documents `install.ps1` and Scoop, the default root `%LOCALAPPDATA%\Programs\DartClaw`, its `bin` PATH entry, and the v-prefixed asset; the previous Homebrew-only claim becomes a per-platform statement without altering macOS/Linux instructions
 
-- [ ] **S02 [OC01] [TI02] Capability/degradation matrix is present and complete**
+- [x] **S02 [OC01] [TI02] Capability/degradation matrix is present and complete**
   - **Given** the Windows user-guide page
   - **When** the reader consults the capability matrix
   - **Then** it lists each of container isolation (unavailable → POSIX/WSL), bash workflow steps (degraded → Git Bash), config reload (supported via file-watch `auto`; SIGUSR1 POSIX-only), FTS5 storage/search (supported), and channel sidecars / provider sandbox parity (unavailable or documented-not-solved), each with an explicit state from {supported, degraded, unavailable, unverified} and remediation text
 
-- [ ] **S03 [OC01] [TI03] Smoke validation and provider setup caveats documented, including Codex project-trust**
+- [x] **S03 [OC01] [TI03] Smoke validation and provider setup caveats documented, including Codex project-trust**
   - **Given** the Windows user-guide page
   - **When** the reader looks for verification and provider setup
   - **Then** it documents the Windows smoke validation profile (server startup, Web UI, FTS5 search, config reload, Claude/Codex turns) including the recorded-manual-evidence rule for credential-gated CI, and documents Codex project-trust setup — the warning when project-local `.codex` config, hooks, or exec policy are disabled and the `~/.codex/config.toml` trust remediation
 
-- [ ] **S04 [OC01] [TI01,TI02,TI03] No page claims unsupported Windows parity**
+- [x] **S04 [OC01] [TI01,TI02,TI03] No page claims unsupported Windows parity**
   - **Given** the full public user guide after edits
   - **When** documentation is reviewed for parity claims
   - **Then** no page asserts Windows support for container isolation, bash steps without Git Bash, channel sidecars, or provider sandbox parity; unverified features are labeled unverified/unavailable rather than omitted
 
-- [ ] **S05 [OC02] [TI04] Architecture docs describe the capability surface and Windows constraints**
+- [x] **S05 [OC02] [TI04] Architecture docs describe the capability surface and Windows constraints**
   - **Given** the architecture deep-dive documentation
   - **When** a contributor reads about platform behavior
   - **Then** it describes the platform capability surface (home resolution, executable lookup, shell/signal/file-permission capability, feature availability, structured unsupported-capability error) and the Windows-specific process-lifecycle (hard terminate), config-reload (file-watch `auto`), and storage (bundled FTS5 SQLite, no `winsqlite3.dll`) constraints, with the "Current through" marker bumped to 0.21
 
-- [ ] **S06 [OC03] [TI05] Workflow docs treat Git Bash as the Windows baseline**
+- [x] **S06 [OC03] [TI05] Workflow docs treat Git Bash as the Windows baseline**
   - **Given** the workflows user guide and the `docs/specs/0.24/workflow-dsl-v2.md` planning doc
   - **When** a reader looks at bash-step behavior on Windows
   - **Then** the workflows guide states bash steps require Git Bash on Windows (with the failure message), and the Workflow DSL v2 planning doc records 0.21's Git Bash behavior as the Windows baseline and scopes later `script:` work to polyglot runtime declarations / capability warnings / shell-portability decisions
 
-- [ ] **S07 [OC03] [TI06] Roadmap and milestone state aligned across both repos**
+- [x] **S07 [OC03] [TI06] Roadmap and milestone state aligned across both repos**
   - **Given** private `docs/ROADMAP.md`, public `../dartclaw-public/dev/state/ROADMAP.md`, `STATE.md`, and `docs/specs/feature-comparison.md`
   - **When** the milestone completes
   - **Then** all agree Windows support = 0.21, Workflow DSL v2 = 0.24, and Dynamic Workflows = 0.25, `STATE.md` reflects 0.21 completion, and `feature-comparison.md` records Windows x64 support (Install/Deployment rows + a 0.21 phase-coverage entry)
 
-- [ ] **S08 [OC04] [TI07] Capability-surface and isolation-deferral ADR coverage exists**
+- [x] **S08 [OC04] [TI07] Capability-surface and isolation-deferral ADR coverage exists**
   - **Given** `../dartclaw-public/dev/adrs/`
   - **When** a contributor looks for the rationale behind the platform capability surface and Windows isolation unavailability
   - **Then** ADR-049 captures the typed platform capability surface decision, and ADR-015 records the native-Windows container-isolation deferral, each with status/date and rationale
@@ -123,10 +123,10 @@ Reconciled shipped mechanism (S04 FIS): Windows-supported reload is the file-wat
 
 ## Structural Criteria
 
-- [ ] No user-facing page (user guide, CHANGELOG, README) references 0.21 story IDs or plan artifacts — audience rule per CLAUDE.md (development docs are exempt).
-- [ ] Existing macOS/Linux install and packaging instructions remain substantively unchanged (additive Windows edits only) — FR4 packaging-unchanged constraint.
-- [ ] Every occurrence of the Windows asset name in docs uses the v-prefixed form `dartclaw-v<version>-windows-x64.zip`.
-- [ ] Reload documentation names the same per-platform mechanism as S04/S09 (file-watch `auto` on Windows, SIGUSR1 POSIX-only) — no divergence.
+- [x] No user-facing page (user guide, CHANGELOG, README) references 0.21 story IDs or plan artifacts — audience rule per CLAUDE.md (development docs are exempt).
+- [x] Existing macOS/Linux install and packaging instructions remain substantively unchanged (additive Windows edits only) — FR4 packaging-unchanged constraint.
+- [x] Every occurrence of the Windows asset name in docs uses the v-prefixed form `dartclaw-v<version>-windows-x64.zip`.
+- [x] Reload documentation names the same per-platform mechanism as S04/S09 (file-watch `auto` on Windows, SIGUSR1 POSIX-only) — no divergence.
 
 
 ## Scope & Boundaries
@@ -173,31 +173,31 @@ file   | docs/specs/feature-comparison.md                         | Install/Depl
 
 ### Implementation Tasks
 
-- [ ] **TI01** User-guide install/upgrade pages document the Windows PowerShell + Scoop paths and correct the Homebrew-only claim
+- [x] **TI01** User-guide install/upgrade pages document the Windows PowerShell + Scoop paths and correct the Homebrew-only claim
   - Edit `getting-started.md` and `deployment.md`: add `install.ps1` + Scoop install/upgrade; state `%LOCALAPPDATA%\Programs\DartClaw` as the default root and `<root>\bin` as the PATH entry; reference the v-prefixed asset; replace the Homebrew-only sentence with a per-platform statement.
   - **Verify**: `Inspection: Windows docs name install.ps1, Scoop, exact default root + bin PATH, and v-prefixed asset; no unqualified Homebrew-only claim remains`
 
-- [ ] **TI02** A Windows capability/degradation matrix exists on a user-guide page
+- [x] **TI02** A Windows capability/degradation matrix exists on a user-guide page
   - Table with columns state {supported|degraded|unavailable|unverified} + remediation, covering container isolation, bash steps, config reload, FTS5 search, channel sidecars, provider sandbox; matrix states match shipped S03/S04/S05/S06 behavior
   - **Verify**: `Inspection: matrix present; each of the six capabilities has an explicit state + remediation; container isolation = unavailable→POSIX/WSL, bash = degraded→Git Bash, reload = supported (auto) + SIGUSR1 POSIX-only`
 
-- [ ] **TI03** Windows smoke validation + provider setup + Codex project-trust documented
+- [x] **TI03** Windows smoke validation + provider setup + Codex project-trust documented
   - Document the smoke profile layers and the recorded-manual-evidence rule for both providers; document Codex project-trust warning + `~/.codex/config.toml` remediation
   - **Verify**: `Inspection: page names server/UI/FTS5/reload/Claude+Codex smoke layers, the manual-evidence rule, and Codex project-trust setup`
 
-- [ ] **TI04** Architecture deep-dive describes the capability surface and Windows constraints
+- [x] **TI04** Architecture deep-dive describes the capability surface and Windows constraints
   - Describe the `dartclaw_config` platform capability surface (home resolution, executable lookup, shell/signal/file-permission capability, feature availability, structured error) + hard-terminate lifecycle, file-watch reload, bundled FTS5 SQLite; bump the doc's "Current through" marker to 0.21
   - **Verify**: `Inspection: architecture doc references the capability surface + the three Windows constraints; "Current through" marker reads 0.21`
 
-- [ ] **TI05** Workflow docs treat Git Bash as the Windows baseline
+- [x] **TI05** Workflow docs treat Git Bash as the Windows baseline
   - Annotate `workflows.md` bash-step section with the Windows/Git Bash requirement + failure message; update `docs/specs/0.24/workflow-dsl-v2.md` to record 0.21 Git Bash as the Windows baseline and scope later `script:` to polyglot runtime/capability-warning/portability decisions
   - **Verify**: `Inspection: workflows.md states bash requires Git Bash on Windows; workflow-dsl-v2.md names 0.21 Git Bash baseline`
 
-- [ ] **TI06** Roadmaps, STATE, and feature-comparison agree on 0.21 (Windows) / 0.24 (DSL v2) / 0.25 (Dynamic Workflows) and record Windows support
+- [x] **TI06** Roadmaps, STATE, and feature-comparison agree on 0.21 (Windows) / 0.24 (DSL v2) / 0.25 (Dynamic Workflows) and record Windows support
   - Align private `docs/ROADMAP.md` + public `dev/state/ROADMAP.md` (Windows=0.21, DSL v2=0.24, Dynamic Workflows=0.25); update `STATE.md` to 0.21 completion; add Windows x64 to `feature-comparison.md` Install/Deployment rows + a 0.21 phase-coverage entry
   - **Verify**: `Inspection: both roadmaps + STATE + feature-comparison consistently show Windows=0.21 / DSL v2=0.24 / Dynamic Workflows=0.25 and a Windows x64 support entry`
 
-- [ ] **TI07** ADR coverage for the capability surface and Windows isolation deferral exists
+- [x] **TI07** ADR coverage for the capability surface and Windows isolation deferral exists
   - Keep accepted ADR-049 as the capability-surface record and ADR-015's 2026-07-11 amendment as the native-Windows isolation-deferral record.
   - **Verify**: `Inspection: ADR-049 documents the typed platform capability surface; ADR-015 captures native-Windows unavailability, POSIX/WSL remediation, and reopening conditions`
 
@@ -206,8 +206,8 @@ file   | docs/specs/feature-comparison.md                         | Install/Depl
 
 
 ## Final Validation Checklist
-- [ ] No user-facing page references 0.21 story IDs or transient plan artifacts.
-- [ ] Every Windows asset-name reference is v-prefixed and reload docs match the S04/S09 mechanism.
+- [x] No user-facing page references 0.21 story IDs or transient plan artifacts.
+- [x] Every Windows asset-name reference is v-prefixed and reload docs match the S04/S09 mechanism.
 
 
 ## Implementation Observations

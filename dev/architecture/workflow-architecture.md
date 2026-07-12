@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.20.1 (built-in definitions and native skills are embedded with source-tree precedence)
+**Current through**: 0.21 (native Windows Git Bash policy plus embedded workflow assets)
 
 ---
 
@@ -223,7 +223,7 @@ The consequence: a workflow definition is declarative enough to be validated sta
 
 - **`outputs:` is the only declaration of context-write keys.** The parser treats `outputs:` map keys as the source of truth for the context-write set. `WorkflowStep.outputKeys` derives directly from `outputs?.keys`. Foreach / `mapOver` controllers parse `outputs:` through the same path as every other step and emit one aggregate value, so the controller's `outputs:` map must declare exactly one key. The parser throws a `FormatException` with a one-line migration message if the legacy `contextOutputs:` field appears anywhere in the YAML — `contextOutputs: is removed; declare keys under outputs: instead, e.g. outputs: { key_name: text }` — so authors get an immediate cue rather than a silent warning.
 - **`OutputConfig.setValue` writes a static literal.** When an output entry declares `setValue:` (any JSON-encodable literal, including `null`), the executor short-circuits extraction for that key and writes the literal verbatim on step success. The slot is sentinel-backed (`_workflowDefinitionFieldUnset`) so absence and explicit `null` round-trip distinctly through `toJson` / `fromJson`. It fires only on success — failure and `entryGate` skip leave context untouched. Snake_case alias `set_value` is accepted alongside the camelCase form.
-- **Validator alias-awareness for `continueSession` and multi-prompt.** Role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`, …) are skipped by the continuity-provider check in both `_validateMultiPromptProviders` and the `continueSession` block. The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider` continues to detect family mismatches at execution time (warning + re-route to the root provider). Concrete provider names with no continuity support still produce `unsupportedProviderCapability` errors. A `TODO(0.16.7+)` comment in the validator hot spots names the deferred stretch path: thread the workflow's roles config through the validator so the resolved concrete provider can be checked at validation time.
+- **Validator alias-awareness for `continueSession` and multi-prompt.** Role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`, …) are skipped by the continuity-provider check in both `_validateMultiPromptProviders` and the `continueSession` block. The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider` continues to detect family mismatches at execution time (warning + re-route to the root provider). Concrete provider names with no continuity support still produce `unsupportedProviderCapability` errors. Resolving role aliases during validation remains deferred until the validator receives the workflow's roles config.
 
 ## 4. Step Types
 
@@ -245,7 +245,11 @@ Agent steps create tasks, can be reviewed, and may persist or resume sessions wh
 
 ### 4.1 Bash Steps
 
-Bash steps run on the host side via `SafeProcess.start('/bin/sh', ['-c', ...])` (env-sanitized spawn). They are used for deterministic operations where an LLM would only add noise — extracting diffs, running validators, calling CLI tools.
+Bash steps run on the host side through an env-sanitized `SafeProcess` spawn. POSIX uses `/bin/sh`; native Windows
+resolves Git Bash through `PlatformCapabilities.executableLookupCommand` and runs `bash.exe -c`. Missing Git Bash
+produces a structured failed step with `bash steps require Git Bash on Windows`; it never becomes an empty success.
+They are used for deterministic operations where an LLM would only add noise — extracting diffs, running validators,
+calling CLI tools.
 
 Execution semantics:
 
@@ -253,8 +257,8 @@ Execution semantics:
 |---|---|
 | Task creation | None. Bash steps are zero-task, zero-token |
 | Working directory | Explicit `workdir` field (template-resolved), or `<dataDir>/workspace/` default |
-| Template substitution | `{{context.*}}` values are shell-escaped via `shellEscape()` to prevent injection. Variable references (`{{VAR}}`) are NOT escaped — they are author-controlled |
-| Timeout | `step.timeoutSeconds` (default 60s). Process receives SIGTERM, then SIGKILL after 2s grace |
+| Template substitution | Both `{{context.*}}` and `{{VAR}}` values are shell-escaped via `shellEscape()` to prevent injection |
+| Timeout | `step.timeoutSeconds` (default 60s). POSIX uses SIGTERM then SIGKILL after 2s; Windows hard-terminates |
 | Stdout capture | Truncated at 64 KB with `[truncated]` marker |
 | Output extraction | Respects `outputs` config: `format: json` parses JSON from stdout, `format: lines` splits lines, `format: text` passes raw stdout |
 | Error handling | Non-zero exit code → failure. `onError: continue` records failure metadata and advances; `onError: pause` (default) pauses the run |

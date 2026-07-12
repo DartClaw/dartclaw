@@ -177,6 +177,12 @@ The run pauses with approval metadata stored in workflow context. Resume records
 
 `{{context.*}}` and `{{VAR}}` substitutions are shell-escaped. Commands that pipe interpolated context into another shell parser are rejected before execution. stdout/stderr are captured and truncated at 64 KB, and step metadata such as `<stepId>.status`, `<stepId>.exitCode`, and `<stepId>.tokenCount: 0` is written to context.
 
+On native Windows, Bash steps require Git Bash. DartClaw resolves `bash.exe` through the Windows executable lookup
+policy and runs the step there. If Git Bash is absent, the step fails with
+`bash steps require Git Bash on Windows`; it does not return an empty success. This qualification covers native cwd
+mapping, spaces in cwd/file names, quoted relative access, allowlisted environment propagation, and basic POSIX
+commands. It does not promise translation of arbitrary Windows paths embedded in command arguments.
+
 ### `continueSession`
 
 `continueSession: true` reuses the session established by the immediately preceding agent step. A string value targets an explicit earlier step ID. The target must be an agent step, must stay within the same linear/loop boundary, cannot cross parallel ordering, and must resolve to a provider family that supports continuity. Role aliases such as `@executor` are accepted; runtime falls back to the root provider if alias resolution changes provider family.

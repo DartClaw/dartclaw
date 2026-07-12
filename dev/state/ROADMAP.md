@@ -6,7 +6,10 @@
 
 ### 0.21 — Windows Support & Cross-Platform Hardening
 
-**Status: Opening.** Opened 2026-07-11 from the `v0.20.1` tag. Native Windows binary for the core runtime plus cross-platform hardening and explicit graceful degradation for Unix-coupled features. Plan: 10 stories, 3 phases (private repo `docs/specs/0.21/`); the S0a/S0b validation spikes are resolved GO.
+**Status: Implementation and qualification complete; release/tag pending.** Native Windows x64 binary for the core
+runtime plus cross-platform hardening and explicit graceful degradation for Unix-coupled features. The native x64
+artifact, FTS5 search, installer, process lifecycle, Git Bash steps, and runtime smoke profile are qualified; provider
+turns are covered by matching native-Windows evidence.
 
 ## Planned
 

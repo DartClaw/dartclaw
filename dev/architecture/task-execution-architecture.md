@@ -2,7 +2,7 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through harness pool dispatch, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.18.0
+**Current through**: 0.21
 
 ---
 

@@ -210,6 +210,10 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 | `claude` | `claude` CLI | Bidirectional JSONL | Claude (Haiku, Sonnet, Opus) | Default. Full feature support including cost reporting, streaming, tool approval via hooks |
 | `codex` | `codex` CLI (app-server mode) | JSON-RPC JSONL | OpenAI (GPT-4o, GPT-5, o-series), Ollama | Persistent process, approval chain via JSON-RPC, no USD cost reporting |
 
+Core Claude and Codex turns are supported on native Windows. Their sandbox capabilities are not equivalent to the
+POSIX container boundary: Claude's native sandbox is unavailable, and restrictive Codex sandbox modes were not part
+of the Windows qualification. See [Windows](windows.md#capability-matrix).
+
 ### Setting Up Codex
 
 1. **Install the Codex CLI**: See the [OpenAI Codex CLI docs](https://developers.openai.com/codex/cli). Verify with `codex --version`.
@@ -314,7 +318,10 @@ The Codex app-server provider supports two per-turn settings that control how Co
 >     sandbox: danger-full-access
 > ```
 >
-> Setting `approval: never` disables Codex's *internal* approval gate. DartClaw's own defense-in-depth remains fully active: guard chain (command, file, network, content guards), container isolation, `TaskFileGuard`, and input sanitizer all continue to evaluate every tool call independently.
+> Setting `approval: never` disables Codex's *internal* approval gate. On POSIX deployments with containers enabled,
+> DartClaw's guard chain, container isolation, `TaskFileGuard`, and input sanitizer remain active. On native Windows,
+> container isolation is unavailable and restrictive Codex sandbox behavior is unverified; guards still apply, but
+> this configuration is not POSIX sandbox parity.
 >
 > Also consider reducing `worker_timeout` (default 600s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
 

@@ -70,6 +70,9 @@ Runs the Windows release-readiness profile as a layered check. Only `supported` 
 
 ### Expected
 
+- The runner compiles a startup-only provider stub and selects it for both configured providers, allowing core runtime
+  layers to start without credentials. Real provider versions still anchor replacement evidence, and the stub never
+  counts as provider-turn proof.
 - Claude and Codex layers remain explicitly `skipped`; they are never rewritten as direct passes.
 - Matching evidence for both providers covers those skips and may produce `supported`.
 - Missing, stale, version-mismatched, single-provider, or non-passing evidence produces `incomplete` and

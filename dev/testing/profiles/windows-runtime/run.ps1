@@ -36,6 +36,8 @@ $script:DataDir = $null
 $script:ConfigPath = $null
 $script:ExecutionMode = $null
 $script:Executable = $null
+$script:ProviderStubPath = $null
+$script:OriginalPath = $env:PATH
 $script:ArtifactRoot = $null
 $script:Version = $null
 $script:SourceIdentity = $null
@@ -100,6 +102,9 @@ function Invoke-SelfTest {
   $priorFingerprint = $script:SourceFingerprint
   $priorVersion = $script:Version
   $priorVersions = $script:ProviderVersions
+  $priorDataDir = $script:DataDir
+  $priorConfigPath = $script:ConfigPath
+  $priorProviderStubPath = $script:ProviderStubPath
   try {
     $script:ExecutionMode = 'source'
     $script:SourceIdentity = '0123456789abcdef'
@@ -169,12 +174,50 @@ Qualification: **PASS**
     [IO.File]::WriteAllText($artifactMismatchPath, $artifactMismatch)
     if ((Test-ProviderEvidence -Path $artifactMismatchPath).Valid) { throw 'stray release version satisfied identity matching' }
     if ((Test-ProviderEvidence -Path (Join-Path $testRoot 'absent.md')).Valid) { throw 'absent evidence was accepted' }
+
+    $script:DataDir = Join-Path $testRoot 'data'
+    $script:ConfigPath = Join-Path $testRoot 'dartclaw.yaml'
+    $script:ProviderStubPath = Join-Path $testRoot 'provider-startup-stub.exe'
+    Write-SmokeConfig -Provider claude -UseProviderStub $true
+    $stubConfig = Get-Content -LiteralPath $script:ConfigPath -Raw
+    if ([regex]::Matches($stubConfig, '(?m)^    executable: provider-startup-stub\.exe$').Count -ne 2) {
+      throw 'provider stub was not selected for both providers'
+    }
+    Write-SmokeConfig -Provider claude -UseProviderStub $false
+    $realConfig = Get-Content -LiteralPath $script:ConfigPath -Raw
+    if ($realConfig -notmatch '(?m)^    executable: claude$' -or $realConfig -notmatch '(?m)^    executable: codex$') {
+      throw 'real provider executables were not preserved outside skip mode'
+    }
+
+    $stubSource = Join-Path $PSScriptRoot 'provider_startup_stub.dart'
+    $versionOutput = @(& dart $stubSource --version 2>&1 | ForEach-Object ToString)
+    if ($LASTEXITCODE -ne 0 -or $versionOutput[0] -ne 'dartclaw-provider-startup-stub 1.0.0') {
+      throw 'provider stub version probe failed'
+    }
+    $authOutput = @(& dart $stubSource auth status 2>&1 | ForEach-Object ToString)
+    if ($LASTEXITCODE -ne 0 -or (($authOutput -join "`n") | ConvertFrom-Json).loggedIn -ne $true) {
+      throw 'provider stub auth probe failed'
+    }
+    $initialize = '{"type":"control_request","request_id":"self-test","request":{"subtype":"initialize"}}'
+    $responseOutput = @($initialize | & dart $stubSource 2>&1 | ForEach-Object ToString)
+    $response = ($responseOutput -join "`n") | ConvertFrom-Json
+    if (
+      $LASTEXITCODE -ne 0 -or
+      $response.type -ne 'control_response' -or
+      $response.response.subtype -ne 'success' -or
+      $response.response.request_id -ne 'self-test'
+    ) {
+      throw 'provider stub initialize handshake failed'
+    }
   } finally {
     $script:ExecutionMode = $priorMode
     $script:SourceIdentity = $priorIdentity
     $script:SourceFingerprint = $priorFingerprint
     $script:Version = $priorVersion
     $script:ProviderVersions = $priorVersions
+    $script:DataDir = $priorDataDir
+    $script:ConfigPath = $priorConfigPath
+    $script:ProviderStubPath = $priorProviderStubPath
     Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
   Write-Host 'Windows runtime smoke verdict table: PASS'
@@ -186,8 +229,14 @@ function ConvertTo-YamlSingleQuoted {
 }
 
 function Write-SmokeConfig {
-  param([Parameter(Mandatory)][ValidateSet('claude', 'codex')][string]$Provider)
+  param(
+    [Parameter(Mandatory)][ValidateSet('claude', 'codex')][string]$Provider,
+    [bool]$UseProviderStub = [bool]$SkipProviders
+  )
   $dataDir = ConvertTo-YamlSingleQuoted $script:DataDir
+  if ($UseProviderStub -and -not $script:ProviderStubPath) { throw 'provider startup stub is not initialized' }
+  $claudeExecutable = if ($UseProviderStub) { Split-Path -Leaf $script:ProviderStubPath } else { 'claude' }
+  $codexExecutable = if ($UseProviderStub) { Split-Path -Leaf $script:ProviderStubPath } else { 'codex' }
   $config = @"
 data_dir: $dataDir
 host: 127.0.0.1
@@ -226,11 +275,11 @@ agent:
 
 providers:
   claude:
-    executable: claude
+    executable: $claudeExecutable
     pool_size: 1
     credentials_required: false
   codex:
-    executable: codex
+    executable: $codexExecutable
     pool_size: 1
     credentials_required: false
     approval: never
@@ -243,6 +292,17 @@ providers:
   } else {
     Move-Item -LiteralPath $tempConfig -Destination $script:ConfigPath
   }
+}
+
+function Initialize-ProviderStartupStub {
+  $source = Join-Path $PSScriptRoot 'provider_startup_stub.dart'
+  if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "provider startup stub source not found: $source" }
+  $script:ProviderStubPath = Join-Path $script:TempRoot 'provider-startup-stub.exe'
+  $output = & dart compile exe $source -o $script:ProviderStubPath 2>&1
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $script:ProviderStubPath -PathType Leaf)) {
+    throw "provider startup stub compilation failed: $($output -join [Environment]::NewLine)"
+  }
+  $env:PATH = "$script:TempRoot;$env:PATH"
 }
 
 function Invoke-DartClaw {
@@ -595,6 +655,10 @@ try {
   $script:CurrentStage = 'provider-preflight'
   $script:ProviderVersions.claude = Get-CommandVersion 'claude'
   $script:ProviderVersions.codex = Get-CommandVersion 'codex'
+  if ($SkipProviders) {
+    $script:CurrentStage = 'provider-stub'
+    Initialize-ProviderStartupStub
+  }
   $claudeAuthenticated = Test-ClaudeAuthentication
   $codexAuthenticated = Test-CodexAuthentication
 
@@ -736,6 +800,7 @@ try {
   exit 1
 } finally {
   Stop-SmokeServer
+  $env:PATH = $script:OriginalPath
   if ($script:TempRoot -and (Test-Path -LiteralPath $script:TempRoot)) {
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
   }

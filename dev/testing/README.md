@@ -39,7 +39,8 @@ bash dev/testing/profiles/workflow-live/run.sh --full
 Do not use the workspace-root `dart test -t integration` command as a workflow gate. The root has no default `test/` directory, and integration-tagged suites are skipped by default unless run with `--run-skipped` against explicit files.
 
 The Windows runtime profile is release-ready only when its verdict is `supported`. A credential-only CI skip must stay
-explicit and is covered only by fresh, matching manual evidence for both Claude and Codex. See
+explicit. In that mode, a compiled startup-only stub lets core layers run without provider credentials; provider turns
+remain skipped and are covered only by fresh, matching manual evidence for both Claude and Codex. See
 `scenarios/windows-runtime-smoke.md`; ARM64 provider evidence cannot replace native x64 artifact, SQLite, installer, or
 core-runtime proof.
 

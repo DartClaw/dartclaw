@@ -1,7 +1,9 @@
 name: Temporary Scoop Qualification
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - feat/0.21
 
 permissions:
   actions: read

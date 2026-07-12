@@ -695,7 +695,14 @@ try {
     try {
       $web = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/" -MaximumRedirection 10
       if ($web.StatusCode -ne 200 -or $web.Content -notmatch 'DartClaw') { throw 'root page did not render DartClaw HTML' }
-      Set-LayerResult 'web-ui' 'pass' "HTTP $($web.StatusCode), final URI $($web.BaseResponse.ResponseUri.AbsoluteUri)"
+      $finalUri = if ($null -ne $web.BaseResponse.PSObject.Properties['ResponseUri']) {
+        $web.BaseResponse.ResponseUri.AbsoluteUri
+      } elseif ($null -ne $web.BaseResponse.PSObject.Properties['RequestMessage']) {
+        $web.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+      } else {
+        'unavailable'
+      }
+      Set-LayerResult 'web-ui' 'pass' "HTTP $($web.StatusCode), final URI $finalUri"
     } catch {
       Set-LayerResult 'web-ui' 'fail' $_.Exception.Message
     }

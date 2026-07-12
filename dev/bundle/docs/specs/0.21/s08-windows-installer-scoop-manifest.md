@@ -88,8 +88,8 @@
 
 - [x] **S06 [OC03] [TI03,TI04,TI05] Scoop manifest installs the same asset and stays in lockstep**
   - **Given** the rendered Scoop manifest for `<version>`
-  - **When** its `version`, `architecture.64bit.url`, `architecture.64bit.hash`, and `bin` are inspected (and, on a Windows host, `scoop install` is run against it)
-  - **Then** the manifest `version` equals `dartclawVersion`, the URL points at `dartclaw-v<version>-windows-x64.zip`, the `hash` equals that asset's published SHA256, `bin` targets `dartclaw.exe` inside the extracted archive, and installing exposes a working `dartclaw` command
+  - **When** its install-time and autoupdate URLs, `version`, `architecture.64bit.hash`, and `bin` are inspected (and, on a Windows host, `scoop install` is run against it)
+  - **Then** the manifest `version` equals `dartclawVersion`, the install-time URL contains the concrete `dartclaw-v<version>-windows-x64.zip` asset, only the autoupdate URL uses `$version`, the `hash` equals that asset's published SHA256, `bin` targets `dartclaw.exe` inside the extracted archive, and installing exposes a working `dartclaw` command
 
 
 ## Structural Criteria
@@ -203,3 +203,35 @@ Evidence: S08 requires one-command non-admin installation, stable upgrades, and 
 
 - `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`: the concurrent workspace state has 51 methods
   against the fitness limit of 40; this file was dirty before S08 and is outside the installer/Scoop scope.
+
+### Run: 2026-07-12 17:00 UTC – design-change
+
+#### DESIGN CHANGE
+
+S06 now distinguishes Scoop's concrete install-time URL from its `$version` autoupdate URL.
+
+#### ADR
+
+`dev/adrs/038-homebrew-formula-publication.md` was amended on 2026-07-12 to record the 0.21 Scoop application and
+version-substitution rule. This applies the existing publication architecture; it does not introduce a new one.
+
+Old:
+
+```markdown
+- [x] **S06 [OC03] [TI03,TI04,TI05] Scoop manifest installs the same asset and stays in lockstep**
+  - **Given** the rendered Scoop manifest for `<version>`
+  - **When** its `version`, `architecture.64bit.url`, `architecture.64bit.hash`, and `bin` are inspected (and, on a Windows host, `scoop install` is run against it)
+  - **Then** the manifest `version` equals `dartclawVersion`, the URL points at `dartclaw-v<version>-windows-x64.zip`, the `hash` equals that asset's published SHA256, `bin` targets `dartclaw.exe` inside the extracted archive, and installing exposes a working `dartclaw` command
+```
+
+New:
+
+```markdown
+- [x] **S06 [OC03] [TI03,TI04,TI05] Scoop manifest installs the same asset and stays in lockstep**
+  - **Given** the rendered Scoop manifest for `<version>`
+  - **When** its install-time and autoupdate URLs, `version`, `architecture.64bit.hash`, and `bin` are inspected (and, on a Windows host, `scoop install` is run against it)
+  - **Then** the manifest `version` equals `dartclawVersion`, the install-time URL contains the concrete `dartclaw-v<version>-windows-x64.zip` asset, only the autoupdate URL uses `$version`, the `hash` equals that asset's published SHA256, `bin` targets `dartclaw.exe` inside the extracted archive, and installing exposes a working `dartclaw` command
+```
+
+The checked Structural Criterion and TI03/TI05 text still preserve the invalid historical `#{version}` wording. The
+sanctioned design-change operation cannot edit those sections, so the reconciliation ledger remains blocking.

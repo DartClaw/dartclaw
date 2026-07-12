@@ -23,8 +23,9 @@ dartclaw --version
 Re-run the installer to upgrade. It stages and verifies the complete replacement before activating it. To use a
 different root, download `install.ps1` and pass `-InstallRoot`.
 
-The Scoop bucket is planned but not yet published or independently qualified. Use the PowerShell installer for the
-release-qualified path. After bucket publication, its commands will be:
+The public Scoop bucket exists and its manifest flow is qualified on native Windows x64, but it has no installable
+manifest yet. Use the PowerShell installer until a public Windows release asset and its rendered bucket manifest are
+both published. Then use:
 
 ```powershell
 scoop bucket add dartclaw https://github.com/DartClaw/scoop-dartclaw

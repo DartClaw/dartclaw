@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-06-09 (implemented in 0.18, fulfilling PRD FR14 "standalone binary distribution polish").
+Accepted – 2026-06-09 (implemented in 0.18, fulfilling PRD FR14 "standalone binary distribution polish"); amended
+2026-07-12 to apply the same publication pattern to Scoop for Windows.
 
 **Related:** [ADR-008](008-sdk-publishing-strategy.md) (pub.dev publishing strategy — this is the analogous decision for the end-user binary). Distribution mechanics only; no runtime/security surface.
 
@@ -36,6 +37,17 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 - The in-repo formula's placeholder digests are intentionally non-installable — a maintainer copying it by hand would get a checksum mismatch (mitigated: this ADR + a tap README note marking the formula as generated).
 - Two repos and a manually-provisioned secret are operational prerequisites; if the PAT expires, publication silently skips until renewed (the release-prep checklist verifies the tap commit landed).
 
+## 0.21 Amendment – Scoop Publication
+
+Windows distribution uses the same canonical-template and generated-mirror decision. `package/scoop/dartclaw.json` is
+reviewed and structurally tested in the main repo; `dev/tools/render_scoop_manifest.dart` injects the verified Windows
+ZIP digest; the release workflow publishes the result as `bucket/dartclaw.json` in `DartClaw/scoop-dartclaw` using a
+fine-grained, bucket-scoped `SCOOP_BUCKET_TOKEN`.
+
+Scoop requires the install-time `architecture.64bit.url` to contain the concrete release version. `$version`
+substitution is valid only in `autoupdate.architecture.64bit.url`; `#{version}` is not Scoop syntax. This package-manager
+rule refines the template shape without changing the publication architecture.
+
 ## Alternatives Considered
 
 1. **Formula only in the tap repo, patched in place** (the xcodeproj-cli pattern) — rejected: that project fuses one universal macOS binary (1 digest, simple `sed`); DartClaw has four platform digests, and keeping the canonical structure in the main repo retains code review + the existing formula test.
@@ -49,4 +61,5 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 - `.github/workflows/release-binaries.yml` (`homebrew` job), `dev/tools/render_homebrew_formula.dart`, `package/homebrew/dartclaw.rb`, `apps/dartclaw_cli/test/tool/homebrew_formula_test.dart`
 - `dev/guidelines/RELEASE_PREPARATION.md` (Homebrew audit + `HOMEBREW_TAP_TOKEN` prerequisite)
 - Tap repo: `DartClaw/homebrew-dartclaw`
+- Scoop bucket repo: `DartClaw/scoop-dartclaw`
 - 0.18 PRD FR14.

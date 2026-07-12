@@ -7,7 +7,7 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
 | Homebrew | Latest | DartClaw install path on macOS and Linux |
-| PowerShell | 5.1+ | Qualified Windows installer; the planned Scoop bucket is not yet published |
+| PowerShell | 5.1+ | Qualified Windows installer; Scoop requires a public Windows asset and bucket manifest |
 | Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
@@ -56,8 +56,8 @@ irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
 The installer downloads `dartclaw-v<version>-windows-x64.zip`, verifies its checksum, and installs the complete
 `VERSION` + `bin` + `lib` tree under `%LOCALAPPDATA%\Programs\DartClaw` by default. It adds
 `%LOCALAPPDATA%\Programs\DartClaw\bin` to your persistent user `PATH`; open a new terminal before running
-`dartclaw --version`. Future Scoop installation and upgrade commands are recorded in the [Windows guide](windows.md),
-but the bucket is not yet published or qualified.
+`dartclaw --version`. The public Scoop bucket and its qualified commands are recorded in the
+[Windows guide](windows.md); they become usable after both the Windows release asset and rendered manifest publish.
 
 Provider CLIs are not Homebrew dependencies of DartClaw. Install the providers you plan to use and verify them explicitly:
 

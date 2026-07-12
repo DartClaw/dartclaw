@@ -44,6 +44,10 @@ remain skipped and are covered only by fresh, matching manual evidence for both 
 `scenarios/windows-runtime-smoke.md`; ARM64 provider evidence cannot replace native x64 artifact, SQLite, installer, or
 core-runtime proof.
 
+Scoop qualification is recorded separately in `scenarios/windows-scoop.md` and `evidence/windows-scoop.md`. The local
+bucket flow can qualify before release; hosted installation remains pending until a public Windows ZIP and rendered
+manifest exist.
+
 ## Scenarios
 
 Scenarios live under `scenarios/` and reference profiles by name and port in their YAML frontmatter. The `test-scenario` skill (at `.claude/skills/test-scenario/`) parses the frontmatter, verifies or starts the required profile, drives browser + API steps, and produces a structured pass/fail report.

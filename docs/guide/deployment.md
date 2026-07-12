@@ -76,8 +76,8 @@ irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
 
 It installs `dartclaw-v<version>-windows-x64.zip` at `%LOCALAPPDATA%\Programs\DartClaw` by default and persists
 `%LOCALAPPDATA%\Programs\DartClaw\bin` on the user `PATH`. Re-run the command to upgrade atomically, then open a new
-terminal. A Scoop bucket is planned but not yet published or independently qualified. After publication, its commands
-will be:
+terminal. The public Scoop bucket exists and its manifest flow is qualified on native Windows x64, but it remains
+empty until a public Windows release asset and its rendered bucket manifest are both published. Then use:
 
 ```powershell
 scoop bucket add dartclaw https://github.com/DartClaw/scoop-dartclaw

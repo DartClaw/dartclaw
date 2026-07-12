@@ -5,7 +5,7 @@
 Accepted – 2026-06-09 (implemented in 0.18, fulfilling PRD FR14 "standalone binary distribution polish"); amended
 2026-07-12 to apply the same publication pattern to Scoop for Windows.
 
-**Related:** [ADR-008](008-sdk-publishing-strategy.md) (pub.dev publishing strategy — this is the analogous decision for the end-user binary). Distribution mechanics only; no runtime/security surface.
+**Related:** [ADR-008](008-sdk-publishing-strategy.md) (pub.dev publishing strategy — this is the analogous decision for the end-user binary). Runtime behavior is unaffected; CI credential handling and distribution integrity are security-critical.
 
 ## Context
 
@@ -21,7 +21,10 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 - A Dart renderer (`dev/tools/render_homebrew_formula.dart`) injects the four verified per-platform digests, asserting version lockstep and exactly one digest slot per target.
 - A `homebrew` job in the `Release Binaries` workflow (`needs: build`) downloads the platform `.sha256` release assets, renders the formula, and pushes it to the tap using a `HOMEBREW_TAP_TOKEN` secret. The job no-ops (does not fail the release) when the secret is absent.
 - Auth is a **fine-grained PAT** scoped to the Homebrew tap and Scoop bucket repositories (`contents:write`), stored as
-  the `HOMEBREW_TAP_TOKEN` secret on the main repo.
+  the `HOMEBREW_TAP_TOKEN` secret in the `distribution-publication` environment.
+- Both publication jobs use the protected `distribution-publication` environment. It requires approval before the PAT
+  is exposed; `v*` tag creation/deletion is restricted by a repository ruleset. Workflow-wide permissions remain
+  `contents:read`, with `contents:write` granted only to jobs that publish release assets.
 - Provider CLIs (`claude`, `codex`, Goose, Vibe) remain explicit operator prerequisites, **not** `depends_on` Homebrew dependencies (test-enforced).
 
 ## Consequences
@@ -37,7 +40,7 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 ### Negative
 
 - The in-repo formula's placeholder digests are intentionally non-installable — a maintainer copying it by hand would get a checksum mismatch (mitigated: this ADR + a tap README note marking the formula as generated).
-- Two repos and a manually-provisioned secret are operational prerequisites; if the PAT expires, publication silently skips until renewed (the release-prep checklist verifies the tap commit landed).
+- Two repos and a manually-provisioned secret are operational prerequisites; an absent secret skips publication, while an expired or insufficiently authorized PAT fails the publication jobs (the release-prep checklist verifies both commits landed).
 
 ## 0.21 Amendment – Scoop Publication
 

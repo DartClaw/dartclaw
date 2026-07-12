@@ -27,3 +27,15 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Notes: Owner chose one fine-grained PAT, stored as HOMEBREW_TAP_TOKEN, scoped to both generated distribution repositories.
+
+### .github/workflows/release-binaries.yml:design-changed:protected-distribution-publication
+- Status: OPEN
+- Class: design-changed
+- Stale targets: dev/bundle/docs/specs/0.21/s08-windows-installer-scoop-manifest.md#scope-boundaries, dev/bundle/docs/specs/0.21/s08-windows-installer-scoop-manifest.md#implementation-plan
+- Source run: quick-implement distribution publication hardening 2026-07-12
+- Recurrence: 1
+- Falsifier: –
+- Override reason: –
+- Created: 2026-07-12
+- Updated: 2026-07-12
+- Notes: Publication now requires an approval-gated environment, environment-scoped shared PAT, restricted release tags, and job-scoped workflow permissions.

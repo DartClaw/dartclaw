@@ -1,6 +1,6 @@
 # Windows Scoop Qualification Evidence
 
-**Status**: LOCAL MANIFEST FLOW QUALIFIED; HOSTED INSTALL PENDING WINDOWS RELEASE AND SHARED-TOKEN AUTHORIZATION
+**Status**: LOCAL MANIFEST FLOW QUALIFIED; HOSTED INSTALL PENDING WINDOWS RELEASE AND ENVIRONMENT-SECRET AUTHORIZATION
 
 **Run timestamp**: `2026-07-12T16:56:19Z`
 **Qualification workflow**: [GitHub Actions run 29201029703](https://github.com/DartClaw/dartclaw/actions/runs/29201029703)
@@ -27,8 +27,19 @@
 | Public bucket availability | pass | Windows VM: `The dartclaw bucket was added successfully.` then `The dartclaw bucket was removed successfully.` |
 | Hosted install | pending | v0.20.1 has no public Windows ZIP; the bucket intentionally has no manifest yet |
 
+## Publication Security
+
+- `distribution-publication` environment created with `tolo` as required reviewer and a custom deployment policy
+  allowing only `v*` tags.
+- Active `Protect release tags` repository ruleset restricts creation, update, and deletion of `v*` tags to `tolo`.
+- Workflow permissions default to `contents:read`; only the release-asset build and aggregate-checksum jobs receive
+  `contents:write`.
+- Shared-token probe [run 29201926888](https://github.com/DartClaw/dartclaw/actions/runs/29201926888) proved Homebrew
+  access and failed on Scoop with HTTP 403. The repository-scoped secret has not been widened.
+
 ## Remaining Release Gate
 
-Ensure the existing `HOMEBREW_TAP_TOKEN` has `contents:write` on both `DartClaw/homebrew-dartclaw` and
-`DartClaw/scoop-dartclaw`, then confirm the first 0.21 tag publishes both the Windows ZIP and rendered bucket manifest.
+Move `HOMEBREW_TAP_TOKEN` from repository scope into the `distribution-publication` environment, delete the
+repository-scoped copy, and grant its fine-grained PAT `contents:write` on both `DartClaw/homebrew-dartclaw` and
+`DartClaw/scoop-dartclaw`. Then confirm the first 0.21 tag publishes both the Windows ZIP and rendered bucket manifest.
 Repeat the hosted install procedure before calling Scoop release-ready.

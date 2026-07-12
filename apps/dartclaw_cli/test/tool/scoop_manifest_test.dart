@@ -132,12 +132,15 @@ void main() {
     final publish = steps.singleWhere((step) => step['name'] == 'Publish manifest to Scoop bucket');
 
     expect(scoop['needs'], 'build');
+    expect(scoop['environment'], 'distribution-publication');
     expect(download['run'], contains("--pattern 'dartclaw-v*-windows-x64.zip.sha256'"));
     expect(render['run'], contains('dev/tools/render_scoop_manifest.dart'));
     expect(publish['run'], contains('DartClaw/scoop-dartclaw.git'));
     expect(publish['run'], contains('bucket/dartclaw.json'));
     expect((publish['env'] as YamlMap)['HOMEBREW_TAP_TOKEN'], r'${{ secrets.HOMEBREW_TAP_TOKEN }}');
     expect(publish['run'], contains('HOMEBREW_TAP_TOKEN not configured; skipping bucket update.'));
+    expect(publish['run'], contains(r'x-access-token:${HOMEBREW_TAP_TOKEN}@github.com'));
+    expect(publish['run'], isNot(contains('SCOOP_BUCKET_TOKEN')));
   });
 }
 

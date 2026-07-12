@@ -9,12 +9,14 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.runs_on }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +44,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
@@ -128,6 +132,8 @@ jobs:
     name: Publish aggregate checksums
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      contents: write
     steps:
       - name: Download release checksum assets
         env:
@@ -151,9 +157,12 @@ jobs:
     name: Update Homebrew tap
     runs-on: ubuntu-latest
     needs: build
+    environment: distribution-publication
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
@@ -217,6 +226,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Download Windows release asset
         shell: pwsh
@@ -240,9 +251,12 @@ jobs:
     name: Update Scoop bucket
     runs-on: ubuntu-latest
     needs: build
+    environment: distribution-publication
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1

@@ -241,6 +241,17 @@ sanctioned design-change operation cannot edit those sections, so the reconcilia
 Decision-Key: shared-distribution-publication-token
 Altitude: fis-local
 Affected surface: Release workflow authentication for Homebrew and Scoop publication
-Decision: Both publication jobs use the existing HOMEBREW_TAP_TOKEN secret, backed by one fine-grained PAT restricted to the Homebrew tap and Scoop bucket repositories with contents write access.
+Decision: Both publication jobs use the HOMEBREW_TAP_TOKEN environment secret, backed by one fine-grained PAT restricted to the Homebrew tap and Scoop bucket repositories with contents write access.
 Rationale: Both repositories are generated distribution mirrors in the same trust boundary; one scoped credential avoids redundant secret provisioning and rotation.
 Evidence: Owner decision on 2026-07-12 to reuse HOMEBREW_TAP_TOKEN for Scoop publication.
+
+### Run: 2026-07-12 17:55 UTC – security-hardening
+
+#### DECISION NOTE: protected-distribution-publication
+
+Decision-Key: protected-distribution-publication
+Altitude: fis-local
+Affected surface: Release workflow permissions, publication credential exposure, and release-tag governance
+Decision: Homebrew and Scoop publication use one approval-gated distribution-publication environment. Repository rules restrict v* tag creation and deletion. The workflow defaults to contents read and grants contents write only to release-asset publishing jobs.
+Rationale: A shared PAT can modify both public installation channels, so unreviewed tagged workflow code must not receive it and unrelated jobs must not receive repository write access.
+Evidence: Security review on 2026-07-12 found no environment, tag ruleset, or branch protection while a maintainer could push tags.

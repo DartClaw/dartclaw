@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-12 08:04 CEST
+Last Updated: 2026-07-12 19:59 CEST
 
 ### Implemented Features (through 0.21)
 
@@ -37,7 +37,9 @@ None – 0.21 implementation and qualification are complete; release/tag pending
 
 ## Blockers
 
-None.
+- 0.21 distribution publication: move `HOMEBREW_TAP_TOKEN` from repository scope to the protected
+  `distribution-publication` environment, delete the repository-scoped copy, then add `DartClaw/scoop-dartclaw` to
+  the fine-grained PAT. Hosted Scoop installation remains gated on the first public 0.21 Windows ZIP.
 
 ## Recent Decisions
 

@@ -29,6 +29,7 @@ void main() {
   final repoRoot = _repoRoot();
   final workflow = File(p.join(repoRoot, '.github', 'workflows', 'release-binaries.yml')).readAsStringSync();
   final document = loadYaml(workflow) as YamlMap;
+  final jobs = document['jobs'] as YamlMap;
   final buildJob = (document['jobs'] as YamlMap)['build'] as YamlMap;
   final matrix = (buildJob['strategy'] as YamlMap)['matrix'] as YamlMap;
   final includes = (matrix['include'] as YamlList).cast<YamlMap>();
@@ -92,5 +93,35 @@ void main() {
     // The aggregate-checksums job has no checkout, so `gh release download`
     // must get the repo from GH_REPO or it fails with "not a git repository".
     expect(workflow, contains('GH_REPO: \${{ github.repository }}'));
+  });
+
+  test('publication jobs use the protected environment and least-privilege credentials', () {
+    expect(document['permissions'], {'contents': 'read'});
+    expect(buildJob['permissions'], {'contents': 'write'});
+    expect((jobs['checksums'] as YamlMap)['permissions'], {'contents': 'write'});
+    for (final name in ['homebrew', 'windows-installer', 'scoop']) {
+      expect((jobs[name] as YamlMap).containsKey('permissions'), isFalse);
+    }
+
+    for (final job in jobs.values.cast<YamlMap>()) {
+      final jobSteps = (job['steps'] as YamlList).cast<YamlMap>();
+      for (final checkout in jobSteps.where((step) => '${step['uses']}'.startsWith('actions/checkout@'))) {
+        expect((checkout['with'] as YamlMap)['persist-credentials'], isFalse);
+      }
+    }
+
+    for (final name in ['homebrew', 'scoop']) {
+      final job = jobs[name] as YamlMap;
+      expect(job['environment'], 'distribution-publication');
+      final steps = (job['steps'] as YamlList).cast<YamlMap>();
+      final checkout = steps.singleWhere((step) => step['name'] == 'Checkout');
+      expect((checkout['with'] as YamlMap)['persist-credentials'], isFalse);
+      final publish = steps.singleWhere(
+        (step) => step['env'] is YamlMap && (step['env'] as YamlMap).containsKey('HOMEBREW_TAP_TOKEN'),
+      );
+      expect((publish['env'] as YamlMap)['HOMEBREW_TAP_TOKEN'], r'${{ secrets.HOMEBREW_TAP_TOKEN }}');
+      expect(publish['run'], contains(r'x-access-token:${HOMEBREW_TAP_TOKEN}@github.com'));
+      expect(publish['run'], isNot(contains('SCOOP_BUCKET_TOKEN')));
+    }
   });
 }

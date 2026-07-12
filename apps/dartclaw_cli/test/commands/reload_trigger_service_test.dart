@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/reload_trigger_service.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 // Simple test double for ConfigNotifier that tracks reload() calls.
@@ -41,15 +42,27 @@ void main() {
     });
 
     group('mode: off', () {
-      test('start() registers no subscriptions', () {
+      test('start() registers no subscriptions or unsupported-capability warning', () async {
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
+        var signalWatchCalls = 0;
         final svc = ReloadTriggerService(
           configPath: '/tmp/dartclaw.yaml',
           notifier: notifier,
           reloadConfig: const ReloadConfig(mode: 'off'),
           configLoader: loader,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          sigusr1Watch: () {
+            signalWatchCalls++;
+            return const Stream.empty();
+          },
         );
         svc.start();
+        await Future<void>.delayed(Duration.zero);
         expect(loaderCallCount, 0);
+        expect(signalWatchCalls, 0);
+        expect(records.where((record) => record.error is UnsupportedCapabilityError), isEmpty);
         svc.dispose();
       });
 
@@ -80,22 +93,23 @@ void main() {
         expect(notifier.reloadCalls, hasLength(1));
       });
 
-      test('configLoader exception is caught — ConfigNotifier.reload not called', () async {
-        var threw = false;
+      test('invalid reload keeps active config and logs the failure', () async {
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
+        final activeConfig = notifier.current;
         final svc = ReloadTriggerService(
           configPath: '/tmp/dartclaw.yaml',
           notifier: notifier,
           reloadConfig: const ReloadConfig(mode: 'signal'),
-          configLoader: () {
-            threw = true;
-            throw const FormatException('malformed YAML');
-          },
+          configLoader: () => throw const FormatException('malformed YAML'),
         );
 
-        await svc.doReload();
+        await expectLater(svc.doReload(), completes);
 
-        expect(threw, true);
+        expect(notifier.current, same(activeConfig));
         expect(notifier.reloadCalls, isEmpty);
+        expect(records.map((record) => record.message), contains(contains('config reload failed')));
       });
 
       test('doReload logs info when no reloadable changes detected', () async {
@@ -115,14 +129,49 @@ void main() {
     });
 
     group('mode: signal', () {
-      test('start() completes without error on POSIX platforms', () {
+      test('unsupported signal reload reports the structured capability error', () async {
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
+        var signalWatchCalls = 0;
         final svc = ReloadTriggerService(
           configPath: '/tmp/dartclaw.yaml',
           notifier: notifier,
           reloadConfig: const ReloadConfig(mode: 'signal'),
           configLoader: loader,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          sigusr1Watch: () {
+            signalWatchCalls++;
+            return const Stream.empty();
+          },
+        );
+
+        svc.start();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(signalWatchCalls, 0);
+        final error = records.map((record) => record.error).whereType<UnsupportedCapabilityError>().single;
+        expect(error.capability, contains('signal-based config reload'));
+        expect(error.attemptedContext, contains('signal'));
+        expect(error.remediation, allOf(contains('auto'), contains('file-watch')));
+        svc.dispose();
+      });
+
+      test('available POSIX signals register the SIGUSR1 subscription', () {
+        var signalWatchCalls = 0;
+        final svc = ReloadTriggerService(
+          configPath: '/tmp/dartclaw.yaml',
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+          configLoader: loader,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
+          sigusr1Watch: () {
+            signalWatchCalls++;
+            return const Stream.empty();
+          },
         );
         expect(() => svc.start(), returnsNormally);
+        expect(signalWatchCalls, 1);
         svc.dispose();
       });
     });
@@ -142,21 +191,31 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      test('file-watch event on config filename triggers reload after debounce', () async {
+      test('Windows file-watch applies an atomic config change without restart', () async {
+        configFile.writeAsStringSync('# initial\n');
+        newConfig = config.copyWith(server: const ServerConfig(maxParallelTurns: 7));
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
         final svc = ReloadTriggerService(
           configPath: configFile.path,
           notifier: notifier,
           reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 100),
           configLoader: loader,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
         );
         svc.start();
 
-        configFile.writeAsStringSync('# updated\n');
+        final tempFile = File('${tempDir.path}/dartclaw.yaml.tmp');
+        tempFile.writeAsStringSync('# updated\n');
+        tempFile.renameSync(configFile.path);
 
         // Wait beyond debounce period.
         await Future<void>.delayed(const Duration(milliseconds: 300));
 
         expect(loaderCallCount, greaterThanOrEqualTo(1));
+        expect(notifier.current.server.maxParallelTurns, 7);
+        expect(records.map((record) => record.message), contains(contains('changed sections: server.*')));
         svc.dispose();
       });
 
@@ -240,15 +299,23 @@ void main() {
         expect(loaderCallCount, 0);
       });
 
-      test('file-watch setup failure logs warning and does not throw', () {
+      test('Windows file-watch setup failure reports that reload remains unavailable', () async {
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
         const badPath = '/nonexistent_dartclaw_test_dir_12345/dartclaw.yaml';
         final svc = ReloadTriggerService(
           configPath: badPath,
           notifier: notifier,
           reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 100),
           configLoader: loader,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          fileWatch: (_) => Stream.error(const FileSystemException('not found')),
         );
         expect(() => svc.start(), returnsNormally);
+        await Future<void>.delayed(Duration.zero);
+        expect(records.map((record) => record.message), contains(contains('config reload remains unavailable')));
+        expect(records.map((record) => record.message).join('\n'), isNot(contains('SIGUSR1-only')));
         svc.dispose();
       });
     });

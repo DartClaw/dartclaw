@@ -177,6 +177,7 @@ class ServiceWiring {
   final LogService logService;
   final MessageRedactor messageRedactor;
   final ResolvedAssets resolvedAssets;
+  final PlatformCapabilities platformCapabilities;
   final OutboundMcpTransportFactory? outboundMcpTransportFactory;
   final PostMcpStartupHook postMcpStartupHook;
 
@@ -210,12 +211,14 @@ class ServiceWiring {
     required this.logService,
     required this.messageRedactor,
     required this.resolvedAssets,
+    PlatformCapabilities? platformCapabilities,
     this.outboundMcpTransportFactory,
     PostMcpStartupHook? postMcpStartupHook,
     this.runWorkflowSkillsBootstrap = true,
     this.skillProvisionerEnvironment,
     this.skillProvisionerProcessRunner,
-  }) : postMcpStartupHook = postMcpStartupHook ?? _startSpaceEvents;
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       postMcpStartupHook = postMcpStartupHook ?? _startSpaceEvents;
 
   /// Constructs all services, wires them together via [DartclawServerBuilder],
   /// and registers MCP tools on the built server.
@@ -379,6 +382,7 @@ class ServiceWiring {
       dataDir: ctx.dataDir,
       eventBus: ctx.eventBus,
       exitFn: exitFn,
+      platformCapabilities: platformCapabilities,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
     );

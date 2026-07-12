@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -17,6 +18,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/bash_step_runner.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -24,6 +26,62 @@ import 'workflow_executor_test_support.dart';
 
 void main() {
   group('bash_step_runner unit', () {
+    group('selectBashShell', () {
+      test('S02 selects /bin/sh on POSIX without executable lookup', () async {
+        var lookupCalled = false;
+
+        final invocation = await selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'linux'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async {
+            lookupCalled = true;
+            return (exitCode: 0, stdout: '/unexpected');
+          },
+        );
+
+        expect(invocation.executable, '/bin/sh');
+        expect(invocation.arguments, ['-c', 'echo ok']);
+        expect(lookupCalled, isFalse);
+      });
+
+      test('S03 selects resolved Git Bash on Windows', () async {
+        final lookupCalls = <(String, List<String>)>[];
+
+        final invocation = await selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async {
+            lookupCalls.add((executable, arguments));
+            return (exitCode: 0, stdout: 'C:\\Program Files\\Git\\bin\\bash.exe\r\n');
+          },
+        );
+
+        expect(lookupCalls, hasLength(1));
+        expect(lookupCalls.single.$1, 'where');
+        expect(lookupCalls.single.$2, ['bash']);
+        expect(invocation.executable, r'C:\Program Files\Git\bin\bash.exe');
+        expect(invocation.arguments, ['-c', 'echo ok']);
+      });
+
+      test('S04 throws structured unsupported-capability error when Git Bash is missing', () async {
+        final future = selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async => (exitCode: 1, stdout: ''),
+        );
+
+        await expectLater(
+          future,
+          throwsA(
+            isA<UnsupportedCapabilityError>()
+                .having((error) => error.capability, 'capability', contains('bash'))
+                .having((error) => error.toString(), 'message', contains('bash steps require Git Bash on Windows'))
+                .having((error) => error.remediation, 'remediation', contains('WSL')),
+          ),
+        );
+      });
+    });
+
     group('resolveBashCommand', () {
       test('shell-escapes context substitutions', () {
         final command = resolveBashCommand('printf {{context.value}}', WorkflowContext(data: {'value': 'a b'}));
@@ -123,6 +181,72 @@ void main() {
     final h = WorkflowExecutorHarness();
     setUp(h.setUp);
     tearDown(h.tearDown);
+
+    test('S01 POSIX bash step executes through /bin/sh and captures stdout', () async {
+      const step = WorkflowStep(
+        id: 'bash1',
+        name: 'Bash 1',
+        taskType: WorkflowTaskType.bash,
+        prompts: ['echo hello'],
+        outputs: {'out': OutputConfig()},
+      );
+      final run = h.makeRun(h.makeDefinition(steps: [step]));
+
+      final outcome = await executeBashStep(
+        run: run,
+        step: step,
+        context: WorkflowContext(),
+        dataDir: h.tempDir.path,
+        templateEngine: WorkflowTemplateEngine(),
+        capabilities: PlatformCapabilities(operatingSystem: 'linux'),
+      );
+
+      expect(outcome.success, isTrue);
+      expect(outcome.outputs['bash1.status'], 'success');
+      expect(outcome.outputs['bash1.exitCode'], 0);
+      expect((outcome.outputs['out'] as String).trim(), 'hello');
+    });
+
+    test('S04 missing Git Bash returns a failed outcome, never success', () async {
+      const step = WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']);
+      final run = h.makeRun(h.makeDefinition(steps: [step]));
+
+      final outcome = await executeBashStep(
+        run: run,
+        step: step,
+        context: WorkflowContext(),
+        dataDir: h.tempDir.path,
+        templateEngine: WorkflowTemplateEngine(),
+        capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        executableLookup: (executable, arguments) async => (exitCode: 1, stdout: ''),
+      );
+
+      expect(outcome.success, isFalse);
+      expect(outcome.outputs['bash1.status'], 'failed');
+      expect(outcome.outputs['bash1.error'], contains('bash steps require Git Bash on Windows'));
+      expect(outcome.outputs['bash1.status'], isNot('success'));
+    });
+
+    test('S04 executor honors the injected Windows capability surface', () async {
+      final executor = h.makeExecutor(
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        executableLookupExecutor: (executable, arguments) async => (exitCode: 1, stdout: ''),
+      );
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      expect((await h.repository.getById(run.id))?.status, WorkflowRunStatus.failed);
+      expect(context['bash1.status'], 'failed');
+      expect(context['bash1.error'], contains('bash steps require Git Bash on Windows'));
+    });
 
     test('bash step runs command and completes with zero tokens and no task', () async {
       final definition = h.makeDefinition(

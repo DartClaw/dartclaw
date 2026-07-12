@@ -6,6 +6,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ## Dart Language
 
+- **Injected paths need matching path context.** Host-default `package:path` joining corrupts Windows fixture paths on POSIX; select `p.windows` for drive or UNC homes.
 - **`Future.timeout` cannot interrupt synchronous regex.** Single-threaded event loop. Mitigate via input truncation, not per-pattern timeouts.
 - **`Stream` lacks `whereType<T>()`.** Use `.where((e) => e is T).cast<T>()`.
 - **`=> {` in `.map()` parses as a set literal, not a block body.** Use `.map((x) { return ...; })`.
@@ -16,6 +17,11 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **An arrow-body `Future.then` cleanup callback re-adopts the source future.** `probe.then((_) => _cache.remove(key), onError: (e,_) => _cache.remove(key))` returns the cached future itself; on rejection the continuation adopts that error as an *unhandled* async error. Use statement bodies (`{ _cache.remove(key); }`) so the callbacks return void.
 
 ## Agent Harness Protocols
+
+- **Terminal result maps are outcomes, not success.** A resolved harness future can carry `stop_reason:error`; translate it before guarding or persisting streamed assistant text.
+
+### Process lifecycle
+- **Pre-signalled termination must carry acceptance, not an attempted flag.** Typed results lie if callers discard `Process.kill()`'s bool; thread nullable acceptance to suppress duplicate kills.
 
 ### Claude
 - **`CLAUDECODE` env var causes nesting refusal.** Clear in subprocess environment.
@@ -186,6 +192,9 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ## Tooling / Verification
 
+- **Failure injection must hit the claimed transition.** A pre-backup lock does not prove post-backup rollback; fail the second move and assert complete-tree restoration.
+- **PowerShell native stderr can terminate probes**: Under `ErrorActionPreference=Stop`, use a bounded `Continue` scope around native commands so warnings do not bypass `LASTEXITCODE` handling.
+- **Scoop root URLs do not interpolate.** Use concrete architecture URLs; `$version` works only under `autoupdate`, and `#{version}` is invalid.
 - **Asset resolution precedence must treat explicit source paths as intent.** Dev/testing profiles pass `--source-dir` specifically to exercise the checkout, so embedded assets must never shadow local templates, static files, skills, or workflow definitions. Startup logs the selected provenance; explicit, dev, and source-tree paths all win before the embedded fallback.
 - **Workflow Codex E2E needs real `CODEX_API_KEY`** even when the binary starts cleanly. Empty creds surface as websocket `401 Unauthorized` on the first live turn — environment blocker, not product regression.
 - **Path-output test stubs must materialize claimed files under the same roots production validation probes.** For workflow tests, write files under task worktree, `dataDir/projects/<projectId>`, and discovered `project_root` when relevant; otherwise stricter path validation correctly coerces outputs to empty.

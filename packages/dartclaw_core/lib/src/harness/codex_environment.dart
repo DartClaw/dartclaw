@@ -1,11 +1,14 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'codex_config_generator.dart';
 
 final _log = Logger('CodexEnvironment');
+
+const _homeDirectoryRemediation = 'Set HOME or USERPROFILE before starting DartClaw.';
 
 /// Manages a Codex worker home directory and its config files.
 ///
@@ -20,6 +23,9 @@ class CodexEnvironment {
   final String? mcpGatewayToken;
   final String? agentsMdContent;
 
+  /// Platform policy used to resolve the user's home directory.
+  final PlatformCapabilities platformCapabilities;
+
   /// When `true` (default), the harness does not override `CODEX_HOME` and the
   /// Codex subprocess reads the user's `~/.codex/` directly. When `false`, an
   /// isolated temp `CODEX_HOME` is created and seeded from `~/.codex/`.
@@ -33,21 +39,26 @@ class CodexEnvironment {
     this.mcpGatewayToken,
     this.agentsMdContent,
     this.useSystemCodexHome = true,
-  });
+    PlatformCapabilities? platformCapabilities,
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities();
 
   bool get isSetup => useSystemCodexHome || _tempDirectory != null;
 
   /// Prepares the Codex worker home.
   ///
-  /// - [useSystemCodexHome] = `true`: returns `$HOME/.codex` without mutating
-  ///   anything; the subprocess inherits it via the parent env.
+  /// - [useSystemCodexHome] = `true`: returns `.codex` under the resolved home
+  ///   without mutating anything; the subprocess inherits the parent environment.
   /// - [useSystemCodexHome] = `false`: creates an isolated temp dir, seeds it
   ///   from `~/.codex/`, and writes a DartClaw-specific `config.toml`.
   Future<String> setup() async {
     if (useSystemCodexHome) {
-      final home = Platform.environment['HOME'];
-      if (home == null || home.trim().isEmpty) {
-        throw StateError('HOME env var is not set; cannot resolve system CODEX_HOME');
+      final home = platformCapabilities.homeDirectory;
+      if (home == null) {
+        throw const UnsupportedCapabilityError(
+          capability: 'home directory',
+          attemptedContext: 'environment variables HOME and USERPROFILE',
+          remediation: _homeDirectoryRemediation,
+        );
       }
       if (mcpServerUrl != null && mcpServerUrl!.trim().isNotEmpty) {
         _log.warning(
@@ -56,7 +67,7 @@ class CodexEnvironment {
           'set providers.codex.use_system_codex_home: false to restore isolated injection.',
         );
       }
-      return p.join(home, '.codex');
+      return _defaultCodexHome(home);
     }
 
     final existingDirectory = _tempDirectory;
@@ -104,7 +115,7 @@ class CodexEnvironment {
   /// Returns environment variables required for the Codex subprocess.
   ///
   /// When [useSystemCodexHome] is `true`, `CODEX_HOME` is NOT overridden — the
-  /// subprocess inherits the parent's `HOME` and reads `~/.codex/` directly.
+  /// subprocess inherits the parent's home environment and reads `~/.codex/` directly.
   /// The MCP bearer token env var is still exported when configured, since it
   /// is consumed by whatever MCP entry the user has already placed in their
   /// `~/.codex/config.toml`.
@@ -153,12 +164,12 @@ class CodexEnvironment {
   }
 
   Future<void> _seedFromDefaultCodexHome(String targetDir) async {
-    final home = Platform.environment['HOME'];
-    if (home == null || home.trim().isEmpty) {
+    final home = platformCapabilities.homeDirectory;
+    if (home == null) {
       return;
     }
 
-    final sourceDir = Directory(p.join(home, '.codex'));
+    final sourceDir = Directory(_defaultCodexHome(home));
     if (!sourceDir.existsSync()) {
       return;
     }
@@ -173,4 +184,9 @@ class CodexEnvironment {
       await source.copy(target.path);
     }
   }
+}
+
+String _defaultCodexHome(String home) {
+  final isWindowsPath = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(home) || home.startsWith(r'\\');
+  return isWindowsPath ? p.windows.join(home, '.codex') : p.join(home, '.codex');
 }

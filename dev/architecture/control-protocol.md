@@ -1242,7 +1242,7 @@ When a task execution fails, the git worktree is intentionally **not** cleaned u
 
 | Error | Detection | Recovery |
 |---|---|---|
-| Turn timeout (600s) | `Timer` fires | `cancel()` (close stdin + SIGTERM), then `kill()` after 5s grace |
+| Turn timeout (600s) | `Timer` fires | `cancel()` closes stdin, then uses the platform-capability termination policy |
 | Harness not idle | State check at turn start | `StateError` thrown to caller |
 | Guard block (pre-turn) | `GuardChain.evaluateMessageReceived` returns block | Message stored as `[Blocked by guard: ...]`, failed outcome |
 | Guard block (post-turn) | `GuardChain.evaluateBeforeAgentSend` returns block | Message stored as `[Response blocked by guard: ...]`, failed outcome |
@@ -1250,12 +1250,18 @@ When a task execution fails, the git worktree is intentionally **not** cleaned u
 
 ### Cancellation
 
-The JSONL protocol has no explicit cancel command. Cancellation is implemented by closing stdin and sending SIGTERM:
+The JSONL protocol has no explicit cancel command. `cancel()` closes stdin and issues the initial platform termination
+request; the serialized stop path then passes that request's acceptance result to `killWithEscalation` as
+`initialTerminationAccepted` to observe the exit and, when supported, escalate. The helper reads
+`PlatformCapabilities.posixSignalsAvailable`. POSIX hosts use SIGTERM
+followed by SIGKILL after the grace period. Windows `Process.kill()` is an unconditional hard terminate, so DartClaw
+sends it once and never attempts POSIX signal escalation. If the process exit cannot be confirmed within the bounded
+wait, the helper returns an unconfirmed `ProcessTerminationResult` and logs a lifecycle warning naming the process.
 
 ```dart
 Future<void> cancel() async {
-  try { await _process?.stdin.close(); } catch (_) {}
-  _process?.kill();
+  await closeCurrentProcessStdin();
+  currentProcess?.kill();
 }
 ```
 

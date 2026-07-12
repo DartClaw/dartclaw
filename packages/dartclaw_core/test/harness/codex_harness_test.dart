@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_core/src/bridge/bridge_events.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
@@ -103,6 +104,7 @@ CodexHarness _buildHarness({
   HarnessConfig harnessConfig = const HarnessConfig(),
   Map<String, dynamic>? providerOptions,
   GuardChain? guardChain,
+  PlatformCapabilities? platformCapabilities,
   Duration killGracePeriod = Duration.zero,
 }) {
   final fake = process ?? FakeCodexProcess();
@@ -117,6 +119,7 @@ CodexHarness _buildHarness({
     harnessConfig: harnessConfig,
     providerOptions: providerOptions,
     guardChain: guardChain,
+    platformCapabilities: platformCapabilities,
     killGracePeriod: killGracePeriod,
   );
 }
@@ -142,6 +145,40 @@ void main() {
     });
 
     group('start()', () {
+      test('resolves the Codex binary through the injected platform capability surface', () async {
+        final calls = <({String executable, List<String> arguments})>[];
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(
+          process: fake,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          commandProbe: (executable, arguments) async {
+            calls.add((executable: executable, arguments: arguments));
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+        addTearDown(() async => harness.dispose());
+
+        await startHarness(harness, fake);
+        expect(calls.single.executable, 'where');
+        expect(calls.single.arguments, ['codex']);
+      });
+
+      test('missing Codex binary names the attempted lookup command', () async {
+        final harness = _buildHarness(
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
+          commandProbe: (_, _) async => ProcessResult(0, 1, '', 'missing'),
+        );
+        addTearDown(() async => harness.dispose());
+
+        await expectLater(
+          harness.start(),
+          throwsA(
+            isA<UnsupportedCapabilityError>()
+                .having((error) => error.attemptedContext, 'attemptedContext', contains('which codex'))
+                .having((error) => error.attemptedContext, 'attemptedContext', contains('codex')),
+          ),
+        );
+      });
       test('spawns codex app-server without --yolo', () async {
         final fake = FakeCodexProcess();
         late List<String> spawnedArgs;
@@ -626,6 +663,55 @@ void main() {
         expect(result.containsKey('total_cost_usd'), isFalse);
       });
 
+      test('failed completed turn preserves detail and does not poison the next turn', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final failedTurn = harness.turn(
+          sessionId: 'sess-auth',
+          messages: [
+            {'role': 'user', 'content': 'first'},
+          ],
+          systemPrompt: 'test',
+        );
+        await respondToLatestThreadStart(fake);
+        fake.emitLine({
+          'method': 'turn/completed',
+          'params': {
+            'turn': {
+              'status': 'failed',
+              'error': {'message': 'authentication required'},
+            },
+          },
+        });
+        expect(await failedTurn, containsPair('error', 'authentication required'));
+        expect(harness.state, WorkerState.idle);
+
+        final incompatibleTurn = harness.turn(
+          sessionId: 'sess-auth',
+          messages: [
+            {'role': 'user', 'content': 'second'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventLoop();
+        fake.emitTurnFailed('unsupported app-server protocol version');
+        expect(await incompatibleTurn, containsPair('error', 'unsupported app-server protocol version'));
+
+        final nextTurn = harness.turn(
+          sessionId: 'sess-auth',
+          messages: [
+            {'role': 'user', 'content': 'third'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventLoop();
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+        expect(await nextTurn, containsPair('stop_reason', 'completed'));
+      });
+
       test('rejects a concurrent first turn while lazy thread creation is in progress', () async {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
@@ -895,6 +981,86 @@ void main() {
         await pumpEventLoop();
 
         expect(events.any((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent), isFalse);
+      });
+
+      test('surfaces the project-trust warning once and still completes the turn', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(sub.cancel);
+
+        fake.emitLine({
+          'method': 'configWarning',
+          'params': {
+            'summary': 'Project-local config, hooks, and exec policies are disabled until the project is trusted.',
+          },
+        });
+        final turn = harness.turn(
+          sessionId: 'sess-warning',
+          messages: [
+            {'role': 'user', 'content': 'continue'},
+          ],
+          systemPrompt: 'test',
+        );
+        await respondToLatestThreadStart(fake);
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+        await turn;
+
+        expect(
+          events.whereType<ProviderProgressBridgeEvent>().single,
+          isA<ProviderProgressBridgeEvent>()
+              .having((event) => event.kind, 'kind', 'provider_setup_warning')
+              .having((event) => event.text, 'text', contains('Project-local config')),
+        );
+      });
+
+      test('logs failed MCP startup detail and ignores status noise', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        final records = <LogRecord>[];
+        final oldLevel = Logger.root.level;
+        Logger.root.level = Level.ALL;
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(() async {
+          Logger.root.level = oldLevel;
+          await sub.cancel();
+        });
+        await startHarness(harness, fake);
+
+        for (final status in ['starting', 'ready']) {
+          fake.emitLine({
+            'method': 'mcpServer/startupStatus/updated',
+            'params': {'name': 'node_repl', 'status': status, 'error': null},
+          });
+        }
+        fake.emitLine({
+          'method': 'mcpServer/startupStatus/updated',
+          'params': {'name': 'node_repl', 'status': 'failed', 'error': 'initialize response closed'},
+        });
+        await pumpEventLoop();
+
+        final warnings = records.where(
+          (record) => record.loggerName == 'CodexHarness' && record.level == Level.WARNING,
+        );
+        expect(warnings, hasLength(1));
+        expect(warnings.single.message, contains('node_repl'));
+        expect(warnings.single.message, contains('initialize response closed'));
+
+        final turn = harness.turn(
+          sessionId: 'sess-mcp-warning',
+          messages: [
+            {'role': 'user', 'content': 'continue'},
+          ],
+          systemPrompt: 'test',
+        );
+        await respondToLatestThreadStart(fake);
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+        expect(await turn, containsPair('stop_reason', 'completed'));
+        expect(harness.state, WorkerState.idle);
       });
     });
 

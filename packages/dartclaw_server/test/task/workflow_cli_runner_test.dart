@@ -352,7 +352,7 @@ void main() {
       });
     });
 
-    test('terminal result arms grace kill without failing the parsed result', () {
+    test('workflow CLI grace termination reaps its child without failing the parsed result', () {
       fakeAsync((async) {
         late FakeProcess fake;
         final runner = claudeRunner(
@@ -391,7 +391,12 @@ void main() {
         async.elapse(const Duration(seconds: 1));
         async.flushMicrotasks();
 
+        int? exitCode;
+        unawaited(fake.exitCode.then((value) => exitCode = value));
+        async.flushMicrotasks();
+
         expect(fake.killCalled, isTrue);
+        expect(exitCode, -1);
         expect(error, isNull);
         expect(result?.responseText, 'ok');
       });

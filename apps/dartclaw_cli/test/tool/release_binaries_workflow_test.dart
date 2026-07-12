@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 String _repoRoot() {
   final start =
@@ -27,6 +28,13 @@ String _repoRoot() {
 void main() {
   final repoRoot = _repoRoot();
   final workflow = File(p.join(repoRoot, '.github', 'workflows', 'release-binaries.yml')).readAsStringSync();
+  final document = loadYaml(workflow) as YamlMap;
+  final buildJob = (document['jobs'] as YamlMap)['build'] as YamlMap;
+  final matrix = (buildJob['strategy'] as YamlMap)['matrix'] as YamlMap;
+  final includes = (matrix['include'] as YamlList).cast<YamlMap>();
+  final steps = (buildJob['steps'] as YamlList).cast<YamlMap>();
+
+  YamlMap stepNamed(String name) => steps.singleWhere((step) => step['name'] == name);
 
   test('release workflow matrix publishes the platform and checksum contract', () {
     final expectedTargets = {
@@ -47,6 +55,31 @@ void main() {
       expect(workflow, contains('arch_name: $arch'));
       expect(workflow, contains('DARTCLAW_RELEASE_TARGET: \${{ matrix.target }}'));
     }
+
+    final windows = includes.singleWhere((row) => row['target'] == 'windows-x64');
+    expect(windows, {'runs_on': 'windows-latest', 'os_name': 'windows', 'arch_name': 'x64', 'target': 'windows-x64'});
+
+    final validation = stepNamed('Test Windows artifact validation');
+    final build = stepNamed('Build and validate Windows artifact');
+    final publish = stepNamed('Publish Windows release asset');
+    expect(validation['if'], "runner.os == 'Windows'");
+    expect(validation['shell'], 'pwsh');
+    expect(validation['run'], './dev/tools/build_windows_test.ps1');
+    expect(validation.containsKey('continue-on-error'), isFalse);
+    expect(build['if'], "runner.os == 'Windows'");
+    expect(build['shell'], 'pwsh');
+    expect(build['run'], './dev/tools/build_windows.ps1 -ReleaseTarget windows-x64');
+    expect(build.containsKey('continue-on-error'), isFalse);
+    expect(publish['if'], "runner.os == 'Windows'");
+    expect(publish['uses'], startsWith('softprops/action-gh-release@'));
+    expect(publish.containsKey('continue-on-error'), isFalse);
+    expect(steps.indexOf(validation), lessThan(steps.indexOf(build)));
+    expect(steps.indexOf(build), lessThan(steps.indexOf(publish)));
+    final windowsFiles = ((publish['with'] as YamlMap)['files'] as String).trim().split('\n');
+    expect(windowsFiles, [
+      r'build/dartclaw-v${{ env.DARTCLAW_VERSION }}-windows-x64.zip',
+      r'build/dartclaw-v${{ env.DARTCLAW_VERSION }}-windows-x64.zip.sha256',
+    ]);
 
     expect(workflow, contains('build/dartclaw-v\${{ env.DARTCLAW_VERSION }}-\${{ matrix.target }}.tar.gz'));
     expect(workflow, contains('build/dartclaw-v\${{ env.DARTCLAW_VERSION }}-\${{ matrix.target }}.tar.gz.sha256'));

@@ -122,6 +122,20 @@ void main() {
       expect(result.cacheWriteTokens, isNull);
     });
 
+    test('maps authentication-required result to an error completion', () {
+      final adapter = ClaudeProtocolAdapter();
+      final message = adapter.parseLine(
+        _j({
+          'type': 'result',
+          'is_error': true,
+          'stop_reason': 'stop_sequence',
+          'result': 'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+        }),
+      );
+
+      expect(message, isA<TurnComplete>().having((message) => message.stopReason, 'stopReason', 'error'));
+    });
+
     test('parses result with cache tokens normalised to cacheReadTokens and cacheWriteTokens', () {
       final adapter = ClaudeProtocolAdapter();
       final msg = adapter.parseLine(

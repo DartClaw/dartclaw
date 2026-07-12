@@ -36,6 +36,9 @@ class FakeProcess implements Process {
   /// The most recent signal passed to [kill].
   ProcessSignal? lastKillSignal;
 
+  /// Signals passed to [kill], in call order.
+  final List<ProcessSignal> killSignals = [];
+
   @override
   IOSink get stdin => _stdinSink;
 
@@ -70,6 +73,7 @@ class FakeProcess implements Process {
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
     killCalled = true;
     lastKillSignal = signal;
+    killSignals.add(signal);
     if (_completeExitOnKill) {
       exit(_killExitCode);
     }

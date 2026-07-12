@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show TurnProgressAction;
-import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, WorkflowCliStallEvent, killWithEscalation;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show EventBus, ProcessTerminationResult, WorkflowCliStallEvent, killWithEscalation;
 import 'package:logging/logging.dart';
 
 import '../turn_progress_monitor.dart';
 import 'workflow_cli_runner.dart';
+
+final _processLifecycleLog = Logger('WorkflowCliProcess');
 
 final class CliProcessSupervisor {
   CliProcessSupervisor({
@@ -34,7 +37,7 @@ final class CliProcessSupervisor {
   final Duration postTerminalResultGrace;
 
   final Completer<WorkflowCliException> _failure = Completer<WorkflowCliException>();
-  Future<void>? _termination;
+  Future<ProcessTerminationResult>? _termination;
   Timer? _timeoutTimer;
   Timer? _postTerminalResultTimer;
   TurnProgressMonitor? _stallMonitor;
@@ -132,19 +135,26 @@ final class CliProcessSupervisor {
     if (_failure.isCompleted) return;
     _postTerminalResultTimer?.cancel();
     _postTerminalResultTimer = null;
-    _termination = terminateCliProcess(process, grace: terminationGrace);
+    _termination = terminateCliProcess(process, grace: terminationGrace, log: log);
     _completeFailure(failure);
   }
 
   void _terminateAfterTerminalResult() {
     if (_failure.isCompleted || _postTerminalResultTerminationStarted) return;
     _postTerminalResultTerminationStarted = true;
-    _termination = terminateCliProcess(process, grace: terminationGrace);
+    _termination = terminateCliProcess(process, grace: terminationGrace, log: log);
   }
 }
 
-Future<bool> terminateCliProcess(
+Future<ProcessTerminationResult> terminateCliProcess(
   Process process, {
   Duration grace = const Duration(seconds: 5),
-  bool alreadySignalled = false,
-}) => killWithEscalation(process, label: 'workflow CLI', gracePeriod: grace, alreadySignalled: alreadySignalled);
+  bool? initialTerminationAccepted,
+  Logger? log,
+}) => killWithEscalation(
+  process,
+  label: 'workflow CLI',
+  gracePeriod: grace,
+  initialTerminationAccepted: initialTerminationAccepted,
+  log: log ?? _processLifecycleLog,
+);

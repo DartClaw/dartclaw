@@ -1,4 +1,4 @@
-packages/dartclaw_config/lib/dartclaw_config.dart  # 62 exports; shrink to <=50 as config-parser follow-up cleanup lands (+2 in 0.18: AcpAgentConfig/AcpTopology + DelegationConfig public config types for the universal-harness work; yaml_type_safe_reader now reused cross-package).
+packages/dartclaw_config/lib/dartclaw_config.dart  # 63 exports; shrink to <=50 as config-parser follow-up cleanup lands (+2 in 0.18: AcpAgentConfig/AcpTopology + DelegationConfig public config types for the universal-harness work; yaml_type_safe_reader now reused cross-package; +1 in 0.21: platform capability surface).
 packages/dartclaw_core/lib/dartclaw_core.dart  # 90 exports; shrink to <=80 as model/API naming cleanup lands (+6 in 0.18: AcpHarness/AcpClient/AcpProtocolAdapter/AcpErrors and turn wait-state event types surfaced for the universal-harness + FR00 stuck-turn work; fold ACP + util exports into sub-barrels in a follow-up).
 packages/dartclaw_server/lib/dartclaw_server.dart  # 29 exports; shrink to <=25 as server public surface cleanup lands.
 packages/dartclaw_testing/lib/dartclaw_testing.dart  # 31 exports; shrink to <=25 as shared fake surface cleanup lands.

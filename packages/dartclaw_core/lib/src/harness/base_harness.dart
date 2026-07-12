@@ -175,7 +175,7 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   Future<void> shutdownCurrentProcess({
     required String label,
     required Duration gracePeriod,
-    bool alreadySignalled = false,
+    bool? initialTerminationAccepted,
     Process? process,
   }) async {
     final activeProcess = process ?? _process;
@@ -192,7 +192,7 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
         label: label,
         gracePeriod: gracePeriod,
         log: log,
-        alreadySignalled: alreadySignalled,
+        initialTerminationAccepted: initialTerminationAccepted,
       );
     }
   }

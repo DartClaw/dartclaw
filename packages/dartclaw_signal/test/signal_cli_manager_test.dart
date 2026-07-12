@@ -69,8 +69,8 @@ void main() {
       expect(() => mgr.start(), throwsA(isA<ProcessException>()));
     });
 
-    test('stop sends SIGTERM to running process', () async {
-      final proc = FakeProcess();
+    test('stop reaps the signal-cli process', () async {
+      final proc = FakeProcess(completeExitOnKill: true);
       final mgr = SignalCliManager(
         executable: 'signal-cli',
         phoneNumber: '+1',
@@ -78,18 +78,15 @@ void main() {
           return proc;
         },
         delay: (d) => Future.value(),
-        healthProbe: () async => false,
+        healthProbe: () async => true,
       );
 
-      // Start will fail health check, but process is still assigned
-      try {
-        await mgr.start();
-      } on StateError {
-        // Expected
-      }
+      await mgr.start();
 
+      expect(proc.killCalled, isFalse);
       await mgr.stop();
       expect(proc.killCalled, isTrue);
+      expect(await proc.exitCode, 0);
       expect(mgr.isRunning, isFalse);
     });
 

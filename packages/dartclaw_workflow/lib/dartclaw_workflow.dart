@@ -161,6 +161,8 @@ export 'src/workflow/workflow_registry.dart' show WorkflowExclusion, WorkflowReg
 export 'src/workflow/workflow_runner_types.dart'
     show
         BashStepPolicy,
+        ExecutableLookupExecutor,
+        ExecutableLookupResult,
         MapStepResult,
         StepExecutionContext,
         StepOutcome,

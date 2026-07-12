@@ -97,7 +97,7 @@ abstract class ProcessBackedCliProvider implements CliProvider {
     if (signalSent) {
       _cancelling.add(process);
     }
-    await terminateCliProcess(process, alreadySignalled: true);
+    await terminateCliProcess(process, initialTerminationAccepted: signalSent);
   }
 }
 

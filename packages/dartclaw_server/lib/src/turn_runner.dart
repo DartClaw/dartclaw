@@ -691,6 +691,30 @@ class TurnRunner implements core.TurnRunner {
           _log.fine('Failed to emit context warning: $e');
         }
 
+        if (result['stop_reason'] == 'error') {
+          final rawProviderError = result['error'];
+          final providerError = rawProviderError is String && rawProviderError.trim().isNotEmpty
+              ? rawProviderError.trim()
+              : 'Provider turn failed';
+          final redactedProviderError = _redactor?.redact(providerError) ?? providerError;
+          await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: redactedProviderError);
+          await _sessions?.touchUpdatedAt(sessionId);
+          outcome = TurnOutcome(
+            turnId: turnId,
+            sessionId: sessionId,
+            status: TurnStatus.failed,
+            errorMessage: redactedProviderError,
+            inputTokens: result['input_tokens'] as int? ?? 0,
+            outputTokens: result['output_tokens'] as int? ?? 0,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            turnDuration: stopwatch.elapsed,
+            toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+            completedAt: DateTime.now(),
+          );
+          return;
+        }
+
         if (accumulated.isNotEmpty) {
           final sendOutcome = await _guardEvaluator.evaluateBeforeAgentSend(
             turnId: turnId,

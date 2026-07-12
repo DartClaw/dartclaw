@@ -146,8 +146,6 @@ class FakeCliProvider implements CliProvider {
 }
 
 class SigkillOnlyFakeProcess extends FakeProcess {
-  final killSignals = <ProcessSignal>[];
-
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
     killCalled = true;

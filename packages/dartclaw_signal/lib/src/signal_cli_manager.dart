@@ -136,9 +136,16 @@ class SignalCliManager {
     _process = null;
 
     _log.info('Stopping signal-cli');
-    await killWithEscalation(proc, label: 'signal-cli', gracePeriod: const Duration(seconds: 5), log: _log);
-    final exitCode = await proc.exitCode;
-    _log.info('signal-cli stopped (exit code: $exitCode)');
+    final result = await killWithEscalation(
+      proc,
+      label: 'signal-cli',
+      gracePeriod: const Duration(seconds: 5),
+      log: _log,
+    );
+    if (result.exitConfirmed) {
+      final exitCode = await proc.exitCode;
+      _log.info('signal-cli stopped (exit code: $exitCode)');
+    }
   }
 
   /// Dispose resources. Alias for [stop].
@@ -169,7 +176,7 @@ class SignalCliManager {
 
     if (proc != null) {
       _log.info('Resetting signal-cli');
-      await killWithEscalation(proc, label: 'signal-cli', gracePeriod: const Duration(seconds: 5));
+      await killWithEscalation(proc, label: 'signal-cli', gracePeriod: const Duration(seconds: 5), log: _log);
     }
   }
 

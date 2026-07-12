@@ -5,6 +5,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+echo "==> Testing developer tools"
+bash dev/tools/parallels_windows_test.sh
+
 SERIAL_TEST_TARGETS=(
   "packages/dartclaw_workflow"
   "packages/dartclaw_server"

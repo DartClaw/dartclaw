@@ -32,6 +32,8 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
         'item/completed' => _extractCompletedItem(mapValue(params['item'])),
         'turn/completed' => _extractTurnComplete(params),
         'turn/failed' => const TurnComplete(stopReason: 'error'),
+        'configWarning' => _extractConfigWarning(params),
+        'mcpServer/startupStatus/updated' => _extractMcpStartupStatus(params),
         'turn/started' => null,
         // Deprecated by Codex — suppressed as explicit no-op (still emitted for backward compat)
         'thread/compactedNotification' => null,
@@ -303,8 +305,37 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   }
 
   TurnComplete _extractTurnComplete(Map<String, dynamic> params) {
+    final turn = mapValue(params['turn']);
+    if (stringValue(turn?['status']) == 'failed' || turn?['error'] != null) {
+      return const TurnComplete(stopReason: 'error');
+    }
     final usage = mapValue(params['usage']) ?? const <String, dynamic>{};
     return codexBuildTurnComplete(usage, stopReason: 'completed');
+  }
+
+  ProtocolMessage? _extractConfigWarning(Map<String, dynamic> params) {
+    final summary = stringValue(params['summary'])?.trim();
+    if (summary == null || summary.isEmpty) return null;
+    if (!summary.contains('Project-local config, hooks, and exec policies are disabled')) {
+      return ProtocolDiagnostic(message: summary, method: 'configWarning');
+    }
+    final details = stringValue(params['details'])?.trim();
+    return ProgressMessage(
+      kind: 'provider_setup_warning',
+      text: details == null || details.isEmpty ? summary : '$summary\n$details',
+    );
+  }
+
+  ProtocolMessage? _extractMcpStartupStatus(Map<String, dynamic> params) {
+    final status = stringValue(params['status']);
+    if (status != 'failed') return null;
+    final name = stringValue(params['name']) ?? '<unknown>';
+    final error = stringValue(params['error']) ?? 'startup failed without provider detail';
+    return ProtocolDiagnostic(
+      message: 'Codex MCP server "$name" failed to start: $error',
+      method: 'mcpServer/startupStatus/updated',
+      updateType: status,
+    );
   }
 
   String _summarizeFileChanges(Map<String, dynamic> item) {

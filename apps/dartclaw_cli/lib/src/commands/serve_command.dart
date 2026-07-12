@@ -30,6 +30,7 @@ class ServeCommand extends Command<void> {
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
   final AssetResolver _assetResolver;
+  final PlatformCapabilities _platformCapabilities;
   final bool _runWorkflowSkillsBootstrap;
   static final _log = Logger('ServeCommand');
 
@@ -49,6 +50,7 @@ class ServeCommand extends Command<void> {
     WriteLine? stderrLine,
     ExitFn? exitFn,
     AssetResolver? assetResolver,
+    PlatformCapabilities? platformCapabilities,
     bool runWorkflowSkillsBootstrap = true,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
@@ -58,6 +60,7 @@ class ServeCommand extends Command<void> {
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
+       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        _runWorkflowSkillsBootstrap = runWorkflowSkillsBootstrap,
        _assetResolver = assetResolver ?? const AssetResolver() {
     argParser
@@ -273,6 +276,7 @@ class ServeCommand extends Command<void> {
         resolvedAssets: resolvedAssets,
         logService: logService,
         messageRedactor: messageRedactor,
+        platformCapabilities: _platformCapabilities,
         runWorkflowSkillsBootstrap: _runWorkflowSkillsBootstrap,
       );
       final result = await wiring.wire();
@@ -373,6 +377,7 @@ class ServeCommand extends Command<void> {
         configPath: resolvedConfigPath,
         notifier: result.configNotifier,
         reloadConfig: config.gateway.reload,
+        platformCapabilities: _platformCapabilities,
       );
       reloadTrigger.start();
 

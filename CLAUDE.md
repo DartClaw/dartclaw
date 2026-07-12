@@ -211,6 +211,12 @@ Not active. Use Bash for Dart CLI commands (see `KEY_DEVELOPMENT_COMMANDS.md`). 
 Spawns `dart language-server` – diagnostics, hover, goToDefinition, findReferences, call hierarchy across workspace packages.
 **Fix all diagnostics immediately** – run `dart analyze` before declaring work done.
 
+### Parallels Windows VM Automation
+
+On macOS hosts with Parallels Desktop, use `dev/tools/parallels_windows.sh` for Windows VM commands, PowerShell scripts,
+snapshots, and captures. Prefer signed-in-user execution; use the explicit `*-system` commands only when elevation is
+required. See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` for usage and prerequisites.
+
 ### Visual Validation & UI Testing
 
 **Agent Browser** – `agent-browser` skill. Core: `open <url>` → `snapshot -i` → `click @e1` / `fill @e2 "text"` → re-snapshot.

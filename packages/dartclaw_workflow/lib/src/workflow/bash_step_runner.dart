@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show BashShellPolicy, PlatformCapabilities, UnsupportedCapabilityError;
 import 'workflow_definition.dart' show ActionNode, OutputFormat, WorkflowStep, WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowRun;
 import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, defaultSensitivePatterns;
@@ -18,6 +20,48 @@ import 'workflow_template_engine.dart';
 const _bashStdoutMaxBytes = 64 * 1024;
 const _bashStderrMaxBytes = 64 * 1024;
 final _log = Logger('BashStepRunner');
+
+typedef BashShellInvocation = ({String executable, List<String> arguments});
+
+Future<ExecutableLookupResult> runExecutableLookup(String executable, List<String> arguments) async {
+  final result = await Process.run(executable, arguments);
+  return (exitCode: result.exitCode, stdout: '${result.stdout}');
+}
+
+Future<BashShellInvocation> selectBashShell({
+  required PlatformCapabilities capabilities,
+  required String command,
+  ExecutableLookupExecutor executableLookup = runExecutableLookup,
+}) async {
+  if (capabilities.bashShellPolicy == BashShellPolicy.systemSh) {
+    return (executable: '/bin/sh', arguments: ['-c', command]);
+  }
+
+  final lookupCommand = capabilities.executableLookupCommand('bash');
+  final ExecutableLookupResult lookupResult;
+  try {
+    lookupResult = await executableLookup(lookupCommand.first, lookupCommand.skip(1).toList(growable: false));
+  } on ProcessException {
+    throw _missingGitBashError(lookupCommand);
+  }
+  final resolvedExecutable = LineSplitter.split(
+    lookupResult.stdout,
+  ).map((line) => line.trim()).where((line) => line.isNotEmpty).firstOrNull;
+  if (lookupResult.exitCode != 0 || resolvedExecutable == null) {
+    throw _missingGitBashError(lookupCommand);
+  }
+  return (executable: resolvedExecutable, arguments: ['-c', command]);
+}
+
+UnsupportedCapabilityError _missingGitBashError(List<String> lookupCommand) {
+  return UnsupportedCapabilityError(
+    capability: 'bash shell',
+    attemptedContext: 'Windows executable lookup `${lookupCommand.join(' ')}`',
+    remediation:
+        'bash steps require Git Bash on Windows; install Git Bash, use a POSIX host or WSL, '
+        'or wait for Workflow DSL v2 script support.',
+  );
+}
 
 /// Runs a normalized bash action node.
 Future<StepOutcome> bashStepRun(ActionNode node, StepExecutionContext ctx) async {
@@ -37,6 +81,8 @@ Future<StepOutcome> bashStepRun(ActionNode node, StepExecutionContext ctx) async
     hostEnvironment: ctx.hostEnvironment,
     envAllowlist: ctx.bashStepEnvAllowlist,
     extraStripPatterns: ctx.bashStepExtraStripPatterns,
+    capabilities: ctx.platformCapabilities,
+    executableLookup: ctx.executableLookupExecutor ?? runExecutableLookup,
   );
 }
 
@@ -50,6 +96,8 @@ Future<StepOutcome> executeBashStep({
   Map<String, String>? hostEnvironment,
   List<String> envAllowlist = BashStepPolicy.defaultEnvAllowlist,
   List<String> extraStripPatterns = const <String>[],
+  PlatformCapabilities? capabilities,
+  ExecutableLookupExecutor executableLookup = runExecutableLookup,
 }) async {
   assert(step.taskType == WorkflowTaskType.bash, 'bash runner received non-bash step ${step.id}');
   final String workDir;
@@ -73,11 +121,21 @@ Future<StepOutcome> executeBashStep({
   }
 
   final timeoutSeconds = step.timeoutSeconds ?? 60;
+  final BashShellInvocation shell;
+  try {
+    shell = await selectBashShell(
+      capabilities: capabilities ?? PlatformCapabilities(),
+      command: resolvedCommand,
+      executableLookup: executableLookup,
+    );
+  } on UnsupportedCapabilityError catch (e) {
+    return bashFailure(step, e.toString());
+  }
   late Process process;
   try {
     process = await SafeProcess.start(
-      '/bin/sh',
-      ['-c', resolvedCommand],
+      shell.executable,
+      shell.arguments,
       env: EnvPolicy.sanitize(
         allowlist: envAllowlist,
         sensitivePatterns: [...defaultSensitivePatterns, ...extraStripPatterns],

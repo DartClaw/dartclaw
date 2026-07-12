@@ -156,9 +156,11 @@ class GowaManager {
     _usingExternalService = false;
 
     _log.info('Stopping GOWA');
-    await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5), log: _log);
-    final exitCode = await proc.exitCode;
-    _log.info('GOWA stopped (exit code: $exitCode)');
+    final result = await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5), log: _log);
+    if (result.exitConfirmed) {
+      final exitCode = await proc.exitCode;
+      _log.info('GOWA stopped (exit code: $exitCode)');
+    }
   }
 
   /// Dispose resources. Alias for [stop].
@@ -181,7 +183,7 @@ class GowaManager {
 
     if (proc != null) {
       _log.info('Resetting GOWA');
-      await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5));
+      await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5), log: _log);
     }
   }
 

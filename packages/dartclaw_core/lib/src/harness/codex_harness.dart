@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../bridge/bridge_events.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+
+import '../bridge/bridge_events.dart';
+import '../worker/worker_state.dart';
 
 import 'agent_harness.dart';
 import 'base_harness.dart';
@@ -14,7 +17,6 @@ import 'codex_settings.dart';
 import 'harness_config.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
-import '../worker/worker_state.dart';
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
 class CodexHarness extends BaseHarness {
@@ -32,6 +34,9 @@ class CodexHarness extends BaseHarness {
 
   /// Codex protocol adapter used for all wire-format translation.
   final CodexProtocolAdapter adapter;
+
+  /// Platform policy used for executable lookup and process semantics.
+  final PlatformCapabilities platformCapabilities;
 
   static final _log = Logger('CodexHarness');
 
@@ -63,10 +68,12 @@ class CodexHarness extends BaseHarness {
     Map<String, dynamic>? providerOptions,
     this.guardChain,
     CodexProtocolAdapter? adapter,
+    PlatformCapabilities? platformCapabilities,
     Duration killGracePeriod = const Duration(seconds: 2),
   }) : environment = environment ?? Platform.environment,
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        adapter = adapter ?? CodexProtocolAdapter(),
+       platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        _killGracePeriod = killGracePeriod,
        super(
          log: _log,
@@ -229,14 +236,16 @@ class CodexHarness extends BaseHarness {
 
   @override
   Future<void> cancel() async {
-    final process = currentProcess;
-    if (process == null) {
-      return;
-    }
+    await _requestCancellation();
+  }
+
+  Future<bool> _requestCancellation({Process? process}) async {
+    final activeProcess = process ?? currentProcess;
+    if (activeProcess == null) return false;
     try {
-      await process.stdin.close();
+      await activeProcess.stdin.close();
     } catch (_) {} // stdin may already be closed if the process exited.
-    process.kill(ProcessSignal.sigterm);
+    return activeProcess.kill(ProcessSignal.sigterm);
   }
 
   @override
@@ -253,8 +262,9 @@ class CodexHarness extends BaseHarness {
   Future<void> _stopInternal() async {
     final process = currentProcess;
     final wasBusy = currentState == WorkerState.busy;
+    bool? initialTerminationAccepted;
     if (wasBusy) {
-      await cancel();
+      initialTerminationAccepted = await _requestCancellation(process: process);
       await delayFactory(const Duration(milliseconds: 50));
     }
 
@@ -265,7 +275,7 @@ class CodexHarness extends BaseHarness {
     await shutdownCurrentProcess(
       label: 'Codex',
       gracePeriod: _killGracePeriod,
-      alreadySignalled: wasBusy,
+      initialTerminationAccepted: initialTerminationAccepted,
       process: process,
     );
     if (process == null) {
@@ -277,9 +287,14 @@ class CodexHarness extends BaseHarness {
   }
 
   Future<void> _verifyExecutable() async {
-    final result = await commandProbe(executable, const ['--version']);
+    final lookup = platformCapabilities.executableLookupCommand(executable);
+    final result = await commandProbe(lookup.first, lookup.sublist(1));
     if (result.exitCode != 0) {
-      throw StateError('codex binary not found at $executable');
+      throw UnsupportedCapabilityError(
+        capability: 'Codex harness executable',
+        attemptedContext: lookup.join(' '),
+        remediation: 'Install "$executable" and ensure it is available on PATH.',
+      );
     }
   }
 
@@ -405,11 +420,18 @@ class CodexHarness extends BaseHarness {
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ProgressMessage(:final text, :final kind):
+        if (kind == 'provider_setup_warning') {
+          _log.warning(text);
+        }
         emitEvent(ProviderProgressBridgeEvent(kind: kind, text: text));
 
       case proto.SessionMetadataUpdate():
-      case proto.ProtocolDiagnostic():
         break;
+
+      case proto.ProtocolDiagnostic(:final message, :final method, :final updateType):
+        if (method == 'mcpServer/startupStatus/updated' && updateType == 'failed') {
+          _log.warning(message);
+        }
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _log.fine('Control request: $subtype (id=$requestId)');
@@ -765,7 +787,8 @@ class CodexHarness extends BaseHarness {
   static String? _extractTurnFailedError(String line) {
     final decoded = decodeJsonObject(line);
     final params = mapValue(decoded?['params']);
-    final error = params?['error'];
+    final turn = mapValue(params?['turn']);
+    final error = params?['error'] ?? turn?['error'];
 
     if (error is String && error.isNotEmpty) {
       return error;

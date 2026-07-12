@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/src/harness/codex_settings.dart';
 import 'package:dartclaw_core/src/harness/canonical_tool.dart';
 import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
 import 'package:dartclaw_core/src/harness/protocol_message.dart';
@@ -478,6 +479,104 @@ void main() {
       expect(adapter.parseLine(jsonEncode({'method': 'turn/started', 'params': {}})), isNull);
     });
 
+    test('ignores unknown notifications without blocking turn completion', () {
+      final adapter = CodexProtocolAdapter();
+      const methods = [
+        'thread/started',
+        'thread/status/changed',
+        'thread/tokenUsage/updated',
+        'account/rateLimits/updated',
+      ];
+
+      for (final method in methods) {
+        expect(adapter.parseLine(jsonEncode({'method': method, 'params': {}})), isNull, reason: method);
+      }
+      expect(
+        adapter.parseLine(
+          jsonEncode({
+            'method': 'turn/completed',
+            'params': {'usage': {}},
+          }),
+        ),
+        isA<TurnComplete>().having((message) => message.stopReason, 'stopReason', 'completed'),
+      );
+    });
+
+    test('parses only the project-trust config warning as provider setup progress', () {
+      final adapter = CodexProtocolAdapter();
+      final warning = adapter.parseLine(
+        jsonEncode({
+          'method': 'configWarning',
+          'params': {
+            'summary': 'Project-local config, hooks, and exec policies are disabled until the project is trusted.',
+            'details': r'C:\workspace\.codex',
+          },
+        }),
+      );
+      final unrelated = adapter.parseLine(
+        jsonEncode({
+          'method': 'configWarning',
+          'params': {'summary': 'Unknown config key.'},
+        }),
+      );
+
+      expect(
+        warning,
+        isA<ProgressMessage>()
+            .having((message) => message.kind, 'kind', 'provider_setup_warning')
+            .having((message) => message.text, 'text', contains('Project-local config'))
+            .having((message) => message.text, 'text', contains(r'C:\workspace\.codex')),
+      );
+      expect(unrelated, isA<ProtocolDiagnostic>());
+    });
+
+    test('reports failed MCP startup while ignoring non-warning status noise', () {
+      final adapter = CodexProtocolAdapter();
+      final failed = adapter.parseLine(
+        jsonEncode({
+          'method': 'mcpServer/startupStatus/updated',
+          'params': {'name': 'node_repl', 'status': 'failed', 'error': 'initialize response closed'},
+        }),
+      );
+
+      expect(
+        failed,
+        isA<ProtocolDiagnostic>()
+            .having((message) => message.method, 'method', 'mcpServer/startupStatus/updated')
+            .having((message) => message.updateType, 'updateType', 'failed')
+            .having((message) => message.message, 'message', contains('initialize response closed')),
+      );
+      for (final status in ['starting', 'ready', 'cancelled']) {
+        expect(
+          adapter.parseLine(
+            jsonEncode({
+              'method': 'mcpServer/startupStatus/updated',
+              'params': {'name': 'node_repl', 'status': status, 'error': null},
+            }),
+          ),
+          isNull,
+          reason: status,
+        );
+      }
+    });
+
+    test('treats a completed notification with failed turn status as an error', () {
+      final adapter = CodexProtocolAdapter();
+      final message = adapter.parseLine(
+        jsonEncode({
+          'method': 'turn/completed',
+          'params': {
+            'turn': {
+              'status': 'failed',
+              'error': {'message': 'authentication required'},
+            },
+          },
+        }),
+      );
+
+      expect(message, isA<TurnComplete>().having((message) => message.stopReason, 'stopReason', 'error'));
+    });
+
     test('returns null for empty line', () {
       final adapter = CodexProtocolAdapter();
       expect(adapter.parseLine(''), isNull);
@@ -653,6 +752,18 @@ void main() {
   });
 
   group('CodexProtocolAdapter.buildTurnRequest', () {
+    test('maps configured sandbox values to camelCase sandboxPolicy types', () {
+      final adapter = CodexProtocolAdapter();
+
+      for (final entry in const {
+        'workspace-write': 'workspaceWrite',
+        'danger-full-access': 'dangerFullAccess',
+      }.entries) {
+        final settings = CodexSettings.buildDynamicSettings(sandbox: entry.key);
+        final request = adapter.buildTurnRequest(message: 'test', settings: settings);
+        expect(request['params']?['sandboxPolicy'], {'type': entry.value}, reason: entry.key);
+      }
+    });
     test('builds turn/start payload with user content', () {
       final adapter = CodexProtocolAdapter();
       expect(

@@ -256,7 +256,7 @@ ClaudeMessage _parseControlRequest(Map<String, dynamic> json) {
 ClaudeMessage _parseResult(Map<String, dynamic> json) {
   final usage = json['usage'] as Map<String, dynamic>?;
   return TurnResult(
-    stopReason: json['stop_reason'] as String?,
+    stopReason: json['is_error'] == true ? 'error' : json['stop_reason'] as String?,
     costUsd: (json['total_cost_usd'] as num?)?.toDouble(),
     durationMs: json['duration_ms'] as int?,
     inputTokens: usage?['input_tokens'] as int?,

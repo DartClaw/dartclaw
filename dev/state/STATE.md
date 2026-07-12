@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-10 09:28 CEST
+Last Updated: 2026-07-11 20:18 CEST
 
 ### Implemented Features (through 0.18)
 
@@ -24,9 +24,9 @@ Last Updated: 2026-07-10 09:28 CEST
 
 ## Current Phase
 
-**0.21 — Windows Support & Cross-Platform Hardening: Opening.**
+**Phase 3: Hardening & Release Readiness**
 
-**Status**: Milestone opened 2026-07-11 from the `v0.20.1` tag. Plan exists (10 stories, 3 phases — `dartclaw-private/docs/specs/0.21/plan.json`); S0a/S0b validation spikes already resolved GO. No stories started yet.
+**Status**: At Risk
 
 **Previous**: 0.20.1 — Embedded Binary Assets (ADR-047 embedded assets + ADR-048 `dart build cli`/bundled-SQLite release builds; squash-merged and tagged `v0.20.1` on 2026-07-11). 0.20.0 — Workflow Hardening, Simplification & Polish (tagged `v0.20.0` on 2026-07-09). 0.19.0 — Context Engine (tagged `v0.19.0` on 2026-06-26). 0.18 — Universal Agent Harness (tagged `v0.18.0` on 2026-06-11). 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
 
@@ -36,16 +36,14 @@ None — 0.21 is opening. Shipped history lives in `CHANGELOG.md`.
 
 ## Blockers
 
-None.
+- S06: native Windows Git Bash qualification evidence not run
+- S09: native Windows x64 host/artifact qualification unavailable
 
 ## Recent Decisions
 
 - 0.20 story 33 (host-owned step artifact dirs) implemented 2026-07-06: the engine exports a host-computed per-task `DARTCLAW_STEP_ARTIFACTS_DIR` (`<runtime-artifacts>/steps/<stepId>[-<mapIterationIndex>]`) on every workflow task and captures review reports deterministically from that dir (newest `.md`, model claim ignored, zero-findings stub materialized there). Deletes the story-31 `--output-dir` prompt hoist (`output_dir_env_hoist.dart`, `DARTCLAW_REVIEW_OUTPUT_DIR`) and the three-layer review-claim capture heuristics (root-reorder/`preserveRuntimeArtifactsRoot`/`locateUnclaimedReviewArtifact`/`materializeMissingCleanReviewArtifact`); non-review `format: path` stays worktree-first. Shipped YAMLs author `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"`. Verified: full workspace suite (5416 pass), analyze/arch_check/fitness/format green, workflow-contract profile green, live env micro-canary + step-isolation `architecture-review`/`re-review` capture tests pass against real codex.
 - 0.20 story 34 (live workflow e2e speedup) code landed 2026-07-06. Tasks A/B solid: `workflow_e2e_integration_test.dart` dropped the spec-and-implement *synthesize* live-e2e (branch matrix is stub-covered), promoted the *reuse* run to primary (skips `spec`; closes review finding R6), and reworked the plan-and-implement run to seed a **committed** `plan.json` + 2 story FIS so `discover-plan-state` indexes them and the `plan` step is skipped (`recorder.count('plan') == 0`); added a `spec` live authoring probe to `workflow_step_isolation_test.dart` (the `plan` probe already existed). **Task C pivoted** (owner, 2026-07-06): a partial live `--e2e` run measured `gpt-5.4-mini` executor/reviewer at ~5–8× slower and ~100× the tokens per review (1–2.3M-token review turns, 7–11 min each on a clean diff) vs baseline — a regression, not a speedup. Reverted the mini edit (codex preset stays `gpt-5.3-codex-spark`); `workflow-live/run.sh` keeps the fixture default (**codex/spark**), `DARTCLAW_TEST_PROVIDER=claude` opts into Sonnet. Static gates green (format, analyze, workflow + server suites, fixture golden). **A2 validated live** 2026-07-06 on codex/`gpt-5.3-codex-spark`: `--canary plan-and-implement` completed green in ~24 min — `discover-plan-state` indexed the seeded `plan.json`, the `plan` step was skipped, the 2-story foreach + 3 parallel reviews + forced remediation + merge-of-both-branches + publish all ran, teardown auto-closed the PR/branch. (A1/reuse was validated live on codex earlier.) **Second bug found + fixed:** `_claudePreset` used `permissionMode: bypassPermissions`, which `claude_cli_provider` rejects for policy-bearing workflow one-shot tasks → changed to `permissionMode: dontAsk`. **Third bug found + fixed (2026-07-07): envelope finalizer turn cap, not the env scrub.** The suspected `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` root cause was **falsified empirically**: the CLI does force `--permission-mode default` when the var is set (benign stderr notice), but the one-shot tool policy rides in `--settings` permission rules, which default mode enforces identically headless — verified with the exact spawn shapes on CLI 2.1.201 + 2.1.202 and a live claude plan-and-implement canary that ran discovery, both stories, and all reviews green *with the var set*. The real `error_max_turns` cause (caught live in that canary's remediate step): the structured-output envelope finalizer ran with `--max-turns 1`, so one rejected `StructuredOutput` attempt (model passing a JSON-encoded string where the schema wants an object) had no retry turn → whole step fails. Fixed: cap raised 1→2 in `workflow_one_shot_runner.dart` (one schema retry), test updated, `claudeHardeningEnvVars` dartdoc now documents the forced-default semantics. Hardening env unchanged. Full green claude e2e rerun with the fix still pending (recommend `--canary plan-and-implement` with `DARTCLAW_TEST_PROVIDER=claude`).
 - Plan created for 0.21 Windows Support & Cross-Platform Hardening on 2026-07-05: 10 stories, 3 phases (`dartclaw-private/docs/specs/0.21/plan.json`). Forward planning only — 0.20 remains the current phase.
-- Framework-agnostic workflow engine decoupling completed (2026-06-22, ADR-041; commits `22b942dc` ADR + `2e23dd0c` refactor): `dartclaw_workflow` engine `.dart` is now free of AndThen coupling — output validation is `schema:` + generic `format: path` only, all framework semantics moved into the bundled discovery skills + workflow-YAML gates, and `dev/tools/fitness/check_no_framework_coupling.sh` ratchets it (wired into `run_all.sh`). The bundled `definitions/*.yaml` + `skills/` payloads are the only remaining AndThen-specific assets. Verified: gate green, zero `andthen` literals in `lib/src/`, no built-in-workflow behavior change.
-- 0.19 S05 implemented outbound MCP per-server governance and selective tool surfacing on 2026-06-24: config now carries rate-limit/token-budget/surface lists with non-negative validation; outbound dispatch enforces in-memory per-server call/token windows after egress allowlist and before transport; governance denials reuse the S04 audit-deny path; surfaced tool lists are filtered while explicit dispatch remains governed by S04; governance counter events are emitted.
-- 0.19 S06 implemented `context_research` synthesis and the shared citation packet/resolver contract on 2026-06-24: tool fans out across memory/KG/wiki, dispatches synthesis per call with no packet cache, preserves resolvable citations, flags unresolved statements, reports degraded layers/no sources, enforces query/budget guards, emits metrics, registers on the MCP surface, and records ADR-042.
 - 0.19 S08 implemented cross-layer source attribution UI on 2026-06-24: shared Trellis attribution fragment consumes S06 citation types/resolver, flags unresolvable citations, renders packet/source-list/degraded/no-source states, registers `/knowledge/research`, adds Afterglow styling and `dc-attribution` popovers, and proves reuse for packet/hub/timeline fixtures.
 - 0.19 S10 implemented the temporal KG timeline UI on 2026-06-24: additive cross-entity KG fact enumeration, read-only `/knowledge/timeline`, as-of/category/error handling, superseded/conflict/future state rendering, FR8 attribution reuse, and visual validation.
 - 0.19 S09 implemented the read-only knowledge hub UI on 2026-06-24: cross-layer `/knowledge` hub, wiki/KG/memory/inbox fan-out, layer filters, source links, FR8 attribution reuse, empty/partial-failure/pagination states, and visual validation.

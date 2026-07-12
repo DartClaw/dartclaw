@@ -151,6 +151,8 @@ Manual gates still required before tagging:
                          plus any package-specific --run-skipped live files
   - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)
+  - Windows runtime:     ./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <windows-x64.zip>
+                         Credential-only skips require matching recorded evidence for both Claude and Codex.
 
 Then proceed with the version-bump commit and tag per
 CLAUDE.md § Release Preparation.

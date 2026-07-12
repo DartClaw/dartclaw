@@ -1,7 +1,7 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, HistoryConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, HistoryConfig, PlatformCapabilities;
 import 'agent_harness.dart';
 import 'acp_harness.dart';
 import 'acp_reverse_call_handlers.dart';
@@ -40,6 +40,9 @@ class HarnessFactoryConfig {
 
   /// Optional process factory used by subprocess-backed harnesses.
   final ProcessFactory? processFactory;
+
+  /// Platform policy forwarded to built-in subprocess harnesses.
+  final PlatformCapabilities? platformCapabilities;
 
   /// Optional container manager used to spawn the harness in isolation.
   final ContainerExecutor? containerManager;
@@ -83,6 +86,7 @@ class HarnessFactoryConfig {
     this.providerOptions = const <String, dynamic>{},
     this.environment = const <String, String>{},
     this.processFactory,
+    this.platformCapabilities,
     this.containerManager,
     this.guardChain,
     this.auditLogger,
@@ -234,6 +238,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     processFactory: config.processFactory,
     guardChain: config.guardChain,
     auditLogger: config.auditLogger,
+    platformCapabilities: config.platformCapabilities,
   );
 }
 
@@ -247,5 +252,6 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     harnessConfig: config.harnessConfig,
     providerOptions: config.providerOptions,
     guardChain: config.guardChain,
+    platformCapabilities: config.platformCapabilities,
   );
 }

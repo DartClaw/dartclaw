@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/bridge/bridge_events.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
@@ -64,12 +65,13 @@ void main() {
     // ----- start() -------------------------------------------------------
 
     group('start()', () {
-      test('calls commandProbe to verify claude binary exists', () async {
+      test('calls the capability lookup command to verify the Claude binary exists', () async {
         var probeCalled = false;
         String? probeExe;
         List<String>? probeArgs;
 
         final h = buildClaudeHarness(
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
           commandProbe: (exe, args) async {
             probeCalled = true;
             probeExe = exe;
@@ -82,15 +84,21 @@ void main() {
         addTeardownAsync(() => h.dispose());
 
         expect(probeCalled, isTrue);
-        expect(probeExe, 'claude');
-        expect(probeArgs, ['--version']);
+        expect(probeExe, 'where');
+        expect(probeArgs, ['claude']);
       });
 
-      test('throws StateError when commandProbe reports binary missing', () async {
-        final h = buildClaudeHarness(commandProbe: (exe, args) async => processResult(exitCode: 1));
+      test('throws structured lookup error when the Claude binary is missing', () async {
+        final h = buildClaudeHarness(
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
+          commandProbe: (exe, args) async => processResult(exitCode: 1),
+        );
         addTeardownAsync(() => h.dispose());
 
-        await expectLater(h.start(), throwsA(isA<StateError>()));
+        await expectLater(
+          h.start(),
+          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'which claude')),
+        );
       });
 
       test('throws when ANTHROPIC_API_KEY missing and OAuth check fails', () async {
@@ -99,7 +107,7 @@ void main() {
           environment: {}, // no API key
           commandProbe: (exe, args) async {
             callCount++;
-            if (args.contains('--version')) return processResult(exitCode: 0);
+            if (exe == 'which') return processResult(exitCode: 0);
             // auth status check fails
             return processResult(exitCode: 1);
           },
@@ -110,7 +118,6 @@ void main() {
           h.start(),
           throwsA(isA<StateError>().having((e) => e.message, 'message', contains('No authentication configured'))),
         );
-        // Two probe calls: --version + auth status
         expect(callCount, 2);
       });
 
@@ -446,6 +453,49 @@ void main() {
     // ----- state transitions ---------------------------------------------
 
     group('state transitions', () {
+      test('authentication failure preserves detail and does not poison the next turn', () async {
+        final fake = makeClaudeFakeProcess();
+        final harness = buildClaudeHarness(processFactory: capturingInitFactory(process: fake));
+        addTeardownAsync(() => harness.dispose());
+        await harness.start();
+
+        final failedTurn = harness.turn(
+          sessionId: 'auth-session',
+          messages: const [
+            {'role': 'user', 'content': 'first'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventQueue();
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'result',
+            'is_error': true,
+            'stop_reason': 'stop_sequence',
+            'result': 'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+          }),
+        );
+        final failed = await failedTurn;
+        expect(failed['stop_reason'], 'error');
+        expect(failed['is_error'], isTrue);
+        expect(failed['error'], contains('401 Invalid authentication credentials'));
+        expect(harness.state, WorkerState.idle);
+
+        final nextTurn = harness.turn(
+          sessionId: 'auth-session',
+          messages: const [
+            {'role': 'user', 'content': 'second'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventQueue();
+        fake.emitStdout(jsonEncode({'type': 'result', 'is_error': false, 'stop_reason': 'end_turn', 'result': 'ok'}));
+        final succeeded = await nextTurn;
+        expect(succeeded['stop_reason'], 'end_turn');
+        expect(succeeded['is_error'], isFalse);
+        expect(harness.state, WorkerState.idle);
+      });
+
       test('crashed state on unexpected process exit', () async {
         final fakeProcess = makeClaudeFakeProcess();
 

@@ -7,7 +7,8 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions, HistoryConfig;
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show ClaudeProviderOptions, HistoryConfig, PlatformCapabilities, UnsupportedCapabilityError;
 import '../container/container_executor.dart';
 import '../storage/atomic_write.dart';
 import '../worker/worker_state.dart';
@@ -43,9 +44,8 @@ List<String> _buildClaudeArgs({
   '--include-partial-messages',
   '--no-session-persistence',
   if (permissionMode != null) ...['--permission-mode', permissionMode],
-  if (permissionMode == null && skipNativePermissions)
-    '--dangerously-skip-permissions'
-  else if (permissionMode != 'bypassPermissions' && permissionMode != 'dontAsk' && !skipNativePermissions) ...[
+  if (permissionMode == null && skipNativePermissions) '--dangerously-skip-permissions',
+  if (permissionMode != 'bypassPermissions' && permissionMode != 'dontAsk' && !skipNativePermissions) ...[
     '--permission-prompt-tool',
     'stdio',
   ],
@@ -76,6 +76,9 @@ class ClaudeCodeHarness extends BaseHarness {
   final ContainerExecutor? containerManager;
   final ClaudeProtocolAdapter _adapter;
   final Duration _killGracePeriod;
+
+  /// Platform policy used for executable lookup and process semantics.
+  final PlatformCapabilities platformCapabilities;
 
   /// Memory handler callbacks. Used for `sdkMcpServers` fallback in chat mode
   /// (no MCP server). When `harnessConfig.mcpServerUrl` is set, memory tools
@@ -142,10 +145,12 @@ class ClaudeCodeHarness extends BaseHarness {
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
     Duration killGracePeriod = const Duration(seconds: 2),
+    PlatformCapabilities? platformCapabilities,
   }) : _environment = environment ?? Platform.environment,
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        _adapter = protocolAdapter ?? ClaudeProtocolAdapter(),
        _killGracePeriod = killGracePeriod,
+       platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        super(
          log: _log,
          processFactory: processFactory ?? Process.start,
@@ -189,9 +194,9 @@ class ClaudeCodeHarness extends BaseHarness {
 
   @override
   Future<void> cancel() async {
-    // JSONL protocol has no cancel command — close stdin and SIGTERM.
-    await closeCurrentProcessStdin();
-    currentProcess?.kill();
+    final process = currentProcess;
+    await closeCurrentProcessStdin(process: process);
+    process?.kill();
   }
 
   @override
@@ -215,9 +220,11 @@ class ClaudeCodeHarness extends BaseHarness {
   Future<void> _stopInternal() async {
     final process = currentProcess;
     final wasBusy = currentState == WorkerState.busy;
+    bool? initialTerminationAccepted;
     if (wasBusy) {
       try {
-        await cancel();
+        await closeCurrentProcessStdin(process: process);
+        initialTerminationAccepted = process?.kill() ?? false;
       } catch (e) {
         _log.fine('Failed to cancel during stop: $e');
       }
@@ -227,7 +234,7 @@ class ClaudeCodeHarness extends BaseHarness {
     await shutdownCurrentProcess(
       label: 'Claude',
       gracePeriod: _killGracePeriod,
-      alreadySignalled: wasBusy,
+      initialTerminationAccepted: initialTerminationAccepted,
       process: process,
     );
 
@@ -371,10 +378,14 @@ class ClaudeCodeHarness extends BaseHarness {
     _turnsSinceStart = 0;
     final cm = containerManager;
     if (cm == null) {
-      // Check claude binary.
-      final claudeResult = await commandProbe(claudeExecutable, ['--version']);
+      final lookup = platformCapabilities.executableLookupCommand(claudeExecutable);
+      final claudeResult = await commandProbe(lookup.first, lookup.sublist(1));
       if (claudeResult.exitCode != 0) {
-        throw StateError('claude binary not found at $claudeExecutable');
+        throw UnsupportedCapabilityError(
+          capability: 'Claude harness executable',
+          attemptedContext: lookup.join(' '),
+          remediation: 'Install "$claudeExecutable" and ensure it is available on PATH.',
+        );
       }
 
       // Verify authentication.
@@ -776,15 +787,26 @@ class ClaudeCodeHarness extends BaseHarness {
         :final cacheWriteTokens,
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
-          _turnCompleter!.complete({
+          final isError = stopReason == 'error';
+          final result = <String, dynamic>{
             'stop_reason': stopReason,
+            'is_error': isError,
             'total_cost_usd': costUsd,
             'duration_ms': durationMs,
             'input_tokens': inputTokens,
             'output_tokens': outputTokens,
             'cache_read_tokens': cacheReadTokens ?? 0,
             'cache_write_tokens': cacheWriteTokens ?? 0,
-          });
+          };
+          if (isError) {
+            final decoded = decodeJsonObject(line);
+            final detail = stringValue(decoded?['result']);
+            if (detail != null && detail.isNotEmpty) {
+              result['error'] = detail;
+            }
+          }
+          _log.info('Terminal result: is_error=$isError');
+          _turnCompleter!.complete(result);
         }
 
       case proto.SystemInit(:final sessionId, :final toolCount, :final contextWindow):

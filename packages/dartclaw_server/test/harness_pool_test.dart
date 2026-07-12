@@ -90,7 +90,7 @@ void main() {
       expect(pool.tryAcquire(), isNull);
     });
 
-    test('dispose stops all harnesses', () async {
+    test('dispose reaps every harness owned by the pool', () async {
       final workers = <_FakeWorker>[];
       final runners = <TurnRunner>[];
       for (var i = 0; i < 3; i++) {
@@ -181,7 +181,7 @@ void main() {
         expect(pool.spawnableCount, 0);
       });
 
-      test('dispose includes lazily-added runners', () async {
+      test('dispose includes lazily-added harnesses', () async {
         final workers = <_FakeWorker>[];
         TurnRunner makeRunner() {
           final worker = _FakeWorker();

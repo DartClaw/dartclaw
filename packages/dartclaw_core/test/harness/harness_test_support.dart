@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:dartclaw_core/src/container/container_executor.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
@@ -48,15 +49,14 @@ class KillTrackingFakeProcess extends FakeProcess {
       _killExitCode = killExitCode,
       super(stdoutController: StreamController<List<int>>());
 
-  final List<ProcessSignal> killSignals = [];
   final bool _completeExitOnKill;
   final int _killExitCode;
 
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    killSignals.add(signal);
+    final accepted = super.kill(signal);
     if (_completeExitOnKill) exit(_killExitCode);
-    return true;
+    return accepted;
   }
 }
 
@@ -200,6 +200,7 @@ ClaudeCodeHarness buildClaudeHarness({
   Map<String, dynamic>? providerOptions,
   HarnessConfig harnessConfig = const HarnessConfig(),
   Duration killGracePeriod = Duration.zero,
+  PlatformCapabilities? platformCapabilities,
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -210,6 +211,7 @@ ClaudeCodeHarness buildClaudeHarness({
     providerOptions: providerOptions,
     harnessConfig: harnessConfig,
     killGracePeriod: killGracePeriod,
+    platformCapabilities: platformCapabilities,
   );
 }
 

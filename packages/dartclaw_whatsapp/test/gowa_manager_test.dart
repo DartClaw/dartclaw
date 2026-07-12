@@ -129,26 +129,24 @@ void main() {
       expect(() => mgr.start(), throwsA(isA<ProcessException>()));
     });
 
-    test('stop sends SIGTERM to running process', () async {
-      final proc = FakeProcess();
+    test('stop reaps the GOWA process', () async {
+      final proc = FakeProcess(completeExitOnKill: true);
+      var healthProbeCalls = 0;
       final mgr = GowaManager(
         executable: 'whatsapp',
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           return proc;
         },
         delay: (d) => Future.value(),
-        healthProbe: () async => false,
+        healthProbe: () async => healthProbeCalls++ > 0,
       );
 
-      // Start will fail health check, but process is still assigned
-      try {
-        await mgr.start();
-      } on StateError {
-        // Expected
-      }
+      await mgr.start();
 
+      expect(proc.killCalled, isFalse);
       await mgr.stop();
       expect(proc.killCalled, isTrue);
+      expect(await proc.exitCode, 0);
       expect(mgr.isRunning, isFalse);
     });
 

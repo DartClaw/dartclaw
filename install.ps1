@@ -79,6 +79,15 @@ function Add-DartClawUserPath {
   [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
 }
 
+function Move-DartClawDirectory {
+  param(
+    [Parameter(Mandatory)][string]$Source,
+    [Parameter(Mandatory)][string]$Destination
+  )
+
+  [IO.Directory]::Move($Source, $Destination)
+}
+
 function Invoke-DartClawInstall {
   param(
     [string]$ReleaseVersion,
@@ -145,15 +154,15 @@ function Invoke-DartClawInstall {
     $backupCreated = $false
     try {
       if (Test-Path -LiteralPath $resolvedRoot) {
-        Move-Item -LiteralPath $resolvedRoot -Destination $backup
+        Move-DartClawDirectory -Source $resolvedRoot -Destination $backup
         $backupCreated = $true
       }
-      Move-Item -LiteralPath $stage -Destination $resolvedRoot
+      Move-DartClawDirectory -Source $stage -Destination $resolvedRoot
     } catch {
       $activationError = $_.Exception.Message
       if ($backupCreated -and -not (Test-Path -LiteralPath $resolvedRoot)) {
         try {
-          Move-Item -LiteralPath $backup -Destination $resolvedRoot
+          Move-DartClawDirectory -Source $backup -Destination $resolvedRoot
           $backupCreated = $false
         } catch {
           throw "Failed to activate DartClaw and failed to restore the previous install at '$resolvedRoot': $activationError; rollback: $($_.Exception.Message)"

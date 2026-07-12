@@ -198,37 +198,55 @@ try {
   Assert-InstallerPassed -Result $result
   Assert-TreeHashesEqual -ExpectedRoot $expectedRoot -ActualRoot $wow64Root
 
+  $testVersion = $Version
+  . $script:Installer -Version $testVersion
+  $originalDirectoryMover = (Get-Command Move-DartClawDirectory).ScriptBlock
+
   Set-Content -LiteralPath (Join-Path $installRoot 'VERSION') -Value 'older-version' -NoNewline
   Set-Content -LiteralPath (Join-Path $installRoot 'bin/dartclaw.exe') -Value 'older-executable' -NoNewline
   Set-Content -LiteralPath (Join-Path $installRoot 'lib/sqlite3.dll') -Value 'older-library' -NoNewline
   $preservedRoot = Join-Path $tempRoot 'preserved-old-install'
   Copy-Item -LiteralPath $installRoot -Destination $preservedRoot -Recurse
-  $lockedExecutable = [IO.File]::Open((Join-Path $installRoot 'bin/dartclaw.exe'), 'Open', 'Read', 'None')
+  $script:BackupFailureSource = $installRoot
+  function Move-DartClawDirectory {
+    param(
+      [Parameter(Mandatory)][string]$Source,
+      [Parameter(Mandatory)][string]$Destination
+    )
+
+    if ($Source -ieq $script:BackupFailureSource) {
+      throw 'simulated backup creation failure'
+    }
+    [IO.Directory]::Move($Source, $Destination)
+  }
   try {
-    $result = Invoke-InstallerProcess -InstallRoot $installRoot -LocalArtifact $artifact
-    Assert-InstallerFailed -Result $result -Message 'previous install was left unchanged'
+    try {
+      Invoke-DartClawInstall -ReleaseVersion $testVersion -TargetRoot $installRoot -ReleaseBaseUrl 'unused' -ArtifactPath $artifact
+      throw 'Expected backup creation to fail.'
+    } catch {
+      if ($_.Exception.Message -notlike '*previous install was left unchanged*simulated backup creation failure*') {
+        throw
+      }
+    }
   } finally {
-    $lockedExecutable.Dispose()
+    Set-Item Function:Move-DartClawDirectory $originalDirectoryMover
   }
   Assert-TreeHashesEqual -ExpectedRoot $preservedRoot -ActualRoot $installRoot
-
-  $testVersion = $Version
-  . $script:Installer -Version $testVersion
 
   Set-Content -LiteralPath (Join-Path $preservedRoot 'previous-install-sentinel.txt') -Value 'preserve-me' -NoNewline
   $postBackupRoot = Join-Path $tempRoot 'post-backup-rollback'
   Copy-Item -LiteralPath $preservedRoot -Destination $postBackupRoot -Recurse
   $script:ActivationFailureTarget = $postBackupRoot
-  function Move-Item {
+  function Move-DartClawDirectory {
     param(
-      [Parameter(Mandatory)][string]$LiteralPath,
+      [Parameter(Mandatory)][string]$Source,
       [Parameter(Mandatory)][string]$Destination
     )
 
-    if ((Split-Path -Leaf $LiteralPath) -eq 'stage' -and $Destination -ieq $script:ActivationFailureTarget) {
+    if ((Split-Path -Leaf $Source) -eq 'stage' -and $Destination -ieq $script:ActivationFailureTarget) {
       throw 'simulated stage activation failure'
     }
-    Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination
+    [IO.Directory]::Move($Source, $Destination)
   }
   try {
     try {
@@ -240,7 +258,7 @@ try {
       }
     }
   } finally {
-    Microsoft.PowerShell.Management\Remove-Item -Path Function:Move-Item
+    Set-Item Function:Move-DartClawDirectory $originalDirectoryMover
   }
   Assert-TreeHashesEqual -ExpectedRoot $preservedRoot -ActualRoot $postBackupRoot
   $sentinel = Join-Path $postBackupRoot 'previous-install-sentinel.txt'

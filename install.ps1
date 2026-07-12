@@ -70,7 +70,7 @@ function Add-DartClawUserPath {
   $current = [Environment]::GetEnvironmentVariable('Path', 'User')
   $entries = @($current -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   $normalizedBin = $BinPath.TrimEnd('\')
-  $alreadyPresent = $entries | Where-Object { $_.Trim().TrimEnd('\') -ieq $normalizedBin }
+  $alreadyPresent = @($entries | Where-Object { $_.Trim().TrimEnd('\') -ieq $normalizedBin })
   if ($alreadyPresent.Count -gt 0) {
     return
   }

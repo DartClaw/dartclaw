@@ -1,0 +1,30 @@
+name: Temporary distribution token probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: distribution-publication
+    steps:
+      - name: Verify distribution repository write access
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN is unavailable in distribution-publication." >&2
+            exit 1
+          fi
+
+          auth=$(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')
+          for repo in homebrew-dartclaw scoop-dartclaw; do
+            git -c http.extraheader="AUTHORIZATION: basic $auth" \
+              clone --depth 1 "https://github.com/DartClaw/$repo.git" "$repo"
+            git -C "$repo" -c http.extraheader="AUTHORIZATION: basic $auth" \
+              push --dry-run origin HEAD
+          done

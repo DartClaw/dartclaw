@@ -1,8 +1,8 @@
 # Windows
 
-DartClaw supports the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
-storage/search. Unix-coupled security and sidecar features do not have full Windows parity; the matrix below is the
-support contract.
+DartClaw targets the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
+storage/search. The current 0.21 artifact still requires a matching native-x64 qualification rerun. Unix-coupled
+security and sidecar features do not have full Windows parity; the matrix below is the support contract.
 
 ## Install and Upgrade
 
@@ -38,7 +38,7 @@ scoop update dartclaw
 Install Claude Code or Codex separately, complete its normal sign-in flow, and verify it before starting DartClaw:
 
 ```powershell
-claude login
+claude auth login
 claude auth status
 
 codex login
@@ -65,8 +65,8 @@ Trust only projects whose local Codex configuration you have reviewed.
 
 | Capability | State | Windows behavior | Remediation |
 |---|---|---|---|
-| Core server, Web UI, and sessions | supported | Artifact/runtime layers qualified directly on native Windows x64 | Install the x64 release |
-| Claude and Codex harness turns | supported | Both provider transports qualified on native Windows; credential-free x64 CI uses matching replacement evidence | Install and authenticate the provider CLIs |
+| Core server, Web UI, and sessions | qualification pending | Current artifact passes on Windows ARM64 under x64 emulation; matching native-x64 rerun is pending | Do not treat 0.21 as release-qualified until current native-x64 evidence is recorded |
+| Claude and Codex harness turns | qualification pending | Both live provider transports pass on native Windows ARM64; current native-x64 artifact evidence is pending | Install and authenticate the provider CLIs; require matching native-x64 evidence for release qualification |
 | FTS5 storage/search | supported | Uses the release's bundled `lib/sqlite3.dll`; it does not depend on `winsqlite3.dll` | Keep `bin/` and `lib/` as sibling directories |
 | Config reload | supported | Use file watching with `gateway.reload.mode: auto`; SIGUSR1 is POSIX-only | Enable `auto` and save the config file atomically |
 | Bash workflow steps | degraded | Run through Git Bash when `bash.exe` is found; otherwise the step fails with `bash steps require Git Bash on Windows` | Install Git for Windows and ensure Git Bash is on `PATH` |

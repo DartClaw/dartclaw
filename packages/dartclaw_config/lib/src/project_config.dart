@@ -4,6 +4,8 @@ import 'package:collection/collection.dart';
 import 'project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy;
 import 'package:path/path.dart' as p;
 
+import 'config_load_warnings.dart';
+
 /// Validation result for a configured or API-supplied local project path.
 class LocalProjectPathValidation {
   /// normalizedPath.
@@ -326,9 +328,12 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
       }
       localPath = validation.normalizedPath;
       if (!validation.pathExists) {
-        warns.add('projects.$id: localPath "$localPath" does not exist at config-load time — accepting');
+        addConfigAdvisory(warns, 'projects.$id: localPath "$localPath" does not exist at config-load time — accepting');
       } else if (!validation.gitRepository) {
-        warns.add('projects.$id: localPath "$localPath" is not a git repository at config-load time — accepting');
+        addConfigAdvisory(
+          warns,
+          'projects.$id: localPath "$localPath" is not a git repository at config-load time — accepting',
+        );
       }
     }
 

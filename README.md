@@ -30,7 +30,7 @@ dartclaw --version
 Then point DartClaw at a provider and start the server:
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."   # or run: claude login
+export ANTHROPIC_API_KEY="sk-ant-..."   # or run: claude auth login
 dartclaw init
 dartclaw serve
 # Open http://127.0.0.1:3333
@@ -47,8 +47,8 @@ dartclaw --version
 ```
 
 The installer verifies and installs `dartclaw-v<version>-windows-x64.zip` under
-`%LOCALAPPDATA%\Programs\DartClaw`, then persists its `bin` directory on your user `PATH`. The planned Scoop bucket
-is not yet published; use the PowerShell installer for the qualified path.
+`%LOCALAPPDATA%\Programs\DartClaw`, then persists its `bin` directory on your user `PATH`. The public Scoop bucket
+exists but has no installable manifest yet; use the PowerShell installer for the qualified path.
 See the [Windows guide](docs/guide/windows.md) for upgrade commands, provider setup, smoke validation, and the explicit
 limits around container isolation, Bash steps, channel sidecars, and provider sandboxes.
 

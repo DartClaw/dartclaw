@@ -181,12 +181,14 @@ ACP security claims are topology-scoped:
 
 | Mode | When to use | Security claim |
 |------|-------------|----------------|
-| Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host `fs` and `terminal` reverse-calls | Guard-mediated. ACP `fs/read_text_file`, `fs/write_text_file`, and `terminal/create` are evaluated by DartClaw guards before host action |
+| Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host filesystem reverse-calls | Guard-mediated. ACP `fs/read_text_file` and `fs/write_text_file` are bound to the active task session and evaluated by DartClaw guards before host action |
 | Relay provider | The ACP target forwards work through another provider CLI or relay path | Container-isolation-only. No guard-mediation claim |
 | Unverified | Startup evidence is absent or insufficient | Container-isolation-only until verification proves reverse-call mediation |
 | Codex delegation | Delegated Codex work with approvals/sandbox enabled | Provider-approval mode, not guard-mediated |
 
 `delegate_to_agent` enforces these classifications before spawn. If an allowlist entry sets `require_guard_mediation: true`, relay and unverified ACP agents are rejected, and Codex is rejected because its delegated mode is `security_mode: "provider_approval"`. A restricted container profile is the safe default for relay or unverified ACP agents.
+
+DartClaw does not advertise ACP `terminal/create` on any host; filesystem reverse-calls remain available. Host terminal execution stays disabled until DartClaw can prove containment of the complete spawned process tree.
 
 ## Audit Logging
 

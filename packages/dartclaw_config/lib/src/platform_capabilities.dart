@@ -41,8 +41,54 @@ final class PlatformCapabilities {
     return null;
   }
 
-  /// Returns command data for locating [executable] without running a process.
-  List<String> executableLookupCommand(String executable) => [_isWindows ? 'where' : 'which', executable];
+  /// Candidate paths for [executable] from the configured PATH, excluding implicit current-directory lookup.
+  List<String> executableSearchCandidates(String executable) {
+    final normalizedExecutable = executable.trim().replaceAll('"', '');
+    if (normalizedExecutable.isEmpty) return const [];
+    final hasPath = normalizedExecutable.contains('/') || normalizedExecutable.contains('\\');
+    final directories = hasPath
+        ? const ['']
+        : (_environmentValue('PATH') ?? '')
+              .split(_isWindows ? ';' : ':')
+              .map((entry) => entry.trim().replaceAll('"', ''))
+              .where((entry) => entry.isNotEmpty);
+    final extensions = _isWindows && !RegExp(r'\.[^\\/]+$').hasMatch(normalizedExecutable)
+        ? (_environmentValue('PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+              .split(';')
+              .map((extension) => extension.trim())
+              .where((extension) => extension.isNotEmpty)
+        : const [''];
+    return [
+      for (final directory in directories)
+        for (final extension in extensions)
+          directory.isEmpty
+              ? '$normalizedExecutable$extension'
+              : '${directory.replaceAll(RegExp(r'[\\/]+$'), '')}${_isWindows ? '\\' : '/'}$normalizedExecutable$extension',
+    ];
+  }
+
+  /// Trusted absolute Windows system executable path, independent of PATH and the current directory.
+  String windowsSystemExecutable(String name) => '$windowsSystemRoot\\System32\\$name';
+
+  /// Validated Windows directory used for trusted system helper execution.
+  String get windowsSystemRoot {
+    final configured = (_environmentValue('SystemRoot') ?? _environmentValue('WINDIR') ?? r'C:\Windows')
+        .trim()
+        .replaceAll('/', '\\')
+        .replaceAll(RegExp(r'\\+$'), '');
+    return RegExp(r'^[A-Za-z]:\\').hasMatch(configured) ? configured : r'C:\Windows';
+  }
+
+  /// Minimal environment for trusted Windows system helper execution.
+  Map<String, String> get windowsSystemEnvironment => {'SystemRoot': windowsSystemRoot, 'WINDIR': windowsSystemRoot};
+
+  String? _environmentValue(String name) {
+    if (!_isWindows) return _environment[name];
+    for (final entry in _environment.entries) {
+      if (entry.key.toUpperCase() == name.toUpperCase()) return entry.value;
+    }
+    return null;
+  }
 
   /// Reports the shell policy supported by the platform.
   BashShellPolicy get bashShellPolicy => _isWindows ? BashShellPolicy.gitBashRequired : BashShellPolicy.systemSh;

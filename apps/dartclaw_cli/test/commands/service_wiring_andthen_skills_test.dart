@@ -45,8 +45,9 @@ void main() {
     logService.install();
     addTearDown(logService.dispose);
 
+    final config = _baseConfig(dataDir, projectA: projectA.path, projectB: projectB.path);
     final wiring = ServiceWiring(
-      config: _baseConfig(dataDir, projectA: projectA.path, projectB: projectB.path),
+      config: config,
       dataDir: dataDir,
       port: 3001,
       harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
@@ -60,10 +61,16 @@ void main() {
       messageRedactor: MessageRedactor(),
       resolvedAssets: const ResolvedAssets.embedded(),
       skillProvisionerEnvironment: {'HOME': fakeHome.path},
+      platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
     );
 
     final result = await wiring.wire();
     addTearDown(result.shutdownExtras);
+
+    expect(
+      () => result.configNotifier.reload(config.copyWith(container: const ContainerConfig(enabled: true))),
+      throwsA(isA<UnsupportedCapabilityError>()),
+    );
 
     expect(_unexpectedDataDirSkillEntries(dataDir), isEmpty);
     for (final name in const [

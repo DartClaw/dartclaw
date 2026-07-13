@@ -149,7 +149,8 @@ void _validateClaudeApproval(String providerId, Map<String, dynamic> options, Li
     return;
   }
   if (raw == 'never') {
-    warns.add(
+    addConfigAdvisory(
+      warns,
       'providers.$providerId.approval is "never" — this opts Claude one-shot runs into FULL ACCESS: '
       'no tool prompt gating and no static allow-list. The one-shot path has no hooks, so off-container '
       '(host path) this grants unrestricted filesystem access. Use only for fully trusted runs.',

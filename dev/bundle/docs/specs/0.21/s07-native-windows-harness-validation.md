@@ -12,7 +12,7 @@
 - [OC01] Native Windows Claude and Codex each complete a full DartClaw-managed prompt/response turn through the harness pool, with recorded evidence naming OS/arch, provider versions, artifact-or-source under test, and both turn results.
 - [OC02] Codex app-server protocol compatibility is regression-guarded on any host: `turn/start` carries a camelCase `sandboxPolicy.type`, and unknown notification methods are ignored without crashing the turn.
 - [OC03] A Codex project-trust warning on Windows is captured and surfaced so the operator knows project-local `.codex` config, hooks, or exec policy are disabled — the turn still completes.
-- [OC04] Claude and Codex harness binary resolution routes through the S01 platform capability surface, so a missing binary reports the attempted lookup context instead of relying on an ad hoc `where`/`which` or `Platform.isWindows` branch in the spawn path.
+- [OC04] Claude and Codex validate the configured binary with a direct `--version` probe and report the attempted command through S01's structured error contract, without an ad hoc `where`/`which` helper or `Platform.isWindows` branch in the spawn path.
 - [OC05] Provider authentication failures, protocol incompatibility, and MCP startup warnings remain visible as setup/compatibility information and terminate or continue the affected turn according to the provider result without corrupting later turn state.
 
 
@@ -55,7 +55,7 @@
 
 ## Deeper Context
 
-- `docs/specs/0.21/s01-platform-capability-surface.md#code-patterns--external-references` – the S01 surface: the executable-lookup command accessor (`['where', name]` on Windows / `['which', name]` on POSIX) and the structured unsupported-capability/lookup-failure error type this story consumes for OC04.
+- `docs/specs/0.21/s01-platform-capability-surface.md#code-patterns--external-references` – the S01 surface: effect-free executable candidates and the structured unsupported-capability/lookup-failure error type this story consumes for OC04.
 - `docs/specs/0.21/spikes-scoping-brief.md#s0b-step-2-findings-real-provider-turns-over-native-windows-stdio` – primary evidence: both providers emit LF (0 CRLF) on native Windows; the camelCase `sandboxPolicy.type` split, the unknown-notification fallthrough, and the untrusted-project `configWarning` are the three findings this story turns into regression tests / surfaced behavior.
 - `docs/specs/0.21/s0b-step2-probe/README.md#what-it-does--pass-criteria` – the exact spawn shape (CLI flags, JSONL / JSON-RPC message sequence) a native-Windows turn round-trips through; the model for the OC01 evidence run.
 
@@ -87,15 +87,15 @@
   - **When** the harness receives that warning notification
   - **Then** Codex logs the warning and emits `ProviderProgressBridgeEvent(kind: 'provider_setup_warning', text: …)` naming that project-local Codex config is disabled; existing `TurnRunner` forwarding exposes it as `ProviderProgressEvent`, and the turn still completes
 
-- [x] **S06 [OC04] [TI05] Harness binary lookup routes through the capability surface**
-  - **Given** the Claude and Codex harnesses constructed with a capability surface for `operatingSystem: 'windows'` and another for `'linux'`
+- [x] **S06 [OC04] [TI05] Harness binary validation is platform-neutral and fail-closed**
+  - **Given** Claude and Codex harnesses configured with their provider executable names
   - **When** each harness resolves/validates its configured binary at startup
-  - **Then** it uses the surface's executable-lookup command (`where <bin>` on Windows, `which <bin>` on POSIX) with no `Platform.isWindows` branch in the harness spawn/probe path
+  - **Then** it directly runs `<bin> --version` with no lookup-helper subprocess and no `Platform.isWindows` branch in the harness spawn/probe path
 
 - [x] **S07 [OC04] [TI05] Missing harness binary reports the attempted lookup**
   - **Given** a Claude or Codex harness whose configured binary does not resolve
   - **When** harness startup validates the binary
-  - **Then** it fails with the structured lookup error naming the binary and the attempted lookup command, not a bare `codex binary not found` string or an unhandled process exception
+  - **Then** it fails with the structured lookup error naming the binary and the attempted `<bin> --version` command, not a bare `codex binary not found` string or an unhandled process exception
 
 - [x] **S08 [OC05] [TI07] Setup and compatibility failures remain visible without corrupting harness state**
   - **Given** a harness receives, in separate cases, an authentication-required result, a protocol-incompatibility diagnostic, or an MCP startup warning
@@ -109,7 +109,7 @@
 
 - [x] Claude JSONL and Codex JSON-RPC line parsing remains CRLF-tolerant: a `\r\n`-terminated provider line (and a `\r\n` split across read chunks) parses identically to its `\n` form, with no trailing `\r` reaching the JSON decoder.
 - [x] Existing `dartclaw_core` harness test suites remain green on macOS/Linux — POSIX Claude/Codex turn, adapter, and executable-probe behavior are unchanged.
-- [x] No new `Platform.isWindows` branch is introduced in the Claude/Codex harness spawn or `--version` probe path; Windows/POSIX divergence there is expressed only through the S01 capability surface.
+- [x] No new `Platform.isWindows` branch or PATH-resolved lookup-helper subprocess is introduced in the Claude/Codex harness spawn or `--version` probe path.
 
 
 ## Scope & Boundaries
@@ -147,7 +147,7 @@ file   | packages/dartclaw_core/lib/src/harness/base_harness.dart#attachProcess 
 file   | packages/dartclaw_core/lib/src/harness/codex_harness.dart#handleProcessStdoutLine | Codex line handling + where warnings/events are emitted; configWarning surfacing site
 file   | packages/dartclaw_core/lib/src/harness/claude_code_harness.dart                   | claudeExecutable + commandProbe(--version) startup validation to route through the surface
 file   | packages/dartclaw_core/lib/src/harness/harness_factory.dart#_createCodexHarness   | Where executable/harness deps are wired; inject the S01 surface here
-file   | apps/dartclaw_cli/lib/src/commands/init/init_command.dart#_resolveBinPath         | Existing where/which resolution pattern the surface lookup command formalizes
+file   | packages/dartclaw_config/lib/src/platform_capabilities.dart                       | Shared structured lookup error and effect-free candidate policy
 ```
 
 
@@ -156,7 +156,7 @@ file   | apps/dartclaw_cli/lib/src/commands/init/init_command.dart#_resolveBinPa
 - **Codex reports cache-inclusive `input_tokens`; the exact project-trust `configWarning` wire method is not recorded in-repo.** The S0b VM output was not brought back, so the executor MUST confirm the exact notification method/shape against a live `codex app-server` (this story already requires codex access) before finalizing S05's parse handling — spec the behavior (capture + surface project-local-config-disabled), not a guessed method string.
 - **Provider scope**: This producer is Codex-specific because the app-server emits the project-trust warning. `ProviderProgressBridgeEvent` is shared transport, so a future provider may reuse `provider_setup_warning` for an equivalent warning, but S07 adds no speculative detection for Claude or other agents.
 - **Cross-platform tests must not gate on the runner OS.** Every adapter/parse/lookup test constructs the surface or feeds the wire line explicitly (camelCase, CRLF, unknown methods, `operatingSystem:'windows'`); a test gated on the real host leaves Windows behavior unverified on POSIX CI (same rule as S01).
-- **Avoid** adding a `Platform.isWindows` branch to the harness spawn/probe path -- Instead: read the S01 surface's lookup command, so future providers inherit it (US07).
+- **Avoid** adding a `Platform.isWindows` branch or a `where`/`which` helper to the harness spawn/probe path -- Instead: probe the configured provider binary directly and use the S01 structured error contract (US07).
 - **Critical**: the two real-turn scenarios (S01/S02) are the only parts that require a Windows host + provider credentials. Per the FR8 recorded-evidence rule they may run in CI-with-credentials OR a recorded manual profile, but the evidence MUST cover both providers with OS/arch, provider versions, artifact-or-source, and turn results — a single-provider run does not satisfy OC01.
 - **Architecture boundary**: Provider stdio/JSONL/JSON-RPC behavior is architecture-neutral per the S0b spike, so authenticated ARM64 Parallels evidence is valid for TI06 when architecture is recorded. It does not prove the x64 artifact, bundled SQLite, installer, or S09 core runtime layers.
 
@@ -181,9 +181,9 @@ file   | apps/dartclaw_cli/lib/src/commands/init/init_command.dart#_resolveBinPa
   - After confirming the exact wire shape against a live app-server, `parseLine` recognizes only the project-trust warning. `codex_harness.dart#handleProcessStdoutLine` logs it and emits `ProviderProgressBridgeEvent(kind: 'provider_setup_warning', text: normalized warning)`. The text names disabled project-local `.codex` config/hooks/exec policy and preserves useful provider detail. Do not surface unrelated `ProtocolDiagnostic` values or add a new event hierarchy.
   - **Verify**: `Test: project-trust configWarning logs and emits exactly one provider_setup_warning that TurnRunner forwards as ProviderProgressEvent; text names disabled project-local Codex configuration; unrelated ProtocolDiagnostic stays internal; following turn/completed succeeds`
 
-- [x] **TI05** Claude and Codex harness binary resolution routes through the S01 capability surface, and a missing binary reports the attempted lookup context.
-  - Inject the S01 surface (via `harness_factory.dart#_createCodexHarness` / the Claude factory) into both harnesses; startup binary validation uses the surface's executable-lookup command (`where`/`which`) instead of an inline branch, and an unresolved binary raises the surface's structured lookup error (replacing the bare `StateError('codex binary not found …')` in `codex_harness.dart`). No `Platform.isWindows` in the spawn/probe path.
-  - **Verify**: `Test: with a windows surface the harness's lookup command is 'where <bin>' and with a linux surface 'which <bin>'; an unresolvable binary throws the structured lookup error naming the binary and the attempted command; grep of the harness spawn/probe path shows no new Platform.isWindows branch`
+- [x] **TI05** Claude and Codex harness binary validation is platform-neutral, and a missing binary reports the attempted probe context.
+  - Startup validation directly probes the configured executable with `--version`; `ProcessException`, nonzero exit, or blank version output raises S01's structured lookup error (replacing the bare `StateError('codex binary not found …')`). No `Platform.isWindows`, `where`, or `which` helper exists in the spawn/probe path.
+  - **Verify**: `Test: both harnesses call the configured binary with ['--version']; an unresolvable binary throws the structured lookup error naming '<bin> --version'; grep of the harness spawn/probe path shows no Platform.isWindows, where, or which branch`
 
 - [x] **TI06** Native-Windows Claude and Codex turns are validated with recorded evidence covering both providers.
   - Add the repeatable procedure at `dev/testing/scenarios/windows-harness-turns.md`. Run it on native Windows (x64 CI or authenticated ARM64 Parallels) and write the stable latest result to `dev/testing/evidence/windows-harness-turns.md`, recording OS/arch, DartClaw commit/source or release version, `claude`/`codex` versions, timestamps, and both turn results. S09 may reuse it only for provider transport when DartClaw and provider versions match; architecture is recorded but need not be x64 for that slice.
@@ -226,3 +226,20 @@ Affected surface: Native-Windows Claude/Codex turn procedure, durable evidence, 
 Decision: S07 owns dev/testing/scenarios/windows-harness-turns.md and stable latest-run record dev/testing/evidence/windows-harness-turns.md. S09 may reuse it for the architecture-neutral provider transport slice when the DartClaw commit/source or release version and provider versions match; OS architecture is recorded but may be ARM64 Parallels. It cannot satisfy x64 artifact, SQLite, installer, or core runtime gates.
 Rationale: Gives unattended execution exact durable paths, uses the available authenticated Parallels environment for architecture-neutral provider checks, and preserves x64 release proof.
 Evidence: The S0b scoping brief establishes provider stdio as architecture-neutral and build/FTS5 as x64-sensitive; S07 and S09 require both-provider evidence with environment metadata.
+
+#### DECISION NOTE: direct-harness-binary-probe
+
+Decision-Key: direct-harness-binary-probe
+Altitude: fis-local
+Affected surface: Claude and Codex startup executable validation
+Decision: Validate the configured provider binary directly with `--version`; do not launch `where` or `which`. Report failures through `UnsupportedCapabilityError` with the attempted command.
+Rationale: Direct probing is platform-neutral, verifies both resolution and executable usability, and avoids trusting an additional PATH-resolved helper. ADR-049's candidate expansion remains the effect-free policy for consumers that need enumeration, such as Git Bash selection.
+Evidence: ClaudeCodeHarness and CodexHarness probe the configured executable directly; their tests cover success, thrown `ProcessException`, nonzero exit, and blank output on injected Windows and POSIX capabilities.
+
+### Run: 2026-07-13 11:52 UTC – observations
+
+#### QUALIFICATION REOPENED: final-current-tree-native-windows
+
+The checked proof surfaces record the successful Windows snapshot at its recorded fingerprint. Final review subsequently
+changed provider timeout and Windows termination behavior, so plan status is reopened until both live provider turns are
+recorded against the final source fingerprint. Portable regression gates remain green but do not replace native evidence.

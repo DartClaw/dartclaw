@@ -38,6 +38,8 @@ $script:ExecutionMode = $null
 $script:Executable = $null
 $script:ProviderStubPath = $null
 $script:OriginalPath = $env:PATH
+$script:OriginalHomeWasSet = Test-Path Env:HOME
+$script:OriginalHome = if ($script:OriginalHomeWasSet) { (Get-Item Env:HOME).Value } else { $null }
 $script:ArtifactRoot = $null
 $script:Version = $null
 $script:SourceIdentity = $null
@@ -47,6 +49,16 @@ $script:ProviderVersions = [ordered]@{ claude = 'unavailable'; codex = 'unavaila
 $script:DartVersion = 'unavailable'
 $script:ReloadValue = 65536
 $script:CurrentStage = 'environment'
+$script:RequiredLayers = @(
+  'windows-x64-host',
+  'server-startup',
+  'web-ui',
+  'fts5-search',
+  'config-reload',
+  'claude-turn',
+  'codex-turn'
+)
+$script:EvidenceClockSkewMinutes = 5
 
 function Set-LayerResult {
   param(
@@ -57,39 +69,66 @@ function Set-LayerResult {
   $script:Layers[$Name] = [pscustomobject]@{ Result = $Result; Detail = $Detail }
 }
 
+function Restore-EnvironmentVariable {
+  param(
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][bool]$WasSet,
+    [AllowEmptyString()][string]$Value
+  )
+  if ($WasSet) {
+    Set-Item -LiteralPath "Env:$Name" -Value $Value
+  } else {
+    Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue
+  }
+}
+
 function Resolve-Verdict {
   param(
     [Parameter(Mandatory)][System.Collections.IDictionary]$Layers,
-    [Parameter(Mandatory)][bool]$ReplacementEvidenceValid
+    [Parameter(Mandatory)][bool]$ReplacementEvidenceValid,
+    [Parameter(Mandatory)][ValidateSet('artifact', 'source')][string]$ExecutionMode
   )
   $values = @($Layers.Values)
   if (@($values | Where-Object Result -eq 'fail').Count -gt 0) {
     return [pscustomobject]@{ Status = 'failed'; ReleaseReady = $false }
   }
-  $skipped = @($Layers.Keys | Where-Object { $Layers[$_].Result -eq 'skipped' })
+  $missing = @($script:RequiredLayers | Where-Object { -not $Layers.Contains($_) })
+  $skipped = @($script:RequiredLayers | Where-Object { $Layers.Contains($_) -and $Layers[$_].Result -eq 'skipped' })
   $uncovered = @($skipped | Where-Object { $_ -notin @('claude-turn', 'codex-turn') -or -not $ReplacementEvidenceValid })
-  if ($uncovered.Count -gt 0) {
+  if ($missing.Count -gt 0 -or $uncovered.Count -gt 0) {
+    return [pscustomobject]@{ Status = 'incomplete'; ReleaseReady = $false }
+  }
+  if ($ExecutionMode -ne 'artifact') {
     return [pscustomobject]@{ Status = 'incomplete'; ReleaseReady = $false }
   }
   return [pscustomobject]@{ Status = 'supported'; ReleaseReady = $true }
 }
 
 function Invoke-SelfTest {
-  $allPass = [ordered]@{ a = [pscustomobject]@{ Result = 'pass' }; b = [pscustomobject]@{ Result = 'pass' } }
-  $providerSkips = [ordered]@{
-    a = [pscustomobject]@{ Result = 'pass' }
-    'claude-turn' = [pscustomobject]@{ Result = 'skipped' }
-    'codex-turn' = [pscustomobject]@{ Result = 'skipped' }
+  $allPass = [ordered]@{}
+  $providerSkips = [ordered]@{}
+  $oneFailure = [ordered]@{}
+  foreach ($layer in $script:RequiredLayers) {
+    $allPass[$layer] = [pscustomobject]@{ Result = 'pass' }
+    $providerSkips[$layer] = [pscustomobject]@{
+      Result = if ($layer -in @('claude-turn', 'codex-turn')) { 'skipped' } else { 'pass' }
+    }
+    $oneFailure[$layer] = [pscustomobject]@{ Result = if ($layer -eq 'web-ui') { 'fail' } else { 'pass' } }
   }
-  $oneFailure = [ordered]@{ a = [pscustomobject]@{ Result = 'pass' }; b = [pscustomobject]@{ Result = 'fail' } }
+  $missingRequired = [ordered]@{}
+  foreach ($layer in $script:RequiredLayers | Where-Object { $_ -ne 'fts5-search' }) {
+    $missingRequired[$layer] = [pscustomobject]@{ Result = 'pass' }
+  }
   $cases = @(
-    @{ Name = 'all pass'; Layers = $allPass; Evidence = $false; Status = 'supported'; Ready = $true },
-    @{ Name = 'provider skips with matching evidence'; Layers = $providerSkips; Evidence = $true; Status = 'supported'; Ready = $true },
-    @{ Name = 'provider skips without evidence'; Layers = $providerSkips; Evidence = $false; Status = 'incomplete'; Ready = $false },
-    @{ Name = 'executed failure'; Layers = $oneFailure; Evidence = $true; Status = 'failed'; Ready = $false }
+    @{ Name = 'artifact all pass'; Mode = 'artifact'; Layers = $allPass; Evidence = $false; Status = 'supported'; Ready = $true },
+    @{ Name = 'source all pass'; Mode = 'source'; Layers = $allPass; Evidence = $false; Status = 'incomplete'; Ready = $false },
+    @{ Name = 'artifact provider skips with matching evidence'; Mode = 'artifact'; Layers = $providerSkips; Evidence = $true; Status = 'supported'; Ready = $true },
+    @{ Name = 'artifact provider skips without evidence'; Mode = 'artifact'; Layers = $providerSkips; Evidence = $false; Status = 'incomplete'; Ready = $false },
+    @{ Name = 'artifact missing required layer'; Mode = 'artifact'; Layers = $missingRequired; Evidence = $true; Status = 'incomplete'; Ready = $false },
+    @{ Name = 'artifact executed failure'; Mode = 'artifact'; Layers = $oneFailure; Evidence = $true; Status = 'failed'; Ready = $false }
   )
   foreach ($case in $cases) {
-    $actual = Resolve-Verdict -Layers $case.Layers -ReplacementEvidenceValid $case.Evidence
+    $actual = Resolve-Verdict -Layers $case.Layers -ReplacementEvidenceValid $case.Evidence -ExecutionMode $case.Mode
     if ($actual.Status -ne $case.Status -or $actual.ReleaseReady -ne $case.Ready) {
       throw "Verdict self-test failed: $($case.Name)."
     }
@@ -112,6 +151,8 @@ function Invoke-SelfTest {
     $script:ProviderVersions = [ordered]@{ claude = '2.1.207 (Claude Code)'; codex = 'codex-cli 0.139.0' }
     $fresh = [DateTimeOffset]::Now.ToString('o')
     $stale = [DateTimeOffset]::Now.AddDays(-($MaxEvidenceAgeDays + 1)).ToString('o')
+    $boundedFuture = [DateTimeOffset]::Now.AddMinutes($script:EvidenceClockSkewMinutes - 1).ToString('o')
+    $farFuture = [DateTimeOffset]::Now.AddMinutes($script:EvidenceClockSkewMinutes + 1).ToString('o')
     $template = @'
 **Status**: QUALIFIED
 **Run timestamps**: Claude `{0}`; Codex `{1}`
@@ -132,6 +173,19 @@ Qualification: **PASS**
     $stalePath = Join-Path $testRoot 'stale-provider.md'
     [IO.File]::WriteAllText($stalePath, ($template -f $stale, $fresh))
     if ((Test-ProviderEvidence -Path $stalePath).Valid) { throw 'one fresh timestamp covered a stale provider' }
+    $boundedFuturePath = Join-Path $testRoot 'bounded-future-provider.md'
+    [IO.File]::WriteAllText($boundedFuturePath, ($template -f $boundedFuture, $fresh))
+    if (-not (Test-ProviderEvidence -Path $boundedFuturePath).Valid) { throw 'bounded clock skew was rejected' }
+    foreach ($futureProvider in @(
+        @{ Name = 'Claude'; ClaudeTimestamp = $farFuture; CodexTimestamp = $fresh },
+        @{ Name = 'Codex'; ClaudeTimestamp = $fresh; CodexTimestamp = $farFuture }
+      )) {
+      $futurePath = Join-Path $testRoot "future-$($futureProvider.Name.ToLowerInvariant()).md"
+      [IO.File]::WriteAllText($futurePath, ($template -f $futureProvider.ClaudeTimestamp, $futureProvider.CodexTimestamp))
+      if ((Test-ProviderEvidence -Path $futurePath).Valid) {
+        throw "$($futureProvider.Name) future timestamp was accepted"
+      }
+    }
     $mismatchPath = Join-Path $testRoot 'mismatched-version.md'
     [IO.File]::WriteAllText($mismatchPath, (($template -f $fresh, $fresh).Replace('0.139.0', '0.138.0')))
     if ((Test-ProviderEvidence -Path $mismatchPath).Valid) { throw 'provider version mismatch was accepted' }
@@ -208,6 +262,33 @@ Qualification: **PASS**
       $response.response.request_id -ne 'self-test'
     ) {
       throw 'provider stub initialize handshake failed'
+    }
+
+    $callerHomeWasSet = Test-Path Env:HOME
+    $callerHome = if ($callerHomeWasSet) { (Get-Item Env:HOME).Value } else { $null }
+    try {
+      $env:HOME = 'self-test-original-home'
+      try {
+        $env:HOME = 'self-test-mutated-home'
+      } finally {
+        Restore-EnvironmentVariable -Name HOME -WasSet $true -Value 'self-test-original-home'
+      }
+      if ($env:HOME -ne 'self-test-original-home') { throw 'HOME value was not restored after success' }
+
+      Remove-Item Env:HOME
+      try {
+        try {
+          $env:HOME = 'self-test-mutated-home'
+          throw 'expected HOME restoration failure path'
+        } finally {
+          Restore-EnvironmentVariable -Name HOME -WasSet $false
+        }
+      } catch {
+        if ($_.Exception.Message -ne 'expected HOME restoration failure path') { throw }
+      }
+      if (Test-Path Env:HOME) { throw 'absent HOME was not restored after failure' }
+    } finally {
+      Restore-EnvironmentVariable -Name HOME -WasSet $callerHomeWasSet -Value $callerHome
     }
   } finally {
     $script:ExecutionMode = $priorMode
@@ -356,8 +437,11 @@ function Start-SmokeServer {
 function Stop-SmokeServer {
   if ($null -ne $script:Server) {
     if (-not $script:Server.HasExited) {
-      Stop-Process -Id $script:Server.Id -Force -ErrorAction SilentlyContinue
-      $script:Server.WaitForExit()
+      $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+      & $taskkill /PID $script:Server.Id /T /F 2>&1 | Out-Null
+      if (-not $script:Server.WaitForExit(10000)) {
+        throw "server process tree rooted at PID $($script:Server.Id) did not exit after taskkill"
+      }
     }
     $script:Server = $null
   }
@@ -497,6 +581,7 @@ function Test-ProviderEvidence {
     }
   }
 
+  $now = [DateTimeOffset]::Now
   foreach ($provider in @('Claude', 'Codex')) {
     $version = $script:ProviderVersions[$provider.ToLowerInvariant()]
     $versionNumber = [regex]::Match($version, '\d+(?:\.\d+){1,3}').Value
@@ -523,8 +608,10 @@ function Test-ProviderEvidence {
     try {
       if ($timestampMatch.Success) { $timestamp = [DateTimeOffset]::Parse($timestampMatch.Groups[1].Value) }
     } catch {}
-    if ($null -eq $timestamp -or $timestamp -lt [DateTimeOffset]::Now.AddDays(-$MaxEvidenceAgeDays)) {
+    if ($null -eq $timestamp -or $timestamp -lt $now.AddDays(-$MaxEvidenceAgeDays)) {
       $failures.Add("$provider evidence is older than $MaxEvidenceAgeDays days or lacks its timestamp")
+    } elseif ($timestamp -gt $now.AddMinutes($script:EvidenceClockSkewMinutes)) {
+      $failures.Add("$provider evidence is more than $script:EvidenceClockSkewMinutes minutes in the future")
     }
   }
   if ($failures.Count -gt 0) {
@@ -578,6 +665,7 @@ function Write-EvidenceReport {
   $lines.Add("- Failed layers: $(if (@($failed).Count) { $failed -join ', ' } else { 'none' })")
   $lines.Add("- Skipped layers: $(if (@($skipped).Count) { $skipped -join ', ' } else { 'none' })")
   $lines.Add("- Replacement-evidence-backed layers: $(if (@($replacement).Count) { $replacement -join ', ' } else { 'none' })")
+  $lines.Add("- Release qualification input: artifact mode required; current mode: $script:ExecutionMode.")
   $lines.Add('- File-watch mechanism: gateway.reload.mode `auto`; process identity preserved by the config-reload layer.')
   $lines.Add('')
   $lines.Add('A `failed` or `incomplete` verdict is not Windows release-ready and must not be reported as supported.')
@@ -775,7 +863,8 @@ try {
 
   $script:CurrentStage = 'provider-evidence'
   $providerEvidence = Test-ProviderEvidence -Path $script:ProviderEvidencePath
-  $verdict = Resolve-Verdict -Layers $script:Layers -ReplacementEvidenceValid $providerEvidence.Valid
+  $verdict = Resolve-Verdict -Layers $script:Layers -ReplacementEvidenceValid $providerEvidence.Valid `
+    -ExecutionMode $script:ExecutionMode
   $script:CurrentStage = 'evidence-report'
   Write-EvidenceReport -Verdict $verdict -ProviderEvidence $providerEvidence
   Write-Host "Windows runtime smoke: $($verdict.Status); release-ready=$($verdict.ReleaseReady.ToString().ToLowerInvariant())"
@@ -808,6 +897,7 @@ try {
 } finally {
   Stop-SmokeServer
   $env:PATH = $script:OriginalPath
+  Restore-EnvironmentVariable -Name HOME -WasSet $script:OriginalHomeWasSet -Value $script:OriginalHome
   if ($script:TempRoot -and (Test-Path -LiteralPath $script:TempRoot)) {
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
   }

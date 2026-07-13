@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:dartclaw_core/src/harness/base_harness.dart';
 import 'package:dartclaw_core/src/harness/claude_protocol_adapter.dart';
 import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/protocol_adapter.dart';
+import 'package:dartclaw_core/src/worker/worker_state.dart' show WorkerState;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
@@ -29,7 +31,23 @@ final class _LineRecordingHarness extends BaseHarness {
   final parsed = <Object?>[];
   final rawLines = <String>[];
 
-  void attach(Process process) => attachProcess(process, dropEmptyStdoutLines: true, watchForUnexpectedExit: false);
+  void attach(Process process, {bool watchForUnexpectedExit = false}) =>
+      attachProcess(process, dropEmptyStdoutLines: true, watchForUnexpectedExit: watchForUnexpectedExit);
+
+  bool get ownsProcess => currentProcess != null;
+
+  Future<void> shutdownForTest() => shutdownCurrentProcess(
+    label: 'test harness',
+    gracePeriod: Duration.zero,
+    platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+  );
+
+  Future<void> startForTest() => startLifecycle(busyMessage: 'busy', start: () async {});
+
+  Future<void> recoverForTest(Future<void> Function() restart) {
+    currentState = WorkerState.crashed;
+    return recoverFromCrash(restart);
+  }
 
   @override
   void handleProcessStdoutLine(String line) {
@@ -92,5 +110,35 @@ void main() {
       expect(harness.parsed.single, isNotNull);
       await stdoutController.close();
     }
+  });
+
+  test('confirmed Windows root exit releases direct ownership after shutdown', () async {
+    final process = FakeProcess(completeExitOnKill: true);
+    final harness = _LineRecordingHarness(ClaudeProtocolAdapter())..attach(process, watchForUnexpectedExit: true);
+    addTearDown(harness.dispose);
+
+    await harness.shutdownForTest();
+
+    expect(harness.ownsProcess, isFalse);
+    await expectLater(harness.startForTest(), completes);
+
+    await pumpEventQueue();
+
+    expect(harness.ownsProcess, isFalse);
+  });
+
+  test('crash recovery cannot replace a process whose exit remains unconfirmed', () async {
+    final process = FakeProcess();
+    final harness = _LineRecordingHarness(ClaudeProtocolAdapter())..attach(process);
+    addTearDown(harness.dispose);
+    var restarted = false;
+
+    await expectLater(
+      harness.recoverForTest(() async => restarted = true),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('exit has not been confirmed'))),
+    );
+
+    expect(restarted, isFalse);
+    expect(harness.ownsProcess, isTrue);
   });
 }

@@ -1,3 +1,4 @@
+import 'config_load_warnings.dart';
 import 'path_utils.dart';
 import 'provider_identity.dart';
 import 'session_maintenance_config.dart' show MaintenanceMode;
@@ -230,7 +231,10 @@ WorkflowConfig parseWorkflowConfig(Map<String, dynamic>? workflowMap, List<Strin
   }
 
   if (workflowMap.containsKey('execution_mode')) {
-    warns.add('workflow.execution_mode was removed in 0.16.4 — workflow steps now always use one-shot execution');
+    addConfigAdvisory(
+      warns,
+      'workflow.execution_mode was removed in 0.16.4 — workflow steps now always use one-shot execution',
+    );
   }
 
   return WorkflowConfig(

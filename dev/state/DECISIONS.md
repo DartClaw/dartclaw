@@ -51,7 +51,7 @@
 | [034](../adrs/034-enforced-package-dependency-direction.md) | Enforced Package Dependency Direction — Workflow Ports Outside Storage | Accepted (implemented 0.16.5) | Governance / packaging |
 | [035](../adrs/035-cross-harness-task-capability-trust-mapping.md) | Cross-Harness Task Capability & Trust Mapping (`allowedTools` / `readOnly`) | Accepted (implemented 0.16.5) | Security / harness |
 | [036](../adrs/036-web-ui-interaction-layer-stimulus-on-htmx.md) | Web UI Interaction Layer — Stimulus on HTMX | Accepted (implemented 0.16.6) | Web UI |
-| [037](../adrs/037-universal-acp-harness.md) | Universal ACP Harness (`AcpHarness`) | Accepted (implemented 0.18; amends ADR-016) | Harness |
+| [037](../adrs/037-universal-acp-harness.md) | Universal ACP Harness (`AcpHarness`) | Accepted (implemented 0.18; amended 2026-07-13: terminal reverse-calls disabled pending process-tree containment) | Harness |
 | [038](../adrs/038-homebrew-formula-publication.md) | Homebrew Formula Publication via Canonical Template + CI-Mirrored Tap | Accepted (implemented 0.18; amended 0.21 for Scoop) | Distribution |
 | [039](../adrs/039-outbound-mcp-trust-boundary-and-transport.md) | Outbound MCP Trust Boundary and Transport | Accepted (targets 0.19) | Security / MCP |
 | [040](../adrs/040-andthen-skills-via-canonical-name-resolution.md) | AndThen Skills via Canonical-Name Resolution (No Runtime Clone/Install) | Accepted (implemented 0.17; supersedes ADR-025 §Decision) | Workflow / AndThen |

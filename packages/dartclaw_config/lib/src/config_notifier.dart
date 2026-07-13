@@ -2,6 +2,7 @@ import 'package:logging/logging.dart';
 
 import 'config_delta.dart';
 import 'dartclaw_config.dart';
+import 'platform_capabilities.dart';
 import 'reconfigurable.dart';
 
 final _log = Logger('ConfigNotifier');
@@ -20,9 +21,12 @@ class ConfigNotifier {
 
   DartclawConfig _current;
   final List<Reconfigurable> _services = [];
+  final PlatformCapabilities _platformCapabilities;
 
-  /// ConfigNotifier(DartclawConfig initial) : _current = initial;.
-  ConfigNotifier(DartclawConfig initial) : _current = initial;
+  /// Creates a notifier with the platform policy used for reload admission.
+  ConfigNotifier(DartclawConfig initial, {PlatformCapabilities? platformCapabilities})
+    : _current = initial,
+      _platformCapabilities = platformCapabilities ?? PlatformCapabilities();
 
   /// The current configuration.
   DartclawConfig get current => _current;
@@ -52,6 +56,18 @@ class ConfigNotifier {
   ///
   /// Returns `null` when no reloadable fields changed (no services are notified).
   ConfigDelta? reload(DartclawConfig newConfig) {
+    final blockingDiagnostics = newConfig.reloadBlockingWarnings;
+    if (blockingDiagnostics.isNotEmpty) {
+      throw FormatException('config validation failed: ${blockingDiagnostics.join('; ')}');
+    }
+    if (!_platformCapabilities.containerIsolationAvailable && newConfig.container.enabled) {
+      throw const UnsupportedCapabilityError(
+        capability: 'container isolation',
+        attemptedContext: 'live reload enabling container isolation on native Windows',
+        remediation: 'Keep container.enabled false, or restart DartClaw on POSIX or inside WSL.',
+      );
+    }
+
     final old = _current;
     final changedKeys = <String>{};
 

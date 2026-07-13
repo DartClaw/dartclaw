@@ -13,7 +13,7 @@ DartClaw communicates with provider binaries over bidirectional subprocess proto
 | Dimension | Claude Code protocol | Codex JSON-RPC JSONL protocol | ACP stdio JSON-RPC protocol |
 |---|---|---|---|
 | Wire format | Ad-hoc JSONL messages over stdin/stdout | JSON-RPC 2.0-like messages over stdin/stdout, serialized as JSONL | JSON-RPC 2.0 over subprocess stdio |
-| Direction | DartClaw sends turn and control requests; the binary streams events, control requests, and results back | DartClaw sends `initialize`, `initialized`, `thread/start`, and `turn/start`; Codex streams notifications and approval requests back | `AcpHarness` drives ACP session methods; direct agents may make host reverse-calls for filesystem and terminal operations |
+| Direction | DartClaw sends turn and control requests; the binary streams events, control requests, and results back | DartClaw sends `initialize`, `initialized`, `thread/start`, and `turn/start`; Codex streams notifications and approval requests back | `AcpHarness` drives ACP session methods; direct agents may make host reverse-calls for filesystem operations |
 | Lifecycle | Spawn `claude`, initialize once, then send user turns against the long-lived process | Spawn `codex app-server`, complete `initialize`/`initialized`, create a thread, then send turns against that thread | Spawn configured ACP binary such as `goose acp` or `vibe-acp`, initialize once, then route turns through `AcpClient` |
 | Streaming | `content_block_delta`, assistant/tool blocks, and `compact_boundary` compaction markers | `item/agentMessage/delta`, `item/started`, `item/completed`, `turn/completed`, `turn/failed` | ACP session updates adapted into DartClaw bridge events by `AcpProtocolAdapter` |
 | Tool approval | `control_request` plus hook callbacks (`can_use_tool`, `PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`) | JSON-RPC approval requests from server to client; DartClaw evaluates guards and replies allow/deny | Handler-level reverse-calls route through `GuardChain.evaluateBeforeToolCall(...)` before host file or terminal actions |
@@ -834,7 +834,7 @@ class HarnessConfig {
 
 `AcpHarness` wraps an ACP agent subprocess using stdio JSON-RPC. The configured `harness.acp.agents.<id>` entry supplies the binary, args, topology, model provider, verification evidence, required built-ins, and container profile. Missing `topology` defaults to `unverified`.
 
-Only direct-provider ACP agents that advertise and honor host `fs` and `terminal` capabilities can be classified as guard-mediated. Goose direct-provider targets require the `developer` extension, a direct model provider selector, and verification evidence when guard mediation is required; known proxy selectors such as `claude-acp` and `codex-acp` are rejected as direct-provider claims. Vibe must prove the declared provider is non-proxy or pass startup verification before DartClaw marks it guard-mediated.
+Only direct-provider ACP agents that advertise and honor host `fs` capabilities can be classified as guard-mediated. Goose direct-provider targets require the `developer` extension, a direct model provider selector, and verification evidence when guard mediation is required; known proxy selectors such as `claude-acp` and `codex-acp` are rejected as direct-provider claims. Vibe must prove the declared provider is non-proxy or pass startup verification before DartClaw marks it guard-mediated.
 
 Relay-provider and unverified ACP agents remain container-isolation-only. They may run in isolated profiles, but DartClaw does not claim guard mediation until per-agent verification proves reverse-call mediation.
 
@@ -844,9 +844,11 @@ ACP reverse-calls are bound at the host handler boundary:
 |---|---|---|
 | `fs/read_text_file` | `file_read` | Calls `GuardChain.evaluateBeforeToolCall(...)` with `rawProviderToolName: "fs/read_text_file"` |
 | `fs/write_text_file` | `file_write` | Calls `GuardChain.evaluateBeforeToolCall(...)` with `rawProviderToolName: "fs/write_text_file"` |
-| `terminal/create` | `shell` | Jails `cwd`, sanitizes `env` with `EnvPolicy.sanitize(...)`, honors `outputByteLimit` within DartClaw's host cap, then calls `SafeProcess.start(...)` |
+| `terminal/create` | unavailable | Rejected on every host until DartClaw can prove containment of the complete spawned process tree |
 
-Terminal lifecycle calls (`terminal/output`, `terminal/wait_for_exit`, `terminal/kill`, `terminal/release`) are audited under their raw ACP method names and operate only on terminal IDs created by the host. They do not create another shell execution path.
+Every filesystem reverse-call is bound to the active host session and effective workspace directory. Calls outside an active turn are rejected, and guard evaluation carries the host session ID so task-local tool and read-only policies apply.
+
+DartClaw does not advertise `terminal.create` and rejects all ACP terminal lifecycle calls on every host because complete descendant containment is not yet proven. Filesystem reverse-calls remain available. Container-isolated ACP agents advertise no host reverse-calls.
 
 ### Working directory and model changes
 
@@ -1257,15 +1259,26 @@ When a task execution fails, the git worktree is intentionally **not** cleaned u
 The JSONL protocol has no explicit cancel command. `cancel()` closes stdin and issues the initial platform termination
 request; the serialized stop path then passes that request's acceptance result to `killWithEscalation` as
 `initialTerminationAccepted` to observe the exit and, when supported, escalate. The helper reads
-`PlatformCapabilities.posixSignalsAvailable`. POSIX hosts use SIGTERM
-followed by SIGKILL after the grace period. Windows `Process.kill()` is an unconditional hard terminate, so DartClaw
-sends it once and never attempts POSIX signal escalation. If the process exit cannot be confirmed within the bounded
-wait, the helper returns an unconfirmed `ProcessTerminationResult` and logs a lifecycle warning naming the process.
+`PlatformCapabilities.posixSignalsAvailable`. POSIX hosts use SIGTERM followed by SIGKILL after the grace period.
+Windows hard-terminates the directly managed root handle and never attempts POSIX signal escalation or a later
+bare-PID tree request. Harness, CLI-provider, and sidecar owners release that direct ownership only after root exit is
+observed. They do not claim ownership of provider-created helpers; arbitrary descendant containment remains a separate
+capability and is why ACP terminal reverse-calls stay disabled. Workflow Bash steps track observed command descendants
+and inherited output handles, retaining failed cleanup when their exit cannot be proved. Detached or daemonized
+processes that escape that observable boundary are unsupported in Bash steps.
 
 ```dart
 Future<void> cancel() async {
-  await closeCurrentProcessStdin();
-  currentProcess?.kill();
+  final process = currentProcess;
+  beginIntentionalProcessTeardown(process, platformCapabilities);
+  await closeCurrentProcessStdin(process: process);
+  if (process == null) return;
+  final result = await killWithEscalation(
+    process,
+    label: 'provider',
+    platformCapabilities: platformCapabilities,
+  );
+  completeIntentionalProcessTeardown(process, result, platformCapabilities);
 }
 ```
 

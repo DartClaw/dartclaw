@@ -1,33 +1,32 @@
 # Native Windows Harness-Turn Evidence
 
-**Status**: QUALIFIED
+**Status**: QUALIFIED SNAPSHOT; FINAL CURRENT-TREE RERUN PENDING
 
-**Run timestamps**: Claude `2026-07-12T07:18:23.2333374+02:00`; Codex `2026-07-12T07:18:23.2333374+02:00`
-**Host**: Windows 11 Pro 10.0 build 26200, ARM64 (Parallels; Windows x64 application emulation)
+**Run timestamps**: Claude `2026-07-13T12:50:19.9954506+02:00`; Codex `2026-07-13T12:50:19.9954506+02:00`
+**Host**: Windows 11 Pro 10.0 build 26200, ARM64 (Parallels)
 **Windows user**: `TOBIASLFSTR7587\tobias` (`C:\Users\tobias`)
-**DartClaw under test**: release artifact 0.20.1, built by GitHub Actions from
-`ab26662eba008a63e33d77062a216b220d24d82f`; archive SHA256
-`8bbdc5b76c294bc4ec130ca8c94c4db189e901d077051a57fb1ea5505ec379f4`.
+**DartClaw under test**: source `2784f39ebdc2ce5842646ac8c5ee559967953a9a`
+**Source fingerprint**: aa92f08b14c94fda09441076a7703cf7ff24fb2fa0ee712b7f54b48b4f3ed33c
 **Claude**: Claude Code 2.1.207
 **Codex**: codex-cli 0.139.0
 
-The x64 artifact ran under Windows ARM64's x64 application emulation. This record qualifies only the
-architecture-neutral provider transport slice; native x64 artifact, SQLite, installer, and core-runtime gates remain
-separate. Both providers used fresh DartClaw server startups and completed through DartClaw's HTTP session API with a
-stored assistant response of `pong`.
+Both providers used fresh DartClaw server startups from the recorded working-tree snapshot and completed through DartClaw's
+HTTP session API with a stored assistant response of `pong`. This record qualifies the architecture-neutral provider
+transport slice at the recorded fingerprint. Final review subsequently changed provider timeout teardown and ACP reverse-call
+scoping, so this evidence does not attest the final current tree. Native x64 artifact and runtime attestation remains separate.
 
 ## Claude Result
 
-- HTTP session: `8400a680-ef1b-4542-9d0c-f20ed786ad5f`; turn:
-  `3d3752ff-760c-484b-9991-db71cf0ef91d`.
+- HTTP session: `8fbf85f3-8a31-4743-ba72-48afb47f80cb`; turn:
+  `338e6c82-27fc-41df-ba09-1eec463f57fb`.
 - DartClaw terminal state: `completed`; stored assistant response: `pong`.
 - Provider: Claude Code 2.1.207.
 - Qualification: **PASS**.
 
 ## Codex Result
 
-- HTTP session: `4f7addb2-1659-41be-8559-56895a59fdc6`; turn:
-  `1553aa0f-f23b-4ec3-8b93-70028addf6de`.
+- HTTP session: `7d95525c-3417-480f-8899-6b81cb6a6895`; turn:
+  `ceb739a1-11c4-4dec-860e-7135422da4de`.
 - DartClaw terminal state: `completed`; stored assistant response: `pong`.
 - Provider: codex-cli 0.139.0.
 - Qualification: **PASS**.

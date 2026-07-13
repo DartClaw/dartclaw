@@ -235,7 +235,7 @@ class ServiceWiring {
     await _wireWorkflowSkillsBootstrap(builtInSkillsSourceDir);
     final ctx = _WiringContext(
       eventBus: EventBus(),
-      configNotifier: ConfigNotifier(config),
+      configNotifier: ConfigNotifier(config, platformCapabilities: platformCapabilities),
       dataDir: dataDir,
       port: port,
       resolvedAssets: resolvedAssets,

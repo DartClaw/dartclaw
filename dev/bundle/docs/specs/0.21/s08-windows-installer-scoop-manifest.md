@@ -11,7 +11,7 @@
 
 - [OC01] Running the documented `install.ps1` command downloads the `dartclaw-v<version>-windows-x64.zip` asset, verifies its checksum, installs the archive's `VERSION`, `bin/dartclaw.exe`, and `lib/sqlite3.dll` together in the loadable layout, records a persistent user PATH entry, and a newly opened terminal resolves `dartclaw`.
 - [OC02] Every documented failure path (download failure, checksum mismatch, unsupported architecture, PATH write failure, and an existing/older install) produces an actionable error and never leaves a partial *active* install.
-- [OC03] A Scoop manifest installs the same release asset, exposes `dartclaw`, and is kept in version/checksum lockstep with the release (published to a bucket, analogous to the Homebrew tap).
+- [OC03] A Scoop manifest installs the same release asset, exposes `dartclaw`, stays in version/checksum lockstep with the release, and is published through the approval-gated `distribution-publication` environment using the shared distribution-scoped `HOMEBREW_TAP_TOKEN`.
 
 
 ## Required Context
@@ -88,8 +88,8 @@
 
 - [x] **S06 [OC03] [TI03,TI04,TI05] Scoop manifest installs the same asset and stays in lockstep**
   - **Given** the rendered Scoop manifest for `<version>`
-  - **When** its install-time and autoupdate URLs, `version`, `architecture.64bit.hash`, and `bin` are inspected (and, on a Windows host, `scoop install` is run against it)
-  - **Then** the manifest `version` equals `dartclawVersion`, the install-time URL contains the concrete `dartclaw-v<version>-windows-x64.zip` asset, only the autoupdate URL uses `$version`, the `hash` equals that asset's published SHA256, `bin` targets `dartclaw.exe` inside the extracted archive, and installing exposes a working `dartclaw` command
+  - **When** its install-time and autoupdate URLs, `version`, `architecture.64bit.hash`, `bin`, and publication job are inspected (and, on a Windows host, `scoop install` is run against it)
+  - **Then** the manifest `version` equals `dartclawVersion`; the install-time URL exactly names the concrete `dartclaw-v<version>-windows-x64.zip` asset; only the autoupdate URL uses `$version`; the `hash` equals that asset's published SHA256; `bin` targets `dartclaw.exe` inside the extracted archive; installation exposes a working `dartclaw` command; and publication uses the approval-gated `distribution-publication` environment with the shared distribution-scoped `HOMEBREW_TAP_TOKEN`
 
 
 ## Structural Criteria
@@ -266,3 +266,47 @@ Evidence: Security review on 2026-07-12 found no environment, tag ruleset, or br
   environment secret and passed a dry-run push to each.
 - The temporary workflow and temporary `feat/0.21` environment policy were removed after qualification; only the
   permanent `v*` tag policy remains.
+
+### Run: 2026-07-13 08:03 UTC – design-change
+
+#### DESIGN CHANGE
+
+The authoritative outcome and acceptance scenario now record the implemented Scoop URL semantics and protected shared
+publication credential. They supersede obsolete placeholder and token wording in the checked historical implementation
+details without rewriting completed task records.
+
+#### ADR
+
+`dev/adrs/038-homebrew-formula-publication.md`, amended for 0.21 on 2026-07-12, records the concrete Scoop root URL,
+`$version`-only autoupdate URL, shared distribution-scoped `HOMEBREW_TAP_TOKEN`, approval-gated
+`distribution-publication` environment, protected `v*` tags, and job-scoped write permissions.
+
+Old:
+
+```markdown
+- [OC03] A Scoop manifest installs the same release asset, exposes `dartclaw`, and is kept in version/checksum lockstep with the release (published to a bucket, analogous to the Homebrew tap).
+```
+
+New:
+
+```markdown
+- [OC03] A Scoop manifest installs the same release asset, exposes `dartclaw`, stays in version/checksum lockstep with the release, and is published through the approval-gated `distribution-publication` environment using the shared distribution-scoped `HOMEBREW_TAP_TOKEN`.
+```
+
+Old:
+
+```markdown
+- [x] **S06 [OC03] [TI03,TI04,TI05] Scoop manifest installs the same asset and stays in lockstep**
+  - **Given** the rendered Scoop manifest for `<version>`
+  - **When** its install-time and autoupdate URLs, `version`, `architecture.64bit.hash`, and `bin` are inspected (and, on a Windows host, `scoop install` is run against it)
+  - **Then** the manifest `version` equals `dartclawVersion`, the install-time URL contains the concrete `dartclaw-v<version>-windows-x64.zip` asset, only the autoupdate URL uses `$version`, the `hash` equals that asset's published SHA256, `bin` targets `dartclaw.exe` inside the extracted archive, and installing exposes a working `dartclaw` command
+```
+
+New:
+
+```markdown
+- [x] **S06 [OC03] [TI03,TI04,TI05] Scoop manifest installs the same asset and stays in lockstep**
+  - **Given** the rendered Scoop manifest for `<version>`
+  - **When** its install-time and autoupdate URLs, `version`, `architecture.64bit.hash`, `bin`, and publication job are inspected (and, on a Windows host, `scoop install` is run against it)
+  - **Then** the manifest `version` equals `dartclawVersion`; the install-time URL exactly names the concrete `dartclaw-v<version>-windows-x64.zip` asset; only the autoupdate URL uses `$version`; the `hash` equals that asset's published SHA256; `bin` targets `dartclaw.exe` inside the extracted archive; installation exposes a working `dartclaw` command; and publication uses the approval-gated `distribution-publication` environment with the shared distribution-scoped `HOMEBREW_TAP_TOKEN`
+```

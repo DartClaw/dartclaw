@@ -60,7 +60,7 @@
   - **When** `killWithEscalation` exceeds `gracePeriod`
   - **Then** it escalates with `process.kill(ProcessSignal.sigkill)` and reaps the process, unchanged from current macOS/Linux behavior
 
-- [x] **S03 [OC03] [TI03] Each normal-shutdown owner leaves no managed subprocess orphaned**
+- [ ] **S03 [OC03] [TI03] Each normal-shutdown owner leaves no managed subprocess orphaned**
   - **Given** running harness, workflow-CLI, and channel-sidecar subprocesses under their actual owners
   - **When** `HarnessPool.dispose()`, the workflow CLI provider/supervisor shutdown, and the channel-manager shutdown each complete
   - **Then** the subprocesses owned by each boundary have exited; the pool proof covers harnesses only and does not assume ownership of workflow or channel processes
@@ -131,7 +131,7 @@ file   | packages/dartclaw_testing/lib/src/fake_process.dart                    
   - Replace the boolean return with `ProcessTerminationResult(initialTerminationAccepted, exitConfirmed, hardTerminationUsed)`. Existing callers that only await may ignore it; update any caller that consumes the former boolean. Keep `AgentHarness.stop`/`dispose` and `HarnessPool.dispose` as `Future<void>`.
   - **Verify**: `Test: never-exiting fake yields exitConfirmed=false; in-grace exit yields true; Windows initial hard terminate sets hardTerminationUsed=true; POSIX sets it only when escalation occurs`
 
-- [x] **TI03** Normal shutdown proves no orphans at each real ownership boundary
+- [ ] **TI03** Normal shutdown proves no orphans at each real ownership boundary
   - Confirm `HarnessPool.dispose()` reaps runner harnesses only. Add or extend owner-level tests for workflow CLI providers/supervisors and channel managers rather than attaching those processes to the pool. Record native-Windows lifecycle test or smoke evidence with child PIDs showing they are no longer alive after shutdown, as required by FR2.
   - **Verify**: `Tests: pool disposal reaps harnesses; workflow and channel shutdown each reap their own child. Windows evidence records the managed child PIDs and confirms each exited after normal shutdown.` (covers S03)
 

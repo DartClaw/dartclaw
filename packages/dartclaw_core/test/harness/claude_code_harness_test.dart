@@ -65,7 +65,7 @@ void main() {
     // ----- start() -------------------------------------------------------
 
     group('start()', () {
-      test('calls the capability lookup command to verify the Claude binary exists', () async {
+      test('probes the configured Claude binary directly', () async {
         var probeCalled = false;
         String? probeExe;
         List<String>? probeArgs;
@@ -76,7 +76,7 @@ void main() {
             probeCalled = true;
             probeExe = exe;
             probeArgs = args;
-            return processResult(exitCode: 0, stdout: '1.0.0');
+            return processResult(exitCode: 0, stdout: 'C:\\Program Files\\Claude\\claude.exe\r\n');
           },
         );
 
@@ -84,8 +84,34 @@ void main() {
         addTeardownAsync(() => h.dispose());
 
         expect(probeCalled, isTrue);
-        expect(probeExe, 'where');
-        expect(probeArgs, ['claude']);
+        expect(probeExe, 'claude');
+        expect(probeArgs, ['--version']);
+      });
+
+      test('throws structured lookup error when the Claude probe throws', () async {
+        final h = buildClaudeHarness(
+          commandProbe: (_, _) async => throw ProcessException('claude', ['--version'], 'probe failed'),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(
+          h.start(),
+          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'claude --version')),
+        );
+      });
+
+      test('does not misreport unexpected Claude probe errors as missing executable', () async {
+        final h = buildClaudeHarness(commandProbe: (_, _) async => throw StateError('probe bug'));
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(h.start(), throwsA(isA<StateError>().having((e) => e.message, 'message', 'probe bug')));
+      });
+
+      test('throws structured lookup error when the Claude probe returns only whitespace', () async {
+        final h = buildClaudeHarness(commandProbe: (_, _) async => processResult(exitCode: 0, stdout: ' \r\n\t'));
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(h.start(), throwsA(isA<UnsupportedCapabilityError>()));
       });
 
       test('throws structured lookup error when the Claude binary is missing', () async {
@@ -97,8 +123,28 @@ void main() {
 
         await expectLater(
           h.start(),
-          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'which claude')),
+          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'claude --version')),
         );
+      });
+
+      test('initialize timeout releases a confirmed Windows root for retry', () async {
+        final process = FakeProcess(completeExitOnKill: true);
+        var spawnCount = 0;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            spawnCount++;
+            return process;
+          },
+          initializeTimeout: Duration.zero,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(h.start(), throwsStateError);
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+
+        await expectLater(h.start(), throwsStateError);
+        expect(spawnCount, 2);
       });
 
       test('throws when ANTHROPIC_API_KEY missing and OAuth check fails', () async {
@@ -107,7 +153,7 @@ void main() {
           environment: {}, // no API key
           commandProbe: (exe, args) async {
             callCount++;
-            if (exe == 'which') return processResult(exitCode: 0);
+            if (args.contains('--version')) return processResult(exitCode: 0, stdout: '2.1.0');
             // auth status check fails
             return processResult(exitCode: 1);
           },
@@ -225,6 +271,22 @@ void main() {
         if (!Platform.isWindows) {
           expect((configFile.statSync().mode & 0x1ff).toRadixString(8), '600');
         }
+      });
+
+      test('spawn failure deletes the credential-bearing MCP config', () async {
+        late String configPath;
+        final h = buildClaudeHarness(
+          harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token'),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            configPath = args[args.indexOf('--mcp-config') + 1];
+            throw StateError('spawn failed');
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(h.start(), throwsStateError);
+
+        expect(File(configPath).existsSync(), isFalse);
       });
 
       test('uses native --permission-mode when configured via provider options', () async {
@@ -1119,6 +1181,106 @@ void main() {
         // Only SIGTERM — no escalation needed.
         expect(fake.killSignals, [ProcessSignal.sigterm]);
       });
+
+      test('stop() follows injected Windows hard-termination semantics on a POSIX host', () async {
+        final fake = KillTrackingFakeProcess();
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          killGracePeriod: Duration.zero,
+          processFactory: capturingInitFactory(process: fake),
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        );
+
+        await h.start();
+        await h.stop();
+
+        expect(fake.killSignals, [ProcessSignal.sigterm]);
+        fake.exit(0);
+      });
+
+      test('turn timeout completes promptly and drives bounded process teardown', () async {
+        final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          turnTimeout: Duration.zero,
+          processFactory: capturingInitFactory(process: fake),
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(h.dispose);
+        await h.start();
+
+        await expectLater(
+          h.turn(
+            sessionId: 'timeout',
+            messages: const [
+              {'role': 'user', 'content': 'never completes'},
+            ],
+            systemPrompt: '',
+          ),
+          throwsA(isA<TimeoutException>()),
+        );
+        await pumpEventQueue();
+
+        expect(fake.killCalled, isTrue);
+        expect(h.state, WorkerState.stopped);
+      });
+
+      test('turn timeout finishes teardown before an immediate next turn restarts', () async {
+        final timedOut = KillTrackingFakeProcess(completeExitOnKill: true);
+        final recovered = KillTrackingFakeProcess(completeExitOnKill: true);
+        final processes = [timedOut, recovered];
+        var spawnIndex = 0;
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          turnTimeout: const Duration(milliseconds: 200),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            final process = processes[spawnIndex++];
+            scheduleMicrotask(() {
+              process.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            if (identical(process, recovered)) {
+              Future<void>.delayed(const Duration(milliseconds: 20), () {
+                process.emitStdout(
+                  jsonEncode({'type': 'result', 'result': 'ok', 'is_error': false, 'session_id': 'recovered'}),
+                );
+              });
+            }
+            return process;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(h.dispose);
+        await h.start();
+
+        await expectLater(
+          h.turn(
+            sessionId: 'timeout',
+            messages: const [
+              {'role': 'user', 'content': 'never completes'},
+            ],
+            systemPrompt: '',
+          ),
+          throwsA(isA<TimeoutException>()),
+        );
+        expect(h.state, WorkerState.stopped);
+
+        final result = await h.turn(
+          sessionId: 'recovered',
+          messages: const [
+            {'role': 'user', 'content': 'works'},
+          ],
+          systemPrompt: '',
+        );
+        expect(result['response'], 'ok');
+        expect(spawnIndex, 2);
+      });
     });
 
     // -------------------------------------------------------------------------
@@ -1233,6 +1395,48 @@ void main() {
         );
 
         expect(spawnCount, 2, reason: 'Different non-null effort must trigger restart');
+      });
+
+      test('parameter-change restart retains an unconfirmed Windows child', () async {
+        final process = KillTrackingFakeProcess();
+        var spawnCount = 0;
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          harnessConfig: const HarnessConfig(effort: 'low'),
+          killGracePeriod: Duration.zero,
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            spawnCount++;
+            scheduleMicrotask(() {
+              process.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return process;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        );
+        addTeardownAsync(() async {
+          process.exit(0);
+          await h.dispose();
+        });
+
+        await h.start();
+
+        await expectLater(
+          h.turn(
+            sessionId: 'test',
+            messages: const [
+              {'role': 'user', 'content': 'hello'},
+            ],
+            systemPrompt: '',
+            effort: 'high',
+          ),
+          throwsA(isA<StateError>().having((error) => '$error', 'message', contains('previous process did not exit'))),
+        );
+
+        expect(spawnCount, 1);
+        expect(process.killSignals, [ProcessSignal.sigterm]);
       });
     });
 

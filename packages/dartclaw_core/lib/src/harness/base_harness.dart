@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 
@@ -59,6 +60,8 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   int _crashCount = 0;
   int _spawnGeneration = 0;
   Process? _process;
+  final Set<Process> _windowsTeardownPending = <Process>{};
+  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
@@ -149,6 +152,9 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
       if (_state == WorkerState.busy) {
         throw StateError(busyMessage);
       }
+      if (_process != null) {
+        throw StateError('Cannot start: previous process exit has not been confirmed');
+      }
       await beforeStart?.call();
       await start();
     });
@@ -175,25 +181,47 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   Future<void> shutdownCurrentProcess({
     required String label,
     required Duration gracePeriod,
+    required PlatformCapabilities platformCapabilities,
     bool? initialTerminationAccepted,
     Process? process,
   }) async {
     final activeProcess = process ?? _process;
+    beginIntentionalProcessTeardown(activeProcess, platformCapabilities);
     await cancelTrackedSubscriptions();
     await closeCurrentProcessStdin(process: activeProcess);
 
-    if (identical(_process, activeProcess)) {
-      _process = null;
-    }
-
     if (activeProcess != null) {
-      await killWithEscalation(
+      final result = await killWithEscalation(
         activeProcess,
         label: label,
         gracePeriod: gracePeriod,
         log: log,
         initialTerminationAccepted: initialTerminationAccepted,
+        platformCapabilities: platformCapabilities,
       );
+      completeIntentionalProcessTeardown(activeProcess, result, platformCapabilities);
+    }
+  }
+
+  /// Prevents the exit watcher from releasing Windows ownership before teardown is classified.
+  @protected
+  void beginIntentionalProcessTeardown(Process? process, PlatformCapabilities platformCapabilities) {
+    if (process != null && !platformCapabilities.posixSignalsAvailable) {
+      _windowsTeardownPending.add(process);
+    }
+  }
+
+  /// Applies the authoritative teardown result to process ownership.
+  @protected
+  void completeIntentionalProcessTeardown(
+    Process process,
+    ProcessTerminationResult result,
+    PlatformCapabilities platformCapabilities,
+  ) {
+    _windowsTeardownPending.remove(process);
+    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
+    if (result.confirmsOwnershipRelease() || exitObserved) {
+      if (identical(_process, process)) _process = null;
     }
   }
 
@@ -217,6 +245,9 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
         throw StateError('Harness stopped during backoff');
       }
       if (_state == WorkerState.crashed) {
+        if (_process != null) {
+          throw StateError('Cannot recover: previous process exit has not been confirmed');
+        }
         await restart();
       }
     });
@@ -231,6 +262,12 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
 
     unawaited(
       process.exitCode.then((code) {
+        final windowsTeardownPending = _windowsTeardownPending.contains(process);
+        if (windowsTeardownPending) {
+          _windowsExitObservedDuringTeardown.add(process);
+        } else if (identical(_process, process)) {
+          _process = null;
+        }
         if (generation != _spawnGeneration) {
           return;
         }
@@ -260,6 +297,8 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
     void Function(Object error)? onStdoutError,
   }) {
     final generation = nextSpawnGeneration();
+    _windowsTeardownPending.remove(process);
+    _windowsExitObservedDuringTeardown.remove(process);
     currentProcess = process;
 
     stdoutSubscription = process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {

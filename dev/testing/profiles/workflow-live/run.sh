@@ -265,7 +265,7 @@ run_preflight() {
       ;;
     claude)
       exe="claude"
-      login_hint="run \`claude login\`"
+      login_hint="run \`claude auth login\`"
       ;;
     *)
       echo "Preflight: no preflight available for provider '${PROVIDER}', skipping."

@@ -189,3 +189,11 @@ Affected surface: Windows smoke evidence validation, overall runtime status, rel
 Decision: The report uses supported, incomplete, or failed. All executed required layers passing yields supported; any executed failure yields failed; skipped provider layers without valid replacement evidence yield incomplete. Matching manual evidence for both provider turns may satisfy skipped provider layers when it records native Windows OS/architecture, the same DartClaw commit/source or release version, provider versions, timestamps, and passing results. ARM64 Parallels evidence may cover the architecture-neutral provider transport slice, but not x64 artifact, SQLite, installer, or core runtime gates.
 Rationale: Distinguishes untested from broken, prevents false support claims, allows authenticated manual provider verification, and preserves the Windows x64 release target.
 Evidence: S09 S05 and the FR8 binding require both-provider manual evidence for credential skips; the scoping brief establishes provider stdio as architecture-neutral and build/FTS5 as x64-sensitive.
+
+### Run: 2026-07-13 11:52 UTC – observations
+
+#### QUALIFICATION REOPENED: final-current-tree-artifact
+
+The checked proof surfaces record the last successful Windows snapshot. Final review changed runtime, process-lifecycle,
+installer, and smoke-verdict paths, and source mode now intentionally remains incomplete. Plan status is reopened until a
+matching final-tree artifact completes the full profile on native Windows x64; historical evidence is not release attestation.

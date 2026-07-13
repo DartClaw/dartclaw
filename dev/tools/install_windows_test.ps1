@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][string]$ArtifactPath,
-  [Parameter(Mandatory)][string]$Version
+  [Parameter(Mandatory)][string]$Version,
+  [string]$HostArchitectureOverride,
+  [switch]$TestDownloadPath
 )
 
 Set-StrictMode -Version Latest
@@ -14,7 +16,9 @@ $script:PowerShell = (Get-Process -Id $PID).Path
 function Invoke-InstallerProcess {
   param(
     [Parameter(Mandatory)][string]$InstallRoot,
-    [Parameter(Mandatory)][string]$LocalArtifact,
+    [string]$LocalArtifact,
+    [string]$RequestedVersion = $Version,
+    [string]$BaseUrl,
     [hashtable]$Environment = @{}
   )
 
@@ -23,11 +27,28 @@ function Invoke-InstallerProcess {
   $start.UseShellExecute = $false
   $start.RedirectStandardOutput = $true
   $start.RedirectStandardError = $true
-  foreach ($argument in @('-NoProfile', '-File', $script:Installer, '-Version', $Version, '-InstallRoot', $InstallRoot, '-LocalArtifactPath', $LocalArtifact)) {
-    $start.ArgumentList.Add($argument)
+  $start.Arguments = '-NoProfile -NonInteractive -Command "if ($env:DARTCLAW_INSTALL_TEST_ARCH) { $env:PROCESSOR_ARCHITECTURE = $env:DARTCLAW_INSTALL_TEST_ARCH; $env:PROCESSOR_ARCHITEW6432 = $env:DARTCLAW_INSTALL_TEST_ARCH }; if ($env:DARTCLAW_INSTALL_TEST_ARTIFACT) { & $env:DARTCLAW_INSTALL_TEST_SCRIPT -Version $env:DARTCLAW_INSTALL_TEST_VERSION -InstallRoot $env:DARTCLAW_INSTALL_TEST_ROOT -LocalArtifactPath $env:DARTCLAW_INSTALL_TEST_ARTIFACT } else { & $env:DARTCLAW_INSTALL_TEST_SCRIPT -Version $env:DARTCLAW_INSTALL_TEST_VERSION -InstallRoot $env:DARTCLAW_INSTALL_TEST_ROOT -BaseUrl $env:DARTCLAW_INSTALL_TEST_BASE_URL }"'
+  $start.EnvironmentVariables['DARTCLAW_INSTALL_TEST_SCRIPT'] = $script:Installer
+  $start.EnvironmentVariables['DARTCLAW_INSTALL_TEST_VERSION'] = $RequestedVersion
+  $start.EnvironmentVariables['DARTCLAW_INSTALL_TEST_ROOT'] = $InstallRoot
+  if (-not [string]::IsNullOrWhiteSpace($LocalArtifact)) {
+    $start.EnvironmentVariables['DARTCLAW_INSTALL_TEST_ARTIFACT'] = $LocalArtifact
+  }
+  if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+    $start.EnvironmentVariables['DARTCLAW_INSTALL_TEST_BASE_URL'] = $BaseUrl
+  }
+  $effectiveArchitecture = if ($Environment.ContainsKey('PROCESSOR_ARCHITEW6432')) {
+    $Environment['PROCESSOR_ARCHITEW6432']
+  } elseif ($Environment.ContainsKey('PROCESSOR_ARCHITECTURE')) {
+    $Environment['PROCESSOR_ARCHITECTURE']
+  } else {
+    $HostArchitectureOverride
+  }
+  if (-not [string]::IsNullOrWhiteSpace($effectiveArchitecture)) {
+    $start.EnvironmentVariables['DARTCLAW_INSTALL_TEST_ARCH'] = $effectiveArchitecture
   }
   foreach ($entry in $Environment.GetEnumerator()) {
-    $start.Environment[$entry.Key] = $entry.Value
+    $start.EnvironmentVariables[$entry.Key] = $entry.Value
   }
   $process = [Diagnostics.Process]::Start($start)
   $stdout = $process.StandardOutput.ReadToEndAsync()
@@ -100,10 +121,50 @@ function Assert-TreeHashesEqual {
   }
 }
 
+function Remove-TestTree {
+  param([Parameter(Mandatory)][string]$Path)
+
+  for ($attempt = 1; $attempt -le 20; $attempt++) {
+    try {
+      Microsoft.PowerShell.Management\Remove-Item -LiteralPath $Path -Recurse -Force
+      return
+    } catch {
+      if ($attempt -eq 20) {
+        throw
+      }
+      Start-Sleep -Milliseconds 100
+    }
+  }
+}
+
+function Wait-TestFileUnlocked {
+  param([Parameter(Mandatory)][string]$Path)
+
+  for ($attempt = 1; $attempt -le 20; $attempt++) {
+    try {
+      $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+      $stream.Dispose()
+      return
+    } catch {
+      if ($attempt -eq 20) {
+        throw
+      }
+      Start-Sleep -Milliseconds 100
+    }
+  }
+}
+
 $artifact = [IO.Path]::GetFullPath($ArtifactPath)
 $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+$originalProcessorArchitecture = $env:PROCESSOR_ARCHITECTURE
+$originalProcessorArchitectureW6432 = $env:PROCESSOR_ARCHITEW6432
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-installer-test-$([guid]::NewGuid())"
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
+
+if (-not [string]::IsNullOrWhiteSpace($HostArchitectureOverride)) {
+  $env:PROCESSOR_ARCHITECTURE = $HostArchitectureOverride
+  $env:PROCESSOR_ARCHITEW6432 = $HostArchitectureOverride
+}
 
 try {
   $expectedRoot = Join-Path $tempRoot 'expected'
@@ -133,14 +194,12 @@ try {
 
   $newTerminal = [Diagnostics.ProcessStartInfo]::new()
   $newTerminal.FileName = 'cmd.exe'
-  $newTerminal.ArgumentList.Add('/d')
-  $newTerminal.ArgumentList.Add('/c')
-  $newTerminal.ArgumentList.Add('dartclaw --version')
+  $newTerminal.Arguments = '/d /c "dartclaw --version"'
   $newTerminal.UseShellExecute = $false
   $newTerminal.RedirectStandardOutput = $true
   $newTerminal.RedirectStandardError = $true
   $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-  $newTerminal.Environment['Path'] = "$persistentPath;$machinePath"
+  $newTerminal.EnvironmentVariables['Path'] = "$persistentPath;$machinePath"
   $terminalProcess = [Diagnostics.Process]::Start($newTerminal)
   $terminalOutput = $terminalProcess.StandardOutput.ReadToEnd()
   $terminalError = $terminalProcess.StandardError.ReadToEnd()
@@ -149,8 +208,10 @@ try {
     throw "Fresh-terminal PATH resolution failed: $terminalOutput $terminalError"
   }
 
+  $installedExecutable = Join-Path $installRoot 'bin/dartclaw.exe'
+  Wait-TestFileUnlocked -Path $installedExecutable
   Set-Content -LiteralPath (Join-Path $installRoot 'VERSION') -Value 'older-version' -NoNewline
-  Set-Content -LiteralPath (Join-Path $installRoot 'bin/dartclaw.exe') -Value 'older-executable' -NoNewline
+  Set-Content -LiteralPath $installedExecutable -Value 'older-executable' -NoNewline
   Set-Content -LiteralPath (Join-Path $installRoot 'lib/sqlite3.dll') -Value 'older-library' -NoNewline
   $result = Invoke-InstallerProcess -InstallRoot $installRoot -LocalArtifact $artifact
   Assert-InstallerPassed -Result $result
@@ -183,6 +244,27 @@ try {
   }
   Assert-PathExcludes -BinPath (Join-Path $downloadFailureRoot 'bin')
 
+  $traversalSentinel = Join-Path $tempRoot 'escaped-windows-x64.zip'
+  Set-Content -LiteralPath $traversalSentinel -Value 'preserve-me' -NoNewline
+  $traversalRoot = Join-Path $tempRoot 'version-traversal'
+  $result = Invoke-InstallerProcess -InstallRoot $traversalRoot -LocalArtifact $artifact `
+    -RequestedVersion '..\..\escaped'
+  Assert-InstallerFailed -Result $result -Message 'Invalid DartClaw release version'
+  if ((Get-Content -LiteralPath $traversalSentinel -Raw) -ne 'preserve-me') {
+    throw 'Invalid version escaped installer staging and modified an outside file.'
+  }
+  if (Test-Path -LiteralPath $traversalRoot) {
+    throw 'Invalid version activated an install.'
+  }
+
+  $pathInjectionRoot = Join-Path $tempRoot 'path-injection;C:\attacker'
+  $pathBeforeInjectionAttempt = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $result = Invoke-InstallerProcess -InstallRoot $pathInjectionRoot -LocalArtifact $artifact
+  Assert-InstallerFailed -Result $result -Message 'PATH delimiter'
+  if ([Environment]::GetEnvironmentVariable('Path', 'User') -ne $pathBeforeInjectionAttempt) {
+    throw 'Invalid install root modified the persistent user PATH.'
+  }
+
   $unsupportedRoot = Join-Path $tempRoot 'unsupported-architecture'
   $result = Invoke-InstallerProcess -InstallRoot $unsupportedRoot -LocalArtifact $artifact -Environment @{
     PROCESSOR_ARCHITECTURE = 'ARM64'
@@ -202,8 +284,44 @@ try {
   Assert-InstallerPassed -Result $result
   Assert-TreeHashesEqual -ExpectedRoot $expectedRoot -ActualRoot $wow64Root
 
+  if ($TestDownloadPath) {
+    $releaseRoot = Join-Path $tempRoot 'release-server'
+    $releaseDir = Join-Path $releaseRoot "v$Version"
+    New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+    Copy-Item -LiteralPath $artifact -Destination (Join-Path $releaseDir (Split-Path -Leaf $artifact))
+    Copy-Item -LiteralPath "$artifact.sha256" -Destination (Join-Path $releaseDir "$(Split-Path -Leaf $artifact).sha256")
+    $port = Get-Random -Minimum 20000 -Maximum 45000
+    $server = Start-Process -FilePath 'python' -ArgumentList @('-m', 'http.server', "$port", '--bind', '127.0.0.1') `
+      -WorkingDirectory $releaseRoot -PassThru -WindowStyle Hidden
+    try {
+      $baseUrl = "http://127.0.0.1:$port"
+      $ready = $false
+      for ($attempt = 1; $attempt -le 30; $attempt++) {
+        try {
+          Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/v$Version/$(Split-Path -Leaf $artifact).sha256" | Out-Null
+          $ready = $true
+          break
+        } catch {
+          Start-Sleep -Milliseconds 100
+        }
+      }
+      if (-not $ready) {
+        throw 'Local release server did not become ready.'
+      }
+      $downloadRoot = Join-Path $tempRoot 'download-install'
+      $result = Invoke-InstallerProcess -InstallRoot $downloadRoot -RequestedVersion $Version -BaseUrl $baseUrl
+      Assert-InstallerPassed -Result $result
+      Assert-TreeHashesEqual -ExpectedRoot $expectedRoot -ActualRoot $downloadRoot
+    } finally {
+      if (-not $server.HasExited) {
+        Stop-Process -Id $server.Id -Force
+      }
+    }
+  }
+
+  Wait-TestFileUnlocked -Path $installedExecutable
   Set-Content -LiteralPath (Join-Path $installRoot 'VERSION') -Value 'older-version' -NoNewline
-  Set-Content -LiteralPath (Join-Path $installRoot 'bin/dartclaw.exe') -Value 'older-executable' -NoNewline
+  Set-Content -LiteralPath $installedExecutable -Value 'older-executable' -NoNewline
   Set-Content -LiteralPath (Join-Path $installRoot 'lib/sqlite3.dll') -Value 'older-library' -NoNewline
   $preservedRoot = Join-Path $tempRoot 'preserved-old-install'
   Copy-Item -LiteralPath $installRoot -Destination $preservedRoot -Recurse
@@ -329,8 +447,10 @@ try {
   }
 } finally {
   [Environment]::SetEnvironmentVariable('Path', $originalUserPath, 'User')
+  $env:PROCESSOR_ARCHITECTURE = $originalProcessorArchitecture
+  $env:PROCESSOR_ARCHITEW6432 = $originalProcessorArchitectureW6432
   if (Test-Path -LiteralPath $tempRoot) {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    Remove-TestTree -Path $tempRoot
   }
 }
 

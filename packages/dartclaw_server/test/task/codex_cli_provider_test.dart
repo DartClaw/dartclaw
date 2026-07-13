@@ -3,11 +3,94 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/task/cli_provider.dart' show CliTurnRequest, ProcessBackedCliProvider;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, NullIoSink;
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('CodexCliProvider', () {
+    test('external cancellation and step timeout share one in-progress termination', () {
+      fakeAsync((async) {
+        late FakeProcess process;
+        final runner = WorkflowCliRunner(
+          providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+          processStarter: (exe, args, {workingDirectory, environment}) async {
+            process = FakeProcess();
+            return process;
+          },
+        );
+        Object? error;
+        unawaited(
+          runner
+              .executeTurn(
+                provider: 'codex',
+                prompt: 'Test',
+                workingDirectory: Directory.systemTemp.path,
+                profileId: 'workspace',
+                stepTimeout: const Duration(seconds: 1),
+              )
+              .then<void>(
+                (_) => fail('cancelled process should not succeed'),
+                onError: (Object value) => error = value,
+              ),
+        );
+        async.flushMicrotasks();
+
+        unawaited(runner.cancelInflight());
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+
+        process.exit(143);
+        async.flushMicrotasks();
+        expect(error, isA<WorkflowCliTimeoutException>());
+      });
+    });
+
+    test('unconfirmed Windows cancellation remains owned and retriable until exit', () async {
+      final process = FakeProcess();
+      final owner = _TestProcessOwner(
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        terminationGracePeriod: Duration.zero,
+      )..trackInflightProcess(process);
+
+      await owner.cancelInflight();
+      await owner.cancelInflight();
+
+      expect(process.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigterm]);
+
+      process.exit(1);
+      await pumpEventQueue();
+      await owner.cancelInflight();
+
+      expect(process.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigterm]);
+    });
+
+    test('exit observation errors retain ownership for cleanup retries', () async {
+      final process = _ExitObservationErrorProcess();
+      final owner = _TestProcessOwner(
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
+        terminationGracePeriod: Duration.zero,
+      )..trackInflightProcess(process);
+      await pumpEventQueue();
+
+      await owner.cancelInflight();
+      await owner.cancelInflight();
+
+      expect(process.killSignals, [
+        ProcessSignal.sigterm,
+        ProcessSignal.sigkill,
+        ProcessSignal.sigterm,
+        ProcessSignal.sigkill,
+      ]);
+    });
+
     test('cancelInflight converts a teardown-killed process to a cancelled result', () async {
       late FakeProcess process;
       final runner = WorkflowCliRunner(
@@ -80,6 +163,31 @@ void main() {
               .having((error) => error.toString(), 'stdout', contains('auth failed')),
         ),
       );
+      expect(process.killCalled, isTrue);
+    });
+
+    test('stdin close failure keeps the live process cancellable', () async {
+      late _CloseFailsBeforeKillProcess process;
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          process = _CloseFailsBeforeKillProcess();
+          return process;
+        },
+      );
+
+      await expectLater(
+        runner.executeTurn(
+          provider: 'codex',
+          prompt: 'Test',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+        ),
+        throwsA(isA<StateError>().having((error) => '$error', 'message', contains('stdin close failed'))),
+      );
+
+      expect(process.killCalled, isFalse);
+      await runner.cancelInflight();
       expect(process.killCalled, isTrue);
     });
 
@@ -617,6 +725,13 @@ void main() {
   });
 }
 
+final class _TestProcessOwner extends ProcessBackedCliProvider {
+  _TestProcessOwner({super.platformCapabilities, super.terminationGracePeriod});
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) => throw UnimplementedError();
+}
+
 Future<Process> _codexProcess(String payload) {
   final escaped = payload.replaceAll("'", "'\\''");
   return Process.start('/bin/sh', ['-lc', "printf '%s' '$escaped'"]);
@@ -640,6 +755,25 @@ class _CloseFailsAfterKillProcess extends FakeProcess {
     }
     return super.kill(signal);
   }
+}
+
+class _CloseFailsBeforeKillProcess extends FakeProcess {
+  _CloseFailsBeforeKillProcess() : super(completeExitOnKill: true, killExitCode: 143);
+
+  final IOSink _stdin = _CloseFailsBeforeKillSink();
+
+  @override
+  IOSink get stdin => _stdin;
+}
+
+class _ExitObservationErrorProcess extends FakeProcess {
+  @override
+  Future<int> get exitCode => Future<int>.error(StateError('exit observation failed'));
+}
+
+class _CloseFailsBeforeKillSink extends NullIoSink {
+  @override
+  Future<void> close() => throw StateError('stdin close failed before kill');
 }
 
 class _CloseFailsAfterKillSink extends NullIoSink {

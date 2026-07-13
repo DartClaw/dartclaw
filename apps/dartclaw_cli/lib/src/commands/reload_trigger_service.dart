@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart'
-    show ConfigNotifier, DartclawConfig, PlatformCapabilities, ReloadConfig, UnsupportedCapabilityError;
+    show ConfigDelta, ConfigNotifier, DartclawConfig, PlatformCapabilities, ReloadConfig, UnsupportedCapabilityError;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -122,14 +122,18 @@ class ReloadTriggerService {
 
   Future<void> _doReload() async {
     DartclawConfig newConfig;
+    ConfigDelta? delta;
     try {
       newConfig = _configLoader();
+      for (final warning in newConfig.warnings) {
+        _log.warning('ReloadTriggerService: config advisory – $warning');
+      }
+      delta = _notifier.reload(newConfig);
     } catch (e) {
       _log.warning('ReloadTriggerService: config reload failed — keeping existing config ($e)');
       return;
     }
 
-    final delta = _notifier.reload(newConfig);
     if (delta == null) {
       _log.info('ReloadTriggerService: reload complete — no reloadable changes detected');
     } else {

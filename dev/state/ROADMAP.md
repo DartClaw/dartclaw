@@ -6,10 +6,10 @@
 
 ### 0.21 — Windows Support & Cross-Platform Hardening
 
-**Status: Implementation and qualification complete; release/tag pending.** Native Windows x64 binary for the core
+**Status: Implementation complete; current-tree native-x64 qualification pending.** Native Windows x64 binary for the core
 runtime plus cross-platform hardening and explicit graceful degradation for Unix-coupled features. The native x64
-artifact, FTS5 search, installer, process lifecycle, Git Bash steps, and runtime smoke profile are qualified; provider
-turns are covered by matching native-Windows evidence.
+artifact builds and passes under Windows ARM64 x64 emulation; FTS5 search, installer, process lifecycle, Git Bash steps,
+and live provider turns pass there. A matching current-tree run on a native Windows x64 host is still required.
 
 ## Planned
 

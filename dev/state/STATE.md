@@ -19,7 +19,7 @@ Last Updated: 2026-07-13 08:56 CEST
 - **Personal AI & SDK docs (0.17)**: Structured behavior-file scaffolding, web-only personalization onboarding, curated inbox ingestion, wiki provenance/search/lint, temporal KG MCP tools, YAML-backed guard editor, SDK Concepts/Architecture/Security docs, runnable SDK examples, rich chat composer payload metadata, and automated kill/restart crash-recovery smoke validation
 - **Universal agent harness (0.18)**: ACP subprocess harness for JSON-RPC/stdio agents, Goose and Mistral Vibe target validation, provider-scoped harness pools, stuck-turn status and early cancel, guard-mediated ACP reverse calls, `delegate_to_agent` MCP delegation, versioned release assets, automated Homebrew tap publication, and refreshed architecture/user guides
 - **Storage**: Files as source of truth (YAML/JSON/NDJSON) + SQLite indexes (tasks.db, search.db, state.db). Workspace behavior files (SOUL/USER/TOOLS/AGENTS/MEMORY.md). FTS5 search with QMD hybrid opt-in; Windows releases bundle FTS5-enabled `lib/sqlite3.dll`
-- **Windows support (0.21)**: Native x64 release artifact, PowerShell/Scoop distribution, hard-terminate process lifecycle, file-watch config reload, Git Bash workflow steps, and layered server/UI/FTS5/provider smoke qualification
+- **Windows support (0.21)**: Native x64 release artifact, PowerShell/Scoop distribution, hard-terminate process lifecycle, file-watch config reload, Git Bash workflow steps, and layered server/UI/FTS5/provider smoke implementation; current-tree native-x64 qualification pending
 - **Governance** (0.16.5): 13 fitness checks in CI (7 Level-1 every commit + 6 Level-2 every PR) — barrel `show`-clauses, file-LOC ceilings, package cycles, constructor param counts, `ProcessEnvironmentPlan` boundary, safe-process usage, format gate; plus dependency direction, cross-package `src/` import hygiene, testing-package deps, barrel export counts, enum/event consumer exhaustiveness, per-file method-count ceilings. `public_member_api_docs` lint flipped on in `dartclaw_models/_storage/_security/_config`. Alert classifier closes the `LoopDetectedEvent` / `EmergencyStopEvent` safety gap via compiler-enforced exhaustive switch over `sealed DartclawEvent`. All 7 orphan sealed events wired to SSE + alerts
 
 
@@ -29,16 +29,20 @@ Last Updated: 2026-07-13 08:56 CEST
 
 **Status**: On Track
 
-**Previous**: 0.21 — Windows Support & Cross-Platform Hardening (implementation and qualification complete; release/tag pending). 0.20.1 — Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11). 0.20.0 — Workflow Hardening, Simplification & Polish (tagged `v0.20.0` on 2026-07-09).
+**Active milestone**: 0.21 – Windows Support & Cross-Platform Hardening (implementation complete; current-tree native-x64 qualification pending).
+
+**Previous**: 0.20.1 – Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11). 0.20.0 – Workflow Hardening, Simplification & Polish (tagged `v0.20.0` on 2026-07-09).
 
 ## Active Stories
 
-None – 0.21 implementation and qualification are complete; release/tag pending.
+- 0.21 native Windows x64 qualification rerun for the reviewed artifact.
 
 ## Blockers
 
 - 0.21 hosted Scoop verification requires the first public 0.21 Windows ZIP and rendered manifest. Local installation
   and protected publication authorization are qualified.
+- A native Windows x64 host is required to complete current-tree runtime qualification; ARM64 x64 emulation passed but
+  is not a substitute for native-x64 attestation.
 
 ## Recent Decisions
 

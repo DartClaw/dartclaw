@@ -7,7 +7,7 @@ void main() {
       final capabilities = PlatformCapabilities(operatingSystem: 'linux', environment: const {'HOME': '/home/dev'});
 
       expect(capabilities.homeDirectory, '/home/dev');
-      expect(capabilities.executableLookupCommand('dartclaw'), ['which', 'dartclaw']);
+      expect(capabilities.executableSearchCandidates('dartclaw'), isEmpty);
       expect(capabilities.bashShellPolicy, BashShellPolicy.systemSh);
       expect(capabilities.posixSignalsAvailable, isTrue);
       expect(capabilities.processTerminationSemantics, ProcessTerminationSemantics.posixSignalEscalation);
@@ -18,11 +18,23 @@ void main() {
     test('Windows exposes the complete capability contract', () {
       final capabilities = PlatformCapabilities(
         operatingSystem: 'windows',
-        environment: const {'USERPROFILE': r'C:\Users\dev'},
+        environment: const {
+          'USERPROFILE': r'C:\Users\dev',
+          'Path': r'C:\Tools;C:\Program Files\DartClaw',
+          'PATHEXT': '.EXE;.CMD',
+          'SystemRoot': r'D:\Windows',
+        },
       );
 
       expect(capabilities.homeDirectory, r'C:\Users\dev');
-      expect(capabilities.executableLookupCommand('dartclaw'), ['where', 'dartclaw']);
+      expect(capabilities.executableSearchCandidates('dartclaw'), [
+        r'C:\Tools\dartclaw.EXE',
+        r'C:\Tools\dartclaw.CMD',
+        r'C:\Program Files\DartClaw\dartclaw.EXE',
+        r'C:\Program Files\DartClaw\dartclaw.CMD',
+      ]);
+      expect(capabilities.windowsSystemExecutable('taskkill.exe'), r'D:\Windows\System32\taskkill.exe');
+      expect(capabilities.windowsSystemEnvironment, {'SystemRoot': r'D:\Windows', 'WINDIR': r'D:\Windows'});
       expect(capabilities.bashShellPolicy, BashShellPolicy.gitBashRequired);
       expect(capabilities.posixSignalsAvailable, isFalse);
       expect(capabilities.processTerminationSemantics, ProcessTerminationSemantics.hardTerminate);
@@ -55,6 +67,16 @@ void main() {
       );
 
       expect(capabilities.homeDirectory, isNull);
+    });
+
+    test('Windows executable search excludes empty PATH entries and invalid system roots', () {
+      final capabilities = PlatformCapabilities(
+        operatingSystem: 'windows',
+        environment: const {'PATH': r';C:\Safe;;', 'SystemRoot': r'.\attacker'},
+      );
+
+      expect(capabilities.executableSearchCandidates('tool.exe'), [r'C:\Safe\tool.exe']);
+      expect(capabilities.windowsSystemExecutable('taskkill.exe'), r'C:\Windows\System32\taskkill.exe');
     });
 
     test('structured errors preserve capability, context, and caller remediation', () {

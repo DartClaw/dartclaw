@@ -9,7 +9,7 @@
 
 **Expected Outcomes** (each `[OC<NN>]`-tagged; scenarios anchor here):
 
-- [OC01] One immutable `PlatformCapabilities` value reports the accepted ADR-049 contract consistently for Windows and POSIX: nullable home-directory resolution, executable-lookup command data, `BashShellPolicy`, `posixSignalsAvailable`, `ProcessTerminationSemantics`, POSIX file-permission availability, and container-isolation availability.
+- [OC01] One immutable `PlatformCapabilities` value reports the accepted ADR-049 contract consistently for Windows and POSIX: nullable home-directory resolution, effect-free executable search candidates, trusted Windows system helpers, `BashShellPolicy`, `posixSignalsAvailable`, `ProcessTerminationSemantics`, POSIX file-permission availability, and container-isolation availability.
 - [OC02] The Codex environment path resolves its home directory through the shared surface (`HOME` → `USERPROFILE` fallback), so a native-Windows Codex home resolves instead of failing on a missing `HOME`.
 - [OC03] Unsupported capabilities and failed lookups raise one structured error that names the capability, includes the attempted context, and points at remediation text the caller supplies — the exact shape S04/S05/S06/S07 reuse. S01 owns the error's structure only; each consumer owns its per-capability remediation string.
 
@@ -68,10 +68,10 @@
   - **When** `CodexEnvironment.setup()` requires the nullable `homeDirectory` value
   - **Then** `CodexEnvironment` constructs and throws the structured unsupported-capability error naming the `home directory` capability, listing attempted variables (`HOME`, `USERPROFILE`), and carrying its caller-owned remediation text
 
-- [x] **S04 [OC01] [TI01] Executable-lookup command is OS-correct**
-  - **Given** a capability surface for `operatingSystem: 'windows'` and another for `'linux'`
-  - **When** each is asked for the executable-lookup command for `dartclaw`
-  - **Then** the Windows surface yields `where dartclaw` and the POSIX surface yields `which dartclaw`
+- [x] **S04 [OC01] [TI01] Executable search candidates are OS-correct and effect-free**
+  - **Given** Windows and Linux capability surfaces with injected `PATH` values, plus `PATHEXT` on Windows
+  - **When** each is asked for executable search candidates for `dartclaw`
+  - **Then** each returns the ordered platform paths without spawning a helper, and empty `PATH` entries never imply current-directory lookup
 
 - [x] **S05 [OC02] [TI03] Codex home resolves on native Windows via the surface**
   - **Given** `CodexEnvironment(useSystemCodexHome: true)` whose home resolution uses a surface for `operatingSystem: 'windows'` with `{USERPROFILE: 'C:\\Users\\dev'}` and no `HOME`
@@ -103,14 +103,14 @@
 
 ### What We're NOT Doing
 - Container-isolation guarding, signal-reload messaging, or bash-step degradation behavior -- those consume this surface in S05/S04/S06; S01 only defines the capability flags and error shape they use.
-- Harness executable resolution rewiring -- S07 routes harness binary lookup through the surface; S01 exposes the lookup command but does not change harness spawn code.
-- Migrating already-correct guarded sites (`init_command._resolveBinPath` `where`/`which`, oauth-store chmod guards) -- they are not bypasses; leaving them avoids untraceable churn. `_resolveBinPath` is cited only as the reference pattern for the lookup command.
+- Harness executable validation rewiring -- S07 probes the configured binary directly and uses the shared structured error contract; S01 does not change harness spawn code.
+- Migrating unrelated guarded sites such as oauth-store chmod guards -- they are not bypasses; leaving them avoids untraceable churn.
 - Process-lifecycle shutdown changes -- S03 owns behavior; S01 only surfaces the termination-semantics capability flag.
 
 
 ## Architecture Decision
 
-**Approach**: Implement ADR-049's flat typed `PlatformCapabilities` value in `dartclaw_config`, with injectable `operatingSystem` and `environment` inputs defaulting to `Platform`. Its named members are `homeDirectory`, `executableLookupCommand`, `bashShellPolicy`, `posixSignalsAvailable`, `processTerminationSemantics`, `posixFilePermissionsAvailable`, and `containerIsolationAvailable`; shell and termination values use the two-value enums fixed by the ADR. Expose one structured error type carrying capability, attempted context, and remediation. The capability value remains pure; consumers execute lookup commands and own remediation wording.
+**Approach**: Implement ADR-049's flat typed `PlatformCapabilities` value in `dartclaw_config`, with injectable `operatingSystem` and `environment` inputs defaulting to `Platform`. Its named members are `homeDirectory`, `executableSearchCandidates`, trusted Windows system-helper accessors, `bashShellPolicy`, `posixSignalsAvailable`, `processTerminationSemantics`, `posixFilePermissionsAvailable`, and `containerIsolationAvailable`; shell and termination values use the two-value enums fixed by the ADR. Expose one structured error type carrying capability, attempted context, and remediation. The capability value remains pure; consumers perform candidate file checks or direct executable probes and own remediation wording.
 **Why this over alternatives**: The accepted trade-off scored this flat typed value highest for auditability, minimalism, deterministic testing, and exact S03–S07 fit. Registries, OS subclasses, nested category objects, and an effectful platform service add indirection or mix policy with process I/O.
 
 
@@ -121,7 +121,7 @@
 file   | packages/dartclaw_config/lib/src/path_utils.dart#expandHome              | Home fallback + injectable-env pattern to mirror; HOME→USERPROFILE precedence
 file   | packages/dartclaw_config/lib/dartclaw_config.dart                        | Barrel; add the surface + error export here (see existing `path_utils.dart` export line)
 file   | packages/dartclaw_core/lib/src/harness/codex_environment.dart#CodexEnvironment | The two direct `Platform.environment['HOME']` reads (setup, _seedFromDefaultCodexHome) to route through the surface
-file   | apps/dartclaw_cli/lib/src/commands/init/init_command.dart#_resolveBinPath | Reference only: existing `where`/`which` selection the lookup-command accessor formalizes
+file   | packages/dartclaw_workflow/lib/src/workflow/bash_step_runner.dart        | Effectful file checks over the surface's ordered candidate paths
 file   | packages/dartclaw_core/lib/src/harness/process_lifecycle.dart#killWithEscalation | Reference for the termination-semantics flag: Windows path skips `sigkill`
 ```
 
@@ -137,8 +137,8 @@ file   | packages/dartclaw_core/lib/src/harness/process_lifecycle.dart#killWithE
 ### Implementation Tasks
 
 - [x] **TI01** `PlatformCapabilities` implements ADR-049's complete named API and Windows/POSIX truth table from injectable `operatingSystem` + `environment` inputs (default `Platform`).
-  - `homeDirectory` preserves `HOME`→`USERPROFILE` and returns null when neither contains a nonblank value. `executableLookupCommand(name)` returns `['where', name]` on Windows and `['which', name]` on POSIX. Windows maps to `BashShellPolicy.gitBashRequired`, `posixSignalsAvailable == false`, `ProcessTerminationSemantics.hardTerminate`, no POSIX file permissions, and unavailable container isolation. POSIX maps to `systemSh`, signals available, `posixSignalEscalation`, POSIX file permissions, and available container isolation.
-  - **Verify**: `Test: Linux and Windows fixtures assert every named member and both enum values; lookup command data is correct; missing/blank HOME and USERPROFILE yields null without spawning a process`
+  - `homeDirectory` preserves `HOME`→`USERPROFILE` and returns null when neither contains a nonblank value. `executableSearchCandidates(name)` expands injected `PATH`/`PATHEXT` without spawning a helper and excludes empty PATH entries. Windows also provides validated absolute System32 helper paths and a minimal environment. Windows maps to `BashShellPolicy.gitBashRequired`, `posixSignalsAvailable == false`, `ProcessTerminationSemantics.hardTerminate`, no POSIX file permissions, and unavailable container isolation. POSIX maps to `systemSh`, signals available, `posixSignalEscalation`, POSIX file permissions, and available container isolation.
+  - **Verify**: `Test: Linux and Windows fixtures assert every named member and both enum values; candidate paths, PATHEXT expansion, empty-entry exclusion, and trusted System32 helpers are correct; missing/blank HOME and USERPROFILE yields null without spawning a process`
 
 - [x] **TI02** A structured unsupported-capability error type carries the capability name, attempted context, and remediation for lookup failures and unsupported features.
   - Single error type (sharedDecision "Unsupported-capability error contract"); `toString()` includes all three fields. Remediation is a required constructor argument supplied by the consumer. `PlatformCapabilities` reports pure values; CodexEnvironment and S04/S05/S06/S07 construct and raise the error at their behavior boundaries.

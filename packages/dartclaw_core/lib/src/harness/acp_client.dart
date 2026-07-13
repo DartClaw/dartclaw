@@ -12,10 +12,10 @@ import 'acp_reverse_call_handlers.dart';
 final class AcpClient {
   final json_rpc.Peer _peer;
   final Future<void> _listenFuture;
-  final bool _reverseCallsEnabled;
+  final Map<String, bool> _reverseCallCapabilities;
 
-  AcpClient._(this._peer, this._listenFuture, {required bool reverseCallsEnabled})
-    : _reverseCallsEnabled = reverseCallsEnabled;
+  AcpClient._(this._peer, this._listenFuture, {required Map<String, bool> reverseCallCapabilities})
+    : _reverseCallCapabilities = Map<String, bool>.unmodifiable(reverseCallCapabilities);
 
   /// Creates and starts an ACP client over newline-delimited stdio JSON-RPC.
   factory AcpClient(
@@ -63,7 +63,13 @@ final class AcpClient {
       _registerReverseCalls(peer, reverseCallHandlers);
     }
     final listenFuture = peer.listen();
-    return AcpClient._(peer, listenFuture, reverseCallsEnabled: reverseCallHandlers != null);
+    return AcpClient._(
+      peer,
+      listenFuture,
+      reverseCallCapabilities:
+          reverseCallHandlers?.capabilityFlags ??
+          const {'readTextFile': false, 'writeTextFile': false, 'terminal': false},
+    );
   }
 
   static StreamChannel<String> _filterMalformedJson(
@@ -197,8 +203,11 @@ final class AcpClient {
 
   Map<String, dynamic> _hostCapabilities() {
     return {
-      'fs': {'readTextFile': _reverseCallsEnabled, 'writeTextFile': _reverseCallsEnabled},
-      'terminal': {'create': _reverseCallsEnabled},
+      'fs': {
+        'readTextFile': _reverseCallCapabilities['readTextFile'] == true,
+        'writeTextFile': _reverseCallCapabilities['writeTextFile'] == true,
+      },
+      'terminal': {'create': _reverseCallCapabilities['terminal'] == true},
     };
   }
 

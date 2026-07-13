@@ -257,7 +257,8 @@ Execution semantics:
 |---|---|
 | Task creation | None. Bash steps are zero-task, zero-token |
 | Working directory | Explicit `workdir` field (template-resolved), or `<dataDir>/workspace/` default |
-| Template substitution | Both `{{context.*}}` and `{{VAR}}` values are shell-escaped via `shellEscape()` to prevent injection |
+| Template substitution | `{{context.*}}` and `{{VAR}}` values are shell-escaped for unquoted ordinary arguments; caller quoting, `eval`, and direct nested `sh`/`bash` are rejected, while trusted workflow definitions remain responsible for not routing data into other interpreters |
+| Child processes | Background jobs remain part of the step and are awaited or cleaned up when observed; detached/daemonized services are unsupported |
 | Timeout | `step.timeoutSeconds` (default 60s). POSIX uses SIGTERM then SIGKILL after 2s; Windows hard-terminates |
 | Stdout capture | Truncated at 64 KB with `[truncated]` marker |
 | Output extraction | Respects `outputs` config: `format: json` parses JSON from stdout, `format: lines` splits lines, `format: text` passes raw stdout |

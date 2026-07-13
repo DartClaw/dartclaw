@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
@@ -222,9 +220,8 @@ void main() {
       expect(secondThreadId, isNot(equals(firstThreadId)));
     });
 
-    test('stale process exit is ignored after intentional restart', () async {
-      final firstExitCode = Completer<int>();
-      final firstProcess = FakeCodexProcess(exitCodeFuture: firstExitCode.future);
+    test('confirmed intentional stop does not corrupt restarted state', () async {
+      final firstProcess = FakeCodexProcess(completeExitOnKill: true);
       final secondProcess = FakeCodexProcess();
       final processes = <FakeCodexProcess>[firstProcess, secondProcess];
       var spawnIndex = 0;
@@ -238,7 +235,6 @@ void main() {
       await startHarness(harness, secondProcess);
       expect(harness.state, WorkerState.idle);
 
-      firstExitCode.complete(1);
       await pumpEventLoop();
       expect(harness.state, WorkerState.idle);
     });

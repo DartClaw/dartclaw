@@ -239,13 +239,19 @@ jobs:
           New-Item -ItemType Directory -Path installer-assets | Out-Null
           gh release download $env:TAG_NAME --pattern 'dartclaw-v*-windows-x64.zip*' --dir installer-assets
 
+      - name: Setup Python for installer download acceptance
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.x'
+
       - name: Test installer
-        shell: pwsh
+        shell: powershell
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
           ./dev/tools/install_windows_test.ps1 `
             -ArtifactPath "installer-assets/dartclaw-v$version-windows-x64.zip" `
-            -Version $version
+            -Version $version `
+            -TestDownloadPath
 
   scoop:
     name: Update Scoop bucket

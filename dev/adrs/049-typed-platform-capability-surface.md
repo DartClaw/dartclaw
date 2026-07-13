@@ -1,6 +1,6 @@
 # ADR-049: Typed Platform Capability Surface
 
-**Status:** Accepted – 2026-07-11. Targets 0.21 Windows support.
+**Status:** Accepted – 2026-07-11. Amended 2026-07-13 to make executable search effect-free. Targets 0.21 Windows support.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-015](015-container-isolation-strategy.md) (container-isolation capability), [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (cross-platform release baseline)
@@ -25,7 +25,8 @@ Create one immutable `PlatformCapabilities` value in `dartclaw_config`, construc
 The public contract uses named members:
 
 - nullable home-directory resolution with `HOME` → `USERPROFILE` precedence;
-- executable lookup command data: `where` on Windows, `which` on POSIX;
+- executable search candidates derived from the injected `PATH`/`PATHEXT`, excluding implicit current-directory lookup;
+- validated absolute Windows system-helper paths and a minimal helper environment, independent of `PATH`;
 - `BashShellPolicy.systemSh | gitBashRequired`;
 - the required `posixSignalsAvailable` boolean;
 - `ProcessTerminationSemantics.posixSignalEscalation | hardTerminate`;
@@ -40,7 +41,7 @@ The platform truth table is:
 |---|---|---|
 | Bash shell policy | Git Bash required | `/bin/sh` |
 | POSIX signals | Unavailable | Available |
-| Process termination | Hard terminate | SIGTERM → SIGKILL escalation |
+| Process termination | Directly managed root hard-terminate | SIGTERM → SIGKILL escalation |
 | POSIX file permissions | Unavailable | Available |
 | Container isolation | Unavailable | Available |
 
@@ -70,7 +71,7 @@ The platform truth table is:
 - S01 owns the value, enums, error type, package export, and dual-OS tests.
 - S03–S07 consume exact members from this contract.
 - Structural checks prevent new raw platform branches in the touched decision paths.
-- Executable availability remains an effectful consumer concern; the surface supplies only lookup policy and command data.
+- Executable availability remains an effectful consumer concern; the surface supplies only ordered candidate paths. Consumers perform file checks or probe the configured executable directly. They do not invoke `where`/`which`, which would add a PATH-resolved helper process to a security-sensitive lookup.
 
 ## Project Compliance
 

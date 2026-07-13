@@ -24,6 +24,7 @@ void main() {
     test('unknown key without parser produces warning and stores raw map', () {
       final config = loadYaml('my_custom_section:\n  foo: bar\n');
       expect(config.warnings, anyElement(contains('Unknown config key: my_custom_section')));
+      expect(config.reloadBlockingWarnings, isEmpty);
       final raw = config.extensions['my_custom_section'];
       expect(raw, isA<Map<String, dynamic>>());
       expect((raw as Map<String, dynamic>)['foo'], 'bar');

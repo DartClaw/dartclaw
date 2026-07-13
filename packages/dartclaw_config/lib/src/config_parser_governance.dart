@@ -267,7 +267,10 @@ int? _parseDurationMinutes(Object? value) {
     return empty;
   }
 
-  warns.add('automation.scheduled_tasks is deprecated — move entries to scheduling.jobs with type: task');
+  addConfigAdvisory(
+    warns,
+    'automation.scheduled_tasks is deprecated — move entries to scheduling.jobs with type: task',
+  );
 
   final taskDefs = <ScheduledTaskDefinition>[];
   for (final entry in tasksRaw) {

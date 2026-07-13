@@ -1,129 +1,69 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/harness/acp_reverse_call_handlers.dart' show AcpReverseCallHandlers;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-import 'acp_test_support.dart';
 import 'harness_test_support.dart';
 
 void main() {
   group('ACP reverse-call handlers', () {
-    late Directory workspace;
-    late FakeAcpProcess acpProcess;
-    late RecordingGuard guard;
-    late List<AcpReverseCallAuditEvent> auditEvents;
-    late AcpHarness harness;
+    late Directory serviceRoot;
+    late Directory worktree;
 
     setUp(() async {
-      workspace = await Directory.systemTemp.createTemp('dartclaw_acp_reverse_');
-      acpProcess = FakeAcpProcess();
-      guard = RecordingGuard();
-      auditEvents = [];
-      harness = AcpHarness(
-        cwd: workspace.path,
-        executable: 'goose',
-        arguments: const ['acp'],
-        guardChain: GuardChain(guards: [guard]),
-        onReverseCallAudit: auditEvents.add,
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                acpProcess,
-      );
-      final startFuture = harness.start();
-      await acpProcess.respondTo('initialize', {'protocolVersion': 1});
-      await startFuture;
+      serviceRoot = await Directory.systemTemp.createTemp('dartclaw_acp_service_');
+      worktree = await Directory.systemTemp.createTemp('dartclaw_acp_worktree_');
     });
 
     tearDown(() async {
-      await harness.dispose();
-      if (workspace.existsSync()) {
-        await workspace.delete(recursive: true);
+      for (final directory in [serviceRoot, worktree]) {
+        if (directory.existsSync()) {
+          await directory.delete(recursive: true);
+        }
       }
     });
 
-    test('ACP file handlers map canonical tools, preserve raw names, and apply workspace jail', () async {
-      await File(p.join(workspace.path, 'allowed.txt')).writeAsString('visible');
+    test('file calls use the active turn workspace and session authorization', () async {
+      final guard = RecordingGuard();
+      final handlers = AcpReverseCallHandlers(guardChain: GuardChain(guards: [guard]));
+      handlers.bindTurn(sessionId: 'task-session', effectiveDirectory: worktree.path);
+      await File(p.join(worktree.path, 'allowed.txt')).writeAsString('visible');
 
-      acpProcess.sendHostRequest(100, 'fs/read_text_file', {'path': 'allowed.txt'});
-      final readResponse = await acpProcess.waitForResponse(100);
+      final read = await handlers.readTextFile({'path': 'allowed.txt'});
+      final write = await handlers.writeTextFile({'path': 'created.txt', 'content': 'new'});
 
-      expect(readResponse['result'], containsPair('content', 'visible'));
-      expect(guard.lastContext!.toolName, 'file_read');
-      expect(guard.lastContext!.rawProviderToolName, 'fs/read_text_file');
-      expect(
-        guard.lastContext!.toolInput!['path'],
-        File(p.join(workspace.path, 'allowed.txt')).resolveSymbolicLinksSync(),
-      );
-
-      acpProcess.sendHostRequest(101, 'fs/write_text_file', {'path': 'created.txt', 'content': 'new'});
-      final writeResponse = await acpProcess.waitForResponse(101);
-
-      expect(writeResponse['result'], containsPair('ok', true));
-      expect(File(p.join(workspace.path, 'created.txt')).readAsStringSync(), 'new');
-      expect(guard.lastContext!.toolName, 'file_write');
-      expect(guard.lastContext!.rawProviderToolName, 'fs/write_text_file');
-
-      acpProcess.sendHostRequest(102, 'fs/read_text_file', {'path': '../outside.txt'});
-      final traversalResponse = await acpProcess.waitForResponse(102);
-
-      expect(traversalResponse['error'], isNotNull);
-    });
-
-    test('denied ACP file reads and writes fail closed without file side effects', () async {
-      await harness.dispose();
-      guard = RecordingGuard(verdict: GuardVerdict.block('blocked by test'));
-      acpProcess = FakeAcpProcess();
-      harness = AcpHarness(
-        cwd: workspace.path,
-        executable: 'goose',
-        arguments: const ['acp'],
-        guardChain: GuardChain(guards: [guard]),
-        onReverseCallAudit: auditEvents.add,
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                acpProcess,
-      );
-      final startFuture = harness.start();
-      await acpProcess.respondTo('initialize', {'protocolVersion': 1});
-      await startFuture;
-      await File(p.join(workspace.path, 'secret.txt')).writeAsString('secret');
-
-      acpProcess.sendHostRequest(200, 'fs/read_text_file', {'path': 'secret.txt'});
-      final readResponse = await acpProcess.waitForResponse(200);
-      acpProcess.sendHostRequest(201, 'fs/write_text_file', {'path': 'denied.txt', 'content': 'must not land'});
-      final writeResponse = await acpProcess.waitForResponse(201);
-
-      expect(readResponse['result'], containsPair('noAccess', true));
-      expect((readResponse['result'] as Map).containsKey('content'), isFalse);
-      expect(writeResponse['result'], containsPair('noAccess', true));
-      expect(File(p.join(workspace.path, 'denied.txt')).existsSync(), isFalse);
-      expect(guard.contexts.map((context) => context.toolName), ['file_read', 'file_write']);
+      expect(read, containsPair('content', 'visible'));
+      expect(write, containsPair('ok', true));
+      expect(File(p.join(worktree.path, 'created.txt')).readAsStringSync(), 'new');
+      expect(File(p.join(serviceRoot.path, 'created.txt')).existsSync(), isFalse);
+      expect(guard.contexts.map((context) => context.sessionId), everyElement('task-session'));
       expect(guard.contexts.map((context) => context.rawProviderToolName), ['fs/read_text_file', 'fs/write_text_file']);
     });
 
-    test('malformed reverse-call payloads fail before guard and side effects', () async {
-      acpProcess.sendHostRequest(300, 'fs/read_text_file', {});
-      acpProcess.sendHostRequest(301, 'fs/write_text_file', {'path': 'x.txt'});
-      acpProcess.sendHostRequest(302, 'terminal/create', {
-        'command': 'echo ok',
-        'env': {'BAD': 1},
-      });
-      acpProcess.sendHostRequest(303, 'terminal/output', {'terminalId': 7});
+    test('session-scoped read-only policy blocks writes', () async {
+      final taskGuard = TaskToolFilterGuard();
+      taskGuard.setSessionReadOnly('read-only-session', true);
+      final handlers = AcpReverseCallHandlers(guardChain: GuardChain(guards: [taskGuard]));
+      handlers.bindTurn(sessionId: 'read-only-session', effectiveDirectory: worktree.path);
 
-      final responses = [
-        await acpProcess.waitForResponse(300),
-        await acpProcess.waitForResponse(301),
-        await acpProcess.waitForResponse(302),
-        await acpProcess.waitForResponse(303),
-      ];
+      final response = await handlers.writeTextFile({'path': 'denied.txt', 'content': 'must not land'});
 
-      expect(responses, everyElement(contains('error')));
-      expect(guard.contexts, isEmpty);
-      expect(workspace.listSync(), isEmpty);
+      expect(response, containsPair('noAccess', true));
+      expect(File(p.join(worktree.path, 'denied.txt')).existsSync(), isFalse);
     });
 
-    test('symlink traversal fails before guard, filesystem, or terminal side effects', () async {
+    test('reverse calls fail closed outside an active turn', () async {
+      final handlers = AcpReverseCallHandlers();
+
+      await expectLater(handlers.readTextFile({'path': 'missing.txt'}), throwsA(isA<Exception>()));
+      await expectLater(handlers.writeTextFile({'path': 'created.txt', 'content': 'no'}), throwsA(isA<Exception>()));
+      expect(File(p.join(serviceRoot.path, 'created.txt')).existsSync(), isFalse);
+    });
+
+    test('active workspace jail rejects traversal and symlink escape', () async {
       final outside = await Directory.systemTemp.createTemp('dartclaw_acp_outside_');
       addTearDown(() async {
         if (outside.existsSync()) {
@@ -131,49 +71,63 @@ void main() {
         }
       });
       await File(p.join(outside.path, 'secret.txt')).writeAsString('outside');
-      await Link(p.join(workspace.path, 'outside-link')).create(outside.path);
-      guard.contexts.clear();
+      await Link(p.join(worktree.path, 'outside-link')).create(outside.path);
+      final handlers = AcpReverseCallHandlers()..bindTurn(sessionId: 'session-1', effectiveDirectory: worktree.path);
 
-      acpProcess.sendHostRequest(350, 'fs/read_text_file', {'path': 'outside-link/secret.txt'});
-      acpProcess.sendHostRequest(351, 'fs/write_text_file', {'path': 'outside-link/created.txt', 'content': 'escape'});
-      acpProcess.sendHostRequest(352, 'terminal/create', {'command': 'pwd', 'cwd': 'outside-link'});
-
-      final responses = [
-        await acpProcess.waitForResponse(350),
-        await acpProcess.waitForResponse(351),
-        await acpProcess.waitForResponse(352),
-      ];
-
-      expect(responses, everyElement(contains('error')));
-      expect(guard.contexts, isEmpty);
-      expect(File(p.join(outside.path, 'created.txt')).existsSync(), isFalse);
+      await expectLater(handlers.readTextFile({'path': '../outside.txt'}), throwsA(isA<Exception>()));
+      await expectLater(handlers.readTextFile({'path': 'outside-link/secret.txt'}), throwsA(isA<Exception>()));
     });
 
-    test('session/request_permission uses approval seam and preserves raw audit method', () async {
-      await harness.dispose();
-      acpProcess = FakeAcpProcess();
-      harness = AcpHarness(
-        cwd: workspace.path,
-        executable: 'goose',
-        arguments: const ['acp'],
-        guardChain: GuardChain(guards: [guard]),
+    test('permission requests require an active turn', () async {
+      final handlers = AcpReverseCallHandlers(
         permissionDecision: (request) async => const AcpPermissionResult(granted: false, reason: 'denied'),
-        onReverseCallAudit: auditEvents.add,
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                acpProcess,
       );
-      final startFuture = harness.start();
-      await acpProcess.respondTo('initialize', {'protocolVersion': 1});
-      await startFuture;
 
-      acpProcess.sendHostRequest(400, 'session/request_permission', {'operation': 'file_write'});
-      final response = await acpProcess.waitForResponse(400);
+      await expectLater(handlers.requestPermission({'operation': 'file_write'}), throwsA(isA<Exception>()));
 
-      expect(response['result'], containsPair('granted', false));
-      expect(response['result'], containsPair('reason', 'denied'));
-      expect(auditEvents.last.rawProviderToolName, 'session/request_permission');
-      expect(auditEvents.last.canonicalToolName, 'file_write');
+      handlers.bindTurn(sessionId: 'session-1', effectiveDirectory: worktree.path);
+      final response = await handlers.requestPermission({'operation': 'file_write'});
+      expect(response, containsPair('granted', false));
+      expect(response, containsPair('reason', 'denied'));
+    });
+
+    test('turn unbind drains accepted calls and rejects new calls', () async {
+      final guard = _BlockingGuard();
+      final handlers = AcpReverseCallHandlers(guardChain: GuardChain(guards: [guard]));
+      handlers.bindTurn(sessionId: 'session-1', effectiveDirectory: worktree.path);
+
+      final write = handlers.writeTextFile({'path': 'accepted.txt', 'content': 'accepted'});
+      await guard.entered.future;
+      var unbound = false;
+      final unbind = handlers.unbindTurn('session-1').then((_) => unbound = true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(unbound, isFalse);
+      await expectLater(handlers.writeTextFile({'path': 'late.txt', 'content': 'late'}), throwsA(isA<Exception>()));
+      guard.release.complete();
+      await write;
+      await unbind;
+
+      expect(File(p.join(worktree.path, 'accepted.txt')).readAsStringSync(), 'accepted');
+      expect(File(p.join(worktree.path, 'late.txt')).existsSync(), isFalse);
     });
   });
+}
+
+final class _BlockingGuard extends Guard {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  String get name => 'blocking';
+
+  @override
+  String get category => 'test';
+
+  @override
+  Future<GuardVerdict> evaluate(GuardContext context) async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return GuardVerdict.pass();
+  }
 }

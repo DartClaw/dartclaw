@@ -152,6 +152,21 @@ void main() {
       expect(notifier.current, same(updated));
     });
 
+    test('reload rejects blocking parser diagnostics without replacing current config', () {
+      final invalid = DartclawConfig(warnings: ['invalid reload value']);
+
+      expect(() => notifier.reload(invalid), throwsFormatException);
+      expect(notifier.current, same(base));
+    });
+
+    test('reload rejects container isolation on native Windows at the notifier boundary', () {
+      notifier = ConfigNotifier(base, platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'));
+      const unsupported = DartclawConfig(container: ContainerConfig(enabled: true));
+
+      expect(() => notifier.reload(unsupported), throwsA(isA<UnsupportedCapabilityError>()));
+      expect(notifier.current, same(base));
+    });
+
     test('delta contains correct previous and current config', () {
       final updated = _withScheduling(heartbeatEnabled: false);
       final delta = notifier.reload(updated)!;

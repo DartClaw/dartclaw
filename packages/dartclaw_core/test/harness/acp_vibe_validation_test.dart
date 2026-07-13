@@ -19,7 +19,7 @@ void main() {
         requiresGuardMediation: true,
       );
 
-      expect(validator.validateConfig('vibe', config, advertisedCapabilities: {'fs', 'terminal'}), isEmpty);
+      expect(validator.validateConfig('vibe', config, advertisedCapabilities: {'fs'}), isEmpty);
       final result = (await validator.validateConfiguredTargets(
         agents: {'vibe': config},
         commandProbe: _binaryPresent,
@@ -47,10 +47,6 @@ void main() {
       );
 
       expect(validator.validateConfig('vibe', config), contains('guarded vibe requires advertised fs capability'));
-      expect(
-        validator.validateConfig('vibe', config, advertisedCapabilities: {'fs'}),
-        contains('guarded vibe requires advertised terminal capability'),
-      );
       expect(
         validator.validateConfig('vibe', noProof, advertisedCapabilities: {'fs', 'terminal'}),
         contains('requires_guard_mediation requires verification'),

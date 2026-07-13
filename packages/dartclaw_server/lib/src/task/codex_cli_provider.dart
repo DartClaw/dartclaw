@@ -12,6 +12,8 @@ import 'claude_cli_provider.dart' show resolveContainerWorkDir, startCliProcess;
 import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
+part 'codex_cli_provider_types.dart';
+
 /// [CliProvider] implementation for the Codex CLI one-shot runner.
 ///
 /// Owns command construction, JSONL streaming parse, temp-schema-file lifecycle,
@@ -19,7 +21,7 @@ import 'workflow_cli_runner.dart';
 class CodexCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('CodexCliProvider');
 
-  CodexCliProvider();
+  CodexCliProvider({super.platformCapabilities, super.terminationGracePeriod, super.outputDrainGracePeriod});
 
   static const _maxUsageEntries = 512;
 
@@ -58,6 +60,11 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         stepTimeout: req.stepTimeout,
         eventBus: req.eventBus,
         log: req.log,
+        processTerminator: () => terminateInflightProcess(process!),
+        externalCancellation: inflightCancellation(process),
+        platformCapabilities: platformCapabilities,
+        terminationGrace: terminationGracePeriod,
+        outputDrainGrace: outputDrainGracePeriod,
       )..start();
       final stdoutBuffer = StringBuffer();
       final stderrBuffer = StringBuffer();
@@ -66,7 +73,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       final codexState = _CodexStreamState();
       var terminalResultRecorded = false;
 
-      process.stdout
+      final stdoutSubscription = process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
@@ -88,7 +95,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             },
             cancelOnError: true,
           );
-      process.stderr
+      final stderrSubscription = process.stderr
           .transform(utf8.decoder)
           .listen(
             stderrBuffer.write,
@@ -108,9 +115,16 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         await process.stdin.close();
       } catch (_) {
         if (cancellationRequestedFor(process)) {
-          final exitCode = await supervisor.waitForExitCode();
-          await stdoutDone.future;
-          await stderrDone.future;
+          final termination = await waitForInflightTermination(process);
+          final exitCode = termination?.exitConfirmed == true ? await process.exitCode : -1;
+          await waitForCliOutputDrain(
+            supervisor: supervisor,
+            stdoutDone: stdoutDone.future,
+            stderrDone: stderrDone.future,
+            cancelSubscriptions: () async {
+              await Future.wait([stdoutSubscription.cancel(), stderrSubscription.cancel()], eagerError: false);
+            },
+          );
           stopwatch.stop();
           final stdout = stdoutBuffer.toString();
           if (_hasCodexFailureEvidence(stdout, stderrBuffer.toString())) {
@@ -122,22 +136,28 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       }
 
       final exitCode = await supervisor.waitForExitCode();
-      await stdoutDone.future;
-      await stderrDone.future;
+      await waitForCliOutputDrain(
+        supervisor: supervisor,
+        stdoutDone: stdoutDone.future,
+        stderrDone: stderrDone.future,
+        cancelSubscriptions: () async {
+          await Future.wait([stdoutSubscription.cancel(), stderrSubscription.cancel()], eagerError: false);
+        },
+      );
       supervisor.stop();
       final stdout = stdoutBuffer.toString();
       final stderr = stderrBuffer.toString();
       stopwatch.stop();
 
+      final hasProviderFailureEvidence = _hasCodexFailureEvidence(stdout, stderr);
+      final cancellationResult = cancellationResultForExit(
+        process: process,
+        supervisor: supervisor,
+        duration: stopwatch.elapsed,
+        hasProviderFailureEvidence: hasProviderFailureEvidence,
+      );
+      if (cancellationResult != null) return cancellationResult;
       if (exitCode != 0) {
-        final hasProviderFailureEvidence = _hasCodexFailureEvidence(stdout, stderr);
-        final cancellationResult = cancellationResultForNonZeroExit(
-          process: process,
-          supervisor: supervisor,
-          duration: stopwatch.elapsed,
-          hasProviderFailureEvidence: hasProviderFailureEvidence,
-        );
-        if (cancellationResult != null) return cancellationResult;
         if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
           throw _codexNonZeroExitError(exitCode, stdout, stderr);
         }
@@ -148,7 +168,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       supervisor?.stop();
       final activeProcess = process;
       if (activeProcess != null) {
-        untrackInflightProcess(activeProcess);
+        finishInflightRun(activeProcess);
       }
       if (tempSchemaPath != null) {
         try {
@@ -486,53 +506,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     final singleLine = text.replaceAll('\n', ' ').trim();
     if (singleLine.length <= maxLength) return singleLine;
     return '${singleLine.substring(0, maxLength)}...';
-  }
-}
-
-final class _CodexSandboxDecision {
-  static const _rankBySandbox = <String, int>{'read-only': 0, 'workspace-write': 1, 'danger-full-access': 2};
-
-  final String? sandbox;
-  final bool hasExplicitSandbox;
-
-  factory _CodexSandboxDecision({String? defaultSandbox, String? sandboxOverride}) {
-    final normalizedDefault = _normalize(defaultSandbox);
-    final normalizedOverride = _normalize(sandboxOverride);
-    final resolvedSandbox = _resolve(normalizedDefault, normalizedOverride);
-    assert(
-      normalizedDefault == null ||
-          normalizedOverride == null ||
-          resolvedSandbox == _stricter(normalizedDefault, normalizedOverride),
-      'Codex sandbox resolution must preserve the stricter authored sandbox value.',
-    );
-    return _CodexSandboxDecision._(resolvedSandbox);
-  }
-
-  const _CodexSandboxDecision._(this.sandbox) : hasExplicitSandbox = sandbox != null;
-
-  static String? _normalize(String? raw) {
-    if (raw == null) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
-
-  static String? _resolve(String? defaultSandbox, String? sandboxOverride) {
-    if (sandboxOverride == null) return defaultSandbox;
-    if (defaultSandbox == null) return sandboxOverride;
-    return _stricter(defaultSandbox, sandboxOverride);
-  }
-
-  static String _stricter(String left, String right) {
-    if (left == right) return left;
-    final leftRank = _rankBySandbox[left];
-    final rightRank = _rankBySandbox[right];
-    if (leftRank == null || rightRank == null) {
-      throw StateError(
-        'Unsupported Codex sandbox combination: default="$left", override="$right". '
-        'Update _CodexSandboxDecision before adding new sandbox names.',
-      );
-    }
-    return leftRank <= rightRank ? left : right;
   }
 }
 

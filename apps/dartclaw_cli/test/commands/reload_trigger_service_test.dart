@@ -11,12 +11,13 @@ import 'package:test/test.dart';
 class _TrackingConfigNotifier extends ConfigNotifier {
   final List<DartclawConfig> reloadCalls = [];
 
-  _TrackingConfigNotifier(super.initial);
+  _TrackingConfigNotifier(super.initial, {super.platformCapabilities});
 
   @override
   ConfigDelta? reload(DartclawConfig newConfig) {
+    final delta = super.reload(newConfig);
     reloadCalls.add(newConfig);
-    return super.reload(newConfig);
+    return delta;
   }
 }
 
@@ -31,6 +32,7 @@ void main() {
     late DartclawConfig Function() loader;
 
     setUp(() {
+      ensureGitHubWebhookConfigRegistered();
       config = _defaultConfig();
       newConfig = _defaultConfig();
       notifier = _TrackingConfigNotifier(config);
@@ -40,6 +42,8 @@ void main() {
         return newConfig;
       };
     });
+
+    tearDown(DartclawConfig.clearExtensionParsers);
 
     group('mode: off', () {
       test('start() registers no subscriptions or unsupported-capability warning', () async {
@@ -110,6 +114,174 @@ void main() {
         expect(notifier.current, same(activeConfig));
         expect(notifier.reloadCalls, isEmpty);
         expect(records.map((record) => record.message), contains(contains('config reload failed')));
+      });
+
+      for (final testCase in const [
+        (
+          name: 'warning-backed validation failure',
+          yaml: 'gateway:\n  reload:\n    mode: invalid\n',
+          diagnostic: 'Invalid gateway.reload.mode',
+        ),
+        (name: 'malformed YAML', yaml: 'gateway:\n  reload: [invalid\n', diagnostic: 'YAML parse error'),
+        (
+          name: 'type-invalid reload value',
+          yaml: 'gateway:\n  reload:\n    debounce_ms: invalid\n',
+          diagnostic: 'Invalid type for debounce_ms',
+        ),
+      ]) {
+        test('${testCase.name} keeps the active config', () async {
+          final tempDir = Directory.systemTemp.createTempSync('reload_validation_');
+          addTearDown(() => tempDir.deleteSync(recursive: true));
+          final configFile = File('${tempDir.path}/dartclaw.yaml')..writeAsStringSync(testCase.yaml);
+          final records = <LogRecord>[];
+          final logSub = Logger.root.onRecord.listen(records.add);
+          addTearDown(logSub.cancel);
+          final activeConfig = notifier.current;
+          final svc = ReloadTriggerService(
+            configPath: configFile.path,
+            notifier: notifier,
+            reloadConfig: const ReloadConfig(mode: 'signal'),
+          );
+
+          await expectLater(svc.doReload(), completes);
+
+          expect(notifier.current, same(activeConfig));
+          expect(notifier.reloadCalls, isEmpty);
+          expect(records.map((record) => record.message), contains(contains(testCase.diagnostic)));
+        });
+      }
+
+      test('deprecation diagnostics do not block reload', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_deprecation_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final configFile = File('${tempDir.path}/dartclaw.yaml')
+          ..writeAsStringSync('automation:\n  scheduled_tasks: []\n');
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+        );
+
+        await svc.doReload();
+
+        expect(notifier.reloadCalls, hasLength(1));
+        expect(notifier.reloadCalls.single.warnings, anyElement(contains('deprecated')));
+      });
+
+      test('accepted full-access advisory is logged before reload', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_full_access_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final configFile = File('${tempDir.path}/dartclaw.yaml')
+          ..writeAsStringSync('providers:\n  claude:\n    executable: claude\n    approval: never\n');
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+        );
+
+        await svc.doReload();
+
+        expect(
+          notifier.reloadCalls,
+          hasLength(1),
+          reason: records.map((record) => '${record.level.name}: ${record.message}').join('\n'),
+        );
+        expect(
+          records.map((record) => record.message),
+          anyElement(allOf(contains('advisory'), contains('FULL ACCESS'))),
+        );
+      });
+
+      test('accepted project-path advisory does not block a valid reload', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_advisory_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final missingProjectPath = '${tempDir.path}/missing-project';
+        final configFile = File('${tempDir.path}/dartclaw.yaml')
+          ..writeAsStringSync(
+            'concurrency:\n'
+            '  max_parallel_turns: 7\n'
+            'projects:\n'
+            '  local:\n'
+            '    localPath: "$missingProjectPath"\n',
+          );
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+        );
+
+        await svc.doReload();
+
+        expect(notifier.reloadCalls, hasLength(1));
+        expect(notifier.reloadCalls.single.server.maxParallelTurns, 7);
+        expect(notifier.reloadCalls.single.warnings, anyElement(contains('accepting')));
+        expect(notifier.reloadCalls.single.reloadBlockingWarnings, isEmpty);
+      });
+
+      test('forward-compatible custom section does not block a valid reload', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_extension_advisory_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final configFile = File('${tempDir.path}/dartclaw.yaml')
+          ..writeAsStringSync(
+            'concurrency:\n'
+            '  max_parallel_turns: 8\n'
+            'custom_plugin:\n'
+            '  enabled: true\n',
+          );
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+        );
+
+        await svc.doReload();
+
+        expect(notifier.reloadCalls, hasLength(1));
+        expect(notifier.reloadCalls.single.server.maxParallelTurns, 8);
+        expect(notifier.reloadCalls.single.extensions['custom_plugin'], {'enabled': true});
+        expect(notifier.reloadCalls.single.reloadBlockingWarnings, isEmpty);
+      });
+
+      test('invalid GitHub webhook config keeps the active config', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_github_validation_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final configFile = File('${tempDir.path}/dartclaw.yaml')..writeAsStringSync('github:\n  enabled: true\n');
+        final activeConfig = notifier.current;
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+        );
+
+        await svc.doReload();
+
+        expect(notifier.current, same(activeConfig));
+        expect(notifier.reloadCalls, isEmpty);
+      });
+
+      test('native Windows rejects container isolation enabled by reload', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_windows_container_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final configFile = File('${tempDir.path}/dartclaw.yaml')..writeAsStringSync('container:\n  enabled: true\n');
+        final activeConfig = notifier.current;
+        notifier = _TrackingConfigNotifier(
+          activeConfig,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        );
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'auto'),
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        );
+
+        await svc.doReload();
+
+        expect(notifier.current, same(activeConfig));
+        expect(notifier.reloadCalls, isEmpty);
       });
 
       test('doReload logs info when no reloadable changes detected', () async {

@@ -20,6 +20,7 @@ import 'workflow_run_repository.dart' show WorkflowRunRepository;
 import 'package:uuid/uuid.dart';
 
 import 'context_extractor.dart';
+import 'bash_process_owner.dart';
 import 'gate_evaluator.dart';
 import '../skills/provider_auth_preflight.dart';
 import 'prompt_augmenter.dart';
@@ -143,6 +144,9 @@ final class StepExecutionContext {
 
   /// Optional executable-lookup effect override for bash-step hosts and tests.
   final ExecutableLookupExecutor? executableLookupExecutor;
+
+  /// Lifecycle owner for Bash subprocesses started by this workflow service.
+  final BashProcessOwner bashProcessOwner;
   final Uuid uuid;
   final WorkflowRun? run;
   final WorkflowDefinition? definition;
@@ -176,11 +180,13 @@ final class StepExecutionContext {
     this.bashStepExtraStripPatterns = const <String>[],
     PlatformCapabilities? platformCapabilities,
     this.executableLookupExecutor,
+    BashProcessOwner? bashProcessOwner,
     Uuid? uuid,
     this.run,
     this.definition,
     this.workflowContext,
   }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       bashProcessOwner = bashProcessOwner ?? BashProcessOwner(),
        uuid = uuid ?? const Uuid();
 
   StepExecutionContext configured({
@@ -218,6 +224,7 @@ final class StepExecutionContext {
       bashStepExtraStripPatterns: List.unmodifiable(bashStepPolicy.extraStripPatterns),
       platformCapabilities: platformCapabilities,
       executableLookupExecutor: executableLookupExecutor,
+      bashProcessOwner: bashProcessOwner,
       uuid: uuid,
       run: run,
       definition: definition,
@@ -258,6 +265,7 @@ final class StepExecutionContext {
       bashStepExtraStripPatterns: bashStepExtraStripPatterns,
       platformCapabilities: platformCapabilities,
       executableLookupExecutor: executableLookupExecutor,
+      bashProcessOwner: bashProcessOwner,
       uuid: uuid,
       run: run,
       definition: definition,

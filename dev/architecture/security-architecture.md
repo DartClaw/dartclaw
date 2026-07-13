@@ -217,10 +217,10 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `web_fetch` | `web_fetch` | `web_search` | HTTP/web retrieval |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
-ACP reverse-calls map at the handler-level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`,
-`fs/write_text_file` -> `file_write`, and `terminal/create` -> `shell`. ACP terminal lifecycle calls
-(`terminal/output`, `terminal/wait_for_exit`, `terminal/kill`, `terminal/release`) preserve their raw ACP method names
-for audit but operate only on host-created terminal IDs and do not create a second shell-execution path.
+ACP reverse-calls map at the handler level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`
+and `fs/write_text_file` -> `file_write`. Each call is bound to the active host session and effective turn workspace,
+so session-local tool and read-only policies apply. Calls outside an active turn fail closed. ACP terminal reverse-calls
+are not advertised or executed on any host because complete descendant containment is not yet proven.
 
 Inference rules:
 
@@ -241,14 +241,14 @@ Different providers expose different interception points. DartClaw keeps the gua
 |-----------------|------------|-----------------------------|-------------------|
 | Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
 | Codex (app-server) | Approval requests only | `approval` control request handler in `CodexHarness`; must keep approvals enabled and must not use `--yolo` for provider-approval security mode | Approval response path is the only interception point |
-| ACP direct-provider, verified | Host-advertised ACP `fs`/`terminal` capabilities | `AcpReverseCallHandlers` map reverse-calls to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
+| ACP direct-provider, verified | Host-advertised ACP `fs` capabilities | `AcpReverseCallHandlers` bind reverse-calls to the active session and map them to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
 | ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Container profile and workspace jail only | Container-isolation-only until per-agent verification proves guard mediation |
 
 For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
 
 For Codex app-server, the approval request is the only interception point. DartClaw must preserve approval prompts and must not use `--yolo`, because bypassing the approval request would remove the guard chain from the execution path.
 
-For ACP agents, security classification is topology-scoped. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` and `terminal` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies can still run under container isolation, but DartClaw does not describe them as mediated by guards.
+For ACP agents, security classification is topology-scoped. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies can still run under container isolation, but DartClaw does not describe them as mediated by guards.
 
 **Source**: `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_reverse_call_handlers.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md)
 

@@ -72,7 +72,8 @@ Provider-specific credential and interception details live in [Security Architec
 operating-system checks across lifecycle, workflow, reload, and isolation code. It covers:
 
 - home-directory resolution with `HOME` then `USERPROFILE` fallback;
-- executable lookup command data (`which` on POSIX, `where` on Windows);
+- executable search candidates derived from injected `PATH`/`PATHEXT`, with empty entries excluded so lookup never implies the current directory;
+- trusted absolute Windows system-helper paths with a minimal environment;
 - Bash shell policy and POSIX signal/file-permission availability;
 - process-termination semantics and container-isolation availability; and
 - `UnsupportedCapabilityError`, which names the capability, attempted context, and remediation.
@@ -81,7 +82,7 @@ The Windows constraints are explicit:
 
 | Area | Native Windows contract |
 |---|---|
-| Process lifecycle | `Process.kill()` is an unconditional hard terminate; no SIGTERM-to-SIGKILL escalation is claimed |
+| Process lifecycle | Directly managed root-handle hard termination with bounded exit observation; no SIGTERM-to-SIGKILL or descendant-containment claim |
 | Config reload | `gateway.reload.mode: auto` uses debounced file watching; SIGUSR1 is POSIX-only |
 | Storage/search | Release bundles carry FTS5-enabled `lib/sqlite3.dll`; DartClaw does not use system `winsqlite3.dll` |
 | Bash workflow steps | Git Bash is required and selected through executable lookup; absence is an explicit failed step |
@@ -200,14 +201,14 @@ The harness layer is the interface between the Dart host and the execution-plane
 | `CodexHarness` | `harness/codex_harness.dart` | Spawns `codex` binary, manages JSON-RPC JSONL I/O, implements the Codex control protocol |
 | `AcpHarness` | `harness/acp_harness.dart` | Spawns configured ACP agent binaries, manages stdio JSON-RPC lifecycle, and delegates reverse-calls to guarded host handlers |
 | `AcpClient` | `harness/acp_client.dart` | Minimal ACP JSON-RPC client used by `AcpHarness` |
-| `AcpReverseCallHandlers` | `harness/acp_reverse_call_handlers.dart` | Maps ACP `fs` and `terminal` reverse-calls to canonical guarded host tools |
+| `AcpReverseCallHandlers` | `harness/acp_reverse_call_handlers.dart` | Binds ACP filesystem reverse-calls to the active session and maps them to canonical guarded host tools |
 | `ClaudeProtocol` | `harness/claude_protocol.dart` | Sealed class hierarchy for Claude JSONL message parsing (`SystemInit`, `StreamTextDelta`, `ToolUseBlock`, `ControlRequest`, etc.) |
 | `HarnessConfig` | `harness/harness_config.dart` | Per-harness configuration: model, max turns, disallowed tools, MCP config |
 | `ToolPolicyCascade` | `harness/tool_policy.dart` | 3-layer tool approval: global deny, agent deny, sandbox allow |
 | `BridgeEvent` | `bridge/bridge_events.dart` | Typed stream events for consumers (text deltas, tool activity, results) |
 | `NdjsonChannel` | `bridge/ndjson_channel.dart` | NDJSON line splitting and framing over `stdin`/`stdout` |
 
-The Claude `initialize` control-protocol handshake registers hooks, MCP servers, and system prompt. Hook callbacks (`PreToolUse`/`PostToolUse`) and MCP tool calls (`mcp_message`) are handled in-process by the Dart host, with request-response correlation via `request_id`. ACP agents use stdio JSON-RPC instead: `AcpHarness` owns the subprocess, `AcpClient` owns request correlation, and reverse-calls such as `fs/read_text_file`, `fs/write_text_file`, and `terminal/create` are evaluated through the same guard chain before the host performs file or terminal work. For protocol details, see [Control Protocol & Harness Architecture](control-protocol.md).
+The Claude `initialize` control-protocol handshake registers hooks, MCP servers, and system prompt. Hook callbacks (`PreToolUse`/`PostToolUse`) and MCP tool calls (`mcp_message`) are handled in-process by the Dart host, with request-response correlation via `request_id`. ACP agents use stdio JSON-RPC instead: `AcpHarness` owns the subprocess, `AcpClient` owns request correlation, and filesystem reverse-calls are bound to the active host session and evaluated through the same guard chain before host work. ACP terminal reverse-calls are disabled. For protocol details, see [Control Protocol & Harness Architecture](control-protocol.md).
 
 **Package**: `dartclaw_core`
 
@@ -362,7 +363,7 @@ Multi-step agent pipelines defined in YAML. Added in 0.15, then extended increme
 | `SkillIntrospector` | `workflow/skill_introspector.dart` | Runtime skill preflight seam: checks authored `skill:` refs against the selected provider's visible skill list before dispatch |
 | `WorkflowCliRunner` | `task/workflow_cli_runner.dart` | Workflow-only one-shot CLI execution path for all workflow agent steps plus structured extraction turns |
 | `WorkflowMaterializer` | `apps/dartclaw_cli/lib/src/commands/workflow_materializer.dart` | Copies shipped workflow YAML files into `<workspaceDir>/workflows/` before registry load; preserves user edits and materialized precedence |
-| `shellEscape` | `workflow/shell_escape.dart` | Single-quote shell escaping for `{{context.*}}` values in bash commands — prevents injection |
+| `shellEscape` | `workflow/shell_escape.dart` | Single-quote shell escaping for unquoted substitutions; validation rejects caller-owned quoting, `eval`, and direct nested `sh`/`bash` use |
 
 ### Workflow One-Shot Execution
 

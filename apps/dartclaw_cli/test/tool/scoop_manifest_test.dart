@@ -38,14 +38,21 @@ void main() {
 
     expect(manifest['version'], dartclawVersion);
     expect(architecture.keys, ['64bit']);
-    expect(x64['url'], contains('dartclaw-v$dartclawVersion-windows-x64.zip'));
+    expect(
+      x64['url'],
+      'https://github.com/DartClaw/dartclaw/releases/download/'
+      'v$dartclawVersion/dartclaw-v$dartclawVersion-windows-x64.zip',
+    );
     expect(x64['hash'], matches(RegExp(r'^[0-9a-f]{64}$')));
     expect(_hashSlotCount(manifest), 1);
     expect(manifest['bin'], r'bin\dartclaw.exe');
     final autoupdate = manifest['autoupdate'] as Map<String, dynamic>;
     final autoupdateArchitecture = autoupdate['architecture'] as Map<String, dynamic>;
     final autoupdateX64 = autoupdateArchitecture['64bit'] as Map<String, dynamic>;
-    expect(autoupdateX64['url'], contains(r'dartclaw-v$version-windows-x64.zip'));
+    expect(
+      autoupdateX64['url'],
+      r'https://github.com/DartClaw/dartclaw/releases/download/v$version/dartclaw-v$version-windows-x64.zip',
+    );
   });
 
   test('Scoop renderer injects the published Windows checksum', () {
@@ -96,6 +103,35 @@ void main() {
 
     expect(result.exitCode, isNonZero);
     expect('${result.stderr}', contains('lockstep'));
+  });
+
+  test(r'Scoop renderer rejects a literal $version in the concrete release URL', () {
+    final toolDir = Directory.systemTemp.createTempSync('dc-scoop-url-template');
+    final toolPath = p.join(toolDir.path, 'render_scoop_manifest.dart');
+    File(p.join(repoRoot, 'dev', 'tools', 'render_scoop_manifest.dart')).copySync(toolPath);
+    addTearDown(() => toolDir.deleteSync(recursive: true));
+
+    final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
+    final architecture = manifest['architecture'] as Map<String, dynamic>;
+    final x64 = architecture['64bit'] as Map<String, dynamic>;
+    x64['url'] =
+        r'https://github.com/DartClaw/dartclaw/releases/download/v$version/'
+        'dartclaw-v$dartclawVersion-windows-x64.zip';
+    final malformedManifestPath = p.join(toolDir.path, 'malformed.json');
+    File(malformedManifestPath).writeAsStringSync(jsonEncode(manifest));
+
+    final result = Process.runSync(Platform.resolvedExecutable, [
+      toolPath,
+      '--manifest',
+      malformedManifestPath,
+      '--checksums-dir',
+      toolDir.path,
+      '--version',
+      dartclawVersion,
+    ], workingDirectory: toolDir.path);
+
+    expect(result.exitCode, isNonZero);
+    expect('${result.stderr}', contains('architecture.64bit.url'));
   });
 
   test('Scoop renderer rejects multiple hash slots', () {

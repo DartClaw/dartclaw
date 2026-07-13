@@ -64,6 +64,14 @@ function Assert-DartClawInstallLayout {
   }
 }
 
+function Assert-DartClawReleaseVersion {
+  param([Parameter(Mandatory)][string]$Value)
+
+  if ($Value -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') {
+    throw "Invalid DartClaw release version '$Value'."
+  }
+}
+
 function Add-DartClawUserPath {
   param([Parameter(Mandatory)][string]$BinPath)
 
@@ -98,6 +106,10 @@ function Invoke-DartClawInstall {
 
   Assert-DartClawInstallerArchitecture
   $resolvedVersion = Resolve-DartClawReleaseVersion -RequestedVersion $ReleaseVersion -ArtifactPath $ArtifactPath
+  Assert-DartClawReleaseVersion -Value $resolvedVersion
+  if ($TargetRoot -match '[;\r\n]') {
+    throw "Install root '$TargetRoot' contains a PATH delimiter or line break."
+  }
   $resolvedRoot = [IO.Path]::GetFullPath($TargetRoot)
   $installParent = Split-Path -Parent $resolvedRoot
   if ([string]::IsNullOrWhiteSpace($installParent)) {
@@ -126,8 +138,8 @@ function Invoke-DartClawInstall {
     } else {
       $releaseUrl = "$($ReleaseBaseUrl.TrimEnd('/'))/v$resolvedVersion"
       try {
-        Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archive
-        Invoke-WebRequest -Uri "$releaseUrl/$archiveName.sha256" -OutFile $checksum
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archiveName" -OutFile $archive
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archiveName.sha256" -OutFile $checksum
       } catch {
         throw "Failed to download DartClaw $resolvedVersion from '$releaseUrl': $($_.Exception.Message)"
       }

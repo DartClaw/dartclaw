@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
@@ -14,6 +15,7 @@ void main() {
       fakeAsync((async) {
         final process = FakeProcess();
         ProcessTerminationResult? result;
+        final terminatedPids = <int>[];
 
         unawaited(
           killWithEscalation(
@@ -21,19 +23,120 @@ void main() {
             label: 'windows-child',
             gracePeriod: const Duration(seconds: 5),
             platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+            windowsProcessTreeTerminator: (pid) async {
+              terminatedPids.add(pid);
+              return true;
+            },
           ).then((value) => result = value),
         );
         async.flushMicrotasks();
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
 
-        expect(process.killSignals, [ProcessSignal.sigterm]);
+        expect(terminatedPids, [process.pid]);
+        expect(process.killSignals, isEmpty);
         async.elapse(const Duration(seconds: 6));
         async.flushMicrotasks();
 
-        expect(process.killSignals, [ProcessSignal.sigterm]);
+        expect(process.killSignals, isEmpty);
         expect(result?.initialTerminationAccepted, isTrue);
         expect(result?.exitConfirmed, isFalse);
         expect(result?.hardTerminationUsed, isTrue);
+        expect(result?.processTreeTerminationAccepted, isTrue);
+        expect(result?.confirmsOwnershipRelease(), isFalse);
       });
+    });
+
+    test('Windows semantics skip tree termination when the managed root already exited', () async {
+      final process = FakeProcess()..exit(0);
+      var terminationCalls = 0;
+
+      final result = await killWithEscalation(
+        process,
+        label: 'already-exited-child',
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        windowsProcessTreeTerminator: (_) async {
+          terminationCalls++;
+          return true;
+        },
+      );
+
+      expect(terminationCalls, isZero);
+      expect(process.killSignals, isEmpty);
+      expect(result.initialTerminationAccepted, isFalse);
+      expect(result.exitConfirmed, isTrue);
+      expect(result.hardTerminationUsed, isFalse);
+      expect(result.processTreeTerminationAccepted, isFalse);
+      expect(result.confirmsOwnershipRelease(), isTrue);
+    });
+
+    test('Windows tree termination is bounded when an injected terminator never completes', () {
+      fakeAsync((async) {
+        final process = FakeProcess(completeExitOnKill: true);
+        final neverCompletes = Completer<bool>();
+        ProcessTerminationResult? result;
+
+        unawaited(
+          killWithEscalation(
+            process,
+            label: 'hung-tree-terminator',
+            gracePeriod: const Duration(seconds: 5),
+            platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+            windowsProcessTreeTerminator: (_) => neverCompletes.future,
+          ).then((value) => result = value),
+        );
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+
+        expect(result, isNull);
+        expect(process.killSignals, isEmpty);
+
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+        expect(result?.initialTerminationAccepted, isFalse);
+        expect(result?.exitConfirmed, isTrue);
+        expect(result?.hardTerminationUsed, isTrue);
+        expect(result?.processTreeTerminationAccepted, isFalse);
+        expect(result?.confirmsOwnershipRelease(), isTrue);
+      });
+    });
+
+    test('default Windows termination kills only the managed root and fails closed for tree ownership', () async {
+      final process = FakeProcess(completeExitOnKill: true);
+
+      final result = await killWithEscalation(
+        process,
+        label: 'windows-root',
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+      );
+
+      expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(result.initialTerminationAccepted, isTrue);
+      expect(result.exitConfirmed, isTrue);
+      expect(result.processTreeTerminationAccepted, isFalse);
+      expect(result.confirmsOwnershipRelease(), isTrue);
+    });
+
+    test('ownership-safe Windows tree termination can confirm release', () async {
+      final process = FakeProcess();
+
+      final result = await killWithEscalation(
+        process,
+        label: 'owned-windows-tree',
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        windowsProcessTreeTerminator: (_) async {
+          process.exit(0);
+          return true;
+        },
+      );
+
+      expect(process.killSignals, isEmpty);
+      expect(result.exitConfirmed, isTrue);
+      expect(result.processTreeTerminationAccepted, isTrue);
+      expect(result.confirmsOwnershipRelease(), isTrue);
     });
 
     test('POSIX semantics escalate to SIGKILL and confirm the exit', () {
@@ -61,6 +164,8 @@ void main() {
         expect(result?.initialTerminationAccepted, isTrue);
         expect(result?.exitConfirmed, isTrue);
         expect(result?.hardTerminationUsed, isTrue);
+        expect(result?.processTreeTerminationAccepted, isFalse);
+        expect(result?.confirmsOwnershipRelease(), isTrue);
       });
     });
 
@@ -99,8 +204,11 @@ void main() {
             gracePeriod: const Duration(seconds: 5),
             initialTerminationAccepted: false,
             platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+            windowsProcessTreeTerminator: (_) async => true,
           ).then((value) => result = value),
         );
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
         async.flushMicrotasks();
         async.elapse(const Duration(seconds: 5));
         async.flushMicrotasks();
@@ -128,8 +236,11 @@ void main() {
             gracePeriod: const Duration(seconds: 5),
             log: logger,
             platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+            windowsProcessTreeTerminator: (_) async => true,
           ).then((value) => result = value),
         );
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
         async.flushMicrotasks();
         async.elapse(const Duration(seconds: 6));
         async.flushMicrotasks();
@@ -172,24 +283,37 @@ void main() {
   });
 
   test(
-    'native Windows shutdown reaps the managed child PID',
+    'native Windows shutdown fails closed without an ownership-safe tree terminator',
     () async {
       final tempDirectory = await Directory.systemTemp.createTemp('dartclaw-process-lifecycle-');
       final script = File('${tempDirectory.path}${Platform.pathSeparator}managed_child.dart');
       await script.writeAsString(
-        'import \'dart:async\';\nvoid main() => Timer.periodic(const Duration(days: 1), (_) {});\n',
+        "import 'dart:async';\n"
+        "import 'dart:io';\n"
+        'Future<void> main(List<String> args) async {\n'
+        "  if (args.contains('child')) {\n"
+        '    Timer.periodic(const Duration(days: 1), (_) {});\n'
+        '    return;\n'
+        '  }\n'
+        "  final child = await Process.start(Platform.resolvedExecutable, [Platform.script.toFilePath(), 'child']);\n"
+        '  stdout.writeln(child.pid);\n'
+        '  await stdout.flush();\n'
+        '  Timer.periodic(const Duration(days: 1), (_) {});\n'
+        '}\n',
       );
       final process = await Process.start(Platform.resolvedExecutable, [script.path]);
+      final childPid = int.parse(await process.stdout.transform(utf8.decoder).transform(const LineSplitter()).first);
 
       try {
         final result = await killWithEscalation(process, label: 'native-Windows managed child');
-        expect(result.exitConfirmed, isTrue, reason: 'managed child PID ${process.pid} must be reaped');
+        expect(result.exitConfirmed, isTrue, reason: 'the managed root process must be reaped');
         expect(result.hardTerminationUsed, isTrue);
-
-        final taskList = await Process.run('tasklist', ['/FI', 'PID eq ${process.pid}', '/FO', 'CSV', '/NH']);
-        expect('${taskList.stdout}', isNot(contains(',"${process.pid}",')));
+        expect(result.processTreeTerminationAccepted, isFalse);
+        expect(result.confirmsOwnershipRelease(), isTrue);
+        print('Native Windows process lifecycle: directly managed root PID ${process.pid} reaped.');
       } finally {
         process.kill();
+        Process.killPid(childPid);
         try {
           await process.exitCode.timeout(const Duration(seconds: 2));
         } on TimeoutException {

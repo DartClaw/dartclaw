@@ -8,6 +8,7 @@ void main(List<String> args) {
   final manifestPath = _require(options, 'manifest');
   final checksumsDir = _require(options, 'checksums-dir');
   final version = _require(options, 'version');
+  _validateReleaseVersion(version);
 
   final manifest = jsonDecode(File(manifestPath).readAsStringSync());
   if (manifest is! Map<String, dynamic>) {
@@ -25,8 +26,22 @@ void main(List<String> args) {
   if (x64 is! Map<String, dynamic>) {
     _fail('manifest architecture.64bit must be a JSON object');
   }
+  final expectedUrl =
+      'https://github.com/DartClaw/dartclaw/releases/download/v$version/dartclaw-v$version-windows-x64.zip';
+  if (x64['url'] != expectedUrl) {
+    _fail('manifest architecture.64bit.url must match the concrete Windows release asset for $version');
+  }
   if (_hashSlotCount(manifest) != 1 || x64['hash'] is! String) {
     _fail('expected exactly one 64-bit hash slot');
+  }
+
+  final autoupdate = manifest['autoupdate'];
+  final autoupdateArchitecture = autoupdate is Map<String, dynamic> ? autoupdate['architecture'] : null;
+  final autoupdateX64 = autoupdateArchitecture is Map<String, dynamic> ? autoupdateArchitecture['64bit'] : null;
+  const expectedAutoupdateUrl =
+      r'https://github.com/DartClaw/dartclaw/releases/download/v$version/dartclaw-v$version-windows-x64.zip';
+  if (autoupdateX64 is! Map<String, dynamic> || autoupdateX64['url'] != expectedAutoupdateUrl) {
+    _fail('manifest autoupdate.architecture.64bit.url must match the Scoop version template');
   }
 
   x64['hash'] = _readDigest(checksumsDir, version);
@@ -37,6 +52,14 @@ void main(List<String> args) {
   } else {
     File(output).writeAsStringSync(rendered);
     stdout.writeln('render-scoop-manifest: wrote $output');
+  }
+}
+
+void _validateReleaseVersion(String version) {
+  if (!RegExp(
+    r'^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$',
+  ).hasMatch(version)) {
+    _fail('invalid release version: $version');
   }
 }
 

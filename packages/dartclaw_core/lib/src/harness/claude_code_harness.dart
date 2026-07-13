@@ -21,6 +21,7 @@ import 'claude_protocol.dart';
 import 'conversation_history.dart';
 import 'harness_config.dart';
 import 'protocol_message.dart' as proto;
+import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'tool_policy.dart';
 // Claude CLI configuration
@@ -76,6 +77,7 @@ class ClaudeCodeHarness extends BaseHarness {
   final ContainerExecutor? containerManager;
   final ClaudeProtocolAdapter _adapter;
   final Duration _killGracePeriod;
+  final Duration _initializeTimeout;
 
   /// Platform policy used for executable lookup and process semantics.
   final PlatformCapabilities platformCapabilities;
@@ -145,11 +147,13 @@ class ClaudeCodeHarness extends BaseHarness {
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
     Duration killGracePeriod = const Duration(seconds: 2),
+    Duration initializeTimeout = const Duration(seconds: 10),
     PlatformCapabilities? platformCapabilities,
   }) : _environment = environment ?? Platform.environment,
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        _adapter = protocolAdapter ?? ClaudeProtocolAdapter(),
        _killGracePeriod = killGracePeriod,
+       _initializeTimeout = initializeTimeout,
        platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        super(
          log: _log,
@@ -189,14 +193,40 @@ class ClaudeCodeHarness extends BaseHarness {
     beforeStart: () async {
       isStopping = false;
     },
-    start: _startInternal,
+    start: _startWithCleanup,
   );
+
+  Future<void> _startWithCleanup() async {
+    try {
+      await _startInternal();
+    } catch (_) {
+      try {
+        await _stopInternal();
+      } catch (cleanupError, cleanupStackTrace) {
+        _log.warning('Claude startup cleanup failed', cleanupError, cleanupStackTrace);
+      }
+      rethrow;
+    }
+  }
 
   @override
   Future<void> cancel() async {
     final process = currentProcess;
+    beginIntentionalProcessTeardown(process, platformCapabilities);
     await closeCurrentProcessStdin(process: process);
-    process?.kill();
+    if (process == null) return;
+    if (platformCapabilities.posixSignalsAvailable) {
+      process.kill();
+    } else {
+      final result = await killWithEscalation(
+        process,
+        label: 'Claude',
+        gracePeriod: _killGracePeriod,
+        platformCapabilities: platformCapabilities,
+        log: _log,
+      );
+      completeIntentionalProcessTeardown(process, result, platformCapabilities);
+    }
   }
 
   @override
@@ -204,6 +234,7 @@ class ClaudeCodeHarness extends BaseHarness {
     // Set immediately (before lock) so the exitCode crash handler can
     // distinguish intentional shutdown from unexpected process exit.
     isStopping = true;
+    beginIntentionalProcessTeardown(currentProcess, platformCapabilities);
     return withLock(_stopInternal);
   }
 
@@ -224,7 +255,9 @@ class ClaudeCodeHarness extends BaseHarness {
     if (wasBusy) {
       try {
         await closeCurrentProcessStdin(process: process);
-        initialTerminationAccepted = process?.kill() ?? false;
+        if (platformCapabilities.posixSignalsAvailable) {
+          initialTerminationAccepted = process?.kill() ?? false;
+        }
       } catch (e) {
         _log.fine('Failed to cancel during stop: $e');
       }
@@ -234,6 +267,7 @@ class ClaudeCodeHarness extends BaseHarness {
     await shutdownCurrentProcess(
       label: 'Claude',
       gracePeriod: _killGracePeriod,
+      platformCapabilities: platformCapabilities,
       initialTerminationAccepted: initialTerminationAccepted,
       process: process,
     );
@@ -304,25 +338,12 @@ class ClaudeCodeHarness extends BaseHarness {
       );
     }
 
-    await recoverFromCrash(_startInternal);
+    await recoverFromCrash(_startWithCleanup);
 
     if (currentState != WorkerState.idle) {
       throw StateError('Harness is not idle (state: $currentState)');
     }
     currentState = WorkerState.busy;
-
-    Timer? timeoutTimer;
-    timeoutTimer = Timer(turnTimeout, () async {
-      _log.warning('Turn timeout exceeded, cancelling...');
-      try {
-        await cancel();
-      } catch (e) {
-        _log.fine('Failed to cancel during turn timeout: $e');
-      }
-      await delayFactory(const Duration(seconds: 5));
-      currentProcess?.kill();
-    });
-
     _turnCompleter = Completer<Map<String, dynamic>>();
 
     try {
@@ -356,8 +377,14 @@ class ClaudeCodeHarness extends BaseHarness {
       );
       _writeLine(payload);
 
-      final result = await _turnCompleter!.future;
-      timeoutTimer.cancel();
+      final result = await _turnCompleter!.future.timeout(
+        turnTimeout,
+        onTimeout: () async {
+          _log.warning('Turn timeout exceeded, stopping Claude...');
+          await stop();
+          throw TimeoutException('Claude turn exceeded $turnTimeout');
+        },
+      );
       if (currentState != WorkerState.stopped) {
         crashCount = 0;
         currentState = WorkerState.idle;
@@ -365,11 +392,12 @@ class ClaudeCodeHarness extends BaseHarness {
       _turnsSinceStart++;
       return result;
     } catch (e) {
-      timeoutTimer.cancel();
       if (currentState != WorkerState.crashed && currentState != WorkerState.stopped) {
         currentState = WorkerState.idle;
       }
       rethrow;
+    } finally {
+      _turnCompleter = null;
     }
   }
   // Internal: start, auth, handshake
@@ -378,12 +406,20 @@ class ClaudeCodeHarness extends BaseHarness {
     _turnsSinceStart = 0;
     final cm = containerManager;
     if (cm == null) {
-      final lookup = platformCapabilities.executableLookupCommand(claudeExecutable);
-      final claudeResult = await commandProbe(lookup.first, lookup.sublist(1));
-      if (claudeResult.exitCode != 0) {
+      ProcessResult claudeResult;
+      try {
+        claudeResult = await commandProbe(claudeExecutable, const ['--version']);
+      } on ProcessException {
         throw UnsupportedCapabilityError(
           capability: 'Claude harness executable',
-          attemptedContext: lookup.join(' '),
+          attemptedContext: '$claudeExecutable --version',
+          remediation: 'Install "$claudeExecutable" and ensure it is available on PATH.',
+        );
+      }
+      if (claudeResult.exitCode != 0 || '${claudeResult.stdout}'.trim().isEmpty) {
+        throw UnsupportedCapabilityError(
+          capability: 'Claude harness executable',
+          attemptedContext: '$claudeExecutable --version',
           remediation: 'Install "$claudeExecutable" and ensure it is available on PATH.',
         );
       }
@@ -426,10 +462,10 @@ class ClaudeCodeHarness extends BaseHarness {
       // Create empty, tighten to owner-only, THEN write credentials — the
       // file must never hold the bearer token at default permissions.
       await configFile.create(exclusive: true);
-      await chmodOwnerOnly(configFile.path);
-      await configFile.writeAsString(configJson, flush: true);
       mcpConfigPath = configFile.path;
       _mcpConfigPath = mcpConfigPath;
+      await chmodOwnerOnly(configFile.path);
+      await configFile.writeAsString(configJson, flush: true);
       _log.fine('Wrote MCP config to $mcpConfigPath');
     }
 
@@ -441,8 +477,8 @@ class ClaudeCodeHarness extends BaseHarness {
           mcpConfigArgPath = p.posix.join('/project', '.agent_temp', filename);
         } else {
           mcpConfigArgPath = p.posix.join('/tmp', filename);
-          await cm.copyFileToContainer(mcpConfigPath, mcpConfigArgPath);
           _containerMcpConfigPath = mcpConfigArgPath;
+          await cm.copyFileToContainer(mcpConfigPath, mcpConfigArgPath);
         }
       }
     } else {
@@ -587,12 +623,15 @@ class ClaudeCodeHarness extends BaseHarness {
         _log.warning('Restarting harness due to parameter change: ${changes.join(', ')}');
       }
       await _stopInternal();
+      if (currentProcess != null) {
+        throw StateError('Cannot restart harness because the previous process did not exit');
+      }
       _processWorkingDirectory = workingDirectory;
       _hostProcessWorkingDirectory = hostWorkingDirectory;
       _processModel = model;
       _processEffort = effort;
       _processMaxTurns = maxTurns;
-      await _startInternal();
+      await _startWithCleanup();
     });
   }
 
@@ -617,7 +656,7 @@ class ClaudeCodeHarness extends BaseHarness {
     throw StateError(
       'No authentication configured. Either:\n'
       '  1. Export ANTHROPIC_API_KEY:  export ANTHROPIC_API_KEY=sk-ant-...\n'
-      '  2. Use Claude CLI OAuth:     claude login\n'
+      '  2. Use Claude CLI OAuth:     claude auth login\n'
       '  3. Use a setup token:        claude setup-token',
     );
   }
@@ -682,13 +721,11 @@ class ClaudeCodeHarness extends BaseHarness {
     );
 
     try {
-      await _initCompleter!.future.timeout(const Duration(seconds: 10));
+      await _initCompleter!.future.timeout(_initializeTimeout);
       _log.info('Initialize handshake complete');
     } on TimeoutException {
-      _log.severe('Initialize handshake timed out — killing process');
-      currentProcess?.kill();
-      currentProcess = null;
-      throw StateError('Initialize handshake timed out after 10s');
+      _log.severe('Initialize handshake timed out');
+      throw StateError('Initialize handshake timed out after ${_initializeTimeout.inSeconds}s');
     }
   }
 

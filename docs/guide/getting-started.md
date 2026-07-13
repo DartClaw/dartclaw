@@ -35,7 +35,7 @@ goose --version
 vibe-acp --version
 ```
 
-Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
+Auth: for Claude, run `claude auth login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
 
 ## Install DartClaw
 

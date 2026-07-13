@@ -151,7 +151,7 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
-    final fake = makeClaudeFakeProcess();
+    final fake = KillTrackingFakeProcess(completeExitOnKill: true);
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });
@@ -200,6 +200,7 @@ ClaudeCodeHarness buildClaudeHarness({
   Map<String, dynamic>? providerOptions,
   HarnessConfig harnessConfig = const HarnessConfig(),
   Duration killGracePeriod = Duration.zero,
+  Duration initializeTimeout = const Duration(seconds: 10),
   PlatformCapabilities? platformCapabilities,
 }) {
   return ClaudeCodeHarness(
@@ -211,6 +212,7 @@ ClaudeCodeHarness buildClaudeHarness({
     providerOptions: providerOptions,
     harnessConfig: harnessConfig,
     killGracePeriod: killGracePeriod,
+    initializeTimeout: initializeTimeout,
     platformCapabilities: platformCapabilities,
   );
 }
@@ -242,7 +244,7 @@ ProcessFactory resultEmittingFactory({Map<String, dynamic>? result, void Functio
   };
   return (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
     onSpawn?.call((exe: exe, args: args, workingDirectory: workingDirectory, environment: environment));
-    final fake = makeClaudeFakeProcess();
+    final fake = KillTrackingFakeProcess(completeExitOnKill: true);
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });

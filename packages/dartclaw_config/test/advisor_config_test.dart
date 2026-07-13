@@ -82,6 +82,7 @@ advisor:
       expect(config.advisor.model, 'mystery-model');
       expect(config.advisor.effort, 'turbo');
       expect(config.warnings, anyElement(contains('Unrecognized advisor.model')));
+      expect(config.reloadBlockingWarnings, isEmpty);
       expect(
         config.warnings,
         isNot(anyElement(contains('advisor.effort'))),

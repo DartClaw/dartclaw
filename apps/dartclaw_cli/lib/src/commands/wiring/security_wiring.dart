@@ -182,14 +182,14 @@ class SecurityWiring implements Reconfigurable {
       final authResult = await Process.run(config.server.claudeExecutable, ['auth', 'status']);
       if (authResult.exitCode != 0) {
         _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-        _log.severe('Configure auth with `claude login`, `claude setup-token`, or ANTHROPIC_API_KEY');
+        _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
         _exitFn(1);
       }
       try {
         final status = jsonDecode(authResult.stdout as String) as Map<String, dynamic>;
         if (status['loggedIn'] != true) {
           _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-          _log.severe('Configure auth with `claude login`, `claude setup-token`, or ANTHROPIC_API_KEY');
+          _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
           _exitFn(1);
         }
       } on FormatException {

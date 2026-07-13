@@ -269,6 +269,36 @@ void main() {
       });
     });
 
+    test('terminal result returns after bounded cleanup when exit remains unconfirmed', () {
+      fakeAsync((async) {
+        final fake = FakeProcess();
+        final supervisor = CliProcessSupervisor(
+          process: fake,
+          provider: 'codex',
+          stepName: 'Complete',
+          stallTimeout: Duration.zero,
+          stallAction: TurnProgressAction.cancel,
+          stepTimeout: null,
+          eventBus: null,
+          log: Logger('WorkflowCliRunnerTest'),
+          terminationGrace: Duration.zero,
+          postTerminalResultGrace: Duration.zero,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
+        )..start();
+
+        int? exitCode;
+        supervisor.recordTerminalResult();
+        unawaited(supervisor.waitForExitCode().then((value) => exitCode = value));
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        expect(exitCode, 0);
+        expect(supervisor.postTerminalResultExitUnconfirmed, isTrue);
+        expect(fake.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
+        supervisor.stop();
+      });
+    });
+
     test('codex parsed output resets the stall timer', () {
       fakeAsync((async) {
         late FakeProcess fake;

@@ -106,6 +106,8 @@ CodexHarness _buildHarness({
   GuardChain? guardChain,
   PlatformCapabilities? platformCapabilities,
   Duration killGracePeriod = Duration.zero,
+  Duration initializeTimeout = const Duration(seconds: 10),
+  Duration turnTimeout = const Duration(seconds: 600),
 }) {
   final fake = process ?? FakeCodexProcess();
   return CodexHarness(
@@ -121,6 +123,8 @@ CodexHarness _buildHarness({
     guardChain: guardChain,
     platformCapabilities: platformCapabilities,
     killGracePeriod: killGracePeriod,
+    initializeTimeout: initializeTimeout,
+    turnTimeout: turnTimeout,
   );
 }
 
@@ -145,7 +149,7 @@ void main() {
     });
 
     group('start()', () {
-      test('resolves the Codex binary through the injected platform capability surface', () async {
+      test('probes the configured Codex binary directly', () async {
         final calls = <({String executable, List<String> arguments})>[];
         final fake = FakeCodexProcess();
         final harness = _buildHarness(
@@ -153,17 +157,46 @@ void main() {
           platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
           commandProbe: (executable, arguments) async {
             calls.add((executable: executable, arguments: arguments));
-            return ProcessResult(0, 0, '', '');
+            return ProcessResult(0, 0, 'C:\\Program Files\\Codex\\codex.exe\r\n', '');
           },
         );
         addTearDown(() async => harness.dispose());
 
         await startHarness(harness, fake);
-        expect(calls.single.executable, 'where');
-        expect(calls.single.arguments, ['codex']);
+        expect(calls.single.executable, 'codex');
+        expect(calls.single.arguments, ['--version']);
       });
 
-      test('missing Codex binary names the attempted lookup command', () async {
+      test('converts a thrown Codex probe failure to a structured lookup error', () async {
+        final harness = _buildHarness(
+          commandProbe: (_, _) async => throw ProcessException('codex', ['--version'], 'probe failed'),
+        );
+        addTearDown(() async => harness.dispose());
+
+        await expectLater(
+          harness.start(),
+          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'codex --version')),
+        );
+      });
+
+      test('does not misreport unexpected Codex probe errors as missing executable', () async {
+        final harness = _buildHarness(commandProbe: (_, _) async => throw StateError('probe bug'));
+        addTearDown(() async => harness.dispose());
+
+        await expectLater(
+          harness.start(),
+          throwsA(isA<StateError>().having((error) => error.message, 'message', 'probe bug')),
+        );
+      });
+
+      test('rejects a successful Codex probe with blank output', () async {
+        final harness = _buildHarness(commandProbe: (_, _) async => ProcessResult(0, 0, ' \r\n\t', ''));
+        addTearDown(() async => harness.dispose());
+
+        await expectLater(harness.start(), throwsA(isA<UnsupportedCapabilityError>()));
+      });
+
+      test('missing Codex binary names the attempted version probe', () async {
         final harness = _buildHarness(
           platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
           commandProbe: (_, _) async => ProcessResult(0, 1, '', 'missing'),
@@ -173,10 +206,24 @@ void main() {
         await expectLater(
           harness.start(),
           throwsA(
-            isA<UnsupportedCapabilityError>()
-                .having((error) => error.attemptedContext, 'attemptedContext', contains('which codex'))
-                .having((error) => error.attemptedContext, 'attemptedContext', contains('codex')),
+            isA<UnsupportedCapabilityError>().having(
+              (error) => error.attemptedContext,
+              'attemptedContext',
+              contains('codex --version'),
+            ),
           ),
+        );
+      });
+
+      test('threads injected platform home policy into the Codex environment', () async {
+        final harness = _buildHarness(
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows', environment: const {}),
+        );
+        addTearDown(() async => harness.dispose());
+
+        await expectLater(
+          harness.start(),
+          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.capability, 'capability', 'home directory')),
         );
       });
       test('spawns codex app-server without --yolo', () async {
@@ -209,6 +256,41 @@ void main() {
         expect(fake.sentMessages[0]['method'], 'initialize');
         expect(fake.sentMessages[1]['method'], 'initialized');
         expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), isEmpty);
+      });
+
+      test('initialize timeout reaps the child and releases the startup lock', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(
+          process: fake,
+          initializeTimeout: Duration.zero,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        );
+        addTearDown(() async => harness.dispose());
+
+        await expectLater(harness.start(), throwsStateError);
+
+        expect(fake.killSignals, [ProcessSignal.sigterm]);
+        await expectLater(harness.start(), throwsStateError);
+      });
+
+      test('turn timeout bounds an unanswered thread start', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(process: fake, turnTimeout: const Duration(milliseconds: 20));
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final turn = harness.turn(
+          sessionId: 'unanswered-thread',
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+          systemPrompt: '',
+        );
+        await waitForSentMessage(fake, 'thread/start');
+
+        await expectLater(turn, throwsA(isA<TimeoutException>()));
+        await expectLater(harness.stop(), completes);
+        expect(fake.killCalled, isTrue);
       });
 
       test('emits SystemInitEvent when initialize response reports a context window', () async {
@@ -755,8 +837,8 @@ void main() {
       });
 
       test('stop clears the session thread registry before the next start', () async {
-        final firstProcess = FakeCodexProcess();
-        final secondProcess = FakeCodexProcess();
+        final firstProcess = FakeCodexProcess(completeExitOnKill: true);
+        final secondProcess = FakeCodexProcess(completeExitOnKill: true);
         final processes = <FakeCodexProcess>[firstProcess, secondProcess];
         var spawnIndex = 0;
         final harness = _buildHarness(
@@ -900,6 +982,24 @@ void main() {
 
         expect(harness.state, WorkerState.stopped);
         expect(fake.lastKillSignal, ProcessSignal.sigterm);
+      });
+
+      test('stop() follows injected Windows hard-termination semantics on a POSIX host', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(
+          process: fake,
+          killGracePeriod: Duration.zero,
+          platformCapabilities: PlatformCapabilities(
+            operatingSystem: 'windows',
+            environment: const {'USERPROFILE': r'C:\Users\dev'},
+          ),
+        );
+        await startHarness(harness, fake);
+
+        await harness.stop();
+
+        expect(fake.killSignals, [ProcessSignal.sigterm]);
+        fake.exit(0);
       });
     });
 

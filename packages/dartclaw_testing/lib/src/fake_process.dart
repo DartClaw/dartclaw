@@ -10,6 +10,7 @@ class FakeProcess implements Process {
   final _LineRecordingIOSink _stdinSink;
   final int _killExitCode;
   final bool _completeExitOnKill;
+  final bool _closeStreamsOnExit;
   final bool _killResult;
 
   /// Creates a fake process with optional stream controllers and pid.
@@ -19,12 +20,14 @@ class FakeProcess implements Process {
     StreamController<List<int>>? stderrController,
     bool completeExitOnKill = false,
     int killExitCode = 0,
+    bool closeStreamsOnExit = true,
     bool killResult = true,
   }) : _stdoutController = stdoutController ?? StreamController<List<int>>.broadcast(),
        _stderrController = stderrController ?? StreamController<List<int>>.broadcast(),
        _stdinSink = _LineRecordingIOSink(),
        _completeExitOnKill = completeExitOnKill,
        _killExitCode = killExitCode,
+       _closeStreamsOnExit = closeStreamsOnExit,
        _killResult = killResult;
 
   @override
@@ -66,7 +69,7 @@ class FakeProcess implements Process {
     if (!_exitCodeCompleter.isCompleted) {
       _exitCodeCompleter.complete(code);
     }
-    unawaited(_closeStreams());
+    if (_closeStreamsOnExit) unawaited(_closeStreams());
   }
 
   @override
@@ -99,6 +102,7 @@ class CapturingFakeProcess extends FakeProcess {
     super.stderrController,
     super.completeExitOnKill,
     super.killExitCode,
+    super.closeStreamsOnExit,
     super.killResult,
   }) : _capturingSink = _LineRecordingIOSink(captureLines: true, captureJsonMaps: true);
 

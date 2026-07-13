@@ -19,7 +19,7 @@ import 'cli_process_supervisor.dart';
 class ClaudeCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('ClaudeCliProvider');
 
-  ClaudeCliProvider();
+  ClaudeCliProvider({super.platformCapabilities, super.terminationGracePeriod, super.outputDrainGracePeriod});
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -58,12 +58,17 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
         stepTimeout: req.stepTimeout,
         eventBus: req.eventBus,
         log: req.log,
+        processTerminator: () => terminateInflightProcess(process!),
+        externalCancellation: inflightCancellation(process),
+        platformCapabilities: platformCapabilities,
+        terminationGrace: terminationGracePeriod,
+        outputDrainGrace: outputDrainGracePeriod,
       )..start();
       final stdoutDone = Completer<void>();
       final stderrDone = Completer<void>();
       var terminalResultRecorded = false;
       final progressState = _ClaudeProgressState();
-      process.stdout
+      final stdoutSubscription = process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
@@ -86,7 +91,7 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
             },
             cancelOnError: true,
           );
-      process.stderr
+      final stderrSubscription = process.stderr
           .transform(utf8.decoder)
           .listen(
             stderrBuffer.write,
@@ -103,9 +108,16 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
         await process.stdin.close();
       } catch (_) {
         if (cancellationRequestedFor(process)) {
-          final exitCode = await supervisor.waitForExitCode();
-          await stdoutDone.future;
-          await stderrDone.future;
+          final termination = await waitForInflightTermination(process);
+          final exitCode = termination?.exitConfirmed == true ? await process.exitCode : -1;
+          await waitForCliOutputDrain(
+            supervisor: supervisor,
+            stdoutDone: stdoutDone.future,
+            stderrDone: stderrDone.future,
+            cancelSubscriptions: () async {
+              await Future.wait([stdoutSubscription.cancel(), stderrSubscription.cancel()], eagerError: false);
+            },
+          );
           stopwatch.stop();
           final stdout = stdoutBuffer.toString();
           if (_hasClaudeFailureEvidence(stdout) ||
@@ -118,22 +130,28 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
       }
 
       final exitCode = await supervisor.waitForExitCode();
-      await stdoutDone.future;
-      await stderrDone.future;
+      await waitForCliOutputDrain(
+        supervisor: supervisor,
+        stdoutDone: stdoutDone.future,
+        stderrDone: stderrDone.future,
+        cancelSubscriptions: () async {
+          await Future.wait([stdoutSubscription.cancel(), stderrSubscription.cancel()], eagerError: false);
+        },
+      );
       stopwatch.stop();
       supervisor.stop();
 
+      final hasProviderFailureEvidence =
+          _hasClaudeFailureEvidence(stdoutBuffer.toString()) ||
+          hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrFragments);
+      final cancellationResult = cancellationResultForExit(
+        process: process,
+        supervisor: supervisor,
+        duration: stopwatch.elapsed,
+        hasProviderFailureEvidence: hasProviderFailureEvidence,
+      );
+      if (cancellationResult != null) return cancellationResult;
       if (exitCode != 0) {
-        final hasProviderFailureEvidence =
-            _hasClaudeFailureEvidence(stdoutBuffer.toString()) ||
-            hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrFragments);
-        final cancellationResult = cancellationResultForNonZeroExit(
-          process: process,
-          supervisor: supervisor,
-          duration: stopwatch.elapsed,
-          hasProviderFailureEvidence: hasProviderFailureEvidence,
-        );
-        if (cancellationResult != null) return cancellationResult;
         if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
           throw StateError(_describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString()));
         }
@@ -144,7 +162,7 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
       supervisor?.stop();
       final activeProcess = process;
       if (activeProcess != null) {
-        untrackInflightProcess(activeProcess);
+        finishInflightRun(activeProcess);
       }
     }
   }

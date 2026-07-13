@@ -52,6 +52,7 @@ github:
       );
 
       expect(config.warnings, contains('github.webhook_secret is missing while github.enabled=true'));
+      expect(config.reloadBlockingWarnings, contains('github.webhook_secret is missing while github.enabled=true'));
     });
   });
 }

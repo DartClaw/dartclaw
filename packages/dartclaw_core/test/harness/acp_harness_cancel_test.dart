@@ -36,6 +36,33 @@ void main() {
       expect(harness.state, WorkerState.stopped);
     });
 
+    test('cancel during session creation returns cancelled and stops the process', () async {
+      final process = FakeAcpProcess();
+      final harness = _harnessFor(process);
+      addTearDown(harness.dispose);
+
+      final startFuture = harness.start();
+      await process.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+
+      final turnFuture = harness.turn(
+        sessionId: 'session-1',
+        messages: const [
+          {'role': 'user', 'content': 'slow'},
+        ],
+        systemPrompt: '',
+      );
+      await process.waitForRequest('session/new');
+
+      await harness.cancel();
+      final result = await turnFuture;
+
+      expect(result['stop_reason'], 'cancelled');
+      expect(process.capturedStdinJson.map((message) => message['method']), isNot(contains('session/cancel')));
+      expect(process.killCalled, isTrue);
+      expect(harness.state, WorkerState.stopped);
+    });
+
     test('session close failure does not leave harness busy', () async {
       final process = FakeAcpProcess();
       final harness = _harnessFor(process);

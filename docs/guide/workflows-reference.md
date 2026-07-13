@@ -175,7 +175,10 @@ The run pauses with approval metadata stored in workflow context. Resume records
       format: text
 ```
 
-`{{context.*}}` and `{{VAR}}` substitutions are shell-escaped. Commands that pipe interpolated context into another shell parser are rejected before execution. stdout/stderr are captured and truncated at 64 KB, and step metadata such as `<stepId>.status`, `<stepId>.exitCode`, and `<stepId>.tokenCount: 0` is written to context.
+`{{context.*}}` and `{{VAR}}` substitutions are shell-escaped for use as unquoted ordinary arguments. Caller-owned shell quotes, `eval`, and direct nested `sh`/`bash` invocations are rejected before execution. Workflow definitions are trusted code: do not route substituted values into another interpreter or write and later execute them as code. stdout/stderr are captured and truncated at 64 KB, and step metadata such as `<stepId>.status`, `<stepId>.exitCode`, and `<stepId>.tokenCount: 0` is written to context.
+
+Background jobs remain part of the Bash step and are awaited or cleaned up when observed. Do not launch detached or
+daemonized services from a Bash step; use a managed service boundary instead.
 
 On native Windows, Bash steps require Git Bash. DartClaw resolves `bash.exe` through the Windows executable lookup
 policy and runs the step there. If Git Bash is absent, the step fails with

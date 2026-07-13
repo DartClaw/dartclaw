@@ -106,7 +106,8 @@ Map<String, dynamic> _loadYaml(
       // mode is still supported via --config or DARTCLAW_CONFIG.
       final cwdContent = reader('dartclaw.yaml');
       if (cwdContent != null) {
-        warns.add(
+        addConfigAdvisory(
+          warns,
           'Found dartclaw.yaml in the current directory, but CWD config discovery is deprecated. '
           'Use --config ./dartclaw.yaml or move it to ~/.dartclaw/dartclaw.yaml. '
           'See: https://dartclaw.dev/guide/configuration#instance-directory',
@@ -153,7 +154,7 @@ Map<String, dynamic> _loadYaml(
     final key = entry.key.toString();
     if (!_knownKeys.contains(key)) {
       if (!_extensionParsers.containsKey(key)) {
-        warns.add('Unknown config key: $key');
+        addConfigAdvisory(warns, 'Unknown config key: $key');
       }
       result[key] = entry.value;
       continue;
@@ -587,7 +588,7 @@ void _warnIfUnrecognizedModel(List<String> warns, String field, String? value) {
   if (trimmed == null || trimmed.isEmpty) return;
   final lower = trimmed.toLowerCase();
   if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.contains(lower)) return;
-  warns.add('Unrecognized $field: "$trimmed" — keeping value as configured');
+  addConfigAdvisory(warns, 'Unrecognized $field: "$trimmed" — keeping value as configured');
 }
 
 AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, List<String> warns) {
@@ -1069,7 +1070,7 @@ MemoryConfig _parseMemory(
 
   final legacyTopLevelMaxBytes = yaml['memory_max_bytes'];
   if (legacyTopLevelMaxBytes != null && nestedMaxBytes == null) {
-    warns.add('Config key "memory_max_bytes" is deprecated; use "memory.max_bytes" instead');
+    addConfigAdvisory(warns, 'Config key "memory_max_bytes" is deprecated; use "memory.max_bytes" instead');
   }
 
   if (nestedMaxBytes != null) {
@@ -1347,6 +1348,6 @@ void _warnRetiredAndthenConfig(Map<String, dynamic> yaml, List<String> warns) {
   if (atMap == null) return;
 
   for (final key in atMap.keys) {
-    warns.add('Ignoring retired andthen.$key config; DartClaw no longer provisions AndThen skills.');
+    addConfigAdvisory(warns, 'Ignoring retired andthen.$key config; DartClaw no longer provisions AndThen skills.');
   }
 }

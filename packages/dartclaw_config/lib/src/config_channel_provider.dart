@@ -54,7 +54,7 @@ Object _parseChannelConfig(DartclawConfig config, ChannelType channelType) {
 }
 
 List<String> _warningSinkForConfig(DartclawConfig config) =>
-    _lazyChannelConfigWarnings[config] ??= List<String>.of(config._warnings);
+    _lazyChannelConfigWarnings[config] ??= ConfigLoadWarnings.copy(config._warnings);
 
 final class _ConfigChannelConfigProvider implements ChannelConfigProvider {
   final DartclawConfig _config;

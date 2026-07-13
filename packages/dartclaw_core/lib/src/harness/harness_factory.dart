@@ -144,6 +144,7 @@ class HarnessFactory {
         guardChain: config.guardChain,
         permissionDecision: config.acpPermissionDecision,
         onReverseCallAudit: config.acpReverseCallAudit,
+        platformCapabilities: config.platformCapabilities,
       );
     });
   }

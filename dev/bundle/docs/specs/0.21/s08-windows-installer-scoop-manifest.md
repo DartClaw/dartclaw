@@ -255,3 +255,14 @@ Affected surface: Release workflow permissions, publication credential exposure,
 Decision: Homebrew and Scoop publication use one approval-gated distribution-publication environment. Repository rules restrict v* tag creation and deletion. The workflow defaults to contents read and grants contents write only to release-asset publishing jobs.
 Rationale: A shared PAT can modify both public installation channels, so unreviewed tagged workflow code must not receive it and unrelated jobs must not receive repository write access.
 Evidence: Security review on 2026-07-12 found no environment, tag ruleset, or branch protection while a maintainer could push tags.
+
+### Run: 2026-07-13 06:56 UTC – publication-authorization-qualification
+
+#### QUALIFICATION EVIDENCE
+
+- `HOMEBREW_TAP_TOKEN` exists only in the approval-gated `distribution-publication` environment; the prior
+  repository-scoped secret was deleted.
+- GitHub Actions run 29230412085 cloned `DartClaw/homebrew-dartclaw` and `DartClaw/scoop-dartclaw` with the
+  environment secret and passed a dry-run push to each.
+- The temporary workflow and temporary `feat/0.21` environment policy were removed after qualification; only the
+  permanent `v*` tag policy remains.

@@ -1,6 +1,6 @@
 # Windows Scoop Qualification Evidence
 
-**Status**: LOCAL MANIFEST FLOW QUALIFIED; HOSTED INSTALL PENDING WINDOWS RELEASE AND ENVIRONMENT-SECRET AUTHORIZATION
+**Status**: LOCAL MANIFEST FLOW AND PUBLICATION AUTHORIZATION QUALIFIED; HOSTED INSTALL PENDING WINDOWS RELEASE
 
 **Run timestamp**: `2026-07-12T16:56:19Z`
 **Qualification workflow**: [GitHub Actions run 29201029703](https://github.com/DartClaw/dartclaw/actions/runs/29201029703)
@@ -36,10 +36,11 @@
   `contents:write`.
 - Shared-token probe [run 29201926888](https://github.com/DartClaw/dartclaw/actions/runs/29201926888) proved Homebrew
   access and failed on Scoop with HTTP 403. The repository-scoped secret has not been widened.
+- Protected-environment probe [run 29230412085](https://github.com/DartClaw/dartclaw/actions/runs/29230412085)
+  cloned both distribution repositories and passed a dry-run push to each. `HOMEBREW_TAP_TOKEN` now exists only as
+  an environment secret; the repository-scoped copy was deleted before this probe.
 
 ## Remaining Release Gate
 
-Move `HOMEBREW_TAP_TOKEN` from repository scope into the `distribution-publication` environment, delete the
-repository-scoped copy, and grant its fine-grained PAT `contents:write` on both `DartClaw/homebrew-dartclaw` and
-`DartClaw/scoop-dartclaw`. Then confirm the first 0.21 tag publishes both the Windows ZIP and rendered bucket manifest.
-Repeat the hosted install procedure before calling Scoop release-ready.
+Confirm the first 0.21 tag publishes both the Windows ZIP and rendered bucket manifest. Repeat the hosted install
+procedure before calling Scoop release-ready.

@@ -1,8 +1,9 @@
 # Windows
 
 DartClaw targets the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
-storage/search. The current 0.21 artifact still requires a matching native-x64 qualification rerun. Unix-coupled
-security and sidecar features do not have full Windows parity; the matrix below is the support contract.
+storage/search. The 0.21 candidate source tree and architecture-neutral provider transports are qualified as described
+below; the evidence artifact retains the repository's current 0.20.1 version metadata. Unix-coupled security and sidecar
+features do not have full Windows parity; the matrix is the support contract.
 
 ## Install and Upgrade
 
@@ -65,11 +66,11 @@ Trust only projects whose local Codex configuration you have reviewed.
 
 | Capability | State | Windows behavior | Remediation |
 |---|---|---|---|
-| Core server, Web UI, and sessions | qualification pending | Current artifact passes on Windows ARM64 under x64 emulation; matching native-x64 rerun is pending | Do not treat 0.21 as release-qualified until current native-x64 evidence is recorded |
-| Claude and Codex harness turns | qualification pending | Both live provider transports pass on native Windows ARM64; current native-x64 artifact evidence is pending | Install and authenticate the provider CLIs; require matching native-x64 evidence for release qualification |
+| Core server, Web UI, and sessions | supported | The qualification candidate artifact passes the full runtime smoke on native Windows x64 | Keep the release artifact's `bin/` and `lib/` directories together |
+| Claude and Codex harness turns | supported | Both live provider transports pass on native Windows ARM64 against the production tree used by the qualified x64 artifact | Install and authenticate the provider CLIs |
 | FTS5 storage/search | supported | Uses the release's bundled `lib/sqlite3.dll`; it does not depend on `winsqlite3.dll` | Keep `bin/` and `lib/` as sibling directories |
 | Config reload | supported | Use file watching with `gateway.reload.mode: auto`; SIGUSR1 is POSIX-only | Enable `auto` and save the config file atomically |
-| Bash workflow steps | degraded | Run through Git Bash when `bash.exe` is found; otherwise the step fails with `bash steps require Git Bash on Windows`. Timeout cleanup does not claim descendant-process containment | Install Git for Windows; use POSIX for commands requiring process-tree containment |
+| Bash workflow steps | degraded | Run through Git Bash when `bash.exe` is found; otherwise the step fails with `bash steps require Git Bash on Windows`. Timeout cleanup does not claim descendant-process containment; unconfirmed cleanup blocks later Bash steps until restart | Install Git for Windows; use POSIX for commands requiring process-tree containment |
 | Container isolation | unavailable | Native Windows fails closed because the credential proxy and owner-only permissions require POSIX facilities | Run DartClaw on a POSIX host or in WSL |
 | Channel sidecars | unverified | Native Windows operation of GOWA and signal-cli sidecar paths is not qualified | Run channel sidecars on a supported POSIX deployment or validate them independently |
 | Provider sandbox parity | unverified | Claude's native sandbox is unavailable; restrictive Codex sandbox modes were not qualified for the Windows release | Use a POSIX host or WSL when a qualified isolation boundary is required |

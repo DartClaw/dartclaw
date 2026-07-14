@@ -243,3 +243,13 @@ Evidence: ClaudeCodeHarness and CodexHarness probe the configured executable dir
 The checked proof surfaces record the successful Windows snapshot at its recorded fingerprint. Final review subsequently
 changed provider timeout and Windows termination behavior, so plan status is reopened until both live provider turns are
 recorded against the final source fingerprint. Portable regression gates remain green but do not replace native evidence.
+
+### Run: 2026-07-14 06:12 UTC – observations
+
+#### QUALIFICATION COMPLETE: final-provider-tree
+
+Fresh native-Windows Claude and Codex turns passed against release artifact 0.20.1 from production source revision
+`ec6ff1af9d4ff9cea4bf1434a1b3118217a2cee0`. Native-x64 qualification run 29310391226 verified that the final
+production/build tree still matches that provider evidence before qualifying the artifact. Stable evidence at
+`dev/testing/evidence/windows-harness-turns.md` records both provider versions, session/turn identifiers, terminal
+results, and artifact identity.

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Native Windows x64 core-runtime support** – release archives include `bin/dartclaw.exe` plus the FTS5-enabled sibling `lib/sqlite3.dll`; the server, Web UI, sessions, bundled-FTS5 search, file-watch config reload, process lifecycle, and Claude/Codex transports are qualified on native Windows. Unix-coupled container isolation remains unavailable and fails closed with POSIX/WSL remediation.
+- **Windows installation and workflow support** – a checksum-verifying PowerShell installer and Scoop-manifest publication flow provide Windows distribution, while workflow Bash steps use Git Bash when available and fail explicitly when it is absent. Windows timeout cleanup guarantees only the directly managed root; use POSIX when descendant-process containment is required.
+
 ### Changed
 
 - **Release archives now bundle SQLite** – each platform archive contains `bin/dartclaw` plus `lib/libsqlite3.*` (the bundled SQLite library) instead of a single file; the binary resolves the library from its sibling `lib/`, so the two must stay together. The Homebrew formula installs both. Release builds now use `dart build cli` instead of `dart compile exe`, which cannot cross-compile — Linux arm64 moves to a native `ubuntu-24.04-arm` runner.

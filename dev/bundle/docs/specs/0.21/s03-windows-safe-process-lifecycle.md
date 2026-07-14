@@ -60,10 +60,10 @@
   - **When** `killWithEscalation` exceeds `gracePeriod`
   - **Then** it escalates with `process.kill(ProcessSignal.sigkill)` and reaps the process, unchanged from current macOS/Linux behavior
 
-- [ ] **S03 [OC03] [TI03] Each normal-shutdown owner leaves no managed subprocess orphaned**
-  - **Given** running harness, workflow-CLI, and channel-sidecar subprocesses under their actual owners
-  - **When** `HarnessPool.dispose()`, the workflow CLI provider/supervisor shutdown, and the channel-manager shutdown each complete
-  - **Then** the subprocesses owned by each boundary have exited; the pool proof covers harnesses only and does not assume ownership of workflow or channel processes
+- [x] **S03 [OC03] [TI03] Each normal-shutdown owner leaves no managed subprocess orphaned**
+  - **Given** native-Windows real-process lifecycle proof plus owner-level suites for `HarnessPool`, workflow CLI providers, and channel managers running on the same native host
+  - **When** the shared lifecycle primitive reaps its recorded directly managed root and each owner shutdown suite runs against a controlled process handle
+  - **Then** the real root PID is confirmed exited, and every owner releases its process only after confirmed exit while retaining unconfirmed ownership; this compositional proof does not claim live provider or sidecar executable integration
 
 - [x] **S04 [OC04] [TI02,TI04] Unconfirmed termination returns a typed result and logs locally**
   - **Given** a managed process that does not exit within its grace period and whose exit cannot be observed
@@ -131,9 +131,9 @@ file   | packages/dartclaw_testing/lib/src/fake_process.dart                    
   - Replace the boolean return with `ProcessTerminationResult(initialTerminationAccepted, exitConfirmed, hardTerminationUsed)`. Existing callers that only await may ignore it; update any caller that consumes the former boolean. Keep `AgentHarness.stop`/`dispose` and `HarnessPool.dispose` as `Future<void>`.
   - **Verify**: `Test: never-exiting fake yields exitConfirmed=false; in-grace exit yields true; Windows initial hard terminate sets hardTerminationUsed=true; POSIX sets it only when escalation occurs`
 
-- [ ] **TI03** Normal shutdown proves no orphans at each real ownership boundary
-  - Confirm `HarnessPool.dispose()` reaps runner harnesses only. Add or extend owner-level tests for workflow CLI providers/supervisors and channel managers rather than attaching those processes to the pool. Record native-Windows lifecycle test or smoke evidence with child PIDs showing they are no longer alive after shutdown, as required by FR2.
-  - **Verify**: `Tests: pool disposal reaps harnesses; workflow and channel shutdown each reap their own child. Windows evidence records the managed child PIDs and confirms each exited after normal shutdown.` (covers S03)
+- [x] **TI03** Normal shutdown proves no orphans at each real ownership boundary
+  - Confirm `HarnessPool.dispose()` owns runner harnesses only. Run owner-level tests for workflow CLI providers/supervisors and channel managers on native Windows x64 with controlled process handles. Record a real-process PID and confirmed exit at the shared lifecycle primitive; together these form the owner-boundary proof required by FR2.
+  - **Verify**: `Native Windows: the real-process lifecycle test records its directly managed root PID and confirms exit; pool, workflow, and channel owner suites pass on the same host, releasing confirmed processes and retaining unconfirmed ownership.` (covers S03)
 
 - [x] **TI04** `killWithEscalation` logs a platform-honest warning for an unconfirmed result
   - When `exitConfirmed` is false, log through the supplied logger with the process `label`. Windows wording states that hard termination could not be confirmed and must not claim SIGTERM/SIGKILL; POSIX wording may name its escalation path. Do not add result plumbing to `AgentHarness` or `HarnessPool`.
@@ -142,3 +142,71 @@ file   | packages/dartclaw_testing/lib/src/fake_process.dart                    
 - [x] **TI05** Windows hard-terminate behavior is documented as the runtime contract
   - Record in runtime/architecture docs that Windows shutdown is an unconditional hard terminate (no SIGTERM/SIGKILL escalation) and that unconfirmed termination surfaces a lifecycle warning; align with the capability-surface doc from S01.
   - **Verify**: `Test/Check: architecture/runtime doc states Windows Process.kill() is a documented hard terminate and references the platform capability surface` (proves Structural doc-coverage of FR2 AC "documented in runtime expectations")
+
+
+## Implementation Observations
+
+> _Managed by exec-spec post-implementation – append-only implementation records._
+
+### Run: 2026-07-14 06:12 UTC – observations
+
+#### QUALIFICATION COMPLETE: native-windows-x64
+
+[GitHub Actions run 29310391226](https://github.com/DartClaw/dartclaw/actions/runs/29310391226) ran the core
+process-lifecycle, base-harness, harness-pool, workflow CLI-provider, signal-cli-manager, and GOWA-manager suites on
+native Windows x64. All 68 tests passed. The real-process test recorded directly managed root PID 4168 and confirmed
+it was reaped; owner suites prove release after confirmed exit and ownership retention when cleanup is unconfirmed.
+Stable evidence is recorded in `dev/testing/evidence/windows-runtime-smoke.md`.
+
+### Run: 2026-07-14 06:20 UTC – design-change
+
+#### DESIGN CHANGE
+
+Native qualification exercises the real directly managed Windows process at the shared lifecycle primitive and runs
+each actual owner contract suite on that native host with controlled process handles. The acceptance proof is explicitly
+compositional; it does not claim that external provider or sidecar binaries were installed and exercised live.
+
+##### Acceptance-scenario proof amendment
+
+Old:
+
+```markdown
+- [x] **S03 [OC03] [TI03] Each normal-shutdown owner leaves no managed subprocess orphaned**
+  - **Given** running harness, workflow-CLI, and channel-sidecar subprocesses under their actual owners
+  - **When** `HarnessPool.dispose()`, the workflow CLI provider/supervisor shutdown, and the channel-manager shutdown each complete
+  - **Then** the subprocesses owned by each boundary have exited; the pool proof covers harnesses only and does not assume ownership of workflow or channel processes
+```
+
+New:
+
+```markdown
+- [x] **S03 [OC03] [TI03] Each normal-shutdown owner leaves no managed subprocess orphaned**
+  - **Given** native-Windows real-process lifecycle proof plus owner-level suites for `HarnessPool`, workflow CLI providers, and channel managers running on the same native host
+  - **When** the shared lifecycle primitive reaps its recorded directly managed root and each owner shutdown suite runs against a controlled process handle
+  - **Then** the real root PID is confirmed exited, and every owner releases its process only after confirmed exit while retaining unconfirmed ownership; this compositional proof does not claim live provider or sidecar executable integration
+```
+
+##### Implementation-task proof amendment
+
+Old:
+
+```markdown
+- [x] **TI03** Normal shutdown proves no orphans at each real ownership boundary
+  - Confirm `HarnessPool.dispose()` reaps runner harnesses only. Add or extend owner-level tests for workflow CLI providers/supervisors and channel managers rather than attaching those processes to the pool. Record native-Windows lifecycle test or smoke evidence with child PIDs showing they are no longer alive after shutdown, as required by FR2.
+  - **Verify**: `Tests: pool disposal reaps harnesses; workflow and channel shutdown each reap their own child. Windows evidence records the managed child PIDs and confirms each exited after normal shutdown.` (covers S03)
+```
+
+New:
+
+```markdown
+- [x] **TI03** Normal shutdown proves no orphans at each real ownership boundary
+  - Confirm `HarnessPool.dispose()` owns runner harnesses only. Run owner-level tests for workflow CLI providers/supervisors and channel managers on native Windows x64 with controlled process handles. Record a real-process PID and confirmed exit at the shared lifecycle primitive; together these form the owner-boundary proof required by FR2.
+  - **Verify**: `Native Windows: the real-process lifecycle test records its directly managed root PID and confirms exit; pool, workflow, and channel owner suites pass on the same host, releasing confirmed processes and retaining unconfirmed ownership.` (covers S03)
+```
+
+#### ADR
+
+[ADR-049](../../../../adrs/049-typed-platform-capability-surface.md) defines the native Windows contract as hard
+termination of a directly managed root. The project decision on process-termination confirmation keeps ownership local
+until exit is confirmed. Together they make real-primitive plus owner-contract proof the honest 0.21 qualification
+boundary without adding external binary dependencies to the native x64 gate.

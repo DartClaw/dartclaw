@@ -81,7 +81,7 @@
   - **When** the step runs
   - **Then** the step outcome has `success = false` and `${step.id}.status = 'failed'`, and the error is the structured unsupported-capability error whose message contains `bash steps require Git Bash on Windows`, names the bash/shell capability, and points at remediation (install Git Bash / use POSIX / WSL) — and no `status = 'success'` outcome is ever produced
 
-- [ ] **S05 [OC02] [TI04] Windows host with Git Bash qualifies the run**
+- [x] **S05 [OC02] [TI04] Windows host with Git Bash qualifies the run**
   - **Given** a native Windows host with Git Bash installed and a `type: bash` step whose native cwd contains a drive letter and spaces and whose fixture filename also contains spaces
   - **When** the step runs (via the Windows runtime smoke path or recorded manual evidence)
   - **Then** the step completes successfully; evidence records the native cwd, its Git Bash POSIX-style `pwd`, successful quoted relative-file access, an allowlisted env value, a basic POSIX command result, and the Git Bash version; qualification does not claim descendant-process containment on timeout
@@ -108,7 +108,7 @@
 - PowerShell, cmd, or polyglot `script:` semantics -- deferred to Workflow DSL v2 (`docs/specs/0.24/workflow-dsl-v2.md`); S06 covers only Git Bash detection + degradation.
 - Automatic conversion of arbitrary Windows paths in command arguments – explicitly outside the clarified 0.21 contract; template values and authored commands keep existing escaping/interpretation semantics.
 - Defining the capability surface or the unsupported-capability error type -- owned by S01; S06 consumes both.
-- Windows process-tree termination for bash steps -- the existing `_descendantPids` path is POSIX-only (`pgrep`); Windows child-tree cleanup is S03's lifecycle scope, not S06.
+- Windows descendant-process containment for Bash steps – not qualified in 0.21. Windows timeout cleanup guarantees only the directly managed root under ADR-049; containment-sensitive commands require POSIX.
 - Auto-installing or bootstrapping Git Bash -- the degradation only detects and reports; installation is the user's remediation step.
 - Adding a bash layer to S09 – S06 owns its qualification scenario/evidence; S09 remains the server/UI/storage/reload/harness runtime smoke path.
 
@@ -153,7 +153,7 @@ spec   | docs/specs/0.21/s01-platform-capability-surface.md#implementation-tasks
   - Map the TI01 structured error onto `bashFailure(step, '<error message>')` so `success = false`, `${step.id}.status = 'failed'`, and `${step.id}.error` carries the message; assert no `status = 'success'` path is reachable when bash is unresolved.
   - **Verify**: `Test: executeBashStep with a windows surface + empty bash lookup returns a StepOutcome where success is false, outputs['${step.id}.status'] == 'failed', and outputs['${step.id}.error'] contains 'bash steps require Git Bash on Windows'; no outcome has status 'success'`
 
-- [ ] **TI04** On a native Windows host with Git Bash, a bash step is qualified for version capture, working directory, environment propagation, path handling, and basic POSIX command execution.
+- [x] **TI04** On a native Windows host with Git Bash, a bash step is qualified for version capture, working directory, environment propagation, path handling, and basic POSIX command execution.
   - Add `dev/testing/scenarios/windows-bash-step.md` as the committed manual scenario and record the latest completed run in `dev/testing/evidence/windows-bash-step.md`. The scenario uses a Windows cwd with a drive letter and spaces plus a relative fixture filename containing spaces. The evidence records native cwd, Git Bash `pwd`, quoted relative access, Git Bash version, an allowlisted env value, a POSIX command result, OS/arch, and artifact/source under test. It does not claim automatic argument-path conversion.
   - **Verify**: `Inspection/run: both stable paths exist; latest evidence identifies OS/arch + artifact/source, and from a native cwd containing drive letter/spaces records the corresponding Git Bash pwd, quoted relative-file success, env/POSIX command result, and bash version`
 
@@ -210,3 +210,18 @@ New:
 #### ADR
 
 [ADR-049](../../../../adrs/049-typed-platform-capability-surface.md) already defines Windows termination as directly managed root hard-termination, while [ADR-037](../../../../adrs/037-universal-acp-harness.md) supplies the security precedent that root ownership alone cannot justify a descendant-containment claim. Ownership-safe containment requires a future suspended-launch plus Job Object design; 0.21 does not add that launcher.
+
+### Run: 2026-07-14 06:12 UTC – observations
+
+#### QUALIFICATION COMPLETE: native-windows-x64
+
+[GitHub Actions run 29310391226](https://github.com/DartClaw/dartclaw/actions/runs/29310391226) completed a real Git
+Bash workflow step from a native cwd with spaces. It recorded Git Bash 5.3.9, the mapped POSIX cwd, quoted relative-file
+access, allowlisted environment propagation, and the expected POSIX pipeline result. Stable evidence is recorded in
+`dev/testing/evidence/windows-bash-step.md`.
+
+#### SUPPORTED BOUNDARY
+
+Nine focused Bash tests and all 14 ownership tests passed on native Windows x64. Two tests requiring descendant
+containment were explicitly skipped as unsupported and are not qualification passes. The qualified Windows contract is
+direct-root termination plus retained ownership after unconfirmed cleanup, as amended above.

@@ -116,7 +116,7 @@ void main() {
         await expectLater(future, throwsA(isA<UnsupportedCapabilityError>()));
       });
 
-      test('Windows timeout termination hard-kills the full process tree without POSIX signals', () async {
+      test('Windows timeout delegates to an ownership-safe injected tree terminator without POSIX signals', () async {
         final process = FakeProcess();
         final terminatedPids = <int>[];
 

@@ -179,7 +179,7 @@
 
 ## Implementation Observations
 
-> _Managed by exec-spec post-implementation – append-only. Tag semantics: see [`data-contract.md`](data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](automation-mode.md). Spec authors: leave this section empty._
+> _Managed by exec-spec post-implementation – append-only implementation records._
 
 #### DECISION NOTE: skipped-provider-supported-verdict
 
@@ -197,3 +197,13 @@ Evidence: S09 S05 and the FR8 binding require both-provider manual evidence for 
 The checked proof surfaces record the last successful Windows snapshot. Final review changed runtime, process-lifecycle,
 installer, and smoke-verdict paths, and source mode now intentionally remains incomplete. Plan status is reopened until a
 matching final-tree artifact completes the full profile on native Windows x64; historical evidence is not release attestation.
+
+### Run: 2026-07-14 06:12 UTC – observations
+
+#### QUALIFICATION COMPLETE: final-native-x64-artifact
+
+[GitHub Actions run 29310391226](https://github.com/DartClaw/dartclaw/actions/runs/29310391226) built
+`dartclaw-v0.20.1-windows-x64.zip`, verified SHA256
+`c0d2d38fba3c1313b8d19e0b3dc3fba505e37062f5511f74a9da7f61a0b6ceb6`, and completed the artifact-mode profile on
+native Windows x64. Server, Web UI, bundled-SQLite FTS5, file-watch reload, lifecycle, and replacement provider-evidence
+checks passed. `dev/testing/evidence/windows-runtime-smoke.md` records `supported` and `Release ready: true`.

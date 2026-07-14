@@ -246,7 +246,8 @@ Agent steps create tasks, can be reviewed, and may persist or resume sessions wh
 ### 4.1 Bash Steps
 
 Bash steps run on the host side through an env-sanitized `SafeProcess` spawn. POSIX uses `/bin/sh`; native Windows
-resolves Git Bash through `PlatformCapabilities.executableLookupCommand` and runs `bash.exe -c`. Missing Git Bash
+resolves Git Bash through `PlatformCapabilities.bashShellPolicy` and its ordered executable candidates, then runs
+`bash.exe -c`. Missing Git Bash
 produces a structured failed step with `bash steps require Git Bash on Windows`; it never becomes an empty success.
 They are used for deterministic operations where an LLM would only add noise — extracting diffs, running validators,
 calling CLI tools.
@@ -259,7 +260,7 @@ Execution semantics:
 | Working directory | Explicit `workdir` field (template-resolved), or `<dataDir>/workspace/` default |
 | Template substitution | `{{context.*}}` and `{{VAR}}` values are shell-escaped for unquoted ordinary arguments; caller quoting, `eval`, and direct nested `sh`/`bash` are rejected, while trusted workflow definitions remain responsible for not routing data into other interpreters |
 | Child processes | Background jobs remain part of the step and are awaited or cleaned up when observed; detached/daemonized services are unsupported |
-| Timeout | `step.timeoutSeconds` (default 60s). POSIX uses SIGTERM then SIGKILL after 2s; Windows hard-terminates |
+| Timeout | `step.timeoutSeconds` (default 60s). POSIX terminates the observed tree with SIGTERM then SIGKILL after 2s. Windows hard-terminates a still-running direct root and never retargets an exited PID; uncontained descendants may continue. If cleanup cannot be confirmed, later Bash steps stay blocked until DartClaw restarts |
 | Stdout capture | Truncated at 64 KB with `[truncated]` marker |
 | Output extraction | Respects `outputs` config: `format: json` parses JSON from stdout, `format: lines` splits lines, `format: text` passes raw stdout |
 | Error handling | Non-zero exit code → failure. `onError: continue` records failure metadata and advances; `onError: pause` (default) pauses the run |

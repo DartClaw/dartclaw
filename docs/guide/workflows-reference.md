@@ -185,6 +185,10 @@ policy and runs the step there. If Git Bash is absent, the step fails with
 `bash steps require Git Bash on Windows`; it does not return an empty success. This qualification covers native cwd
 mapping, spaces in cwd/file names, quoted relative access, allowlisted environment propagation, and basic POSIX
 commands. It does not promise translation of arbitrary Windows paths embedded in command arguments.
+If the directly managed Git Bash process is still running when a Windows timeout fires, DartClaw hard-terminates it.
+It does not retarget an already-exited root or claim descendant containment. A timed-out step reports failure, but an
+uncontained descendant may continue. If cleanup cannot be confirmed, later Bash steps remain blocked until DartClaw
+restarts. Commands that require process-tree containment belong on POSIX.
 
 ### `continueSession`
 

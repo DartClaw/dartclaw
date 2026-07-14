@@ -5,7 +5,7 @@
 
 ## Feature Overview and Goal
 
-**Intent**: Make workflow bash steps behave predictably on native Windows — run through Git Bash when it is present, and fail with an explicit, actionable message when it is not — so a Windows operator is never told a bash step "succeeded" when no shell ran.
+**Intent**: Make workflow bash steps behave predictably on native Windows – run through Git Bash when present, fail explicitly when absent, and state that timeout cleanup guarantees only the directly managed root – so a Windows operator is never told a bash step succeeded or was contained when DartClaw cannot prove it.
 
 **Expected Outcomes** (each `[OC<NN>]`-tagged; scenarios anchor here):
 
@@ -84,7 +84,7 @@
 - [ ] **S05 [OC02] [TI04] Windows host with Git Bash qualifies the run**
   - **Given** a native Windows host with Git Bash installed and a `type: bash` step whose native cwd contains a drive letter and spaces and whose fixture filename also contains spaces
   - **When** the step runs (via the Windows runtime smoke path or recorded manual evidence)
-  - **Then** the step completes successfully; evidence records the native cwd, its Git Bash POSIX-style `pwd`, successful quoted relative-file access, an allowlisted env value, a basic POSIX command result, and the Git Bash version
+  - **Then** the step completes successfully; evidence records the native cwd, its Git Bash POSIX-style `pwd`, successful quoted relative-file access, an allowlisted env value, a basic POSIX command result, and the Git Bash version; qualification does not claim descendant-process containment on timeout
 
 
 ## Structural Criteria
@@ -173,4 +173,40 @@ spec   | docs/specs/0.21/s01-platform-capability-surface.md#implementation-tasks
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-07-14 05:53 UTC – design-change
+
+#### DESIGN CHANGE
+
+Native x64 qualification proved that Dart's Windows process API can hard-terminate the directly managed Git Bash root but cannot safely prove or enforce descendant containment. The 0.21 contract now states that boundary explicitly. This amendment supersedes the earlier scope note that delegated Windows Bash child-tree cleanup to S03.
+
+##### Intent amendment
+
+Old:
+
+```markdown
+**Intent**: Make workflow bash steps behave predictably on native Windows — run through Git Bash when it is present, and fail with an explicit, actionable message when it is not — so a Windows operator is never told a bash step "succeeded" when no shell ran.
+```
+
+New:
+
+```markdown
+**Intent**: Make workflow bash steps behave predictably on native Windows – run through Git Bash when present, fail explicitly when absent, and state that timeout cleanup guarantees only the directly managed root – so a Windows operator is never told a bash step succeeded or was contained when DartClaw cannot prove it.
+```
+
+##### Qualification-scenario amendment
+
+Old:
+
+```markdown
+  - **Then** the step completes successfully; evidence records the native cwd, its Git Bash POSIX-style `pwd`, successful quoted relative-file access, an allowlisted env value, a basic POSIX command result, and the Git Bash version
+```
+
+New:
+
+```markdown
+  - **Then** the step completes successfully; evidence records the native cwd, its Git Bash POSIX-style `pwd`, successful quoted relative-file access, an allowlisted env value, a basic POSIX command result, and the Git Bash version; qualification does not claim descendant-process containment on timeout
+```
+
+#### ADR
+
+[ADR-049](../../../../adrs/049-typed-platform-capability-surface.md) already defines Windows termination as directly managed root hard-termination, while [ADR-037](../../../../adrs/037-universal-acp-harness.md) supplies the security precedent that root ownership alone cannot justify a descendant-containment claim. Ownership-safe containment requires a future suspended-launch plus Job Object design; 0.21 does not add that launcher.

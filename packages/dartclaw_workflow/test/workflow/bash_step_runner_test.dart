@@ -811,51 +811,65 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     }, timeout: const Timeout(Duration(seconds: 10)));
 
-    test('bash step timeout terminates the spawned process', () async {
-      final outputFile = p.join(h.tempDir.path, 'timed-out.txt');
-      final definition = h.makeDefinition(
-        steps: [
-          WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            taskType: WorkflowTaskType.bash,
-            prompts: ['sleep 2; echo late > "$outputFile"'],
-            timeoutSeconds: 1,
-          ),
-        ],
-      );
+    test(
+      'bash step timeout terminates the spawned process',
+      () async {
+        final outputFile = p.join(h.tempDir.path, 'timed-out.txt');
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['sleep 2; echo late > "$outputFile"'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
 
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
+        await h.executor.execute(run, definition, WorkflowContext());
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
 
-      expect(File(outputFile).existsSync(), isFalse);
-    }, timeout: const Timeout(Duration(seconds: 10)));
+        expect(File(outputFile).existsSync(), isFalse);
+      },
+      skip: PlatformCapabilities().posixSignalsAvailable
+          ? false
+          : 'Native Windows Bash descendant containment is unsupported',
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
 
-    test('bash step timeout terminates background children', () async {
-      final outputFile = p.join(h.tempDir.path, 'timed-out-child.txt');
-      final definition = h.makeDefinition(
-        steps: [
-          WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            taskType: WorkflowTaskType.bash,
-            prompts: ['(sleep 2; echo late > "$outputFile") & wait'],
-            timeoutSeconds: 1,
-          ),
-        ],
-      );
+    test(
+      'bash step timeout terminates background children',
+      () async {
+        final outputFile = p.join(h.tempDir.path, 'timed-out-child.txt');
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['(sleep 2; echo late > "$outputFile") & wait'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
 
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
+        await h.executor.execute(run, definition, WorkflowContext());
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
 
-      expect(File(outputFile).existsSync(), isFalse);
-    }, timeout: const Timeout(Duration(seconds: 10)));
+        expect(File(outputFile).existsSync(), isFalse);
+      },
+      skip: PlatformCapabilities().posixSignalsAvailable
+          ? false
+          : 'Native Windows Bash descendant containment is unsupported',
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
 
     test('bash step deadline includes an indefinitely backgrounded child', () async {
       if (!Platform.isLinux && !Platform.isMacOS) return;

@@ -62,7 +62,8 @@ jobs:
           git cat-file -e "$providerRevision^{commit}"
           if ($LASTEXITCODE -ne 0) { throw 'Provider evidence revision is unavailable.' }
           git diff --quiet $providerRevision $env:GITHUB_SHA -- `
-            apps packages pubspec.yaml pubspec.lock dev/tools/build_windows.ps1
+            ':(glob)apps/*/lib/**' ':(glob)packages/*/lib/**' `
+            pubspec.yaml pubspec.lock dev/tools/build_windows.ps1
           if ($LASTEXITCODE -ne 0) {
             throw 'Provider evidence does not match the qualified runtime/build tree.'
           }

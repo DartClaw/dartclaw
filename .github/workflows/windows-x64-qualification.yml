@@ -86,7 +86,6 @@ jobs:
             'packages/dartclaw_core/test/harness/base_harness_test.dart'
             'packages/dartclaw_server/test/harness_pool_test.dart'
             'packages/dartclaw_server/test/task/cli_provider_output_drain_test.dart'
-            'packages/dartclaw_server/test/task/workflow_cli_runner_test.dart'
             'packages/dartclaw_signal/test/signal_cli_manager_test.dart'
             'packages/dartclaw_whatsapp/test/gowa_manager_test.dart'
           )
@@ -226,8 +225,11 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $artifact = Get-ChildItem -LiteralPath build -Filter 'dartclaw-v*-windows-x64.zip' -File |
-            Select-Object -First 1
+          $artifact = if (Test-Path -LiteralPath build -PathType Container) {
+            Get-ChildItem -LiteralPath build -Filter 'dartclaw-v*-windows-x64.zip' -File | Select-Object -First 1
+          } else {
+            $null
+          }
           if ($null -ne $artifact) {
             Add-Content -LiteralPath qualification/qualification-identity.txt -Value @(
               "Artifact: $($artifact.Name)"

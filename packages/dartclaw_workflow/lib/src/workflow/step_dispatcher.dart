@@ -591,7 +591,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         envAllowlist: _bashStepEnvAllowlist,
         extraStripPatterns: _bashStepExtraStripPatterns,
         capabilities: _executionContext.platformCapabilities,
-        executableLookup: _executionContext.executableLookupExecutor ?? bash_step_runner.runExecutableLookup,
+        executableLookup: _executionContext.executableLookupExecutor,
         processOwner: _executionContext.bashProcessOwner,
       );
 

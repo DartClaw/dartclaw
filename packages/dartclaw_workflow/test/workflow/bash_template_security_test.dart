@@ -20,6 +20,11 @@ void main() {
       'bash -c "printf %s {{context.command}}"',
       'bash -lc {{PAYLOAD}}',
       'printf %s {{PAYLOAD}} > payload.sh; sh payload.sh',
+      'printf %s {{PAYLOAD}} | dash',
+      'printf %s {{PAYLOAD}} | /usr/bin/zsh',
+      'cat <<EOF\n{{PAYLOAD}}\nEOF',
+      "cat <<'EOF'\n{{PAYLOAD}}\nEOF",
+      'cat <<-EOF\n\t{{PAYLOAD}}\nEOF',
     ]) {
       test('rejects shell reparse: $command', () {
         expect(

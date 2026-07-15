@@ -21,7 +21,14 @@ part 'codex_cli_provider_types.dart';
 class CodexCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('CodexCliProvider');
 
-  CodexCliProvider({super.platformCapabilities, super.terminationGracePeriod, super.outputDrainGracePeriod});
+  CodexCliProvider({
+    super.platformCapabilities,
+    super.terminationGracePeriod,
+    super.outputDrainGracePeriod,
+    this.maxOutputBytes = CliProcessSupervisor.defaultOutputLimitBytes,
+  });
+
+  final int maxOutputBytes;
 
   static const _maxUsageEntries = 512;
 
@@ -65,6 +72,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         platformCapabilities: platformCapabilities,
         terminationGrace: terminationGracePeriod,
         outputDrainGrace: outputDrainGracePeriod,
+        maxOutputBytes: maxOutputBytes,
       )..start();
       final stdoutBuffer = StringBuffer();
       final stderrBuffer = StringBuffer();
@@ -73,7 +81,8 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       final codexState = _CodexStreamState();
       var terminalResultRecorded = false;
 
-      final stdoutSubscription = process.stdout
+      final stdoutSubscription = supervisor
+          .limitOutput(process.stdout, streamName: 'stdout')
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
@@ -95,7 +104,8 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             },
             cancelOnError: true,
           );
-      final stderrSubscription = process.stderr
+      final stderrSubscription = supervisor
+          .limitOutput(process.stderr, streamName: 'stderr')
           .transform(utf8.decoder)
           .listen(
             stderrBuffer.write,
@@ -240,13 +250,16 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         continue;
       }
     }
-    return hasNonBenignStderr(stderr, _codexBenignStderrFragments);
+    return hasNonBenignStderr(stderr, _codexBenignStderrLines);
   }
 
   // Codex prints this to stderr while draining a piped stdin; it is not a
   // failure signal. Everything else on stderr is treated as genuine evidence
   // so a stderr-only provider error is never masked as a cancellation.
-  static const List<String> _codexBenignStderrFragments = ['Reading additional input from stdin'];
+  static const List<String> _codexBenignStderrLines = [
+    'Reading additional input from stdin...',
+    'Reading additional input from stdin…',
+  ];
 
   _CodexCommand _buildCommand(CliTurnRequest req) {
     // Codex CLI has no tool-allowlist flag. Sandbox and approval policy are
@@ -330,6 +343,10 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         }
         break;
 
+      case 'item.started':
+      case 'item.updated':
+        break;
+
       case 'item.completed':
         final item = _mapValue(event['item']);
         if (item == null) break;
@@ -343,19 +360,19 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         break;
 
       case 'turn.completed':
-        final usage = _mapValue(event['usage']);
-        if (usage == null) break;
-
-        _log.fine('CodexCliProvider: raw codex turn.completed usage payload: $usage');
-
         final previousCumulative = state.inputTokens + state.outputTokens;
-        state.inputTokens = _intValue(usage['input_tokens']) ?? state.inputTokens;
-        state.outputTokens = _codexOutputTokens(usage, fallback: state.outputTokens);
-        state.cacheReadTokens =
-            _intValue(usage['cache_read_tokens']) ?? _intValue(usage['cached_input_tokens']) ?? state.cacheReadTokens;
-        state.cacheWriteTokens = _intValue(usage['cache_write_tokens']) ?? state.cacheWriteTokens;
         state.turnCount++;
         state.terminalResultRecorded = true;
+
+        final usage = _mapValue(event['usage']);
+        if (usage != null) {
+          _log.fine('CodexCliProvider: raw codex turn.completed usage payload: $usage');
+          state.inputTokens = _intValue(usage['input_tokens']) ?? state.inputTokens;
+          state.outputTokens = _codexOutputTokens(usage, fallback: state.outputTokens);
+          state.cacheReadTokens =
+              _intValue(usage['cache_read_tokens']) ?? _intValue(usage['cached_input_tokens']) ?? state.cacheReadTokens;
+          state.cacheWriteTokens = _intValue(usage['cache_write_tokens']) ?? state.cacheWriteTokens;
+        }
 
         if (emitProgress) {
           final cumulativeTokens = state.inputTokens + state.outputTokens;
@@ -381,8 +398,12 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         }
         break;
 
-      default:
+      case 'turn.failed':
+      case 'error':
         break;
+
+      default:
+        return false;
     }
     return true;
   }

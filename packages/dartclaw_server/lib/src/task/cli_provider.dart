@@ -125,14 +125,14 @@ abstract class ProcessBackedCliProvider implements CliProvider {
 
   /// Whether [stderr] carries genuine provider-failure output.
   ///
-  /// Any non-empty line that does not contain one of [benignFragments] counts
+  /// Any non-empty line that does not exactly match one of [benignLines] counts
   /// as failure evidence, so a provider/auth/runtime error emitted only on
   /// stderr before teardown is not silently reclassified as a cancellation.
-  bool hasNonBenignStderr(String stderr, List<String> benignFragments) {
+  bool hasNonBenignStderr(String stderr, List<String> benignLines) {
     for (final line in const LineSplitter().convert(stderr)) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
-      if (benignFragments.any(trimmed.contains)) continue;
+      if (benignLines.contains(trimmed)) continue;
       return true;
     }
     return false;

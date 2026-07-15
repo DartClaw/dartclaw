@@ -18,6 +18,7 @@ typedef ServerFactory = DartclawServer Function(DartclawServerBuilder builder);
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
 typedef WriteLine = void Function(String line);
 typedef ExitFn = Never Function(int code);
+typedef ProcessSignalWatch = Stream<ProcessSignal> Function();
 
 /// Starts the DartClaw HTTP server with web UI.
 class ServeCommand extends Command<void> {
@@ -31,6 +32,8 @@ class ServeCommand extends Command<void> {
   final ExitFn _exitFn;
   final AssetResolver _assetResolver;
   final PlatformCapabilities _platformCapabilities;
+  final ProcessSignalWatch _sigintWatch;
+  final ProcessSignalWatch _sigtermWatch;
   final bool _runWorkflowSkillsBootstrap;
   static final _log = Logger('ServeCommand');
 
@@ -51,6 +54,8 @@ class ServeCommand extends Command<void> {
     ExitFn? exitFn,
     AssetResolver? assetResolver,
     PlatformCapabilities? platformCapabilities,
+    ProcessSignalWatch? sigintWatch,
+    ProcessSignalWatch? sigtermWatch,
     bool runWorkflowSkillsBootstrap = true,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
@@ -61,6 +66,8 @@ class ServeCommand extends Command<void> {
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _sigintWatch = sigintWatch ?? (() => ProcessSignal.sigint.watch()),
+       _sigtermWatch = sigtermWatch ?? (() => ProcessSignal.sigterm.watch()),
        _runWorkflowSkillsBootstrap = runWorkflowSkillsBootstrap,
        _assetResolver = assetResolver ?? const AssetResolver() {
     argParser
@@ -367,9 +374,9 @@ class ServeCommand extends Command<void> {
       }
 
       // Register signal handlers
-      sigintSub = ProcessSignal.sigint.watch().listen((_) => unawaited(shutdown()));
-      if (!Platform.isWindows) {
-        sigtermSub = ProcessSignal.sigterm.watch().listen((_) => unawaited(shutdown()));
+      sigintSub = _sigintWatch().listen((_) => unawaited(shutdown()));
+      if (_platformCapabilities.posixSignalsAvailable) {
+        sigtermSub = _sigtermWatch().listen((_) => unawaited(shutdown()));
       }
 
       // Start reload triggers (SIGUSR1 and/or file-watch per gateway.reload config)

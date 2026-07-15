@@ -51,6 +51,15 @@ void main() {
       expect(capabilities.homeDirectory, r'C:\Users\dev');
     });
 
+    test('Windows home resolution treats environment names case-insensitively', () {
+      final capabilities = PlatformCapabilities(
+        operatingSystem: 'windows',
+        environment: const {'UserProfile': r'C:\Users\dev'},
+      );
+
+      expect(capabilities.homeDirectory, r'C:\Users\dev');
+    });
+
     test('home resolution prefers nonblank HOME over USERPROFILE', () {
       final capabilities = PlatformCapabilities(
         operatingSystem: 'windows',
@@ -77,6 +86,14 @@ void main() {
 
       expect(capabilities.executableSearchCandidates('tool.exe'), [r'C:\Safe\tool.exe']);
       expect(capabilities.windowsSystemExecutable('taskkill.exe'), r'C:\Windows\System32\taskkill.exe');
+    });
+
+    test('Windows system executable rejects names that can escape System32', () {
+      final capabilities = PlatformCapabilities(operatingSystem: 'windows');
+
+      for (final name in ['', '  ', '.', '..', r'..\evil.exe', '../evil.exe']) {
+        expect(() => capabilities.windowsSystemExecutable(name), throwsArgumentError, reason: name);
+      }
     });
 
     test('structured errors preserve capability, context, and caller remediation', () {

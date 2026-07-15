@@ -33,7 +33,7 @@ final class PlatformCapabilities {
   /// Resolves the first nonblank `HOME` or `USERPROFILE` value.
   String? get homeDirectory {
     for (final name in const ['HOME', 'USERPROFILE']) {
-      final value = _environment[name];
+      final value = _environmentValue(name);
       if (value != null && value.trim().isNotEmpty) {
         return value;
       }
@@ -68,7 +68,15 @@ final class PlatformCapabilities {
   }
 
   /// Trusted absolute Windows system executable path, independent of PATH and the current directory.
-  String windowsSystemExecutable(String name) => '$windowsSystemRoot\\System32\\$name';
+  ///
+  /// Throws [ArgumentError] when [name] is not a single executable filename.
+  String windowsSystemExecutable(String name) {
+    final executable = name.trim();
+    if (executable.isEmpty || executable == '.' || executable == '..' || executable.contains(RegExp(r'[\\/]'))) {
+      throw ArgumentError.value(name, 'name', 'must be a single executable filename');
+    }
+    return '$windowsSystemRoot\\System32\\$executable';
+  }
 
   /// Validated Windows directory used for trusted system helper execution.
   String get windowsSystemRoot {

@@ -180,13 +180,44 @@ void main() {
         profileId: 'workspace',
       );
       await pumpEventQueue();
-      process.emitStderr('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB active');
+      process.emitStderr('Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set');
       await pumpEventQueue();
 
       await runner.cancelInflight();
       final result = await turn;
 
       expect(result.cancelled, isTrue);
+    });
+
+    test('fatal stderr containing the benign notice text keeps the diagnostic failure', () async {
+      late FakeProcess process;
+      final runner = WorkflowCliRunner(
+        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+          return process;
+        },
+      );
+
+      final turn = runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Test',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+      await pumpEventQueue();
+      process.emitStderr(
+        'fatal: Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set; '
+        'authentication failed',
+      );
+      await pumpEventQueue();
+
+      await runner.cancelInflight();
+
+      await expectLater(
+        turn,
+        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('authentication failed'))),
+      );
     });
 
     test('cancelInflight after a terminal result preserves the parsed success', () async {

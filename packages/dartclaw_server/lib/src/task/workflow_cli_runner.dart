@@ -71,6 +71,30 @@ final class WorkflowCliTimeoutException extends WorkflowCliException {
       'WorkflowCliTimeoutException(stepName: ${stepName ?? '<unknown>'}, configuredTimeout: $configuredTimeout)';
 }
 
+/// Raised when a workflow CLI subprocess exceeds its bounded output allowance.
+final class WorkflowCliOutputLimitException extends WorkflowCliException {
+  /// Provider whose subprocess exceeded the limit.
+  final String provider;
+
+  /// Output stream that exceeded the limit.
+  final String streamName;
+
+  /// Maximum accepted bytes for the stream.
+  final int maxBytes;
+
+  const WorkflowCliOutputLimitException({
+    required super.stepName,
+    required this.provider,
+    required this.streamName,
+    required this.maxBytes,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowCliOutputLimitException(provider: $provider, stepName: ${stepName ?? '<unknown>'}, '
+      'stream: $streamName, maxBytes: $maxBytes)';
+}
+
 /// Captures provider telemetry and decoded output from a single CLI turn.
 class WorkflowCliTurnResult {
   /// Provider-owned conversation/session identifier returned by the CLI.

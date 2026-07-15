@@ -24,9 +24,9 @@ DartclawConfig _withScheduling({bool heartbeatEnabled = true}) {
   return DartclawConfig(scheduling: SchedulingConfig(heartbeatEnabled: heartbeatEnabled));
 }
 
-DartclawConfig _withServer({int port = 3000, String host = 'localhost', String? name}) {
+DartclawConfig _withServer({int port = 3000, String host = 'localhost', String dataDir = '~/.dartclaw', String? name}) {
   return DartclawConfig(
-    server: ServerConfig(port: port, host: host, name: name ?? 'DartClaw'),
+    server: ServerConfig(port: port, host: host, dataDir: dataDir, name: name ?? 'DartClaw'),
   );
 }
 
@@ -119,12 +119,17 @@ void main() {
       notifier.register(service);
 
       // Change port (non-reloadable) AND name (reloadable)
-      final updated = _withServer(port: 9999, host: 'localhost', name: 'New');
+      final updated = _withServer(port: 9999, host: '0.0.0.0', dataDir: '/new/data', name: 'New');
       final delta = notifier.reload(updated);
 
       expect(delta, isNotNull);
       expect(delta!.changedKeys, contains('server.*'));
       expect(service.received, hasLength(1));
+      expect(delta.current.server.port, 3000);
+      expect(delta.current.server.host, 'localhost');
+      expect(delta.current.server.dataDir, '~/.dartclaw');
+      expect(delta.current.server.name, 'New');
+      expect(notifier.current.server, delta.current.server);
     });
 
     test('best-effort: throwing service does not prevent other services from being notified', () {

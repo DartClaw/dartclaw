@@ -4,6 +4,7 @@ import 'config_delta.dart';
 import 'dartclaw_config.dart';
 import 'platform_capabilities.dart';
 import 'reconfigurable.dart';
+import 'server_config.dart';
 
 final _log = Logger('ConfigNotifier');
 
@@ -96,8 +97,29 @@ class ConfigNotifier {
     _detectChangedSimple('projects', old.projects, newConfig.projects, changedKeys);
     if (changedKeys.isEmpty) return null;
 
-    _current = newConfig;
-    final delta = ConfigDelta(previous: old, current: newConfig, changedKeys: Set.unmodifiable(changedKeys));
+    final restartFieldsChanged =
+        old.server.port != newConfig.server.port ||
+        old.server.host != newConfig.server.host ||
+        old.server.dataDir != newConfig.server.dataDir;
+    final current = restartFieldsChanged
+        ? newConfig.copyWith(
+            server: ServerConfig(
+              port: old.server.port,
+              host: old.server.host,
+              dataDir: old.server.dataDir,
+              name: newConfig.server.name,
+              baseUrl: newConfig.server.baseUrl,
+              workerTimeout: newConfig.server.workerTimeout,
+              claudeExecutable: newConfig.server.claudeExecutable,
+              staticDir: newConfig.server.staticDir,
+              templatesDir: newConfig.server.templatesDir,
+              devMode: newConfig.server.devMode,
+              maxParallelTurns: newConfig.server.maxParallelTurns,
+            ),
+          )
+        : newConfig;
+    _current = current;
+    final delta = ConfigDelta(previous: old, current: current, changedKeys: Set.unmodifiable(changedKeys));
 
     for (final service in List.of(_services)) {
       if (!delta.hasChangedAny(service.watchKeys)) continue;

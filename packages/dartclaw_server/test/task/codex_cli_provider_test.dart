@@ -281,6 +281,34 @@ void main() {
       expect(result.cancelled, isTrue);
     });
 
+    test('fatal stderr containing the benign notice text keeps the diagnostic failure', () async {
+      late FakeProcess process;
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+          return process;
+        },
+      );
+
+      final turn = runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Test',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+      await pumpEventQueue();
+      process.emitStderr('fatal: Reading additional input from stdin... failed');
+      await pumpEventQueue();
+
+      await runner.cancelInflight();
+
+      await expectLater(
+        turn,
+        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('fatal:'))),
+      );
+    });
+
     test('cancelInflight after a terminal result preserves the parsed success', () async {
       late FakeProcess process;
       final runner = WorkflowCliRunner(
@@ -320,6 +348,49 @@ void main() {
       expect(result.providerSessionId, 'codex-after-terminal');
       expect(result.responseText, 'done');
     });
+
+    for (final usage in <Object?>[null, 'unavailable']) {
+      test(
+        'cancelInflight preserves terminal result when usage is ${usage == null ? 'missing' : 'malformed'}',
+        () async {
+          late FakeProcess process;
+          final runner = WorkflowCliRunner(
+            providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+            processStarter: (exe, args, {workingDirectory, environment}) async {
+              process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+              return process;
+            },
+          );
+
+          final turn = runner.executeTurn(
+            provider: 'codex',
+            prompt: 'Test',
+            workingDirectory: Directory.systemTemp.path,
+            profileId: 'workspace',
+          );
+          await pumpEventQueue();
+          process.emitStdout(jsonEncode({'type': 'thread.started', 'thread_id': 'codex-optional-usage'}));
+          process.emitStdout(
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {'type': 'agent_message', 'text': 'done'},
+            }),
+          );
+          final completedEvent = <String, Object?>{'type': 'turn.completed'};
+          if (usage case final value?) completedEvent['usage'] = value;
+          process.emitStdout(jsonEncode(completedEvent));
+          await pumpEventQueue();
+
+          await runner.cancelInflight();
+          final result = await turn;
+
+          expect(result.cancelled, isFalse);
+          expect(result.responseText, 'done');
+          expect(result.inputTokens, 0);
+          expect(result.outputTokens, 0);
+        },
+      );
+    }
 
     test('subtracts resumed-session cumulative usage baseline', () async {
       final runner = WorkflowCliRunner(

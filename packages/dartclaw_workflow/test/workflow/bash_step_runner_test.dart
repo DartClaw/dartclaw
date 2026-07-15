@@ -6,18 +6,21 @@ import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
-
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        ActionNode,
+        ContextExtractor,
+        GateEvaluator,
         OnErrorPolicy,
         OutputConfig,
         OutputFormat,
+        StepExecutionContext,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowTaskType;
 import 'package:dartclaw_workflow/src/workflow/bash_step_runner.dart';
 import 'package:dartclaw_workflow/src/workflow/bash_process_owner.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
@@ -465,11 +468,37 @@ void main() {
       expect(outcome.outputs['bash1.status'], isNot('success'));
     });
 
-    test('executor honors the injected Windows capability surface', () async {
-      final executor = h.makeExecutor(
-        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
-        executableLookupExecutor: (executable, arguments) async => (exitCode: 1, stdout: ''),
+    test('bashStepRun resolves Git Bash through the supplied Windows capabilities', () async {
+      const step = WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']);
+      final definition = h.makeDefinition(steps: [step]);
+      final run = h.makeRun(definition);
+      final workflowContext = WorkflowContext();
+      final executionContext = StepExecutionContext(
+        taskService: h.taskService,
+        eventBus: h.eventBus,
+        kvService: h.kvService,
+        repository: h.repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: h.taskService,
+          messageService: h.messageService,
+          dataDir: h.tempDir.path,
+          workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+        ),
+        dataDir: h.tempDir.path,
+        platformCapabilities: _windowsCapabilitiesWithInvalidGitBash(h.tempDir),
+        run: run,
+        definition: definition,
+        workflowContext: workflowContext,
       );
+      final outcome = await bashStepRun(const ActionNode(stepId: 'bash1'), executionContext);
+      expect(outcome.success, isFalse);
+      expect(outcome.outputs['bash1.error'], contains('process execution failed'));
+      expect(outcome.outputs['bash1.error'], isNot(contains('bash steps require Git Bash')));
+    });
+
+    test('executor resolves Git Bash through the injected Windows capabilities', () async {
+      final executor = h.makeExecutor(platformCapabilities: _windowsCapabilitiesWithInvalidGitBash(h.tempDir));
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']),
@@ -478,12 +507,11 @@ void main() {
       final run = h.makeRun(definition);
       await h.repository.insert(run);
       final context = WorkflowContext();
-
       await executor.execute(run, definition, context);
-
       expect((await h.repository.getById(run.id))?.status, WorkflowRunStatus.failed);
       expect(context['bash1.status'], 'failed');
-      expect(context['bash1.error'], contains('bash steps require Git Bash on Windows'));
+      expect(context['bash1.error'], contains('process execution failed'));
+      expect(context['bash1.error'], isNot(contains('bash steps require Git Bash')));
     });
 
     test('bash step runs command and completes with zero tokens and no task', () async {
@@ -1161,4 +1189,12 @@ void main() {
       expect(taskCount, equals(1));
     });
   });
+}
+
+PlatformCapabilities _windowsCapabilitiesWithInvalidGitBash(Directory tempDir) {
+  final pathDirectory = p.join(tempDir.path, 'fake-git', 'bin');
+  final executable = File('$pathDirectory\\bash.EXE');
+  executable.parent.createSync(recursive: true);
+  executable.writeAsStringSync('not an executable', flush: true);
+  return PlatformCapabilities(operatingSystem: 'windows', environment: {'PATH': pathDirectory, 'PATHEXT': '.EXE'});
 }

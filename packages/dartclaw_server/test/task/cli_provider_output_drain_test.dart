@@ -5,7 +5,12 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProcessTerminationResult;
 import 'package:dartclaw_server/dartclaw_server.dart'
-    show CliTurnRequest, WorkflowCliProviderConfig, WorkflowCliRunner, WorkflowCliTurnResult;
+    show
+        CliTurnRequest,
+        WorkflowCliOutputLimitException,
+        WorkflowCliProviderConfig,
+        WorkflowCliRunner,
+        WorkflowCliTurnResult;
 import 'package:dartclaw_server/src/task/claude_cli_provider.dart' show ClaudeCliProvider;
 import 'package:dartclaw_server/src/task/cli_provider.dart' show CliProvider, ProcessBackedCliProvider;
 import 'package:dartclaw_server/src/task/codex_cli_provider.dart' show CodexCliProvider;
@@ -29,6 +34,50 @@ void main() {
   });
 
   for (final provider in const ['claude', 'codex']) {
+    for (final streamName in const ['stdout', 'stderr']) {
+      test('$provider fails and terminates when $streamName exceeds the output limit', () async {
+        late FakeProcess process;
+        final implementation = switch (provider) {
+          'claude' => ClaudeCliProvider(maxOutputBytes: 64),
+          _ => CodexCliProvider(maxOutputBytes: 64),
+        };
+        final runner = WorkflowCliRunner(
+          providers: {provider: WorkflowCliProviderConfig(executable: provider)},
+          providerImpls: <String, CliProvider>{provider: implementation},
+          processStarter: (executable, arguments, {workingDirectory, environment}) async {
+            process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+            return process;
+          },
+        );
+
+        final turn = runner.executeTurn(
+          provider: provider,
+          prompt: 'Test',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+          stepName: 'Bound output',
+        );
+        await pumpEventQueue();
+        final oversized = 'x' * 65;
+        if (streamName == 'stdout') {
+          process.emitStdout(oversized);
+        } else {
+          process.emitStderr(oversized);
+        }
+
+        await expectLater(
+          turn,
+          throwsA(
+            isA<WorkflowCliOutputLimitException>()
+                .having((error) => error.provider, 'provider', provider)
+                .having((error) => error.streamName, 'stream', streamName)
+                .having((error) => error.maxBytes, 'limit', 64),
+          ),
+        );
+        expect(process.killCalled, isTrue);
+      });
+    }
+
     test('$provider turn completes when a descendant keeps output pipes open after root exit', () async {
       final stdoutController = StreamController<List<int>>();
       final stderrController = StreamController<List<int>>();

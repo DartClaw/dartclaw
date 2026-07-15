@@ -696,6 +696,15 @@ class TurnRunner implements core.TurnRunner {
           final providerError = rawProviderError is String && rawProviderError.trim().isNotEmpty
               ? rawProviderError.trim()
               : 'Provider turn failed';
+          final sendOutcome = await _guardEvaluator.evaluateBeforeAgentSend(
+            turnId: turnId,
+            sessionId: sessionId,
+            accumulated: providerError,
+          );
+          if (sendOutcome != null) {
+            outcome = sendOutcome;
+            return;
+          }
           final redactedProviderError = _redactor?.redact(providerError) ?? providerError;
           await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: redactedProviderError);
           await _sessions?.touchUpdatedAt(sessionId);

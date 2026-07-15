@@ -347,6 +347,55 @@ void main() {
       });
     });
 
+    for (final provider in const ['claude', 'codex']) {
+      test('$provider unknown protocol chatter does not reset the stall timer', () {
+        fakeAsync((async) {
+          late FakeProcess fake;
+          final runner = switch (provider) {
+            'claude' => claudeRunner(
+              processStarter: (exe, args, {workingDirectory, environment}) async {
+                fake = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+                return fake;
+              },
+            ),
+            _ => codexRunner(
+              processStarter: (exe, args, {workingDirectory, environment}) async {
+                fake = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+                return fake;
+              },
+            ),
+          };
+          Object? error;
+          unawaited(
+            runner
+                .executeTurn(
+                  provider: provider,
+                  prompt: 'stream',
+                  workingDirectory: Directory.systemTemp.path,
+                  profileId: 'workspace',
+                  stepName: 'Ignore chatter',
+                  stallTimeout: const Duration(seconds: 10),
+                  stallAction: TurnProgressAction.cancel,
+                )
+                .then<void>(
+                  (_) => fail('unknown chatter should not prevent a stall'),
+                  onError: (Object value) => error = value,
+                ),
+          );
+
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 9));
+          fake.emitStdout(jsonEncode({'type': 'unknown.provider.event'}));
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+
+          expect(fake.killCalled, isTrue);
+          expect(error, isA<WorkflowCliStallException>());
+        });
+      });
+    }
+
     test('step timeout kills overlong one-shot process distinctly from stall', () {
       fakeAsync((async) {
         late FakeProcess fake;

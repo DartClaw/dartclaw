@@ -12,6 +12,8 @@ import 'workflow_cli_runner.dart';
 final _processLifecycleLog = Logger('WorkflowCliProcess');
 
 final class CliProcessSupervisor {
+  static const defaultOutputLimitBytes = 16 * 1024 * 1024;
+
   CliProcessSupervisor({
     required this.process,
     required this.provider,
@@ -27,7 +29,9 @@ final class CliProcessSupervisor {
     this.terminationGrace = const Duration(seconds: 5),
     this.postTerminalResultGrace = const Duration(seconds: 10),
     this.outputDrainGrace = const Duration(seconds: 2),
-  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities();
+    this.maxOutputBytes = defaultOutputLimitBytes,
+  }) : assert(maxOutputBytes > 0),
+       platformCapabilities = platformCapabilities ?? PlatformCapabilities();
 
   final Process process;
   final String provider;
@@ -43,6 +47,7 @@ final class CliProcessSupervisor {
   final Duration terminationGrace;
   final Duration postTerminalResultGrace;
   final Duration outputDrainGrace;
+  final int maxOutputBytes;
 
   final Completer<WorkflowCliException> _failure = Completer<WorkflowCliException>();
   final Completer<void> _postTerminalResultCleanup = Completer<void>();
@@ -97,6 +102,30 @@ final class CliProcessSupervisor {
 
   void recordParsedOutput() {
     _stallMonitor?.recordProgress();
+  }
+
+  Stream<List<int>> limitOutput(Stream<List<int>> output, {required String streamName}) {
+    var receivedBytes = 0;
+    return output.transform(
+      StreamTransformer<List<int>, List<int>>.fromHandlers(
+        handleData: (chunk, sink) {
+          if (chunk.length > maxOutputBytes - receivedBytes) {
+            _failAndTerminate(
+              WorkflowCliOutputLimitException(
+                stepName: stepName,
+                provider: provider,
+                streamName: streamName,
+                maxBytes: maxOutputBytes,
+              ),
+            );
+            sink.close();
+            return;
+          }
+          receivedBytes += chunk.length;
+          sink.add(chunk);
+        },
+      ),
+    );
   }
 
   void recordTerminalResult() {

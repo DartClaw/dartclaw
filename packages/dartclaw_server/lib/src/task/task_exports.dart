@@ -37,6 +37,7 @@ export 'workflow_cli_runner.dart'
         WorkflowCliProviderConfig,
         WorkflowCliProcessStarter,
         WorkflowCliRunner,
+        WorkflowCliOutputLimitException,
         WorkflowCliStallException,
         WorkflowCliTimeoutException,
         WorkflowCliTurnResult,

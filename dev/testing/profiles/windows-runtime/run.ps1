@@ -162,9 +162,18 @@ function Invoke-SelfTest {
 **Claude**: Claude Code 2.1.207
 **Codex**: codex-cli 0.139.0
 ## Claude Result
-Qualification: **PASS**
+- HTTP session: `11111111-1111-1111-1111-111111111111`; turn:
+  `22222222-2222-2222-2222-222222222222`.
+- DartClaw terminal state: `completed`; stored assistant response: `pong`.
+- Provider terminal result: `is_error=false`.
+- No JSONL parse or stdio transport error occurred.
+- Qualification: **PASS**.
 ## Codex Result
-Qualification: **PASS**
+- HTTP session: `33333333-3333-3333-3333-333333333333`; turn:
+  `44444444-4444-4444-4444-444444444444`.
+- DartClaw terminal state: `completed`; stored assistant response: `pong`.
+- The app-server wire reached `turn/completed`; no JSON-RPC parse or stdio transport error occurred.
+- Qualification: **PASS**.
 '@
     $validPath = Join-Path $testRoot 'valid.md'
     [IO.File]::WriteAllText($validPath, ($template -f $fresh, $fresh))
@@ -218,6 +227,58 @@ Qualification: **PASS**
       (($template -f $fresh, $fresh).Replace($script:SourceFingerprint, $zeroFingerprint))
     )
     if ((Test-ProviderEvidence -Path $wrongFingerprintPath).Valid) { throw 'source fingerprint mismatch was accepted' }
+    $validContent = $template -f $fresh, $fresh
+    $contradictoryEvidenceCases = @(
+      @{
+        Name = 'duplicate-status'
+        Content = $validContent.Replace('**Status**: QUALIFIED', "**Status**: QUALIFIED`n**Status**: FAILED")
+      },
+      @{
+        Name = 'duplicate-host'
+        Content = $validContent.Replace('**Host**: Windows 11, x64', "**Host**: Windows 11, x64`n**Host**: Linux, x64")
+      },
+      @{
+        Name = 'duplicate-identity'
+        Content = $validContent.Replace(
+          '**DartClaw under test**: source 0123456789abcdef',
+          "**DartClaw under test**: source 0123456789abcdef`n**DartClaw under test**: source deadbeef"
+        )
+      },
+      @{
+        Name = 'duplicate-fingerprint'
+        Content = $validContent.Replace(
+          "**Source fingerprint**: $script:SourceFingerprint",
+          "**Source fingerprint**: $script:SourceFingerprint`n**Source fingerprint**: $zeroFingerprint"
+        )
+      },
+      @{
+        Name = 'duplicate-timestamps'
+        Content = $validContent.Replace(
+          "**Run timestamps**: Claude ``$fresh``; Codex ``$fresh``",
+          "**Run timestamps**: Claude ``$fresh``; Codex ``$fresh```n**Run timestamps**: Claude ``$stale``; Codex ``$stale``"
+        )
+      },
+      @{
+        Name = 'missing-claude-terminal-result'
+        Content = $validContent.Replace('- Provider terminal result: `is_error=false`.', '')
+      },
+      @{
+        Name = 'failed-claude-terminal-result'
+        Content = $validContent.Replace('`is_error=false`', '`is_error=true`')
+      },
+      @{
+        Name = 'duplicate-claude-terminal-result'
+        Content = $validContent.Replace(
+          '- Provider terminal result: `is_error=false`.',
+          "- Provider terminal result: ``is_error=false``.`n- Provider terminal result: ``is_error=true``."
+        )
+      }
+    )
+    foreach ($case in $contradictoryEvidenceCases) {
+      $casePath = Join-Path $testRoot "$($case.Name).md"
+      [IO.File]::WriteAllText($casePath, $case.Content)
+      if ((Test-ProviderEvidence -Path $casePath).Valid) { throw "$($case.Name) evidence was accepted" }
+    }
     $script:ExecutionMode = 'artifact'
     $script:Version = '0.20.1'
     $artifactMismatch = ($template -f $fresh, $fresh).Replace(
@@ -227,6 +288,53 @@ Qualification: **PASS**
     $artifactMismatchPath = Join-Path $testRoot 'wrong-artifact-version.md'
     [IO.File]::WriteAllText($artifactMismatchPath, $artifactMismatch)
     if ((Test-ProviderEvidence -Path $artifactMismatchPath).Valid) { throw 'stray release version satisfied identity matching' }
+
+    $script:ExecutionMode = 'source'
+    $missingTurnPath = Join-Path $testRoot 'missing-turn-proof.md'
+    [IO.File]::WriteAllText(
+      $missingTurnPath,
+      (($template -f $fresh, $fresh).Replace(
+          '- DartClaw terminal state: `completed`; stored assistant response: `pong`.',
+          '- DartClaw terminal state: `running`; stored assistant response: `pong`.'
+        ))
+    )
+    $missingTurnResult = Test-ProviderEvidence -Path $missingTurnPath
+    if ($missingTurnResult.Valid -or $missingTurnResult.Detail -notmatch 'completed stored-response proof') {
+      throw 'marker-only provider evidence did not fail its terminal-state proof'
+    }
+
+    $duplicateSectionPath = Join-Path $testRoot 'duplicate-provider-section.md'
+    [IO.File]::WriteAllText(
+      $duplicateSectionPath,
+      ($template -f $fresh, $fresh) + "`n## Claude Result`n- Qualification: **PASS**.`n"
+    )
+    $duplicateSectionResult = Test-ProviderEvidence -Path $duplicateSectionPath
+    if ($duplicateSectionResult.Valid -or $duplicateSectionResult.Detail -notmatch 'Claude result section is not unique') {
+      throw 'duplicate provider section did not fail its uniqueness proof'
+    }
+
+    $contradictoryPath = Join-Path $testRoot 'contradictory-provider-result.md'
+    [IO.File]::WriteAllText(
+      $contradictoryPath,
+      (($template -f $fresh, $fresh).Replace(
+          '- Qualification: **PASS**.',
+          "- Qualification: **FAIL**.`n- Qualification: **PASS**."
+        ))
+    )
+    $contradictoryResult = Test-ProviderEvidence -Path $contradictoryPath
+    if ($contradictoryResult.Valid -or $contradictoryResult.Detail -notmatch 'result is not one exact PASS') {
+      throw 'contradictory provider result did not fail its exact-verdict proof'
+    }
+
+    $substringPassPath = Join-Path $testRoot 'substring-pass.md'
+    [IO.File]::WriteAllText(
+      $substringPassPath,
+      (($template -f $fresh, $fresh).Replace('- Qualification: **PASS**.', '- Previous Qualification: **PASS**.'))
+    )
+    $substringPassResult = Test-ProviderEvidence -Path $substringPassPath
+    if ($substringPassResult.Valid -or $substringPassResult.Detail -notmatch 'result is not one exact PASS') {
+      throw 'substring PASS marker did not fail its exact-verdict proof'
+    }
     if ((Test-ProviderEvidence -Path (Join-Path $testRoot 'absent.md')).Valid) { throw 'absent evidence was accepted' }
 
     $script:DataDir = Join-Path $testRoot 'data'
@@ -562,16 +670,24 @@ function Test-ProviderEvidence {
     return [pscustomobject]@{ Valid = $false; Detail = "provider evidence is unreadable: $($_.Exception.Message)" }
   }
   $failures = [Collections.Generic.List[string]]::new()
-  if ($content -notmatch '(?m)^\*\*Status\*\*:\s*QUALIFIED\s*$') { $failures.Add('status is not QUALIFIED') }
-  if ($content -notmatch '(?m)^\*\*Host\*\*:\s*.*Windows.*(?:x64|ARM64)') { $failures.Add('Windows OS/architecture missing') }
-  $identity = [regex]::Match($content, '(?mi)^\*\*DartClaw under test\*\*:\s*(.+)$').Groups[1].Value
+  $statusMatches = [regex]::Matches($content, '(?mi)^\*\*Status\*\*:\s*(.+?)\s*$')
+  if ($statusMatches.Count -ne 1 -or $statusMatches[0].Groups[1].Value -cne 'QUALIFIED') {
+    $failures.Add('status is not one exact QUALIFIED value')
+  }
+  $hostMatches = [regex]::Matches($content, '(?mi)^\*\*Host\*\*:\s*(.+?)\s*$')
+  if ($hostMatches.Count -ne 1 -or $hostMatches[0].Groups[1].Value -notmatch 'Windows.*(?:x64|ARM64)') {
+    $failures.Add('Windows OS/architecture is not unique')
+  }
+  $identityMatches = [regex]::Matches($content, '(?mi)^\*\*DartClaw under test\*\*:\s*(.+?)\s*$')
+  $identity = if ($identityMatches.Count -eq 1) { $identityMatches[0].Groups[1].Value } else { '' }
+  if ($identityMatches.Count -ne 1) { $failures.Add('DartClaw identity is not unique') }
   if ($script:ExecutionMode -eq 'source') {
     $sourcePattern = '(?i)(?<![0-9a-f])' + [regex]::Escape($script:SourceIdentity) + '(?![0-9a-f])'
     if (-not $identity -or $identity -notmatch $sourcePattern) {
       $failures.Add('DartClaw source revision does not match')
     }
-    $fingerprintMatch = [regex]::Match($content, '(?mi)^\*\*Source fingerprint\*\*:\s*([0-9a-f]{64})\s*$')
-    if (-not $fingerprintMatch.Success -or $fingerprintMatch.Groups[1].Value -ne $script:SourceFingerprint) {
+    $fingerprintMatches = [regex]::Matches($content, '(?mi)^\*\*Source fingerprint\*\*:\s*(.+?)\s*$')
+    if ($fingerprintMatches.Count -ne 1 -or $fingerprintMatches[0].Groups[1].Value -cne $script:SourceFingerprint) {
       $failures.Add('DartClaw runtime source fingerprint does not match')
     }
   } else {
@@ -585,28 +701,72 @@ function Test-ProviderEvidence {
   foreach ($provider in @('Claude', 'Codex')) {
     $version = $script:ProviderVersions[$provider.ToLowerInvariant()]
     $versionNumber = [regex]::Match($version, '\d+(?:\.\d+){1,3}').Value
-    $section = [regex]::Match(
+    $sectionMatches = [regex]::Matches(
       $content,
       "(?ms)^## $provider Result\s*(.*?)(?=^## |\z)"
-    ).Groups[1].Value
-    if (-not $section -or $section -notmatch 'Qualification:\s*\*\*PASS\*\*') {
-      $failures.Add("$provider result is not PASS")
+    )
+    if ($sectionMatches.Count -ne 1) {
+      $failures.Add("$provider result section is not unique")
+      continue
     }
-    $metadata = [regex]::Match($content, "(?mi)^\*\*$provider\*\*:\s*(.+)$").Groups[1].Value
+    $section = $sectionMatches[0].Groups[1].Value
+    $qualificationMatches = [regex]::Matches(
+      $section,
+      '(?m)^- Qualification:\s*\*\*(PASS|FAIL)\*\*\.\s*$'
+    )
+    if ($qualificationMatches.Count -ne 1 -or $qualificationMatches[0].Groups[1].Value -ne 'PASS') {
+      $failures.Add("$provider result is not one exact PASS")
+    }
+    $sessionTurnMatches = [regex]::Matches(
+      $section,
+      '(?ms)^- HTTP session:\s*`[^`\r\n]+`;\s*turn:\s*\r?\n\s*`[^`\r\n]+`\.\s*$'
+    )
+    if ($sessionTurnMatches.Count -ne 1) {
+      $failures.Add("$provider session and turn proof is not unique")
+    }
+    $storedResponseMatches = [regex]::Matches(
+      $section,
+      '(?m)^- DartClaw terminal state:\s*`completed`;\s*stored assistant response:\s*`pong`\.\s*$'
+    )
+    if ($storedResponseMatches.Count -ne 1) {
+      $failures.Add("$provider completed stored-response proof is not unique")
+    }
+    $transportPattern = if ($provider -eq 'Claude') {
+      '(?m)^- No JSONL parse or stdio transport error occurred\.\s*$'
+    } else {
+      '(?m)^- The app-server wire reached `turn/completed`; no JSON-RPC parse or stdio transport error occurred\.\s*$'
+    }
+    if ([regex]::Matches($section, $transportPattern).Count -ne 1) {
+      $failures.Add("$provider successful transport proof is not unique")
+    }
+    if ($provider -eq 'Claude') {
+      $terminalResultMatches = [regex]::Matches(
+        $section,
+        '(?m)^- Provider terminal result:\s*`is_error=(true|false)`\.\s*$'
+      )
+      if ($terminalResultMatches.Count -ne 1 -or $terminalResultMatches[0].Groups[1].Value -cne 'false') {
+        $failures.Add('Claude provider terminal result is not one exact is_error=false')
+      }
+    }
+    $metadataMatches = [regex]::Matches($content, "(?mi)^\*\*$provider\*\*:\s*(.+)$")
+    $metadata = if ($metadataMatches.Count -eq 1) { $metadataMatches[0].Groups[1].Value } else { '' }
     $metadataVersion = [regex]::Match($metadata, '\d+(?:\.\d+){1,3}').Value
     if (-not $versionNumber -or -not $metadata -or $metadataVersion -ne $versionNumber) {
       $failures.Add("$provider version does not match")
     }
   }
 
+  $runTimestampMatches = [regex]::Matches($content, '(?mi)^\*\*Run timestamps\*\*:\s*(.+?)\s*$')
+  if ($runTimestampMatches.Count -ne 1) { $failures.Add('run timestamps field is not unique') }
+  $runTimestampMetadata = if ($runTimestampMatches.Count -eq 1) { $runTimestampMatches[0].Groups[1].Value } else { '' }
   foreach ($provider in @('Claude', 'Codex')) {
-    $timestampMatch = [regex]::Match(
-      $content,
-      ('(?mi)^\*\*Run timestamps\*\*:.*{0}\s+`([^`]+)`' -f [regex]::Escape($provider))
+    $timestampMatches = [regex]::Matches(
+      $runTimestampMetadata,
+      ('(?i)(?:^|;\s*){0}\s+`([^`]+)`' -f [regex]::Escape($provider))
     )
     $timestamp = $null
     try {
-      if ($timestampMatch.Success) { $timestamp = [DateTimeOffset]::Parse($timestampMatch.Groups[1].Value) }
+      if ($timestampMatches.Count -eq 1) { $timestamp = [DateTimeOffset]::Parse($timestampMatches[0].Groups[1].Value) }
     } catch {}
     if ($null -eq $timestamp -or $timestamp -lt $now.AddDays(-$MaxEvidenceAgeDays)) {
       $failures.Add("$provider evidence is older than $MaxEvidenceAgeDays days or lacks its timestamp")

@@ -28,9 +28,6 @@ final _log = Logger('BashStepRunner');
 
 typedef BashShellInvocation = ({String executable, List<String> arguments});
 
-Future<ExecutableLookupResult> runExecutableLookup(String executable, List<String> arguments) =>
-    _resolveExecutableLookup(executable, PlatformCapabilities());
-
 Future<ExecutableLookupResult> _resolveExecutableLookup(String executable, PlatformCapabilities capabilities) async {
   final matches = <String>[];
   for (final candidate in capabilities.executableSearchCandidates(executable)) {
@@ -98,7 +95,7 @@ Future<StepOutcome> bashStepRun(ActionNode node, StepExecutionContext ctx) async
     envAllowlist: ctx.bashStepEnvAllowlist,
     extraStripPatterns: ctx.bashStepExtraStripPatterns,
     capabilities: ctx.platformCapabilities,
-    executableLookup: ctx.executableLookupExecutor ?? runExecutableLookup,
+    executableLookup: ctx.executableLookupExecutor,
     processOwner: ctx.bashProcessOwner,
   );
 }
@@ -320,7 +317,8 @@ bool _hasShellReparse(String command) {
   final normalized = command.replaceAll(RegExp(r'''["'\\]'''), '');
   final riskyPatterns = <RegExp>[
     RegExp(r'\beval\b'),
-    RegExp(r'''(^|[/\s;&|(<])(?:sh|bash)(?:\.exe)?(?=$|["'\s;&|)>])'''),
+    RegExp(r'''(^|[/\s;&|(<])(?:sh|bash|dash|zsh|ksh|ash|fish)(?:\.exe)?(?=$|["'\s;&|)>])'''),
+    RegExp(r'<<-?(?!<)'),
     RegExp(r'`[^`]*\{\{'),
     RegExp(r'\$\([^)]*\{\{'),
   ];

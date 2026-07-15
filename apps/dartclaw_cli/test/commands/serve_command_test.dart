@@ -268,6 +268,48 @@ void main() {
       expect(logs.map((record) => record.error).whereType<UnsupportedCapabilityError>(), hasLength(1));
     });
 
+    test('Windows platform policy skips SIGTERM registration', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_signals_test_');
+      var sigtermWatchCalls = 0;
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          templatesDir: _templatesDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(_FakeWorkerService()),
+        serveFn: (handler, address, port) => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        sigintWatch: () => Stream.value(ProcessSignal.sigint),
+        sigtermWatch: () {
+          sigtermWatchCalls++;
+          return const Stream.empty();
+        },
+        runWorkflowSkillsBootstrap: false,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(
+        localRunner.run(['serve']),
+        throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 0)),
+      );
+
+      expect(sigtermWatchCalls, 0);
+    });
+
     test('channel config warnings are printed before server startup', () async {
       final stderrLines = <String>[];
       final worker = _FakeWorkerService();

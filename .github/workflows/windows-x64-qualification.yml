@@ -357,14 +357,31 @@ jobs:
         run: |
           $artifacts = @(Get-ChildItem -LiteralPath build -Filter 'dartclaw-v*-windows-x64.zip' -File)
           if ($artifacts.Count -ne 1) { throw "Expected one Windows artifact, found $($artifacts.Count)." }
-          & pwsh -NoLogo -NoProfile -File ./dev/testing/profiles/windows-runtime/run.ps1 `
-            -ArtifactPath $artifacts[0].FullName `
-            -SkipProviders `
-            -ExpectedClaudeVersion '2.1.207 (Claude Code)' `
-            -ExpectedCodexVersion 'codex-cli 0.139.0' `
-            -ProviderEvidencePath dev/testing/evidence/windows-harness-turns.md `
-            -EvidencePath qualification/windows-current-runtime-smoke.md
-          $smokeExitCode = $LASTEXITCODE
+          $smokeStartInfo = [Diagnostics.ProcessStartInfo]::new()
+          $smokeStartInfo.FileName = (Get-Command pwsh).Source
+          $smokeStartInfo.UseShellExecute = $false
+          foreach ($argument in @(
+            '-NoLogo',
+            '-NoProfile',
+            '-File',
+            (Resolve-Path -LiteralPath './dev/testing/profiles/windows-runtime/run.ps1').Path,
+            '-ArtifactPath',
+            $artifacts[0].FullName,
+            '-SkipProviders',
+            '-ExpectedClaudeVersion',
+            '2.1.207 (Claude Code)',
+            '-ExpectedCodexVersion',
+            'codex-cli 0.139.0',
+            '-ProviderEvidencePath',
+            (Resolve-Path -LiteralPath 'dev/testing/evidence/windows-harness-turns.md').Path,
+            '-EvidencePath',
+            [IO.Path]::GetFullPath('qualification/windows-current-runtime-smoke.md')
+          )) {
+            $smokeStartInfo.ArgumentList.Add($argument)
+          }
+          $smokeProcess = [Diagnostics.Process]::Start($smokeStartInfo)
+          $smokeProcess.WaitForExit()
+          $smokeExitCode = $smokeProcess.ExitCode
           if ($smokeExitCode -eq 1) { throw 'Windows artifact smoke failed.' }
           if ($smokeExitCode -notin @(0, 2)) { throw "Windows artifact smoke returned unexpected exit code $smokeExitCode." }
 

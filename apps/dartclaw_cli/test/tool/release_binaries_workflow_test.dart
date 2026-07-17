@@ -136,4 +136,20 @@ void main() {
       expect(publish['run'], isNot(contains('SCOOP_BUCKET_TOKEN')));
     }
   });
+
+  test('Windows qualification inspects an incomplete smoke result without host termination', () {
+    final qualificationWorkflow = File(
+      p.join(repoRoot, '.github', 'workflows', 'windows-x64-qualification.yml'),
+    ).readAsStringSync();
+    final qualificationDocument = loadYaml(qualificationWorkflow) as YamlMap;
+    final qualificationJob = (qualificationDocument['jobs'] as YamlMap)['qualify'] as YamlMap;
+    final qualificationSteps = (qualificationJob['steps'] as YamlList).cast<YamlMap>();
+    final smoke = qualificationSteps.singleWhere((step) => step['name'] == 'Run x64 artifact smoke');
+    final run = smoke['run'] as String;
+
+    expect(run, contains(r'[Diagnostics.ProcessStartInfo]::new()'));
+    expect(run, contains(r'$smokeProcess.ExitCode'));
+    expect(run, isNot(contains(r'$LASTEXITCODE')));
+    expect(run, contains(r'if ($smokeExitCode -eq 2)'));
+  });
 }

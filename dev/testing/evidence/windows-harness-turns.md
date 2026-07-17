@@ -7,6 +7,7 @@
 **Windows user**: `TOBIASLFSTR7587\tobias` (`C:\Users\tobias`)
 **DartClaw under test**: release artifact 0.21.0
 **Qualification bootstrap run ID**: `29559500130`
+**Qualification closure run ID**: `29560259285`
 **Runtime source revision**: `28d0a2aa961d85d5eadb0232a8fda81cfcb264c5`
 **Artifact SHA256**: `dfa5b871b3f7780ec2e54af6f66b704b15c75f612192d624483f482e5db3d7bc`
 **Source fingerprint**: not applicable (artifact mode)

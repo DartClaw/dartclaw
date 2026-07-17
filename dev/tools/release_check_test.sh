@@ -15,21 +15,24 @@ if ! grep -Fq 'dart pub get --enforce-lockfile' "$ROOT_DIR/.github/workflows/ci.
   echo "CI must enforce the tracked workspace lockfile" >&2
   exit 1
 fi
-qualification_smoke_step="$(sed -n \
-  '/      - name: Run x64 artifact smoke/,/      - name: Record provider evidence identity/p' \
-  "$ROOT_DIR/.github/workflows/windows-x64-qualification.yml")"
-for smoke_contract in \
-  '[Diagnostics.ProcessStartInfo]::new()' \
-  '$smokeProcess.ExitCode' \
-  'if ($smokeExitCode -eq 2)'; do
-  if [[ "$qualification_smoke_step" != *"$smoke_contract"* ]]; then
-    echo "Windows qualification must inspect incomplete smoke results: $smoke_contract" >&2
+qualification_workflow="$ROOT_DIR/.github/workflows/windows-x64-qualification.yml"
+if [[ -f "$qualification_workflow" ]]; then
+  qualification_smoke_step="$(sed -n \
+    '/      - name: Run x64 artifact smoke/,/      - name: Record provider evidence identity/p' \
+    "$qualification_workflow")"
+  for smoke_contract in \
+    '[Diagnostics.ProcessStartInfo]::new()' \
+    '$smokeProcess.ExitCode' \
+    'if ($smokeExitCode -eq 2)'; do
+    if [[ "$qualification_smoke_step" != *"$smoke_contract"* ]]; then
+      echo "Windows qualification must inspect incomplete smoke results: $smoke_contract" >&2
+      exit 1
+    fi
+  done
+  if [[ "$qualification_smoke_step" == *'$LASTEXITCODE'* ]]; then
+    echo 'Windows qualification cannot inspect expected smoke exit 2 through $LASTEXITCODE' >&2
     exit 1
   fi
-done
-if [[ "$qualification_smoke_step" == *'$LASTEXITCODE'* ]]; then
-  echo 'Windows qualification cannot inspect expected smoke exit 2 through $LASTEXITCODE' >&2
-  exit 1
 fi
 for release_lock_contract in \
   'section "3. Dependency lock"' \

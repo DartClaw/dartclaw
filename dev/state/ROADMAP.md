@@ -6,10 +6,9 @@
 
 ### 0.21 — Windows Support & Cross-Platform Hardening
 
-**Status: 0.21.0 release candidate pinned; final CI, live, UI, and native Windows x64 qualification pending.** Native
-Windows x64 binary for the core runtime plus cross-platform hardening and explicit degradation for Unix-coupled
-features. Earlier native-x64 server, Web UI, bundled-FTS5, reload, process-lifecycle, Git Bash, Claude, and Codex
-evidence must be refreshed against the pinned source before publication.
+**Status: Release-ready on `feat/0.21`; awaiting squash-merge and `v0.21.0` tag.** Native Windows x64 binary for the
+core runtime plus cross-platform hardening and explicit degradation for Unix-coupled features. Final CI, live/UI, and
+exact-artifact Windows x64 qualification are complete.
 
 ## Planned
 

@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-16 07:47 CEST
+Last Updated: 2026-07-17 09:23 CEST
 
 ### Implemented Features (through 0.21)
 
@@ -29,7 +29,7 @@ Last Updated: 2026-07-16 07:47 CEST
 
 **Status**: On Track
 
-**Active milestone**: 0.21 – Windows Support & Cross-Platform Hardening (0.21.0 pins applied; final CI, live, UI, and native Windows x64 qualification pending before publication).
+**Active milestone**: 0.21 – Windows Support & Cross-Platform Hardening (release-ready on `feat/0.21`; awaiting squash-merge and `v0.21.0` tag).
 
 **Previous**: 0.20.1 – Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11). 0.20.0 – Workflow Hardening, Simplification & Polish (tagged `v0.20.0` on 2026-07-09).
 
@@ -39,14 +39,11 @@ Last Updated: 2026-07-16 07:47 CEST
 
 ## Blockers
 
-- Final native Windows x64 artifact/runtime/Git Bash and Claude/Codex provider qualification must run against the pinned 0.21.0 source; the previous evidence predates later runtime changes.
-- Full live workflow and UI smoke gates must pass on the pinned 0.21.0 source.
-- 0.21 hosted Scoop verification requires the first public 0.21 Windows ZIP and rendered manifest. Local installation
-  and protected publication authorization are qualified.
+- None. Hosted Homebrew/Scoop install audits remain post-tag checks.
 
 ## Recent Decisions
 
-- 0.21 Windows qualification evidence from 2026-07-14 passed native-x64 artifact/runtime/lifecycle/Git Bash gates in GitHub Actions run 29310391226 with matching native-Windows Claude/Codex evidence. Later runtime changes require a final rerun against the pinned 0.21.0 source. Windows Bash timeout cleanup guarantees only the directly managed root; descendant containment remains unsupported and cleanup uncertainty blocks later Bash steps until restart.
+- 0.21 release qualification is complete: bootstrap run 29559500130 built source `28d0a2aa961d85d5eadb0232a8fda81cfcb264c5` into the exact Windows x64 artifact (SHA256 `dfa5b871b3f7780ec2e54af6f66b704b15c75f612192d624483f482e5db3d7bc`); matching Claude/Codex turns and closure run 29560259285 passed. Windows Bash timeout cleanup remains direct-root-only; cleanup uncertainty blocks later Bash steps until restart.
 - 0.20 story 33 (host-owned step artifact dirs) implemented 2026-07-06: the engine exports a host-computed per-task `DARTCLAW_STEP_ARTIFACTS_DIR` (`<runtime-artifacts>/steps/<stepId>[-<mapIterationIndex>]`) on every workflow task and captures review reports deterministically from that dir (newest `.md`, model claim ignored, zero-findings stub materialized there). Deletes the story-31 `--output-dir` prompt hoist (`output_dir_env_hoist.dart`, `DARTCLAW_REVIEW_OUTPUT_DIR`) and the three-layer review-claim capture heuristics (root-reorder/`preserveRuntimeArtifactsRoot`/`locateUnclaimedReviewArtifact`/`materializeMissingCleanReviewArtifact`); non-review `format: path` stays worktree-first. Shipped YAMLs author `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"`. Verified: full workspace suite (5416 pass), analyze/arch_check/fitness/format green, workflow-contract profile green, live env micro-canary + step-isolation `architecture-review`/`re-review` capture tests pass against real codex.
 - 0.20 story 34 (live workflow e2e speedup) code landed 2026-07-06. Tasks A/B solid: `workflow_e2e_integration_test.dart` dropped the spec-and-implement *synthesize* live-e2e (branch matrix is stub-covered), promoted the *reuse* run to primary (skips `spec`; closes review finding R6), and reworked the plan-and-implement run to seed a **committed** `plan.json` + 2 story FIS so `discover-plan-state` indexes them and the `plan` step is skipped (`recorder.count('plan') == 0`); added a `spec` live authoring probe to `workflow_step_isolation_test.dart` (the `plan` probe already existed). **Task C pivoted** (owner, 2026-07-06): a partial live `--e2e` run measured `gpt-5.4-mini` executor/reviewer at ~5–8× slower and ~100× the tokens per review (1–2.3M-token review turns, 7–11 min each on a clean diff) vs baseline — a regression, not a speedup. Reverted the mini edit (codex preset stays `gpt-5.3-codex-spark`); `workflow-live/run.sh` keeps the fixture default (**codex/spark**), `DARTCLAW_TEST_PROVIDER=claude` opts into Sonnet. Static gates green (format, analyze, workflow + server suites, fixture golden). **A2 validated live** 2026-07-06 on codex/`gpt-5.3-codex-spark`: `--canary plan-and-implement` completed green in ~24 min — `discover-plan-state` indexed the seeded `plan.json`, the `plan` step was skipped, the 2-story foreach + 3 parallel reviews + forced remediation + merge-of-both-branches + publish all ran, teardown auto-closed the PR/branch. (A1/reuse was validated live on codex earlier.) **Second bug found + fixed:** `_claudePreset` used `permissionMode: bypassPermissions`, which `claude_cli_provider` rejects for policy-bearing workflow one-shot tasks → changed to `permissionMode: dontAsk`. **Third bug found + fixed (2026-07-07): envelope finalizer turn cap, not the env scrub.** The suspected `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` root cause was **falsified empirically**: the CLI does force `--permission-mode default` when the var is set (benign stderr notice), but the one-shot tool policy rides in `--settings` permission rules, which default mode enforces identically headless — verified with the exact spawn shapes on CLI 2.1.201 + 2.1.202 and a live claude plan-and-implement canary that ran discovery, both stories, and all reviews green *with the var set*. The real `error_max_turns` cause (caught live in that canary's remediate step): the structured-output envelope finalizer ran with `--max-turns 1`, so one rejected `StructuredOutput` attempt (model passing a JSON-encoded string where the schema wants an object) had no retry turn → whole step fails. Fixed: cap raised 1→2 in `workflow_one_shot_runner.dart` (one schema retry), test updated, `claudeHardeningEnvVars` dartdoc now documents the forced-default semantics. Hardening env unchanged. Full green claude e2e rerun with the fix still pending (recommend `--canary plan-and-implement` with `DARTCLAW_TEST_PROVIDER=claude`).
 - 0.19 S08 implemented cross-layer source attribution UI on 2026-06-24: shared Trellis attribution fragment consumes S06 citation types/resolver, flags unresolvable citations, renders packet/source-list/degraded/no-source states, registers `/knowledge/research`, adds Afterglow styling and `dc-attribution` popovers, and proves reuse for packet/hub/timeline fixtures.

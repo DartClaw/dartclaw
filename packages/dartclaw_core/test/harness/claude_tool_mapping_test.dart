@@ -19,9 +19,10 @@ void main() {
       expect(adapter.mapToolName('write_file'), CanonicalTool.fileWrite);
     });
 
-    test('maps Edit and edit_file to file_edit', () {
+    test('maps Edit, NotebookEdit, and edit_file to file_edit', () {
       final adapter = ClaudeProtocolAdapter();
       expect(adapter.mapToolName('Edit'), CanonicalTool.fileEdit);
+      expect(adapter.mapToolName('NotebookEdit'), CanonicalTool.fileEdit);
       expect(adapter.mapToolName('edit_file'), CanonicalTool.fileEdit);
     });
 

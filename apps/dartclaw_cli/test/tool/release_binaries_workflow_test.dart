@@ -61,7 +61,7 @@ void main() {
     expect(windows, {'runs_on': 'windows-latest', 'os_name': 'windows', 'arch_name': 'x64', 'target': 'windows-x64'});
 
     final validation = stepNamed('Test Windows artifact validation');
-    final build = stepNamed('Build and validate Windows artifact');
+    final build = stepNamed('Use qualified Windows artifact');
     final publish = stepNamed('Publish Windows release asset');
     expect(validation['if'], "runner.os == 'Windows'");
     expect(validation['shell'], 'pwsh');
@@ -69,12 +69,21 @@ void main() {
     expect(validation.containsKey('continue-on-error'), isFalse);
     expect(build['if'], "runner.os == 'Windows'");
     expect(build['shell'], 'pwsh');
-    expect(build['run'], './dev/tools/build_windows.ps1 -ReleaseTarget windows-x64');
+    expect(build['run'], contains('Tagged runtime/build tree differs from the qualified Windows source.'));
+    expect(
+      build['run'],
+      contains('Downloaded Windows release artifact does not match qualified evidence and checksum.'),
+    );
+    expect(
+      build['run'],
+      contains('Windows qualification closure run is not one successful trusted workflow execution.'),
+    );
+    expect(build['run'], contains('Tag-time Windows artifact/evidence closure failed.'));
     expect(build.containsKey('continue-on-error'), isFalse);
     expect(publish['if'], "runner.os == 'Windows'");
     expect(publish['uses'], startsWith('softprops/action-gh-release@'));
     expect(publish.containsKey('continue-on-error'), isFalse);
-    expect(steps.indexOf(validation), lessThan(steps.indexOf(build)));
+    expect(steps.indexOf(validation), lessThan(steps.indexOf(publish)));
     expect(steps.indexOf(build), lessThan(steps.indexOf(publish)));
     final windowsFiles = ((publish['with'] as YamlMap)['files'] as String).trim().split('\n');
     expect(windowsFiles, [
@@ -85,6 +94,9 @@ void main() {
     expect(workflow, contains('build/dartclaw-v\${{ env.DARTCLAW_VERSION }}-\${{ matrix.target }}.tar.gz'));
     expect(workflow, contains('build/dartclaw-v\${{ env.DARTCLAW_VERSION }}-\${{ matrix.target }}.tar.gz.sha256'));
     expect(workflow, contains('bash dev/tools/check_versions.sh "\$DARTCLAW_VERSION"'));
+    expect(RegExp(r'run: dart pub get --enforce-lockfile').allMatches(workflow), hasLength(3));
+    expect(workflow, isNot(contains('run: dart pub get\n')));
+    expect(workflow, isNot(contains('sync_version.dart')));
     expect(workflow, contains('TAG_VERSION="\${GITHUB_REF_NAME#v}"'));
     expect(workflow, contains('Tag \$GITHUB_REF_NAME does not match dartclawVersion \$DARTCLAW_VERSION'));
     expect(workflow, isNot(contains('publish_assets')));
@@ -97,7 +109,7 @@ void main() {
 
   test('publication jobs use the protected environment and least-privilege credentials', () {
     expect(document['permissions'], {'contents': 'read'});
-    expect(buildJob['permissions'], {'contents': 'write'});
+    expect(buildJob['permissions'], {'actions': 'read', 'contents': 'write'});
     expect((jobs['checksums'] as YamlMap)['permissions'], {'contents': 'write'});
     for (final name in ['homebrew', 'windows-installer', 'scoop']) {
       expect((jobs[name] as YamlMap).containsKey('permissions'), isFalse);

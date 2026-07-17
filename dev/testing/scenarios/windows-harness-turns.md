@@ -6,13 +6,13 @@ providers: [claude, codex]
 # Scenario: Native Windows Harness Turns
 
 Validates one real Claude turn and one real Codex turn through DartClaw's HTTP session API and provider-scoped harness
-pool. Run both providers from the same native Windows checkout. A raw provider probe is useful diagnosis but does not
-qualify this scenario.
+pool. Release qualification runs both providers through the candidate artifact; a source run or raw provider probe is
+useful diagnosis but does not qualify this scenario.
 
 ## Prerequisites
 
 - Native Windows with Dart, `claude`, and `codex` on `PATH` and authenticated.
-- This checkout and its dependencies available locally.
+- This checkout plus the candidate Windows release ZIP available locally.
 - No server already listening on port 3333.
 
 For a Parallels shared-folder checkout, map the share to a drive before running Dart. Dart's native-asset build hooks
@@ -40,7 +40,10 @@ claude --version
 codex --version
 ```
 
-State whether the source checkout or a release artifact is under test.
+Record the candidate artifact filename, SHA256, release version, exact source revision, and GitHub Actions bootstrap run
+ID that produced it. The release qualification downloads that run's artifact and rejects missing, duplicate, or
+mismatched identity fields. After the evidence commit's qualification run passes, record that successful closure run ID
+before removing the temporary workflow; the tag workflow requires it and re-runs the artifact/evidence closure.
 
 ## Run Each Provider
 
@@ -73,10 +76,16 @@ providers:
     sandbox: danger-full-access
 ```
 
-Start the selected server from PowerShell:
+Extract the candidate once, then start the selected server from PowerShell:
 
 ```powershell
-dart run dartclaw_cli:dartclaw --config .agent_temp\windows-harness-<provider>.yaml serve
+$artifact = Resolve-Path .agent_temp\dartclaw-v<version>-windows-x64.zip
+$artifactSha256 = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+$artifactRoot = '.agent_temp\windows-harness-artifact'
+Remove-Item -LiteralPath $artifactRoot -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -LiteralPath $artifact -DestinationPath $artifactRoot
+$dartclaw = Resolve-Path "$artifactRoot\bin\dartclaw.exe"
+& $dartclaw --config .agent_temp\windows-harness-<provider>.yaml serve
 ```
 
 In another PowerShell window, create a session and send the turn through the server:

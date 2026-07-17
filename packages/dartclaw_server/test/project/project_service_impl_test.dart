@@ -268,18 +268,18 @@ void main() {
     });
 
     test('fires ProjectStatusChangedEvent on status transition', () async {
-      final events = <ProjectStatusChangedEvent>[];
       final eventBus = EventBus();
-      eventBus.on<ProjectStatusChangedEvent>().listen(events.add);
 
       final svc = makeService(gitRunner: _fakeGitRunner(exitCode: 0), eventBus: eventBus);
       await svc.initialize();
+      final readyEvent = eventBus.on<ProjectStatusChangedEvent>().firstWhere(
+        (event) => event.newStatus == ProjectStatus.ready,
+      );
 
       final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final event = await readyEvent;
 
-      // At least 2 events: initial cloning (oldStatus=null) + ready transition.
-      expect(events.any((e) => e.projectId == project.id && e.newStatus == ProjectStatus.ready), isTrue);
+      expect(event.projectId, equals(project.id));
     });
   });
 

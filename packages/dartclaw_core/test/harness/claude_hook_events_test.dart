@@ -102,7 +102,8 @@ void main() {
       final toolNameCondition = ifCondition['toolName'] as Map<String, dynamic>;
       final toolNames = (toolNameCondition[r'$in'] as List).cast<String>();
 
-      expect(toolNames, containsAll(['Bash', 'Write', 'Edit', 'Read', 'MultiEdit']));
+      expect(toolNames, containsAll(['Bash', 'Write', 'Edit', 'NotebookEdit', 'Read']));
+      expect(toolNames, isNot(contains('MultiEdit')));
     });
   });
 

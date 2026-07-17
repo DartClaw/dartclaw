@@ -17,13 +17,13 @@ const readOnlyShellAllow = [
   'Bash(git status --short)',
   'Bash(git status)',
   'Bash(pwd)',
-  'Glob(*)',
-  'Grep(*)',
-  'LS(*)',
-  'Read(*)',
+  'Glob',
+  'Grep',
+  'LS',
+  'Read',
 ];
 
-const writeDeny = ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'];
+const writeDeny = ['Edit', 'NotebookEdit', 'Write'];
 
 const itemsSchema = {
   'type': 'object',

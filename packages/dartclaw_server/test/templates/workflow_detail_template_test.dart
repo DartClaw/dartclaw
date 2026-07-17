@@ -76,6 +76,7 @@ void main() {
       final count = RegExp(r'workflow-step-card').allMatches(html).length;
       expect(count, 4);
       expect(html, contains('data-controller="dc-workflows"'));
+      expect(html, contains('data-run-status="running"'));
     });
 
     test('progress bar: 0/6 -> 0%', () {

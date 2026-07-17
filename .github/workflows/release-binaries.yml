@@ -16,6 +16,7 @@ jobs:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.runs_on }}
     permissions:
+      actions: read
       contents: write
     strategy:
       fail-fast: false
@@ -45,6 +46,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Dart
@@ -53,10 +55,7 @@ jobs:
           sdk: 3.12.0
 
       - name: Install dependencies
-        run: dart pub get
-
-      - name: Sync DartClaw version
-        run: dart run dev/tools/sync_version.dart
+        run: dart pub get --enforce-lockfile
 
       - name: Read DartClaw version
         if: runner.os != 'Windows'
@@ -91,6 +90,116 @@ jobs:
             throw "Tag $env:GITHUB_REF_NAME does not match dartclawVersion $env:DARTCLAW_VERSION"
           }
 
+      - name: Read qualified Windows artifact identity
+        id: windows_qualification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $content = Get-Content -LiteralPath dev/testing/evidence/windows-harness-turns.md -Raw
+          $runMatches = [regex]::Matches(
+            $content,
+            '(?mi)^\*\*Qualification bootstrap run ID\*\*:\s*`?([0-9]+)`?\s*$'
+          )
+          $closureRunMatches = [regex]::Matches(
+            $content,
+            '(?mi)^\*\*Qualification closure run ID\*\*:\s*`?([0-9]+)`?\s*$'
+          )
+          $revisionMatches = [regex]::Matches(
+            $content,
+            '(?mi)^\*\*Runtime source revision\*\*:\s*`?([0-9a-f]{40})`?\s*$'
+          )
+          $hashMatches = [regex]::Matches(
+            $content,
+            '(?mi)^\*\*Artifact SHA256\*\*:\s*`?([0-9a-f]{64})`?\s*$'
+          )
+          if ($runMatches.Count -ne 1) { throw 'Windows evidence must name one qualification bootstrap run ID.' }
+          if ($closureRunMatches.Count -ne 1) { throw 'Windows evidence must name one qualification closure run ID.' }
+          if ($revisionMatches.Count -ne 1) { throw 'Windows evidence must name one runtime source revision.' }
+          if ($hashMatches.Count -ne 1) { throw 'Windows evidence must name one artifact SHA256.' }
+          "run_id=$($runMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          "closure_run_id=$($closureRunMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          "runtime_revision=$($revisionMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          "artifact_sha256=$($hashMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+
+      - name: Download qualified Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-x64-candidate-artifact
+          path: qualified-windows
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.windows_qualification.outputs.run_id }}
+
+      - name: Use qualified Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $qualifiedRevision = '${{ steps.windows_qualification.outputs.runtime_revision }}'
+          $qualificationRunId = '${{ steps.windows_qualification.outputs.run_id }}'
+          $closureRunId = '${{ steps.windows_qualification.outputs.closure_run_id }}'
+          $expectedHash = '${{ steps.windows_qualification.outputs.artifact_sha256 }}'
+          $qualificationRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$qualificationRunId" |
+            ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to read Windows qualification run.' }
+          if ($qualificationRun.status -ne 'completed' -or
+              $qualificationRun.event -ne 'push' -or
+              $qualificationRun.name -ne 'Temporary Windows x64 Qualification' -or
+              $qualificationRun.path -ne '.github/workflows/windows-x64-qualification.yml' -or
+              $qualificationRun.head_branch -ne 'feat/0.21' -or
+              $qualificationRun.head_sha -ne $qualifiedRevision) {
+            throw 'Windows qualification run does not identify the recorded source revision.'
+          }
+
+          git cat-file -e "$qualifiedRevision^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Qualified Windows source revision is unavailable.' }
+          git diff --quiet $qualifiedRevision $env:GITHUB_SHA -- `
+            apps packages pubspec.yaml pubspec.lock dev/tools/build_windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Tagged runtime/build tree differs from the qualified Windows source.' }
+
+          $closureRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$closureRunId" |
+            ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to read Windows qualification closure run.' }
+          if ($closureRun.status -ne 'completed' -or
+              $closureRun.conclusion -ne 'success' -or
+              $closureRun.event -ne 'push' -or
+              $closureRun.name -ne 'Temporary Windows x64 Qualification' -or
+              $closureRun.path -ne '.github/workflows/windows-x64-qualification.yml' -or
+              $closureRun.head_branch -ne 'feat/0.21') {
+            throw 'Windows qualification closure run is not one successful trusted workflow execution.'
+          }
+          git cat-file -e "$($closureRun.head_sha)^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows qualification closure revision is unavailable.' }
+          git diff --quiet $closureRun.head_sha $env:GITHUB_SHA -- `
+            apps packages pubspec.yaml pubspec.lock dev/tools/build_windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Tagged runtime/build tree differs from the successful closure run.' }
+
+          $expectedName = "dartclaw-v$env:DARTCLAW_VERSION-windows-x64.zip"
+          $artifact = Get-Item -LiteralPath (Join-Path qualified-windows $expectedName)
+          $sidecar = Get-Item -LiteralPath "$($artifact.FullName).sha256"
+          $sidecarMatch = [regex]::Match(
+            (Get-Content -LiteralPath $sidecar.FullName -Raw).Trim(),
+            '^([0-9a-f]{64})  (.+)$'
+          )
+          $actualHash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (-not $sidecarMatch.Success -or
+              $sidecarMatch.Groups[2].Value -ne $expectedName -or
+              $sidecarMatch.Groups[1].Value -cne $actualHash -or
+              $actualHash -cne $expectedHash) {
+            throw 'Downloaded Windows release artifact does not match qualified evidence and checksum.'
+          }
+          & pwsh -NoLogo -NoProfile -File ./dev/testing/profiles/windows-runtime/run.ps1 `
+            -ArtifactPath $artifact.FullName `
+            -SkipProviders `
+            -ExpectedClaudeVersion '2.1.207 (Claude Code)' `
+            -ExpectedCodexVersion 'codex-cli 0.139.0' `
+            -ProviderEvidencePath dev/testing/evidence/windows-harness-turns.md `
+            -EvidencePath qualified-windows/tag-runtime-smoke.md
+          if ($LASTEXITCODE -ne 0) { throw 'Tag-time Windows artifact/evidence closure failed.' }
+          New-Item -ItemType Directory -Path build -Force | Out-Null
+          Copy-Item -LiteralPath $artifact.FullName, $sidecar.FullName -Destination build
+
       - name: Build standalone binary
         if: runner.os != 'Windows'
         run: bash dev/tools/build.sh
@@ -106,11 +215,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: dart test --reporter=failures-only packages/dartclaw_core/test/harness/process_lifecycle_test.dart
-
-      - name: Build and validate Windows artifact
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./dev/tools/build_windows.ps1 -ReleaseTarget windows-x64
 
       - name: Publish platform release asset
         if: runner.os != 'Windows'
@@ -170,10 +274,7 @@ jobs:
           sdk: 3.12.0
 
       - name: Install dependencies
-        run: dart pub get
-
-      - name: Sync DartClaw version
-        run: dart run dev/tools/sync_version.dart
+        run: dart pub get --enforce-lockfile
 
       - name: Read DartClaw version
         run: |
@@ -270,10 +371,7 @@ jobs:
           sdk: 3.12.0
 
       - name: Install dependencies
-        run: dart pub get
-
-      - name: Sync DartClaw version
-        run: dart run dev/tools/sync_version.dart
+        run: dart pub get --enforce-lockfile
 
       - name: Read DartClaw version
         run: |

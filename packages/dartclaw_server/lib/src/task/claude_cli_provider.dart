@@ -512,7 +512,11 @@ Map<String, dynamic> _optionsWithTaskPolicy(Map<String, dynamic> options, _Claud
   final next = Map<String, dynamic>.from(options);
   final permissions = _normalizeMap(next['permissions']);
   final settingsPermissions = _settingsPermissions(next['settings']);
-  final allow = taskPolicy.allowPatterns.toList()..sort();
+  final configuredAllow = {..._stringList(permissions['allow']), ..._stringList(settingsPermissions['allow'])};
+  final allow = {
+    ...taskPolicy.allowPatterns,
+    if (taskPolicy.allowsMcp) ...configuredAllow.where(_isScopedMcpAllowRule),
+  }.toList()..sort();
   final deny = {
     ..._stringList(permissions['deny']),
     ..._stringList(settingsPermissions['deny']),
@@ -540,6 +544,12 @@ Map<String, dynamic> _normalizeMap(Object? value) {
 List<String> _stringList(Object? value) {
   if (value is! List) return const <String>[];
   return value.whereType<String>().where((item) => item.trim().isNotEmpty).map((item) => item.trim()).toList();
+}
+
+bool _isScopedMcpAllowRule(String rule) {
+  if (!rule.startsWith('mcp__')) return false;
+  final serverAndTool = rule.substring('mcp__'.length);
+  return serverAndTool.isNotEmpty && !serverAndTool.startsWith('*');
 }
 
 Map<String, dynamic> _settingsPermissions(Object? settings) {
@@ -614,23 +624,24 @@ final class _ClaudeTaskPolicy {
     final patterns = <String>{};
     if (tools.isEmpty && !readOnly) return const <String>[];
     if (tools.contains('shell')) {
-      patterns.addAll(readOnly ? _readOnlyShellAllowPatterns : const ['Bash(*)']);
+      patterns.addAll(readOnly ? _readOnlyShellAllowPatterns : const ['Bash']);
     }
     if (_shouldGrantFileReads(tools)) {
-      patterns.addAll(['Read(*)', 'Glob(*)', 'Grep(*)', 'LS(*)']);
+      patterns.addAll(['Read', 'Glob', 'Grep', 'LS']);
     }
     if (!readOnly) {
-      if (tools.contains('file_write')) patterns.add('Write(*)');
-      if (tools.contains('file_edit')) patterns.addAll(['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)']);
+      if (tools.contains('file_write')) patterns.add('Write');
+      if (tools.contains('file_edit')) patterns.addAll(['Edit', 'NotebookEdit']);
     }
-    if (tools.contains('web_fetch')) patterns.addAll(['WebFetch(*)', 'WebSearch(*)']);
-    if (tools.contains('mcp_call')) patterns.add('mcp__*');
+    if (tools.contains('web_fetch')) patterns.addAll(['WebFetch', 'WebSearch']);
     return patterns.toList()..sort();
   }
 
+  bool get allowsMcp => allowedTools.contains('mcp_call');
+
   List<String> get denyPatterns {
     if (!readOnly) return const <String>[];
-    return const ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'];
+    return const ['Edit', 'NotebookEdit', 'Write'];
   }
 
   bool _shouldGrantFileReads(Set<String> tools) {

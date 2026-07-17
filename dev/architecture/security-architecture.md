@@ -996,7 +996,7 @@ Guards are integrated with the `claude` binary's hook system. During the `initia
     "permissionDecision": "deny"}}}}
 ```
 
-`PreToolUse` registrations now use Claude's `if:` filtering support where possible, limiting guard callbacks to tools DartClaw actually evaluates (`Bash`, `Write`, `Edit`, `Read`, `MultiEdit`). This reduces subprocess round-trips without changing the security model.
+`PreToolUse` registrations now use Claude's `if:` filtering support where possible, limiting guard callbacks to tools DartClaw actually evaluates (`Bash`, `Write`, `Edit`, `NotebookEdit`, `Read`). This reduces subprocess round-trips without changing the security model.
 
 ### Tool Approval
 

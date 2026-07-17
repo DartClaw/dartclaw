@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.21.0] - 2026-07-17
 
 ### Added
 
@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Short-lived Linux Bash steps no longer fail on a normal process-exit race** – `/proc` inspection now treats both `ENOENT` and `ESRCH` as evidence that the process disappeared, instead of reporting unconfirmed descendant cleanup and failing the workflow step.
+- **Workflow approval state updates arrive without reloads** – workflow SSE responses disable server buffering, subscribe before the initial snapshot, and reconcile the server-rendered detail after status changes. Approval and terminal controls now update immediately, while shared task-page initialization no longer touches another controller's event stream.
+- **Workflow merge resolution preserves accepted sibling work** – the resolver now treats integration-branch edits as already accepted and combines independent story changes instead of choosing one conflicting story at the expense of another.
+- **Claude workflow merge resolution can perform its Git transaction headlessly** – synthetic resolver tasks now declare the shell/read/write/edit policy they require, so `dontAsk` no longer denies environment probes, merge writes, or the resolution commit. Claude tool-category rules use canonical whole-tool grants, `NotebookEdit` runs through file guards, and MCP access preserves only configured server-scoped rules instead of the rejected `mcp__*` wildcard.
+- **Memory controls survive HTMX navigation** – the memory Stimulus controller now lives on the swapped main-content fragment, so tabs and rendered/source view controls reconnect after SPA-style navigation.
 - **Linux release binaries crashed at the first SQLite call** – `dart compile exe` embedded no sqlite native-asset mapping (its build-hook check misclassifies the pub workspace, dart-lang/sdk#62593), so released binaries shipped without a SQLite library. macOS masked the bug because the OS preloads the system `libsqlite3`; Linux binaries aborted with `Couldn't resolve native function 'sqlite3_initialize'`. Release builds now use `dart build cli`, which bundles a working SQLite (with FTS5) next to the binary.
 
 ## [0.20.1] - 2026-07-10

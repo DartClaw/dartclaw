@@ -261,7 +261,7 @@ Router taskSseRoutes(
       workflowStepSub?.cancel();
     };
 
-    return Response.ok(controller.stream, headers: eventStreamHeadersNoBuffer);
+    return sseResponse(controller.stream, headers: eventStreamHeadersNoBuffer);
   });
 
   router.get('/api/agent-executions/events', (Request request) async {
@@ -283,7 +283,7 @@ Router taskSseRoutes(
 
     controller.onCancel = () => executionSub.cancel();
 
-    return Response.ok(controller.stream, headers: eventStreamHeaders);
+    return sseResponse(controller.stream);
   });
 
   return router;

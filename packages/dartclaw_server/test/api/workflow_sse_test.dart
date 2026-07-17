@@ -49,6 +49,35 @@ WorkflowRun _makeRun({
   );
 }
 
+class _ControllableListTaskService extends TaskService {
+  _ControllableListTaskService(super.repository, {required super.eventBus});
+
+  Completer<void>? _listStarted;
+  Completer<void>? _releaseList;
+
+  void blockNextList() {
+    _listStarted = Completer<void>();
+    _releaseList = Completer<void>();
+  }
+
+  Future<void> get listStarted => _listStarted!.future;
+
+  void releaseList() => _releaseList!.complete();
+
+  @override
+  Future<List<Task>> list({TaskStatus? status, TaskType? type}) async {
+    final started = _listStarted;
+    final release = _releaseList;
+    if (started != null && release != null) {
+      started.complete();
+      await release.future;
+      _listStarted = null;
+      _releaseList = null;
+    }
+    return super.list(status: status, type: type);
+  }
+}
+
 /// Reads SSE frames from [response] for up to [timeout] duration.
 /// Returns parsed JSON objects for each `data:` line.
 Future<List<Map<String, dynamic>>> collectSseFrames(
@@ -112,7 +141,7 @@ void main() {
   late Database workflowDb;
   late SqliteTaskRepository taskRepo;
   late EventBus eventBus;
-  late TaskService tasks;
+  late _ControllableListTaskService tasks;
   late FakeWorkflowService workflows;
   late Handler handler;
   late InMemoryDefinitionSource definitions;
@@ -123,7 +152,7 @@ void main() {
     workflowDb = sqlite3.openInMemory();
     eventBus = EventBus();
     taskRepo = SqliteTaskRepository(taskDb);
-    tasks = TaskService(taskRepo, eventBus: eventBus);
+    tasks = _ControllableListTaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
 
     workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
@@ -174,6 +203,8 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
       expect(response.statusCode, 200);
       expect(response.headers['content-type'], contains('text/event-stream'));
+      expect(response.headers['x-accel-buffering'], 'no');
+      expect(response.context['shelf.io.buffer_output'], isFalse);
 
       final frames = await collectSseFrames(response);
       expect(frames, isNotEmpty);
@@ -188,6 +219,47 @@ void main() {
       final frames = await collectSseFrames(response);
       final connected = frames.firstWhere((f) => f['type'] == 'connected');
       expect((connected['steps'] as List), hasLength(2));
+    });
+
+    test('does not miss lifecycle transitions while the initial snapshot loads', () async {
+      tasks.blockNextList();
+      final responseFuture = handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+      await tasks.listStarted;
+
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: 'run-001',
+          definitionName: 'spec-and-implement',
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.awaitingApproval,
+          timestamp: DateTime.now(),
+        ),
+      );
+      eventBus.fire(
+        WorkflowStepCompletedEvent(
+          runId: 'run-001',
+          stepId: 'research',
+          stepName: 'Research',
+          stepIndex: 0,
+          totalSteps: 2,
+          taskId: '',
+          success: true,
+          tokenCount: 1000,
+          timestamp: DateTime.now(),
+        ),
+      );
+      tasks.releaseList();
+
+      final response = await responseFuture;
+      final frames = await collectSseFrames(response);
+      expect(
+        frames,
+        contains(allOf(containsPair('type', 'workflow_status_changed'), containsPair('newStatus', 'awaitingApproval'))),
+      );
+      expect(
+        frames,
+        contains(allOf(containsPair('type', 'workflow_step_completed'), containsPair('stepId', 'research'))),
+      );
     });
 
     test('forwards WorkflowRunStatusChangedEvent', () async {

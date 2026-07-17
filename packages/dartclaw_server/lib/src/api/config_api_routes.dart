@@ -683,7 +683,7 @@ Router configApiRoutes({
       return errorResponse(503, 'SSE_UNAVAILABLE', 'SSE broadcast not configured');
     }
     final controller = sse.subscribe();
-    return Response.ok(controller.stream, headers: eventStreamHeaders);
+    return sseResponse(controller.stream);
   });
 
   // --- Allowlist CRUD endpoints ---

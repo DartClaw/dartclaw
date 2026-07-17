@@ -193,6 +193,7 @@ class FileGuard extends Guard {
     }
 
     addPath(input['file_path']);
+    addPath(input['notebook_path']);
     addPath(input['path']);
 
     final changes = input['changes'];

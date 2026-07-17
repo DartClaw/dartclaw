@@ -140,7 +140,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
       'Bash' => CanonicalTool.shell,
       'Read' => CanonicalTool.fileRead,
       'Write' || 'write_file' => CanonicalTool.fileWrite,
-      'Edit' || 'edit_file' => CanonicalTool.fileEdit,
+      'Edit' || 'NotebookEdit' || 'edit_file' => CanonicalTool.fileEdit,
       'WebFetch' || 'web_fetch' => CanonicalTool.webFetch,
       _ when providerToolName.startsWith('mcp_') => CanonicalTool.mcpCall,
       _ => null,

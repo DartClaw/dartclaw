@@ -1,8 +1,7 @@
 # Windows
 
 DartClaw targets the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
-storage/search. The 0.21 candidate source tree and architecture-neutral provider transports are qualified as described
-below; the evidence artifact retains the repository's current 0.20.1 version metadata. Unix-coupled security and sidecar
+storage/search. The 0.21 support contract and qualification path are described below. Unix-coupled security and sidecar
 features do not have full Windows parity; the matrix is the support contract.
 
 ## Install and Upgrade

@@ -136,13 +136,18 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `file_write` | Writing or creating files |
 | `file_edit` | Modifying existing files in place, such as Claude's `Edit` tool |
 | `web_fetch` | Web or HTTP fetch |
-| `mcp_call` | Any tool routed through an MCP server |
+| `mcp_call` | Tools routed through an MCP server |
 
 Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.
 
 Provider enforcement differs: Claude maps categories to permission patterns; Codex treats the allowlist as advisory plus sandbox/approval policy. A non-read-only Codex step that declares `allowedTools` emits a workflow-load warning because Codex CLI has no native per-tool allowlist.
 
-One Claude-specific gotcha: under the non-interactive permission mode workflow steps run with, Claude's `Edit`/`MultiEdit` tools are hard-denied unless the step grants `file_edit` — `file_write` alone permits creating files but not in-place edits of existing ones.
+Claude has no safe permission rule for every MCP server. `mcp_call` therefore preserves server-scoped MCP rules already
+declared in `providers.claude.permissions.allow` or its structured `settings` block, such as `mcp__github` or
+`mcp__github__*`; it never broadens the policy to the rejected `mcp__*` rule. User, project, and managed Claude settings
+still participate according to Claude's settings precedence.
+
+One Claude-specific gotcha: under the non-interactive permission mode workflow steps run with, Claude's `Edit` and `NotebookEdit` tools are hard-denied unless the step grants `file_edit` — `file_write` alone permits creating files but not in-place edits of existing ones.
 
 ### `approval` Steps
 

@@ -518,7 +518,7 @@ Future<PosixProcessSnapshot?> _linuxProcessSnapshot(int pid) async {
     if (parentPid == null) throw PosixProcessInspectionException('Invalid parent PID in /proc stat for PID $pid');
     return (identity: fieldsAfterCommand[19], parentPid: parentPid);
   } on FileSystemException catch (error) {
-    if (error.osError?.errorCode == 2) return null;
+    if (_linuxProcessDisappeared(error)) return null;
     throw PosixProcessInspectionException('Cannot inspect /proc stat for PID $pid', error);
   } on TimeoutException catch (error) {
     throw PosixProcessInspectionException('Timed out inspecting /proc stat for PID $pid', error);
@@ -566,12 +566,15 @@ Future<List<int>> _linuxChildPids(int pid) async {
     }
     return parsed.cast<int>();
   } on FileSystemException catch (error) {
-    if (error.osError?.errorCode == 2) return const [];
+    if (_linuxProcessDisappeared(error)) return const [];
     throw PosixProcessInspectionException('Cannot enumerate children for PID $pid', error);
   } on TimeoutException catch (error) {
     throw PosixProcessInspectionException('Timed out enumerating children for PID $pid', error);
   }
 }
+
+// /proc reports either ENOENT or ESRCH when a process exits during inspection.
+bool _linuxProcessDisappeared(FileSystemException error) => const {2, 3}.contains(error.osError?.errorCode);
 
 Future<List<int>> _pgrepChildPids(int pid) async {
   try {

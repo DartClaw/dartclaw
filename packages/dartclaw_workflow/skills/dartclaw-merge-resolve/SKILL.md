@@ -67,7 +67,7 @@ Attempt a mechanical merge of the integration branch:
 For each file listed by `!git diff --name-only --diff-filter=U`:
 
 1. Read the file content to locate all conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
-2. For each conflict region, reason about which side's changes should be preserved, merged, or synthesized. Preserve both sides' intent where possible. Record the rationale for `merge_resolve.resolution_summary`.
+2. For each conflict region, reason about which side's changes should be preserved, merged, or synthesized. Treat integration-side edits as already-accepted sibling work. Never discard integration-side edits merely to favor the story branch. Combine independent additions, such as distinct list entries. Supersede integration-side work only with concrete project evidence; if the semantics remain ambiguous, fail without committing. Record the rationale for `merge_resolve.resolution_summary`.
 3. Rewrite the file with all conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) removed and the resolved content in place.
 4. After editing all files, run: `!git diff --name-only --diff-filter=U` — if any paths remain, repeat for those files.
 

@@ -9,7 +9,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: 0.19.0 — "Context Engine": citation-backed knowledge synthesis over MCP (`context_research`), a guard-mediated outbound MCP client, and a read-only Knowledge UI. See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.21.0 – native Windows x64 core-runtime support, PowerShell and Scoop distribution, Git Bash workflow steps, and cross-platform runtime hardening. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">

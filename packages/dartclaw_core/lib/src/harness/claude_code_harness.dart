@@ -683,7 +683,7 @@ class ClaudeCodeHarness extends BaseHarness {
               // (Claude Code v2.1.91+ if: filtering)
               'if': {
                 'toolName': {
-                  r'$in': ['Bash', 'Write', 'Edit', 'Read', 'MultiEdit'],
+                  r'$in': ['Bash', 'Write', 'Edit', 'NotebookEdit', 'Read'],
                 },
               },
             },

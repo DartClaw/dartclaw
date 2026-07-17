@@ -8,6 +8,8 @@ param(
   [string]$EvidencePath,
   [int]$Port = 3340,
   [int]$MaxEvidenceAgeDays = 7,
+  [string]$ExpectedClaudeVersion,
+  [string]$ExpectedCodexVersion,
   [switch]$SkipProviders,
   [switch]$SelfTest
 )
@@ -44,6 +46,7 @@ $script:ArtifactRoot = $null
 $script:Version = $null
 $script:SourceIdentity = $null
 $script:SourceFingerprint = $null
+$script:ArtifactSha256 = $null
 $script:SqliteModule = $null
 $script:ProviderVersions = [ordered]@{ claude = 'unavailable'; codex = 'unavailable' }
 $script:DartVersion = 'unavailable'
@@ -139,6 +142,7 @@ function Invoke-SelfTest {
   $priorMode = $script:ExecutionMode
   $priorIdentity = $script:SourceIdentity
   $priorFingerprint = $script:SourceFingerprint
+  $priorArtifactSha256 = $script:ArtifactSha256
   $priorVersion = $script:Version
   $priorVersions = $script:ProviderVersions
   $priorDataDir = $script:DataDir
@@ -159,6 +163,7 @@ function Invoke-SelfTest {
 **Host**: Windows 11, x64
 **DartClaw under test**: source 0123456789abcdef
 **Source fingerprint**: feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface
+**Artifact SHA256**: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
 **Claude**: Claude Code 2.1.207
 **Codex**: codex-cli 0.139.0
 ## Claude Result
@@ -281,6 +286,7 @@ function Invoke-SelfTest {
     }
     $script:ExecutionMode = 'artifact'
     $script:Version = '0.20.1'
+    $script:ArtifactSha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
     $artifactMismatch = ($template -f $fresh, $fresh).Replace(
       '**DartClaw under test**: source 0123456789abcdef',
       "**DartClaw under test**: release artifact 10.20.10`nExpected elsewhere: 0.20.1"
@@ -288,6 +294,41 @@ function Invoke-SelfTest {
     $artifactMismatchPath = Join-Path $testRoot 'wrong-artifact-version.md'
     [IO.File]::WriteAllText($artifactMismatchPath, $artifactMismatch)
     if ((Test-ProviderEvidence -Path $artifactMismatchPath).Valid) { throw 'stray release version satisfied identity matching' }
+
+    $validArtifact = ($template -f $fresh, $fresh).Replace(
+      '**DartClaw under test**: source 0123456789abcdef',
+      '**DartClaw under test**: release artifact 0.20.1'
+    )
+    $validArtifactPath = Join-Path $testRoot 'valid-artifact.md'
+    [IO.File]::WriteAllText($validArtifactPath, $validArtifact)
+    if (-not (Test-ProviderEvidence -Path $validArtifactPath).Valid) { throw 'matching artifact hash was rejected' }
+    $artifactHashLine = "**Artifact SHA256**: ``$('a' * 64)``"
+    foreach ($artifactHashCase in @(
+        @{
+          Name = 'wrong-artifact-hash'
+          Content = $validArtifact.Replace(
+            ('a' * 64),
+            ('b' * 64)
+          )
+        },
+        @{
+          Name = 'missing-artifact-hash'
+          Content = $validArtifact.Replace("$artifactHashLine`n", '')
+        },
+        @{
+          Name = 'duplicate-artifact-hash'
+          Content = $validArtifact.Replace(
+            $artifactHashLine,
+            "$artifactHashLine`n$artifactHashLine"
+          )
+        }
+      )) {
+      $artifactHashPath = Join-Path $testRoot "$($artifactHashCase.Name).md"
+      [IO.File]::WriteAllText($artifactHashPath, $artifactHashCase.Content)
+      if ((Test-ProviderEvidence -Path $artifactHashPath).Valid) {
+        throw "$($artifactHashCase.Name) evidence was accepted"
+      }
+    }
 
     $script:ExecutionMode = 'source'
     $missingTurnPath = Join-Path $testRoot 'missing-turn-proof.md'
@@ -402,6 +443,7 @@ function Invoke-SelfTest {
     $script:ExecutionMode = $priorMode
     $script:SourceIdentity = $priorIdentity
     $script:SourceFingerprint = $priorFingerprint
+    $script:ArtifactSha256 = $priorArtifactSha256
     $script:Version = $priorVersion
     $script:ProviderVersions = $priorVersions
     $script:DataDir = $priorDataDir
@@ -695,6 +737,23 @@ function Test-ProviderEvidence {
     if (-not $identity -or $identity -notmatch 'release artifact' -or $identity -notmatch $releasePattern) {
       $failures.Add('DartClaw release version does not match')
     }
+    $artifactHashMatches = [regex]::Matches(
+      $content,
+      '(?mi)^\*\*Artifact SHA256\*\*:\s*(?:`([0-9a-f]{64})`|([0-9a-f]{64}))\s*$'
+    )
+    $artifactHash = if ($artifactHashMatches.Count -eq 1) {
+      if ($artifactHashMatches[0].Groups[1].Success) {
+        $artifactHashMatches[0].Groups[1].Value
+      } else {
+        $artifactHashMatches[0].Groups[2].Value
+      }
+    } else {
+      ''
+    }
+    if ($artifactHashMatches.Count -ne 1 -or
+        $artifactHash -cne $script:ArtifactSha256) {
+      $failures.Add('artifact SHA256 does not uniquely match the artifact under test')
+    }
   }
 
   $now = [DateTimeOffset]::Now
@@ -858,6 +917,7 @@ try {
       throw 'artifact name must match dartclaw-v<version>-windows-x64.zip'
     }
     $script:Version = $Matches[1]
+    $script:ArtifactSha256 = (Get-FileHash -LiteralPath $resolvedArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
     $script:ArtifactRoot = Join-Path $script:TempRoot 'artifact'
     Expand-Archive -LiteralPath $resolvedArtifact -DestinationPath $script:ArtifactRoot
     foreach ($relative in @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')) {
@@ -901,8 +961,16 @@ try {
 
   $env:HOME = $env:USERPROFILE
   $script:CurrentStage = 'provider-preflight'
-  $script:ProviderVersions.claude = Get-CommandVersion 'claude'
-  $script:ProviderVersions.codex = Get-CommandVersion 'codex'
+  $script:ProviderVersions.claude = if ($ExpectedClaudeVersion) {
+    $ExpectedClaudeVersion
+  } else {
+    Get-CommandVersion 'claude'
+  }
+  $script:ProviderVersions.codex = if ($ExpectedCodexVersion) {
+    $ExpectedCodexVersion
+  } else {
+    Get-CommandVersion 'codex'
+  }
   if ($SkipProviders) {
     $script:CurrentStage = 'provider-stub'
     Initialize-ProviderStartupStub

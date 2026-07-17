@@ -617,12 +617,88 @@ Future<Response> _workflowRunSseHandler(
   }
 
   final controller = StreamController<List<int>>();
+  final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) async {
+    final task = event.taskId.isEmpty ? null : await tasks.get(event.taskId);
+    final displayScope = event.displayScope ?? _taskDisplayScope(task);
+    sendSseData(controller, _workflowEventPayload(event, displayScope: displayScope));
+  });
+  final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final loopSub = eventBus.on<LoopIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final mapStepSub = eventBus.on<MapStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
+    final task = await tasks.get(event.taskId);
+    if (task?.workflowRunId != runId) return;
+    final displayScope = _taskDisplayScope(task);
+    final payload = <String, dynamic>{
+      'type': 'task_status_changed',
+      'taskId': event.taskId,
+      'oldStatus': event.oldStatus.name,
+      'newStatus': event.newStatus.name,
+    };
+    final stepIndex = task?.stepIndex;
+    if (stepIndex != null) {
+      payload['stepIndex'] = stepIndex;
+    }
+    if (displayScope != null) {
+      payload['displayScope'] = displayScope;
+    }
+    sendSseData(controller, payload);
+  });
+  final tokenProgressSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) async {
+    final task = await tasks.get(event.taskId);
+    if (task?.workflowRunId != runId) return;
+    sendSseData(controller, {
+      'type': 'workflow_cli_turn_progress',
+      'taskId': event.taskId,
+      'cumulativeTokens': event.cumulativeTokens,
+    });
+  });
+  final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) {
+    sendSseData(controller, event.toJson());
+  });
+  final approvalResolvedSub = eventBus.on<WorkflowApprovalResolvedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) {
+    sendSseData(controller, event.toJson());
+  });
 
-  // Track known child task IDs for TaskStatusChangedEvent filtering.
-  final childTaskIds = <String>{};
-  final allTasks = await tasks.list();
-  for (final t in allTasks) {
-    if (t.workflowRunId == runId) childTaskIds.add(t.id);
+  Future<void> cancelSubscriptions() => Future.wait([
+    runStatusSub.cancel(),
+    stepCompletedSub.cancel(),
+    parallelSub.cancel(),
+    loopSub.cancel(),
+    mapIterationSub.cancel(),
+    mapStepSub.cancel(),
+    taskStatusSub.cancel(),
+    tokenProgressSub.cancel(),
+    approvalRequestedSub.cancel(),
+    approvalResolvedSub.cancel(),
+  ]);
+  controller.onCancel = cancelSubscriptions;
+
+  late final List<Task> allTasks;
+  try {
+    allTasks = await tasks.list();
+  } catch (_) {
+    await cancelSubscriptions();
+    await controller.close();
+    rethrow;
   }
 
   // Build connected payload with current run state and step statuses.
@@ -658,95 +734,7 @@ Future<Response> _workflowRunSseHandler(
     'steps': stepsPayload,
   });
 
-  // Subscribe to workflow lifecycle events.
-  final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, event.toJson());
-  });
-
-  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
-    event,
-  ) async {
-    childTaskIds.add(event.taskId);
-    final task = event.taskId.isEmpty ? null : await tasks.get(event.taskId);
-    final displayScope = event.displayScope ?? _taskDisplayScope(task);
-    sendSseData(controller, _workflowEventPayload(event, displayScope: displayScope));
-  });
-
-  final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, event.toJson());
-  });
-
-  final loopSub = eventBus.on<LoopIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, event.toJson());
-  });
-
-  final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, event.toJson());
-  });
-
-  final mapStepSub = eventBus.on<MapStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, event.toJson());
-  });
-
-  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
-    final task = await tasks.get(event.taskId);
-    if (task?.workflowRunId != runId) return;
-    childTaskIds.add(event.taskId);
-    final displayScope = _taskDisplayScope(task);
-    final payload = <String, dynamic>{
-      'type': 'task_status_changed',
-      'taskId': event.taskId,
-      'oldStatus': event.oldStatus.name,
-      'newStatus': event.newStatus.name,
-    };
-    final stepIndex = task?.stepIndex;
-    if (stepIndex != null) {
-      payload['stepIndex'] = stepIndex;
-    }
-    if (displayScope != null) {
-      payload['displayScope'] = displayScope;
-    }
-    sendSseData(controller, payload);
-  });
-
-  // Live per-step token ticks. The event carries no runId, so resolve the
-  // owning run via the task (same approach as taskStatusSub above).
-  final tokenProgressSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) async {
-    final task = await tasks.get(event.taskId);
-    if (task?.workflowRunId != runId) return;
-    sendSseData(controller, {
-      'type': 'workflow_cli_turn_progress',
-      'taskId': event.taskId,
-      'cumulativeTokens': event.cumulativeTokens,
-    });
-  });
-
-  final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
-    event,
-  ) {
-    sendSseData(controller, event.toJson());
-  });
-
-  final approvalResolvedSub = eventBus.on<WorkflowApprovalResolvedEvent>().where((e) => e.runId == runId).listen((
-    event,
-  ) {
-    sendSseData(controller, event.toJson());
-  });
-
-  controller.onCancel = () {
-    runStatusSub.cancel();
-    stepCompletedSub.cancel();
-    parallelSub.cancel();
-    loopSub.cancel();
-    mapIterationSub.cancel();
-    mapStepSub.cancel();
-    taskStatusSub.cancel();
-    tokenProgressSub.cancel();
-    approvalRequestedSub.cancel();
-    approvalResolvedSub.cancel();
-  };
-
-  return Response.ok(controller.stream, headers: eventStreamHeaders);
+  return sseResponse(controller.stream);
 }
 
 String? _taskDisplayScope(Task? task) {

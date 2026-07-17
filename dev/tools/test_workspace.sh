@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 
 echo "==> Testing developer tools"
 bash dev/tools/parallels_windows_test.sh
+bash dev/tools/release_check_test.sh
 
 SERIAL_TEST_TARGETS=(
   "packages/dartclaw_workflow"

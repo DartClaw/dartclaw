@@ -657,7 +657,7 @@ void main() {
       expect(decoded['sandbox'], {'enabled': true});
       expect(decoded['permissions'], {
         'allow': readOnlyShellAllow,
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./.env)', 'Write(*)'],
+        'deny': ['Edit', 'NotebookEdit', 'Read(./.env)', 'Write'],
       });
     });
 
@@ -665,7 +665,7 @@ void main() {
       final arguments = await capturedClaudeArgs(
         options: const {
           'permissions': {
-            'allow': ['Bash(*)'],
+            'allow': ['Bash'],
             'defaultMode': 'plan',
           },
         },
@@ -688,8 +688,8 @@ void main() {
 
       final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
-        'allow': ['WebFetch(*)', 'WebSearch(*)'],
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
+        'allow': ['WebFetch', 'WebSearch'],
+        'deny': ['Edit', 'NotebookEdit', 'Write'],
       });
     });
 
@@ -698,7 +698,7 @@ void main() {
         options: const {
           'settings': {
             'permissions': {
-              'allow': ['Bash(*)'],
+              'allow': ['Bash'],
               'deny': ['Read(./secret)'],
               'defaultMode': 'plan',
             },
@@ -714,7 +714,7 @@ void main() {
       expect(decoded['theme'], 'dark');
       expect(decoded['permissions'], {
         'allow': readOnlyShellAllow,
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./secret)', 'Write(*)'],
+        'deny': ['Edit', 'NotebookEdit', 'Read(./secret)', 'Write'],
       });
     });
 

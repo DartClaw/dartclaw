@@ -15,6 +15,16 @@ if ! grep -Fq 'dart pub get --enforce-lockfile' "$ROOT_DIR/.github/workflows/ci.
   echo "CI must enforce the tracked workspace lockfile" >&2
   exit 1
 fi
+for release_lock_contract in \
+  'section "3. Dependency lock"' \
+  'git ls-files --error-unmatch pubspec.lock' \
+  'dart pub get --enforce-lockfile' \
+  'git diff --exit-code -- pubspec.lock'; do
+  if ! grep -Fq "$release_lock_contract" "$ROOT_DIR/dev/tools/release_check.sh"; then
+    echo "release check must enforce the tracked workspace lockfile: $release_lock_contract" >&2
+    exit 1
+  fi
+done
 
 cleanup() {
   rm -rf "$TEST_DIR"

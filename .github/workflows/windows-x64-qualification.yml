@@ -390,6 +390,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path qualification -Force | Out-Null
           $evidenceInput = 'qualification/windows-harness-turns-input.md'
           if (Test-Path -LiteralPath $evidenceInput -PathType Leaf) {
             $hash = (Get-FileHash -LiteralPath $evidenceInput -Algorithm SHA256).Hash.ToLowerInvariant()

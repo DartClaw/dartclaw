@@ -100,7 +100,19 @@ else
   cat /tmp/release_check_versions.log | sed 's/^/        /'
 fi
 
-section "3. Format (dart format --line-length=120 --set-exit-if-changed .)"
+section "3. Dependency lock"
+if {
+  git ls-files --error-unmatch pubspec.lock
+  dart pub get --enforce-lockfile
+  git diff --exit-code -- pubspec.lock
+} > /tmp/release_check_lock.log 2>&1; then
+  pass "tracked workspace lockfile is current"
+else
+  fail "workspace lockfile missing or stale — see /tmp/release_check_lock.log"
+  tail -40 /tmp/release_check_lock.log | sed 's/^/        /'
+fi
+
+section "4. Format (dart format --line-length=120 --set-exit-if-changed .)"
 if dart format --line-length=120 --output=none --set-exit-if-changed . > /tmp/release_check_fmt.log 2>&1; then
   pass "format clean"
 else
@@ -108,7 +120,7 @@ else
   tail -20 /tmp/release_check_fmt.log | sed 's/^/        /'
 fi
 
-section "4. Embedded asset drift"
+section "5. Embedded asset drift"
 if {
   git ls-files --error-unmatch -- \
     packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
@@ -122,7 +134,7 @@ else
   tail -40 /tmp/release_check_assets.log | sed 's/^/        /'
 fi
 
-section "5. Static analysis (dart analyze, fatal on warnings + infos)"
+section "6. Static analysis (dart analyze, fatal on warnings + infos)"
 if dart analyze --fatal-warnings --fatal-infos > /tmp/release_check_analyze.log 2>&1; then
   pass "analyze clean (zero warnings, zero infos)"
 else
@@ -130,7 +142,7 @@ else
   tail -40 /tmp/release_check_analyze.log | sed 's/^/        /'
 fi
 
-section "6. Workspace tests (CI test_workspace.sh)"
+section "7. Workspace tests (CI test_workspace.sh)"
 if [[ "$QUICK" == "1" ]]; then
   skip "skipped via --quick"
 else
@@ -142,7 +154,7 @@ else
   fi
 fi
 
-section "7. Architecture check"
+section "8. Architecture check"
 if dart run dev/tools/arch_check.dart > /tmp/release_check_arch.log 2>&1; then
   pass "architecture check green"
 else
@@ -150,7 +162,7 @@ else
   tail -40 /tmp/release_check_arch.log | sed 's/^/        /'
 fi
 
-section "8. Fitness functions (CI governance suite)"
+section "9. Fitness functions (CI governance suite)"
 if bash dev/tools/fitness/run_all.sh > /tmp/release_check_fitness.log 2>&1; then
   pass "fitness suite green"
 else
@@ -158,7 +170,7 @@ else
   tail -40 /tmp/release_check_fitness.log | sed 's/^/        /'
 fi
 
-section "9. Whitespace errors"
+section "10. Whitespace errors"
 if git diff --check > /tmp/release_check_whitespace.log 2>&1; then
   pass "no whitespace errors"
 else

@@ -1,6 +1,6 @@
 # Release Preparation
 
-Run `bash dev/tools/release_check.sh --version <version>` on the final pinned commit before tagging. It checks exported-bundle cleanup, the exact target version across all pins, formatting, embedded assets, static analysis, the CI workspace test runner, architecture rules, the complete CI fitness suite, and whitespace. `--quick` skips only workspace tests and is for iteration, not final signoff.
+Run `bash dev/tools/release_check.sh --version <version>` on the final pinned commit before tagging. It checks exported-bundle cleanup, the exact target version across all pins, the tracked workspace dependency lock, formatting, embedded assets, static analysis, the CI workspace test runner, architecture rules, the complete CI fitness suite, and whitespace. `--quick` skips only workspace tests and is for iteration, not final signoff.
 
 ## Pre-tag gates
 

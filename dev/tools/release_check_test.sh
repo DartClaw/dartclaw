@@ -7,6 +7,15 @@ TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-release-check-test.XXXXXX")"
 FAKE_GIT="$TEST_DIR/git"
 UNEXPECTED_CALL="$TEST_DIR/unexpected-git-call"
 
+if ! git -C "$ROOT_DIR" ls-files --error-unmatch pubspec.lock >/dev/null 2>&1; then
+  echo "root workspace pubspec.lock must be tracked" >&2
+  exit 1
+fi
+if ! grep -Fq 'dart pub get --enforce-lockfile' "$ROOT_DIR/.github/workflows/ci.yml"; then
+  echo "CI must enforce the tracked workspace lockfile" >&2
+  exit 1
+fi
+
 cleanup() {
   rm -rf "$TEST_DIR"
 }
@@ -48,4 +57,4 @@ if [[ -e "$UNEXPECTED_CALL" ]]; then
   exit 1
 fi
 
-echo "release_check dirty-worktree gate: PASS"
+echo "release_check dependency-lock and dirty-worktree gates: PASS"

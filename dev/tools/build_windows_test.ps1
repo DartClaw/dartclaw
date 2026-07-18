@@ -68,3 +68,4 @@ try {
 }
 
 Write-Output 'Windows build validation failure-path tests passed.'
+exit 0

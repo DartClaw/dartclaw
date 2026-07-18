@@ -338,6 +338,13 @@ variables:
       Skips the file-discovery step if provided.
 ```
 
+#### Host-side Bash steps on Windows
+
+`type: bash` steps use Git Bash on native Windows. Install Git for Windows and ensure `bash.exe` is on `PATH` before
+running a workflow that contains them. If it cannot be found, the step fails explicitly with
+`bash steps require Git Bash on Windows`; it never reports an empty success. POSIX hosts keep their existing shell
+behavior. See the [workflow reference](workflows-reference.md#bash-steps) for the step fields.
+
 Or narrow step scope with `allowedTools` – a research step probably doesn't need write access:
 
 ```yaml

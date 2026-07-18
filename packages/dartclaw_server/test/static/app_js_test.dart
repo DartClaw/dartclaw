@@ -79,6 +79,18 @@ void main() {
       expect(sharedSource, contains('updateRunningWorkflowsSection'));
     });
 
+    test('workflow lifecycle events reconcile the server-rendered detail page', () {
+      final source = File('$baseDir/controllers/dc_workflows_controller.js').readAsStringSync();
+      expect(source, contains('function refreshWorkflowDetail(owner)'));
+      expect(source, contains("case 'connected':"));
+      expect(source, contains("detailPage.getAttribute('data-run-status')"));
+      expect(source, contains("htmx.ajax('GET', window.location.pathname + qs"));
+      expect(source, contains("['completed', 'failed', 'cancelled'].includes(runStatus)"));
+      expect(source, isNot(contains('let workflowEventSource')));
+      expect(source, contains('owner.workflowEventSource'));
+      expect(source, contains('if (owner) initWorkflowDetailSSE(owner)'));
+    });
+
     test('shell and chat controllers own migrated behavior directly', () {
       final shellSource = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
       final chatSource = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
@@ -142,6 +154,12 @@ void main() {
       expect(css, contains('.sidebar-running-item .running-elapsed'));
       expect(css, contains('.status-dot--live::before'));
       expect(css, contains('.status-dot--live::after'));
+    });
+
+    test('shell uses shrinkable content tracks on desktop and mobile', () {
+      final css = File(componentsCssPath).readAsStringSync();
+      expect(css, contains('grid-template-columns: var(--sidebar-w) minmax(0, 1fr);'));
+      expect(css, contains('.shell { grid-template-columns: minmax(0, 1fr); }'));
     });
   });
 }

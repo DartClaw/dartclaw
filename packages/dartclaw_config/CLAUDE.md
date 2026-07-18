@@ -1,6 +1,6 @@
 # Package Rules — `dartclaw_config`
 
-**Role**: Owns the full config lifecycle — typed section classes composed into `DartclawConfig`, YAML parsing (`config_parser.dart` + the `config_parser_*.dart` domain `part` files), `ConfigValidator`, atomic `ConfigWriter`, `ConfigNotifier`/`ConfigDelta`/`Reconfigurable` hot-reload, `ConfigMeta`/`FieldMeta` registry, `CredentialRegistry`, `ProviderValidator`, and the extension parser registration system. Re-exports all of `dartclaw_models` from its barrel.
+**Role**: Owns the full config lifecycle — typed section classes composed into `DartclawConfig`, YAML parsing (`config_parser.dart` + the `config_parser_*.dart` domain `part` files), `ConfigValidator`, atomic `ConfigWriter`, `ConfigNotifier`/`ConfigDelta`/`Reconfigurable` hot-reload, `ConfigMeta`/`FieldMeta` registry, `CredentialRegistry`, `ProviderValidator`, the immutable platform capability policy, and the extension parser registration system. Re-exports all of `dartclaw_models` from its barrel.
 
 ## Boundaries
 - Runtime deps: `collection`, `meta`, `path`, `yaml`, `yaml_edit`, `logging`, plus `dartclaw_models` and `dartclaw_security`. Do not add `dart:io` networking, `shelf`, `sqlite3`, or any channel/server package. This package must stay importable by `dartclaw_core` and the channel packages (which register parsers at import time — see below).
@@ -33,3 +33,4 @@
 - `lib/src/config_notifier.dart`, `lib/src/config_delta.dart`, `lib/src/reconfigurable.dart` — hot-reload pipeline.
 - `lib/src/config_extensions.dart` — extension parser registration (`part`).
 - `lib/src/credential_registry.dart`, `lib/src/provider_validator.dart` — credential resolution + provider startup probes.
+- `lib/src/platform_capabilities.dart` — effect-free OS capability policy and structured unsupported-capability error.

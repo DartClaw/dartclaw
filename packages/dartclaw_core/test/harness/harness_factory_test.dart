@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
@@ -105,12 +105,14 @@ void main() {
 
     test('creates a CodexHarness from the built-in codex provider', () {
       final guardChain = GuardChain(guards: const []);
+      final platformCapabilities = PlatformCapabilities(operatingSystem: 'windows');
       final factory = HarnessFactory();
       final config = HarnessFactoryConfig(
         cwd: '/tmp/workspace',
         executable: '/usr/local/bin/codex',
         turnTimeout: const Duration(seconds: 42),
         guardChain: guardChain,
+        platformCapabilities: platformCapabilities,
       );
 
       final harness = factory.create('codex', config);
@@ -121,6 +123,7 @@ void main() {
       expect(codex.executable, '/usr/local/bin/codex');
       expect(codex.turnTimeout, const Duration(seconds: 42));
       expect(codex.guardChain, same(guardChain));
+      expect(codex.platformCapabilities, same(platformCapabilities));
     });
 
     test('defaults codex to the codex binary when executable is not set explicitly', () {

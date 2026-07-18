@@ -23,6 +23,7 @@ void main(List<String> args) {
   final formulaPath = _require(opts, 'formula');
   final checksumsDir = _require(opts, 'checksums-dir');
   final version = _require(opts, 'version');
+  _validateReleaseVersion(version);
 
   var formula = File(formulaPath).readAsStringSync();
 
@@ -46,6 +47,14 @@ void main(List<String> args) {
   } else {
     File(output).writeAsStringSync(formula);
     stdout.writeln('render-homebrew-formula: wrote $output');
+  }
+}
+
+void _validateReleaseVersion(String version) {
+  if (!RegExp(
+    r'^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$',
+  ).hasMatch(version)) {
+    _fail('invalid release version: $version');
   }
 }
 

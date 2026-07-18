@@ -17,13 +17,13 @@ const readOnlyShellAllow = [
   'Bash(git status --short)',
   'Bash(git status)',
   'Bash(pwd)',
-  'Glob(*)',
-  'Grep(*)',
-  'LS(*)',
-  'Read(*)',
+  'Glob',
+  'Grep',
+  'LS',
+  'Read',
 ];
 
-const writeDeny = ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'];
+const writeDeny = ['Edit', 'NotebookEdit', 'Write'];
 
 const itemsSchema = {
   'type': 'object',
@@ -146,8 +146,6 @@ class FakeCliProvider implements CliProvider {
 }
 
 class SigkillOnlyFakeProcess extends FakeProcess {
-  final killSignals = <ProcessSignal>[];
-
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
     killCalled = true;

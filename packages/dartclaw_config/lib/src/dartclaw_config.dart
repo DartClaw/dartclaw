@@ -23,6 +23,7 @@ import 'advisor_config.dart';
 import 'alerts_config.dart';
 import 'auth_config.dart';
 import 'claude_provider_options.dart';
+import 'config_load_warnings.dart';
 import 'context_config.dart';
 import 'credentials_config.dart';
 import 'delegation_config.dart';
@@ -166,6 +167,12 @@ class DartclawConfig {
   /// warnings.
   List<String> get warnings => UnmodifiableListView(_warningSink());
 
+  /// Load diagnostics that indicate invalid input or fallback behavior.
+  List<String> get reloadBlockingWarnings {
+    final warnings = _warningSink();
+    return UnmodifiableListView(warnings is ConfigLoadWarnings ? warnings.blockingWarnings : warnings);
+  }
+
   /// channelConfigProvider.
   ChannelConfigProvider get channelConfigProvider => _ConfigChannelConfigProvider(this);
 
@@ -302,7 +309,7 @@ class DartclawConfig {
       alerts: alerts ?? this.alerts,
       delegation: delegation ?? this.delegation,
       extensions: extensions ?? this.extensions,
-      warnings: warnings ?? this.warnings,
+      warnings: warnings ?? _warningSink(),
     );
   }
 
@@ -386,7 +393,7 @@ class DartclawConfig {
     final environment = env ?? Platform.environment;
     final reader = fileReader ?? _defaultFileReader;
     final cli = cliOverrides ?? {};
-    final warns = <String>[];
+    final warns = ConfigLoadWarnings();
 
     final yaml = _loadYaml(environment, reader, warns, configPath: configPath);
     final configBaseDir = _loadedConfigBaseDir(environment, configPath: configPath);

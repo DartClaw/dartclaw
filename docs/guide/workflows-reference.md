@@ -136,13 +136,18 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `file_write` | Writing or creating files |
 | `file_edit` | Modifying existing files in place, such as Claude's `Edit` tool |
 | `web_fetch` | Web or HTTP fetch |
-| `mcp_call` | Any tool routed through an MCP server |
+| `mcp_call` | Tools routed through an MCP server |
 
 Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.
 
 Provider enforcement differs: Claude maps categories to permission patterns; Codex treats the allowlist as advisory plus sandbox/approval policy. A non-read-only Codex step that declares `allowedTools` emits a workflow-load warning because Codex CLI has no native per-tool allowlist.
 
-One Claude-specific gotcha: under the non-interactive permission mode workflow steps run with, Claude's `Edit`/`MultiEdit` tools are hard-denied unless the step grants `file_edit` — `file_write` alone permits creating files but not in-place edits of existing ones.
+Claude has no safe permission rule for every MCP server. `mcp_call` therefore preserves server-scoped MCP rules already
+declared in `providers.claude.permissions.allow` or its structured `settings` block, such as `mcp__github` or
+`mcp__github__*`; it never broadens the policy to the rejected `mcp__*` rule. User, project, and managed Claude settings
+still participate according to Claude's settings precedence.
+
+One Claude-specific gotcha: under the non-interactive permission mode workflow steps run with, Claude's `Edit` and `NotebookEdit` tools are hard-denied unless the step grants `file_edit` — `file_write` alone permits creating files but not in-place edits of existing ones.
 
 ### `approval` Steps
 
@@ -175,7 +180,20 @@ The run pauses with approval metadata stored in workflow context. Resume records
       format: text
 ```
 
-`{{context.*}}` and `{{VAR}}` substitutions are shell-escaped. Commands that pipe interpolated context into another shell parser are rejected before execution. stdout/stderr are captured and truncated at 64 KB, and step metadata such as `<stepId>.status`, `<stepId>.exitCode`, and `<stepId>.tokenCount: 0` is written to context.
+`{{context.*}}` and `{{VAR}}` substitutions are shell-escaped for use as unquoted ordinary arguments. Caller-owned shell quotes, `eval`, and direct nested `sh`/`bash` invocations are rejected before execution. Workflow definitions are trusted code: do not route substituted values into another interpreter or write and later execute them as code. stdout/stderr are captured and truncated at 64 KB, and step metadata such as `<stepId>.status`, `<stepId>.exitCode`, and `<stepId>.tokenCount: 0` is written to context.
+
+Background jobs remain part of the Bash step and are awaited or cleaned up when observed. Do not launch detached or
+daemonized services from a Bash step; use a managed service boundary instead.
+
+On native Windows, Bash steps require Git Bash. DartClaw resolves `bash.exe` through the Windows executable lookup
+policy and runs the step there. If Git Bash is absent, the step fails with
+`bash steps require Git Bash on Windows`; it does not return an empty success. This qualification covers native cwd
+mapping, spaces in cwd/file names, quoted relative access, allowlisted environment propagation, and basic POSIX
+commands. It does not promise translation of arbitrary Windows paths embedded in command arguments.
+If the directly managed Git Bash process is still running when a Windows timeout fires, DartClaw hard-terminates it.
+It does not retarget an already-exited root or claim descendant containment. A timed-out step reports failure, but an
+uncontained descendant may continue. If cleanup cannot be confirmed, later Bash steps remain blocked until DartClaw
+restarts. Commands that require process-tree containment belong on POSIX.
 
 ### `continueSession`
 

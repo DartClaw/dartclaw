@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_security/dartclaw_security.dart';
@@ -7,39 +6,41 @@ import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:path/path.dart' as p;
 
 import 'canonical_tool.dart';
-import 'process_types.dart';
 
 typedef AcpPermissionDecision = Future<AcpPermissionResult> Function(AcpPermissionRequest request);
 
 typedef AcpReverseCallAuditSink = void Function(AcpReverseCallAuditEvent event);
 
 final class AcpReverseCallHandlers {
-  AcpReverseCallHandlers({
-    required this.cwd,
-    this.guardChain,
-    AcpPermissionDecision? permissionDecision,
-    AcpReverseCallAuditSink? onAudit,
-    ProcessFactory? terminalProcessFactory,
-    Map<String, String>? baseEnvironment,
-    this.hostOutputByteLimit = 65536,
-  }) : _permissionDecision = permissionDecision,
-       _onAudit = onAudit,
-       _terminalProcessFactory = terminalProcessFactory,
-       _baseEnvironment = Map<String, String>.unmodifiable(baseEnvironment ?? Platform.environment);
+  AcpReverseCallHandlers({this.guardChain, AcpPermissionDecision? permissionDecision, AcpReverseCallAuditSink? onAudit})
+    : _permissionDecision = permissionDecision,
+      _onAudit = onAudit;
 
-  final String cwd;
   final GuardChain? guardChain;
   final AcpPermissionDecision? _permissionDecision;
   final AcpReverseCallAuditSink? _onAudit;
-  final ProcessFactory? _terminalProcessFactory;
-  final Map<String, String> _baseEnvironment;
-  final int hostOutputByteLimit;
-  final Map<String, _AcpTerminal> _terminals = {};
-  int _nextTerminalId = 0;
+  _AcpTurnBinding? _activeTurn;
 
-  Map<String, bool> get capabilityFlags => {'readTextFile': true, 'writeTextFile': true, 'terminal': true};
+  Map<String, bool> get capabilityFlags => {'readTextFile': true, 'writeTextFile': true, 'terminal': false};
 
-  Future<Map<String, dynamic>> readTextFile(Object? params) async {
+  /// Whether terminal subprocesses remain owned until their exit is observed.
+  bool get ownsTerminals => false;
+
+  /// Binds reverse calls to the authorization and workspace of an active turn.
+  void bindTurn({required String sessionId, required String effectiveDirectory}) {
+    final root = _resolveExistingPath(effectiveDirectory, 'session/bind');
+    _activeTurn = _AcpTurnBinding(sessionId: sessionId, workspaceRoot: root);
+  }
+
+  /// Stops admitting reverse calls, drains accepted calls, then removes the binding.
+  Future<void> unbindTurn(String sessionId) async {
+    final activeTurn = _activeTurn;
+    if (activeTurn == null || activeTurn.sessionId != sessionId) return;
+    await activeTurn.close();
+    if (identical(_activeTurn, activeTurn)) _activeTurn = null;
+  }
+
+  Future<Map<String, dynamic>> readTextFile(Object? params) => _runReverseCall('fs/read_text_file', () async {
     final request = _request(params);
     final path = _requiredString(request, 'path', 'fs/read_text_file');
     final resolvedPath = _resolveWorkspacePath(path, 'fs/read_text_file');
@@ -53,9 +54,9 @@ final class AcpReverseCallHandlers {
     }
     final content = await File(resolvedPath).readAsString();
     return {'content': content};
-  }
+  });
 
-  Future<Map<String, dynamic>> writeTextFile(Object? params) async {
+  Future<Map<String, dynamic>> writeTextFile(Object? params) => _runReverseCall('fs/write_text_file', () async {
     final request = _request(params);
     final path = _requiredString(request, 'path', 'fs/write_text_file');
     final content = _requiredString(request, 'content', 'fs/write_text_file');
@@ -71,83 +72,50 @@ final class AcpReverseCallHandlers {
     await File(resolvedPath).parent.create(recursive: true);
     await File(resolvedPath).writeAsString(content);
     return {'ok': true};
-  }
+  });
 
-  Future<Map<String, dynamic>> createTerminal(Object? params) async {
-    final request = _request(params);
-    final command = _requiredString(request, 'command', 'terminal/create');
-    final terminalCwd = _resolveWorkspacePath(_optionalString(request, 'cwd') ?? '.', 'terminal/create');
-    final envOverlay = _optionalStringMap(request, 'env', 'terminal/create');
-    final requestedLimit = _optionalPositiveInt(request, 'outputByteLimit', 'terminal/create');
-    final effectiveLimit = requestedLimit == null ? hostOutputByteLimit : requestedLimit.clamp(0, hostOutputByteLimit);
-    final sanitizedEnvironment = SafeProcess.sanitize(
-      baseEnvironment: {..._baseEnvironment, ...envOverlay},
-      allowlist: defaultBashStepEnvAllowlist,
-    );
-    final verdict = await _evaluateGuard(
-      method: 'terminal/create',
-      canonicalTool: CanonicalTool.shell,
-      input: {'command': command, 'cwd': terminalCwd},
-    );
-    if (verdict.isBlock) {
-      return _noAccess(verdict.message);
-    }
+  Future<Map<String, dynamic>> createTerminal(Object? params) =>
+      _runReverseCall('terminal/create', () async => _terminalUnavailable('terminal/create'));
 
-    final process = await _startTerminalProcess(command, terminalCwd, sanitizedEnvironment);
-    final id = 'terminal-${++_nextTerminalId}';
-    final terminal = _AcpTerminal(id: id, process: process, outputByteLimit: effectiveLimit);
-    terminal.attachOutput();
-    _terminals[id] = terminal;
-    return {'terminalId': id, 'outputByteLimit': effectiveLimit};
-  }
+  Future<Map<String, dynamic>> terminalOutput(Object? params) =>
+      _runReverseCall('terminal/output', () async => _terminalUnavailable('terminal/output'));
 
-  Future<Map<String, dynamic>> terminalOutput(Object? params) async {
-    final terminal = _terminalFor(params, 'terminal/output');
-    _audit(method: 'terminal/output');
-    return {'output': terminal.output, 'truncated': terminal.truncated};
-  }
+  Future<Map<String, dynamic>> waitForExit(Object? params) =>
+      _runReverseCall('terminal/wait_for_exit', () async => _terminalUnavailable('terminal/wait_for_exit'));
 
-  Future<Map<String, dynamic>> waitForExit(Object? params) async {
-    final terminal = _terminalFor(params, 'terminal/wait_for_exit');
-    _audit(method: 'terminal/wait_for_exit');
-    return {'exitCode': await terminal.process.exitCode, 'output': terminal.output, 'truncated': terminal.truncated};
-  }
+  Future<Map<String, dynamic>> killTerminal(Object? params) =>
+      _runReverseCall('terminal/kill', () async => _terminalUnavailable('terminal/kill'));
 
-  Future<Map<String, dynamic>> killTerminal(Object? params) async {
-    final terminal = _terminalFor(params, 'terminal/kill');
-    _audit(method: 'terminal/kill');
-    return {'ok': terminal.process.kill()};
-  }
+  Future<Map<String, dynamic>> releaseTerminal(Object? params) =>
+      _runReverseCall('terminal/release', () async => _terminalUnavailable('terminal/release'));
 
-  Future<Map<String, dynamic>> releaseTerminal(Object? params) async {
-    final terminal = _terminalFor(params, 'terminal/release');
-    _audit(method: 'terminal/release');
-    _terminals.remove(terminal.id);
-    terminal.process.kill();
-    return {'ok': true};
-  }
+  /// Requests termination of every owned terminal and reports whether all exits were confirmed.
+  Future<bool> disposeTerminals() async => true;
 
-  Future<void> disposeTerminals() async {
-    final terminals = List<_AcpTerminal>.from(_terminals.values);
-    _terminals.clear();
-    for (final terminal in terminals) {
-      terminal.process.kill();
-    }
-  }
+  Future<Map<String, dynamic>> requestPermission(Object? params) =>
+      _runReverseCall('session/request_permission', () async {
+        final request = _request(params);
+        final operation = _optionalString(request, 'operation') ?? _optionalString(request, 'tool') ?? 'unknown';
+        final decisionHandler = _permissionDecision;
+        _audit(method: 'session/request_permission', canonicalToolName: operation);
+        if (decisionHandler == null) {
+          return const {'granted': false, 'reason': 'Permission denied'};
+        }
+        try {
+          final decision = await decisionHandler(AcpPermissionRequest(operation: operation, params: request));
+          return {'granted': decision.granted, if (decision.reason != null) 'reason': decision.reason};
+        } catch (error) {
+          return {'granted': false, 'reason': 'Permission handler error: $error'};
+        }
+      });
 
-  Future<Map<String, dynamic>> requestPermission(Object? params) async {
-    final request = _request(params);
-    final operation = _optionalString(request, 'operation') ?? _optionalString(request, 'tool') ?? 'unknown';
-    final decisionHandler = _permissionDecision;
-    _audit(method: 'session/request_permission', canonicalToolName: operation);
-    if (decisionHandler == null) {
-      return const {'granted': false, 'reason': 'Permission denied'};
-    }
+  Future<T> _runReverseCall<T>(String method, Future<T> Function() operation) async {
+    final activeTurn = _requireActiveTurn(method);
+    activeTurn.beginCall(method);
     try {
-      final decision = await decisionHandler(AcpPermissionRequest(operation: operation, params: request));
-      return {'granted': decision.granted, if (decision.reason != null) 'reason': decision.reason};
-    } catch (error) {
-      return {'granted': false, 'reason': 'Permission handler error: $error'};
+      return await operation();
+    } finally {
+      activeTurn.endCall();
     }
   }
 
@@ -172,34 +140,8 @@ final class AcpReverseCallHandlers {
     throw json_rpc.RpcException.invalidParams('ACP request field "$key" must be a string');
   }
 
-  int? _optionalPositiveInt(Map<String, dynamic> request, String key, String method) {
-    final value = request[key];
-    if (value == null) return null;
-    if (value is int && value >= 0) return value;
-    _audit(method: method);
-    throw json_rpc.RpcException.invalidParams('ACP "$method" field "$key" must be a non-negative integer');
-  }
-
-  Map<String, String> _optionalStringMap(Map<String, dynamic> request, String key, String method) {
-    final value = request[key];
-    if (value == null) return const <String, String>{};
-    if (value is! Map) {
-      _audit(method: method);
-      throw json_rpc.RpcException.invalidParams('ACP "$method" field "$key" must be an object');
-    }
-    final result = <String, String>{};
-    for (final entry in value.entries) {
-      if (entry.key is! String || entry.value is! String) {
-        _audit(method: method);
-        throw json_rpc.RpcException.invalidParams('ACP "$method" env entries must be strings');
-      }
-      result[entry.key as String] = entry.value as String;
-    }
-    return result;
-  }
-
   String _resolveWorkspacePath(String requestedPath, String method) {
-    final root = _resolveExistingPath(cwd, method);
+    final root = _requireActiveTurn(method).workspaceRoot;
     final candidate = p.normalize(p.absolute(root, requestedPath));
     final resolvedCandidate = _resolveCandidatePath(candidate, method);
     if (resolvedCandidate != root && !p.isWithin(root, resolvedCandidate)) {
@@ -253,42 +195,30 @@ final class AcpReverseCallHandlers {
     required Map<String, dynamic> input,
   }) async {
     _audit(method: method, canonicalToolName: canonicalTool.stableName);
+    final activeTurn = _requireActiveTurn(method);
     final chain = guardChain;
     if (chain == null) return GuardVerdict.pass();
-    return chain.evaluateBeforeToolCall(canonicalTool.stableName, input, rawProviderToolName: method);
-  }
-
-  Future<Process> _startTerminalProcess(String command, String workingDirectory, Map<String, String> environment) {
-    final factory = _terminalProcessFactory;
-    if (factory != null) {
-      return factory(
-        command,
-        const <String>[],
-        workingDirectory: workingDirectory,
-        environment: environment,
-        includeParentEnvironment: false,
-      );
-    }
-    return SafeProcess.start(
-      command,
-      const <String>[],
-      env: EnvPolicy.sanitize(extraEnvironment: environment),
-      workingDirectory: workingDirectory,
-      baseEnvironment: const <String, String>{},
-      runInShell: true,
+    return chain.evaluateBeforeToolCall(
+      canonicalTool.stableName,
+      input,
+      rawProviderToolName: method,
+      sessionId: activeTurn.sessionId,
     );
   }
 
-  _AcpTerminal _terminalFor(Object? params, String method) {
-    final request = _request(params);
-    final id = _requiredString(request, 'terminalId', method);
-    final terminal = _terminals[id];
-    if (terminal == null) {
-      _audit(method: method);
-      throw json_rpc.RpcException(-32600, 'Unknown ACP terminal "$id"');
-    }
-    terminal.attachOutput();
-    return terminal;
+  Never _terminalUnavailable(String method) {
+    _audit(method: method);
+    throw json_rpc.RpcException(
+      -32600,
+      'ACP terminal reverse calls are unavailable until process-tree containment is implemented',
+    );
+  }
+
+  _AcpTurnBinding _requireActiveTurn(String method) {
+    final activeTurn = _activeTurn;
+    if (activeTurn != null && activeTurn.acceptingCalls) return activeTurn;
+    _audit(method: method);
+    throw json_rpc.RpcException(-32600, 'ACP "$method" requires an active host turn');
   }
 
   Map<String, dynamic> _noAccess(String? reason) {
@@ -301,6 +231,37 @@ final class AcpReverseCallHandlers {
 
   void _audit({required String method, String? canonicalToolName}) {
     _onAudit?.call(AcpReverseCallAuditEvent(rawProviderToolName: method, canonicalToolName: canonicalToolName));
+  }
+}
+
+final class _AcpTurnBinding {
+  _AcpTurnBinding({required this.sessionId, required this.workspaceRoot});
+
+  final String sessionId;
+  final String workspaceRoot;
+  var acceptingCalls = true;
+  var _inFlightCalls = 0;
+  Completer<void>? _drained;
+
+  void beginCall(String method) {
+    if (!acceptingCalls) {
+      throw json_rpc.RpcException(-32600, 'ACP "$method" requires an active host turn');
+    }
+    _inFlightCalls++;
+  }
+
+  void endCall() {
+    _inFlightCalls--;
+    if (!acceptingCalls && _inFlightCalls == 0) {
+      _drained?.complete();
+      _drained = null;
+    }
+  }
+
+  Future<void> close() {
+    acceptingCalls = false;
+    if (_inFlightCalls == 0) return Future<void>.value();
+    return (_drained ??= Completer<void>()).future;
   }
 }
 
@@ -323,39 +284,4 @@ final class AcpReverseCallAuditEvent {
   final String? canonicalToolName;
 
   const AcpReverseCallAuditEvent({required this.rawProviderToolName, this.canonicalToolName});
-}
-
-final class _AcpTerminal {
-  _AcpTerminal({required this.id, required this.process, required this.outputByteLimit});
-
-  final String id;
-  final Process process;
-  final int outputByteLimit;
-  final _output = <int>[];
-  bool _attached = false;
-  bool truncated = false;
-
-  String get output => utf8.decode(_output, allowMalformed: true);
-
-  void attachOutput() {
-    if (_attached) return;
-    _attached = true;
-    process.stdout.listen(_appendChunk);
-    process.stderr.listen(_appendChunk);
-  }
-
-  void _appendChunk(List<int> chunk) {
-    if (truncated) return;
-    final remaining = outputByteLimit - _output.length;
-    if (remaining <= 0) {
-      truncated = true;
-      return;
-    }
-    if (chunk.length > remaining) {
-      _output.addAll(chunk.take(remaining));
-      truncated = true;
-      return;
-    }
-    _output.addAll(chunk);
-  }
 }

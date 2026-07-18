@@ -180,13 +180,44 @@ void main() {
         profileId: 'workspace',
       );
       await pumpEventQueue();
-      process.emitStderr('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB active');
+      process.emitStderr('Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set');
       await pumpEventQueue();
 
       await runner.cancelInflight();
       final result = await turn;
 
       expect(result.cancelled, isTrue);
+    });
+
+    test('fatal stderr containing the benign notice text keeps the diagnostic failure', () async {
+      late FakeProcess process;
+      final runner = WorkflowCliRunner(
+        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+          return process;
+        },
+      );
+
+      final turn = runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Test',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+      await pumpEventQueue();
+      process.emitStderr(
+        'fatal: Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set; '
+        'authentication failed',
+      );
+      await pumpEventQueue();
+
+      await runner.cancelInflight();
+
+      await expectLater(
+        turn,
+        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('authentication failed'))),
+      );
     });
 
     test('cancelInflight after a terminal result preserves the parsed success', () async {
@@ -511,7 +542,8 @@ void main() {
       expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
       expect(arguments, isNot(contains('--dangerously-skip-permissions')));
       final allow = _permissionsAllow(arguments);
-      expect(allow, containsAll(['Write(*)', 'Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)']));
+      expect(allow, containsAll(['Bash', 'Read', 'Write', 'Edit', 'NotebookEdit']));
+      expect(allow, isNot(contains('MultiEdit')));
     });
 
     test('file_write without file_edit omits the Edit family (default unchanged)', () async {
@@ -527,10 +559,37 @@ void main() {
       );
 
       final allow = _permissionsAllow(arguments);
-      expect(allow, contains('Write(*)'));
-      expect(allow, isNot(contains('Edit(*)')));
-      expect(allow, isNot(contains('MultiEdit(*)')));
-      expect(allow, isNot(contains('NotebookEdit(*)')));
+      expect(allow, contains('Write'));
+      expect(allow, isNot(contains('Edit')));
+      expect(allow, isNot(contains('MultiEdit')));
+      expect(allow, isNot(contains('NotebookEdit')));
+    });
+
+    test('mcp_call preserves only configured server-scoped Claude MCP allow rules', () async {
+      late List<String> arguments;
+      final runner = _recordingRunner(
+        (args) => arguments = args,
+        options: {
+          'permissions': {
+            'allow': ['mcp__context7', 'mcp__github__*', 'mcp__*', 'Bash(git status)'],
+          },
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Look it up',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        allowedTools: ['file_read', 'mcp_call'],
+      );
+
+      expect(
+        _permissionsAllow(arguments),
+        containsAll(['Glob', 'Grep', 'LS', 'Read', 'mcp__context7', 'mcp__github__*']),
+      );
+      expect(_permissionsAllow(arguments), isNot(contains('mcp__*')));
+      expect(_permissionsAllow(arguments), isNot(contains('Bash(git status)')));
     });
 
     test('approval: never opts into full access — no allow-list, bypass mode, no StateError', () async {
@@ -614,7 +673,7 @@ void main() {
       expect(settings['sandbox'], {'enabled': true});
       // Approval axis is untouched: still dontAsk + allow-list.
       expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
-      expect(_permissionsAllow(arguments), contains('Edit(*)'));
+      expect(_permissionsAllow(arguments), contains('Edit'));
     });
 
     test('sandbox: danger-full-access disables isolation but never relaxes prompt gating', () async {
@@ -632,7 +691,7 @@ void main() {
       final settings = _settingsJson(arguments)!;
       expect(settings['sandbox'], {'enabled': false});
       expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
-      expect(_permissionsAllow(arguments), contains('Edit(*)'));
+      expect(_permissionsAllow(arguments), contains('Edit'));
     });
 
     test('full-access approval is refused under the restricted container profile', () async {

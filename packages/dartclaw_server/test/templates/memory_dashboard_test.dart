@@ -88,6 +88,24 @@ void main() {
       expect(html, contains('</html>'));
     });
 
+    test('keeps the memory controller inside the HTMX main fragment', () {
+      final html = memoryDashboardTemplate(
+        status: sampleStatus(),
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+
+      final mainStart = html.indexOf('<main id="main-content"');
+      final mainEnd = html.indexOf('</main>', mainStart);
+      final controller = html.indexOf('data-controller="dc-memory"');
+
+      expect(mainStart, greaterThanOrEqualTo(0));
+      expect(mainEnd, greaterThan(mainStart));
+      expect(controller, greaterThan(mainStart));
+      expect(controller, lessThan(mainEnd));
+    });
+
     test('budget bar at 25% has no warn class', () {
       final html = memoryDashboardTemplate(
         status: sampleStatus(sizeBytes: 8192, budgetBytes: 32768), // 25%

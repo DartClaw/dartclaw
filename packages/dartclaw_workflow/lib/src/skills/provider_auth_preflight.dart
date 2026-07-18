@@ -141,7 +141,7 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
     final envVars = CredentialRegistry.envVarsForFamily(provider, family);
     final envHint = envVars.isEmpty ? '' : ' or set ${envVars.join(' / ')}';
     final cliHint = switch (family) {
-      ProviderIdentity.claude => 'run `claude login` or `claude setup-token`',
+      ProviderIdentity.claude => 'run `claude auth login` or `claude setup-token`',
       ProviderIdentity.codex => 'run `codex login`',
       _ => 'log in to the "$provider" CLI',
     };

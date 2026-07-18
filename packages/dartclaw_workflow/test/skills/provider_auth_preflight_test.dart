@@ -22,7 +22,7 @@ void main() {
       final result = await preflight.evaluate(provider: 'claude');
 
       expect(result.authenticated, isFalse);
-      expect(result.remediationMessage, contains('claude login'));
+      expect(result.remediationMessage, contains('claude auth login'));
       expect(result.remediationMessage, contains('claude setup-token'));
       expect(result.remediationMessage, contains('ANTHROPIC_API_KEY'));
       expect(calls, [

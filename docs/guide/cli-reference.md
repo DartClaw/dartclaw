@@ -437,6 +437,9 @@ dartclaw service stop
 dartclaw service uninstall
 ```
 
+`service` manages LaunchAgents on macOS and `systemd --user` units on Linux. It is unsupported on native Windows; run
+`dartclaw serve` directly or use operator-managed process supervision.
+
 ### `google-auth`
 
 ```bash

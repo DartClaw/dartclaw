@@ -7,14 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.21.0] - 2026-07-17
+
+### Added
+
+- **Native Windows x64 core-runtime support** – release archives include `bin/dartclaw.exe` plus the FTS5-enabled sibling `lib/sqlite3.dll`; the server, Web UI, sessions, bundled-FTS5 search, file-watch config reload, process lifecycle, and Claude/Codex transports are qualified on native Windows. Unix-coupled container isolation remains unavailable and fails closed with POSIX/WSL remediation.
+- **Windows installation and workflow support** – a checksum-verifying PowerShell installer and Scoop-manifest publication flow provide Windows distribution, while workflow Bash steps use Git Bash when available and fail explicitly when it is absent. Windows timeout cleanup guarantees only the directly managed root; use POSIX when descendant-process containment is required.
 
 ### Changed
 
 - **Release archives now bundle SQLite** – each platform archive contains `bin/dartclaw` plus `lib/libsqlite3.*` (the bundled SQLite library) instead of a single file; the binary resolves the library from its sibling `lib/`, so the two must stay together. The Homebrew formula installs both. Release builds now use `dart build cli` instead of `dart compile exe`, which cannot cross-compile — Linux arm64 moves to a native `ubuntu-24.04-arm` runner.
+- **ACP reverse-calls are turn-scoped and filesystem-only** – filesystem calls now inherit the active host session's workspace and guard policy, while calls outside a turn fail closed. ACP terminal reverse-calls are no longer advertised on any host until complete descendant containment is available.
 
 ### Fixed
 
+- **Short-lived Linux Bash steps no longer fail on a normal process-exit race** – `/proc` inspection now treats both `ENOENT` and `ESRCH` as evidence that the process disappeared, instead of reporting unconfirmed descendant cleanup and failing the workflow step.
+- **Workflow approval state updates arrive without reloads** – workflow SSE responses disable server buffering, subscribe before the initial snapshot, and reconcile the server-rendered detail after status changes. Approval and terminal controls now update immediately, while shared task-page initialization no longer touches another controller's event stream.
+- **Workflow merge resolution preserves accepted sibling work** – the resolver now treats integration-branch edits as already accepted and combines independent story changes instead of choosing one conflicting story at the expense of another.
+- **Claude workflow merge resolution can perform its Git transaction headlessly** – synthetic resolver tasks now declare the shell/read/write/edit policy they require, so `dontAsk` no longer denies environment probes, merge writes, or the resolution commit. Claude tool-category rules use canonical whole-tool grants, `NotebookEdit` runs through file guards, and MCP access preserves only configured server-scoped rules instead of the rejected `mcp__*` wildcard.
+- **Memory controls survive HTMX navigation** – the memory Stimulus controller now lives on the swapped main-content fragment, so tabs and rendered/source view controls reconnect after SPA-style navigation.
 - **Linux release binaries crashed at the first SQLite call** – `dart compile exe` embedded no sqlite native-asset mapping (its build-hook check misclassifies the pub workspace, dart-lang/sdk#62593), so released binaries shipped without a SQLite library. macOS masked the bug because the OS preloads the system `libsqlite3`; Linux binaries aborted with `Couldn't resolve native function 'sqlite3_initialize'`. Release builds now use `dart build cli`, which bundles a working SQLite (with FTS5) next to the binary.
 
 ## [0.20.1] - 2026-07-10
@@ -101,7 +112,7 @@ The **Context Engine** release: DartClaw synthesizes its internal knowledge (LLM
 - **Standalone workflow lifecycle control** – `dartclaw workflow resume`/`cancel`/`pause`/`retry` now accept `--standalone`, so an approval-paused `workflow run --standalone` can be driven to completion (or cancelled) in-process without ever starting `dartclaw serve`, closing the last hole in the zero-server workflow promise. Invalid-state attempts (including a stale `running` run left by an abrupt kill) surface a clean message + non-zero exit, never an uncaught stack trace.
 - **Inline workflow git-strategy override** – `dartclaw workflow run --inline <name>` runs any workflow definition on the current branch with no integration branch, worktree, or merge-back (equivalent to a hand-authored `*-inline` variant), via one shared override seam used by both standalone and connected modes. Multi-story inline runs clamp iteration concurrency to 1 to protect the shared checkout.
 - **Non-interactive workflow approval policy** – a first-class approval-resolution policy (`workflow.approvals` config default, overridable per run via `dartclaw workflow run --approvals=<mode>`) lets an unattended/standalone/CI run proceed past approval and `needsInput` gates automatically, while interactive runs keep today's pause-for-human default. Orthogonal to `headless` (which only governs task-completion acceptance).
-- **Provider auth preflight for standalone workflow runs** – a standalone run now gates provider authentication *before any provider harness starts*: a referenced-but-logged-out provider aborts before step 1 with a provider-named remediation (`claude login` / `claude setup-token` / `ANTHROPIC_API_KEY`; `codex login` / `OPENAI_API_KEY`) instead of a cryptic mid-introspection `401`. Only providers the run actually references are probed; a declared-but-unused (or default) logged-out provider never blocks the run.
+- **Provider auth preflight for standalone workflow runs** – a standalone run now gates provider authentication *before any provider harness starts*: a referenced-but-logged-out provider aborts before step 1 with a provider-named remediation (`claude auth login` / `claude setup-token` / `ANTHROPIC_API_KEY`; `codex login` / `OPENAI_API_KEY`) instead of a cryptic mid-introspection `401`. Only providers the run actually references are probed; a declared-but-unused (or default) logged-out provider never blocks the run.
 - **`dartclaw init --workflow` config banner** – the generated standalone workflow config (`.dartclaw/dartclaw.yaml`) now opens with a descriptive header comment: what the file is, that it is a minimal server-less subset of the full config, the `dartclaw workflow run --standalone <name>` command, and the `.dartclaw/workflows/` drop-folder for custom definitions.
 
 ### Changed

@@ -30,11 +30,13 @@ class SecurityWiring implements Reconfigurable {
     required String dataDir,
     required EventBus eventBus,
     required ExitFn exitFn,
+    PlatformCapabilities? platformCapabilities,
     ConfigNotifier? configNotifier,
     MessageRedactor? messageRedactor,
   }) : _dataDir = dataDir,
        _eventBus = eventBus,
        _exitFn = exitFn,
+       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        _configNotifier = configNotifier,
        _messageRedactorForRegistration = messageRedactor;
 
@@ -42,6 +44,7 @@ class SecurityWiring implements Reconfigurable {
   final String _dataDir;
   final EventBus _eventBus;
   final ExitFn _exitFn;
+  final PlatformCapabilities _platformCapabilities;
   final ConfigNotifier? _configNotifier;
   final MessageRedactor? _messageRedactorForRegistration;
 
@@ -71,13 +74,30 @@ class SecurityWiring implements Reconfigurable {
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
     if (config.container.enabled) {
+      if (!_platformCapabilities.containerIsolationAvailable) {
+        const error = UnsupportedCapabilityError(
+          capability: 'container isolation',
+          attemptedContext: 'container.enabled: true on native Windows',
+          remediation: 'Run DartClaw on POSIX (macOS/Linux) or inside WSL; native Windows isolation is unavailable.',
+        );
+        _log.severe(error.toString(), error);
+        _exitFn(1);
+      }
       await _wireContainers();
     } else {
-      _log.warning(
-        'Container isolation disabled — agent has full host access. '
-        'Guards are the only security boundary. '
-        'Enable container isolation for production use (see docs/guide/security.md).',
-      );
+      if (_platformCapabilities.containerIsolationAvailable) {
+        _log.warning(
+          'Container isolation disabled — agent has full host access. '
+          'Guards are the only security boundary. '
+          'Enable container isolation for production use (see docs/guide/security.md).',
+        );
+      } else {
+        _log.warning(
+          'Container isolation disabled — agent has full host access. '
+          'Container isolation is unavailable on native Windows; '
+          'run DartClaw on POSIX (macOS/Linux) or inside WSL for isolation.',
+        );
+      }
     }
 
     _wireGuardChain(agentDefs);
@@ -162,14 +182,14 @@ class SecurityWiring implements Reconfigurable {
       final authResult = await Process.run(config.server.claudeExecutable, ['auth', 'status']);
       if (authResult.exitCode != 0) {
         _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-        _log.severe('Configure auth with `claude login`, `claude setup-token`, or ANTHROPIC_API_KEY');
+        _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
         _exitFn(1);
       }
       try {
         final status = jsonDecode(authResult.stdout as String) as Map<String, dynamic>;
         if (status['loggedIn'] != true) {
           _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-          _log.severe('Configure auth with `claude login`, `claude setup-token`, or ANTHROPIC_API_KEY');
+          _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
           _exitFn(1);
         }
       } on FormatException {

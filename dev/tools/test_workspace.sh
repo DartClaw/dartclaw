@@ -5,6 +5,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+echo "==> Testing developer tools"
+bash dev/tools/parallels_windows_test.sh
+bash dev/tools/release_check_test.sh
+
 SERIAL_TEST_TARGETS=(
   "packages/dartclaw_workflow"
   "packages/dartclaw_server"
@@ -23,6 +27,8 @@ is_serial_target() {
 }
 
 while IFS= read -r package_path; do
+  package_path="${package_path%/}"
+  package_path="${package_path#./}"
   if [[ ! -d "${package_path}/test" ]]; then
     continue
   fi
@@ -31,7 +37,10 @@ while IFS= read -r package_path; do
   fi
 
   echo "==> Testing ${package_path}"
-  dart test --reporter=failures-only "${package_path}"
+  (
+    cd "${package_path}"
+    dart test --reporter=failures-only
+  )
 done < <(dart pub workspace list | awk 'NR > 1 && $2 != "./" { print $2 }')
 
 serial_targets=()
@@ -43,5 +52,10 @@ done
 
 if [[ "${#serial_targets[@]}" -gt 0 ]]; then
   echo "==> Testing serialized: ${serial_targets[*]}"
-  dart test -j 1 --reporter=failures-only "${serial_targets[@]}"
+  for target in "${serial_targets[@]}"; do
+    (
+      cd "${target}"
+      dart test -j 1 --reporter=failures-only
+    )
+  done
 fi

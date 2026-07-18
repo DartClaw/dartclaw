@@ -444,7 +444,7 @@ void main() {
     });
 
     // Regression guard for the standalone edit-grant bug: under one-shot
-    // dontAsk the Claude allow-list grants Edit/MultiEdit/NotebookEdit only when
+    // dontAsk the Claude allow-list grants Edit/NotebookEdit only when
     // a step's allowedTools includes file_edit. A mutation step that lists
     // file_write but not file_edit can create files yet silently fails to edit
     // existing ones. So every project-mutating step that grants file_write must

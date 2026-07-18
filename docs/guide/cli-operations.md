@@ -142,6 +142,8 @@ providers:
 ```
 
 When using Codex in CI, prefer `CODEX_API_KEY` and set the least-permissive sandbox that still fits the workflow.
+Restrictive Codex sandbox behavior on native Windows is not qualified by the 0.21 smoke profile; do not treat the
+example as cross-platform sandbox parity.
 
 ## Authentication
 

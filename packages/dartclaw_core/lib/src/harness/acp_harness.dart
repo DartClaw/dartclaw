@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:logging/logging.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:logging/logging.dart';
 
 import '../bridge/bridge_events.dart';
 import '../container/container_executor.dart';
@@ -16,6 +17,8 @@ import 'agent_harness.dart';
 import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
+
+part 'acp_harness_presentation.dart';
 
 /// Minimal subprocess-backed ACP harness.
 final class AcpHarness with SequentialLock implements AgentHarness {
@@ -38,11 +41,12 @@ final class AcpHarness with SequentialLock implements AgentHarness {
   final Duration turnTimeout;
 
   final ProcessFactory _processFactory;
-  final ProcessFactory? _terminalProcessFactory;
+  final PlatformCapabilities _platformCapabilities;
+  final Duration _terminationGracePeriod;
+  final Duration _initializeTimeout;
   final GuardChain? guardChain;
   final AcpPermissionDecision? permissionDecision;
   final AcpReverseCallAuditSink? onReverseCallAudit;
-  final int terminalOutputByteLimit;
   final StreamController<BridgeEvent> _eventsController = StreamController<BridgeEvent>.broadcast();
   final AcpProtocolAdapter _adapter;
   final StringBuffer _stdoutDiagnostics = StringBuffer();
@@ -58,6 +62,8 @@ final class AcpHarness with SequentialLock implements AgentHarness {
 
   WorkerState _state = WorkerState.stopped;
   Process? _process;
+  final Set<Process> _windowsTeardownPending = <Process>{};
+  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
   AcpClient? _client;
   String? _activeAcpSessionId;
   Completer<void>? _activeTurnCompleter;
@@ -72,16 +78,19 @@ final class AcpHarness with SequentialLock implements AgentHarness {
     this.arguments = const <String>[],
     this.turnTimeout = const Duration(seconds: 600),
     ProcessFactory? processFactory,
-    ProcessFactory? terminalProcessFactory,
     AcpProtocolAdapter? adapter,
     this.guardChain,
     this.permissionDecision,
     this.onReverseCallAudit,
-    this.terminalOutputByteLimit = 65536,
     this.containerManager,
     Map<String, String>? environment,
+    PlatformCapabilities? platformCapabilities,
+    Duration terminationGracePeriod = const Duration(seconds: 2),
+    Duration initializeTimeout = const Duration(seconds: 10),
   }) : _processFactory = processFactory ?? Process.start,
-       _terminalProcessFactory = terminalProcessFactory,
+       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _terminationGracePeriod = terminationGracePeriod,
+       _initializeTimeout = initializeTimeout,
        _adapter = adapter ?? AcpProtocolAdapter(),
        environment = Map<String, String>.unmodifiable(environment ?? Platform.environment);
 
@@ -128,23 +137,27 @@ final class AcpHarness with SequentialLock implements AgentHarness {
     if (_state == WorkerState.busy) {
       throw StateError('Cannot start AcpHarness while busy');
     }
+    if (_process != null) {
+      throw StateError('Cannot start AcpHarness while previous process exit is unconfirmed');
+    }
+    if (_reverseCallHandlers?.ownsTerminals ?? false) {
+      throw StateError('Cannot start AcpHarness while terminal process exit is unconfirmed');
+    }
 
     _stopping = false;
     _state = WorkerState.busy;
     try {
       final process = await _spawnProcess();
+      _windowsTeardownPending.remove(process);
+      _windowsExitObservedDuringTeardown.remove(process);
       _process = process;
       _collectStderr(process);
       _watchExit(process);
       final reverseCallHandlers = containerManager == null
           ? AcpReverseCallHandlers(
-              cwd: cwd,
               guardChain: guardChain,
               permissionDecision: permissionDecision,
               onAudit: onReverseCallAudit,
-              terminalProcessFactory: _terminalProcessFactory,
-              baseEnvironment: environment,
-              hostOutputByteLimit: terminalOutputByteLimit,
             )
           : null;
       _reverseCallHandlers = reverseCallHandlers;
@@ -156,7 +169,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
         reverseCallHandlers: reverseCallHandlers,
       );
       _client = client;
-      await client.initialize();
+      await client.initialize().timeout(_initializeTimeout);
       _state = WorkerState.idle;
     } on AcpHarnessException {
       await _cleanupAfterStartupFailure();
@@ -183,7 +196,8 @@ final class AcpHarness with SequentialLock implements AgentHarness {
     String? effort,
     int? maxTurns,
   }) async {
-    final client = await withLock(() async {
+    final effectiveDirectory = directory ?? cwd;
+    final activeTurn = await withLock(() async {
       if (_state != WorkerState.idle) {
         throw StateError('AcpHarness is not idle (state: $_state)');
       }
@@ -195,24 +209,35 @@ final class AcpHarness with SequentialLock implements AgentHarness {
         throw StateError('AcpHarness requires at least one message');
       }
 
+      final reverseCallHandlers = _reverseCallHandlers;
+      reverseCallHandlers?.bindTurn(sessionId: sessionId, effectiveDirectory: effectiveDirectory);
       _state = WorkerState.busy;
       _activeTurnCompleter = Completer<void>();
       _resetActiveMetadata();
-      return client;
+      return (client: client, reverseCallHandlers: reverseCallHandlers);
     });
-    final timeout = Timer(turnTimeout, () {
-      final activeSessionId = _activeAcpSessionId;
-      if (activeSessionId != null) {
-        unawaited(cancel());
-      }
-      final completer = _activeTurnCompleter;
-      if (completer != null && !completer.isCompleted) {
-        completer.completeError(TimeoutException('ACP turn exceeded $turnTimeout'));
-      }
-    });
+    final client = activeTurn.client;
+    final deadline = DateTime.now().add(turnTimeout);
 
     try {
-      final acpSessionId = await client.createSession(cwd: directory ?? cwd);
+      final interruptedSession = _activeTurnCompleter!.future.then<String?>((_) => null);
+      final acpSessionId = await Future.any<String?>([
+        client.createSession(cwd: effectiveDirectory).then<String?>((sessionId) => sessionId),
+        interruptedSession,
+      ]).timeout(_remainingUntil(deadline));
+      if (acpSessionId == null) {
+        const result = AcpPromptResult(text: '', stopReason: 'cancelled');
+        _emitProtocolMessages(_adapter.messagesForPromptResult(result));
+        await stop();
+        return const <String, dynamic>{
+          'stop_reason': 'cancelled',
+          'input_tokens': 0,
+          'output_tokens': 0,
+          'cache_read_tokens': 0,
+          'cache_write_tokens': 0,
+          'response': '',
+        };
+      }
       _activeAcpSessionId = acpSessionId;
       Map<String, dynamic>? response;
       var terminateAfterTurn = false;
@@ -223,7 +248,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
         final cancelOrCrashFuture = _activeTurnCompleter!.future.then(
           (_) => const AcpPromptResult(text: '', stopReason: 'cancelled'),
         );
-        final result = await Future.any([promptFuture, cancelOrCrashFuture]);
+        final result = await Future.any([promptFuture, cancelOrCrashFuture]).timeout(_remainingUntil(deadline));
         _emitProtocolMessages(_adapter.messagesForPromptResult(result));
         terminateAfterTurn = result.stopReason == 'cancelled';
         final sessionTitle = result.sessionTitle ?? _activeSessionTitle;
@@ -245,7 +270,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
       } finally {
         final terminalCloseTimeout = terminateAfterTurn || promptError?.errorCode == AcpHarnessErrorCode.authRequired
             ? const Duration(milliseconds: 250)
-            : null;
+            : _remainingUntil(deadline);
         if (identical(_client, client)) {
           await _closeSession(client, acpSessionId, timeout: terminalCloseTimeout);
         }
@@ -256,6 +281,10 @@ final class AcpHarness with SequentialLock implements AgentHarness {
       }
       return response;
     } catch (error) {
+      if (error is TimeoutException) {
+        final stopFuture = stop();
+        await stopFuture;
+      }
       if (error is AcpHarnessException) {
         if (error.errorCode == AcpHarnessErrorCode.authRequired) {
           await stop();
@@ -268,9 +297,9 @@ final class AcpHarness with SequentialLock implements AgentHarness {
         diagnostics: {'error': '$error', ..._diagnostics()},
       );
     } finally {
-      timeout.cancel();
       _activeAcpSessionId = null;
       _activeTurnCompleter = null;
+      await activeTurn.reverseCallHandlers?.unbindTurn(sessionId);
       _resetActiveMetadata();
       if (_state != WorkerState.stopped && _state != WorkerState.crashed) {
         _state = WorkerState.idle;
@@ -280,13 +309,19 @@ final class AcpHarness with SequentialLock implements AgentHarness {
 
   @override
   Future<void> cancel() async {
-    final activeSessionId = _activeAcpSessionId;
-    final client = _client;
-    if (activeSessionId == null || client == null) {
+    final activeTurn = _activeTurnCompleter;
+    if (activeTurn == null) {
       return;
     }
-    await _cancelSession(client, activeSessionId, timeout: const Duration(milliseconds: 250));
+    final activeSessionId = _activeAcpSessionId;
+    final client = _client;
+    if (activeSessionId != null && client != null) {
+      await _cancelSession(client, activeSessionId, timeout: const Duration(milliseconds: 250));
+    }
     _completeActiveTurn();
+    if (activeSessionId == null) {
+      await stop();
+    }
   }
 
   @override
@@ -295,13 +330,16 @@ final class AcpHarness with SequentialLock implements AgentHarness {
   @override
   Future<void> stop() {
     _stopping = true;
+    _beginIntentionalProcessTeardown(_process);
     return withLock(_stopInternal);
   }
 
   Future<void> _stopInternal() async {
-    if (_state == WorkerState.stopped) {
+    if (_state == WorkerState.stopped && _process == null && !(_reverseCallHandlers?.ownsTerminals ?? false)) {
       return;
     }
+    final process = _process;
+    _beginIntentionalProcessTeardown(process);
     final client = _client;
     _client = null;
     if (client != null) {
@@ -312,13 +350,23 @@ final class AcpHarness with SequentialLock implements AgentHarness {
         _log.fine('ACP peer close failed: $error');
       }
     }
-    await _reverseCallHandlers?.disposeTerminals();
-    _reverseCallHandlers = null;
-    final process = _process;
-    _process = null;
+    final reverseCallHandlers = _reverseCallHandlers;
+    if (reverseCallHandlers != null) {
+      await reverseCallHandlers.disposeTerminals();
+      if (!reverseCallHandlers.ownsTerminals && identical(_reverseCallHandlers, reverseCallHandlers)) {
+        _reverseCallHandlers = null;
+      }
+    }
     if (process != null) {
       await _closeStdin(process);
-      await killWithEscalation(process, label: 'acp', gracePeriod: const Duration(seconds: 2), log: _log);
+      final result = await killWithEscalation(
+        process,
+        label: 'acp',
+        gracePeriod: _terminationGracePeriod,
+        log: _log,
+        platformCapabilities: _platformCapabilities,
+      );
+      _completeIntentionalProcessTeardown(process, result);
     }
     _state = WorkerState.stopped;
   }
@@ -369,6 +417,12 @@ final class AcpHarness with SequentialLock implements AgentHarness {
   void _watchExit(Process process) {
     unawaited(
       process.exitCode.then((code) {
+        final windowsTeardownPending = _windowsTeardownPending.contains(process);
+        if (windowsTeardownPending) {
+          _windowsExitObservedDuringTeardown.add(process);
+        } else if (identical(_process, process)) {
+          _process = null;
+        }
         if (_stopping || _state == WorkerState.stopped) {
           return;
         }
@@ -424,134 +478,54 @@ final class AcpHarness with SequentialLock implements AgentHarness {
     return timeout == null ? operation : operation.timeout(timeout);
   }
 
-  void _emitProtocolMessages(List<proto.ProtocolMessage> messages) {
-    for (final message in messages) {
-      switch (message) {
-        case proto.TextDelta(:final text):
-          _eventsController.add(DeltaEvent(text));
-        case proto.ToolUse(:final name, :final id, :final input):
-          _eventsController.add(ToolUseEvent(toolName: name, toolId: id, input: input));
-        case proto.ToolResult(:final toolId, :final output, :final isError):
-          _eventsController.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
-        case proto.ProgressMessage(:final text, :final kind):
-          _log.fine('ACP progress $kind: $text');
-          _eventsController.add(ProviderProgressBridgeEvent(kind: kind, text: text));
-        case proto.SessionMetadataUpdate(:final title, :final metadata):
-          _recordSessionMetadata(title: title, metadata: metadata);
-        case proto.ProtocolDiagnostic(:final message, :final method, :final updateType):
-          _log.fine(
-            'ACP diagnostic${method == null ? '' : ' method=$method'}'
-            '${updateType == null ? '' : ' update=$updateType'}: $message',
-          );
-        case proto.TurnComplete():
-          break;
-        case proto.SystemInit(:final contextWindow):
-          if (contextWindow != null) {
-            _eventsController.add(SystemInitEvent(contextWindow: contextWindow));
-          }
-        case proto.ControlRequest():
-        case proto.CompactBoundary():
-        case proto.CompactionStarted():
-        case proto.CompactionCompleted():
-          break;
-      }
-    }
-  }
-
-  void _handleSessionUpdate(Map<String, dynamic> update) {
-    final completer = _activeTurnCompleter;
-    if (_activeAcpSessionId == null || (completer != null && completer.isCompleted)) {
-      _log.fine('Ignoring stale ACP session/update after turn cancellation or completion');
-      return;
-    }
-    _emitProtocolMessages(_adapter.messagesForSessionUpdate(update));
-  }
-
-  void _handleMalformedLine(String line) {
-    _emitProtocolMessages(_adapter.parseLine(line));
-  }
-
-  void _recordSessionMetadata({String? title, required Map<String, dynamic> metadata}) {
-    if (title != null && title.trim().isNotEmpty) {
-      _activeSessionTitle = title.trim();
-    }
-    _activeMetadata.addAll(metadata);
-    _activeInputTokens = _intFromMetadata(metadata, const ['input_tokens', 'inputTokens']) ?? _activeInputTokens;
-    _activeOutputTokens = _intFromMetadata(metadata, const ['output_tokens', 'outputTokens']) ?? _activeOutputTokens;
-    _activeCacheReadTokens =
-        _intFromMetadata(metadata, const ['cache_read_tokens', 'cacheReadTokens']) ?? _activeCacheReadTokens;
-    _activeCacheWriteTokens =
-        _intFromMetadata(metadata, const ['cache_write_tokens', 'cacheWriteTokens']) ?? _activeCacheWriteTokens;
-  }
-
-  void _resetActiveMetadata() {
-    _activeMetadata.clear();
-    _activeSessionTitle = null;
-    _activeInputTokens = null;
-    _activeOutputTokens = null;
-    _activeCacheReadTokens = null;
-    _activeCacheWriteTokens = null;
-  }
-
-  static int? _intFromMetadata(Map<String, dynamic> metadata, List<String> keys) {
-    for (final key in keys) {
-      final value = metadata[key];
-      if (value is int) return value;
-      if (value is num) return value.toInt();
-    }
-    return null;
-  }
-
   Future<void> _cleanupAfterStartupFailure() async {
     _state = WorkerState.stopped;
+    final process = _process;
+    _beginIntentionalProcessTeardown(process);
     final client = _client;
     _client = null;
     final reverseCallHandlers = _reverseCallHandlers;
-    _reverseCallHandlers = null;
     if (client != null) {
       try {
         await client.close();
       } catch (_) {}
     }
-    await reverseCallHandlers?.disposeTerminals();
-    final process = _process;
-    _process = null;
+    if (reverseCallHandlers != null) {
+      await reverseCallHandlers.disposeTerminals();
+      if (!reverseCallHandlers.ownsTerminals && identical(_reverseCallHandlers, reverseCallHandlers)) {
+        _reverseCallHandlers = null;
+      }
+    }
     if (process != null) {
       await _closeStdin(process);
-      await killWithEscalation(process, label: 'acp', gracePeriod: const Duration(seconds: 2), log: _log);
+      final result = await killWithEscalation(
+        process,
+        label: 'acp',
+        gracePeriod: _terminationGracePeriod,
+        log: _log,
+        platformCapabilities: _platformCapabilities,
+      );
+      _completeIntentionalProcessTeardown(process, result);
     }
   }
 
-  Map<String, Object?> _diagnostics({int? exitCode}) {
-    final diagnostics = <String, Object?>{};
-    if (exitCode != null) {
-      diagnostics['exit_code'] = exitCode;
+  void _beginIntentionalProcessTeardown(Process? process) {
+    if (process != null && !_platformCapabilities.posixSignalsAvailable) {
+      _windowsTeardownPending.add(process);
     }
-    if (_stdoutDiagnostics.isNotEmpty) {
-      diagnostics['stdout'] = _stdoutDiagnostics.toString();
+  }
+
+  void _completeIntentionalProcessTeardown(Process process, ProcessTerminationResult result) {
+    _windowsTeardownPending.remove(process);
+    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
+    if (result.confirmsOwnershipRelease() || exitObserved) {
+      if (identical(_process, process)) _process = null;
     }
-    if (_stderrDiagnostics.isNotEmpty) {
-      diagnostics['stderr'] = _stderrDiagnostics.toString();
-    }
-    return diagnostics;
   }
 
   Future<void> _closeStdin(Process process) async {
     try {
       await process.stdin.close();
     } catch (_) {}
-  }
-
-  String _promptText(Object? content, String systemPrompt) {
-    final text = switch (content) {
-      String value => value,
-      List<Object?> values => values.map((value) => '$value').join('\n'),
-      null => '',
-      _ => '$content',
-    };
-    if (systemPrompt.trim().isEmpty) {
-      return text;
-    }
-    return '$systemPrompt\n\n$text';
   }
 }

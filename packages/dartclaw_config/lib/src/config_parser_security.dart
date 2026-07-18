@@ -76,7 +76,8 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
 
   final guardAuditMap = readMap('guard_audit', yaml, warns);
   if (guardAuditMap != null && guardAuditMap.containsKey('max_entries')) {
-    warns.add(
+    addConfigAdvisory(
+      warns,
       'guard_audit.max_entries is deprecated and ignored — '
       'use guard_audit.max_retention_days for audit retention',
     );

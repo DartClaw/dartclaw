@@ -380,6 +380,7 @@ void main() {
 
     expect(mergeResolveTaskId, isNotNull, reason: 'merge-resolve task should have been dispatched');
     final mergeResolveTask = await h.taskService.get(mergeResolveTaskId!);
+    expect(mergeResolveTask?.configJson['allowedTools'], ['shell', 'file_read', 'file_write', 'file_edit']);
     expect(mergeResolveTask?.workflowStepExecution?.git?['worktree'], equals('per-map-item'));
     expect(mergeResolveTask?.workflowStepExecution?.mapIterationIndex, equals(0));
   });

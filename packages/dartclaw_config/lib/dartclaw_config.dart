@@ -56,6 +56,8 @@ export 'src/memory_config.dart' show MemoryConfig;
 export 'src/mcp_servers_config.dart'
     show McpNetworkClass, McpServerEntry, McpServerRateLimit, McpServerTokenBudget, McpServersConfig;
 export 'src/onboarding_config.dart' show OnboardingConfig;
+export 'src/platform_capabilities.dart'
+    show BashShellPolicy, PlatformCapabilities, ProcessTerminationSemantics, UnsupportedCapabilityError;
 export 'src/project_config.dart'
     show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;

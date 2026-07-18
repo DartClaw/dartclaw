@@ -9,11 +9,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         BashStepPolicy,
         ContextExtractor,
+        ExecutableLookupExecutor,
         EventBus,
         GateEvaluator,
         KvService,
@@ -145,6 +147,8 @@ final class WorkflowExecutorHarness {
     WorkflowSkillPreflightConfig skillPreflightConfig = const WorkflowSkillPreflightConfig(),
     WorkflowRoleDefaults? roleDefaults,
     Duration serializeRemainingSettleTimeout = const Duration(seconds: 30),
+    PlatformCapabilities? platformCapabilities,
+    ExecutableLookupExecutor? executableLookupExecutor,
   }) {
     final effectiveDataDir = dataDir ?? tempDir.path;
     return WorkflowExecutor(
@@ -174,6 +178,8 @@ final class WorkflowExecutorHarness {
         executionTransactor: wirePersistence ? executionRepositoryTransactor : null,
         projectService: projectService,
         defaultWorkspaceRoot: defaultWorkspaceRoot,
+        platformCapabilities: platformCapabilities,
+        executableLookupExecutor: executableLookupExecutor,
       ),
       dataDir: effectiveDataDir,
       roleDefaults: roleDefaults,

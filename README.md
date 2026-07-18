@@ -9,7 +9,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: 0.19.0 — "Context Engine": citation-backed knowledge synthesis over MCP (`context_research`), a guard-mediated outbound MCP client, and a read-only Knowledge UI. See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.21.0 – native Windows x64 core-runtime support, PowerShell and Scoop distribution, Git Bash workflow steps, and cross-platform runtime hardening. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
@@ -30,13 +30,27 @@ dartclaw --version
 Then point DartClaw at a provider and start the server:
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."   # or run: claude login
+export ANTHROPIC_API_KEY="sk-ant-..."   # or run: claude auth login
 dartclaw init
 dartclaw serve
 # Open http://127.0.0.1:3333
 ```
 
 You also need at least one agent CLI (`claude` or `codex`) installed — see [Prerequisites](#prerequisites). For full setup and provider auth, see [Getting Started](docs/guide/getting-started.md).
+
+### PowerShell (Windows x64)
+
+```powershell
+irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
+# Open a new terminal, then:
+dartclaw --version
+```
+
+The installer verifies and installs `dartclaw-v<version>-windows-x64.zip` under
+`%LOCALAPPDATA%\Programs\DartClaw`, then persists its `bin` directory on your user `PATH`. The public Scoop bucket
+exists but has no installable manifest yet; use the PowerShell installer for the qualified path.
+See the [Windows guide](docs/guide/windows.md) for upgrade commands, provider setup, smoke validation, and the explicit
+limits around container isolation, Bash steps, channel sidecars, and provider sandboxes.
 
 ### From source (any platform)
 
@@ -77,7 +91,7 @@ Two layers with clear trust boundaries:
 
 - **Universal agent harness** -- Claude Code (JSONL) and Codex (JSON-RPC) are first-class, and any ACP-compliant agent (Goose, Mistral Vibe, …) is added through config alone; provider selection stays behind `AgentHarness`.
 - **Context Engine** -- an LLM-maintained wiki, temporal knowledge graph, and memory synthesized into compact, citation-backed packets served to agents over MCP (`context_research`), with a read-only Knowledge UI.
-- **Defense-in-depth** -- container isolation, guard chain, credential proxy, HTTP auth, and fail-closed policy.
+- **Defense-in-depth** -- POSIX container isolation, guard chain, credential proxy, HTTP auth, and fail-closed policy; native Windows exposes the guards but not container-isolation parity.
 - **Agent delegation & outbound MCP** -- Claude can delegate to allowlisted agents (`delegate_to_agent`), and DartClaw consumes external MCP servers through a guard-mediated, audited egress boundary.
 - **Workflows** -- built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows, runnable server-backed or in a zero-server standalone mode.
 - **Crowd coding** -- WhatsApp, Signal, and Google Chat groups collaboratively steer a shared agent session.
@@ -146,6 +160,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 
 ### User Guide ([full index](docs/guide/README.md))
 - **[Getting Started](docs/guide/getting-started.md)** -- installation, first run, overview
+- **[Windows](docs/guide/windows.md)** -- native Windows x64 installation, validation, and capability limits
 - **[Configuration](docs/guide/configuration.md)** -- `dartclaw.yaml` reference, typed config sections, environment variables
 - **[Workspace](docs/guide/workspace.md)** -- behavior files, memory, prompt assembly
 - **[Security](docs/guide/security.md)** -- guards, containers, credential proxy, canonical tool taxonomy
@@ -181,7 +196,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 
 Defense-in-depth with multiple independent layers:
 
-1. **Container isolation** -- Docker `network:none`, `--cap-drop ALL`, read-only root, mount allowlist
+1. **Container isolation** -- Docker `network:none`, `--cap-drop ALL`, read-only root, mount allowlist; unavailable on native Windows, where enabling it fails closed with POSIX/WSL remediation
 2. **Credential isolation** -- multi-provider credentials via `CredentialRegistry`; API keys on Unix socket, never in container env
 3. **Guard chain** -- command, file, network, content guards operating on canonical tool names (provider-agnostic, fail-closed)
 4. **Content-guard** -- LLM classification at agent boundaries

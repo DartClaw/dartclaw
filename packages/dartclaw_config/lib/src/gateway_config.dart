@@ -2,8 +2,8 @@
 class ReloadConfig {
   /// Reload trigger mode.
   ///
-  /// - `'signal'` (default): reload on `SIGUSR1` only.
-  /// - `'auto'`: reload on config file changes (file-watch + SIGUSR1 fallback).
+  /// - `'signal'` (default): reload on `SIGUSR1`; POSIX-only.
+  /// - `'auto'`: reload through cross-platform file-watch; supported on Windows.
   /// - `'off'`: no reload triggers enabled.
   final String mode;
 

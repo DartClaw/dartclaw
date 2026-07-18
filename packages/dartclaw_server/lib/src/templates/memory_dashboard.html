@@ -1,7 +1,7 @@
-<div tl:fragment="memoryDashboard" class="shell" data-controller="dc-memory">
+<div tl:fragment="memoryDashboard" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div tl:utext="${topbar}"><!-- topbar --></div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content" data-controller="dc-memory">
     <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="page-inner" id="memory-content"
          hx-get="/memory/content" hx-trigger="every 30s"

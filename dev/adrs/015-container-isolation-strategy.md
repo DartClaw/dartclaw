@@ -1,6 +1,6 @@
 # ADR-015: Container Isolation Strategy — Hardened Docker over Hypervisor Isolation
 
-**Status:** Proposed
+**Status:** Proposed. Amended 2026-07-11 for native Windows unavailability.
 
 ## Context
 
@@ -53,6 +53,12 @@ Key findings from research:
 - Monitor Apple Containerization framework maturity (revisit at v1.0+, macOS 27+)
 - Docker Desktop Sandbox mode remains architecturally possible if multi-tenant requirements emerge
 
+### Native Windows deferral (0.21 amendment)
+
+Container isolation is unavailable when DartClaw runs natively on Windows. The current isolation stack depends on a Unix-domain credential-proxy socket and owner-only POSIX file permissions; Windows has no safe equivalent within the accepted Docker strategy. DartClaw therefore fails closed when `container.enabled: true` on native Windows, using the typed platform capability surface from ADR-049 and an actionable message directing the operator to POSIX or WSL.
+
+This is a deferral, not a Windows isolation design. A future native-Windows implementation requires a separate security analysis covering credential transport, Windows ACLs, Docker host behavior, and equivalent fail-closed guarantees before this capability can become available.
+
 ## Consequences
 
 ### Positive
@@ -77,6 +83,7 @@ Key findings from research:
 - The competitive gap with NanoClaw is primarily **marketing, not technical**. NanoClaw's Docker Sandboxes provide stronger raw isolation (two kernel boundaries) but have zero guard pipeline — a prompt injection that gets the agent to `cat ~/.ssh/id_rsa` succeeds inside NanoClaw's containers regardless of VM count. DartClaw's FileGuard blocks it at the application layer.
 - OpenClaw's Feb 2026 CVE cluster (WebSocket token exfil, 820+ malicious ClawHub skills, 135k exposed instances) was entirely application-level — not container escapes. DartClaw's architecture directly prevents every attack class: no WebSocket protocol, no npm supply chain, no skill marketplace.
 - Docker on macOS already interposes a Linux VM between the host and containers. DartClaw's agents already run behind one hypervisor boundary by default on macOS.
+- Native Windows remains a supported host for the core runtime, but not for this Unix-coupled isolation capability; documentation must not claim parity.
 
 ## Alternatives Considered
 
@@ -141,6 +148,7 @@ All hardening is applied automatically by `ContainerManager`. Users don't need t
 ## References
 
 - [ADR-012](012-per-type-container-isolation.md) — per-type container isolation (0.8)
+- [ADR-049](049-typed-platform-capability-surface.md) – typed availability contract used to fail closed on native Windows
 - [Security architecture](../architecture/security-architecture.md) — Layer 1 container isolation
 - [Northflank — How to Sandbox AI Agents](https://northflank.com/blog/how-to-sandbox-ai-agents)
 - [OpenClaw CVE cluster](https://www.adminbyrequest.com/en/blogs/openclaw-went-from-viral-ai-agent-to-security-crisis-in-just-three-weeks)

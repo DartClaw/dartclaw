@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.18.0
+**Current through**: 0.21
 
 ---
 
@@ -560,7 +560,7 @@ WhatsApp integration uses GOWA (Go WhatsApp), a Go binary managed as a subproces
 // packages/dartclaw_whatsapp/lib/src/gowa_manager.dart
 class GowaManager {
   Future<void> start();         // Spawn + health check
-  Future<void> stop();          // SIGTERM + SIGKILL fallback
+  Future<void> stop();          // Platform-capability termination + bounded reap
   Future<void> sendText(String jid, String text);
   Future<void> sendMedia(String jid, String filePath, {String? caption});
   Future<GowaStatus> getStatus();
@@ -570,6 +570,8 @@ class GowaManager {
 ```
 
 Key behaviors:
+- **Process termination** -- POSIX uses SIGTERM then SIGKILL; Windows uses one unconditional hard terminate. The policy
+  comes from `PlatformCapabilities.posixSignalsAvailable`, and an unconfirmed exit emits a lifecycle warning.
 - **External service detection** -- If GOWA is already running on the configured port, attaches rather than spawning
 - **Multi-device** -- GOWA v8 requires `X-Device-Id` header; `GowaManager` auto-provisions a device on first start
 - **Crash recovery** -- Exponential backoff (2^n seconds, capped at 30s, max 5 attempts)

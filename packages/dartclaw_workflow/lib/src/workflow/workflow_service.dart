@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy, WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show PlatformCapabilities, WorkflowApprovalPolicy, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
@@ -38,6 +39,8 @@ import 'workflow_context_persistence.dart';
 import 'workflow_run_paths.dart';
 import 'workflow_service_deps.dart';
 import 'workflow_turn_adapter.dart';
+import 'bash_process_owner.dart';
+import 'bash_step_runner.dart' show retryOwnedBashProcesses;
 
 /// Returns the required variables that are missing from [variables], applying
 /// the single canonical rule shared by standalone starts and the server start
@@ -87,6 +90,7 @@ class WorkflowService {
   final Map<String, String>? _hostEnvironment;
   final List<String>? _bashStepEnvAllowlist;
   final List<String>? _bashStepExtraStripPatterns;
+  final BashProcessOwner _bashProcessOwner;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -140,6 +144,7 @@ class WorkflowService {
     required String dataDir,
     WorkflowServiceOptions options = const WorkflowServiceOptions(),
     Map<String, Future<void>>? debugSeedActiveExecutors,
+    BashProcessOwner? debugBashProcessOwner,
   }) : this._(
          repository: repository,
          taskService: taskService,
@@ -151,6 +156,7 @@ class WorkflowService {
          dataDir: dataDir,
          options: options,
          debugSeedActiveExecutors: debugSeedActiveExecutors,
+         debugBashProcessOwner: debugBashProcessOwner,
        );
 
   WorkflowService._({
@@ -168,6 +174,7 @@ class WorkflowService {
     // hold a controllable in-flight executor future and assert that [dispose]
     // awaits it before returning.
     Map<String, Future<void>>? debugSeedActiveExecutors,
+    BashProcessOwner? debugBashProcessOwner,
   }) : _activeExecutors = {...?debugSeedActiveExecutors},
        _repository = repository,
        _taskService = taskService,
@@ -188,6 +195,7 @@ class WorkflowService {
        _hostEnvironment = options.hostEnvironment,
        _bashStepEnvAllowlist = options.bashStepEnvAllowlist,
        _bashStepExtraStripPatterns = options.bashStepExtraStripPatterns,
+       _bashProcessOwner = debugBashProcessOwner ?? BashProcessOwner(),
        _uuid = options.uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -609,6 +617,7 @@ class WorkflowService {
 
     // Wait for active executors to finish.
     await Future.wait(_activeExecutors.values);
+    await retryOwnedBashProcesses(_bashProcessOwner, PlatformCapabilities());
     _activeExecutors.clear();
     _cancelFlags.clear();
     for (final timer in _approvalTimeoutTimers.values) {
@@ -721,6 +730,7 @@ class WorkflowService {
         executionTransactor: _persistencePorts?.executionRepositoryTransactor,
         projectService: _gitContext?.projectService,
         defaultWorkspaceRoot: _gitContext?.defaultWorkspaceRoot,
+        bashProcessOwner: _bashProcessOwner,
       ),
       promptConfiguration: StepPromptConfiguration(),
       dataDir: _dataDir,

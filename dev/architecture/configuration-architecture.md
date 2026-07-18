@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.18.0
+**Current through**: 0.21
 
 ---
 
@@ -405,14 +405,14 @@ Controlled by `gateway.reload.mode`:
 
 | Mode | Behavior |
 |------|----------|
-| `'signal'` (default) | SIGUSR1 handler on POSIX systems. Skip on Windows |
-| `'auto'` | SIGUSR1 + parent-directory file-watch with debounce |
+| `'signal'` (default) | SIGUSR1 handler on POSIX systems. On Windows, reports that signal reload is POSIX-only and points to `auto` |
+| `'auto'` | Parent-directory file-watch with debounce on all platforms; also registers SIGUSR1 on POSIX |
 | `'off'` | No reload triggers |
 
 **File-watch design**: Watches the parent directory (not the config file directly) to handle atomic writes (temp + rename) correctly on macOS kqueue. Events for the config filename are debounced using a `Timer` (default 500ms, configurable via `gateway.reload.debounce_ms`).
 
 **Reload cycle**:
-1. Trigger received (SIGUSR1 or file-watch)
+1. Trigger received (file-watch on all platforms; SIGUSR1 on POSIX)
 2. `DartclawConfig.load()` re-reads YAML from disk
 3. `ConfigNotifier.reload(newConfig)` computes delta and notifies services
 4. If reload fails (parse error), the existing config is preserved and error is logged

@@ -1,5 +1,6 @@
 import 'dart:async' show FutureOr;
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecutionRepository,
@@ -19,6 +20,7 @@ import 'workflow_run_repository.dart' show WorkflowRunRepository;
 import 'package:uuid/uuid.dart';
 
 import 'context_extractor.dart';
+import 'bash_process_owner.dart';
 import 'gate_evaluator.dart';
 import '../skills/provider_auth_preflight.dart';
 import 'prompt_augmenter.dart';
@@ -38,6 +40,12 @@ typedef WorkflowStepOutputTransformer =
       Task task,
       Map<String, dynamic> outputs,
     );
+
+/// Effect-free result returned by an executable lookup executor.
+typedef ExecutableLookupResult = ({int exitCode, String stdout});
+
+/// Runs the platform-provided executable lookup command for a bash step.
+typedef ExecutableLookupExecutor = Future<ExecutableLookupResult> Function(String executable, List<String> arguments);
 
 /// Returns true for the normalized AST node types this runner package handles.
 bool isSupportedWorkflowRunnerNode(WorkflowNode node) => switch (node) {
@@ -130,6 +138,15 @@ final class StepExecutionContext {
   final Map<String, String>? hostEnvironment;
   final List<String> bashStepEnvAllowlist;
   final List<String> bashStepExtraStripPatterns;
+
+  /// Platform policy used by host-executed bash steps.
+  final PlatformCapabilities platformCapabilities;
+
+  /// Optional executable-lookup effect override for bash-step hosts and tests.
+  final ExecutableLookupExecutor? executableLookupExecutor;
+
+  /// Lifecycle owner for Bash subprocesses started by this workflow service.
+  final BashProcessOwner bashProcessOwner;
   final Uuid uuid;
   final WorkflowRun? run;
   final WorkflowDefinition? definition;
@@ -161,11 +178,16 @@ final class StepExecutionContext {
     this.hostEnvironment,
     this.bashStepEnvAllowlist = BashStepPolicy.defaultEnvAllowlist,
     this.bashStepExtraStripPatterns = const <String>[],
+    PlatformCapabilities? platformCapabilities,
+    this.executableLookupExecutor,
+    BashProcessOwner? bashProcessOwner,
     Uuid? uuid,
     this.run,
     this.definition,
     this.workflowContext,
-  }) : uuid = uuid ?? const Uuid();
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       bashProcessOwner = bashProcessOwner ?? BashProcessOwner(),
+       uuid = uuid ?? const Uuid();
 
   StepExecutionContext configured({
     required String dataDir,
@@ -200,6 +222,9 @@ final class StepExecutionContext {
       hostEnvironment: bashStepPolicy.hostEnvironment,
       bashStepEnvAllowlist: List.unmodifiable(bashStepPolicy.envAllowlist),
       bashStepExtraStripPatterns: List.unmodifiable(bashStepPolicy.extraStripPatterns),
+      platformCapabilities: platformCapabilities,
+      executableLookupExecutor: executableLookupExecutor,
+      bashProcessOwner: bashProcessOwner,
       uuid: uuid,
       run: run,
       definition: definition,
@@ -238,6 +263,9 @@ final class StepExecutionContext {
       hostEnvironment: hostEnvironment,
       bashStepEnvAllowlist: bashStepEnvAllowlist,
       bashStepExtraStripPatterns: bashStepExtraStripPatterns,
+      platformCapabilities: platformCapabilities,
+      executableLookupExecutor: executableLookupExecutor,
+      bashProcessOwner: bashProcessOwner,
       uuid: uuid,
       run: run,
       definition: definition,

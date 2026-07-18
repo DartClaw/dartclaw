@@ -38,12 +38,14 @@ void main() {
       final startFuture = harness.start();
       await process.respondTo('initialize', {'protocolVersion': 1});
       await startFuture;
+      final activeTurn = await _beginTurn(harness, process, workspace.path);
 
       process.sendHostRequest(100, 'session/request_permission', {'operation': 'shell'});
       final approved = await process.waitForResponse(100);
       allow = false;
       process.sendHostRequest(101, 'session/request_permission', {'operation': 'file_write'});
       final denied = await process.waitForResponse(101);
+      await _finishTurn(process, activeTurn.turn);
 
       expect(approved['result'], containsPair('granted', true));
       expect(denied['result'], containsPair('granted', false));
@@ -68,12 +70,38 @@ void main() {
       final startFuture = harness.start();
       await process.respondTo('initialize', {'protocolVersion': 1});
       await startFuture;
+      final activeTurn = await _beginTurn(harness, process, workspace.path);
 
       process.sendHostRequest(200, 'session/request_permission', {'operation': 'file_write'});
       final response = await process.waitForResponse(200);
+      await _finishTurn(process, activeTurn.turn);
 
       expect(response['result'], containsPair('granted', false));
       expect(response['result']['reason'], contains('Permission handler error'));
     });
   });
+}
+
+Future<({Future<Map<String, dynamic>> turn})> _beginTurn(
+  AcpHarness harness,
+  FakeAcpProcess process,
+  String workspace,
+) async {
+  final turn = harness.turn(
+    sessionId: 'host-session',
+    directory: workspace,
+    messages: const [
+      {'role': 'user', 'content': 'test'},
+    ],
+    systemPrompt: '',
+  );
+  await process.respondTo('session/new', {'sessionId': 'acp-session'});
+  await process.waitForRequest('session/prompt');
+  return (turn: turn);
+}
+
+Future<void> _finishTurn(FakeAcpProcess process, Future<Map<String, dynamic>> turn) async {
+  await process.respondTo('session/prompt', {'text': 'done'});
+  await process.respondTo('session/close', {});
+  await turn;
 }

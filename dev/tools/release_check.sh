@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # Release readiness check — runs the automatable pre-tag gates from CLAUDE.md
-# § Release Preparation. Manual gates (integration tests, UI smoke) are listed
-# at the end as reminders, not run, since they require a running server.
+# § Release Preparation. Manual gates are listed at the end as reminders; they
+# require provider credentials, a running server, or external platforms.
 #
 # Usage:
-#   bash dev/tools/release_check.sh            # full run incl. tests
-#   bash dev/tools/release_check.sh --quick    # skip dart test (fast iteration)
+#   bash dev/tools/release_check.sh --version 0.21.0
+#   bash dev/tools/release_check.sh --version 0.21.0 --quick  # skip workspace tests
 #
 # Exit code 0 = all automated gates passed, 1 = at least one failed.
 
@@ -16,16 +16,39 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 QUICK=0
-for arg in "$@"; do
-  case "$arg" in
-    --quick|-q) QUICK=1 ;;
+RELEASE_VERSION=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      if [[ $# -lt 2 ]]; then
+        echo "--version requires a value" >&2
+        exit 2
+      fi
+      RELEASE_VERSION="$2"
+      shift 2
+      ;;
+    --quick|-q)
+      QUICK=1
+      shift
+      ;;
     -h|--help)
       sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
-    *) echo "unknown arg: $arg" >&2; exit 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+if [[ -z "$RELEASE_VERSION" ]]; then
+  echo "--version is required" >&2
+  exit 2
+fi
+
+worktree_status="$(git status --porcelain=v1 --untracked-files=all)"
+if [[ -n "$worktree_status" ]]; then
+  echo "Release check requires a clean worktree so every verified file is part of HEAD." >&2
+  printf '%s\n' "$worktree_status" | sed 's/^/  /' >&2
+  exit 1
+fi
 
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_BLD=$'\033[1m'; C_RST=$'\033[0m'
@@ -39,7 +62,7 @@ pass()    { printf "  %sPASS%s  %s\n" "$C_GRN" "$C_RST" "$1"; }
 fail()    { printf "  %sFAIL%s  %s\n" "$C_RED" "$C_RST" "$1"; FAILED+=("$1"); }
 skip()    { printf "  %sSKIP%s  %s\n" "$C_YLW" "$C_RST" "$1"; }
 
-section "1. Exported bundle cleanup (transient dev docs must be empty before merge to main)"
+section "1. Transient release inputs (must be absent before merge to main)"
 leaked_bundle=""
 # dev/bundle is the current export root. The other dev/* directories and root
 # markdown files listed here are legacy transient export paths. Canonical public
@@ -58,31 +81,60 @@ for legacy_root_alias in dev/STATE.md dev/LEARNINGS.md dev/STACK.md dev/UBIQUITO
     leaked_bundle+="${legacy_root_alias}"$'\n'
   fi
 done
+if [[ -e .github/workflows/windows-x64-qualification.yml ]]; then
+  leaked_bundle+=".github/workflows/windows-x64-qualification.yml"$'\n'
+fi
 if [[ -z "$leaked_bundle" ]]; then
-  pass "no exported implementation bundle files found"
+  pass "no exported bundle or temporary qualification workflow found"
 else
   leaked_count=$(printf '%s' "$leaked_bundle" | sed '/^$/d' | wc -l | tr -d ' ')
-  fail "exported implementation bundle contains $leaked_count file(s) — remove before squash-merge (see dev/state/SPEC-LIFECYCLE.md)"
+  fail "transient release inputs contain $leaked_count file(s) — remove before squash-merge"
   printf '%s' "$leaked_bundle" | sed '/^$/d; s/^/        /'
 fi
 
-section "2. Version pins (lockstep across all packages)"
-if bash dev/tools/check_versions.sh > /tmp/release_check_versions.log 2>&1; then
+section "2. Version pins (all packages at $RELEASE_VERSION)"
+if bash dev/tools/check_versions.sh "$RELEASE_VERSION" > /tmp/release_check_versions.log 2>&1; then
   pass "$(tail -1 /tmp/release_check_versions.log)"
 else
   fail "version pins drifted — see output below"
   cat /tmp/release_check_versions.log | sed 's/^/        /'
 fi
 
-section "3. Format (dart format --line-length=120 --set-exit-if-changed .)"
+section "3. Dependency lock"
+if {
+  git ls-files --error-unmatch pubspec.lock
+  dart pub get --enforce-lockfile
+  git diff --exit-code -- pubspec.lock
+} > /tmp/release_check_lock.log 2>&1; then
+  pass "tracked workspace lockfile is current"
+else
+  fail "workspace lockfile missing or stale — see /tmp/release_check_lock.log"
+  tail -40 /tmp/release_check_lock.log | sed 's/^/        /'
+fi
+
+section "4. Format (dart format --line-length=120 --set-exit-if-changed .)"
 if dart format --line-length=120 --output=none --set-exit-if-changed . > /tmp/release_check_fmt.log 2>&1; then
   pass "format clean"
 else
-  fail "format changes pending — run: dart format ."
+  fail "format changes pending — run: dart format --line-length=120 ."
   tail -20 /tmp/release_check_fmt.log | sed 's/^/        /'
 fi
 
-section "4. Static analysis (dart analyze, fatal on warnings + infos)"
+section "5. Embedded asset drift"
+if {
+  git ls-files --error-unmatch -- \
+    packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
+    packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
+  dart run dev/tools/embed_assets.dart
+  git diff --exit-code -- '**/generated/embedded_assets.g.dart'
+} > /tmp/release_check_assets.log 2>&1; then
+  pass "embedded assets current"
+else
+  fail "embedded assets drifted — see /tmp/release_check_assets.log"
+  tail -40 /tmp/release_check_assets.log | sed 's/^/        /'
+fi
+
+section "6. Static analysis (dart analyze, fatal on warnings + infos)"
 if dart analyze --fatal-warnings --fatal-infos > /tmp/release_check_analyze.log 2>&1; then
   pass "analyze clean (zero warnings, zero infos)"
 else
@@ -90,56 +142,40 @@ else
   tail -40 /tmp/release_check_analyze.log | sed 's/^/        /'
 fi
 
-section "5. Fitness functions (Level-1 governance suite)"
+section "7. Workspace tests (CI test_workspace.sh)"
 if [[ "$QUICK" == "1" ]]; then
   skip "skipped via --quick"
 else
-  if bash dev/tools/run-fitness.sh > /tmp/release_check_fitness.log 2>&1; then
-    pass "fitness suite green"
-  else
-    fail "fitness suite failed — see /tmp/release_check_fitness.log"
-    tail -40 /tmp/release_check_fitness.log | sed 's/^/        /'
-  fi
-fi
-
-section "6. Test suite (dart test, per package — workspace root has no test/ dir)"
-if [[ "$QUICK" == "1" ]]; then
-  skip "skipped via --quick"
-else
-  : > /tmp/release_check_test.log
-  TEST_FAILED=0
-  # All packages that ship a test/ dir. Mixed workflow/server/CLI gate runs serially
-  # (Layer-2 suites bind ports + share static-asset state — see dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md).
-  for pkg in \
-    packages/dartclaw_models \
-    packages/dartclaw_core \
-    packages/dartclaw_config \
-    packages/dartclaw_security \
-    packages/dartclaw_storage \
-    packages/dartclaw_google_chat \
-    packages/dartclaw_whatsapp \
-    packages/dartclaw_signal \
-    packages/dartclaw_testing
-  do
-    if [[ -d "$pkg/test" ]]; then
-      echo "=== $pkg ===" >> /tmp/release_check_test.log
-      if ! dart test --reporter=failures-only "$pkg" >> /tmp/release_check_test.log 2>&1; then
-        TEST_FAILED=1
-      fi
-    fi
-  done
-  echo "=== serialized: workflow + server + cli ===" >> /tmp/release_check_test.log
-  if ! dart test -j 1 --reporter=failures-only \
-        packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli \
-        >> /tmp/release_check_test.log 2>&1; then
-    TEST_FAILED=1
-  fi
-  if [[ "$TEST_FAILED" -eq 0 ]]; then
-    pass "all workspace package tests passed"
+  if bash dev/tools/test_workspace.sh > /tmp/release_check_test.log 2>&1; then
+    pass "all workspace tests passed"
   else
     fail "test failures — see /tmp/release_check_test.log"
     tail -40 /tmp/release_check_test.log | sed 's/^/        /'
   fi
+fi
+
+section "8. Architecture check"
+if dart run dev/tools/arch_check.dart > /tmp/release_check_arch.log 2>&1; then
+  pass "architecture check green"
+else
+  fail "architecture check failed — see /tmp/release_check_arch.log"
+  tail -40 /tmp/release_check_arch.log | sed 's/^/        /'
+fi
+
+section "9. Fitness functions (CI governance suite)"
+if bash dev/tools/fitness/run_all.sh > /tmp/release_check_fitness.log 2>&1; then
+  pass "fitness suite green"
+else
+  fail "fitness suite failed — see /tmp/release_check_fitness.log"
+  tail -40 /tmp/release_check_fitness.log | sed 's/^/        /'
+fi
+
+section "10. Whitespace errors"
+if git diff --check > /tmp/release_check_whitespace.log 2>&1; then
+  pass "no whitespace errors"
+else
+  fail "whitespace errors found"
+  cat /tmp/release_check_whitespace.log | sed 's/^/        /'
 fi
 
 section "Summary"
@@ -151,9 +187,11 @@ Manual gates still required before tagging:
                          plus any package-specific --run-skipped live files
   - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)
+  - Windows runtime:     ./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <windows-x64.zip>
+                         Credential-only skips require matching recorded evidence for both Claude and Codex.
 
-Then proceed with the version-bump commit and tag per
-CLAUDE.md § Release Preparation.
+After the manual gates pass, tag the already-pinned scope-frozen commit per
+CLAUDE.md § Release Preparation. Do not tag from this feature branch.
 NEXT
   exit 0
 else

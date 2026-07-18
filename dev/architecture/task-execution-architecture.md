@@ -2,7 +2,7 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through harness pool dispatch, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.18.0
+**Current through**: 0.21
 
 ---
 
@@ -358,6 +358,14 @@ The pool starts with only the primary runner. Task runners are added on demand:
 ### 4.4 Release-After-Use
 
 Task runners are released back to the pool after each task completes (success or failure). This ensures fairness — no runner is monopolized by long-running tasks when other tasks are waiting.
+
+### 4.5 Shutdown Ownership
+
+`HarnessPool.dispose()` stops and disposes every harness in its runner list; it owns no workflow CLI or channel-sidecar
+processes. Workflow CLI providers and channel managers reap their own children at their respective lifecycle boundaries.
+All use `killWithEscalation`, whose decision comes from `PlatformCapabilities.posixSignalsAvailable`: POSIX retains
+SIGTERM-to-SIGKILL escalation, while Windows uses one unconditional hard termination. An exit that cannot be confirmed
+within the bounded wait produces a lifecycle warning rather than a graceful-shutdown claim.
 
 ---
 

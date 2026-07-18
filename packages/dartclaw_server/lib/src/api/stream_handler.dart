@@ -107,5 +107,5 @@ Response sseStreamResponse(
     }
   }());
 
-  return Response.ok(controller.stream, headers: eventStreamHeadersNoBuffer);
+  return sseResponse(controller.stream, headers: eventStreamHeadersNoBuffer);
 }

@@ -269,6 +269,36 @@ void main() {
       });
     });
 
+    test('terminal result returns after bounded cleanup when exit remains unconfirmed', () {
+      fakeAsync((async) {
+        final fake = FakeProcess();
+        final supervisor = CliProcessSupervisor(
+          process: fake,
+          provider: 'codex',
+          stepName: 'Complete',
+          stallTimeout: Duration.zero,
+          stallAction: TurnProgressAction.cancel,
+          stepTimeout: null,
+          eventBus: null,
+          log: Logger('WorkflowCliRunnerTest'),
+          terminationGrace: Duration.zero,
+          postTerminalResultGrace: Duration.zero,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'linux'),
+        )..start();
+
+        int? exitCode;
+        supervisor.recordTerminalResult();
+        unawaited(supervisor.waitForExitCode().then((value) => exitCode = value));
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        expect(exitCode, 0);
+        expect(supervisor.postTerminalResultExitUnconfirmed, isTrue);
+        expect(fake.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
+        supervisor.stop();
+      });
+    });
+
     test('codex parsed output resets the stall timer', () {
       fakeAsync((async) {
         late FakeProcess fake;
@@ -317,6 +347,55 @@ void main() {
       });
     });
 
+    for (final provider in const ['claude', 'codex']) {
+      test('$provider unknown protocol chatter does not reset the stall timer', () {
+        fakeAsync((async) {
+          late FakeProcess fake;
+          final runner = switch (provider) {
+            'claude' => claudeRunner(
+              processStarter: (exe, args, {workingDirectory, environment}) async {
+                fake = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+                return fake;
+              },
+            ),
+            _ => codexRunner(
+              processStarter: (exe, args, {workingDirectory, environment}) async {
+                fake = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+                return fake;
+              },
+            ),
+          };
+          Object? error;
+          unawaited(
+            runner
+                .executeTurn(
+                  provider: provider,
+                  prompt: 'stream',
+                  workingDirectory: Directory.systemTemp.path,
+                  profileId: 'workspace',
+                  stepName: 'Ignore chatter',
+                  stallTimeout: const Duration(seconds: 10),
+                  stallAction: TurnProgressAction.cancel,
+                )
+                .then<void>(
+                  (_) => fail('unknown chatter should not prevent a stall'),
+                  onError: (Object value) => error = value,
+                ),
+          );
+
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 9));
+          fake.emitStdout(jsonEncode({'type': 'unknown.provider.event'}));
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+
+          expect(fake.killCalled, isTrue);
+          expect(error, isA<WorkflowCliStallException>());
+        });
+      });
+    }
+
     test('step timeout kills overlong one-shot process distinctly from stall', () {
       fakeAsync((async) {
         late FakeProcess fake;
@@ -352,7 +431,7 @@ void main() {
       });
     });
 
-    test('terminal result arms grace kill without failing the parsed result', () {
+    test('workflow CLI grace termination reaps its child without failing the parsed result', () {
       fakeAsync((async) {
         late FakeProcess fake;
         final runner = claudeRunner(
@@ -391,7 +470,12 @@ void main() {
         async.elapse(const Duration(seconds: 1));
         async.flushMicrotasks();
 
+        int? exitCode;
+        unawaited(fake.exitCode.then((value) => exitCode = value));
+        async.flushMicrotasks();
+
         expect(fake.killCalled, isTrue);
+        expect(exitCode, -1);
         expect(error, isNull);
         expect(result?.responseText, 'ok');
       });
@@ -573,7 +657,7 @@ void main() {
       expect(decoded['sandbox'], {'enabled': true});
       expect(decoded['permissions'], {
         'allow': readOnlyShellAllow,
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./.env)', 'Write(*)'],
+        'deny': ['Edit', 'NotebookEdit', 'Read(./.env)', 'Write'],
       });
     });
 
@@ -581,7 +665,7 @@ void main() {
       final arguments = await capturedClaudeArgs(
         options: const {
           'permissions': {
-            'allow': ['Bash(*)'],
+            'allow': ['Bash'],
             'defaultMode': 'plan',
           },
         },
@@ -604,8 +688,8 @@ void main() {
 
       final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
-        'allow': ['WebFetch(*)', 'WebSearch(*)'],
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
+        'allow': ['WebFetch', 'WebSearch'],
+        'deny': ['Edit', 'NotebookEdit', 'Write'],
       });
     });
 
@@ -614,7 +698,7 @@ void main() {
         options: const {
           'settings': {
             'permissions': {
-              'allow': ['Bash(*)'],
+              'allow': ['Bash'],
               'deny': ['Read(./secret)'],
               'defaultMode': 'plan',
             },
@@ -630,7 +714,7 @@ void main() {
       expect(decoded['theme'], 'dark');
       expect(decoded['permissions'], {
         'allow': readOnlyShellAllow,
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./secret)', 'Write(*)'],
+        'deny': ['Edit', 'NotebookEdit', 'Read(./secret)', 'Write'],
       });
     });
 

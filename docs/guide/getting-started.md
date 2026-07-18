@@ -6,14 +6,16 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
-| Homebrew | Latest | Preferred DartClaw install path on supported macOS and Linux hosts |
+| Homebrew | Latest | DartClaw install path on macOS and Linux |
+| PowerShell | 5.1+ | Qualified Windows installer; Scoop requires a public Windows asset and bucket manifest |
 | Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
 | Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |
-| SQLite | System lib | Search index |
+| SQLite | Bundled | FTS5 search library shipped with release builds |
 
-Install DartClaw first, then install and verify provider CLIs separately:
+Install DartClaw first, then install and verify provider CLIs separately. This example uses Homebrew on macOS/Linux;
+see [Windows](windows.md) for native Windows installation and support boundaries.
 
 ```bash
 brew tap DartClaw/dartclaw
@@ -33,17 +35,29 @@ goose --version
 vibe-acp --version
 ```
 
-Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
+Auth: for Claude, run `claude auth login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
 
 ## Install DartClaw
 
-Homebrew is the only package manager for DartClaw releases. It installs the self-contained `dartclaw` binary:
+Use Homebrew on macOS/Linux:
 
 ```bash
 brew tap DartClaw/dartclaw
 brew install dartclaw
 dartclaw --version
 ```
+
+On Windows x64, run the PowerShell installer from a trusted release checkout:
+
+```powershell
+irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
+```
+
+The installer downloads `dartclaw-v<version>-windows-x64.zip`, verifies its checksum, and installs the complete
+`VERSION` + `bin` + `lib` tree under `%LOCALAPPDATA%\Programs\DartClaw` by default. It adds
+`%LOCALAPPDATA%\Programs\DartClaw\bin` to your persistent user `PATH`; open a new terminal before running
+`dartclaw --version`. The public Scoop bucket and its qualified commands are recorded in the
+[Windows guide](windows.md); they become usable after both the Windows release asset and rendered manifest publish.
 
 Provider CLIs are not Homebrew dependencies of DartClaw. Install the providers you plan to use and verify them explicitly:
 
@@ -166,6 +180,7 @@ See [Workspace](workspace.md) for how the behavior files are assembled into prom
 ## What's Next?
 
 - [Workspace](workspace.md) - Learn how behavior files shape the agent.
+- [Windows](windows.md) - Install, validate, and understand native Windows support boundaries.
 - [Configuration](configuration.md) - See `dartclaw.yaml`, provider selection, environment variables, and CLI flags.
 - [Security](security.md) - Review guard chains, container isolation, and credential handling.
 - [WhatsApp](whatsapp.md) - Set up the GOWA-backed WhatsApp channel.

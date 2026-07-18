@@ -66,7 +66,6 @@ class AcpVerifiedTargetProfile {
     modelProvider: 'mistral',
     verification: 'vibe_acp_direct_probe',
     requiresFsCapability: true,
-    requiresTerminalCapability: true,
   );
 
   /// Verified ACP target profiles keyed by provider identity.

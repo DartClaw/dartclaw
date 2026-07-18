@@ -19,7 +19,14 @@ import 'cli_process_supervisor.dart';
 class ClaudeCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('ClaudeCliProvider');
 
-  ClaudeCliProvider();
+  ClaudeCliProvider({
+    super.platformCapabilities,
+    super.terminationGracePeriod,
+    super.outputDrainGracePeriod,
+    this.maxOutputBytes = CliProcessSupervisor.defaultOutputLimitBytes,
+  });
+
+  final int maxOutputBytes;
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -58,18 +65,25 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
         stepTimeout: req.stepTimeout,
         eventBus: req.eventBus,
         log: req.log,
+        processTerminator: () => terminateInflightProcess(process!),
+        externalCancellation: inflightCancellation(process),
+        platformCapabilities: platformCapabilities,
+        terminationGrace: terminationGracePeriod,
+        outputDrainGrace: outputDrainGracePeriod,
+        maxOutputBytes: maxOutputBytes,
       )..start();
       final stdoutDone = Completer<void>();
       final stderrDone = Completer<void>();
       var terminalResultRecorded = false;
       final progressState = _ClaudeProgressState();
-      process.stdout
+      final stdoutSubscription = supervisor
+          .limitOutput(process.stdout, streamName: 'stdout')
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
             (line) {
               stdoutBuffer.writeln(line);
-              if (line.trim().isNotEmpty) {
+              if (_isClaudeProgressLine(line)) {
                 supervisor?.recordParsedOutput();
               }
               _emitAssistantProgress(line, progressState, req);
@@ -86,7 +100,8 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
             },
             cancelOnError: true,
           );
-      process.stderr
+      final stderrSubscription = supervisor
+          .limitOutput(process.stderr, streamName: 'stderr')
           .transform(utf8.decoder)
           .listen(
             stderrBuffer.write,
@@ -103,13 +118,20 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
         await process.stdin.close();
       } catch (_) {
         if (cancellationRequestedFor(process)) {
-          final exitCode = await supervisor.waitForExitCode();
-          await stdoutDone.future;
-          await stderrDone.future;
+          final termination = await waitForInflightTermination(process);
+          final exitCode = termination?.exitConfirmed == true ? await process.exitCode : -1;
+          await waitForCliOutputDrain(
+            supervisor: supervisor,
+            stdoutDone: stdoutDone.future,
+            stderrDone: stderrDone.future,
+            cancelSubscriptions: () async {
+              await Future.wait([stdoutSubscription.cancel(), stderrSubscription.cancel()], eagerError: false);
+            },
+          );
           stopwatch.stop();
           final stdout = stdoutBuffer.toString();
           if (_hasClaudeFailureEvidence(stdout) ||
-              hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrFragments)) {
+              hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrLines)) {
             throw StateError(_describeNonZeroExit(exitCode, stdout, stderrBuffer.toString()));
           }
           return WorkflowCliTurnResult.cancelled(duration: stopwatch.elapsed);
@@ -118,22 +140,28 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
       }
 
       final exitCode = await supervisor.waitForExitCode();
-      await stdoutDone.future;
-      await stderrDone.future;
+      await waitForCliOutputDrain(
+        supervisor: supervisor,
+        stdoutDone: stdoutDone.future,
+        stderrDone: stderrDone.future,
+        cancelSubscriptions: () async {
+          await Future.wait([stdoutSubscription.cancel(), stderrSubscription.cancel()], eagerError: false);
+        },
+      );
       stopwatch.stop();
       supervisor.stop();
 
+      final hasProviderFailureEvidence =
+          _hasClaudeFailureEvidence(stdoutBuffer.toString()) ||
+          hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrLines);
+      final cancellationResult = cancellationResultForExit(
+        process: process,
+        supervisor: supervisor,
+        duration: stopwatch.elapsed,
+        hasProviderFailureEvidence: hasProviderFailureEvidence,
+      );
+      if (cancellationResult != null) return cancellationResult;
       if (exitCode != 0) {
-        final hasProviderFailureEvidence =
-            _hasClaudeFailureEvidence(stdoutBuffer.toString()) ||
-            hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrFragments);
-        final cancellationResult = cancellationResultForNonZeroExit(
-          process: process,
-          supervisor: supervisor,
-          duration: stopwatch.elapsed,
-          hasProviderFailureEvidence: hasProviderFailureEvidence,
-        );
-        if (cancellationResult != null) return cancellationResult;
         if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
           throw StateError(_describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString()));
         }
@@ -144,7 +172,7 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
       supervisor?.stop();
       final activeProcess = process;
       if (activeProcess != null) {
-        untrackInflightProcess(activeProcess);
+        finishInflightRun(activeProcess);
       }
     }
   }
@@ -388,6 +416,18 @@ bool _isTerminalResultLine(String line) {
   }
 }
 
+bool _isClaudeProgressLine(String line) {
+  final trimmed = line.trim();
+  if (trimmed.isEmpty) return false;
+  try {
+    final decoded = jsonDecode(trimmed);
+    if (decoded is! Map<String, dynamic>) return false;
+    return const {'system', 'assistant', 'user', 'stream_event', 'result'}.contains(decoded['type']);
+  } on FormatException {
+    return false;
+  }
+}
+
 /// Builds a diagnostic message for a non-zero claude one-shot exit.
 ///
 /// `claude -p --output-format stream-json` reports turn-level errors in the
@@ -453,7 +493,14 @@ const _fullAccessEnvOverride = <String, String>{_claudeSubprocessEnvScrubVar: '0
 // `claude` prints this operational notice to stderr on every run; it is not a
 // failure signal. Any other stderr output is treated as genuine evidence so a
 // stderr-only provider error is never masked as a cancellation.
-const List<String> _claudeBenignStderrFragments = [_claudeSubprocessEnvScrubVar];
+const List<String> _claudeBenignStderrLines = [
+  'Permission mode forced to default – CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set',
+  'Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set',
+  '⚠ Permission mode forced to default – CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set '
+      '(allowed_non_write_users hardening).',
+  '⚠ Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set '
+      '(allowed_non_write_users hardening).',
+];
 
 String? _permissionModeForTaskPolicy(String? configured, _ClaudeTaskPolicy taskPolicy) {
   if (!taskPolicy.hasPolicy) return configured;
@@ -465,7 +512,11 @@ Map<String, dynamic> _optionsWithTaskPolicy(Map<String, dynamic> options, _Claud
   final next = Map<String, dynamic>.from(options);
   final permissions = _normalizeMap(next['permissions']);
   final settingsPermissions = _settingsPermissions(next['settings']);
-  final allow = taskPolicy.allowPatterns.toList()..sort();
+  final configuredAllow = {..._stringList(permissions['allow']), ..._stringList(settingsPermissions['allow'])};
+  final allow = {
+    ...taskPolicy.allowPatterns,
+    if (taskPolicy.allowsMcp) ...configuredAllow.where(_isScopedMcpAllowRule),
+  }.toList()..sort();
   final deny = {
     ..._stringList(permissions['deny']),
     ..._stringList(settingsPermissions['deny']),
@@ -493,6 +544,12 @@ Map<String, dynamic> _normalizeMap(Object? value) {
 List<String> _stringList(Object? value) {
   if (value is! List) return const <String>[];
   return value.whereType<String>().where((item) => item.trim().isNotEmpty).map((item) => item.trim()).toList();
+}
+
+bool _isScopedMcpAllowRule(String rule) {
+  if (!rule.startsWith('mcp__')) return false;
+  final serverAndTool = rule.substring('mcp__'.length);
+  return serverAndTool.isNotEmpty && !serverAndTool.startsWith('*');
 }
 
 Map<String, dynamic> _settingsPermissions(Object? settings) {
@@ -567,23 +624,24 @@ final class _ClaudeTaskPolicy {
     final patterns = <String>{};
     if (tools.isEmpty && !readOnly) return const <String>[];
     if (tools.contains('shell')) {
-      patterns.addAll(readOnly ? _readOnlyShellAllowPatterns : const ['Bash(*)']);
+      patterns.addAll(readOnly ? _readOnlyShellAllowPatterns : const ['Bash']);
     }
     if (_shouldGrantFileReads(tools)) {
-      patterns.addAll(['Read(*)', 'Glob(*)', 'Grep(*)', 'LS(*)']);
+      patterns.addAll(['Read', 'Glob', 'Grep', 'LS']);
     }
     if (!readOnly) {
-      if (tools.contains('file_write')) patterns.add('Write(*)');
-      if (tools.contains('file_edit')) patterns.addAll(['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)']);
+      if (tools.contains('file_write')) patterns.add('Write');
+      if (tools.contains('file_edit')) patterns.addAll(['Edit', 'NotebookEdit']);
     }
-    if (tools.contains('web_fetch')) patterns.addAll(['WebFetch(*)', 'WebSearch(*)']);
-    if (tools.contains('mcp_call')) patterns.add('mcp__*');
+    if (tools.contains('web_fetch')) patterns.addAll(['WebFetch', 'WebSearch']);
     return patterns.toList()..sort();
   }
 
+  bool get allowsMcp => allowedTools.contains('mcp_call');
+
   List<String> get denyPatterns {
     if (!readOnly) return const <String>[];
-    return const ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'];
+    return const ['Edit', 'NotebookEdit', 'Write'];
   }
 
   bool _shouldGrantFileReads(Set<String> tools) {

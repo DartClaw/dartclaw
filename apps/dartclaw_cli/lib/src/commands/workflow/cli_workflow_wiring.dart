@@ -1,3 +1,4 @@
+import 'dart:async' show FutureOr;
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart'
@@ -64,6 +65,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowPreflightException,
         WorkflowPublishStatus,
         WorkflowRun,
+        WorkflowWorktreeBinding,
         WorkflowServiceOptions,
         WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
@@ -272,8 +274,17 @@ class CliWorkflowWiring {
     if (ctx == null || taskHandles == null) {
       throw StateError('startHarnesses called before wirePreHarness');
     }
+    if (providers.isEmpty) {
+      await _wireWorkflowService(ctx, taskHandles);
+      _workflowServiceWired = true;
+      return;
+    }
     final wiredCtx = await _wireHarness(ctx, taskHandles, providers);
-    await _wireWorkflowService(wiredCtx, taskHandles);
+    await _wireWorkflowService(
+      wiredCtx,
+      taskHandles,
+      hydrateBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
+    );
     _workflowServiceWired = true;
     _harnessStarted = true;
     await ensureTaskRunnersForProviders(providers);
@@ -527,7 +538,11 @@ class CliWorkflowWiring {
     return buildWorkflowSkillPreflightConfig(config);
   }
 
-  Future<void> _wireWorkflowService(_CliWorkflowWiringCtx ctx, _TaskHandles taskHandles) async {
+  Future<void> _wireWorkflowService(
+    _CliWorkflowWiringCtx ctx,
+    _TaskHandles taskHandles, {
+    FutureOr<void> Function(WorkflowWorktreeBinding binding)? hydrateBinding,
+  }) async {
     final workflowRoleDefaults = _buildWorkflowRoleDefaults();
     workflowService = WorkflowService(
       repository: taskHandles.workflowRunRepository,
@@ -543,7 +558,7 @@ class CliWorkflowWiring {
         gitPort: WorkflowGitPortProcess(worktreeManager: worktreeManager),
         projectService: projectService,
         defaultWorkspaceRoot: runtimeCwd,
-        hydrateBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
+        hydrateBinding: hydrateBinding,
       ),
       options: WorkflowServiceOptions(
         bashStepEnvAllowlist: config.security.bashStep.envAllowlist,

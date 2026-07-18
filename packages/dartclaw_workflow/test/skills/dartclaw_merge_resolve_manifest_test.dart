@@ -118,6 +118,14 @@ void main() {
       test('ties conflict resolution rationale to resolution_summary output', () {
         expect(content, contains('resolution_summary'));
       });
+
+      test('preserves already-accepted integration work', () {
+        expect(content, contains('already-accepted sibling work'));
+        expect(content, contains('Never discard integration-side edits merely to favor the story branch'));
+        expect(content, contains('Combine independent additions'));
+        expect(content, contains('only with concrete project evidence'));
+        expect(content, contains('fail without committing'));
+      });
     });
 
     // TI08 — project-convention verification

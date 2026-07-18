@@ -96,6 +96,12 @@ void main() {
       expect((await guard.evaluate(_tool('file_edit', {'file_path': '.env'}))).isBlock, isTrue);
     });
 
+    test('blocks file_edit notebook_path on a read-only notebook', () async {
+      final v = await guard.evaluate(_tool('file_edit', {'notebook_path': '.env'}));
+      expect(v.isBlock, isTrue);
+      expect(v.message, contains('read_only'));
+    });
+
     test('blocks later protected paths in multi-change payloads', () async {
       final v = await guard.evaluate(
         _tool('file_write', {

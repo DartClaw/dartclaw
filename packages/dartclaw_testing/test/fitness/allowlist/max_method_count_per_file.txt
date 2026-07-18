@@ -5,9 +5,9 @@ apps/dartclaw_cli/lib/src/commands/workflow/workflow_git_support.dart  # 75 meth
 apps/dartclaw_cli/lib/src/commands/workflow/cli_progress_printer.dart  # 48 methods (0.20 why-paused + blocked/interrupted lines); shrink to <=40 by workflow CLI progress-renderer decomposition.
 apps/dartclaw_cli/lib/src/dartclaw_api_client.dart  # 50 methods; shrink to <=40 by 0.16.6 API client decomposition.
 packages/dartclaw_config/lib/src/config_parser.dart  # 42 methods; shrink to <=40 by config parser decomposition.
-packages/dartclaw_core/lib/src/harness/claude_code_harness.dart  # 50 methods; shrink to <=40 by 0.16.6 harness cleanup.
-packages/dartclaw_core/lib/src/harness/codex_harness.dart  # 46 methods; shrink to <=40 by 0.16.6 harness cleanup.
-packages/dartclaw_core/lib/src/harness/acp_harness.dart  # 43 methods; new in 0.18 (universal ACP harness — subprocess lifecycle + session mgmt + reverse-call wiring); shrink to <=40 by folding reverse-call handlers into a collaborator.
+packages/dartclaw_core/lib/src/harness/claude_code_harness.dart  # 55 methods (+5: direct executable probe and bounded lifecycle cleanup); shrink to <=40 by harness cleanup.
+packages/dartclaw_core/lib/src/harness/codex_harness.dart  # 50 methods (+4: project-trust warning and bounded lifecycle handling); shrink to <=40 by harness cleanup.
+packages/dartclaw_core/lib/src/harness/acp_harness.dart  # 45 methods (+2: bounded initialization and turn deadlines); shrink to <=40 by folding reverse-call handlers into a collaborator.
 packages/dartclaw_server/lib/src/advisor/advisor_subscriber.dart  # 55 methods; shrink to <=40 by 0.16.6 advisor decomposition.
 packages/dartclaw_server/lib/src/api/config_api_routes.dart  # 163 methods; shrink to <=40 by route decomposition.
 packages/dartclaw_server/lib/src/api/guard_editor_service.dart  # 44 methods; shrink to <=40 by 0.16.6 guard editor decomposition.

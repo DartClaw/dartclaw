@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory, killWithEscalation;
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show DelayFactory, HealthProbe, ProcessFactory, ProcessTerminationResult, SequentialLock, killWithEscalation;
 import 'package:logging/logging.dart';
 
 /// Manages signal-cli as a subprocess in daemon HTTP mode.
@@ -11,7 +13,7 @@ import 'package:logging/logging.dart';
 /// Mirrors [GowaManager] for WhatsApp: spawn, health check, crash recovery
 /// with exponential backoff. Communicates via signal-cli's native JSON-RPC
 /// and SSE endpoints.
-class SignalCliManager {
+class SignalCliManager with SequentialLock {
   static final _log = Logger('SignalCliManager');
 
   final String executable;
@@ -23,6 +25,8 @@ class SignalCliManager {
   final ProcessFactory _processFactory;
   final DelayFactory _delay;
   final HealthProbe? _healthProbe;
+  final PlatformCapabilities _platformCapabilities;
+  final Duration _terminationGracePeriod;
 
   /// Timeout for standard API calls.
   static const _apiTimeout = Duration(seconds: 10);
@@ -34,6 +38,8 @@ class SignalCliManager {
   static const _startupTimeout = Duration(seconds: 30);
 
   Process? _process;
+  final Set<Process> _windowsTeardownPending = <Process>{};
+  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
   int _generation = 0;
   int _restartCount = 0;
   bool _stopped = false;
@@ -57,9 +63,13 @@ class SignalCliManager {
     ProcessFactory? processFactory,
     DelayFactory? delay,
     HealthProbe? healthProbe,
+    PlatformCapabilities? platformCapabilities,
+    Duration terminationGracePeriod = const Duration(seconds: 5),
   }) : _processFactory = processFactory ?? Process.start,
        _delay = delay ?? Future.delayed,
-       _healthProbe = healthProbe;
+       _healthProbe = healthProbe,
+       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _terminationGracePeriod = terminationGracePeriod;
 
   bool get isRunning => _process != null && !_stopped;
 
@@ -77,8 +87,13 @@ class SignalCliManager {
   Stream<Map<String, dynamic>> get events => _eventController.stream;
 
   /// Start the signal-cli daemon process and wait for health check.
-  Future<void> start() async {
+  Future<void> start() => withLock(_start);
+
+  Future<void> _start() async {
     if (_stopped) throw StateError('SignalCliManager has been stopped');
+    if (_process != null) {
+      throw StateError('SignalCliManager still owns a signal-cli process; stop it before restarting');
+    }
 
     final gen = ++_generation;
     _log.info('Starting signal-cli (gen $gen): $executable on $host:$port');
@@ -87,6 +102,8 @@ class SignalCliManager {
 
     try {
       _process = await _processFactory(executable, args);
+      _windowsTeardownPending.remove(_process);
+      _windowsExitObservedDuringTeardown.remove(_process);
     } catch (e) {
       _log.severe('Failed to spawn signal-cli process', e);
       rethrow;
@@ -103,12 +120,24 @@ class SignalCliManager {
         .listen((line) => _log.warning('[signal-cli stderr] $line'));
 
     // Monitor for unexpected exit
-    unawaited(_process!.exitCode.then((code) => _onExit(code, gen)));
+    final process = _process!;
+    unawaited(process.exitCode.then((code) => _onExit(code, gen, process)));
 
     // Wait for daemon to become reachable
     if (!await _waitForHealth()) {
-      _process?.kill(ProcessSignal.sigterm);
-      _process = null;
+      final process = _process;
+      _beginIntentionalProcessTeardown(process);
+      ++_generation;
+      if (process != null) {
+        final result = await killWithEscalation(
+          process,
+          label: 'signal-cli',
+          gracePeriod: _terminationGracePeriod,
+          log: _log,
+          platformCapabilities: _platformCapabilities,
+        );
+        _completeIntentionalProcessTeardown(process, result);
+      }
       throw StateError('signal-cli failed to respond within ${_startupTimeout.inSeconds}s');
     }
 
@@ -123,8 +152,13 @@ class SignalCliManager {
   }
 
   /// Stop the signal-cli process gracefully.
-  Future<void> stop() async {
+  Future<void> stop() {
     _stopped = true;
+    _beginIntentionalProcessTeardown(_process);
+    return withLock(_stop);
+  }
+
+  Future<void> _stop() async {
     await _sseSub?.cancel();
     _sseSub = null;
     _sseClient?.close(force: true);
@@ -133,12 +167,20 @@ class SignalCliManager {
 
     final proc = _process;
     if (proc == null) return;
-    _process = null;
 
     _log.info('Stopping signal-cli');
-    await killWithEscalation(proc, label: 'signal-cli', gracePeriod: const Duration(seconds: 5), log: _log);
-    final exitCode = await proc.exitCode;
-    _log.info('signal-cli stopped (exit code: $exitCode)');
+    final result = await killWithEscalation(
+      proc,
+      label: 'signal-cli',
+      gracePeriod: _terminationGracePeriod,
+      log: _log,
+      platformCapabilities: _platformCapabilities,
+    );
+    _completeIntentionalProcessTeardown(proc, result);
+    if (result.confirmsOwnershipRelease()) {
+      final exitCode = await proc.exitCode;
+      _log.info('signal-cli stopped (exit code: $exitCode)');
+    }
   }
 
   /// Dispose resources. Alias for [stop].
@@ -148,9 +190,31 @@ class SignalCliManager {
   ///
   /// Unlike [stop] (which is a permanent teardown), this prepares the manager
   /// for a fresh pairing cycle without recreating the object.
-  Future<void> reset() async {
+  Future<void> reset() {
+    _beginIntentionalProcessTeardown(_process);
+    return withLock(_reset);
+  }
+
+  Future<void> _reset() async {
+    ++_generation;
     final proc = _process;
-    _process = null;
+    _beginIntentionalProcessTeardown(proc);
+
+    if (proc != null) {
+      _log.info('Resetting signal-cli');
+      final result = await killWithEscalation(
+        proc,
+        label: 'signal-cli',
+        gracePeriod: _terminationGracePeriod,
+        log: _log,
+        platformCapabilities: _platformCapabilities,
+      );
+      if (!result.confirmsOwnershipRelease()) {
+        _completeIntentionalProcessTeardown(proc, result);
+        throw StateError('signal-cli termination could not be confirmed during reset');
+      }
+      _completeIntentionalProcessTeardown(proc, result);
+    }
 
     await _sseSub?.cancel();
     _sseSub = null;
@@ -166,11 +230,6 @@ class SignalCliManager {
     _registeredPhone = null;
     _restartCount = 0;
     _reconnecting = false;
-
-    if (proc != null) {
-      _log.info('Resetting signal-cli');
-      await killWithEscalation(proc, label: 'signal-cli', gracePeriod: const Duration(seconds: 5));
-    }
   }
 
   // ---- JSON-RPC client methods ----
@@ -405,9 +464,14 @@ class SignalCliManager {
 
   // ---- Crash recovery ----
 
-  void _onExit(int exitCode, int generation) {
-    if (_stopped || generation != _generation) return;
-    _process = null;
+  void _onExit(int exitCode, int generation, Process process) {
+    final windowsTeardownPending = _windowsTeardownPending.contains(process);
+    if (windowsTeardownPending) {
+      _windowsExitObservedDuringTeardown.add(process);
+    } else if (identical(_process, process)) {
+      _process = null;
+    }
+    if (windowsTeardownPending || _stopped || generation != _generation) return;
 
     _log.warning('signal-cli exited unexpectedly (code: $exitCode, gen: $generation)');
 
@@ -425,7 +489,7 @@ class SignalCliManager {
 
     unawaited(() async {
       await _delay(backoff);
-      if (!_stopped) {
+      if (!_stopped && generation == _generation) {
         try {
           await start();
         } catch (e) {
@@ -433,6 +497,20 @@ class SignalCliManager {
         }
       }
     }());
+  }
+
+  void _beginIntentionalProcessTeardown(Process? process) {
+    if (process != null && !_platformCapabilities.posixSignalsAvailable) {
+      _windowsTeardownPending.add(process);
+    }
+  }
+
+  void _completeIntentionalProcessTeardown(Process process, ProcessTerminationResult result) {
+    _windowsTeardownPending.remove(process);
+    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
+    if (result.confirmsOwnershipRelease() || exitObserved) {
+      if (identical(_process, process)) _process = null;
+    }
   }
 
   // ---- JSON-RPC helper ----

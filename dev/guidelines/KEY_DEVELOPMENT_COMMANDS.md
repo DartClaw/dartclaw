@@ -74,6 +74,51 @@ bash dev/tools/build.sh
 ```
 
 
+## Parallels Windows VM
+
+On a macOS development host, `dev/tools/parallels_windows.sh` gives agents a limited set of VM-management operations
+plus arbitrary guest command execution. It requires Parallels Desktop Pro, Business, or Enterprise and Parallels Tools
+in the guest. Normal-user commands also require an active signed-in Windows session. The VM name defaults to
+`Windows 11`; override it with `PARALLELS_WINDOWS_VM`.
+
+```bash
+# Inspect or prepare the VM.
+./dev/tools/parallels_windows.sh status
+./dev/tools/parallels_windows.sh start
+
+# Run as the signed-in Windows user.
+./dev/tools/parallels_windows.sh exec cmd.exe /d /c whoami
+./dev/tools/parallels_windows.sh powershell path/to/script.ps1 [args...]
+
+# Use only when elevation is required. These run as NT AUTHORITY\SYSTEM.
+./dev/tools/parallels_windows.sh exec-system powershell.exe -NoProfile -Command Get-Service
+./dev/tools/parallels_windows.sh powershell-system path/to/admin-script.ps1 [args...]
+
+# Checkpoint, capture, and release resources.
+./dev/tools/parallels_windows.sh snapshot before-change
+mkdir -p .agent_temp
+./dev/tools/parallels_windows.sh capture .agent_temp/windows.png
+./dev/tools/parallels_windows.sh pause
+```
+
+The helper automatically starts or resumes the VM and waits for Parallels Tools' credential-free SYSTEM execution;
+normal-user commands additionally wait for the active signed-in session. Destructive VM configuration, deletion, and
+snapshot restoration are intentionally not exposed. Guest commands themselves are unrestricted inside Windows and can
+access resources exposed to the guest. Treat each VM as single-caller: do not run concurrent helper invocations against
+the same VM.
+
+The `powershell*` commands translate the host script path through Parallels folder sharing. Share only the repository
+or another narrow script directory with the guest – never the whole Mac home directory for unattended agent work.
+`powershell-system` grants Windows SYSTEM access to that shared script path. For a non-standard `prlctl` location, set
+`PARALLELS_PRLCTL`. Use raw `prlctl` only when the task explicitly requires an unsupported VM operation.
+
+The portable mock test requires neither Parallels nor macOS and runs as part of `test_workspace.sh`:
+
+```bash
+bash dev/tools/parallels_windows_test.sh
+```
+
+
 ## CI-Equivalent Gate
 
 Run this from the workspace root before pushing shared branches, before declaring a CI fix done, and after changes that

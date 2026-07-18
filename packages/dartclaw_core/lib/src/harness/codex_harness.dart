@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../bridge/bridge_events.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+
+import '../bridge/bridge_events.dart';
+import '../worker/worker_state.dart';
 
 import 'agent_harness.dart';
 import 'base_harness.dart';
@@ -12,9 +15,38 @@ import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'codex_settings.dart';
 import 'harness_config.dart';
+import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
-import '../worker/worker_state.dart';
+
+Duration _remainingUntil(DateTime deadline) {
+  final remaining = deadline.difference(DateTime.now());
+  return remaining > Duration.zero ? remaining : Duration.zero;
+}
+
+Future<void> _verifyCodexExecutable(String executable, CommandProbe commandProbe) async {
+  ProcessResult result;
+  try {
+    result = await commandProbe(executable, const ['--version']);
+  } on ProcessException {
+    _throwMissingCodexExecutable(executable);
+  }
+  if (result.exitCode != 0 || '${result.stdout}'.trim().isEmpty) {
+    _throwMissingCodexExecutable(executable);
+  }
+}
+
+Never _throwMissingCodexExecutable(String executable) => throw UnsupportedCapabilityError(
+  capability: 'Codex harness executable',
+  attemptedContext: '$executable --version',
+  remediation: 'Install "$executable" and ensure it is available on PATH.',
+);
+
+String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim()) {
+  'danger-full-access' => '["disk-full-read-write-access", "network-full-access"]',
+  'workspace-write' => '["disk-full-read-access", "disk-write-platform-user-caches", "disk-write-cwd"]',
+  _ => null,
+};
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
 class CodexHarness extends BaseHarness {
@@ -33,6 +65,9 @@ class CodexHarness extends BaseHarness {
   /// Codex protocol adapter used for all wire-format translation.
   final CodexProtocolAdapter adapter;
 
+  /// Platform policy used for executable lookup and process semantics.
+  final PlatformCapabilities platformCapabilities;
+
   static final _log = Logger('CodexHarness');
 
   final Map<String, String> _threadIds = <String, String>{};
@@ -48,6 +83,7 @@ class CodexHarness extends BaseHarness {
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
+  final Duration _initializeTimeout;
 
   CodexHarness({
     required super.cwd,
@@ -63,11 +99,15 @@ class CodexHarness extends BaseHarness {
     Map<String, dynamic>? providerOptions,
     this.guardChain,
     CodexProtocolAdapter? adapter,
+    PlatformCapabilities? platformCapabilities,
     Duration killGracePeriod = const Duration(seconds: 2),
+    Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        adapter = adapter ?? CodexProtocolAdapter(),
+       platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        _killGracePeriod = killGracePeriod,
+       _initializeTimeout = initializeTimeout,
        super(
          log: _log,
          processFactory: processFactory ?? Process.start,
@@ -96,12 +136,13 @@ class CodexHarness extends BaseHarness {
     beforeStart: () async {
       isStopping = false;
       await _cleanupEnvironment();
-      await _verifyExecutable();
+      await _verifyCodexExecutable(executable, commandProbe);
       _environment = CodexEnvironment(
         developerInstructions: harnessConfig.appendSystemPrompt ?? '',
         mcpServerUrl: harnessConfig.mcpServerUrl,
         mcpGatewayToken: harnessConfig.mcpGatewayToken,
         useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
+        platformCapabilities: platformCapabilities,
       );
     },
     start: () async {
@@ -130,6 +171,9 @@ class CodexHarness extends BaseHarness {
     String? effort,
     int? maxTurns,
   }) async {
+    if (currentState == WorkerState.stopped) {
+      await start();
+    }
     while (currentState == WorkerState.crashed) {
       await recoverFromCrash(() async {
         try {
@@ -156,19 +200,15 @@ class CodexHarness extends BaseHarness {
     currentState = WorkerState.busy;
     _activeSessionId = sessionId;
     _turnCompleter = Completer<Map<String, dynamic>>();
-    Timer? timeoutTimer;
     final stopwatch = Stopwatch();
+    final deadline = DateTime.now().add(turnTimeout);
 
     try {
-      final threadId = _threadIds[sessionId] ?? await _startThread(sessionId);
-      timeoutTimer = Timer(turnTimeout, () {
-        final completer = _turnCompleter;
-        if (completer == null || completer.isCompleted) {
-          return;
-        }
-        completer.completeError(TimeoutException('Codex turn exceeded $turnTimeout'));
-        unawaited(cancel());
-      });
+      final threadId =
+          _threadIds[sessionId] ??
+          await _startThread(
+            sessionId,
+          ).timeout(_remainingUntil(deadline), onTimeout: () => _stopAfterTurnTimeout<String>());
 
       final previousMessages = messages.length > 1
           ? messages.sublist(0, messages.length - 1)
@@ -199,7 +239,10 @@ class CodexHarness extends BaseHarness {
       stopwatch.start();
       _writeLine(payload);
 
-      final result = await _turnCompleter!.future;
+      final result = await _turnCompleter!.future.timeout(
+        _remainingUntil(deadline),
+        onTimeout: () => _stopAfterTurnTimeout<Map<String, dynamic>>(),
+      );
       if (stopwatch.isRunning) {
         stopwatch.stop();
       }
@@ -220,23 +263,51 @@ class CodexHarness extends BaseHarness {
       }
       rethrow;
     } finally {
-      timeoutTimer?.cancel();
       _agentMessageDeltaIds.clear();
+      _threadStartCompleter = null;
+      _threadStartRequestId = null;
       _turnCompleter = null;
       _activeSessionId = null;
     }
   }
 
+  Future<T> _stopAfterTurnTimeout<T>() {
+    _log.warning('Turn timeout exceeded, stopping Codex...');
+    _threadStartCompleter = null;
+    _threadStartRequestId = null;
+    _turnCompleter = null;
+    return stop().then<T>((_) => throw TimeoutException('Codex turn exceeded $turnTimeout'));
+  }
+
   @override
   Future<void> cancel() async {
-    final process = currentProcess;
-    if (process == null) {
-      return;
-    }
+    await _requestCancellation();
+  }
+
+  Future<ProcessTerminationResult?> _requestCancellation({Process? process}) async {
+    final activeProcess = process ?? currentProcess;
+    if (activeProcess == null) return null;
+    beginIntentionalProcessTeardown(activeProcess, platformCapabilities);
     try {
-      await process.stdin.close();
+      await activeProcess.stdin.close();
     } catch (_) {} // stdin may already be closed if the process exited.
-    process.kill(ProcessSignal.sigterm);
+    if (platformCapabilities.posixSignalsAvailable) {
+      final result = ProcessTerminationResult(
+        initialTerminationAccepted: activeProcess.kill(ProcessSignal.sigterm),
+        exitConfirmed: false,
+        hardTerminationUsed: false,
+      );
+      return result;
+    }
+    final result = await killWithEscalation(
+      activeProcess,
+      label: 'Codex',
+      gracePeriod: _killGracePeriod,
+      platformCapabilities: platformCapabilities,
+      log: _log,
+    );
+    completeIntentionalProcessTeardown(activeProcess, result, platformCapabilities);
+    return result;
   }
 
   @override
@@ -247,14 +318,16 @@ class CodexHarness extends BaseHarness {
   @override
   Future<void> stop() {
     isStopping = true;
+    beginIntentionalProcessTeardown(currentProcess, platformCapabilities);
     return withLock(_stopInternal);
   }
 
   Future<void> _stopInternal() async {
     final process = currentProcess;
     final wasBusy = currentState == WorkerState.busy;
+    ProcessTerminationResult? cancellationResult;
     if (wasBusy) {
-      await cancel();
+      cancellationResult = await _requestCancellation(process: process);
       await delayFactory(const Duration(milliseconds: 50));
     }
 
@@ -262,25 +335,24 @@ class CodexHarness extends BaseHarness {
     _threadIds.clear();
     _completePendingWithError(StateError('CodexHarness stopped'));
 
-    await shutdownCurrentProcess(
-      label: 'Codex',
-      gracePeriod: _killGracePeriod,
-      alreadySignalled: wasBusy,
-      process: process,
-    );
+    if (cancellationResult != null && !platformCapabilities.posixSignalsAvailable) {
+      await cancelTrackedSubscriptions();
+      if (process != null) completeIntentionalProcessTeardown(process, cancellationResult, platformCapabilities);
+    } else {
+      await shutdownCurrentProcess(
+        label: 'Codex',
+        gracePeriod: _killGracePeriod,
+        platformCapabilities: platformCapabilities,
+        initialTerminationAccepted: cancellationResult?.initialTerminationAccepted,
+        process: process,
+      );
+    }
     if (process == null) {
       await _cleanupEnvironment();
       return;
     }
 
     await _cleanupEnvironment();
-  }
-
-  Future<void> _verifyExecutable() async {
-    final result = await commandProbe(executable, const ['--version']);
-    if (result.exitCode != 0) {
-      throw StateError('codex binary not found at $executable');
-    }
   }
 
   Future<void> _spawnProcess() async {
@@ -312,21 +384,22 @@ class CodexHarness extends BaseHarness {
   }
 
   /// Maps DartClaw sandbox config values to Codex `sandbox_permissions` TOML arrays.
-  static String? _sandboxPermissions(String sandboxValue) {
-    return switch (sandboxValue.trim()) {
-      'danger-full-access' => '["disk-full-read-write-access", "network-full-access"]',
-      'workspace-write' => '["disk-full-read-access", "disk-write-platform-user-caches", "disk-write-cwd"]',
-      _ => null,
-    };
-  }
-
   Future<void> _restartAfterCrash() async {
     await cancelTrackedSubscriptions();
-    currentProcess = null;
     _threadIds.clear();
-    await _spawnProcess();
-    await _initialize();
-    currentState = WorkerState.idle;
+    try {
+      await _spawnProcess();
+      await _initialize();
+      currentState = WorkerState.idle;
+    } catch (_) {
+      await shutdownCurrentProcess(
+        label: 'Codex',
+        gracePeriod: _killGracePeriod,
+        platformCapabilities: platformCapabilities,
+      );
+      currentState = WorkerState.crashed;
+      rethrow;
+    }
   }
 
   Future<void> _cleanupStartupFailure() async {
@@ -334,7 +407,11 @@ class CodexHarness extends BaseHarness {
     _threadIds.clear();
     _completePendingWithError(StateError('CodexHarness startup failed'));
 
-    await shutdownCurrentProcess(label: 'Codex', gracePeriod: _killGracePeriod);
+    await shutdownCurrentProcess(
+      label: 'Codex',
+      gracePeriod: _killGracePeriod,
+      platformCapabilities: platformCapabilities,
+    );
 
     await _cleanupEnvironment();
   }
@@ -353,7 +430,11 @@ class CodexHarness extends BaseHarness {
     _initializeRequestId = id;
     _initializeCompleter = Completer<Map<String, dynamic>>();
     _writeLine(adapter.buildInitializeRequest(id: id));
-    await _initializeCompleter!.future;
+    try {
+      await _initializeCompleter!.future.timeout(_initializeTimeout);
+    } on TimeoutException {
+      throw StateError('Codex initialize handshake timed out after ${_initializeTimeout.inSeconds}s');
+    }
     _writeLine(adapter.buildInitializedNotification());
   }
 
@@ -405,11 +486,18 @@ class CodexHarness extends BaseHarness {
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ProgressMessage(:final text, :final kind):
+        if (kind == 'provider_setup_warning') {
+          _log.warning(text);
+        }
         emitEvent(ProviderProgressBridgeEvent(kind: kind, text: text));
 
       case proto.SessionMetadataUpdate():
-      case proto.ProtocolDiagnostic():
         break;
+
+      case proto.ProtocolDiagnostic(:final message, :final method, :final updateType):
+        if (method == 'mcpServer/startupStatus/updated' && updateType == 'failed') {
+          _log.warning(message);
+        }
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _log.fine('Control request: $subtype (id=$requestId)');
@@ -765,7 +853,8 @@ class CodexHarness extends BaseHarness {
   static String? _extractTurnFailedError(String line) {
     final decoded = decodeJsonObject(line);
     final params = mapValue(decoded?['params']);
-    final error = params?['error'];
+    final turn = mapValue(params?['turn']);
+    final error = params?['error'] ?? turn?['error'];
 
     if (error is String && error.isNotEmpty) {
       return error;

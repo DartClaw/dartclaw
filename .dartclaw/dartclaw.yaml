@@ -41,16 +41,16 @@ providers:
 workflow:
   defaults:
     workflow:
-      model: codex/gpt-5.5
+      model: codex/gpt-5.6-sol
       effort: medium
     planner:
-      model: codex/gpt-5.5
+      model: codex/gpt-5.6-sol
       effort: xhigh
     executor:
-      model: codex/gpt-5.5
+      model: codex/gpt-5.6-sol
       effort: medium
     reviewer:
-      model: codex/gpt-5.5
+      model: codex/gpt-5.6-sol
       effort: xhigh
 
 workspace:

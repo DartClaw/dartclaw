@@ -2,7 +2,9 @@ import 'package:logging/logging.dart';
 
 import 'config_delta.dart';
 import 'dartclaw_config.dart';
+import 'platform_capabilities.dart';
 import 'reconfigurable.dart';
+import 'server_config.dart';
 
 final _log = Logger('ConfigNotifier');
 
@@ -20,9 +22,12 @@ class ConfigNotifier {
 
   DartclawConfig _current;
   final List<Reconfigurable> _services = [];
+  final PlatformCapabilities _platformCapabilities;
 
-  /// ConfigNotifier(DartclawConfig initial) : _current = initial;.
-  ConfigNotifier(DartclawConfig initial) : _current = initial;
+  /// Creates a notifier with the platform policy used for reload admission.
+  ConfigNotifier(DartclawConfig initial, {PlatformCapabilities? platformCapabilities})
+    : _current = initial,
+      _platformCapabilities = platformCapabilities ?? PlatformCapabilities();
 
   /// The current configuration.
   DartclawConfig get current => _current;
@@ -52,6 +57,18 @@ class ConfigNotifier {
   ///
   /// Returns `null` when no reloadable fields changed (no services are notified).
   ConfigDelta? reload(DartclawConfig newConfig) {
+    final blockingDiagnostics = newConfig.reloadBlockingWarnings;
+    if (blockingDiagnostics.isNotEmpty) {
+      throw FormatException('config validation failed: ${blockingDiagnostics.join('; ')}');
+    }
+    if (!_platformCapabilities.containerIsolationAvailable && newConfig.container.enabled) {
+      throw const UnsupportedCapabilityError(
+        capability: 'container isolation',
+        attemptedContext: 'live reload enabling container isolation on native Windows',
+        remediation: 'Keep container.enabled false, or restart DartClaw on POSIX or inside WSL.',
+      );
+    }
+
     final old = _current;
     final changedKeys = <String>{};
 
@@ -80,8 +97,29 @@ class ConfigNotifier {
     _detectChangedSimple('projects', old.projects, newConfig.projects, changedKeys);
     if (changedKeys.isEmpty) return null;
 
-    _current = newConfig;
-    final delta = ConfigDelta(previous: old, current: newConfig, changedKeys: Set.unmodifiable(changedKeys));
+    final restartFieldsChanged =
+        old.server.port != newConfig.server.port ||
+        old.server.host != newConfig.server.host ||
+        old.server.dataDir != newConfig.server.dataDir;
+    final current = restartFieldsChanged
+        ? newConfig.copyWith(
+            server: ServerConfig(
+              port: old.server.port,
+              host: old.server.host,
+              dataDir: old.server.dataDir,
+              name: newConfig.server.name,
+              baseUrl: newConfig.server.baseUrl,
+              workerTimeout: newConfig.server.workerTimeout,
+              claudeExecutable: newConfig.server.claudeExecutable,
+              staticDir: newConfig.server.staticDir,
+              templatesDir: newConfig.server.templatesDir,
+              devMode: newConfig.server.devMode,
+              maxParallelTurns: newConfig.server.maxParallelTurns,
+            ),
+          )
+        : newConfig;
+    _current = current;
+    final delta = ConfigDelta(previous: old, current: current, changedKeys: Set.unmodifiable(changedKeys));
 
     for (final service in List.of(_services)) {
       if (!delta.hasChangedAny(service.watchKeys)) continue;

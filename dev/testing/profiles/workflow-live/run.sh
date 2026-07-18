@@ -59,6 +59,7 @@ EOF
 
 FULL_FILES=(
   "packages/dartclaw_core/test/integration/direct_bridge_test.dart"
+  "packages/dartclaw_workflow/test/workflow/step_artifacts_env_live_canary_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart"
   "packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart"
@@ -150,7 +151,10 @@ case "${MODE}:${CANARY:-}" in
     LOG_LABEL="canary-core"
     ;;
   canary:step-isolation)
-    FILES=("packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart")
+    FILES=(
+      "packages/dartclaw_workflow/test/workflow/step_artifacts_env_live_canary_test.dart"
+      "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
+    )
     LOG_LABEL="canary-step-isolation"
     ;;
   canary:spec-and-implement)
@@ -265,7 +269,7 @@ run_preflight() {
       ;;
     claude)
       exe="claude"
-      login_hint="run \`claude login\`"
+      login_hint="run \`claude auth login\`"
       ;;
     *)
       echo "Preflight: no preflight available for provider '${PROVIDER}', skipping."

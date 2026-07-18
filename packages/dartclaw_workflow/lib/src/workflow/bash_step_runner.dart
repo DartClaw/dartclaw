@@ -1,23 +1,80 @@
-import 'dart:async' show TimeoutException;
+import 'dart:async' show Completer, StreamSubscription, TimeoutException;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show BashShellPolicy, PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_core/dartclaw_core.dart' show killWithEscalation;
 import 'workflow_definition.dart' show ActionNode, OutputFormat, WorkflowStep, WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowRun;
 import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, defaultSensitivePatterns;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'bash_process_owner.dart';
 import 'json_extraction.dart';
 import 'workflow_context.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_template_engine.dart';
 
+part 'bash_output_collector.dart';
+part 'bash_process_tree_runner.dart';
+
 const _bashStdoutMaxBytes = 64 * 1024;
 const _bashStderrMaxBytes = 64 * 1024;
 final _log = Logger('BashStepRunner');
+
+typedef BashShellInvocation = ({String executable, List<String> arguments});
+
+Future<ExecutableLookupResult> _resolveExecutableLookup(String executable, PlatformCapabilities capabilities) async {
+  final matches = <String>[];
+  for (final candidate in capabilities.executableSearchCandidates(executable)) {
+    if (await File(candidate).exists()) matches.add(candidate);
+  }
+  return (exitCode: matches.isEmpty ? 1 : 0, stdout: matches.join('\n'));
+}
+
+Future<BashShellInvocation> selectBashShell({
+  required PlatformCapabilities capabilities,
+  required String command,
+  ExecutableLookupExecutor? executableLookup,
+}) async {
+  if (capabilities.bashShellPolicy == BashShellPolicy.systemSh) {
+    return (executable: '/bin/sh', arguments: ['-c', command]);
+  }
+
+  final lookup = executableLookup ?? (executable, arguments) => _resolveExecutableLookup(executable, capabilities);
+  final ExecutableLookupResult lookupResult;
+  try {
+    lookupResult = await lookup('bash', const []);
+  } on ProcessException {
+    throw _missingGitBashError();
+  }
+  final resolvedExecutable = LineSplitter.split(
+    lookupResult.stdout,
+  ).map((line) => line.trim()).where(_isGitForWindowsBash).firstOrNull;
+  if (lookupResult.exitCode != 0 || resolvedExecutable == null) {
+    throw _missingGitBashError();
+  }
+  return (executable: resolvedExecutable, arguments: ['-c', command]);
+}
+
+bool _isGitForWindowsBash(String candidate) {
+  final normalized = candidate.replaceAll('\\', '/').toLowerCase();
+  return normalized.endsWith('/bin/bash.exe') || normalized.endsWith('/usr/bin/bash.exe');
+}
+
+UnsupportedCapabilityError _missingGitBashError() {
+  return UnsupportedCapabilityError(
+    capability: 'bash shell',
+    attemptedContext: 'Windows PATH search for bash.exe',
+    remediation:
+        'bash steps require Git Bash on Windows; install Git Bash, use a POSIX host or WSL, '
+        'or wait for Workflow DSL v2 script support.',
+  );
+}
 
 /// Runs a normalized bash action node.
 Future<StepOutcome> bashStepRun(ActionNode node, StepExecutionContext ctx) async {
@@ -37,6 +94,9 @@ Future<StepOutcome> bashStepRun(ActionNode node, StepExecutionContext ctx) async
     hostEnvironment: ctx.hostEnvironment,
     envAllowlist: ctx.bashStepEnvAllowlist,
     extraStripPatterns: ctx.bashStepExtraStripPatterns,
+    capabilities: ctx.platformCapabilities,
+    executableLookup: ctx.executableLookupExecutor,
+    processOwner: ctx.bashProcessOwner,
   );
 }
 
@@ -50,6 +110,9 @@ Future<StepOutcome> executeBashStep({
   Map<String, String>? hostEnvironment,
   List<String> envAllowlist = BashStepPolicy.defaultEnvAllowlist,
   List<String> extraStripPatterns = const <String>[],
+  PlatformCapabilities? capabilities,
+  ExecutableLookupExecutor? executableLookup,
+  BashProcessOwner? processOwner,
 }) async {
   assert(step.taskType == WorkflowTaskType.bash, 'bash runner received non-bash step ${step.id}');
   final String workDir;
@@ -73,11 +136,31 @@ Future<StepOutcome> executeBashStep({
   }
 
   final timeoutSeconds = step.timeoutSeconds ?? 60;
+  final platformCapabilities = capabilities ?? PlatformCapabilities();
+  final owner = processOwner ?? sharedBashProcessOwner;
+  await retryOwnedBashProcesses(owner, platformCapabilities);
+  if (owner.cleanupPendingProcesses.isNotEmpty) {
+    return bashFailure(step, 'prior Bash process-tree cleanup remains unconfirmed');
+  }
+  final BashShellInvocation shell;
+  try {
+    // Keeping the shell alive through its jobs preserves a safe process-tree root for deadline cleanup.
+    final ownedCommand =
+        r"trap '__dartclaw_step_exit_code=$?; trap - 0; wait; exit $__dartclaw_step_exit_code' 0"
+        '\n$resolvedCommand';
+    shell = await selectBashShell(
+      capabilities: platformCapabilities,
+      command: ownedCommand,
+      executableLookup: executableLookup,
+    );
+  } on UnsupportedCapabilityError catch (e) {
+    return bashFailure(step, e.toString());
+  }
   late Process process;
   try {
     process = await SafeProcess.start(
-      '/bin/sh',
-      ['-c', resolvedCommand],
+      shell.executable,
+      shell.arguments,
       env: EnvPolicy.sanitize(
         allowlist: envAllowlist,
         sensitivePatterns: [...defaultSensitivePatterns, ...extraStripPatterns],
@@ -89,21 +172,67 @@ Future<StepOutcome> executeBashStep({
   } catch (e) {
     return bashFailure(step, 'process execution failed: $e');
   }
-
-  final stdoutFuture = _collectBounded(process.stdout, _bashStdoutMaxBytes);
-  final stderrFuture = _collectBounded(process.stderr, _bashStderrMaxBytes);
+  owner.track(process);
+  final stdoutCollector = _BoundedOutputCollector(process.stdout, _bashStdoutMaxBytes);
+  final stderrCollector = _BoundedOutputCollector(process.stderr, _bashStderrMaxBytes);
+  final deadline = DateTime.now().add(Duration(seconds: timeoutSeconds));
+  await _captureOwnedRootIdentity(owner, process, platformCapabilities);
+  final descendantTracking = trackOwnedBashDescendants(owner, process, platformCapabilities);
 
   late int exitCode;
+  late List<_BoundedOutput> outputResults;
+  var rootExitObserved = false;
   try {
-    exitCode = await process.exitCode.timeout(Duration(seconds: timeoutSeconds));
+    exitCode = await process.exitCode.timeout(_remainingUntil(deadline));
+    rootExitObserved = true;
+    outputResults = await Future.wait([stdoutCollector.done, stderrCollector.done]).timeout(_remainingUntil(deadline));
   } on TimeoutException {
-    await _terminateProcessTree(process);
-    final stderr = await _waitForBoundedDrain(stderrFuture);
+    owner.markCleanupPending(process);
+    final exitConfirmed = await cleanupTimedOutBashProcess(
+      owner,
+      process,
+      platformCapabilities,
+      descendantTracking: descendantTracking,
+      rootExitAlreadyObserved: rootExitObserved,
+      confirmDescendantOutputsClosed: () async {
+        try {
+          await Future.wait([stdoutCollector.done, stderrCollector.done]).timeout(const Duration(milliseconds: 100));
+          return true;
+        } on Object {
+          return false;
+        }
+      },
+    );
+    if (exitConfirmed) owner.confirmExit(process);
+    final cancelledOutputs = await Future.wait([stdoutCollector.cancel(), stderrCollector.cancel()]);
+    final stderr = cancelledOutputs[1];
     return bashFailure(step, 'timed out after ${timeoutSeconds}s', stderr: stderr.text);
   }
+  await descendantTracking;
+  if (owner.unidentifiedDescendantCleanup(process)) {
+    owner.markCleanupPending(process);
+    return bashFailure(step, 'process-tree inspection failed; cleanup remains unconfirmed');
+  }
+  final descendantIdentities = owner.descendantIdentitiesOf(process);
+  if (descendantIdentities.isNotEmpty) {
+    owner.markCleanupPending(process);
+    final cleanupConfirmed = await owner.runCleanupAttempt(
+      process,
+      () => terminateBashProcessTree(
+        process,
+        platformCapabilities,
+        rootProcessIdentity: owner.rootIdentityOf(process),
+        knownDescendantIdentities: descendantIdentities,
+        onOwnedDescendantsChanged: (identities) => owner.replaceDescendants(process, identities),
+        rootExitAlreadyObserved: true,
+      ),
+    );
+    if (!cleanupConfirmed) return bashFailure(step, 'process-tree cleanup remains unconfirmed');
+  }
+  owner.confirmExit(process);
 
-  final stdoutResult = await stdoutFuture;
-  final stderrResult = await stderrFuture;
+  final stdoutResult = outputResults[0];
+  final stderrResult = outputResults[1];
   final stdout = stdoutResult.truncated ? '${stdoutResult.text}[truncated]' : stdoutResult.text;
   final stderr = stderrResult.truncated ? '${stderrResult.text}[truncated]' : stderrResult.text;
 
@@ -137,61 +266,6 @@ Future<StepOutcome> executeBashStep({
     tokenCount: 0,
     success: true,
   );
-}
-
-Future<void> _terminateProcessTree(Process process) async {
-  await _killProcessTree(process.pid, ProcessSignal.sigterm);
-  process.kill();
-  try {
-    await process.exitCode.timeout(const Duration(seconds: 2));
-  } on TimeoutException {
-    await _killProcessTree(process.pid, ProcessSignal.sigkill);
-    process.kill(ProcessSignal.sigkill);
-    await process.exitCode.timeout(const Duration(seconds: 2), onTimeout: () => -1);
-  }
-}
-
-Future<void> _killProcessTree(int rootPid, ProcessSignal signal) async {
-  final pids = await _descendantPids(rootPid);
-  for (final pid in pids.reversed) {
-    Process.killPid(pid, signal);
-  }
-}
-
-Future<List<int>> _descendantPids(int rootPid) async {
-  if (!Platform.isMacOS && !Platform.isLinux) return const [];
-  final result = <int>[];
-  var frontier = <int>[rootPid];
-  while (frontier.isNotEmpty) {
-    final next = <int>[];
-    for (final pid in frontier) {
-      final children = await _childPids(pid);
-      for (final child in children) {
-        if (!result.contains(child)) {
-          result.add(child);
-          next.add(child);
-        }
-      }
-    }
-    frontier = next;
-  }
-  return result;
-}
-
-Future<List<int>> _childPids(int pid) async {
-  try {
-    final result = await Process.run('pgrep', ['-P', '$pid']).timeout(const Duration(seconds: 1));
-    if (result.exitCode != 0) return const [];
-    return LineSplitter.split(
-      result.stdout as String,
-    ).map((line) => int.tryParse(line.trim())).whereType<int>().toList(growable: false);
-  } on Object {
-    return const [];
-  }
-}
-
-Future<_BoundedOutput> _waitForBoundedDrain(Future<_BoundedOutput> future) {
-  return future.timeout(const Duration(seconds: 2), onTimeout: () => const _BoundedOutput('', truncated: true));
 }
 
 /// Resolves the working directory for a bash step.
@@ -228,33 +302,63 @@ String resolveBashCommand(String command, WorkflowContext context, {WorkflowTemp
   return (templateEngine ?? WorkflowTemplateEngine()).resolve(command, context, escape: EscapeMode.shell);
 }
 
-/// Heuristically rejects the most common shell-re-parsing patterns that
-/// embed `{{context.*}}` substitutions. The patterns covered are `eval`,
-/// `| sh|bash`, `sh -c {{...}}`/`bash -c {{...}}` immediately followed by a
-/// substitution, command substitution `$(...)`, and backticks. The matcher
-/// is intentionally narrow — it does not catch every quoting/wrapping shape
-/// (e.g. `bash -c "echo {{context.x}}"`, `xargs -I {}`, parameter
-/// expansion). The primary safety guarantee is the template engine's
-/// [EscapeMode.shell] in [resolveBashCommand], which always emits
-/// single-quoted output; this validator is defense-in-depth on top of that
-/// escaping.
+/// Rejects template substitutions where caller-owned quoting or a nested
+/// shell would reinterpret the shell-escaped value.
 void validateBashCommandTemplate(String command) {
-  if (!command.contains(RegExp(r'\{\{\s*context\.'))) return;
+  final substitutions = RegExp(r'\{\{[^{}]+\}\}').allMatches(command).toList();
+  if (substitutions.isEmpty) return;
+  if (_hasQuotedSubstitution(command, substitutions)) {
+    _throwUnsafeBashInterpolation();
+  }
+  if (_hasShellReparse(command)) _throwUnsafeBashInterpolation();
+}
+
+bool _hasShellReparse(String command) {
+  final normalized = command.replaceAll(RegExp(r'''["'\\]'''), '');
   final riskyPatterns = <RegExp>[
-    RegExp(r'(^|[;&|]\s*)\s*eval\b'),
-    RegExp(r'\|\s*(?:/usr/bin/env\s+)?(?:/bin/)?(?:sh|bash)\b'),
-    RegExp(r'\b(?:sh|bash)\s+-c\s+\{\{\s*context\.'),
-    RegExp(r'`[^`]*\{\{\s*context\.'),
-    RegExp(r'\$\([^)]*\{\{\s*context\.'),
+    RegExp(r'\beval\b'),
+    RegExp(r'''(^|[/\s;&|(<])(?:sh|bash|dash|zsh|ksh|ash|fish)(?:\.exe)?(?=$|["'\s;&|)>])'''),
+    RegExp(r'<<-?(?!<)'),
+    RegExp(r'`[^`]*\{\{'),
+    RegExp(r'\$\([^)]*\{\{'),
   ];
-  for (final pattern in riskyPatterns) {
-    if (pattern.hasMatch(command)) {
-      throw ArgumentError(
-        'Bash command uses {{context.*}} inside a shell re-parsing construct. '
-        'Pass context values as ordinary command arguments instead.',
-      );
+  return riskyPatterns.any((pattern) => pattern.hasMatch(normalized));
+}
+
+bool _hasQuotedSubstitution(String command, List<RegExpMatch> substitutions) =>
+    substitutions.any((substitution) => _isInsideShellQuote(command, substitution.start));
+
+bool _isInsideShellQuote(String command, int end) {
+  var quote = 0;
+  for (var index = 0; index < end; index++) {
+    final codeUnit = command.codeUnitAt(index);
+    if (quote == 39) {
+      if (codeUnit == 39) quote = 0;
+      continue;
+    }
+    if (codeUnit == 92) {
+      if (quote == 0 || (quote == 34 && index + 1 < end && _isEscapedInDoubleQuotes(command.codeUnitAt(index + 1)))) {
+        index++;
+      }
+      continue;
+    }
+    if (codeUnit == 34) {
+      quote = quote == 34 ? 0 : 34;
+    } else if (quote == 0 && codeUnit == 39) {
+      quote = 39;
     }
   }
+  return quote != 0;
+}
+
+bool _isEscapedInDoubleQuotes(int codeUnit) =>
+    codeUnit == 36 || codeUnit == 96 || codeUnit == 34 || codeUnit == 92 || codeUnit == 10;
+
+Never _throwUnsafeBashInterpolation() {
+  throw ArgumentError(
+    'Bash command uses a template substitution inside caller-owned shell quoting or a shell re-parsing construct. '
+    'Pass substituted values as unquoted ordinary command arguments instead.',
+  );
 }
 
 String _containedWorkdir(String resolved, {required String dataDir}) {
@@ -283,29 +387,9 @@ String _containedWorkdir(String resolved, {required String dataDir}) {
   return candidate;
 }
 
-Future<_BoundedOutput> _collectBounded(Stream<List<int>> stream, int maxBytes) async {
-  final builder = BytesBuilder(copy: false);
-  var storedBytes = 0;
-  var truncated = false;
-  await for (final chunk in stream) {
-    final remaining = maxBytes - storedBytes;
-    if (remaining > 0) {
-      final take = min(remaining, chunk.length);
-      builder.add(chunk.sublist(0, take));
-      storedBytes += take;
-    }
-    if (chunk.length > remaining) {
-      truncated = true;
-    }
-  }
-  return _BoundedOutput(utf8.decode(builder.takeBytes(), allowMalformed: true), truncated: truncated);
-}
-
-final class _BoundedOutput {
-  final String text;
-  final bool truncated;
-
-  const _BoundedOutput(this.text, {required this.truncated});
+Duration _remainingUntil(DateTime deadline) {
+  final remaining = deadline.difference(DateTime.now());
+  return remaining.isNegative ? Duration.zero : remaining;
 }
 
 /// Extracts declared context outputs from bash stdout.

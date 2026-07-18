@@ -4,19 +4,26 @@ library;
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
-
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        ActionNode,
+        ContextExtractor,
+        GateEvaluator,
         OnErrorPolicy,
         OutputConfig,
         OutputFormat,
+        StepExecutionContext,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowTaskType;
 import 'package:dartclaw_workflow/src/workflow/bash_step_runner.dart';
+import 'package:dartclaw_workflow/src/workflow/bash_process_owner.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -24,6 +31,316 @@ import 'workflow_executor_test_support.dart';
 
 void main() {
   group('bash_step_runner unit', () {
+    group('selectBashShell', () {
+      test('selects /bin/sh on POSIX without executable lookup', () async {
+        var lookupCalled = false;
+
+        final invocation = await selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'linux'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async {
+            lookupCalled = true;
+            return (exitCode: 0, stdout: '/unexpected');
+          },
+        );
+
+        expect(invocation.executable, '/bin/sh');
+        expect(invocation.arguments, ['-c', 'echo ok']);
+        expect(lookupCalled, isFalse);
+      });
+
+      test('selects resolved Git Bash on Windows', () async {
+        final lookupCalls = <(String, List<String>)>[];
+
+        final invocation = await selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async {
+            lookupCalls.add((executable, arguments));
+            return (exitCode: 0, stdout: 'C:\\Program Files\\Git\\bin\\bash.exe\r\n');
+          },
+        );
+
+        expect(lookupCalls, hasLength(1));
+        expect(lookupCalls.single.$1, 'bash');
+        expect(lookupCalls.single.$2, isEmpty);
+        expect(invocation.executable, r'C:\Program Files\Git\bin\bash.exe');
+        expect(invocation.arguments, ['-c', 'echo ok']);
+      });
+
+      test('accepts a custom Git Bash installation root', () async {
+        final invocation = await selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async =>
+              (exitCode: 0, stdout: 'C:\\Tools\\Acme\\bin\\bash.exe\r\n'),
+        );
+
+        expect(invocation.executable, r'C:\Tools\Acme\bin\bash.exe');
+      });
+
+      test('skips non-Git bash candidates returned first', () async {
+        final invocation = await selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async =>
+              (exitCode: 0, stdout: 'C:\\Windows\\System32\\bash.exe\r\nC:\\Tools\\PortableGit\\bin\\bash.exe\r\n'),
+        );
+
+        expect(invocation.executable, r'C:\Tools\PortableGit\bin\bash.exe');
+      });
+
+      test('throws structured unsupported-capability error when Git Bash is missing', () async {
+        final future = selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async => (exitCode: 1, stdout: ''),
+        );
+
+        await expectLater(
+          future,
+          throwsA(
+            isA<UnsupportedCapabilityError>()
+                .having((error) => error.capability, 'capability', contains('bash'))
+                .having((error) => error.toString(), 'message', contains('bash steps require Git Bash on Windows'))
+                .having((error) => error.remediation, 'remediation', contains('WSL')),
+          ),
+        );
+      });
+
+      test('rejects a non-Git bash candidate', () async {
+        final future = selectBashShell(
+          capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+          command: 'echo ok',
+          executableLookup: (executable, arguments) async =>
+              (exitCode: 0, stdout: 'C:\\Windows\\System32\\bash.exe\r\n'),
+        );
+
+        await expectLater(future, throwsA(isA<UnsupportedCapabilityError>()));
+      });
+
+      test('Windows timeout delegates to an ownership-safe injected tree terminator without POSIX signals', () async {
+        final process = FakeProcess();
+        final terminatedPids = <int>[];
+
+        await terminateBashProcessTree(
+          process,
+          PlatformCapabilities(operatingSystem: 'windows'),
+          rootProcessIdentity: null,
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (pid) async {
+            terminatedPids.add(pid);
+            process.exit(1);
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(terminatedPids, [process.pid]);
+        expect(process.killSignals, isEmpty);
+      });
+
+      test('Windows tree-termination failure retains ownership after the root fallback exits', () async {
+        final process = FakeProcess(completeExitOnKill: true);
+
+        final exitConfirmed = await terminateBashProcessTree(
+          process,
+          PlatformCapabilities(operatingSystem: 'windows'),
+          rootProcessIdentity: null,
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (_) async => ProcessResult(0, 1, '', 'failed'),
+        );
+
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+        expect(exitConfirmed, isFalse);
+      });
+
+      test('unconfirmed Windows timeout remains owned until cleanup retry observes exit', () async {
+        final process = FakeProcess();
+        final owner = BashProcessOwner()
+          ..track(process)
+          ..markCleanupPending(process);
+        final capabilities = PlatformCapabilities(operatingSystem: 'windows');
+
+        final exitConfirmed = await terminateBashProcessTree(
+          process,
+          capabilities,
+          rootProcessIdentity: null,
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (_) async => ProcessResult(0, 0, '', ''),
+        );
+
+        expect(exitConfirmed, isFalse);
+        expect(owner.owns(process), isTrue);
+
+        await retryOwnedBashProcesses(
+          owner,
+          capabilities,
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (_) async {
+            process.exit(1);
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(owner.owns(process), isFalse);
+      });
+
+      test('Windows cleanup retry does not terminate an already-observed root PID', () async {
+        final process = FakeProcess();
+        final owner = BashProcessOwner()
+          ..track(process)
+          ..markCleanupPending(process);
+        process.exit(0);
+        var terminationCalls = 0;
+
+        await retryOwnedBashProcesses(
+          owner,
+          PlatformCapabilities(operatingSystem: 'windows'),
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (_) async {
+            terminationCalls++;
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(terminationCalls, isZero);
+        expect(owner.owns(process), isFalse);
+      });
+
+      test('cleanup retry never terminates another active Bash step', () async {
+        final activeProcess = FakeProcess();
+        final timedOutProcess = FakeProcess();
+        final owner = BashProcessOwner()
+          ..track(activeProcess)
+          ..track(timedOutProcess)
+          ..markCleanupPending(timedOutProcess);
+
+        await retryOwnedBashProcesses(
+          owner,
+          PlatformCapabilities(operatingSystem: 'windows'),
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (pid) async {
+            expect(pid, timedOutProcess.pid);
+            timedOutProcess.exit(1);
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(activeProcess.killCalled, isFalse);
+        expect(owner.owns(activeProcess), isTrue);
+        expect(owner.owns(timedOutProcess), isFalse);
+      });
+
+      test('concurrent cleanup callers share one attempt and later retry after an unconfirmed result', () async {
+        final process = FakeProcess();
+        final owner = BashProcessOwner()
+          ..track(process)
+          ..markCleanupPending(process);
+        final capabilities = PlatformCapabilities(operatingSystem: 'windows');
+        final releaseTermination = Completer<ProcessResult>();
+        var terminationCalls = 0;
+
+        Future<ProcessResult> terminate(int _) {
+          terminationCalls++;
+          return releaseTermination.future;
+        }
+
+        final timeoutCleanup = owner.runCleanupAttempt(
+          process,
+          () => terminateBashProcessTree(
+            process,
+            capabilities,
+            rootProcessIdentity: null,
+            gracePeriod: Duration.zero,
+            windowsTreeTerminator: terminate,
+          ),
+        );
+        final concurrentCleanup = owner.runCleanupAttempt(
+          process,
+          () => terminateBashProcessTree(
+            process,
+            capabilities,
+            rootProcessIdentity: null,
+            gracePeriod: Duration.zero,
+            windowsTreeTerminator: terminate,
+          ),
+        );
+
+        await Future<void>.delayed(Duration.zero);
+        expect(terminationCalls, 1);
+        releaseTermination.complete(ProcessResult(0, 0, '', ''));
+        expect(await Future.wait([timeoutCleanup, concurrentCleanup]), [isFalse, isFalse]);
+
+        await retryOwnedBashProcesses(
+          owner,
+          capabilities,
+          gracePeriod: Duration.zero,
+          windowsTreeTerminator: (_) async {
+            terminationCalls++;
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(terminationCalls, 2);
+        expect(owner.owns(process), isTrue);
+      });
+
+      test('POSIX discovery rejects a reused child PID whose parent changed before identity capture', () async {
+        const reusedPid = 101;
+        final process = FakeProcess(pid: 500, completeExitOnKill: true);
+        final signals = <(int, ProcessSignal)>[];
+
+        final exitConfirmed = await terminateBashProcessTree(
+          process,
+          PlatformCapabilities(operatingSystem: 'linux'),
+          rootProcessIdentity: 'root-start',
+          gracePeriod: Duration.zero,
+          posixProcessIdentityLookup: (_) async => 'reused-start',
+          posixProcessSnapshotLookup: (pid) async =>
+              pid == process.pid ? (identity: 'root-start', parentPid: 1) : (identity: 'reused-start', parentPid: 999),
+          posixChildPidLookup: (parentPid) async => parentPid == process.pid ? const [reusedPid] : const [],
+          posixProcessSignaler: (pid, signal) {
+            signals.add((pid, signal));
+            return true;
+          },
+        );
+
+        expect(exitConfirmed, isTrue);
+        expect(signals, isEmpty);
+      });
+
+      test('POSIX cleanup retry signals only descendants with the retained identity', () async {
+        const reusedPid = 101;
+        const ownedPid = 202;
+        final process = FakeProcess(pid: 2147483646);
+        final owner = BashProcessOwner()
+          ..track(process)
+          ..markCleanupPending(process)
+          ..replaceDescendants(process, const {reusedPid: 'old-start', ownedPid: 'live-start'});
+        final currentIdentities = <int, String>{reusedPid: 'reused-start', ownedPid: 'live-start'};
+        final signals = <(int, ProcessSignal)>[];
+
+        await retryOwnedBashProcesses(
+          owner,
+          PlatformCapabilities(operatingSystem: 'linux'),
+          gracePeriod: Duration.zero,
+          posixProcessIdentityLookup: (pid) async => currentIdentities[pid],
+          posixProcessSignaler: (pid, signal) {
+            signals.add((pid, signal));
+            return true;
+          },
+        );
+
+        expect(signals.where((entry) => entry.$1 == reusedPid), isEmpty);
+        expect(signals.where((entry) => entry.$1 == ownedPid).map((entry) => entry.$2), [
+          ProcessSignal.sigterm,
+          ProcessSignal.sigkill,
+        ]);
+        expect(owner.descendantIdentitiesOf(process), {ownedPid: 'live-start'});
+        expect(owner.owns(process), isTrue);
+      });
+    });
+
     group('resolveBashCommand', () {
       test('shell-escapes context substitutions', () {
         final command = resolveBashCommand('printf {{context.value}}', WorkflowContext(data: {'value': 'a b'}));
@@ -85,24 +402,6 @@ void main() {
 
         expect(command, equals(r"echo 'a b $(id)'"));
       });
-
-      test('rejects context substitutions piped into a shell', () {
-        expect(
-          () => validateBashCommandTemplate('echo {{context.command}} | sh'),
-          throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('shell re-parsing'))),
-        );
-      });
-
-      test('rejects context substitutions passed to eval with leading whitespace', () {
-        expect(
-          () => validateBashCommandTemplate('  eval {{context.command}}'),
-          throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('shell re-parsing'))),
-        );
-      });
-
-      test('allows context substitutions as ordinary shell arguments', () {
-        expect(() => validateBashCommandTemplate('printf %s {{context.value}}'), returnsNormally);
-      });
     });
 
     test('extracts line outputs from stdout', () {
@@ -123,6 +422,97 @@ void main() {
     final h = WorkflowExecutorHarness();
     setUp(h.setUp);
     tearDown(h.tearDown);
+
+    test('POSIX bash step executes through /bin/sh and captures stdout', () async {
+      const step = WorkflowStep(
+        id: 'bash1',
+        name: 'Bash 1',
+        taskType: WorkflowTaskType.bash,
+        prompts: ['echo hello'],
+        outputs: {'out': OutputConfig()},
+      );
+      final run = h.makeRun(h.makeDefinition(steps: [step]));
+
+      final outcome = await executeBashStep(
+        run: run,
+        step: step,
+        context: WorkflowContext(),
+        dataDir: h.tempDir.path,
+        templateEngine: WorkflowTemplateEngine(),
+        capabilities: PlatformCapabilities(operatingSystem: 'linux'),
+      );
+
+      expect(outcome.success, isTrue);
+      expect(outcome.outputs['bash1.status'], 'success');
+      expect(outcome.outputs['bash1.exitCode'], 0);
+      expect((outcome.outputs['out'] as String).trim(), 'hello');
+    });
+
+    test('missing Git Bash returns a failed outcome, never success', () async {
+      const step = WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']);
+      final run = h.makeRun(h.makeDefinition(steps: [step]));
+
+      final outcome = await executeBashStep(
+        run: run,
+        step: step,
+        context: WorkflowContext(),
+        dataDir: h.tempDir.path,
+        templateEngine: WorkflowTemplateEngine(),
+        capabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        executableLookup: (executable, arguments) async => (exitCode: 1, stdout: ''),
+      );
+
+      expect(outcome.success, isFalse);
+      expect(outcome.outputs['bash1.status'], 'failed');
+      expect(outcome.outputs['bash1.error'], contains('bash steps require Git Bash on Windows'));
+      expect(outcome.outputs['bash1.status'], isNot('success'));
+    });
+
+    test('bashStepRun resolves Git Bash through the supplied Windows capabilities', () async {
+      const step = WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']);
+      final definition = h.makeDefinition(steps: [step]);
+      final run = h.makeRun(definition);
+      final workflowContext = WorkflowContext();
+      final executionContext = StepExecutionContext(
+        taskService: h.taskService,
+        eventBus: h.eventBus,
+        kvService: h.kvService,
+        repository: h.repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: h.taskService,
+          messageService: h.messageService,
+          dataDir: h.tempDir.path,
+          workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+        ),
+        dataDir: h.tempDir.path,
+        platformCapabilities: _windowsCapabilitiesWithInvalidGitBash(h.tempDir),
+        run: run,
+        definition: definition,
+        workflowContext: workflowContext,
+      );
+      final outcome = await bashStepRun(const ActionNode(stepId: 'bash1'), executionContext);
+      expect(outcome.success, isFalse);
+      expect(outcome.outputs['bash1.error'], contains('process execution failed'));
+      expect(outcome.outputs['bash1.error'], isNot(contains('bash steps require Git Bash')));
+    });
+
+    test('executor resolves Git Bash through the injected Windows capabilities', () async {
+      final executor = h.makeExecutor(platformCapabilities: _windowsCapabilitiesWithInvalidGitBash(h.tempDir));
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext();
+      await executor.execute(run, definition, context);
+      expect((await h.repository.getById(run.id))?.status, WorkflowRunStatus.failed);
+      expect(context['bash1.status'], 'failed');
+      expect(context['bash1.error'], contains('process execution failed'));
+      expect(context['bash1.error'], isNot(contains('bash steps require Git Bash')));
+    });
 
     test('bash step runs command and completes with zero tokens and no task', () async {
       final definition = h.makeDefinition(
@@ -449,15 +839,112 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     }, timeout: const Timeout(Duration(seconds: 10)));
 
-    test('bash step timeout terminates the spawned process', () async {
-      final outputFile = p.join(h.tempDir.path, 'timed-out.txt');
+    test(
+      'bash step timeout terminates the spawned process',
+      () async {
+        final outputFile = p.join(h.tempDir.path, 'timed-out.txt');
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['sleep 2; echo late > "$outputFile"'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
+
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+
+        await h.executor.execute(run, definition, WorkflowContext());
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        expect(File(outputFile).existsSync(), isFalse);
+      },
+      skip: PlatformCapabilities().posixSignalsAvailable
+          ? false
+          : 'Native Windows Bash descendant containment is unsupported',
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
+
+    test(
+      'bash step timeout terminates background children',
+      () async {
+        final outputFile = p.join(h.tempDir.path, 'timed-out-child.txt');
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['(sleep 2; echo late > "$outputFile") & wait'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
+
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+
+        await h.executor.execute(run, definition, WorkflowContext());
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        expect(File(outputFile).existsSync(), isFalse);
+      },
+      skip: PlatformCapabilities().posixSignalsAvailable
+          ? false
+          : 'Native Windows Bash descendant containment is unsupported',
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
+
+    test('bash step deadline includes an indefinitely backgrounded child', () async {
+      if (!Platform.isLinux && !Platform.isMacOS) return;
+      final pidFile = p.join(h.tempDir.path, 'indefinite-child.pid');
+      addTearDown(() async {
+        if (!File(pidFile).existsSync()) return;
+        final childPid = int.tryParse(File(pidFile).readAsStringSync().trim());
+        if (childPid == null) return;
+        final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
+        if (probe.exitCode == 0) Process.killPid(childPid, ProcessSignal.sigkill);
+      });
       final definition = h.makeDefinition(
         steps: [
           WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
             taskType: WorkflowTaskType.bash,
-            prompts: ['sleep 2; echo late > "$outputFile"'],
+            prompts: ['while :; do sleep 1; done & echo \$! > "$pidFile"'],
+            timeoutSeconds: 1,
+          ),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final stopwatch = Stopwatch()..start();
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      stopwatch.stop();
+
+      final childPid = int.parse(File(pidFile).readAsStringSync().trim());
+      final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, WorkflowRunStatus.failed);
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(probe.exitCode, isNot(0));
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test('bash step timeout escalates a background child that ignores SIGTERM', () async {
+      if (!Platform.isLinux && !Platform.isMacOS) return;
+      final pidFile = p.join(h.tempDir.path, 'stubborn-child.pid');
+      final definition = h.makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            taskType: WorkflowTaskType.bash,
+            prompts: ['(trap "" TERM; while :; do sleep 1; done) & child=\$!; echo \$child > "$pidFile"; wait'],
             timeoutSeconds: 1,
           ),
         ],
@@ -465,35 +952,13 @@ void main() {
 
       final run = h.makeRun(definition);
       await h.repository.insert(run);
-
       await h.executor.execute(run, definition, WorkflowContext());
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
 
-      expect(File(outputFile).existsSync(), isFalse);
-    }, timeout: const Timeout(Duration(seconds: 10)));
-
-    test('bash step timeout terminates background children', () async {
-      final outputFile = p.join(h.tempDir.path, 'timed-out-child.txt');
-      final definition = h.makeDefinition(
-        steps: [
-          WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            taskType: WorkflowTaskType.bash,
-            prompts: ['(sleep 2; echo late > "$outputFile") & wait'],
-            timeoutSeconds: 1,
-          ),
-        ],
-      );
-
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
-
-      await h.executor.execute(run, definition, WorkflowContext());
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-
-      expect(File(outputFile).existsSync(), isFalse);
-    }, timeout: const Timeout(Duration(seconds: 10)));
+      final childPid = int.parse(File(pidFile).readAsStringSync().trim());
+      final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
+      if (probe.exitCode == 0) Process.killPid(childPid, ProcessSignal.sigkill);
+      expect(probe.exitCode, isNot(0));
+    }, timeout: const Timeout(Duration(seconds: 12)));
 
     test('bash stdout is retained only up to the configured byte cap', () async {
       final definition = h.makeDefinition(
@@ -592,6 +1057,63 @@ void main() {
       expect(context['bash1.status'], equals('success'));
       expect((context['out'] as String?)?.trim(), equals(r'a b $(id)'));
     });
+
+    test('context command substitution inside bash -c is rejected before execution', () async {
+      final sentinel = p.join(h.tempDir.path, 'shell-reparse-sentinel');
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            taskType: WorkflowTaskType.bash,
+            prompts: ['bash -c "printf %s {{context.payload}}"'],
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext()..['payload'] = '\$(touch $sentinel)';
+
+      await h.executor.execute(run, definition, context);
+
+      expect(context['bash1.status'], equals('failed'));
+      expect(context['bash1.error'], contains('shell re-parsing'));
+      expect(File(sentinel).existsSync(), isFalse);
+    });
+
+    for (final reparseCase in const [
+      (name: 'quoted bash -c', command: 'bash -c "printf %s {{PAYLOAD}}"', substitution: true),
+      (name: 'prefixed eval', command: 'command eval {{PAYLOAD}}', substitution: false),
+      (name: 'absolute piped shell', command: 'printf %s {{PAYLOAD}} | /usr/bin/bash', substitution: false),
+      (name: 'quoted piped shell', command: "printf %s {{PAYLOAD}} | 'sh'", substitution: false),
+      (name: 'shell here-string', command: 'bash <<< {{PAYLOAD}}', substitution: false),
+      (
+        name: 'generated shell script',
+        command: 'printf %s {{PAYLOAD}} > payload.sh; sh payload.sh',
+        substitution: false,
+      ),
+    ]) {
+      test('variable command through ${reparseCase.name} is rejected before execution', () async {
+        final sentinel = p.join(h.tempDir.path, '${reparseCase.name.replaceAll(' ', '-')}-sentinel');
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: [reparseCase.command]),
+          ],
+        );
+        final payload = reparseCase.substitution ? '\$(touch $sentinel)' : 'touch $sentinel';
+
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+        final context = WorkflowContext(variables: {'PAYLOAD': payload});
+
+        await h.executor.execute(run, definition, context);
+
+        expect(context['bash1.status'], equals('failed'));
+        expect(context['bash1.error'], contains('shell re-parsing'));
+        expect(File(sentinel).existsSync(), isFalse);
+      });
+    }
   });
 
   group('onError: continue for agent steps', () {
@@ -667,4 +1189,12 @@ void main() {
       expect(taskCount, equals(1));
     });
   });
+}
+
+PlatformCapabilities _windowsCapabilitiesWithInvalidGitBash(Directory tempDir) {
+  final pathDirectory = p.join(tempDir.path, 'fake-git', 'bin');
+  final executable = File('$pathDirectory\\bash.EXE');
+  executable.parent.createSync(recursive: true);
+  executable.writeAsStringSync('not an executable', flush: true);
+  return PlatformCapabilities(operatingSystem: 'windows', environment: {'PATH': pathDirectory, 'PATHEXT': '.EXE'});
 }

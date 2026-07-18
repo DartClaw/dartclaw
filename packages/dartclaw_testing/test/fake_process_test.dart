@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,6 +29,22 @@ void main() {
       expect(process.killCalled, isTrue);
       expect(process.lastKillSignal, ProcessSignal.sigterm);
       expect(await process.exitCode, 143);
+    });
+
+    test('can model output pipes inherited beyond root exit', () async {
+      final stdoutController = StreamController<List<int>>();
+      final process = FakeProcess(stdoutController: stdoutController, closeStreamsOnExit: false);
+      var outputClosed = false;
+      final subscription = process.stdout.listen(null, onDone: () => outputClosed = true);
+
+      process.exit(0);
+      await pumpEventQueue();
+
+      expect(await process.exitCode, 0);
+      expect(outputClosed, isFalse);
+
+      await subscription.cancel();
+      await stdoutController.close();
     });
   });
 

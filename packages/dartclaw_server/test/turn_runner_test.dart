@@ -234,6 +234,76 @@ void main() {
     expect(runner.isActive(session.id), isFalse);
   });
 
+  for (final providerResult in [
+    (
+      name: 'Claude',
+      result: {
+        'stop_reason': 'error',
+        'error': 'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+        'input_tokens': 0,
+        'output_tokens': 0,
+      },
+    ),
+    (
+      name: 'Codex',
+      result: {'stop_reason': 'error', 'error': 'usageLimitExceeded', 'input_tokens': 3, 'output_tokens': 1},
+    ),
+  ]) {
+    test('${providerResult.name} terminal provider error fails the turn without persisting partial output', () async {
+      scheduleTurnCompletion(worker, responseText: 'partial provider output', result: providerResult.result);
+      final session = await sessions.getOrCreateMainSession();
+
+      final turnId = await runner.startTurn(session.id, [
+        {'role': 'user', 'content': 'Will fail at the provider'},
+      ]);
+      final outcome = await runner.waitForOutcome(session.id, turnId);
+      final storedAssistant = (await messages.getMessages(session.id)).where((message) => message.role == 'assistant');
+
+      expect(outcome.status, TurnStatus.failed);
+      expect(outcome.errorMessage, providerResult.result['error']);
+      expect(storedAssistant.single.content, providerResult.result['error']);
+      expect(storedAssistant.single.content, isNot(contains('partial provider output')));
+    });
+  }
+
+  test('terminal provider error is guard-evaluated before persistence', () async {
+    const providerError = 'provider leaked sensitive diagnostic';
+    final guardedRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      guardChain: GuardChain(
+        guards: [
+          FakeGuard(
+            evaluator: (context) => context.hookPoint == 'beforeAgentSend' && context.messageContent == providerError
+                ? GuardVerdict.block('sensitive provider diagnostic')
+                : GuardVerdict.pass(),
+          ),
+        ],
+      ),
+    );
+    scheduleTurnCompletion(
+      worker,
+      responseText: 'partial provider output',
+      result: const {'stop_reason': 'error', 'error': providerError, 'input_tokens': 0, 'output_tokens': 0},
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await guardedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Will fail at the provider'},
+    ]);
+    final outcome = await guardedRunner.waitForOutcome(session.id, turnId);
+    final storedAssistant = (await messages.getMessages(session.id)).where((message) => message.role == 'assistant');
+
+    expect(outcome.status, TurnStatus.failed);
+    expect(outcome.errorMessage, contains('Response blocked by guard'));
+    expect(storedAssistant.single.content, '[Response blocked by guard: sensitive provider diagnostic]');
+    expect(storedAssistant.single.content, isNot(contains(providerError)));
+  });
+
   test('emits turn wait-state events for running and natural completion', () async {
     final bus = EventBus();
     final events = <TurnWaitStateChangedEvent>[];

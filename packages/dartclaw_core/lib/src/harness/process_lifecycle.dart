@@ -1,46 +1,159 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
 import 'package:logging/logging.dart';
 
-/// Sends SIGTERM and waits [gracePeriod] for the process to exit.
+/// Terminates a Windows process tree already bound to an ownership-safe handle.
 ///
-/// Returns whether the initial signal was accepted. If the process does not
-/// exit within the grace period, escalates to SIGKILL (Unix only).
+/// Returning `true` means the full owned tree has exited. Implementations must
+/// not infer ownership from [rootPid] alone because that PID can be reused.
+typedef WindowsProcessTreeTerminator = Future<bool> Function(int rootPid);
+
+/// Reports how a managed-process termination attempt completed.
+final class ProcessTerminationResult {
+  /// Whether the initial platform termination request was accepted.
+  final bool initialTerminationAccepted;
+
+  /// Whether the process exit was observed before the bounded wait ended.
+  final bool exitConfirmed;
+
+  /// Whether the platform's hard-termination path was used.
+  final bool hardTerminationUsed;
+
+  /// Whether an ownership-safe termination request covered the full process tree.
+  final bool processTreeTerminationAccepted;
+
+  /// Creates a process termination result.
+  const ProcessTerminationResult({
+    required this.initialTerminationAccepted,
+    required this.exitConfirmed,
+    required this.hardTerminationUsed,
+    this.processTreeTerminationAccepted = false,
+  });
+
+  /// Whether the managed root process can be released by its direct owner.
+  bool confirmsOwnershipRelease() => exitConfirmed;
+}
+
+/// Requests platform-appropriate termination and waits for process exit.
 ///
-/// After SIGKILL, waits up to 1 additional second for the kernel to confirm
-/// exit. SIGKILL is unconditional on Unix so this normally completes
-/// instantly; the secondary timeout is a safeguard for edge cases and test
-/// fakes.
-Future<bool> killWithEscalation(
+/// POSIX platforms request SIGTERM and escalate to SIGKILL after
+/// [gracePeriod]. Platforms without POSIX signals use their unconditional hard
+/// termination request once and never send POSIX-only signals.
+///
+/// Windows defaults to terminating only the managed root because a fresh
+/// `taskkill /PID` request cannot be bound atomically to that process's
+/// identity. Callers may provide [windowsProcessTreeTerminator] only when it is
+/// backed by ownership established before teardown, such as a Job Object.
+///
+/// Set [rootExitAlreadyObserved] when the managed root has already exited so an
+/// injected Windows tree terminator cannot target a reused PID.
+///
+/// An unconfirmed root exit or Windows process-tree exit is also logged as a
+/// lifecycle warning through [log].
+Future<ProcessTerminationResult> killWithEscalation(
   Process process, {
   required String label,
   Duration gracePeriod = const Duration(seconds: 2),
   Logger? log,
-  bool alreadySignalled = false,
+  bool? initialTerminationAccepted,
+  PlatformCapabilities? platformCapabilities,
+  WindowsProcessTreeTerminator? windowsProcessTreeTerminator,
+  bool rootExitAlreadyObserved = false,
 }) async {
-  var signalSent = alreadySignalled;
-  if (!alreadySignalled) {
-    signalSent = process.kill();
-  }
-  try {
-    await process.exitCode.timeout(
-      gracePeriod,
-      onTimeout: () async {
-        log?.warning(
-          '$label process did not exit within '
-          '${gracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
-        );
-        if (!Platform.isWindows) {
-          process.kill(ProcessSignal.sigkill);
-        }
-        return process.exitCode.timeout(const Duration(seconds: 1), onTimeout: () => -1);
-      },
+  final capabilities = platformCapabilities ?? PlatformCapabilities();
+  final windowsRootExitObserved =
+      !capabilities.posixSignalsAvailable &&
+      (rootExitAlreadyObserved || await _waitForExit(process, Duration.zero, label: label, log: log));
+  if (windowsRootExitObserved) {
+    if (windowsProcessTreeTerminator != null) {
+      log?.warning('$label root exited before descendant process-tree exit could be confirmed');
+    }
+    return ProcessTerminationResult(
+      initialTerminationAccepted: initialTerminationAccepted ?? false,
+      exitConfirmed: true,
+      hardTerminationUsed: false,
     );
-  } catch (e) {
-    log?.fine('Error waiting for $label process exit: $e');
   }
-  return signalSent;
+
+  final bool terminationAccepted;
+  bool? windowsTreeTerminationAccepted;
+  if (capabilities.posixSignalsAvailable) {
+    terminationAccepted = initialTerminationAccepted ?? process.kill();
+  } else if (windowsProcessTreeTerminator == null) {
+    terminationAccepted = initialTerminationAccepted ?? process.kill();
+  } else {
+    final treeAccepted = await _invokeWindowsTreeTerminator(
+      windowsProcessTreeTerminator,
+      process.pid,
+      timeout: gracePeriod,
+      log: log,
+    );
+    windowsTreeTerminationAccepted = treeAccepted;
+    terminationAccepted = initialTerminationAccepted ?? treeAccepted;
+    if (!treeAccepted) process.kill();
+  }
+
+  var hardTerminationUsed = !capabilities.posixSignalsAvailable;
+  var exitConfirmed = await _waitForExit(process, gracePeriod, label: label, log: log);
+  if (!exitConfirmed && capabilities.posixSignalsAvailable) {
+    log?.warning(
+      '$label process did not exit within '
+      '${gracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
+    );
+    process.kill(ProcessSignal.sigkill);
+    hardTerminationUsed = true;
+    exitConfirmed = await _waitForExit(process, const Duration(seconds: 1), label: label, log: log);
+  }
+
+  if (!exitConfirmed) {
+    if (capabilities.posixSignalsAvailable) {
+      log?.warning('$label process exit could not be confirmed after SIGTERM-to-SIGKILL escalation');
+    } else {
+      log?.warning(
+        '$label hard termination could not be confirmed within '
+        '${gracePeriod.inSeconds}s',
+      );
+    }
+  } else if (!capabilities.posixSignalsAvailable &&
+      windowsProcessTreeTerminator != null &&
+      windowsTreeTerminationAccepted != true) {
+    log?.warning('$label root exited, but descendant process-tree exit remains unconfirmed');
+  }
+
+  return ProcessTerminationResult(
+    initialTerminationAccepted: terminationAccepted,
+    exitConfirmed: exitConfirmed,
+    hardTerminationUsed: hardTerminationUsed,
+    processTreeTerminationAccepted: windowsTreeTerminationAccepted == true,
+  );
+}
+
+Future<bool> _invokeWindowsTreeTerminator(
+  WindowsProcessTreeTerminator terminateTree,
+  int rootPid, {
+  required Duration timeout,
+  Logger? log,
+}) async {
+  try {
+    return await terminateTree(rootPid).timeout(timeout);
+  } on TimeoutException {
+    log?.warning('Windows process-tree terminator timed out after $timeout');
+    return false;
+  }
+}
+
+Future<bool> _waitForExit(Process process, Duration timeout, {required String label, Logger? log}) async {
+  try {
+    await process.exitCode.timeout(timeout);
+    return true;
+  } on TimeoutException {
+    return false;
+  } catch (error) {
+    log?.fine('Error waiting for $label process exit: $error');
+    return false;
+  }
 }
 
 /// Serializes mutating lifecycle operations using a future chain.

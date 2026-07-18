@@ -5,7 +5,6 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   const ui = dartclaw.ui;
   let cachedActiveWorkflows = [];
   let workflowNotificationCount = 0;
-  let workflowEventSource = null;
   let cachedWorkflowDefs = null;
   let selectedWorkflow = null;
 
@@ -314,46 +313,57 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     });
   }
 
-  function initWorkflowDetailSSE() {
+  function initWorkflowDetailSSE(owner) {
     const detailPage = document.querySelector('.workflow-detail-page');
     if (!detailPage) {
-      cleanupWorkflowSSE();
+      cleanupWorkflowSSE(owner);
       return;
     }
 
     const runId = detailPage.getAttribute('data-run-id');
-    if (!runId || workflowEventSource) return;
+    const runStatus = detailPage.getAttribute('data-run-status');
+    if (['completed', 'failed', 'cancelled'].includes(runStatus)) {
+      cleanupWorkflowSSE(owner);
+      return;
+    }
+    if (!runId || owner.workflowEventSource) return;
 
-    workflowEventSource = new EventSource(
+    owner.workflowEventSource = new EventSource(
       '/api/workflows/runs/' + runId + '/events',
       { withCredentials: true }
     );
 
-    workflowEventSource.onmessage = function(event) {
+    owner.workflowEventSource.onmessage = function(event) {
       try {
         const data = JSON.parse(event.data);
-        handleWorkflowEvent(data);
+        handleWorkflowEvent(data, owner);
       } catch (_) {}
     };
 
-    workflowEventSource.onerror = function() {
+    owner.workflowEventSource.onerror = function() {
       // Reconnect handled automatically by EventSource.
     };
   }
 
-  function cleanupWorkflowSSE() {
-    if (workflowEventSource) {
-      workflowEventSource.close();
-      workflowEventSource = null;
+  function cleanupWorkflowSSE(owner) {
+    if (owner.workflowEventSource) {
+      owner.workflowEventSource.close();
+      owner.workflowEventSource = null;
     }
   }
 
-  function handleWorkflowEvent(data) {
+  function handleWorkflowEvent(data, owner) {
     switch (data.type) {
       case 'connected':
+        if (data.run && data.run.status) {
+          const detailPage = document.querySelector('.workflow-detail-page');
+          if (detailPage && detailPage.getAttribute('data-run-status') !== data.run.status) {
+            refreshWorkflowDetail(owner);
+          }
+        }
         break;
       case 'workflow_status_changed':
-        updateWorkflowStatus(data);
+        refreshWorkflowDetail(owner);
         break;
       case 'workflow_step_completed':
         updateStepCompleted(data);
@@ -371,32 +381,17 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     }
   }
 
-  function updateWorkflowStatus(data) {
-    const badge = document.querySelector('.workflow-meta-card .status-badge');
-    if (badge) {
-      badge.textContent = _wfTitleCase(data.newStatus);
-      badge.className = 'status-badge status-badge-' + data.newStatus;
-    }
-
-    const errorEl = document.querySelector('.workflow-error-message');
-    if (data.errorMessage && errorEl) {
-      const msgSpan = errorEl.querySelector('span:last-child');
-      if (msgSpan) msgSpan.textContent = data.errorMessage;
-      errorEl.style.display = '';
-    }
-
-    const isRunning = data.newStatus === 'running';
-    const isPaused = data.newStatus === 'paused';
-    const isTerminal = ['completed', 'failed', 'cancelled'].includes(data.newStatus);
-
-    document.querySelectorAll('.workflow-actions button').forEach((btn) => {
-      const label = btn.textContent.trim();
-      if (label === 'Pause') btn.style.display = isRunning ? '' : 'none';
-      if (label === 'Resume') btn.style.display = isPaused ? '' : 'none';
-      if (label === 'Cancel') btn.style.display = (isRunning || isPaused) ? '' : 'none';
+  function refreshWorkflowDetail(owner) {
+    if (!document.querySelector('.workflow-detail-page')) return;
+    cleanupWorkflowSSE(owner);
+    const qs = dartclaw.shell && typeof dartclaw.shell.apiQs === 'function'
+      ? dartclaw.shell.apiQs()
+      : '';
+    htmx.ajax('GET', window.location.pathname + qs, {
+      target: '#main-content',
+      select: '#main-content',
+      swap: 'outerHTML',
     });
-
-    if (isTerminal) cleanupWorkflowSSE();
   }
 
   function updateStepCompleted(data) {
@@ -559,11 +554,11 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     });
   }
 
-  function runWorkflowInitializers() {
+  function runWorkflowInitializers(owner) {
     bindWorkflowFilters();
     bindWorkflowDetailToggles();
     initWorkflowDialogTabs();
-    initWorkflowDetailSSE();
+    if (owner) initWorkflowDetailSSE(owner);
     resetWorkflowNotificationIfOnWorkflowsPage();
   }
 
@@ -577,10 +572,10 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     onLoad: runWorkflowInitializers,
     onAfterSwap: runWorkflowInitializers,
     onHistoryRestore: runWorkflowInitializers,
-    onBeforeSwap(event) {
+    onBeforeSwap(owner, event) {
       const target = event && event.detail ? event.detail.target : null;
       if (!target || target.id === 'main-content') {
-        cleanupWorkflowSSE();
+        cleanupWorkflowSSE(owner);
       }
     },
   };
@@ -589,10 +584,11 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
 export default class DcWorkflowsController extends Stimulus.Controller {
   connect() {
-    workflowsControllerApi.onLoad();
+    this.workflowEventSource = null;
+    workflowsControllerApi.onLoad(this);
   }
 
   disconnect() {
-    workflowsControllerApi.onBeforeSwap();
+    workflowsControllerApi.onBeforeSwap(this);
   }
 }

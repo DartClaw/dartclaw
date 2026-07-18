@@ -120,6 +120,9 @@ Tasks run on dedicated harness instances from the `HarnessPool`, separate from t
 
 Each task type maps to a security profile that determines container isolation:
 
+These profiles apply when POSIX container isolation is available. Native Windows keeps task routing and worktree
+behavior but cannot activate these container profiles; enabling containers fails closed with POSIX/WSL remediation.
+
 | Task Type | Profile | Mounts |
 |-----------|---------|--------|
 | `research` | `restricted` | No workspace mount |

@@ -225,6 +225,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
             'Run dartclaw-merge-resolve to resolve any merge conflicts on this story branch against the '
                 'integration branch, verify the result, and commit all-or-nothing.',
           ],
+          allowedTools: const ['shell', 'file_read', 'file_write', 'file_edit'],
           emitsOwnOutcome: true,
           outputs: const {
             'merge_resolve.outcome': OutputConfig(

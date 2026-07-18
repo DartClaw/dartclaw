@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/src/harness/codex_environment.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -80,14 +81,19 @@ void main() {
 
     group('system mode (useSystemCodexHome: true, the default)', () {
       test('setup returns ~/.codex without mutating anything and default is true', () async {
-        final env = CodexEnvironment(developerInstructions: 'anything');
+        final env = CodexEnvironment(
+          developerInstructions: 'anything',
+          platformCapabilities: PlatformCapabilities(
+            operatingSystem: 'linux',
+            environment: const {'HOME': '/home/dev'},
+          ),
+        );
         // Default value check — no explicit param.
         expect(env.useSystemCodexHome, isTrue);
         expect(env.isSetup, isTrue, reason: 'system mode is considered set up before setup() runs');
 
-        final home = Platform.environment['HOME']!;
         final dirPath = await env.setup();
-        expect(dirPath, p.join(home, '.codex'));
+        expect(dirPath, p.join('/home/dev', '.codex'));
         expect(
           env.environmentOverrides().containsKey('CODEX_HOME'),
           isFalse,
@@ -107,6 +113,40 @@ void main() {
         await env.setup();
         await env.cleanup();
         expect(() async => env.cleanup(), returnsNormally);
+      });
+
+      test('setup resolves a native Windows USERPROFILE through platform capabilities', () async {
+        final env = CodexEnvironment(
+          developerInstructions: 'anything',
+          platformCapabilities: PlatformCapabilities(
+            operatingSystem: 'windows',
+            environment: const {'USERPROFILE': r'C:\Users\dev'},
+          ),
+        );
+
+        expect(await env.setup(), r'C:\Users\dev\.codex');
+      });
+
+      test('setup converts a missing home into the structured capability error', () async {
+        final env = CodexEnvironment(
+          developerInstructions: 'anything',
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows', environment: const {}),
+        );
+
+        await expectLater(
+          env.setup(),
+          throwsA(
+            isA<UnsupportedCapabilityError>()
+                .having((error) => error.capability, 'capability', 'home directory')
+                .having((error) => error.attemptedContext, 'attempted context', contains('HOME'))
+                .having((error) => error.attemptedContext, 'attempted context', contains('USERPROFILE'))
+                .having(
+                  (error) => error.remediation,
+                  'remediation',
+                  'Set HOME or USERPROFILE before starting DartClaw.',
+                ),
+          ),
+        );
       });
     });
   });

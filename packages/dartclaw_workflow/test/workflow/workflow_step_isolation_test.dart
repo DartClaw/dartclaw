@@ -22,6 +22,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowContext,
         WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart'
+    show stepArtifactsDirEnvVar, workflowStepArtifactsDir;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -370,12 +372,20 @@ void main() {
 
     // Pin --model: a codex one-shot without it falls back to the operator's
     // CODEX_HOME config.toml model, which breaks hermeticity.
+    final stepArtifactsDir = workflowStepArtifactsDir(
+      dataDir: tempDir.path,
+      runId: 'step-isolation',
+      stepId: step.id,
+      mapIterationIndex: mapContext?.index,
+    );
+    Directory(stepArtifactsDir).createSync(recursive: true);
     final turnResult = await runner.executeTurn(
       provider: 'codex',
       model: executorModel,
       prompt: prompt,
       workingDirectory: fixtureDir,
       profileId: 'default',
+      extraEnvironment: {stepArtifactsDirEnvVar: stepArtifactsDir},
       stepTimeout: stepTimeout,
       stepName: step.name,
     );
@@ -923,6 +933,14 @@ void main() {
   test('re-review returns zero findings after a trivially clean remediation pass', () async {
     _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
     _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
+    const planPath = 'docs/specs/workflow-testing/plan.md';
+    final planFile = File(p.join(fixtureDir, planPath));
+    planFile.parent.createSync(recursive: true);
+    planFile.writeAsStringSync(
+      '# Plan\n\n'
+      '1. Create `notes/alpha.md` with heading "Alpha Note" and bullet "Validated".\n'
+      '2. Create `notes/beta.md` with heading "Beta Note" and bullet "Validated".\n',
+    );
 
     final storySpecs = [
       {
@@ -970,6 +988,7 @@ void main() {
             'state_protocol': {'state_file': 'STATE.md'},
           },
           'story_specs': storySpecs,
+          'plan': planPath,
           'implementation_summary':
               'Both planned stories were implemented exactly as specified. '
               'Alpha and Beta note files exist with the expected heading and bullet, and the batch is otherwise clean.',
@@ -983,6 +1002,7 @@ void main() {
       artifactLabel: 're-review-clean-remediation-pass',
     );
 
+    expect(result.prompt, contains(planPath), reason: 'Artifact: ${result.artifactPath}');
     // findings_count tolerated as 0..1: a picky LLM pass occasionally flags the
     // single-line "Validated" bullet as vague. Test invariant is the wiring,
     // not the LLM's verdict on a synthetic fixture.
@@ -994,6 +1014,13 @@ void main() {
       runtimeArtifactsDir: runtimeArtifactsDir,
     );
     expect(findingsCount, inInclusiveRange(0, 1), reason: 'Artifact: ${result.artifactPath}');
+    final reportPath = result.outputs['review_report_path'] as String;
+    expect(
+      p.basename(reportPath),
+      isNot(startsWith('clean-review-')),
+      reason:
+          'Expected the provider to write a real report through $stepArtifactsDirEnvVar. Artifact: ${result.artifactPath}',
+    );
     expect(
       _requireFindingsCount(result, 'gating_findings_count'),
       lessThanOrEqualTo(findingsCount),

@@ -72,7 +72,7 @@ void main() {
         provider: 'codex',
         prompt:
             'Run exactly this one shell command, then stop and report its output:\n'
-            '  mkdir -p "\$DARTCLAW_STEP_ARTIFACTS_DIR" && printf "RESOLVED=%s\\n" "\$DARTCLAW_STEP_ARTIFACTS_DIR"\n'
+            '  mkdir -p "\$DARTCLAW_STEP_ARTIFACTS_DIR" && echo "\$DARTCLAW_STEP_ARTIFACTS_DIR"\n'
             'Do not create any other directory.',
         workingDirectory: tempDir.path,
         profileId: 'default',

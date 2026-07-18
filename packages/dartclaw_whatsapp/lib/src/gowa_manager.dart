@@ -4,7 +4,9 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory, killWithEscalation;
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show DelayFactory, HealthProbe, ProcessFactory, ProcessTerminationResult, SequentialLock, killWithEscalation;
 import 'package:logging/logging.dart';
 
 /// Status record returned by [GowaManager.status].
@@ -19,7 +21,7 @@ typedef GowaLoginQr = ({String? url, int durationSeconds});
 /// crash recovery with exponential backoff.
 ///
 /// Targets GOWA v8.3.2 API contract.
-class GowaManager {
+class GowaManager with SequentialLock {
   static final _log = Logger('GowaManager');
 
   final String executable;
@@ -32,6 +34,8 @@ class GowaManager {
   final ProcessFactory _processFactory;
   final DelayFactory _delay;
   final HealthProbe? _healthProbe;
+  final PlatformCapabilities _platformCapabilities;
+  final Duration _terminationGracePeriod;
 
   /// Timeout for standard API calls (sendText, status, loginQr, requestPairingCode).
   static const _apiTimeout = Duration(seconds: 10);
@@ -48,6 +52,8 @@ class GowaManager {
   static final _loginSuccessRe = RegExp(r'LOGIN_SUCCESS\b.*?\b(\d[\d]+:\d+@s\.whatsapp\.net)\b');
 
   Process? _process;
+  final Set<Process> _windowsTeardownPending = <Process>{};
+  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
   int _generation = 0;
   int _restartCount = 0;
   bool _stopped = false;
@@ -67,9 +73,13 @@ class GowaManager {
     ProcessFactory? processFactory,
     DelayFactory? delay,
     HealthProbe? healthProbe,
+    PlatformCapabilities? platformCapabilities,
+    Duration terminationGracePeriod = const Duration(seconds: 5),
   }) : _processFactory = processFactory ?? Process.start,
        _delay = delay ?? Future.delayed,
-       _healthProbe = healthProbe;
+       _healthProbe = healthProbe,
+       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _terminationGracePeriod = terminationGracePeriod;
 
   bool get isRunning => (_process != null || _usingExternalService) && !_stopped;
 
@@ -87,8 +97,11 @@ class GowaManager {
   String get baseUrl => 'http://$host:$port';
 
   /// Start the GOWA process and wait for health check.
-  Future<void> start() async {
+  Future<void> start() => withLock(_start);
+
+  Future<void> _start() async {
     if (_stopped) throw StateError('GowaManager has been stopped');
+    if (_process != null) throw StateError('GowaManager still owns a GOWA process; stop it before restarting');
 
     final gen = ++_generation;
     _log.info('Starting GOWA (gen $gen): $executable on $host:$port');
@@ -108,6 +121,8 @@ class GowaManager {
 
     try {
       _process = await _processFactory(executable, args);
+      _windowsTeardownPending.remove(_process);
+      _windowsExitObservedDuringTeardown.remove(_process);
       _usingExternalService = false;
     } catch (e) {
       _log.severe('Failed to spawn GOWA process', e);
@@ -131,12 +146,24 @@ class GowaManager {
     });
 
     // Monitor for unexpected exit
-    unawaited(_process!.exitCode.then((code) => _onExit(code, gen)));
+    final process = _process!;
+    unawaited(process.exitCode.then((code) => _onExit(code, gen, process)));
 
     // Wait for GOWA server to become reachable
     if (!await _waitForHealth()) {
-      _process?.kill(ProcessSignal.sigterm);
-      _process = null;
+      final process = _process;
+      _beginIntentionalProcessTeardown(process);
+      ++_generation;
+      if (process != null) {
+        final result = await killWithEscalation(
+          process,
+          label: 'GOWA',
+          gracePeriod: _terminationGracePeriod,
+          log: _log,
+          platformCapabilities: _platformCapabilities,
+        );
+        _completeIntentionalProcessTeardown(process, result);
+      }
       throw StateError('GOWA failed to respond within ${_startupTimeout.inSeconds}s');
     }
 
@@ -148,17 +175,30 @@ class GowaManager {
   }
 
   /// Stop the GOWA process gracefully.
-  Future<void> stop() async {
+  Future<void> stop() {
     _stopped = true;
+    _beginIntentionalProcessTeardown(_process);
+    return withLock(_stop);
+  }
+
+  Future<void> _stop() async {
     final proc = _process;
     if (proc == null) return;
-    _process = null;
     _usingExternalService = false;
 
     _log.info('Stopping GOWA');
-    await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5), log: _log);
-    final exitCode = await proc.exitCode;
-    _log.info('GOWA stopped (exit code: $exitCode)');
+    final result = await killWithEscalation(
+      proc,
+      label: 'GOWA',
+      gracePeriod: _terminationGracePeriod,
+      log: _log,
+      platformCapabilities: _platformCapabilities,
+    );
+    _completeIntentionalProcessTeardown(proc, result);
+    if (result.confirmsOwnershipRelease()) {
+      final exitCode = await proc.exitCode;
+      _log.info('GOWA stopped (exit code: $exitCode)');
+    }
   }
 
   /// Dispose resources. Alias for [stop].
@@ -168,9 +208,31 @@ class GowaManager {
   ///
   /// Unlike [stop] (which is a permanent teardown), this prepares the manager
   /// for a fresh pairing cycle without recreating the object.
-  Future<void> reset() async {
+  Future<void> reset() {
+    _beginIntentionalProcessTeardown(_process);
+    return withLock(_reset);
+  }
+
+  Future<void> _reset() async {
+    ++_generation;
     final proc = _process;
-    _process = null;
+    _beginIntentionalProcessTeardown(proc);
+
+    if (proc != null) {
+      _log.info('Resetting GOWA');
+      final result = await killWithEscalation(
+        proc,
+        label: 'GOWA',
+        gracePeriod: _terminationGracePeriod,
+        log: _log,
+        platformCapabilities: _platformCapabilities,
+      );
+      if (!result.confirmsOwnershipRelease()) {
+        _completeIntentionalProcessTeardown(proc, result);
+        throw StateError('GOWA termination could not be confirmed during reset');
+      }
+      _completeIntentionalProcessTeardown(proc, result);
+    }
 
     _stopped = false;
     _wasPaired = false;
@@ -178,11 +240,6 @@ class GowaManager {
     _deviceId = null;
     _pairedJid = null;
     _restartCount = 0;
-
-    if (proc != null) {
-      _log.info('Resetting GOWA');
-      await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5));
-    }
   }
 
   // ---- REST client methods ----
@@ -313,9 +370,14 @@ class GowaManager {
 
   // ---- Crash recovery ----
 
-  void _onExit(int exitCode, int generation) {
-    if (_stopped || generation != _generation) return;
-    _process = null;
+  void _onExit(int exitCode, int generation, Process process) {
+    final windowsTeardownPending = _windowsTeardownPending.contains(process);
+    if (windowsTeardownPending) {
+      _windowsExitObservedDuringTeardown.add(process);
+    } else if (identical(_process, process)) {
+      _process = null;
+    }
+    if (windowsTeardownPending || _stopped || generation != _generation) return;
 
     _log.warning('GOWA exited unexpectedly (code: $exitCode, gen: $generation)');
 
@@ -331,7 +393,7 @@ class GowaManager {
     unawaited(
       Future(() async {
         await _delay(backoff);
-        if (!_stopped) {
+        if (!_stopped && generation == _generation) {
           try {
             await start();
           } catch (e) {
@@ -340,6 +402,20 @@ class GowaManager {
         }
       }),
     );
+  }
+
+  void _beginIntentionalProcessTeardown(Process? process) {
+    if (process != null && !_platformCapabilities.posixSignalsAvailable) {
+      _windowsTeardownPending.add(process);
+    }
+  }
+
+  void _completeIntentionalProcessTeardown(Process process, ProcessTerminationResult result) {
+    _windowsTeardownPending.remove(process);
+    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
+    if (result.confirmsOwnershipRelease() || exitObserved) {
+      if (identical(_process, process)) _process = null;
+    }
   }
 
   // ---- Device provisioning (GOWA v8 multi-device) ----

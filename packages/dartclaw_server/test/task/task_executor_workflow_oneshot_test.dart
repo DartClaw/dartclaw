@@ -515,12 +515,12 @@ void main() {
         'Bash(git status --short)',
         'Bash(git status)',
         'Bash(pwd)',
-        'Glob(*)',
-        'Grep(*)',
-        'LS(*)',
-        'Read(*)',
+        'Glob',
+        'Grep',
+        'LS',
+        'Read',
       ],
-      'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
+      'deny': ['Edit', 'NotebookEdit', 'Write'],
     });
   });
 
@@ -1351,7 +1351,7 @@ void main() {
     final settingsIndex = finalizerArgs.indexOf('--settings');
     expect(settingsIndex, isNonNegative);
     final settings = jsonDecode(finalizerArgs[settingsIndex + 1]) as Map<String, dynamic>;
-    expect((settings['permissions'] as Map)['deny'], ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)']);
+    expect((settings['permissions'] as Map)['deny'], ['Edit', 'NotebookEdit', 'Write']);
   });
 
   test('workflow oneshot finalizer token accounting over both turns', () async {

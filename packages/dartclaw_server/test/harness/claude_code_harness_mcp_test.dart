@@ -652,6 +652,7 @@ void main() {
             },
         // Simulate `claude auth status` returning logged in via OAuth.
         commandProbe: (exe, args) async {
+          if (exe == 'which') return _result(stdout: '/usr/local/bin/claude');
           if (args.contains('--version')) return _result(stdout: '2.1.87');
           if (args.contains('auth')) {
             return _result(stdout: jsonEncode({'loggedIn': true, 'authMethod': 'claude.ai'}));

@@ -51,8 +51,8 @@ import 'package:dartclaw_storage/dartclaw_storage.dart'
         SqliteWorkflowRunRepository,
         SqliteWorkflowStepExecutionRepository,
         openTaskDbInMemory;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeTurnManager, flushAsync;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show BashProcessOwner, WorkflowService;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeProcess, FakeTurnManager, flushAsync;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -801,6 +801,27 @@ void main() {
 
     expect(executorDrained, isTrue);
     expect(disposed, isTrue);
+  });
+
+  test('dispose() retains a timed-out Bash process when spawn identity is unavailable', () async {
+    final process = FakeProcess(completeExitOnKill: true);
+    final owner = BashProcessOwner()
+      ..track(process)
+      ..markCleanupPending(process);
+    final service = WorkflowService.lifecycleOnly(
+      repository: repository,
+      taskService: taskService,
+      messageService: harness.messageService,
+      eventBus: eventBus,
+      kvService: harness.kvService,
+      dataDir: tempDir.path,
+      debugBashProcessOwner: owner,
+    );
+
+    await service.dispose();
+
+    expect(process.killCalled, isTrue);
+    expect(owner.cleanupPendingProcesses, contains(process));
   });
 
   test('cancel() and dispose() use run-scoped task lookup instead of the full-table list path', () async {

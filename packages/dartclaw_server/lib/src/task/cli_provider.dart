@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
-import 'package:dartclaw_config/dartclaw_config.dart' show TurnProgressAction;
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus, ProcessTerminationResult;
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, TurnProgressAction;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
+
+final _log = Logger('ProcessBackedCliProvider');
 
 /// Abstraction for a single-turn CLI provider invocation.
 ///
@@ -24,14 +26,54 @@ abstract class CliProvider {
 
 /// Shared process ownership for CLI providers backed by one-shot subprocesses.
 abstract class ProcessBackedCliProvider implements CliProvider {
+  ProcessBackedCliProvider({
+    PlatformCapabilities? platformCapabilities,
+    this.terminationGracePeriod = const Duration(seconds: 5),
+    this.outputDrainGracePeriod = const Duration(seconds: 2),
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities();
+
+  /// Shared across every teardown path so platform policy cannot diverge mid-run.
+  final PlatformCapabilities platformCapabilities;
+
+  /// Bounds POSIX cooperative shutdown; Windows hard-terminates the managed root.
+  final Duration terminationGracePeriod;
+
+  /// Bounds output draining after the root process exits.
+  final Duration outputDrainGracePeriod;
+
   final Set<Process> _inflight = <Process>{};
   final Set<Process> _cancelling = <Process>{};
+  final Set<Process> _finishedRuns = <Process>{};
+  final Map<Process, Future<ProcessTerminationResult>> _terminations = <Process, Future<ProcessTerminationResult>>{};
+  final Map<Process, ProcessTerminationResult> _terminationResults = <Process, ProcessTerminationResult>{};
+  final Map<Process, Completer<ProcessTerminationResult>> _cancellationSignals =
+      <Process, Completer<ProcessTerminationResult>>{};
+  final Set<Process> _windowsTeardownPending = <Process>{};
+  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
   bool _cancelFutureProcesses = false;
 
-  /// Marks [process] as owned by this provider until [untrackInflightProcess].
+  /// Marks [process] as owned by this provider until its exit is observed.
   void trackInflightProcess(Process process) {
     _cancelling.remove(process);
+    _finishedRuns.remove(process);
+    _windowsTeardownPending.remove(process);
+    _windowsExitObservedDuringTeardown.remove(process);
     _inflight.add(process);
+    _cancellationSignals[process] = Completer<ProcessTerminationResult>();
+    unawaited(
+      process.exitCode.then<void>(
+        (_) {
+          if (_windowsTeardownPending.contains(process)) {
+            _windowsExitObservedDuringTeardown.add(process);
+          } else {
+            _releaseInflightProcess(process);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          _log.warning('Failed to observe workflow CLI process exit', error, stackTrace);
+        },
+      ),
+    );
   }
 
   /// Starts teardown for [process] when [cancelInflight] already requested future process cancellation.
@@ -41,17 +83,29 @@ abstract class ProcessBackedCliProvider implements CliProvider {
     }
   }
 
-  /// Stops tracking [process] after its run has settled.
-  void untrackInflightProcess(Process process) {
-    _inflight.remove(process);
-    _cancelling.remove(process);
+  /// Clears run-scoped cancellation state without releasing process ownership.
+  void finishInflightRun(Process process) {
+    if (_inflight.contains(process) && _cancelling.contains(process)) {
+      _finishedRuns.add(process);
+    } else {
+      _finishedRuns.remove(process);
+      _cancelling.remove(process);
+    }
   }
 
   /// Whether [process] is exiting because [cancelInflight] requested teardown.
   bool cancellationRequestedFor(Process? process) => process != null && _cancelling.contains(process);
 
-  /// Returns a cancellation result when a non-zero exit came from teardown before a terminal result.
-  WorkflowCliTurnResult? cancellationResultForNonZeroExit({
+  Future<ProcessTerminationResult> inflightCancellation(Process process) {
+    final signal = _cancellationSignals[process];
+    if (signal == null) {
+      throw StateError('Workflow CLI process is not tracked');
+    }
+    return signal.future;
+  }
+
+  /// Returns a cancellation result when teardown won before a terminal result.
+  WorkflowCliTurnResult? cancellationResultForExit({
     required Process? process,
     required CliProcessSupervisor supervisor,
     required Duration duration,
@@ -71,33 +125,108 @@ abstract class ProcessBackedCliProvider implements CliProvider {
 
   /// Whether [stderr] carries genuine provider-failure output.
   ///
-  /// Any non-empty line that does not contain one of [benignFragments] counts
+  /// Any non-empty line that does not exactly match one of [benignLines] counts
   /// as failure evidence, so a provider/auth/runtime error emitted only on
   /// stderr before teardown is not silently reclassified as a cancellation.
-  bool hasNonBenignStderr(String stderr, List<String> benignFragments) {
+  bool hasNonBenignStderr(String stderr, List<String> benignLines) {
     for (final line in const LineSplitter().convert(stderr)) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
-      if (benignFragments.any(trimmed.contains)) continue;
+      if (benignLines.contains(trimmed)) continue;
       return true;
     }
     return false;
   }
+
+  /// Drains provider output within the supervisor bound and cancels inherited readers on expiry.
+  Future<void> waitForCliOutputDrain({
+    required CliProcessSupervisor supervisor,
+    required Future<void> stdoutDone,
+    required Future<void> stderrDone,
+    required Future<void> Function() cancelSubscriptions,
+  }) => supervisor.waitForOutputDrain(
+    stdoutDone: stdoutDone,
+    stderrDone: stderrDone,
+    cancelSubscriptions: cancelSubscriptions,
+  );
 
   @override
   Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {
     _cancelFutureProcesses = _cancelFutureProcesses || cancelFutureProcesses;
     final processes = List<Process>.from(_inflight);
     await Future.wait(processes.map(_cancelInflightProcess), eagerError: false);
-    _inflight.removeAll(processes);
   }
 
   Future<void> _cancelInflightProcess(Process process) async {
-    final signalSent = process.kill();
-    if (signalSent) {
+    if (!_inflight.contains(process)) return;
+    final windowsTeardown = !platformCapabilities.posixSignalsAvailable;
+    if (windowsTeardown) {
       _cancelling.add(process);
+      _windowsTeardownPending.add(process);
     }
-    await terminateCliProcess(process, alreadySignalled: true);
+    try {
+      await process.exitCode.timeout(Duration.zero);
+      if (!windowsTeardown) {
+        _releaseInflightProcess(process);
+        return;
+      }
+    } on TimeoutException {
+      // Still running.
+    } catch (error, stackTrace) {
+      _log.warning('Failed to observe workflow CLI process exit before cancellation', error, stackTrace);
+    }
+    _cancelling.add(process);
+    final result = await terminateInflightProcess(process);
+    final cancellationSignal = _cancellationSignals[process];
+    if (cancellationSignal != null && !cancellationSignal.isCompleted) {
+      cancellationSignal.complete(result);
+    }
+    if (windowsTeardown) _windowsTeardownPending.remove(process);
+    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
+    if (result.confirmsOwnershipRelease() || exitObserved) {
+      _releaseInflightProcess(process);
+    }
+  }
+
+  void _releaseInflightProcess(Process process) {
+    _windowsTeardownPending.remove(process);
+    _windowsExitObservedDuringTeardown.remove(process);
+    _inflight.remove(process);
+    _terminations.remove(process);
+    _terminationResults.remove(process);
+    _cancellationSignals.remove(process);
+    if (_finishedRuns.remove(process)) _cancelling.remove(process);
+  }
+
+  /// Coalesces concurrent teardown requests while allowing later retries when exit is unconfirmed.
+  Future<ProcessTerminationResult> terminateInflightProcess(Process process) {
+    final existing = _terminations[process];
+    if (existing != null) return existing;
+    final termination = terminateCliProcess(
+      process,
+      grace: terminationGracePeriod,
+      platformCapabilities: platformCapabilities,
+    );
+    _terminations[process] = termination;
+    unawaited(
+      termination.then<void>(
+        (result) {
+          _terminationResults[process] = result;
+          if (identical(_terminations[process], termination)) _terminations.remove(process);
+        },
+        onError: (Object _, StackTrace _) {
+          if (identical(_terminations[process], termination)) _terminations.remove(process);
+        },
+      ),
+    );
+    return termination;
+  }
+
+  /// Returns the current or most recent bounded termination result without starting another attempt.
+  Future<ProcessTerminationResult?> waitForInflightTermination(Process process) async {
+    final inProgress = _terminations[process];
+    if (inProgress != null) return inProgress;
+    return _terminationResults[process];
   }
 }
 

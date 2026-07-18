@@ -1,6 +1,6 @@
 # ADR-045: Pluggable Database Backend — SQLite Default, PostgreSQL Opt-In
 
-**Status:** Proposed — 2026-07-01. Three-phase delivery; no implementation started. Phase 1 (SQLite-only storage abstraction + migration runner) sequenced after 0.21's Windows SQLite work stabilizes; phases 2–3 (PostgreSQL backend, `pgvector`) target a dedicated backend-track milestone after 0.22, gated on a concrete deployment demand signal. See Proposed Sequencing.
+**Status:** Proposed — 2026-07-01 (sequencing updated 2026-07-10 for the roadmap renumber: the workflow track is now 0.24/0.25). Three-phase delivery; no implementation started. Phase 1 (SQLite-only storage abstraction + migration runner) sequenced after 0.21's Windows SQLite work stabilizes; phases 2–3 (PostgreSQL backend, `pgvector`) form a demand-gated backend-track milestone — roadmap entry `0.next-database-backend` (private repo). See Proposed Sequencing.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-002](002-file-based-storage.md) (current storage architecture), [ADR-004](004-vector-search-approach.md) (vector/FTS search — QMD outpost), [ADR-017](017-multi-project-architecture.md) (multi-project storage layout)

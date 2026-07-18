@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.18**
+> Current through: **0.21**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -59,13 +59,15 @@ Workflow execution now has a scoped exception to the normal long-lived streaming
 
 In a mixed deployment, the `HarnessPool` contains provider-scoped workers — for example, a Claude primary harness for interactive chat, Codex workers for background tasks, and an ACP agent pool for Goose or Vibe. Each provider identity has default pool size `1`; override capacity with `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
-`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host `fs` and `terminal` reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
+`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
+
+ACP filesystem reverse-calls are bound to the active task session and workspace. ACP terminal reverse-calls are disabled on every host until complete descendant containment can be proven.
 
 ## Communication: Provider Control Protocols
 
 DartClaw communicates with provider CLI binaries over stdin/stdout using bidirectional protocols. Claude uses an ad-hoc JSONL control protocol; Codex uses JSON-RPC JSONL; ACP agents use ACP stdio JSON-RPC. The Claude side of this protocol family is the same interface used by the official Python, Go, and Elixir SDKs.
 
-Claude and Codex both stream provider events over stdio. ACP uses the same parent-child transport shape, but its wire protocol is ACP stdio JSON-RPC and its filesystem/terminal operations are host reverse-calls.
+Claude and Codex both stream provider events over stdio. ACP uses the same parent-child transport shape, but its wire protocol is ACP stdio JSON-RPC and its filesystem operations are host reverse-calls.
 
 ```text
 Dart Host                              Agent CLI Binary
@@ -92,7 +94,7 @@ The protocol supports:
 - **Hook callbacks** — the binary asks the Dart host for permission or lifecycle coordination before key operations (`PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`), enabling guard enforcement, audit logging, and compaction observability
 - **In-process MCP** — MCP tool calls (memory search, web fetch, etc.) are proxied through the control protocol as JSONRPC messages, handled by the Dart host
 - **Control messages** — interrupt, model switching, permission mode changes
-- **ACP reverse-calls** — verified direct ACP agents route `fs/read_text_file`, `fs/write_text_file`, and `terminal/create` through DartClaw's guard chain before host-side file or terminal work
+- **ACP reverse-calls** – verified direct ACP agents route `fs/read_text_file` and `fs/write_text_file` through DartClaw's guard chain within the active task session and workspace
 
 ### Why stdio?
 
@@ -318,7 +320,9 @@ Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-r
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 
-> DartClaw runs without Docker in development mode. This is acceptable for local use where you trust the agent. For any networked or shared deployment, container isolation is essential.
+> DartClaw runs without Docker in development mode. This is acceptable for local use where you trust the agent. For
+> any networked or shared deployment, container isolation is essential. Native Windows cannot provide this boundary;
+> enabling it fails closed and points to a POSIX host or WSL.
 
 For full security details, see the [Security guide](security.md).
 
@@ -434,7 +438,7 @@ That model is exposed through:
 - **Config API** — `GET/PATCH /api/config` reads from disk and writes with YAML round-trip preservation (comments survive edits)
 - **Config validation** — `ConfigMeta` registry with validators, ensuring invalid values are rejected before write
 - **Backup on write** — every config change creates a `.bak` file
-- **Hot-reload triggers** — `gateway.reload.mode` supports `off`, `signal`, and `auto`; `signal` uses `SIGUSR1`, while `auto` adds file watching with debounce for atomic-save workflows
+- **Hot-reload triggers** — `gateway.reload.mode` supports `off`, `signal`, and `auto`; `auto` uses debounced file watching on every platform and additionally registers SIGUSR1 on POSIX, while `signal` is POSIX-only
 - **Graceful restart** — restart-required changes still drain active turns (30s timeout), restart services, and send an SSE banner to connected clients
 
 For the full config reference, see the [Configuration guide](configuration.md).

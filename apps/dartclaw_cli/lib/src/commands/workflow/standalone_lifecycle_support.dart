@@ -217,9 +217,6 @@ Set<String> requiredWorkflowProviders(
   )) {
     providers.add(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById));
   }
-  if (providers.isEmpty) {
-    providers.add(config.agent.provider);
-  }
   return providers;
 }
 

@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:logging/logging.dart';
+import 'package:shelf/shelf.dart';
 
 /// Headers for an SSE (`text/event-stream`) response.
 ///
-/// Excludes `X-Accel-Buffering` — use [eventStreamHeadersNoBuffer] for
-/// endpoints that must disable proxy buffering.
+/// Excludes `X-Accel-Buffering` for callers that explicitly permit proxy
+/// buffering.
 const Map<String, String> eventStreamHeaders = {
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
@@ -21,6 +22,9 @@ const Map<String, String> eventStreamHeadersNoBuffer = {
   'Connection': 'keep-alive',
   'X-Accel-Buffering': 'no',
 };
+
+Response sseResponse(Stream<List<int>> body, {Map<String, String> headers = eventStreamHeadersNoBuffer}) =>
+    Response.ok(body, headers: headers, context: const {'shelf.io.buffer_output': false});
 
 /// Encodes a `data: <data>\n\n` SSE frame to UTF-8 bytes.
 ///

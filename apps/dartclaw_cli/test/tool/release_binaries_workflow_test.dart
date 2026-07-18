@@ -62,6 +62,7 @@ void main() {
 
     final validation = stepNamed('Test Windows artifact validation');
     final build = stepNamed('Use qualified Windows artifact');
+    final normalizeChecksum = stepNamed('Normalize Windows checksum sidecar');
     final publish = stepNamed('Publish Windows release asset');
     expect(validation['if'], "runner.os == 'Windows'");
     expect(validation['shell'], 'pwsh');
@@ -80,11 +81,17 @@ void main() {
     );
     expect(build['run'], contains('Tag-time Windows artifact/evidence closure failed.'));
     expect(build.containsKey('continue-on-error'), isFalse);
+    expect(normalizeChecksum['if'], "runner.os == 'Windows'");
+    expect(normalizeChecksum['shell'], 'pwsh');
+    expect(normalizeChecksum['run'], contains('[IO.File]::WriteAllText'));
+    expect(normalizeChecksum['run'], contains('[Text.UTF8Encoding]::new(\$false)'));
+    expect(normalizeChecksum.containsKey('continue-on-error'), isFalse);
     expect(publish['if'], "runner.os == 'Windows'");
     expect(publish['uses'], startsWith('softprops/action-gh-release@'));
     expect(publish.containsKey('continue-on-error'), isFalse);
     expect(steps.indexOf(validation), lessThan(steps.indexOf(publish)));
     expect(steps.indexOf(build), lessThan(steps.indexOf(publish)));
+    expect(steps.indexOf(normalizeChecksum), lessThan(steps.indexOf(publish)));
     final windowsFiles = ((publish['with'] as YamlMap)['files'] as String).trim().split('\n');
     expect(windowsFiles, [
       r'build/dartclaw-v${{ env.DARTCLAW_VERSION }}-windows-x64.zip',

@@ -216,6 +216,14 @@ jobs:
         shell: pwsh
         run: dart test --reporter=failures-only packages/dartclaw_core/test/harness/process_lifecycle_test.dart
 
+      - name: Normalize Windows checksum sidecar
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sidecar = "build/dartclaw-v$env:DARTCLAW_VERSION-windows-x64.zip.sha256"
+          $checksum = (Get-Content -LiteralPath $sidecar -Raw).Trim()
+          [IO.File]::WriteAllText($sidecar, "$checksum`n", [Text.UTF8Encoding]::new($false))
+
       - name: Publish platform release asset
         if: runner.os != 'Windows'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

@@ -63,6 +63,19 @@ try {
   Assert-FailsWith -Message 'bundled SQLite module/FTS5 check failed' -Action {
     Invoke-WindowsSqliteCheck -Executable $badSmoke -SqliteModule (Join-Path $tempRoot 'lib/sqlite3.dll')
   }
+
+  $checksumArtifact = Join-Path $tempRoot 'checksum-test.zip'
+  [IO.File]::WriteAllBytes($checksumArtifact, [byte[]](0, 1, 2, 3))
+  Write-ChecksumSidecar -Artifact $checksumArtifact
+  $checksumBytes = [IO.File]::ReadAllBytes("$checksumArtifact.sha256")
+  $checksumText = [Text.Encoding]::UTF8.GetString($checksumBytes)
+  $expectedHash = (Get-FileHash -LiteralPath $checksumArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($checksumText -cne "$expectedHash  checksum-test.zip`n") {
+    throw 'Checksum sidecar must be UTF-8 without BOM and use one LF-terminated line.'
+  }
+  if ($checksumBytes[0] -eq 0xEF -or $checksumText.Contains("`r")) {
+    throw 'Checksum sidecar contains a BOM or CRLF.'
+  }
 } finally {
   Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }

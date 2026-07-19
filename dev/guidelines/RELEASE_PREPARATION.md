@@ -6,8 +6,7 @@ Run `bash dev/tools/release_check.sh --version <version>` on the final pinned co
 
 - Live integration tests: `bash dev/testing/profiles/workflow-live/run.sh --full` plus any package-specific `dart test --run-skipped -t integration ...` live files relevant to the release. Runs `dart test` directly – no running server required, but needs real provider credentials.
 - UI smoke test: start the server with `bash dev/testing/profiles/plain/run.sh` (port 3335, token `devtoken0`), then run the `andthen:visual-validation` skill against `http://localhost:3335/?token=devtoken0` covering TC-01…TC-31 and R-01…R-12 from `dev/testing/UI-SMOKE-TEST.md`.
-- Windows x64 qualification: build the Windows x64 archive from the final pinned source, run `dev/testing/profiles/windows-runtime/run.ps1` against it on native Windows x64, and record successful Claude and Codex provider turns on that exact artifact. Record the bootstrap Actions run ID, successful closure run ID, runtime revision, and artifact SHA256; the tag workflow verifies both trusted workflow runs, re-runs the closure, and publishes those qualified bytes. Credential-only skips require matching recorded evidence for both providers.
-- Temporary qualification scaffolding: after committing the stable Windows evidence, remove any branch-scoped qualification workflow before the final scope-frozen commit. `release_check.sh` rejects `.github/workflows/windows-x64-qualification.yml` on the release commit.
+- Windows x64 release smoke: the tag workflow builds the archive from the tagged source, validates its layout and bundled SQLite/FTS5 runtime, runs the deterministic Windows smoke with provider turns disabled, and tests the installer against the staged archive. Live Claude and Codex turns are compatibility checks to repeat after relevant provider integration or protocol changes, not per-release publication inputs.
 - Distribution publication security: before widening or rotating `HOMEBREW_TAP_TOKEN`, confirm the `distribution-publication` environment requires approval and permits only `v*` tags, and confirm a repository ruleset restricts creation/deletion of `v*` tags. Store the secret on that environment, not at repository scope. The fine-grained PAT must select only `DartClaw/homebrew-dartclaw` and `DartClaw/scoop-dartclaw` with `contents:write`. Do not authorize the Scoop repository while either protection is absent.
 - Provider prerequisite audit: confirm install docs keep `claude --version`, `codex --version`, Goose, and Vibe as explicit operator prerequisites rather than Homebrew dependencies.
 
@@ -31,9 +30,8 @@ Then bump in a single commit:
 1. **Scope-frozen** commit on `feat/<version>` – final version pins, CHANGELOG entry, STATE.md says "release-ready, awaiting tag". Run `release_check.sh --version <version>` here; manual gates pass.
 2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.
 3. **Tag** annotated `v<version>` from the squash commit; push tag.
-   Keep the qualified feature branch available until the release workflow verifies the tagged runtime tree and publishes the evidence-bound Windows artifact.
-   The release workflow must publish the macOS arm64/x64 and Linux arm64/x64 archives plus the Windows x64 ZIP, each
-   with its checksum; aggregate `SHA256SUMS.txt`; push rendered `Formula/dartclaw.rb` to
-   `DartClaw/homebrew-dartclaw`; and push rendered `bucket/dartclaw.json` to `DartClaw/scoop-dartclaw`.
-4. **Delete remote** feature branch (keep local as archive if useful).
-5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips STATE.md / ROADMAP.md to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself — the tag is the source of truth for "released."
+   The release workflow stages all five platform archives privately. Only after every build and the staged Windows
+   installer test pass does one job publish the archives, their checksums, and aggregate `SHA256SUMS.txt`. Homebrew and
+   Scoop publication starts only after that job succeeds.
+4. **Delete the remote feature branch; retain the local `feat/<version>` branch as the release-development archive.**
+5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips STATE.md / ROADMAP.md to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself – the tag is the source of truth for "released."

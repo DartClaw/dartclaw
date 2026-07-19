@@ -167,7 +167,7 @@ void main() {
     final render = steps.singleWhere((step) => step['name'] == 'Render Scoop manifest');
     final publish = steps.singleWhere((step) => step['name'] == 'Publish manifest to Scoop bucket');
 
-    expect(scoop['needs'], 'build');
+    expect(scoop['needs'], 'publish');
     expect(scoop['environment'], 'distribution-publication');
     expect(download['run'], contains("--pattern 'dartclaw-v*-windows-x64.zip.sha256'"));
     expect(render['run'], contains('dev/tools/render_scoop_manifest.dart'));

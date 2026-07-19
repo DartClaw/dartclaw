@@ -4,17 +4,12 @@
 
 ## Active Milestone
 
-### 0.21 — Windows Support & Cross-Platform Hardening
-
-**Status: Release-ready on `feat/0.21`; awaiting squash-merge and `v0.21.0` tag.** Native Windows x64 binary for the
-core runtime plus cross-platform hardening and explicit degradation for Unix-coupled features. Final CI, live/UI, and
-exact-artifact Windows x64 qualification are complete.
-
-## Planned
-
 ### 0.22 — Afterglow Design-System Overhaul
 
-Full Web UI adoption of the canonical "Afterglow" design system + a drift-checked `design-system.css`/`app.css` split. Hard prerequisite for all later UI work; pulled forward by the 2026-07-06 renumber to lead with the UX/app track.
+**Status: Planned; not started.** Full Web UI adoption of the canonical "Afterglow" design system plus a drift-checked
+`design-system.css`/`app.css` split. Hard prerequisite for all later UI work.
+
+## Planned
 
 ### 0.23 — Chat & Session Experience
 
@@ -29,6 +24,12 @@ Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.21 — Windows Support & Cross-Platform Hardening ✅
+
+Tagged `v0.21.0` on 2026-07-18. Native Windows x64 core runtime, bundled SQLite/FTS5 archive, PowerShell installer,
+Scoop publication path, hard-terminate process lifecycle, file-watch config reload, Git Bash workflow steps, and
+explicit degradation for Unix-coupled features. See `CHANGELOG.md` for details.
 
 ### 0.20.1 — Embedded Binary Assets ✅
 

@@ -15,38 +15,29 @@ jobs:
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.runs_on }}
-    permissions:
-      actions: read
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - runs_on: ubuntu-latest
-            os_name: linux
-            arch_name: x64
             target: linux-x64
+            archive_ext: tar.gz
           - runs_on: ubuntu-24.04-arm
-            os_name: linux
-            arch_name: arm64
             target: linux-arm64
+            archive_ext: tar.gz
           - runs_on: macos-15
-            os_name: macos
-            arch_name: arm64
             target: macos-arm64
+            archive_ext: tar.gz
           - runs_on: macos-15-intel
-            os_name: macos
-            arch_name: x64
             target: macos-x64
+            archive_ext: tar.gz
           - runs_on: windows-latest
-            os_name: windows
-            arch_name: x64
             target: windows-x64
+            archive_ext: zip
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Dart
@@ -90,116 +81,6 @@ jobs:
             throw "Tag $env:GITHUB_REF_NAME does not match dartclawVersion $env:DARTCLAW_VERSION"
           }
 
-      - name: Read qualified Windows artifact identity
-        id: windows_qualification
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $content = Get-Content -LiteralPath dev/testing/evidence/windows-harness-turns.md -Raw
-          $runMatches = [regex]::Matches(
-            $content,
-            '(?mi)^\*\*Qualification bootstrap run ID\*\*:\s*`?([0-9]+)`?\s*$'
-          )
-          $closureRunMatches = [regex]::Matches(
-            $content,
-            '(?mi)^\*\*Qualification closure run ID\*\*:\s*`?([0-9]+)`?\s*$'
-          )
-          $revisionMatches = [regex]::Matches(
-            $content,
-            '(?mi)^\*\*Runtime source revision\*\*:\s*`?([0-9a-f]{40})`?\s*$'
-          )
-          $hashMatches = [regex]::Matches(
-            $content,
-            '(?mi)^\*\*Artifact SHA256\*\*:\s*`?([0-9a-f]{64})`?\s*$'
-          )
-          if ($runMatches.Count -ne 1) { throw 'Windows evidence must name one qualification bootstrap run ID.' }
-          if ($closureRunMatches.Count -ne 1) { throw 'Windows evidence must name one qualification closure run ID.' }
-          if ($revisionMatches.Count -ne 1) { throw 'Windows evidence must name one runtime source revision.' }
-          if ($hashMatches.Count -ne 1) { throw 'Windows evidence must name one artifact SHA256.' }
-          "run_id=$($runMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          "closure_run_id=$($closureRunMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          "runtime_revision=$($revisionMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          "artifact_sha256=$($hashMatches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-
-      - name: Download qualified Windows artifact
-        if: runner.os == 'Windows'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: windows-x64-candidate-artifact
-          path: qualified-windows
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.windows_qualification.outputs.run_id }}
-
-      - name: Use qualified Windows artifact
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $qualifiedRevision = '${{ steps.windows_qualification.outputs.runtime_revision }}'
-          $qualificationRunId = '${{ steps.windows_qualification.outputs.run_id }}'
-          $closureRunId = '${{ steps.windows_qualification.outputs.closure_run_id }}'
-          $expectedHash = '${{ steps.windows_qualification.outputs.artifact_sha256 }}'
-          $qualificationRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$qualificationRunId" |
-            ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to read Windows qualification run.' }
-          if ($qualificationRun.status -ne 'completed' -or
-              $qualificationRun.event -ne 'push' -or
-              $qualificationRun.name -ne 'Temporary Windows x64 Qualification' -or
-              $qualificationRun.path -ne '.github/workflows/windows-x64-qualification.yml' -or
-              $qualificationRun.head_branch -ne 'feat/0.21' -or
-              $qualificationRun.head_sha -ne $qualifiedRevision) {
-            throw 'Windows qualification run does not identify the recorded source revision.'
-          }
-
-          git cat-file -e "$qualifiedRevision^{commit}"
-          if ($LASTEXITCODE -ne 0) { throw 'Qualified Windows source revision is unavailable.' }
-          git diff --quiet $qualifiedRevision $env:GITHUB_SHA -- `
-            apps packages pubspec.yaml pubspec.lock dev/tools/build_windows.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Tagged runtime/build tree differs from the qualified Windows source.' }
-
-          $closureRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$closureRunId" |
-            ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to read Windows qualification closure run.' }
-          if ($closureRun.status -ne 'completed' -or
-              $closureRun.conclusion -ne 'success' -or
-              $closureRun.event -ne 'push' -or
-              $closureRun.name -ne 'Temporary Windows x64 Qualification' -or
-              $closureRun.path -ne '.github/workflows/windows-x64-qualification.yml' -or
-              $closureRun.head_branch -ne 'feat/0.21') {
-            throw 'Windows qualification closure run is not one successful trusted workflow execution.'
-          }
-          git cat-file -e "$($closureRun.head_sha)^{commit}"
-          if ($LASTEXITCODE -ne 0) { throw 'Windows qualification closure revision is unavailable.' }
-          git diff --quiet $closureRun.head_sha $env:GITHUB_SHA -- `
-            apps packages pubspec.yaml pubspec.lock dev/tools/build_windows.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Tagged runtime/build tree differs from the successful closure run.' }
-
-          $expectedName = "dartclaw-v$env:DARTCLAW_VERSION-windows-x64.zip"
-          $artifact = Get-Item -LiteralPath (Join-Path qualified-windows $expectedName)
-          $sidecar = Get-Item -LiteralPath "$($artifact.FullName).sha256"
-          $sidecarMatch = [regex]::Match(
-            (Get-Content -LiteralPath $sidecar.FullName -Raw).Trim(),
-            '^([0-9a-f]{64})  (.+)$'
-          )
-          $actualHash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          if (-not $sidecarMatch.Success -or
-              $sidecarMatch.Groups[2].Value -ne $expectedName -or
-              $sidecarMatch.Groups[1].Value -cne $actualHash -or
-              $actualHash -cne $expectedHash) {
-            throw 'Downloaded Windows release artifact does not match qualified evidence and checksum.'
-          }
-          & pwsh -NoLogo -NoProfile -File ./dev/testing/profiles/windows-runtime/run.ps1 `
-            -ArtifactPath $artifact.FullName `
-            -SkipProviders `
-            -ExpectedClaudeVersion '2.1.207 (Claude Code)' `
-            -ExpectedCodexVersion 'codex-cli 0.139.0' `
-            -ProviderEvidencePath dev/testing/evidence/windows-harness-turns.md `
-            -EvidencePath qualified-windows/tag-runtime-smoke.md
-          if ($LASTEXITCODE -ne 0) { throw 'Tag-time Windows artifact/evidence closure failed.' }
-          New-Item -ItemType Directory -Path build -Force | Out-Null
-          Copy-Item -LiteralPath $artifact.FullName, $sidecar.FullName -Destination build
-
       - name: Build standalone binary
         if: runner.os != 'Windows'
         run: bash dev/tools/build.sh
@@ -211,64 +92,106 @@ jobs:
         shell: pwsh
         run: ./dev/tools/build_windows_test.ps1
 
+      - name: Build Windows standalone binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./dev/tools/build_windows.ps1 -ReleaseTarget windows-x64
+
       - name: Test native Windows process lifecycle
         if: runner.os == 'Windows'
         shell: pwsh
         run: dart test --reporter=failures-only packages/dartclaw_core/test/harness/process_lifecycle_test.dart
 
-      - name: Normalize Windows checksum sidecar
+      - name: Smoke-test Windows release artifact
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $sidecar = "build/dartclaw-v$env:DARTCLAW_VERSION-windows-x64.zip.sha256"
-          $checksum = (Get-Content -LiteralPath $sidecar -Raw).Trim()
-          [IO.File]::WriteAllText($sidecar, "$checksum`n", [Text.UTF8Encoding]::new($false))
+          ./dev/testing/profiles/windows-runtime/run.ps1 `
+            -ArtifactPath "build/dartclaw-v$env:DARTCLAW_VERSION-windows-x64.zip" `
+            -SkipProviders `
+            -EvidencePath build/windows-runtime-smoke.md
 
-      - name: Publish platform release asset
-        if: runner.os != 'Windows'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+      - name: Upload staged release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          files: |
-            build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.target }}.tar.gz
-            build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.target }}.tar.gz.sha256
+          name: release-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            build/dartclaw-v*-${{ matrix.target }}.${{ matrix.archive_ext }}
+            build/dartclaw-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
 
-      - name: Publish Windows release asset
-        if: runner.os == 'Windows'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: |
-            build/dartclaw-v${{ env.DARTCLAW_VERSION }}-windows-x64.zip
-            build/dartclaw-v${{ env.DARTCLAW_VERSION }}-windows-x64.zip.sha256
-
-  checksums:
-    name: Publish aggregate checksums
-    runs-on: ubuntu-latest
+  windows-installer:
+    name: Test Windows installer
+    runs-on: windows-latest
     needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download staged Windows artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-windows-x64
+          path: installer-assets
+
+      - name: Setup Python for installer download acceptance
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.x'
+
+      - name: Test installer
+        shell: powershell
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          ./dev/tools/install_windows_test.ps1 `
+            -ArtifactPath "installer-assets/dartclaw-v$version-windows-x64.zip" `
+            -Version $version `
+            -TestDownloadPath
+
+  publish:
+    name: Publish release assets
+    runs-on: ubuntu-latest
+    needs: [build, windows-installer]
     permissions:
       contents: write
     steps:
-      - name: Download release checksum assets
+      - name: Download staged release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify staged artifacts and build aggregate checksums
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ github.ref_name }}
         run: |
-          mkdir -p release-checksums
-          gh release download "$TAG_NAME" --pattern '*.sha256' --dir release-checksums
+          VERSION="${VERSION#v}"
+          archives=(
+            "dartclaw-v${VERSION}-linux-x64.tar.gz"
+            "dartclaw-v${VERSION}-linux-arm64.tar.gz"
+            "dartclaw-v${VERSION}-macos-arm64.tar.gz"
+            "dartclaw-v${VERSION}-macos-x64.tar.gz"
+            "dartclaw-v${VERSION}-windows-x64.zip"
+          )
+          for archive in "${archives[@]}"; do
+            test -f "release-assets/$archive"
+            test -f "release-assets/$archive.sha256"
+            (cd release-assets && shasum -a 256 -c "$archive.sha256")
+          done
+          LC_ALL=C sort release-assets/*.sha256 > release-assets/SHA256SUMS.txt
 
-      - name: Build aggregate SHA256SUMS.txt
-        run: |
-          LC_ALL=C sort release-checksums/*.sha256 > SHA256SUMS.txt
-
-      - name: Publish SHA256SUMS.txt
+      - name: Publish release assets
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          files: SHA256SUMS.txt
+          files: release-assets/*
 
   homebrew:
     name: Update Homebrew tap
     runs-on: ubuntu-latest
-    needs: build
+    needs: publish
     environment: distribution-publication
     steps:
       - name: Checkout
@@ -328,44 +251,10 @@ jobs:
             git push
           fi
 
-  windows-installer:
-    name: Test Windows installer
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-
-      - name: Download Windows release asset
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          New-Item -ItemType Directory -Path installer-assets | Out-Null
-          gh release download $env:TAG_NAME --pattern 'dartclaw-v*-windows-x64.zip*' --dir installer-assets
-
-      - name: Setup Python for installer download acceptance
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.x'
-
-      - name: Test installer
-        shell: powershell
-        run: |
-          $version = $env:GITHUB_REF_NAME.Substring(1)
-          ./dev/tools/install_windows_test.ps1 `
-            -ArtifactPath "installer-assets/dartclaw-v$version-windows-x64.zip" `
-            -Version $version `
-            -TestDownloadPath
-
   scoop:
     name: Update Scoop bucket
     runs-on: ubuntu-latest
-    needs: build
+    needs: publish
     environment: distribution-publication
     steps:
       - name: Checkout

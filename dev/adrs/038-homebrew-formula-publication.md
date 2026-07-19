@@ -3,7 +3,8 @@
 ## Status
 
 Accepted – 2026-06-09 (implemented in 0.18, fulfilling PRD FR14 "standalone binary distribution polish"); amended
-2026-07-12 to apply the same publication pattern to Scoop for Windows.
+2026-07-12 to apply the same publication pattern to Scoop for Windows, and 2026-07-19 to stage all platform artifacts
+before one atomic GitHub Release publication.
 
 **Related:** [ADR-008](008-sdk-publishing-strategy.md) (pub.dev publishing strategy — this is the analogous decision for the end-user binary). Runtime behavior is unaffected; CI credential handling and distribution integrity are security-critical.
 
@@ -19,12 +20,16 @@ Keep one **canonical formula template in the main repo** (`package/homebrew/dart
 
 - The in-repo template carries the real structure, `version` (lockstepped to `dartclawVersion`, test-enforced), URLs, and **placeholder SHA256 digests** — the digests are the only build-derived part.
 - A Dart renderer (`dev/tools/render_homebrew_formula.dart`) injects the four verified per-platform digests, asserting version lockstep and exactly one digest slot per target.
-- A `homebrew` job in the `Release Binaries` workflow (`needs: build`) downloads the platform `.sha256` release assets, renders the formula, and pushes it to the tap using a `HOMEBREW_TAP_TOKEN` secret. The job no-ops (does not fail the release) when the secret is absent.
+- The build matrix stages its archives as private workflow artifacts. After every platform build and the staged Windows
+  installer test pass, one `publish` job verifies all five archive/sidecar pairs, creates `SHA256SUMS.txt`, and publishes
+  the complete GitHub Release asset set. Homebrew and Scoop jobs depend on `publish`, then consume those public checksums.
+- The `homebrew` job renders the formula and pushes it to the tap using a `HOMEBREW_TAP_TOKEN` secret. The job no-ops
+  (does not fail the release) when the secret is absent.
 - Auth is a **fine-grained PAT** scoped to the Homebrew tap and Scoop bucket repositories (`contents:write`), stored as
   the `HOMEBREW_TAP_TOKEN` secret in the `distribution-publication` environment.
 - Both publication jobs use the protected `distribution-publication` environment. It requires approval before the PAT
   is exposed; `v*` tag creation/deletion is restricted by a repository ruleset. Workflow-wide permissions remain
-  `contents:read`, with `contents:write` granted only to jobs that publish release assets.
+  `contents:read`, with `contents:write` granted only to the single GitHub Release publication job.
 - Provider CLIs (`claude`, `codex`, Goose, Vibe) remain explicit operator prerequisites, **not** `depends_on` Homebrew dependencies (test-enforced).
 
 ## Consequences

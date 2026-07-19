@@ -79,8 +79,8 @@ Manual native-Windows qualification for workflow `type: bash`. Run from a Window
      --config (Join-Path $dataDir 'dartclaw.yaml')
    ```
 
-6. Copy the command output and Step 4 metadata into `dev/testing/evidence/windows-bash-step.md`, replacing the prior
-   latest-run record.
+6. Confirm the command output contains the Step 4 environment metadata. If a local report is useful, save it under
+   `.agent_temp/`.
 
 ### Expected
 
@@ -90,6 +90,6 @@ Manual native-Windows qualification for workflow `type: bash`. Run from a Window
 - `relative_file=relative-file-ok` proves quoted relative access to a filename containing spaces.
 - `allowlisted_env=allowlist-ok` proves configured environment propagation.
 - `posix_result=2` proves basic POSIX pipeline execution.
-- The evidence names the native Windows OS/architecture, Git revision, Dart version, and source checkout or release
+- The command output names the native Windows OS/architecture, Git revision, Dart version, and source checkout or release
   artifact tested.
 - No claim is made that arbitrary Windows paths inside command arguments are translated.

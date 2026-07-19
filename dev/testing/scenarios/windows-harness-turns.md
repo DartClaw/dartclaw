@@ -6,13 +6,13 @@ providers: [claude, codex]
 # Scenario: Native Windows Harness Turns
 
 Validates one real Claude turn and one real Codex turn through DartClaw's HTTP session API and provider-scoped harness
-pool. Release qualification runs both providers through the candidate artifact; a source run or raw provider probe is
-useful diagnosis but does not qualify this scenario.
+pool. Run this compatibility check after relevant provider integration or protocol changes; it is not a per-release
+publication gate.
 
 ## Prerequisites
 
 - Native Windows with Dart, `claude`, and `codex` on `PATH` and authenticated.
-- This checkout plus the candidate Windows release ZIP available locally.
+- This checkout plus a Windows release ZIP available locally.
 - No server already listening on port 3333.
 
 For a Parallels shared-folder checkout, map the share to a drive before running Dart. Dart's native-asset build hooks
@@ -25,9 +25,10 @@ Set-Location 'Z:\Repos\Libs\dartclaw\dartclaw-public'
 dart pub get
 ```
 
-## Record Environment
+## Capture Environment
 
-From PowerShell at the checkout root, record these values in `dev/testing/evidence/windows-harness-turns.md`:
+From PowerShell at the checkout root, capture these values with the turn results. Save a local report under
+`.agent_temp/` if needed:
 
 ```powershell
 Get-Date -Format o
@@ -40,10 +41,8 @@ claude --version
 codex --version
 ```
 
-Record the candidate artifact filename, SHA256, release version, exact source revision, and GitHub Actions bootstrap run
-ID that produced it. The release qualification downloads that run's artifact and rejects missing, duplicate, or
-mismatched identity fields. After the evidence commit's qualification run passes, record that successful closure run ID
-before removing the temporary workflow; the tag workflow requires it and re-runs the artifact/evidence closure.
+Include the artifact filename, SHA256, release version, and exact source revision so the compatibility result is
+traceable. The release workflow does not consume the report.
 
 ## Run Each Provider
 

@@ -1,7 +1,7 @@
 # Windows
 
 DartClaw targets the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
-storage/search. The 0.21 support contract and qualification path are described below. Unix-coupled security and sidecar
+storage/search. The 0.21 support contract and validation path are described below. Unix-coupled security and sidecar
 features do not have full Windows parity; the matrix is the support contract.
 
 ## Install and Upgrade
@@ -23,9 +23,7 @@ dartclaw --version
 Re-run the installer to upgrade. It stages and verifies the complete replacement before activating it. To use a
 different root, download `install.ps1` and pass `-InstallRoot`.
 
-The public Scoop bucket exists and its manifest flow is qualified on native Windows x64, but it has no installable
-manifest yet. Use the PowerShell installer until a public Windows release asset and its rendered bucket manifest are
-both published. Then use:
+The public Scoop bucket contains the versioned Windows manifest. Install or upgrade with:
 
 ```powershell
 scoop bucket add dartclaw https://github.com/DartClaw/scoop-dartclaw
@@ -65,8 +63,8 @@ Trust only projects whose local Codex configuration you have reviewed.
 
 | Capability | State | Windows behavior | Remediation |
 |---|---|---|---|
-| Core server, Web UI, and sessions | supported | The qualification candidate artifact passes the full runtime smoke on native Windows x64 | Keep the release artifact's `bin/` and `lib/` directories together |
-| Claude and Codex harness turns | supported | Both live provider transports pass on native Windows ARM64 against the production tree used by the qualified x64 artifact | Install and authenticate the provider CLIs |
+| Core server, Web UI, and sessions | supported | Each tagged Windows archive passes the deterministic runtime smoke on native Windows x64 before publication | Keep the release artifact's `bin/` and `lib/` directories together |
+| Claude and Codex harness turns | supported | Both live provider transports passed the 0.21 native-Windows compatibility check; repeat after relevant provider integration or protocol changes | Install and authenticate the provider CLIs |
 | FTS5 storage/search | supported | Uses the release's bundled `lib/sqlite3.dll`; it does not depend on `winsqlite3.dll` | Keep `bin/` and `lib/` as sibling directories |
 | Config reload | supported | Use file watching with `gateway.reload.mode: auto`; SIGUSR1 is POSIX-only | Enable `auto` and save the config file atomically |
 | Bash workflow steps | degraded | Run through Git Bash when `bash.exe` is found; otherwise the step fails with `bash steps require Git Bash on Windows`. Timeout cleanup does not claim descendant-process containment; unconfirmed cleanup blocks later Bash steps until restart | Install Git for Windows; use POSIX for commands requiring process-tree containment |
@@ -87,21 +85,20 @@ POSIX-only and points back to file-watch `auto` mode.
 
 ## Runtime Smoke Validation
 
-The release-readiness profile checks each layer separately: server startup, Web UI load, FTS5 `MATCH` using the
-bundled DLL, file-watch config reload, a Claude turn, and a Codex turn.
+The release-readiness profile checks server startup, Web UI load, FTS5 `MATCH` using the bundled DLL, and file-watch
+config reload. Claude and Codex turns are optional compatibility layers.
 
 From a native Windows x64 checkout, run it against a release artifact:
 
 ```powershell
 ./dev/testing/profiles/windows-runtime/run.ps1 `
-  -ArtifactPath ./build/dartclaw-v<version>-windows-x64.zip
+  -ArtifactPath ./build/dartclaw-v<version>-windows-x64.zip `
+  -SkipProviders
 ```
 
-Read `dev/testing/evidence/windows-runtime-smoke.md`. The result is release-ready only when every required layer
-passes. If CI cannot access provider credentials, only the Claude/Codex turn layers may be skipped, and committed
-manual evidence must cover both providers on native Windows with matching release version or source revision,
-OS/architecture, provider versions, artifact or source identity, and passing stored turn results. Missing, stale, or
-single-provider evidence leaves the result `incomplete`; it must not be reported as Windows support.
+Read `.agent_temp/windows-runtime-smoke.md`. Artifact mode is release-ready only when every required core layer passes.
+Omit `-SkipProviders` to exercise authenticated Claude and Codex turns as well; an attempted provider failure fails that
+run. The report is local test output, not release metadata.
 
 Source-mode smoke is useful for diagnosis, but it does not replace native x64 artifact, bundled-SQLite, installer, or
 process-lifecycle qualification.

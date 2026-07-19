@@ -20,7 +20,7 @@ This directory hosts everything needed to run DartClaw against pre-configured en
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Requires `GITHUB_TOKEN` for publish runs. |
 | `workflow-contract` | n/a | `bash dev/testing/profiles/workflow-contract/run.sh` | Fast deterministic workflow contract checks. Use while iterating on workflow YAML, gates, output contracts, and resolver behavior. |
 | `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Runs a fail-fast provider preflight (version, codex bundled-tool quarantine check, one pinned-model round-trip; `--skip-preflight` to skip) and exports a hermetic codex `CODEX_HOME` so operator dotfiles can't override fixture models. Captures logs and summarizes warning patterns. |
-| `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip>` | Native Windows x64 release smoke: server, Web UI, FTS5, file-watch reload, Claude, and Codex. Writes the stable layered report to `dev/testing/evidence/windows-runtime-smoke.md`. |
+| `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, FTS5, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
 
 Each Unix server profile resolves the repo root from `dev/testing/profiles/<name>/run.sh`, copies its seed data to a
 writable temp directory by default, and starts `dartclaw_cli` in `--dev` mode. Set `DARTCLAW_<PROFILE>_DATA_DIR`
@@ -38,15 +38,12 @@ bash dev/testing/profiles/workflow-live/run.sh --full
 
 Do not use the workspace-root `dart test -t integration` command as a workflow gate. The root has no default `test/` directory, and integration-tagged suites are skipped by default unless run with `--run-skipped` against explicit files.
 
-The Windows runtime profile is release-ready only when its verdict is `supported`. A credential-only CI skip must stay
-explicit. In that mode, a compiled startup-only stub lets core layers run without provider credentials; provider turns
-remain skipped and are covered only by fresh, matching manual evidence for both Claude and Codex. See
-`scenarios/windows-runtime-smoke.md`; ARM64 provider evidence cannot replace native x64 artifact, SQLite, installer, or
-core-runtime proof.
+The Windows runtime profile is release-ready only when its artifact-mode verdict is `supported`. `-SkipProviders` stays
+explicit and uses a startup-only stub so the deterministic core layers run without credentials. Omit it to revalidate
+live Claude and Codex compatibility after relevant integration changes. See `scenarios/windows-runtime-smoke.md`.
 
-Scoop qualification is recorded separately in `scenarios/windows-scoop.md` and `evidence/windows-scoop.md`. The local
-bucket flow can qualify before release; hosted installation remains pending until a public Windows ZIP and rendered
-manifest exist.
+Scoop qualification is defined separately in `scenarios/windows-scoop.md`. Keep install/update/uninstall audits separate
+from the deterministic tag workflow; local reports belong under `.agent_temp/`.
 
 ## Scenarios
 

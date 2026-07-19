@@ -64,11 +64,11 @@ skip()    { printf "  %sSKIP%s  %s\n" "$C_YLW" "$C_RST" "$1"; }
 
 section "1. Transient release inputs (must be absent before merge to main)"
 leaked_bundle=""
-# dev/bundle is the current export root. The other dev/* directories and root
-# markdown files listed here are legacy transient export paths. Canonical public
+# dev/bundle is the current export root. The other dev/* directories, generated
+# test reports, and root markdown files listed here are transient. Canonical public
 # docs live under dev/state/, dev/guidelines/, dev/architecture/,
 # dev/design-system/, dev/adrs/, docs/, or package-specific directories.
-for exported_dir in dev/bundle dev/specs dev/research dev/wireframes dev/diagrams; do
+for exported_dir in dev/bundle dev/specs dev/research dev/wireframes dev/diagrams dev/testing/evidence; do
   if [[ -d "$exported_dir" ]]; then
     leaked=$(find "$exported_dir" -type f ! -name '.gitkeep' 2>/dev/null)
     if [[ -n "$leaked" ]]; then
@@ -81,11 +81,8 @@ for legacy_root_alias in dev/STATE.md dev/LEARNINGS.md dev/STACK.md dev/UBIQUITO
     leaked_bundle+="${legacy_root_alias}"$'\n'
   fi
 done
-if [[ -e .github/workflows/windows-x64-qualification.yml ]]; then
-  leaked_bundle+=".github/workflows/windows-x64-qualification.yml"$'\n'
-fi
 if [[ -z "$leaked_bundle" ]]; then
-  pass "no exported bundle or temporary qualification workflow found"
+  pass "no transient release inputs found"
 else
   leaked_count=$(printf '%s' "$leaked_bundle" | sed '/^$/d' | wc -l | tr -d ' ')
   fail "transient release inputs contain $leaked_count file(s) — remove before squash-merge"
@@ -187,8 +184,10 @@ Manual gates still required before tagging:
                          plus any package-specific --run-skipped live files
   - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)
-  - Windows runtime:     ./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <windows-x64.zip>
-                         Credential-only skips require matching recorded evidence for both Claude and Codex.
+
+The tag workflow builds and smoke-tests the Windows archive, tests the installer,
+then publishes all five platform archives in one gated job. Re-run live Claude and
+Codex turns on native Windows only after relevant provider integration changes.
 
 After the manual gates pass, tag the already-pinned scope-frozen commit per
 CLAUDE.md § Release Preparation. Do not tag from this feature branch.

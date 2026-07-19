@@ -33,7 +33,7 @@ Qualify the rendered-manifest path used by the release workflow on Windows x64.
 5. Run `scoop update dartclaw`, then `scoop uninstall dartclaw` and remove the temporary bucket. Confirm the shim is
    gone.
 6. After a tagged release publishes the hosted manifest, repeat the install against
-   `https://github.com/DartClaw/scoop-dartclaw` and replace the latest evidence record.
+   `https://github.com/DartClaw/scoop-dartclaw`. Save a local report under `.agent_temp/` if needed.
 
 ## Pass Criteria
 

@@ -51,8 +51,9 @@ function Assert-WindowsReleaseLayout {
   }
 
   $expected = @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')
+  $rootPrefix = $Root.TrimEnd('\') + '\'
   $actual = @(Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
-      [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\', '/')
+      $_.FullName.Substring($rootPrefix.Length).Replace('\', '/')
     })
   $unexpected = @($actual | Where-Object { $_ -notin $expected })
   if ($unexpected.Count -gt 0) {
@@ -93,6 +94,18 @@ function Invoke-WindowsSqliteCheck {
   if ($LASTEXITCODE -ne 0) {
     throw "Windows artifact validation failed: bundled SQLite module/FTS5 check failed with exit code $LASTEXITCODE."
   }
+}
+
+function Write-ChecksumSidecar {
+  param([Parameter(Mandatory)][string]$Artifact)
+
+  $archiveName = [IO.Path]::GetFileName($Artifact)
+  $hash = (Get-FileHash -LiteralPath $Artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+  [IO.File]::WriteAllText(
+    "$Artifact.sha256",
+    "$hash  $archiveName`n",
+    [Text.UTF8Encoding]::new($false)
+  )
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
@@ -151,8 +164,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     Invoke-WindowsExecutableSmoke -Executable (Join-Path $extracted 'bin/dartclaw.exe')
     Invoke-WindowsSqliteCheck -Executable (Join-Path $extracted 'bin/dartclaw.exe') -SqliteModule (Join-Path $extracted 'lib/sqlite3.dll')
 
-    $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath "$archive.sha256" -Value "$hash  $archiveName"
+    Write-ChecksumSidecar -Artifact $archive
   } finally {
     if (Test-Path -LiteralPath $tempRoot) {
       Remove-Item -LiteralPath $tempRoot -Recurse -Force

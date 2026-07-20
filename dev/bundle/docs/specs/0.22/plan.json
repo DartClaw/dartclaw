@@ -1,0 +1,566 @@
+{
+  "schemaVersion": "1",
+  "prd": "prd.md",
+  "references": [
+    "audit-design-system-compliance.md (drift analysis, adoption map, violations inventory, page-by-page compliance)",
+    "dev/design-system/DESIGN.md + tokens.css + components.css + icons.css + showcase.html (Afterglow canon)",
+    "branch feat/design-system-afterglow-extension, commit b8cb03f9 (unmerged canon extension: conversation/control-plane/orchestration components; design-system files only)",
+    "dartclaw-private/docs/specs/0.next-ui-ux-improvements/cross-surface-ux-plan-2026-06.md (DS-0 placement + Afterglow component bindings)",
+    "dartclaw-private/docs/wireframes/ (page-inventory.md, deviations.md)",
+    "dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md",
+    "dev/testing/UI-SMOKE-TEST.md (TC-01…TC-31)",
+    "packages/dartclaw_server/test/static/design_system_icons_sync_test.dart (existing strict icons sync fitness test)"
+  ],
+  "overview": {
+    "summary": "Full adoption of the Afterglow design-system revision across the Web UI, replacing the hand-drifted CSS copies with a verbatim-synced, drift-checked foundation. Three phases: P1 restores canon as the single source of truth (token rationalization, CSS split with drift check, ambient ground, one entry motion); P2 brings every audited page to 'good' compliance (feedback primitives first — they delete shared CSS — then seven parallel per-page adoption stories); P3 lands the brand moments (mascot/favicon/CRT login, claw-mark empty states, identicons) and syncs documentation.\n\nThe foundation story is the big-bang restyle: syncing canonical components.css delivers ambient ground, glass toasts, micro-lifts, top-lit primary buttons, and the 4-hue logo app-wide in one change, gated by the full UI smoke test. Every UI story is gated on visual validation in both themes at desktop + 768px; phase boundaries run the UI smoke test (TC-01…TC-31).",
+    "phases": [
+      {
+        "id": "P1",
+        "name": "Foundation",
+        "waves": [
+          "W1",
+          "W2"
+        ]
+      },
+      {
+        "id": "P2",
+        "name": "Per-page adoption",
+        "waves": [
+          "W1",
+          "W2"
+        ]
+      },
+      {
+        "id": "P3",
+        "name": "Brand moments & docs",
+        "waves": [
+          "W1",
+          "W2",
+          "W3"
+        ]
+      }
+    ]
+  },
+  "sharedDecisions": [
+    {
+      "title": "CSS layering & sync contract",
+      "description": "S01 establishes static/design-system.css (verbatim canonical components.css, provenance header), static/app.css (app-only rules, loaded after), static/app-tokens.css (surviving app tokens), and the drift check. All later stories add/edit app CSS only in app.css and never touch synced files; new generic classes go upstream-first to dev/design-system/ then sync down.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10",
+        "S11",
+        "S12",
+        "S13"
+      ]
+    },
+    {
+      "title": "Provider-brand token group",
+      "description": "S01 upstreams a documented provider-brand token group (e.g. --brand-claude, --brand-codex) to canonical tokens.css and fixes app badge use sites (Codex stops borrowing semantic --info); S14 completes the DESIGN.md documentation.",
+      "stories": [
+        "S01",
+        "S14"
+      ]
+    },
+    {
+      "title": "Feedback-primitive ownership",
+      "description": "S03 owns every meter/claw-loader/skeleton/scan-bar swap app-wide (including deletions of the four bespoke bars and both spinners). Per-page stories S04–S07 and S09 compose the primitives S03 landed and must not re-implement or re-swap loading/progress UI.",
+      "stories": [
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S09"
+      ]
+    },
+    {
+      "title": "Identicon ownership",
+      "description": "S13 solely owns the identicon rollout — hash utility in shared.js, sidebar session/channel rows, channel hero, and task agent badges. S05 and S09 explicitly exclude identicons even where the audit adoption map mentions them for their pages.",
+      "stories": [
+        "S05",
+        "S09",
+        "S13"
+      ]
+    },
+    {
+      "title": "Layout-container family collapse",
+      "description": "Canonical .content-area/.content-inner arrives with the S01 sync. Exclusive families collapse fully: S07 collapses .dashboard/.dashboard-inner (health is sole consumer), S10 collapses .info-content/.info-inner (session_info is sole consumer), deleting their app.css rules. The shared .page-content/.page-inner family survives 0.22: S06/S08/S09 migrate their pages off it, but tasks, task detail, scheduling, projects, and memory (plus the out-of-scope knowledge templates) remain consumers — a recorded deviation (S14), not an accident. Rules for a family are deleted only by the story removing its last consumer.",
+      "stories": [
+        "S01",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10"
+      ]
+    },
+    {
+      "title": "Mascot asset pipeline",
+      "description": "S11 establishes the binary embedded-asset route (ADR-047 codegen is text-only today; S11 adds the binary channel) serving the mascot favicon and login CRT hero with .pixel-art discipline. S12 needs no served asset (.claw-mark is CSS-only and app-level empty states keep the sanctioned prompt glyph) — its dependsOn S11 is ordering/insurance only.",
+      "stories": [
+        "S11",
+        "S12"
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    {
+      "featureId": "FR1",
+      "anchor": "prd.md#fr1-synced-drift-checked-design-system-css",
+      "verbatim": "`design-system.css` is byte-identical to `dartclaw-public/dev/design-system/components.css` (verified by the drift check); `tokens.css` likewise (app-only tokens isolated in `app-tokens.css`)."
+    },
+    {
+      "featureId": "FR1",
+      "anchor": "prd.md#fr1-synced-drift-checked-design-system-css",
+      "verbatim": "A documented dev command (wired into the verification path) diffs synced files against canon and exits non-zero on mismatch."
+    },
+    {
+      "featureId": "NFR-constraints",
+      "anchor": "prd.md#constraints",
+      "verbatim": "**Zero-npm / server-first**: plain CSS + Trellis + HTMX + Stimulus + SSE; no build step; no new runtime JS dependencies."
+    },
+    {
+      "featureId": "NFR-constraints",
+      "anchor": "prd.md#constraints",
+      "verbatim": "**Design-system compliance + scarcity doctrine**: one claw moment per view; CRT on the login hero only; glass only over live content; one entry motion."
+    },
+    {
+      "featureId": "NFR-constraints",
+      "anchor": "prd.md#constraints",
+      "verbatim": "**Mobile parity**: 768px breakpoint, 48px touch targets, 16px minimum input font."
+    },
+    {
+      "featureId": "NFR-constraints",
+      "anchor": "prd.md#constraints",
+      "verbatim": "**`window.confirm` stays**: currently sanctioned by DESIGN.md; replacing it is out of scope (needs an upstream DESIGN.md decision-table change first)."
+    },
+    {
+      "featureId": "FR4",
+      "anchor": "prd.md#fr4-feedback-primitives-adoption",
+      "verbatim": "All determinate progress (memory budget, task/workflow progress) uses `.meter` with a visible label/percentage (color never carries the reading alone)."
+    },
+    {
+      "featureId": "FR5",
+      "anchor": "prd.md#fr5-per-page-component-adoption",
+      "verbatim": "Glass is used only over live content (never in-flow); identicons encode entity identity only, never state."
+    },
+    {
+      "featureId": "FR2",
+      "anchor": "prd.md#assumptions",
+      "verbatim": "Two cheap accommodations ride the FR2 token work (upstream-first, to canon before the app): viewport **safe-area inset tokens** (`env(safe-area-inset-*)` wired into the shell/layout paddings) and a reserved **titlebar/drag-region variable** for the desktop shell. No shell-specific UI is built here."
+    }
+  ],
+  "stories": [
+    {
+      "id": "S01",
+      "name": "CSS foundation: token rationalization, verbatim split, drift check",
+      "phase": "P1",
+      "wave": "W1",
+      "dependsOn": [],
+      "parallel": false,
+      "risk": "high",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s01-css-foundation.md",
+      "owner": null,
+      "scope": "The app serves a verbatim-synced design-system foundation: static/design-system.css byte-identical to canonical components.css (provenance header: source path + sync date + content hash), static/app.css holding only app-only rules, static/tokens.css synced from canon with surviving app tokens isolated in app-tokens.css, and icons.css re-synced after the canon extension merge. All new Afterglow tokens become available; off-system tokens (--weight-semibold, --radius-sm, --color-peach, --sp-0/--sp-px, --container-wide) are deleted and their use sites fixed; the 36 hardcoded letter-spacing values move to --tracking-* tokens; a provider-brand token group plus the safe-area-inset and titlebar/drag-region variables are upstreamed to canon and provider badge use sites fixed. A drift check wired into dev verification exits non-zero on any divergence, and layout.html load order is updated. Excludes per-page component adoption and ground/motion tuning (S02).",
+      "sourceRefs": [
+        "FR1",
+        "FR2",
+        "US02",
+        "prd.md#fr1-synced-drift-checked-design-system-css",
+        "prd.md#fr2-token-rationalization--provider-brand-canonicalization",
+        "prd.md#assumptions"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#1-css-drift-analysis",
+        "dev/design-system/",
+        "packages/dartclaw_server/test/static/design_system_icons_sync_test.dart"
+      ],
+      "notes": "Precondition: merge feat/design-system-afterglow-extension (b8cb03f9) into canon first — the sync ships canon→app, so the extension must be canonical. That commit adds 44 lines to canonical icons.css, so the existing strict icons fitness test fails until this story re-syncs the app copy. Audit line refs are stale (app components.css grew 4,527→5,097 lines since 2026-06-09); locate rules by selector, not line number. This is the big-bang restyle: ground, glass toasts, micro-lifts, top-lit primary, 4-hue logo all arrive with the sync — gate on the full UI smoke test."
+    },
+    {
+      "id": "S02",
+      "name": "Ambient ground & unified entry motion",
+      "phase": "P1",
+      "wave": "W2",
+      "dependsOn": [
+        "S01"
+      ],
+      "parallel": false,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s02-ambient-ground-and-unified-entry-motion.md",
+      "owner": null,
+      "scope": "The canonical body ground (3-stop gradient + ambient glows + film-grain body::before) renders correctly across the shell grid, dialogs, and SSE swaps in both themes — no banding on large viewports, grain layered behind content and above the gradient, --noise-opacity tuned per theme. A single print-in arrival motion covers message fragments, HTMX-swapped page content, task cards, and workflow run cards, applied via shared fragment roots; no competing entry animations remain. prefers-reduced-motion disables ambient, print-in, loader animation, and micro-lifts. Excludes loading/progress indicators (S03).",
+      "sourceRefs": [
+        "FR3",
+        "US04",
+        "prd.md#fr3-atmospheric-ground--unified-entry-motion",
+        "prd.md#edge-cases"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#2-new-component-adoption-map"
+      ],
+      "notes": "The ground/motion CSS itself arrives with the S01 sync; this story is application (print-in class placement on fragment roots), stacking/banding verification, and per-theme tuning in app.css only."
+    },
+    {
+      "id": "S03",
+      "name": "Feedback primitives: meters, claw-loader, skeletons, scan-bar",
+      "phase": "P2",
+      "wave": "W1",
+      "dependsOn": [
+        "S01"
+      ],
+      "parallel": false,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s03-feedback-primitives.md",
+      "owner": null,
+      "scope": "All determinate progress uses .meter/.meter-fill--* with visible labels: the four bespoke bars (budget-bar, fill-bar, task-progress, workflow-progress-bar) are replaced and their CSS deleted. Both circular spinners are retired: the restart overlay and chat pre-stream wait use .claw-loader (at most one per view), pairing sweeps use .scan-bar, and the task-detail live-activity row gets the claw-loader as its view's single claw moment. Initial loads adopt skeletons: workflow picker list, memory file preview, and the chat load-earlier fetch replace text-only 'Loading…' states. No @keyframes spin, .restart-spinner, or .wa-spinner remains. Excludes page-level layout/typography adoption (S04–S10).",
+      "sourceRefs": [
+        "FR4",
+        "US03",
+        "prd.md#fr4-feedback-primitives-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#3-violations-inventory",
+        "audit-design-system-compliance.md#2-new-component-adoption-map"
+      ],
+      "notes": "Touches Stimulus controllers (dc_shell, dc_workflows, dc_memory, dc_tasks) as well as templates — controller-injected markup must swap to canonical primitives. Runs before the per-page stories because it deletes shared CSS they would otherwise touch."
+    },
+    {
+      "id": "S04",
+      "name": "Chat page adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S03"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s04-chat-page-adoption.md",
+      "owner": null,
+      "scope": "The chat page reaches 'good' compliance: composer command/reference palettes float as glass over the thread, kbd hints appear in composer suggestions and shortcuts, message tints/streaming cursor/input focus ring verified against canonical, and display:none toggles convert to the hidden attribute. Excludes the pre-stream claw-loader and load-earlier skeleton (S03) and print-in placement (S02).",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance"
+      ],
+      "notes": null
+    },
+    {
+      "id": "S05",
+      "name": "Tasks & task detail adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S03"
+      ],
+      "parallel": true,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s05-tasks-task-detail-adoption.md",
+      "owner": null,
+      "scope": "Tasks and task-detail pages reach 'good' compliance: task/project dialogs become glass surfaces with a token-derived (theme-aware) ::backdrop replacing the raw rgba, diff/raw artifact views adopt terminal-frame, card-tint-* semantics land on status groups, review-bar buttons align to canonical variants, and display:none toggles convert to hidden. Excludes meters and the activity-row loader (S03), identicons for agent badges (S13), and empty-state claw-marks (S12).",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance",
+        "dartclaw-private/docs/wireframes/"
+      ],
+      "notes": "Dialog markup lives in Dart page builders (task_form.dart, project_form.dart), not only templates. task_timeline.html postdates the audit — include it in the page's hygiene pass if violations exist."
+    },
+    {
+      "id": "S06",
+      "name": "Workflows adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S03"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s06-workflows-adoption.md",
+      "owner": null,
+      "scope": "Workflow list, detail, and step-detail pages reach 'good' compliance: step output adopts terminal-frame, the non-token run-card hover (border-color: var(--fg-overlay)) is fixed to the canonical accent-mix hover, display:none toggles convert to hidden, and the page migrates to the canonical layout-container family. Excludes the workflow progress meter and picker skeletons (S03).",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance"
+      ],
+      "notes": null
+    },
+    {
+      "id": "S07",
+      "name": "Health & memory dashboards adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S03"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s07-health-memory-dashboards-adoption.md",
+      "owner": null,
+      "scope": "Health and memory dashboards reach 'good' compliance: KPIs adopt metric-value (32px) and display type with tracking tokens, status-hero becomes card-featured-{color}, the heartbeat-style one-off badges align to canonical status badges, the .dashboard/.dashboard-inner container family collapses into .content-area/.content-inner, and --chart-1..6 tokens are wired as the sanctioned hue source for future viz (no charts built). Excludes memory meters and preview skeletons (S03).",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption",
+        "prd.md#out-of-scope"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance"
+      ],
+      "notes": "Net-new charts/sparklines are out of scope — only the token wiring lands here."
+    },
+    {
+      "id": "S08",
+      "name": "Settings adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S01"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s08-settings-adoption.md",
+      "owner": null,
+      "scope": "The settings page reaches 'good' compliance: the template-local <style> block is deleted, summary-stat re-implementations become card-metric with metric-value/metric-label, tracking tokens replace hardcoded letter-spacing, and kbd appears in shortcut help text. The page migrates off its parallel layout-container family. No template-local <style> block remains app-wide after this story.",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance"
+      ],
+      "notes": "Biggest single template (~930 lines at audit time)."
+    },
+    {
+      "id": "S09",
+      "name": "Channels & pairing adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S03"
+      ],
+      "parallel": true,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s09-channels-pairing-adoption.md",
+      "owner": null,
+      "scope": "Channel detail and both pairing pages (WhatsApp, Signal) reach 'good' compliance: the 37 inline style attributes are purged into classes/utilities, .wa-pre becomes .well-deep, form/step sections adopt wells, wa-* shared classes are renamed channel-neutral, and channel-detail hygiene (hidden attribute, well sub-groups) lands. Excludes the wa-spinner → scan-bar swap (S03) and the channel-hero identicon (S13).",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#3-violations-inventory",
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance"
+      ],
+      "notes": "Pairing flows need manual hardware validation per channel-e2e-manual; QR frame rendering is part of the visual gate."
+    },
+    {
+      "id": "S10",
+      "name": "Scheduling, projects & session info adoption",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S01"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s10-scheduling-projects-session-info-adoption.md",
+      "owner": null,
+      "scope": "Scheduling, projects, and session-info pages reach 'good' compliance: display:none toggles convert to hidden, inline margins/typography move into classes, the heartbeat-card one-off becomes canonical card-metric/status-badge primitives, session token stats adopt metric type, stat groupings adopt wells, and the .info-content/.info-inner container family collapses into .content-area/.content-inner. Excludes the projects empty-state claw-mark (S12).",
+      "sourceRefs": [
+        "FR5",
+        "US01",
+        "prd.md#fr5-per-page-component-adoption"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#5-quick-reference--page-by-page-compliance"
+      ],
+      "notes": "window.confirm usages on these pages are sanctioned — leave them."
+    },
+    {
+      "id": "S11",
+      "name": "Mascot serving & CRT login hero",
+      "phase": "P3",
+      "wave": "W1",
+      "dependsOn": [
+        "S01"
+      ],
+      "parallel": false,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s11-mascot-serving-crt-login-hero.md",
+      "owner": null,
+      "scope": "The 8-bit crab mascot is served by the app: the favicon is the mascot avatar (crisp at 16/32px, sized variants, replacing the empty data:, href), and the login page becomes the app's single CRT surface — the login card inside terminal-frame--crt with a mascot masthead and display-type wordmark. Mascot always renders with .pixel-art and never below ~32px. Both themes, mobile, and reduced-motion validated. Excludes empty-state mascot/claw-mark usage (S12).",
+      "sourceRefs": [
+        "FR6",
+        "US05",
+        "prd.md#fr6-brand-identity-surfaced"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "assets/ (logo-avatar-512-8bit.png and variants)",
+        "audit-design-system-compliance.md#2-new-component-adoption-map"
+      ],
+      "notes": "Static assets are embedded into the AOT binary via the ADR-047 codegen pipeline — serving a new binary asset must go through that route, not a loose file."
+    },
+    {
+      "id": "S12",
+      "name": "Claw-mark empty states",
+      "phase": "P3",
+      "wave": "W2",
+      "dependsOn": [
+        "S05",
+        "S10",
+        "S11"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s12-claw-mark-empty-states.md",
+      "owner": null,
+      "scope": "Empty states carry the brand: emoji icons are replaced with the claw-mark (list empty states) or mascot (app-level empty states) under the one-mark-per-view rule — task detail's two empty states yield at most one mark — while the sanctioned ❯_ prompt glyph stays where it is. Off-list emoji (📂, 🗃) are eliminated. Every empty state passes visual validation with a per-view scarcity check.",
+      "sourceRefs": [
+        "FR6",
+        "US05",
+        "prd.md#fr6-brand-identity-surfaced"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#2-new-component-adoption-map",
+        "audit-design-system-compliance.md#3-violations-inventory"
+      ],
+      "notes": null
+    },
+    {
+      "id": "S13",
+      "name": "Identicons rollout",
+      "phase": "P3",
+      "wave": "W2",
+      "dependsOn": [
+        "S05",
+        "S09"
+      ],
+      "parallel": true,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s13-identicons-rollout.md",
+      "owner": null,
+      "scope": "Identicons encode entity identity across the app: sidebar session rows (hash of session id), sidebar channel rows and the channel-detail hero (hash of channel id), and task agent badges (identicon + label; provider stays a badge). A shared hash utility lands in shared.js. Identicons never encode state; color-collision sanity across the 6 variants and sidebar density are validated.",
+      "sourceRefs": [
+        "FR5",
+        "FR6",
+        "US05",
+        "prd.md#fr5-per-page-component-adoption",
+        "prd.md#fr6-brand-identity-surfaced"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "audit-design-system-compliance.md#2-new-component-adoption-map"
+      ],
+      "notes": "Sole owner of all identicon work per the shared decision — S05/S09 deliberately excluded it."
+    },
+    {
+      "id": "S14",
+      "name": "Documentation & deviation sync",
+      "phase": "P3",
+      "wave": "W3",
+      "dependsOn": [
+        "S12",
+        "S13"
+      ],
+      "parallel": false,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "dev/bundle/docs/specs/0.22/s14-documentation-deviation-sync.md",
+      "owner": null,
+      "scope": "Documentation matches the shipped system: public design-system docs reflect the upstreamed icon vocabulary and the provider-brand token group plus any deviations discovered during implementation; the private wireframe deviations.md records every intentional divergence (no undocumented deviation remains); user-guide screenshots are refreshed where the visual change is significant.",
+      "sourceRefs": [
+        "FR7",
+        "US06",
+        "prd.md#fr7-documentation--deviation-sync"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "dev/design-system/DESIGN.md",
+        "dartclaw-private/docs/wireframes/deviations.md",
+        "docs/guide/"
+      ],
+      "notes": "deviations.md lives in the private repo (dartclaw-private) — outside this repo's tree."
+    }
+  ],
+  "riskSummary": [
+    {
+      "story": "S01",
+      "risk": "high",
+      "mitigation": "Big-bang restyle: merge the canon extension branch first, gate on the full UI smoke test (TC-01…TC-31) plus both-theme spot checks of all pages immediately after the split; the existing icons fitness test guards the icons re-sync; drift check makes any post-split divergence loud."
+    },
+    {
+      "story": "S02",
+      "risk": "medium",
+      "mitigation": "Dedicated visual-validation matrix: large-viewport banding, light theme, mobile drawer over the ground, dialogs and SSE swaps in both themes; reduced-motion pass."
+    },
+    {
+      "story": "S03",
+      "risk": "medium",
+      "mitigation": "Controller-injected markup swaps exercised end-to-end: restart flow, slow-network workflow list, memory preview; one-claw-per-view check per affected view."
+    },
+    {
+      "story": "S05",
+      "risk": "medium",
+      "mitigation": "Dialog markup lives in Dart page builders — verify glass dialogs over live content and the token-derived backdrop in both themes; review flow exercised."
+    },
+    {
+      "story": "S09",
+      "risk": "medium",
+      "mitigation": "Manual hardware validation of pairing flows per channel-e2e-manual; QR frame screenshots both themes."
+    },
+    {
+      "story": "S11",
+      "risk": "medium",
+      "mitigation": "Binary asset ships through the ADR-047 embedded-asset codegen; verify favicon crispness at 16/32px and the embedded route in an AOT build."
+    }
+  ],
+  "executionNotes": "Precondition before S01: merge feat/design-system-afterglow-extension (b8cb03f9, design-system files only) into canon — the drift-checked sync ships canon→app. Audit line references are stale (app components.css grew 4,527→5,097 lines since 2026-06-09); FIS and implementation must locate rules by selector/class name. Six post-audit templates (knowledge_hub, kg_timeline, research_packet, source_attribution, task_timeline, restart_banner) are outside the audit §5 page scope but count toward app-wide grep criteria (verified currently free of inline styles); do not expand per-page adoption into the knowledge UI. Execution order: S01 → S02 → S03 strictly serial; the seven W2 page stories are parallelizable but all edit static/app.css — batch ~3 at a time and prefer distinct app.css sections per story. Phase boundaries run the UI smoke test (TC-01…TC-31); every UI story is individually gated on visual validation in both themes at desktop + 768px."
+}

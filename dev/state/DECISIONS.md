@@ -91,6 +91,7 @@
 - **Windows bash qualification ownership**: The committed scenario at `dev/testing/scenarios/windows-bash-step.md` owns
   the repeatable acceptance contract; run reports are ephemeral local or CI output. S09 remains the core runtime smoke
   path and does not absorb bash qualification. Owner decision, 2026-07-19.
+- **Design-system gap resolution**: When implementation discovers a gap in the canonical design system (a missing primitive, layout affordance, or token), close it upstream in `dev/design-system/` first and sync down — never with page-specific workarounds in app CSS; compose canonical primitives wherever they exist. Ratified during 0.22 preflight (owner, 2026-07-20): drove extending canonical `.content-inner` with the stack gap (rather than per-page spacing rules) and the canonical dot+badge status-hero treatment; the fallback for any canon-adoption visual regression is an upstream canon fix, not a local override.
 
 ## Pending
 

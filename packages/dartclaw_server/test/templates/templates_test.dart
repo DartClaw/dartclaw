@@ -58,6 +58,40 @@ void main() {
       expect(html, contains('Group mode:'));
       expect(html, contains('data-mode-select="dm_access"'));
       expect(html, contains('data-mode-select="group_access"'));
+      expect(html, contains('class="content-area print-in"'));
+      expect(html, contains('class="content-inner"'));
+      expect(html, contains('class="well well-content channel-sub-card"'));
+      expect(RegExp('class="well well-content channel-sub-card').allMatches(html), hasLength(6));
+      expect(html, isNot(contains('class="well channel-sub-card"')));
+      expect(html, contains('id="channel-restart-banner" class="banner banner-warning" hidden'));
+      expect(html, contains('class="identicon" aria-hidden="true" data-identicon-id="whatsapp"'));
+    });
+
+    test('keys each channel hero identicon by channel type', () {
+      String render(String channelType, String channelLabel) => channelDetailTemplate(
+        channelType: channelType,
+        channelLabel: channelLabel,
+        statusLabel: 'Connected',
+        statusClass: 'status-badge-success',
+        dmAccessMode: 'open',
+        dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
+        dmAllowlist: const [],
+        groupAccessMode: 'open',
+        groupAccessModes: const ['allowlist', 'open', 'disabled'],
+        groupAllowlist: const [],
+        requireMention: false,
+        entryPlaceholder: 'entry',
+        groupPlaceholder: 'group',
+        sidebarData: sidebarData,
+        navItems: navItems,
+      );
+
+      for (final channel in [('whatsapp', 'WhatsApp'), ('signal', 'Signal'), ('google_chat', 'Google Chat')]) {
+        expect(
+          render(channel.$1, channel.$2),
+          contains('class="identicon" aria-hidden="true" data-identicon-id="${channel.$1}"'),
+        );
+      }
     });
 
     test('renders pairing queue only when mode is pairing', () {

@@ -81,37 +81,37 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02] [TI01,TI02] Signal pairing renders inline-style-free with channel-neutral wells**
+- [x] **S01 [OC01,OC02] [TI01,TI02] Signal pairing renders inline-style-free with channel-neutral wells**
   - **Given** the Signal pairing page in the link-device state
   - **When** the page renders
   - **Then** the HTML contains no `style="` attribute and no `wa-` class token; the `signal-cli` config block renders inside a `.well-deep`; the QR frame uses a `.pairing-qr-frame` class (white background carried by the class, not inline); former `color:var(--fg-sub0)` / `font-size:var(--text-sm)` inlines are now `.text-muted` / `.text-sm` utilities
 
-- [ ] **S02 [OC01,OC02] [TI01,TI03] WhatsApp pairing renders inline-style-free with a `hidden` expired state**
+- [x] **S02 [OC01,OC02] [TI01,TI03] WhatsApp pairing renders inline-style-free with a `hidden` expired state**
   - **Given** the WhatsApp pairing page in the QR state
   - **When** the page renders
   - **Then** the HTML contains no `style="` attribute and no `wa-` class token; the QR-expired block uses the `hidden` attribute instead of `style="display:none"`; the GOWA config block renders inside a `.well-deep`
 
-- [ ] **S03 [OC02] [TI04] Pairing CSS drops the bespoke `wa-*` family**
+- [x] **S03 [OC02] [TI04] Pairing CSS drops the bespoke `wa-*` family**
   - **Given** the built `static/app.css` after the story
   - **When** it is grepped for pairing selectors
   - **Then** it contains zero `.wa-` selectors (no `.wa-pre`, `.wa-section`, `.wa-main`, `.wa-spinner`), the pairing form/step sections resolve to canonical `.well`/`.well-content`, and the surviving pairing-specific rules use the `pairing-` prefix
 
-- [ ] **S04 [OC03] [TI05,TI06] Channel-detail hygiene: `hidden` toggle + canonical layout family**
+- [x] **S04 [OC03] [TI05,TI06] Channel-detail hygiene: `hidden` toggle + canonical layout family**
   - **Given** the channel-detail page and its restart-banner toggle
   - **When** the page renders and `dc_settings_controller.showChannelRestartBanner()` runs
   - **Then** `#channel-restart-banner` carries the `hidden` attribute (no `style="display: none"`), the controller clears it via `.hidden = false` (not `.style.display`), the page main/inner use `.content-area`/`.content-inner`, and the panel sub-groups render as canonical wells
 
-- [ ] **S05 [OC04] [TI01,TI03] The S03 scan-bar survives the pairing rename**
+- [x] **S05 [OC04] [TI01,TI03] The S03 scan-bar survives the pairing rename**
   - **Given** the Signal or WhatsApp pairing page in a waiting/reconnecting state (where S03 already replaced `wa-spinner` with `.scan-bar`)
   - **When** the page renders after this story's rename
   - **Then** a `.scan-bar` still renders in the wait row and no `wa-spinner` (or `@keyframes wa-spin`) reappears — this story neither re-swaps nor re-implements the loader
 
-- [ ] **S06 [OC01] [TI01] A layout-only inline with no utility match becomes an app.css class**
+- [x] **S06 [OC01] [TI01] A layout-only inline with no utility match becomes an app.css class**
   - **Given** the Signal captcha step list (`<ol>` with an inline `display:flex;flex-direction:column;gap`) that no text utility covers
   - **When** the page renders
   - **Then** the list uses a purpose class defined in `static/app.css` (not an inline style and not dropped), and still renders as a gap-spaced vertical column
 
-- [ ] **S07 [OC04] [TI01,TI04,TI05] Both pairing pages and channel detail pass the visual gate in both themes**
+- [x] **S07 [OC04] [TI01,TI04,TI05] Both pairing pages and channel detail pass the visual gate in both themes**
   - **Given** the `visual` testing profile at desktop and 768px in dark and light
   - **When** channel detail, WhatsApp pairing, and Signal pairing are captured (manual hardware pairing per `channel-e2e-manual`)
   - **Then** each page reads "good" against the design system, the QR frame's white background renders legibly in both themes, and no layout/contrast regression appears versus the pre-story baseline
@@ -119,11 +119,11 @@
 
 ## Structural Criteria
 
-- [ ] `grep -c 'style="'` on `signal_pairing.html`, `whatsapp_pairing.html`, and `channel_detail.html` is `0` (proved by TI01/TI02/TI05).
-- [ ] `grep -c 'wa-'` on both pairing templates is `0`, and `static/app.css` has no `.wa-` selector (proved by TI01/TI02/TI04).
-- [ ] The synced `static/design-system.css` and `static/tokens.css` are untouched and the S01 drift check still exits zero (proved by TI07).
-- [ ] `lib/src/generated/embedded_assets.g.dart` is regenerated and `git diff --exit-code` on it is clean after the template/static/controller edits (proved by TI07).
-- [ ] Existing pairing route tests (`test/web/signal_pairing_routes_test.dart`, `test/web/whatsapp_pairing_routes_test.dart`) are updated to the renamed markup and pass (proved by TI07).
+- [x] `grep -c 'style="'` on `signal_pairing.html`, `whatsapp_pairing.html`, and `channel_detail.html` is `0` (proved by TI01/TI02/TI05).
+- [x] `grep -c 'wa-'` on both pairing templates is `0`, and `static/app.css` has no `.wa-` selector (proved by TI01/TI02/TI04).
+- [x] The synced `static/design-system.css` and `static/tokens.css` are untouched and the S01 drift check still exits zero (proved by TI07).
+- [x] `lib/src/generated/embedded_assets.g.dart` is regenerated and `git diff --exit-code` on it is clean after the template/static/controller edits (proved by TI07).
+- [x] Existing pairing route tests (`test/web/signal_pairing_routes_test.dart`, `test/web/whatsapp_pairing_routes_test.dart`) are updated to the renamed markup and pass (proved by TI07).
 
 
 ## Scope & Boundaries
@@ -180,32 +180,32 @@ file   | packages/dartclaw_server/test/web/whatsapp_pairing_routes_test.dart    
 
 ### Implementation Tasks
 
-- [ ] **TI01** Signal pairing template is inline-style-free and composed from channel-neutral wells and utilities
+- [x] **TI01** Signal pairing template is inline-style-free and composed from channel-neutral wells and utilities
   - Move every `style="…"` in `signal_pairing.html` to canonical utilities (`color:var(--fg-sub0)`→`.text-muted`, `font-size:var(--text-sm)`→`.text-sm`, `--text-xs`→`.text-xs`, `--fg-overlay`→`.text-overlay`, `--success`→`.text-success`, `--warning`→`.text-warning`) or, for inline properties with no canonical utility, a shared channel-neutral app.css class – the captcha `<ol>` flex list and form stacks, the check/warning step-icon `--text-xl` sizing (a shared step-icon class), the link-URI `<code>`'s `--accent`/`word-break`/`display:block` treatment (a shared link-URI class), and the QR frame/img. These app.css class names are the implementer's choice but MUST be identical across both pairing templates wherever the same treatment recurs. Rename all `wa-*` classes to `pairing-*`; render the `signal-cli` config `<pre>` as `.well-deep`; make each pairing form/step section a canonical `.well`/`.well-content` plus a shared `pairing-`-prefixed section layout class that carries the internal flex-column + gap the old `.wa-section` provided (well internals are app-specific composition, not a canon gap). The scan-bar S03 placed in the wait row stays.
   - Follow `whatsapp_pairing.html`'s QR **markup/class structure** – a frame element wrapping an img element, under the shared `pairing-qr-*` class family – when consolidating Signal's inline QR frame; do NOT copy WhatsApp's background treatment. Background ownership follows TI04's contract: `.pairing-qr-frame` carries the white background + padding (Signal's existing frame architecture – theme-independent QR scannability in both themes) and `.pairing-qr-img` is the bare image. WhatsApp's current img-level `bg-surface0` + dashed-border placeholder treatment on `.wa-qr-img` is dropped, not carried onto `.pairing-qr-img`.
   - **Verify**: `Test: rendered signal_pairing HTML has grep -c 'style="' == 0 and grep -c 'wa-' == 0; the config block carries class="well-deep"; the QR frame carries class="pairing-qr-frame" (white background) and the QR <img> carries class="pairing-qr-img" (bare, no background); each form/step section carries class="well" with a "well-content" body plus the shared pairing-section layout class; the check/warning step icons carry the shared step-icon class (not an inline --text-xl) and the link-URI code carries the shared link-URI class (not an inline --accent); former --text-xs/--fg-overlay/--success/--warning inlines are now .text-xs/.text-overlay/.text-success/.text-warning utilities; a .scan-bar still renders in the reconnect row; section-internal spacing is visually confirmed in both themes per the S07 gate`
 
-- [ ] **TI02** WhatsApp pairing template is inline-style-free with a `hidden` expired state
+- [x] **TI02** WhatsApp pairing template is inline-style-free with a `hidden` expired state
   - Move the `style="…"` inlines (12 in the pre-S01 snapshot) in `whatsapp_pairing.html` to the same utilities/classes as TI01 – including the shared step-icon class for the check/warning `--text-xl` sizing; rename `wa-*` → `pairing-*`; render the GOWA config `<pre>` as `.well-deep`; convert the QR-expired block's `style="display:none"` to the `hidden` attribute; make each form/step section a `.well`/`.well-content` plus the shared pairing-section layout class carrying the internal column gap. Class names MUST match those chosen in TI01 (shared pairing family).
   - **Verify**: `Test: rendered whatsapp_pairing HTML has grep -c 'style="' == 0 and grep -c 'wa-' == 0; the expired block uses the hidden attribute and no style="display:none"; the config block carries class="well-deep"; each form/step section carries class="well" with a "well-content" body plus the shared pairing-section layout class; the check/warning step icons carry the shared step-icon class (not an inline --text-xl); section-internal spacing is visually confirmed in both themes per the S07 gate`
 
-- [ ] **TI03** `dc_whatsapp_controller` toggles the QR-expired state via `hidden`
+- [x] **TI03** `dc_whatsapp_controller` toggles the QR-expired state via `hidden`
   - Update the `wa-qr-placeholder` class reference to its `pairing-` rename and change the active/expired target toggle to set `expiredTarget.hidden`/`activeTarget.hidden` instead of `.style.display`; keep the countdown/onerror behavior otherwise unchanged.
   - **Verify**: `Test: when the countdown expires, the active target gains hidden and the expired target loses it (no reliance on style.display); the placeholder-fallback path still fires on QR image error`
 
-- [ ] **TI04** `static/app.css` carries no `wa-*` selector and the pairing family is channel-neutral
+- [x] **TI04** `static/app.css` carries no `wa-*` selector and the pairing family is channel-neutral
   - Rename the `wa-*` rule blocks to `pairing-*`; delete `.wa-pre` and `.wa-section` (config blocks now use canonical `.well-deep`; sections use `.well`/`.well-content` plus a shared `pairing-`-prefixed section layout class that carries the internal flex-column + gap the old `.wa-section` provided – well internals are app-specific composition, not a canon gap); add `.pairing-qr-frame` (explicit white background + padding; the img stays bare – no img-level background/border), the shared step-icon and link-URI classes the purged `--text-xl`/`--accent` inlines need, and any other layout utility classes the purged TI01/TI02 inline layout styles need. Edit `static/app.css` only – never the synced files.
   - **Verify**: `Test: grep -c '\.wa-' static/app.css == 0; a .pairing-qr-frame rule with a white background + padding exists while .pairing-qr-img carries no background or border (bare image); a shared pairing-section layout class exists with flex column + gap; grep for '.wa-pre' and '.wa-section' in static/app.css returns nothing`
 
-- [ ] **TI05** Channel-detail template uses the `hidden` attribute, canonical wells, and the canonical layout family
+- [x] **TI05** Channel-detail template uses the `hidden` attribute, canonical wells, and the canonical layout family
   - In `channel_detail.html`: convert `#channel-restart-banner`'s `style="display: none"` to the `hidden` attribute; render the `.channel-sub-card` panel sub-groups as canonical wells – **keep** the `.channel-sub-card` class token (it is the hook for its own `h3` styling and for the sibling semantic classes, and `.channel-mention-section` is queried by `dc_settings_controller.js` and must survive) but add `.well`/`.well-content` to each sub-group and **strip** `.channel-sub-card`'s own box-model rules from `static/app.css` (the two duplicate blocks – the shared `border-radius` rule and the flex-column/gap/padding/`bg-mantle`/border block) so the well owns the box; the surviving `.channel-sub-card` app.css remnant covers only the `h3`/semantic bits. Migrate `.page-content`/`.page-inner` to `.content-area`/`.content-inner` (leave the shared app.css rule in place – not the last consumer). Do not add the hero identicon (S13).
   - **Verify**: `Test: rendered channel_detail HTML uses hidden on #channel-restart-banner (no style="display: none"), uses class="content-area"/"content-inner" (no page-content/page-inner), renders each panel sub-group with class="well"/"well-content" while retaining the channel-sub-card token (with .channel-mention-section still present for the controller query), and contains no identicon; static/app.css has no .channel-sub-card box-model rule (no bg-mantle/padding/flex-column block) – only the h3/semantic remnant survives`
 
-- [ ] **TI06** `dc_settings_controller.showChannelRestartBanner` drives the `hidden` attribute
+- [x] **TI06** `dc_settings_controller.showChannelRestartBanner` drives the `hidden` attribute
   - Change `showChannelRestartBanner()` to set `banner.hidden = false` instead of `banner.style.display = ''`, matching the TI05 template change.
   - **Verify**: `Test: invoking showChannelRestartBanner() removes the hidden attribute from #channel-restart-banner (asserted against banner.hidden === false), not a style.display write`
 
-- [ ] **TI07** Embedded assets and pairing route tests reflect the renamed markup
+- [x] **TI07** Embedded assets and pairing route tests reflect the renamed markup
   - Run `dart run dev/tools/embed_assets.dart` after the template/static/controller edits; update `test/web/signal_pairing_routes_test.dart` and `test/web/whatsapp_pairing_routes_test.dart` for the `pairing-*` class names / `well-deep` / `hidden` assertions.
   - **Verify**: `Test: git diff --exit-code on lib/src/generated/embedded_assets.g.dart is clean after regen; dart test test/web/signal_pairing_routes_test.dart test/web/whatsapp_pairing_routes_test.dart passes; the S01 drift check exits 0`
 
@@ -222,10 +222,11 @@ file   | packages/dartclaw_server/test/web/whatsapp_pairing_routes_test.dart    
 
 ## Final Validation Checklist
 
-- [ ] App-wide grep confirms the pairing/channel hygiene is clear: `grep -rc 'wa-'` on both pairing templates and `grep -c '\.wa-'` on `static/app.css` are `0`; `grep -c 'style="'` on the three touched templates is `0`.
-- [ ] The S03 scan-bar and loader work on the pairing pages is intact (no `wa-spinner`/`@keyframes wa-spin` reintroduced, `.scan-bar` still present).
+- [x] App-wide grep confirms the pairing/channel hygiene is clear: `grep -rc 'wa-'` on both pairing templates and `grep -c '\.wa-'` on `static/app.css` are `0`; `grep -c 'style="'` on the three touched templates is `0`.
+- [x] The S03 scan-bar and loader work on the pairing pages is intact (no `wa-spinner`/`@keyframes wa-spin` reintroduced, `.scan-bar` still present).
 
 
 ## Implementation Observations
 
-_No observations recorded yet._
+- Critic review caught missing `.well-content` composition and duplicate channel-sub-card layout; all six subgroups now rely on the canonical well/content pair.
+- Hardware pairing was unavailable; dark/light desktop/768 QR, waiting, scan-bar, channel-well, and hidden-banner states were validated with controlled current-source probes. External device pairing remains a P3 evidence gap.

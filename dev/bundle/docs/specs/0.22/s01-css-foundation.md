@@ -66,32 +66,32 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI03,TI04] Verbatim split serves canon**
+- [x] **S01 [OC01] [TI03,TI04] Verbatim split serves canon**
   - **Given** the Afterglow canon extension is merged into `dev/design-system/` and the CSS is split
   - **When** the drift check compares `static/design-system.css` and `static/tokens.css` against their canonical sources (provenance header excluded)
   - **Then** both bodies are identical to canonical `components.css` / `tokens.css`, and `static/design-system.css` contains no interleaved app-only rules
 
-- [ ] **S02 [OC02] [TI09] Drift check catches divergence and is loud**
+- [x] **S02 [OC02] [TI09] Drift check catches divergence and is loud**
   - **Given** the synced files match canon (drift check exits 0)
   - **When** a single character is edited into the body of `static/design-system.css`
   - **Then** the drift check exits non-zero and its output names `design-system.css` as the diverging file; re-syncing from canon restores a zero exit
 
-- [ ] **S03 [OC03] [TI02,TI03,TI05] Off-system tokens gone, provider badges canonicalized**
+- [x] **S03 [OC03] [TI02,TI03,TI05] Off-system tokens gone, provider badges canonicalized**
   - **Given** the split and token rationalization are complete
   - **When** `static/*.css` is grepped for `--weight-semibold`, `--radius-sm`, `--color-peach`, `--container-wide`, `--sp-0`, `--sp-px`, and `--color-claude`
   - **Then** no match remains, and `.provider-badge-codex` resolves its colour from `--brand-codex` (not `var(--info)`) while `.provider-badge-claude` uses `--brand-claude`
 
-- [ ] **S04 [OC03] [TI06] Caps labels use tracking tokens**
+- [x] **S04 [OC03] [TI06] Caps labels use tracking tokens**
   - **Given** the app-only rules live in `static/app.css`
   - **When** `app.css` is grepped for hardcoded `letter-spacing:` values (those not using `var(--tracking-*)`)
   - **Then** zero remain — every uppercase/caps label references `--tracking-caps` or `--tracking-tight`
 
-- [ ] **S05 [OC04] [TI04,TI05,TI11] Big-bang restyle renders unchanged-or-better**
+- [x] **S05 [OC04] [TI04,TI05,TI11] Big-bang restyle renders unchanged-or-better**
   - **Given** the split is deployed and served (embedded + filesystem)
   - **When** the UI smoke test (TC-01…TC-31) runs in both dark and light themes at desktop and 768px
   - **Then** all cases pass, and the sync-delivered treatments are visibly present — ambient ground, glass toasts, `.btn`/`.card` micro-lifts, top-lit `.btn-primary`, and the 4-hue sidebar logo
 
-- [ ] **S06 [OC02] [TI01,TI07] Icons re-synced after the canon extension**
+- [x] **S06 [OC02] [TI01,TI07] Icons re-synced after the canon extension**
   - **Given** commit `b8cb03f9` (canon extension, +44 lines to canonical `icons.css`) is merged into canon
   - **When** `static/icons.css` is re-synced from `dev/design-system/icons.css`
   - **Then** `diff dev/design-system/icons.css packages/dartclaw_server/lib/src/static/icons.css` is empty and `design_system_icons_sync_test.dart` passes
@@ -99,11 +99,11 @@
 
 ## Structural Criteria
 
-- [ ] `layout.html` `<link>` order loads tokens before app-tokens before design-system before app before icons (proved by TI08 Verify).
-- [ ] The drift check is invoked from `dev/tools/fitness/run_all.sh` and documented in `KEY_DEVELOPMENT_COMMANDS.md` (proved by TI09 Verify).
-- [ ] `embedded_assets.g.dart` is regenerated so `design-system.css`, `app.css`, and `app-tokens.css` are served in embedded mode (proved by TI10 Verify).
-- [ ] The drift check adds no build step and no runtime JS dependency — plain POSIX diff/hash or a dependency-free Dart tool (proved by TI09 Verify).
-- [ ] The existing `dartclaw_server` test suite stays green after the split (standard exec-spec gate).
+- [x] `layout.html` `<link>` order loads tokens before app-tokens before design-system before app before icons (proved by TI08 Verify).
+- [x] The drift check is invoked from `dev/tools/fitness/run_all.sh` and documented in `KEY_DEVELOPMENT_COMMANDS.md` (proved by TI09 Verify).
+- [x] `embedded_assets.g.dart` is regenerated so `design-system.css`, `app.css`, and `app-tokens.css` are served in embedded mode (proved by TI10 Verify).
+- [x] The drift check adds no build step and no runtime JS dependency — plain POSIX diff/hash or a dependency-free Dart tool (proved by TI09 Verify).
+- [x] The existing `dartclaw_server` test suite stays green after the split (standard exec-spec gate).
 
 
 ## Scope & Boundaries
@@ -159,47 +159,47 @@ ref    | git b8cb03f9 (branch feat/design-system-afterglow-extension)           
 
 ### Implementation Tasks
 
-- [ ] **TI01** Canon carries the Afterglow extension (precondition)
+- [x] **TI01** Canon carries the Afterglow extension (precondition)
   - Merge `feat/design-system-afterglow-extension` (`b8cb03f9`, design-system files only) into `dev/design-system/` on the current branch; the drift-checked sync ships canon→app, so canon must be current first. Brings `.composer`/`.tool-call`/`.approval-card`/`.chip` components, `--syntax-*`, and the `--safe-*` / `--titlebar-drag-h` tokens.
   - **Verify**: `grep -q "\.composer" dev/design-system/components.css && grep -q -- "--safe-top" dev/design-system/tokens.css && grep -q -- "--titlebar-drag-h" dev/design-system/tokens.css`
 
-- [ ] **TI02** Canon defines the provider-brand tokens and extends `.content-inner`
+- [x] **TI02** Canon defines the provider-brand tokens and extends `.content-inner`
   - Add `--brand-claude` and `--brand-codex` to `dev/design-system/tokens.css` in both the Mocha (default) and Latte theme blocks (full DESIGN.md documentation is S14). `--brand-claude` takes the existing app terracotta value; `--brand-codex` aliases the canonical extended-palette teal (`var(--teal)`) — decorative/identity tier, never a state colour (see DECISION NOTE `codex-brand-color`). Extend canonical `.content-inner` in `dev/design-system/components.css` with `display: flex; flex-direction: column; gap: var(--sp-6)` (matching the retiring `.page-inner`) so migrating pages (S06/S08/S10) inherit section rhythm from the container; this rides the canon-upstream work and syncs down with TI04 (see DECISION NOTE `content-inner-stack-gap`).
   - **Verify**: `grep -c -- "--brand-claude" dev/design-system/tokens.css` ≥ 2 and `grep -c -- "--brand-codex" dev/design-system/tokens.css` ≥ 2 (both theme blocks); each `--brand-codex` aliases teal (`grep -- "--brand-codex" dev/design-system/tokens.css` shows `var(--teal)`); the `.content-inner` rule in `dev/design-system/components.css` carries the stack gap (`grep -A4 "^\.content-inner {" dev/design-system/components.css | grep -q -- "gap: var(--sp-6)"`)
 
-- [ ] **TI03** `static/tokens.css` is verbatim canon; surviving app tokens isolated; off-system tokens gone
+- [x] **TI03** `static/tokens.css` is verbatim canon; surviving app tokens isolated; off-system tokens gone
   - `static/tokens.css` = verbatim canonical `tokens.css` + provenance header; app-only survivors move to `static/app-tokens.css`. Delete `--weight-semibold`, `--radius-sm`, `--color-peach`, `--container-wide`, `--sp-0`, `--sp-px`, `--color-claude` and fix their use sites (`--weight-semibold`→`--weight-medium`/`--weight-bold`, `--radius-sm`→`--radius`, `--color-peach`→`--warning`) across `static/` **and** the template use site `templates/signal_pairing.html` (inline `border-radius:var(--radius-sm)` → `var(--radius)`).
   - **Verify**: drift check body-diff for `tokens.css` empty; `grep -rE -- "--(weight-semibold|radius-sm|color-peach|container-wide|sp-0|sp-px|color-claude)\b" packages/dartclaw_server/lib/src/static/ packages/dartclaw_server/lib/src/templates/` returns no matches
 
-- [ ] **TI04** `static/design-system.css` is verbatim canonical `components.css`
+- [x] **TI04** `static/design-system.css` is verbatim canonical `components.css`
   - Copy canonical `components.css` verbatim into `static/design-system.css` with a provenance header (source path + sync date + `sha256`). No app-only rule may be interleaved.
   - **Verify**: drift check body-diff for `design-system.css` empty; `grep -q "claw-loader" static/design-system.css && grep -q -- "--ambient" static/design-system.css && grep -q "content-area" static/design-system.css` (Afterglow markers present)
 
-- [ ] **TI05** `static/app.css` holds only app-only rules; provider + safe-area wired
+- [x] **TI05** `static/app.css` holds only app-only rules; provider + safe-area wired
   - Move genuinely app-only rules (~450–540 classes: `workflow-*`, `task-*`, `wa-*`, `guard-*`, `channel-*`, `login-*`, `[hidden]` reset, form-field/tab/pagination primitives) into `app.css`, loaded after `design-system.css`; drop every drifted duplicate of a canonical class. `.provider-badge-claude` uses `--brand-claude`, `.provider-badge-codex` uses `--brand-codex`; wire `--safe-*` into the shell/layout paddings; the titlebar var stays reserved (defined, unused).
   - **Verify**: `.meter`/`.toast`/`.btn-primary` NOT redefined in `app.css` (`grep -E "^\.(meter|toast|btn-primary)\b" static/app.css` empty); `grep -A2 "\.provider-badge-codex" static/app.css` shows `--brand-codex` and no `var(--info)`; `grep -q -- "--safe-" static/app.css`
 
-- [ ] **TI06** No hardcoded letter-spacing in `app.css`
+- [x] **TI06** No hardcoded letter-spacing in `app.css`
   - Replace the 36 hardcoded `letter-spacing` values (caps/uppercase labels) with `--tracking-caps` (or `--tracking-tight` for display) in `app.css`.
   - **Verify**: `grep "letter-spacing:" static/app.css | grep -vc "var(--tracking"` is `0`
 
-- [ ] **TI07** `static/icons.css` re-synced from canon
+- [x] **TI07** `static/icons.css` re-synced from canon
   - Re-sync `static/icons.css` from `dev/design-system/icons.css` (now +44 lines post-extension) + provenance header.
   - **Verify**: drift-check body-diff for `icons.css` empty; `dart test packages/dartclaw_server/test/static/design_system_icons_sync_test.dart` passes
 
-- [ ] **TI08** `layout.html` load order updated
+- [x] **TI08** `layout.html` load order updated
   - Update the `<link>` order to: `tokens.css`, `app-tokens.css`, `design-system.css`, `app.css`, `icons.css` (hljs after). Favicon stays `data:,` (S11 owns the mascot favicon).
   - **Verify**: the `<link rel="stylesheet">` lines in `layout.html` appear in that exact order (app-tokens and app after their synced counterparts)
 
-- [ ] **TI09** Drift check exists, is loud, and is wired into verification
+- [x] **TI09** Drift check exists, is loud, and is wired into verification
   - A dependency-free check (POSIX shell `diff`/`sha256sum` or hermetic Dart) living in `dev/tools/fitness/` alongside the existing sibling checks compares `tokens.css`, `design-system.css`, `icons.css` against their `dev/design-system/` sources (provenance header excluded) and validates each recorded hash; it exits non-zero naming the diverging file on any mismatch. Invoke it from `dev/tools/fitness/run_all.sh` and document the command in `KEY_DEVELOPMENT_COMMANDS.md`.
   - **Verify**: running the check on synced files exits `0`; appending one character to the body of `static/design-system.css` makes it exit non-zero with `design-system.css` in the output; `grep -q "<check-name>" dev/tools/fitness/run_all.sh` and `grep -q "<check-name>" dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md`
 
-- [ ] **TI10** Embedded assets serve the split files
+- [x] **TI10** Embedded assets serve the split files
   - Regenerate `embedded_assets.g.dart` (`dart run dev/tools/embed_assets.dart`) so `design-system.css`, `app.css`, and `app-tokens.css` are embedded; `layout.html` link order references them.
   - **Verify**: `grep -q "design-system.css" ...generated/embedded_assets.g.dart && grep -q "app-tokens.css" ...generated/embedded_assets.g.dart`; a request to `/static/design-system.css` returns the synced CSS
 
-- [ ] **TI11** Big-bang restyle passes the visual gate
+- [x] **TI11** Big-bang restyle passes the visual gate
   - After the split, the sync-delivered treatments render app-wide; validate both themes at desktop + 768px per the UI smoke test.
   - **Verify**: UI smoke test TC-01…TC-31 passes in dark and light; spot-check screenshots confirm ambient ground, glass toasts, `.btn`/`.card` micro-lift, top-lit `.btn-primary`, and the 4-hue sidebar logo
 
@@ -212,8 +212,8 @@ ref    | git b8cb03f9 (branch feat/design-system-afterglow-extension)           
 
 ## Final Validation Checklist
 
-- [ ] Drift check green after full sync; non-zero on an injected one-byte divergence (re-asserts OC02 end-to-end).
-- [ ] `grep -rE -- "--(weight-semibold|radius-sm|color-peach|container-wide|sp-0|sp-px|color-claude)\b" packages/dartclaw_server/lib/src/static/ packages/dartclaw_server/lib/src/templates/` returns nothing (grep-clean per FR2, OC03).
+- [x] Drift check green after full sync; non-zero on an injected one-byte divergence (re-asserts OC02 end-to-end).
+- [x] `grep -rE -- "--(weight-semibold|radius-sm|color-peach|container-wide|sp-0|sp-px|color-claude)\b" packages/dartclaw_server/lib/src/static/ packages/dartclaw_server/lib/src/templates/` returns nothing (grep-clean per FR2, OC03).
 
 
 ## Implementation Observations

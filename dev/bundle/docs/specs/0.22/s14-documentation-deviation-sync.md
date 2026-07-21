@@ -53,32 +53,32 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Icon vocabulary table is a complete map of the shipped icon set**
+- [x] **S01 [OC01] [TI01] Icon vocabulary table is a complete map of the shipped icon set**
   - **Given** the canon-extension merge and S01 re-sync have landed (canonical `dev/design-system/icons.css` defines the extension icons, e.g. `--icon-arrow-up`, `--icon-plus`, `--icon-bell`, `--icon-git-branch`, `--icon-paperclip`, `--icon-corner-down-right`, plus the pre-existing `file-text`, `folder-git`, `gauge`, `workflow`, `wrench`)
   - **When** the DESIGN.md "Icon vocabulary (semantic → Lucide)" table is checked against every `--icon-*` definition in canonical `icons.css`
   - **Then** every defined icon has a table row (semantic key or `—`, Lucide name, `--icon-*` property, context) and no `--icon-*` is absent from the table
 
-- [ ] **S02 [OC02] [TI02] Provider-brand token group is documented**
+- [x] **S02 [OC02] [TI02] Provider-brand token group is documented**
   - **Given** S01 has upstreamed `--brand-claude` and `--brand-codex` to canonical `tokens.css`
   - **When** a contributor reads DESIGN.md's colour/token documentation
   - **Then** a provider-brand entry names `--brand-claude` and `--brand-codex`, states they identify the provider and never carry state, and records that they replace Codex's former borrow of semantic `--info`
 
-- [ ] **S03 [OC03] [TI03] The partial layout-container collapse is recorded as a deviation**
+- [x] **S03 [OC03] [TI03] The partial layout-container collapse is recorded as a deviation**
   - **Given** S07 collapsed `.dashboard/.dashboard-inner` and S10 collapsed `.info-content/.info-inner`, but `.page-content/.page-inner` survives as an app-only family — still consumed both by **in-scope** pages whose migration was deferred this milestone (tasks, task detail, scheduling, projects, memory dashboard) and by out-of-scope templates (the knowledge UI)
   - **When** the design-system docs are reviewed for undocumented divergences
   - **Then** DESIGN.md records that the layout-container collapse is intentionally partial for this milestone — `.content-area/.content-inner` is canonical, `.page-content/.page-inner` survives app-side until its last consumer migrates
 
-- [ ] **S04 [OC03] [TI04] No undocumented intentional deviation remains**
+- [x] **S04 [OC03] [TI04] No undocumented intentional deviation remains**
   - **Given** stories S01–S13 have shipped and each carries its Implementation Observations / non-goals
   - **When** those sections and the shipped UI are swept against the wireframe inventory and design-system canon
   - **Then** every intentional wireframe-to-implementation divergence has a `deviations.md` row and every design-system divergence has a DESIGN.md note; a reviewer confirms no flagged divergence is left unrecorded
 
-- [ ] **S05 [OC04] [TI05] User-guide docs carry no stale screenshots**
+- [x] **S05 [OC04] [TI05] User-guide docs carry no stale screenshots**
   - **Given** `docs/guide/` is the end-user reference
   - **When** it is checked for embedded screenshots of surfaces the overhaul changed significantly
   - **Then** any such screenshot is refreshed; where the guide embeds no screenshots of changed surfaces, the check confirms there is nothing to refresh
 
-- [ ] **S06 [OC01] [TI01] A new icon introduced during implementation cannot be silently undocumented**
+- [x] **S06 [OC01] [TI01] A new icon introduced during implementation cannot be silently undocumented**
   - **Given** an icon added to canonical `icons.css` during S01–S13 that has no DESIGN.md table row
   - **When** the OC01 reconciliation runs
   - **Then** the gap is caught and a table row is added (the reconciliation compares against the live `icons.css`, not a fixed list)
@@ -115,19 +115,19 @@
 
 ### Implementation Tasks
 
-- [ ] **TI01** DESIGN.md icon vocabulary table maps every icon in canonical `icons.css`
+- [x] **TI01** DESIGN.md icon vocabulary table maps every icon in canonical `icons.css`
   - Compare the "Icon vocabulary (semantic → Lucide)" table against every `--icon-*` definition in `dev/design-system/icons.css`; add a row (semantic key or `—`, Lucide name, `--icon-*`, context) for each undocumented icon — the extension-added icons (`arrow-up`, `plus`, `bell`, `git-branch`, `paperclip`, `corner-down-right`, …) and any introduced during S01–S13. The pre-existing `file-text`, `folder-git`, `gauge`, `workflow`, `wrench` rows are already present — confirm, don't duplicate.
   - **Verify**: `Test: every custom property matching --icon-<name> in dev/design-system/icons.css has a matching --icon-<name> cell in the DESIGN.md vocabulary table (set difference is empty)`
 
-- [ ] **TI02** DESIGN.md documents the provider-brand token group
+- [x] **TI02** DESIGN.md documents the provider-brand token group
   - In the Colors/token documentation (alongside the Semantic / Extended-palette / Chart-ramp bullets), document `--brand-claude` and `--brand-codex`: they identify the agent provider on badges, never carry state, and replace Codex's former borrow of semantic `--info`. Match the values S01 upstreamed to `tokens.css`.
   - **Verify**: `grep -q -- "--brand-claude" dev/design-system/DESIGN.md && grep -q -- "--brand-codex" dev/design-system/DESIGN.md && grep -qi "info" <(grep -A2 "brand-codex" dev/design-system/DESIGN.md)` — the entry names both tokens and references the `--info` replacement (the `<(…)` process substitution requires bash, not POSIX `sh` — fine for agent-run checks)
 
-- [ ] **TI03** DESIGN.md records the partial layout-container-family collapse
+- [x] **TI03** DESIGN.md records the partial layout-container-family collapse
   - Add a note where layout containers are documented (Shell / Layout primitives): `.content-area/.content-inner` is canonical; the parallel `.page-content/.page-inner` family intentionally survives as app-only for this milestone because it is still consumed both by in-scope pages whose migration was deferred (tasks, task detail, scheduling, projects, memory dashboard) and by out-of-scope templates (the knowledge UI), and it collapses when its last consumer migrates. Source the rationale from the S05/S07/S10 deferral notes and cross-cutting-review flags.
   - **Verify**: `grep -q "page-content" dev/design-system/DESIGN.md` and the note states the collapse is intentionally partial (canonical family named, surviving family named, in-scope + out-of-scope survivors distinguished)
 
-- [ ] **TI04** `deviations.md` records every intentional wireframe-to-implementation divergence from this milestone
+- [x] **TI04** `deviations.md` records every intentional wireframe-to-implementation divergence from this milestone
   - Resolve the private `deviations.md` as a **sibling of the main public checkout root** (main checkout derived via git worktree/common-dir resolution, not the story-worktree cwd under `.claude/worktrees/`) and existence-check it before writing. If the private repo is absent/unreachable, write the rows to the bundle-local fallback `dev/bundle/docs/specs/0.22/deviations-staged.md` and record an Implementation Observation for manual sync — the rows still exist, staged for sync, so OC03 is satisfied. See the DECISION NOTE `private-repo-write-path`.
   - Sweep each sibling FIS (`s01`…`s13`) Implementation Observations / What-We're-NOT-Doing plus the shipped UI against `page-inventory.md`; append a dated `deviations.md` row per intentional divergence using the existing table columns. Design-system-only divergences go to DESIGN.md (TI03), not here. The enumerable set includes at least:
     - mascot CRT login hero vs `auth-login.html` (S11);
@@ -136,26 +136,26 @@
     - if it ships, S07's eyebrow-title simplification (deleting `.dashboard .card-title` drops the uppercase eyebrow treatment on dashboard card headers).
   - **Verify**: `Test: for each intentional divergence flagged in an S01–S13 Implementation Observations / non-goal section, deviations.md (or the bundle-local deviations-staged.md when the private repo is unreachable, or DESIGN.md for design-system deviations) carries a corresponding row/note; a reviewer confirms no flagged divergence is unrecorded`
 
-- [ ] **TI05** `docs/guide/` screenshots reflect the shipped UI
+- [x] **TI05** `docs/guide/` screenshots reflect the shipped UI
   - Check `docs/guide/` for embedded screenshots of surfaces the overhaul changed significantly; refresh any stale ones. If the guide embeds no such screenshots, record that the check found nothing to refresh (currently `docs/guide/` carries no image assets).
   - **Verify**: `Test: no screenshot in docs/guide/ depicts a pre-overhaul rendering of a changed surface (find docs/guide -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.gif' -o -name '*.webp' \) enumerates the set to check; empty set → nothing to refresh)`
 
-- [ ] **TI06** DESIGN.md's `☐` Unicode-exceptions entry reflects the S12 claw-mark supersession
+- [x] **TI06** DESIGN.md's `☐` Unicode-exceptions entry reflects the S12 claw-mark supersession
   - The `☐` glyph's only use site — the tasks empty state — is replaced by the `.claw-mark` in S12, so DESIGN.md's Unicode-exceptions line listing `☐` among "decorative empty-state glyphs" is now stale. Update that entry so `☐` is no longer claimed as a live empty-state glyph — remove it from the list (its use site now renders the claw-mark) or annotate the supersession — per this story's FR7 doc-currency mandate. Leave `💬`/`📋` untouched unless their own use sites also changed.
   - **Verify**: `grep -n "☐" dev/design-system/DESIGN.md` — the surviving Unicode-exceptions text no longer claims `☐` is a live decorative empty-state glyph (removed, or annotated as superseded by the S12 claw-mark)
 
 
 ## Final Validation Checklist
 
-- [ ] Docs-only: no served or canonical CSS/token file is modified — `git diff --name-only` touches no path under `dev/design-system/*.css` or `packages/dartclaw_server/lib/src/static/`.
-- [ ] The strict icons sync test stays green: `dart test packages/dartclaw_server/test/static/design_system_icons_sync_test.dart` passes (served `icons.css` unchanged by this story).
-- [ ] `deviations.md` keeps its existing table shape (`# | Area | Wireframe Shows | Implementation Does | Resolution | Canonical`) and its "How to use this file" trailer — new rows append to the table, nothing else in the file changes.
+- [x] Docs-only: no served or canonical CSS/token file is modified — `git diff --name-only` touches no path under `dev/design-system/*.css` or `packages/dartclaw_server/lib/src/static/`.
+- [x] The strict icons sync test stays green: `dart test packages/dartclaw_server/test/static/design_system_icons_sync_test.dart` passes (served `icons.css` unchanged by this story).
+- [x] `deviations.md` keeps its existing table shape (`# | Area | Wireframe Shows | Implementation Does | Resolution | Canonical`) and its "How to use this file" trailer — new rows append to the table, nothing else in the file changes.
 
 **PRD success-metric-2 app-wide re-assertions** (read-only cross-cutting capstone — each metric is owned/gated by its implementing story S01–S13; S14 re-confirms the aggregate at milestone close, changing no code):
 
-- [ ] ≤5 justified inline `style` attributes remain app-wide: `grep -rn 'style="' packages/dartclaw_server/lib/src/templates/ packages/dartclaw_server/lib/src/web/pages/` (excluding Trellis `tl:attr` dynamic bindings) counts ≤5, each justified.
-- [ ] Zero template-local `<style>` blocks remain: `grep -rn '<style' packages/dartclaw_server/lib/src/templates/ packages/dartclaw_server/lib/src/web/pages/` returns nothing.
-- [ ] Zero bespoke progress-bar / spinner class names remain: `grep -rEn '(budget-bar|fill-bar|task-progress|workflow-progress-bar|workflow-run-progress-bar|restart-spinner|wa-spinner)' packages/dartclaw_server/lib/src/templates/ packages/dartclaw_server/lib/src/web/pages/ packages/dartclaw_server/lib/src/static/` returns nothing.
+- [x] ≤5 justified inline `style` attributes remain app-wide: `grep -rn 'style="' packages/dartclaw_server/lib/src/templates/ packages/dartclaw_server/lib/src/web/pages/` (excluding Trellis `tl:attr` dynamic bindings) counts ≤5, each justified.
+- [x] Zero template-local `<style>` blocks remain: `grep -rn '<style' packages/dartclaw_server/lib/src/templates/ packages/dartclaw_server/lib/src/web/pages/` returns nothing.
+- [x] Zero bespoke progress-bar / spinner class names remain: `grep -rEn '(budget-bar|fill-bar|task-progress|workflow-progress-bar|workflow-run-progress-bar|restart-spinner|wa-spinner)' packages/dartclaw_server/lib/src/templates/ packages/dartclaw_server/lib/src/web/pages/ packages/dartclaw_server/lib/src/static/` returns nothing.
 
 
 ## Implementation Observations

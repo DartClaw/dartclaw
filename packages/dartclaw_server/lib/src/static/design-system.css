@@ -1,0 +1,2232 @@
+/* Synced from dev/design-system/components.css on 2026-07-20.
+   sha256: 8f4dba43236ac21be3c16ecbab2d0ae94e6fcee65ed2f14d8d0533889e1713c1 */
+/* DartClaw Component Styles
+   Requires: tokens.css loaded first
+   Core palette, typography, spacing, and layout values reference tokens.
+   Interactive states should derive from tokens via color-mix(), not raw palette hex values.
+
+   Component categories:
+   1. Reset & Base
+   2. Shell Layout (grid, sidebar, topbar)
+   3. Buttons
+   4. Chat (messages, tool indicators, streaming, input)
+   5. Wells (grouping containers, terminal frame)
+   6. Cards (content containers with hover/semantics)
+   7. Panels (severity-indicated cards)
+   8. Metric Cards (dashboard KPIs)
+   9. Tint Cards (subtle semantic hover)
+   10. Featured Cards (gradient border emphasis)
+   11. Status Indicators (dots, badges, pills, scanning bar, meters, skeletons)
+   12. Gradient Dividers
+   13. Banners, Toasts, Empty State
+   14. Data Tables
+   15. Theme Toggle, Scrollbar, Utilities (pixel-art, text-gradient, kbd)
+   16. Identity & Signature Elements (pixel claw mark/loader, identicons, print-in)
+   17. Tool Calls (disclosure-enabled tool-invocation cards)
+   18. Approval Gates (HITL plan-approval cards)
+   19. Chips (neutral reference/content tokens)
+   20. Notifications (attention-center rows)
+   21. Command Palette (glass palette rows)
+   22. Orchestration (run-board cards, pipeline spine)
+   23. Code Highlighting (hljs token theme, diff lines)
+   24. Reduced Motion */
+
+
+/* ================================================================
+   1. RESET & BASE
+   ================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Atmospheric ground: three faint off-axis color glows over the base gradient.
+   The glows are what keep large empty regions from reading flat — keep them
+   below ~8% mix or they compete with semantic color. */
+body {
+  background:
+    radial-gradient(ellipse 55% 38% at 12% -8%, var(--ambient-a), transparent 70%),
+    radial-gradient(ellipse 50% 42% at 90% -10%, var(--ambient-b), transparent 70%),
+    radial-gradient(ellipse 65% 50% at 50% 112%, var(--ambient-c), transparent 70%),
+    linear-gradient(170deg, var(--bg-crust) 0%, var(--bg-base) 50%, var(--bg-mantle) 100%);
+  background-attachment: fixed;
+  color: var(--fg);
+  min-height: 100dvh;
+}
+
+/* Film grain over the ground only (negative z-index paints above the body
+   background but below all in-flow content). Kills gradient banding. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--noise);
+  opacity: var(--noise-opacity);
+  pointer-events: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+
+/* ================================================================
+   2. SHELL LAYOUT
+   ================================================================ */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) 1fr;
+  height: 100dvh;
+}
+
+/* --- Sidebar --- */
+
+.sidebar {
+  grid-row: 1 / -1;
+  background: var(--bg-mantle);
+  border-right: var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-scrim { display: none; }
+
+@media (max-width: 768px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(280px, calc(100vw - var(--sp-8)));
+    max-width: 100%;
+    transform: translateX(-100%);
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 20;
+    transition: transform var(--transition), box-shadow var(--transition-glow),
+                visibility 0s linear var(--transition);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    box-shadow: var(--shadow-lg);
+    transition-delay: 0s;
+  }
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: none;
+    background: color-mix(in srgb, var(--bg-crust) 60%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 15;
+    transition: opacity var(--transition);
+  }
+  .sidebar.open ~ .sidebar-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.sidebar-header {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-highlight);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--topbar-h);
+}
+
+/* Animated gradient logo — first and last stops match so the slide loops seamlessly */
+.sidebar-header .logo {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  background: linear-gradient(90deg, var(--accent), var(--teal), var(--info), var(--mauve), var(--accent));
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-slide 6s linear infinite;
+}
+
+@keyframes gradient-slide {
+  from { background-position: 0% center; }
+  to   { background-position: 200% center; }
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-2) 0;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  padding: var(--sp-2) var(--sp-4);
+  color: var(--fg-sub0);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background var(--transition), color var(--transition),
+              border-color var(--transition), box-shadow var(--transition-glow);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.session-item:hover {
+  background: color-mix(in oklab, var(--bg-surface0) 70%, var(--bg-surface1) 30%);
+  color: var(--fg);
+}
+
+.session-item.active {
+  background: var(--bg-surface0);
+  color: var(--fg);
+  border-left-color: var(--accent);
+  box-shadow: inset 3px 0 12px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.session-item .delete-btn {
+  margin-left: auto;
+  margin-right: calc(-1 * var(--sp-2));
+  opacity: 0;
+  color: var(--fg-overlay);
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  font-size: var(--text-base);
+  line-height: 1;
+  transition: opacity var(--transition), color var(--transition), background var(--transition);
+}
+
+.session-item:hover .delete-btn { opacity: 0.6; }
+.session-item.active .delete-btn { opacity: 0.6; }
+.session-item .delete-btn:hover {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  opacity: 1;
+}
+
+/* --- Sidebar section nav (settings/system pages) --- */
+
+.sidebar-section {
+  border-top: var(--border);
+  padding: var(--sp-2) 0;
+}
+
+.sidebar-section-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-sub0);
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--text-sm);
+  color: var(--fg-sub0);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background var(--transition), color var(--transition);
+  text-decoration: none;
+}
+
+.sidebar-nav-item:hover {
+  background: var(--bg-surface0);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.sidebar-nav-item.active {
+  background: var(--bg-surface0);
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+/* --- Topbar --- */
+
+.topbar {
+  background: var(--bg-mantle);
+  border-bottom: 1px solid var(--border-highlight);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+  gap: var(--sp-3);
+  min-height: var(--topbar-h);
+}
+
+.topbar .menu-toggle { display: none; }
+@media (max-width: 768px) { .topbar .menu-toggle { display: block; } }
+
+.topbar .session-title {
+  flex: 1;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: var(--sp-1) var(--sp-2);
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.topbar .session-title:hover { border-color: var(--bg-surface1); }
+.topbar .session-title:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 8px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.topbar .session-title-static {
+  flex: 1;
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  color: var(--fg);
+  border: none;
+  cursor: default;
+  padding: var(--sp-1) var(--sp-2);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+:where(.btn, .delete-btn, .sidebar-nav-item, .sidebar-scrim, .banner .dismiss, .toast .toast-dismiss):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+
+/* ================================================================
+   3. BUTTONS
+   ================================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius);
+  border: var(--border);
+  background: var(--bg-surface0);
+  color: var(--fg);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--border-highlight);  /* Top-lit edge */
+  transition: background var(--transition), border-color var(--transition),
+              translate var(--transition), box-shadow var(--transition-glow);
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: color-mix(in oklab, var(--bg-surface0) 60%, var(--bg-surface1) 40%);
+  border-color: var(--bg-surface2);
+  translate: 0 -1px;
+  box-shadow: inset 0 1px 0 var(--border-highlight), var(--shadow-sm);
+}
+.btn:active { background: var(--bg-surface1); translate: 0 0; box-shadow: inset 0 1px 0 var(--border-highlight); }
+.btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; translate: none; }
+
+.btn-primary {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 90%, white) 0%, var(--accent) 100%);
+  color: var(--bg-crust);
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 78%, white) 0%,
+    color-mix(in oklab, var(--accent) 92%, white) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+              0 0 16px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.btn-primary:active {
+  background: color-mix(in oklab, var(--accent) 80%, black 20%);
+}
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-sub0); box-shadow: none; }
+.btn-ghost:hover { background: var(--bg-surface0); color: var(--fg); box-shadow: none; }
+
+.btn-danger { background: transparent; color: var(--error); border-color: var(--error); box-shadow: none; }
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+.btn-icon { padding: var(--sp-1); min-width: 32px; min-height: 32px; }
+.btn-full { width: 100%; justify-content: center; }
+.btn-new-session { margin: var(--sp-2) var(--sp-3); }
+
+
+/* ================================================================
+   4. CHAT
+   ================================================================ */
+
+.chat-area {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  scroll-behavior: smooth;
+}
+
+.messages:empty::after {
+  content: 'Start a conversation...';
+  display: block;
+  text-align: center;
+  color: var(--fg-sub0);
+  margin-top: var(--sp-12);
+  font-size: var(--text-lg);
+}
+
+/* --- Messages --- */
+
+.msg {
+  max-width: var(--container-max);
+  margin: 0 auto var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-left: 2px solid var(--bg-surface1);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* Role tint bleeds from the border edge — gives the thread resting-state
+   depth without boxing every message into a card. */
+.msg-user {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 45%);
+}
+.msg-assistant {
+  border-left-color: var(--info);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--info) 4%, transparent) 0%, transparent 45%);
+}
+
+.msg-role {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  margin-bottom: var(--sp-1);
+}
+.msg-user .msg-role { color: var(--accent); }
+.msg-assistant .msg-role { color: var(--info); }
+
+.msg-content {
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Markdown content inside messages */
+.msg-content h1, .msg-content h2, .msg-content h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  margin: var(--sp-3) 0 var(--sp-2);
+  line-height: var(--leading-tight);
+}
+.msg-content p { margin-bottom: var(--sp-2); }
+.msg-content p:last-child { margin-bottom: 0; }
+.msg-content ul, .msg-content ol { padding-left: var(--sp-5); margin-bottom: var(--sp-2); }
+.msg-content li { margin-bottom: var(--sp-1); }
+.msg-content code { background: var(--bg-sub-base); padding: 0.1em 0.3em; border-radius: var(--radius); font-size: 0.9em; }
+.msg-content pre { background: var(--bg-crust); padding: var(--sp-3); border-radius: var(--radius); overflow-x: auto; margin: var(--sp-2) 0; border: var(--border); box-shadow: var(--inset-sm); }
+.msg-content pre code { background: transparent; padding: 0; border-radius: 0; }
+.msg-content blockquote { border-left: 2px solid var(--bg-surface2); padding-left: var(--sp-3); color: var(--fg-sub0); margin: var(--sp-2) 0; }
+.msg-content table { border-collapse: collapse; margin: var(--sp-2) 0; font-size: var(--text-sm); width: 100%; }
+.msg-content th, .msg-content td { border: var(--border); padding: var(--sp-1) var(--sp-2); text-align: left; }
+.msg-content th { background: var(--bg-surface0); font-weight: var(--weight-bold); }
+
+/* --- Thinking slot ---
+   Sanctioned pre-stream composition — the claw moment of the chat view.
+   Replaced entirely by streamed content on first token; at most one per view.
+   Reduced motion shows the static claw-mark + label (see § reduced motion). */
+.msg-thinking {
+  display: flex;
+  align-items: center;  /* The loader is a box, not text — baseline would sink it */
+  gap: var(--sp-2);
+}
+.msg-thinking-label {
+  font-size: var(--text-xs);
+  color: var(--fg-overlay);
+}
+/* Animated ellipsis — reuses the .tool-indicator.pending dots technique (blink). */
+.msg-thinking-label::after {
+  content: '...';
+  animation: blink 1.2s step-end infinite;
+}
+
+/* --- Tool indicators --- */
+
+.tool-indicator {
+  font-size: var(--text-sm);
+  color: var(--fg-sub0);
+  padding: var(--sp-1) 0;
+  font-family: var(--font-mono);
+}
+.tool-indicator::before { content: '> '; color: var(--fg-overlay); }
+.tool-indicator.pending { color: var(--fg-overlay); }
+.tool-indicator.pending::after { content: ' ...'; animation: blink 1.2s step-end infinite; }
+.tool-indicator.success { color: var(--success); }
+.tool-indicator.success::after { content: ' \2713'; }
+.tool-indicator.error { color: var(--error); }
+.tool-indicator.error::after { content: ' \2717'; }
+
+/* --- Streaming cursor --- */
+.streaming::after {
+  content: '\2588';
+  color: var(--accent);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* --- Input area --- */
+
+.input-area {
+  background: linear-gradient(0deg,
+    color-mix(in oklab, var(--bg-crust) 30%, var(--bg-mantle)) 0%,
+    var(--bg-mantle) 100%);
+  border-top: 1px solid var(--border-highlight);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-end;
+}
+
+.input-area textarea {
+  flex: 1;
+  background: var(--bg-base);
+  color: var(--fg);
+  border: var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-3);
+  font: inherit;
+  font-size: var(--text-base);
+  line-height: var(--leading-tight);
+  resize: none;
+  min-height: 40px;
+  max-height: 200px;
+  outline: none;
+  box-shadow: var(--inset-sm);
+  transition: border-color var(--transition), box-shadow var(--transition-glow);
+}
+
+.input-area textarea:focus {
+  border-color: var(--accent);
+  box-shadow: var(--inset-sm), 0 0 0 1px var(--accent),
+              0 0 8px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.input-area textarea::placeholder { color: var(--fg-overlay); }
+.input-area textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+.input-area .btn-send { min-height: 40px; border-radius: var(--radius-lg); }
+
+/* --- Composer (the input object) ---
+   One container: textarea on top, toolbar inside; the textarea itself is bare.
+   Focus is terminal-native and quiet: the green caret does the talking, the
+   send button wakes from dim to full, and the container border takes only a
+   whisper of accent — no rings, no glow. Mode indicators are status-badges,
+   context refs are chips — the composer adds no new state vocabulary.
+   .input-area stays the anchored strip and now holds a .composer; the bare
+   textarea+send layout is superseded for chat. */
+.composer {
+  flex: 1;
+  background: var(--bg-base);
+  border: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--inset-sm);
+  padding: var(--sp-2) var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+  transition: border-color var(--transition);
+}
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-surface0));
+}
+.composer textarea {
+  background: transparent;
+  border: none; outline: none; box-shadow: none;
+  caret-color: var(--accent);
+  caret-shape: block;  /* Old-school terminal block caret; falls back to the bar where unsupported */
+  width: 100%;
+  font: inherit; font-size: var(--text-base); line-height: var(--leading-tight);
+  color: var(--fg);
+  resize: none;
+  min-height: 40px; max-height: 40vh;
+  padding: var(--sp-1) 0;
+}
+.composer textarea::placeholder { color: var(--fg-overlay); }
+/* .input-area textarea:focus outranks .composer textarea — pin the bare look. */
+.composer textarea:focus { border: none; outline: none; box-shadow: none; }
+.composer--streaming textarea { opacity: 0.5; cursor: not-allowed; }
+
+.composer-toolbar { display: flex; align-items: center; gap: var(--sp-1); }
+.composer-meta    { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
+
+/* Model/effort selector — quiet text button; the composer's only chrome. */
+.composer-model {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  background: transparent; border: none; cursor: pointer;
+  font: inherit; font-size: var(--text-xs); color: var(--fg-sub0);
+  padding: var(--sp-1) var(--sp-2); border-radius: var(--radius);
+  transition: color var(--transition), background var(--transition);
+}
+.composer-model:hover { color: var(--fg); background: var(--bg-surface0); }
+.composer-model::after {
+  content: '';
+  width: 0.9em; height: 0.9em;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-chevron-down); mask-image: var(--icon-chevron-down);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.composer-model:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Send — square btn-primary icon button (shape language holds: no circles).
+   Rests dim, wakes to full on focus — the composer's focus indicator.
+   Streaming swaps the glyph to stop (app behavior) and stays awake. */
+.composer-send {
+  width: 32px; height: 32px; min-height: 32px; padding: 0;
+  opacity: 0.6;
+  transition: opacity var(--transition), background var(--transition),
+              border-color var(--transition), transform var(--transition-spring);
+}
+.composer:focus-within .composer-send,
+.composer--streaming .composer-send,
+.composer-send:hover,
+.composer-send:focus-visible { opacity: 1; }
+
+/* Context row — chips + metadata adjacent to the composer (above or below). */
+.composer-context {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-1);
+  font-size: var(--text-xs); color: var(--fg-overlay);
+}
+
+
+/* ================================================================
+   5. WELLS — Grouping Containers
+
+   Lightweight recessed containers for grouping related content.
+   No card structure (no header/body/footer), no hover effects,
+   no semantic meaning. Wells nest naturally.
+
+   .well         — Standard. bg-base, border, inset shadow.
+                    Tool indicators, form clusters, sidebar sections.
+   .well-deep    — Darker (bg-crust). Code output, terminal regions.
+   .well-content — Roomier (sp-4 padding, radius-lg).
+                    Message threads, form sections, multi-element groups.
+   .well-flush   — No padding. Stacked list items with own spacing.
+   ================================================================ */
+
+.well {
+  background: var(--bg-base);
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+  box-shadow: var(--inset-sm);
+}
+
+.well-deep {
+  background: var(--bg-crust);
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+  box-shadow: var(--inset-sm);
+  font-size: var(--text-sm);  /* Code/terminal content reads best a step below body */
+}
+
+.well-content {
+  background: var(--bg-base);
+  border: var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+}
+
+.well-flush {
+  background: var(--bg-base);
+  border: var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--inset-sm);
+}
+
+/* --- Terminal frame ---
+   A well-deep presented as a terminal window: title bar with traffic-light
+   dots + recessed body. For hero/demo/log contexts where the terminal
+   should read as an object, not just a region. Plain output stays .well-deep. */
+
+.terminal-frame {
+  border: var(--border);
+  border-top-color: var(--border-highlight);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-crust);
+  box-shadow: var(--shadow-sm);
+}
+
+.terminal-frame-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-mantle);
+  border-bottom: var(--border);
+  font-size: var(--text-xs);
+  color: var(--fg-overlay);
+}
+
+/* Three traffic-light dots from a single element via box-shadow offsets */
+.terminal-frame-dots {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 28px;  /* Room for the two shadow dots */
+  background: var(--error);
+  box-shadow: 14px 0 0 var(--warning), 28px 0 0 var(--success);
+  opacity: 0.75;
+}
+
+.terminal-frame-body { padding: var(--sp-3); overflow-x: auto; font-size: var(--text-sm); }
+.terminal-frame-body pre { margin: 0; background: transparent; border: none; box-shadow: none; padding: 0; }
+
+/* CRT modifier — scanlines + corner vignette over the body. Hero/demo
+   terminals only (landing pages, empty states, replays) — one per view.
+   fg-derived line color works in both themes. */
+.terminal-frame--crt .terminal-frame-body {
+  position: relative;
+}
+.terminal-frame--crt .terminal-frame-body::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg,
+      color-mix(in srgb, var(--fg) 4%, transparent) 0 1px,
+      transparent 1px 3px),
+    radial-gradient(ellipse 120% 100% at 50% 50%, transparent 60%,
+      color-mix(in srgb, var(--bg-pit) 35%, transparent) 100%);
+}
+
+
+/* ================================================================
+   6. CARDS — Content Containers
+
+   Standalone content units with hover effects, semantic meaning,
+   and card structure (header/body/footer).
+
+   .card          — Default. bg-mantle, luminous top-edge, accent glow on hover.
+   .card-sunken   — Inset. Code wells, form fields, pits.
+   .card-elevated — Floating. Modals, dropdowns, popovers.
+   .card-glass    — Translucent + backdrop blur. Overlays above live content.
+   .card-active   — Selected/focused. Persistent glow.
+   ================================================================ */
+
+.card {
+  background: var(--bg-mantle);
+  border: var(--border);
+  border-top-color: var(--border-highlight);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-glow), border-color var(--transition-glow),
+              background var(--transition), translate var(--transition);
+}
+
+.card:hover, .card.card-hover {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--bg-surface0));
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--accent) 6%, transparent);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 70%),
+    var(--bg-mantle);
+  translate: 0 -1px;
+}
+
+/* Card sub-elements */
+.card-header {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  color: var(--fg);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border-highlight);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Gradient header — accent gradient underline instead of solid border.
+   Use for featured cards or high-emphasis sections. */
+.card-header-gradient {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  color: var(--fg);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border-bottom: none;
+  background-image: linear-gradient(90deg, var(--accent),
+    color-mix(in oklab, var(--accent) 20%, transparent), transparent);
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.card-body { font-size: var(--text-sm); color: var(--fg-sub1); }
+
+.card-footer {
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
+  padding-top: var(--sp-3);
+  margin-top: var(--sp-3);
+  border-top: 1px solid color-mix(in oklab, var(--bg-surface0) 50%, transparent);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* --- Card Sunken --- */
+.card-sunken {
+  background: var(--bg-crust);
+  box-shadow: var(--inset-sm);
+  border-color: color-mix(in oklab, var(--bg-surface0) 60%, transparent);
+  border-top-color: color-mix(in oklab, var(--bg-surface0) 60%, transparent);
+}
+.card-sunken:hover {
+  background: var(--bg-crust);
+  box-shadow: var(--inset-sm);
+  translate: none;  /* Recessed surfaces don't lift */
+}
+
+/* --- Card Elevated --- */
+.card-elevated {
+  background: var(--bg-surface0);
+  box-shadow: var(--shadow-md);
+  border-top-color: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.card-elevated:hover {
+  box-shadow: var(--shadow-lg), 0 0 24px color-mix(in srgb, var(--accent) 7%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--bg-surface1));
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 70%),
+    var(--bg-surface0);
+}
+
+/* --- Card Glass ---
+   Translucent surface + backdrop blur. The depth tier ABOVE elevated:
+   for surfaces that float over live content (modals, command palettes,
+   popovers anchored to scrolling regions). Needs content behind it to
+   read as glass — never use as an in-flow card.
+   The material is three parts: blurred backdrop, a top-light sheen,
+   and bright edges — without the sheen and edges it reads as a grey slab. */
+.card-glass {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 6%, transparent) 0%, transparent 45%),
+    var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.6);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.6);
+  border-color: color-mix(in srgb, var(--fg) 14%, transparent);
+  border-top-color: color-mix(in srgb, var(--fg) 25%, transparent);
+  box-shadow: var(--shadow-lg),
+              inset 0 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.card-glass:hover {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 6%, transparent) 0%, transparent 45%),
+    var(--glass-bg);
+  translate: none;  /* Overlays anchor to a trigger — they don't drift */
+}
+
+/* --- Card Active --- */
+.card-active {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-surface0));
+  border-top-color: color-mix(in srgb, var(--accent) 20%, var(--border-highlight));
+  box-shadow: var(--shadow-md), 0 0 24px color-mix(in srgb, var(--accent) 8%, transparent);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 70%),
+    var(--bg-mantle);
+}
+
+
+/* ================================================================
+   7. PANELS — Severity-Indicated Cards
+
+   Left-border accent + gradient bleed. The 3px left border
+   communicates "this content has a severity or level."
+   Use for: guard blocks, agent status, session info,
+   rate limit warnings, channel details.
+
+   Apply alongside .card: <div class="card panel-accent">
+   ================================================================ */
+
+.panel-accent {
+  border-left: 3px solid var(--accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 30%), var(--bg-mantle);
+}
+.panel-accent:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 40%),
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 70%),
+    var(--bg-mantle);
+  box-shadow: var(--shadow-md), -3px 0 12px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.panel-info {
+  border-left: 3px solid var(--info);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--info) 5%, transparent) 0%, transparent 30%), var(--bg-mantle);
+}
+.panel-info:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--info) 8%, transparent) 0%, transparent 40%),
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--info) 4%, transparent) 0%, transparent 70%),
+    var(--bg-mantle);
+  box-shadow: var(--shadow-md), -3px 0 12px color-mix(in srgb, var(--info) 8%, transparent);
+}
+
+.panel-error {
+  border-left: 3px solid var(--error);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--error) 5%, transparent) 0%, transparent 30%), var(--bg-mantle);
+}
+.panel-error:hover {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--error) 8%, transparent) 0%, transparent 40%), var(--bg-mantle);
+  box-shadow: var(--shadow-md), -3px 0 12px color-mix(in srgb, var(--error) 8%, transparent);
+}
+
+.panel-warning {
+  border-left: 3px solid var(--warning);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 5%, transparent) 0%, transparent 30%), var(--bg-mantle);
+}
+.panel-warning:hover {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 8%, transparent) 0%, transparent 40%), var(--bg-mantle);
+  box-shadow: var(--shadow-md), -3px 0 12px color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+
+/* ================================================================
+   8. METRIC CARDS — Dashboard KPIs
+
+   Compact, centered value + label. Inner glow on hover matches
+   the metric's semantic color (center-emanating radial gradient).
+   Use for: health dashboard stats, agent metrics, budget
+   counters, message counts.
+
+   Apply alongside .card: <div class="card card-metric card-metric--accent">
+   ================================================================ */
+
+.card-metric { text-align: center; padding: var(--sp-4) var(--sp-3); }
+.card-metric .metric-value {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--fg);
+  line-height: 1.15;
+  margin-bottom: var(--sp-1);
+}
+.card-metric .metric-label {
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.card-metric--accent .metric-value { color: var(--accent); }
+.card-metric--accent:hover {
+  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--accent) 7%, transparent) 0%, transparent 70%), var(--bg-mantle);
+  box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.card-metric--info .metric-value { color: var(--info); }
+.card-metric--info:hover {
+  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--info) 7%, transparent) 0%, transparent 70%), var(--bg-mantle);
+  box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--info) 7%, transparent);
+}
+
+.card-metric--error .metric-value { color: var(--error); }
+.card-metric--error:hover {
+  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--error) 7%, transparent) 0%, transparent 70%), var(--bg-mantle);
+  box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--error) 7%, transparent);
+}
+
+.card-metric--warning .metric-value { color: var(--warning); }
+.card-metric--warning:hover {
+  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--warning) 7%, transparent) 0%, transparent 70%), var(--bg-mantle);
+  box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--warning) 7%, transparent);
+}
+
+
+/* ================================================================
+   9. TINT CARDS — Subtle Semantic Hover
+
+   Background shifts toward a semantic color on hover. No left
+   border (unlike Panels). The tint is hover-only — at rest,
+   these look like standard cards.
+   Use for: lists of categorized items (task lists, session
+   lists, search results) where semantic meaning is secondary.
+
+   Apply alongside .card: <div class="card card-tint-accent">
+   ================================================================ */
+
+.card-tint-accent:hover {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 70%),
+    color-mix(in oklab, var(--bg-mantle) 97%, var(--accent));
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--accent) 6%, transparent);
+  border-top-color: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.card-tint-info:hover {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--info) 6%, transparent) 0%, transparent 70%),
+    color-mix(in oklab, var(--bg-mantle) 97%, var(--info));
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--info) 6%, transparent);
+  border-top-color: color-mix(in srgb, var(--info) 12%, transparent);
+}
+
+.card-tint-error:hover {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--error) 6%, transparent) 0%, transparent 70%),
+    color-mix(in oklab, var(--bg-mantle) 97%, var(--error));
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--error) 6%, transparent);
+  border-top-color: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.card-tint-warning:hover {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--warning) 6%, transparent) 0%, transparent 70%),
+    color-mix(in oklab, var(--bg-mantle) 97%, var(--warning));
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--warning) 6%, transparent);
+  border-top-color: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+
+/* ================================================================
+   10. FEATURED CARDS — Gradient Border Emphasis
+
+   Full 4-edge gradient border. Maximum visual weight.
+   Uses background-clip: padding-box + border-box trick.
+   Use for: primary active tasks, highlighted items, hero cards,
+   items requiring immediate attention or action.
+
+   Apply alongside .card: <div class="card card-featured-accent">
+   ================================================================ */
+
+.card-featured-accent {
+  border: 1px solid transparent;
+  background:
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 30%, transparent),
+      color-mix(in srgb, var(--teal) 10%, transparent),
+      color-mix(in srgb, var(--mauve) 22%, transparent)) border-box;
+}
+.card-featured-accent:hover {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 70%) padding-box,
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 50%, transparent),
+      color-mix(in srgb, var(--teal) 18%, transparent),
+      color-mix(in srgb, var(--mauve) 38%, transparent)) border-box;
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.card-featured-info {
+  border: 1px solid transparent;
+  background:
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--info) 30%, transparent),
+      color-mix(in srgb, var(--info) 8%, transparent),
+      color-mix(in srgb, var(--accent) 15%, transparent)) border-box;
+}
+.card-featured-info:hover {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--info) 5%, transparent) 0%, transparent 70%) padding-box,
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--info) 50%, transparent),
+      color-mix(in srgb, var(--info) 15%, transparent),
+      color-mix(in srgb, var(--accent) 25%, transparent)) border-box;
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--info) 7%, transparent);
+}
+
+.card-featured-error {
+  border: 1px solid transparent;
+  background:
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--error) 30%, transparent),
+      color-mix(in srgb, var(--error) 8%, transparent),
+      color-mix(in srgb, var(--warning) 15%, transparent)) border-box;
+}
+.card-featured-error:hover {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--error) 5%, transparent) 0%, transparent 70%) padding-box,
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--error) 50%, transparent),
+      color-mix(in srgb, var(--error) 15%, transparent),
+      color-mix(in srgb, var(--warning) 25%, transparent)) border-box;
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--error) 7%, transparent);
+}
+
+.card-featured-warning {
+  border: 1px solid transparent;
+  background:
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--warning) 30%, transparent),
+      color-mix(in srgb, var(--warning) 8%, transparent),
+      color-mix(in srgb, var(--error) 15%, transparent)) border-box;
+}
+.card-featured-warning:hover {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--warning) 5%, transparent) 0%, transparent 70%) padding-box,
+    var(--bg-mantle) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--warning) 50%, transparent),
+      color-mix(in srgb, var(--warning) 15%, transparent),
+      color-mix(in srgb, var(--error) 25%, transparent)) border-box;
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--warning) 7%, transparent);
+}
+
+
+/* ================================================================
+   11. STATUS INDICATORS
+   ================================================================ */
+
+/* --- Scanning bar (loading indicator) ---
+   Animated gradient sweep. Terminal-native spinner alternative.
+   NOT the same as gradient dividers (which are static). */
+
+.scan-bar {
+  position: relative;
+  height: 2px;
+  background: var(--bg-surface0);
+  overflow: hidden;
+  border-radius: 1px;
+}
+.scan-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -40%;
+  width: 40%; height: 100%;
+  background: linear-gradient(to right, transparent, var(--accent), transparent);
+  animation: scan 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes scan { from { left: -40%; } to { left: 100%; } }
+
+/* --- Status dots (pulsing) --- */
+
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.status-dot--live {
+  background: var(--accent);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.status-dot--live::before {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: pulse-ring 2s ease-out infinite;
+}
+.status-dot--live::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-core 2s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.8); opacity: 0.9; }
+  70%  { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+@keyframes pulse-core {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); }
+  50%      { opacity: 0.7; box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 85%, transparent); }
+}
+
+.status-dot--error   { background: var(--error);   box-shadow: 0 0 4px color-mix(in srgb, var(--error) 55%, transparent); }
+.status-dot--warning { background: var(--warning); box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 55%, transparent); }
+.status-dot--idle    { background: var(--fg-overlay); }
+
+/* Attention — blocked on the user. The ONLY amber pulse in the system:
+   motion is reserved for "working" (--live) and "needs you" (--attention). */
+.status-dot--attention {
+  background: var(--warning);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 65%, transparent);
+}
+.status-dot--attention::before {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--warning);
+  animation: pulse-ring 2.8s ease-out infinite;  /* slower than --live's 2s — urgent but patient */
+}
+
+/* Success — completed, static. Distinct from --live (pulsing = still working). */
+.status-dot--success {
+  background: var(--success);
+  box-shadow: 0 0 3px color-mix(in srgb, var(--success) 45%, transparent);
+}
+
+/* --- Status badges (with dot variants) --- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  padding: 3px var(--sp-2) 3px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--bg-surface1) 65%, transparent);
+  background: var(--bg-base);
+  color: var(--fg-sub1);
+}
+
+.status-badge-success {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--success) 22%, var(--bg-surface1));
+}
+.status-badge-error {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--error) 22%, var(--bg-surface1));
+}
+.status-badge-warning {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--warning) 22%, var(--bg-surface1));
+}
+.status-badge-info,
+.status-badge-running {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--info) 22%, var(--bg-surface1));
+}
+
+/* --- Status pills (gradient-filled) ---
+   More visual weight than badges. Use for inline status
+   labels in card footers, table cells, and compact UI. */
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.03em;
+}
+
+.status-pill--live {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 15%, var(--bg-mantle)) 0%,
+    color-mix(in srgb, var(--info) 8%, var(--bg-mantle)) 100%);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.status-pill--error {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--error) 15%, var(--bg-mantle)) 0%,
+    color-mix(in srgb, var(--error) 5%, var(--bg-mantle)) 100%);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 20%, transparent);
+}
+.status-pill--warning {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--warning) 15%, var(--bg-mantle)) 0%,
+    color-mix(in srgb, var(--warning) 5%, var(--bg-mantle)) 100%);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
+}
+.status-pill--info {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--info) 15%, var(--bg-mantle)) 0%,
+    color-mix(in srgb, var(--info) 5%, var(--bg-mantle)) 100%);
+  color: var(--info);
+  border: 1px solid color-mix(in srgb, var(--info) 20%, transparent);
+}
+
+
+/* --- Meters (determinate progress) ---
+   Recessed track + gradient fill with a soft glow. Budget consumption,
+   turn progress, upload state. Pair with a visible label/percentage —
+   color alone must not carry the reading. */
+
+.meter {
+  height: 6px;
+  background: var(--bg-crust);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: var(--inset-sm);
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: width 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.meter-fill--info {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--info) 70%, var(--bg-surface1)), var(--info));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--info) 35%, transparent);
+}
+.meter-fill--warning {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--warning) 70%, var(--bg-surface1)), var(--warning));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.meter-fill--error {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--error) 70%, var(--bg-surface1)), var(--error));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--error) 35%, transparent);
+}
+
+/* --- Skeletons (indeterminate loading) ---
+   Shimmer placeholders that match the eventual content's shape.
+   Use for initial loads; the scan-bar stays the in-flight indicator. */
+
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(100deg,
+    var(--bg-surface0) 40%,
+    color-mix(in oklab, var(--bg-surface0) 60%, var(--bg-surface1)) 50%,
+    var(--bg-surface0) 60%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  min-height: var(--sp-4);
+}
+
+.skeleton-text { height: 0.75em; margin: var(--sp-1) 0; }
+
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+
+/* ================================================================
+   12. GRADIENT DIVIDERS
+   Static section separators. 1px height, NOT animated
+   (unlike the Scanning Bar which is 2px + animated).
+   ================================================================ */
+
+.divider { height: 1px; border: none; }
+.divider-fade {
+  background: linear-gradient(90deg, var(--accent),
+    color-mix(in oklab, var(--accent) 30%, transparent), transparent);
+}
+.divider-center {
+  background: linear-gradient(90deg, transparent,
+    color-mix(in oklab, var(--accent) 60%, transparent), transparent);
+}
+
+
+/* ================================================================
+   13. BANNERS, TOASTS, EMPTY STATE
+   ================================================================ */
+
+/* --- Banners --- */
+
+.banner {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--text-sm);
+  border-bottom: var(--border);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.banner-error {
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 20%, var(--bg-surface0));
+}
+.banner-warning {
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-base));
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 20%, var(--bg-surface0));
+}
+.banner-info {
+  background: color-mix(in srgb, var(--info) 10%, var(--bg-base));
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 20%, var(--bg-surface0));
+}
+
+.banner .dismiss {
+  margin-left: auto;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  background: none;
+  border: none;
+  font: inherit;
+  line-height: 1;
+}
+.banner .dismiss:hover { opacity: 1; }
+
+/* --- Toasts --- */
+
+.toast-container {
+  position: fixed;
+  bottom: var(--sp-4);
+  right: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  z-index: 100;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  border: var(--border);
+  border-left: 3px solid var(--fg-overlay);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  max-width: 360px;
+  pointer-events: auto;
+  animation: toast-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.toast.removing { animation: toast-out 150ms ease-in forwards; }
+.toast-success { border-left-color: var(--success); }
+.toast-error   { border-left-color: var(--error); }
+.toast-warning { border-left-color: var(--warning); }
+.toast-info    { border-left-color: var(--info); }
+
+.toast .toast-dismiss {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--fg-overlay);
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 0 var(--sp-1);
+  line-height: 1;
+}
+.toast .toast-dismiss:hover { color: var(--fg); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(100%); }
+}
+
+/* --- Empty state --- */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-12) var(--sp-4);
+  color: var(--fg-sub0);
+  text-align: center;
+  gap: var(--sp-3);
+}
+
+.empty-state .icon {
+  font-size: var(--text-2xl);
+  color: var(--accent);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent),
+               0 0 16px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.empty-state p {
+  max-width: 400px;
+  font-size: var(--text-sm);
+}
+
+
+/* ================================================================
+   14. DATA TABLES, CONTENT AREAS, SECTION LABELS
+   ================================================================ */
+
+.section-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-sub0);
+  margin-bottom: var(--sp-2);
+}
+
+.section-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--fg);
+  margin-bottom: var(--sp-3);
+}
+
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-6);
+}
+
+.content-inner {
+  max-width: var(--container-max);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+@media (max-width: 768px) {
+  .content-area { padding: var(--sp-4); }
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.data-table th, .data-table td {
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  border-bottom: var(--border);
+}
+/* Open header (no filled bar) — caption-toned label over a stronger rule
+   reads lighter and more deliberate than a boxed header row. */
+.data-table th {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-sub0);
+  border-bottom: 1px solid var(--bg-surface1);
+}
+.data-table td { color: var(--fg-sub1); }
+.data-table tbody tr { transition: background var(--transition); }
+.data-table tbody tr:hover { background: color-mix(in srgb, var(--bg-surface0) 45%, transparent); }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+
+/* ================================================================
+   15. THEME TOGGLE, SCROLLBAR, UTILITIES
+   ================================================================ */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--fg-sub0);
+  font-size: var(--text-lg);
+  line-height: 1;
+  transition: color var(--transition), background var(--transition);
+  padding: 0;
+  flex-shrink: 0;
+}
+.theme-toggle:hover { background: var(--bg-surface0); color: var(--fg); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Theme toggle icon: now in icons.css (sun/moon via mask-image) */
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-surface1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bg-surface2); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border-width: 0;
+}
+
+.text-muted   { color: var(--fg-sub0); }
+.text-xs      { font-size: var(--text-xs); }
+.text-sm      { font-size: var(--text-sm); }
+.text-success { color: var(--success); }
+.text-error   { color: var(--error); }
+.text-warning { color: var(--warning); }
+.text-info    { color: var(--info); }
+.text-overlay { color: var(--fg-overlay); }
+
+/* Crisp scaling for the 8-bit brand assets (mascot avatar, banner).
+   Without this, downscaled pixel art smears into mush. */
+.pixel-art { image-rendering: pixelated; }
+
+/* Static gradient text — hero titles and brand moments only, max once per view */
+.text-gradient {
+  background: linear-gradient(90deg, var(--accent), var(--teal) 50%, var(--info));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Keycap — keyboard shortcuts in help text, tooltips, command hints */
+kbd, .kbd {
+  display: inline-block;
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--sp-2);
+  color: var(--fg-sub1);
+  background: var(--bg-surface0);
+  border: 1px solid var(--bg-surface2);
+  border-bottom-width: 2px;  /* Keycap depth */
+  border-radius: var(--radius);
+  vertical-align: middle;
+}
+
+
+/* ================================================================
+   16. IDENTITY & SIGNATURE ELEMENTS
+
+   The ownable bits — claw mark, claw loader, identicons, print-in.
+   Signature elements live on scarcity: one claw moment per view.
+   ================================================================ */
+
+/* --- Claw mark ---
+   The mascot's claw-swipe, abstracted: three chunky stepped strokes drawn
+   as true pixel art in the claw gradient hues (green → teal → blue).
+   Pixel cells, not smooth vectors — the brand is 8-bit (see
+   assets/logo-avatar-512-8bit.png). Scales with font-size via the --px
+   cell unit. Markup-free. Logo lockups, empty states, hero moments. */
+/* Shared pixel grid: 14×8 cells, three strokes two cells wide stepping
+   one cell left every two rows — cells stay edge-connected so each stroke
+   reads as a solid chunky slash, not scattered squares. Left cell is the
+   hue, right cell a crust-shaded tone (pixel-art bevel). Stroke lists are
+   shared with the loader via custom properties. */
+.claw-mark, .claw-loader {
+  --px: 0.125em;
+  --claw-c1: var(--accent);
+  --claw-c2: var(--teal);
+  --claw-c3: var(--info);
+  --claw-c1d: color-mix(in srgb, var(--accent) 82%, var(--bg-crust));
+  --claw-c2d: color-mix(in srgb, var(--teal) 82%, var(--bg-crust));
+  --claw-c3d: color-mix(in srgb, var(--info) 82%, var(--bg-crust));
+  --claw-stroke-1:
+    calc(var(--px)*4) 0                 var(--claw-c1), calc(var(--px)*5) 0                 var(--claw-c1d),
+    calc(var(--px)*4) var(--px)         var(--claw-c1), calc(var(--px)*5) var(--px)         var(--claw-c1d),
+    calc(var(--px)*3) calc(var(--px)*2) var(--claw-c1), calc(var(--px)*4) calc(var(--px)*2) var(--claw-c1d),
+    calc(var(--px)*3) calc(var(--px)*3) var(--claw-c1), calc(var(--px)*4) calc(var(--px)*3) var(--claw-c1d),
+    calc(var(--px)*2) calc(var(--px)*4) var(--claw-c1), calc(var(--px)*3) calc(var(--px)*4) var(--claw-c1d),
+    calc(var(--px)*2) calc(var(--px)*5) var(--claw-c1), calc(var(--px)*3) calc(var(--px)*5) var(--claw-c1d);
+  --claw-stroke-2:
+    calc(var(--px)*8) 0                 var(--claw-c2), calc(var(--px)*9) 0                 var(--claw-c2d),
+    calc(var(--px)*8) var(--px)         var(--claw-c2), calc(var(--px)*9) var(--px)         var(--claw-c2d),
+    calc(var(--px)*7) calc(var(--px)*2) var(--claw-c2), calc(var(--px)*8) calc(var(--px)*2) var(--claw-c2d),
+    calc(var(--px)*7) calc(var(--px)*3) var(--claw-c2), calc(var(--px)*8) calc(var(--px)*3) var(--claw-c2d),
+    calc(var(--px)*6) calc(var(--px)*4) var(--claw-c2), calc(var(--px)*7) calc(var(--px)*4) var(--claw-c2d),
+    calc(var(--px)*6) calc(var(--px)*5) var(--claw-c2), calc(var(--px)*7) calc(var(--px)*5) var(--claw-c2d),
+    calc(var(--px)*5) calc(var(--px)*6) var(--claw-c2), calc(var(--px)*6) calc(var(--px)*6) var(--claw-c2d),
+    calc(var(--px)*5) calc(var(--px)*7) var(--claw-c2), calc(var(--px)*6) calc(var(--px)*7) var(--claw-c2d);
+  --claw-stroke-3:
+    calc(var(--px)*12) 0                 var(--claw-c3), calc(var(--px)*13) 0                 var(--claw-c3d),
+    calc(var(--px)*12) var(--px)         var(--claw-c3), calc(var(--px)*13) var(--px)         var(--claw-c3d),
+    calc(var(--px)*11) calc(var(--px)*2) var(--claw-c3), calc(var(--px)*12) calc(var(--px)*2) var(--claw-c3d),
+    calc(var(--px)*11) calc(var(--px)*3) var(--claw-c3), calc(var(--px)*12) calc(var(--px)*3) var(--claw-c3d),
+    calc(var(--px)*10) calc(var(--px)*4) var(--claw-c3), calc(var(--px)*11) calc(var(--px)*4) var(--claw-c3d),
+    calc(var(--px)*10) calc(var(--px)*5) var(--claw-c3), calc(var(--px)*11) calc(var(--px)*5) var(--claw-c3d);
+  display: inline-block;
+  width: calc(var(--px) * 14);
+  height: calc(var(--px) * 8);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.claw-mark::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: var(--px);
+  height: var(--px);
+  box-shadow: var(--claw-stroke-1), var(--claw-stroke-2), var(--claw-stroke-3);
+}
+
+/* --- Claw loader ---
+   The claw, scratching: the same three pixel strokes pulsing in sequence.
+   DartClaw's signature indeterminate indicator for agent "thinking"
+   moments. Stepped opacity (steps() easing) — 8-bit things snap, they
+   don't tween. The scan-bar stays the anonymous in-place sweep. */
+.claw-loader span {
+  position: absolute;
+  top: 0; left: 0;
+  width: var(--px);
+  height: var(--px);
+  animation: claw-step 0.9s steps(2, jump-none) infinite;
+}
+.claw-loader span:nth-child(1) { box-shadow: var(--claw-stroke-1); }
+.claw-loader span:nth-child(2) { box-shadow: var(--claw-stroke-2); animation-delay: 150ms; }
+.claw-loader span:nth-child(3) { box-shadow: var(--claw-stroke-3); animation-delay: 300ms; }
+
+@keyframes claw-step {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
+}
+
+/* --- Identicons ---
+   Deterministic dual-hue gradient avatars for agents, sessions, and
+   channels. Pick the variant by hashing the entity id (hash % 6 + 1) so
+   the same entity always gets the same colors. Content: 1–2 initials.
+   Size via font-size on the element. */
+.identicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2em;
+  height: 2.2em;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0;
+  color: var(--bg-crust);
+  user-select: none;
+}
+.identicon--1 { background: linear-gradient(135deg, var(--accent), var(--teal)); }
+.identicon--2 { background: linear-gradient(135deg, var(--info), var(--sky)); }
+.identicon--3 { background: linear-gradient(135deg, var(--mauve), var(--lavender)); }
+.identicon--4 { background: linear-gradient(135deg, var(--pink), var(--mauve)); }
+.identicon--5 { background: linear-gradient(135deg, var(--teal), var(--sky)); }
+.identicon--6 { background: linear-gradient(135deg, var(--lavender), var(--info)); }
+
+/* --- Print-in ---
+   Signature entry motion: content "prints" into place (rise + fade via
+   @starting-style, no JS). Apply to cards, messages, and HTMX-swapped
+   fragments so everything arrives the same way. Browsers without
+   @starting-style simply render instantly — graceful degradation. */
+.print-in {
+  transition: opacity 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              translate 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@starting-style {
+  .print-in {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+
+/* ================================================================
+   17. TOOL CALLS
+
+   Structured, disclosure-enabled record of one tool invocation — the
+   timeline sibling of .tool-indicator (which stays the transient/inline
+   atom). Same monospace voice and '> ' prefix, now with status, duration,
+   and an expandable result well. Built on <details>/<summary> (zero-JS).
+   Left edge + name glyph carry state; consecutive calls stack in a
+   .well-flush wrapper (display:grid; gap: var(--sp-1)).
+   ================================================================ */
+
+.tool-call {
+  background: var(--bg-base);
+  border: var(--border);
+  border-left: 3px solid var(--bg-surface1);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+
+.tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  list-style: none;
+}
+.tool-call-summary::-webkit-details-marker { display: none; }
+.tool-call-summary::before { content: '> '; color: var(--fg-overlay); }
+.tool-call-summary::after {
+  content: '';
+  width: 1em; height: 1em;
+  margin-left: var(--sp-1);
+  flex-shrink: 0;
+  background-color: var(--fg-overlay);
+  -webkit-mask-image: var(--icon-chevron-right); mask-image: var(--icon-chevron-right);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  transition: transform var(--transition);
+}
+.tool-call[open] .tool-call-summary::after { transform: rotate(90deg); }
+
+.tool-call-name { font-weight: var(--weight-medium); color: var(--fg); }
+.tool-call-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-sub0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-call-time { font-size: var(--text-xs); color: var(--fg-overlay); white-space: nowrap; flex-shrink: 0; }
+
+.tool-call-body {
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+}
+.tool-call-io-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+}
+.tool-call-body .well-deep { max-height: 320px; overflow: auto; }
+
+/* State variants — left edge + name glyph. --pending carries a scan-bar
+   swept along the summary's bottom edge (reuses .scan-bar, no new animation);
+   --blocked prepends .icon-shield-alert in markup (the guard glass-box moment). */
+.tool-call--pending { border-left-color: var(--bg-surface1); }
+.tool-call--pending .tool-call-summary { position: relative; }
+.tool-call--pending .tool-call-summary .scan-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.tool-call--success { border-left-color: color-mix(in srgb, var(--success) 55%, var(--bg-surface1)); }
+.tool-call--error   { border-left-color: var(--error); }
+.tool-call--error .tool-call-name { color: var(--error); }
+.tool-call--blocked { border-left-color: var(--warning); }
+
+
+/* ================================================================
+   18. APPROVAL GATES
+
+   The plan-approval / HITL gate as a first-class object — a Card with
+   severity treatment while waiting. The dot pulses; the card does not
+   (no stacked attention effects). Resolved variants swap the pulse +
+   actions for a single resolution line.
+   ================================================================ */
+
+.approval-card--waiting {
+  border-left: 3px solid var(--warning);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--warning) 7%, var(--bg-mantle)), var(--bg-mantle) 40%);
+}
+.approval-card-meta {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--fg-overlay);
+}
+.approval-card-plan { max-height: 400px; overflow: auto; }
+.approval-card-actions { display: flex; gap: var(--sp-2); }
+
+.approval-card-resolution {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
+}
+.approval-card--approved { border-left: 3px solid var(--success); }
+.approval-card--approved .approval-card-resolution .icon { color: var(--success); }
+.approval-card--rejected { border-left: 3px solid var(--error); }
+.approval-card--rejected .approval-card-resolution .icon { color: var(--error); }
+.approval-card--expired {
+  border-left: 3px solid var(--bg-surface1);
+  opacity: 0.75;
+}
+.approval-card--expired .approval-card-resolution { color: var(--fg-overlay); }
+
+@media (max-width: 768px) {
+  .approval-card-actions { flex-direction: column; }
+  .approval-card-actions .btn { width: 100%; min-height: 48px; }
+}
+
+
+/* ================================================================
+   19. CHIPS
+
+   Neutral reference/content tokens for the composer and metadata rows.
+   Never state (that's badges/pills) — rectangular --radius so they read
+   engineered, not pill-like. Icons hint the kind; no semantic tinting.
+   ================================================================ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 2px var(--sp-2);
+  font-size: var(--text-xs);
+  color: var(--fg-sub1);
+  background: var(--bg-surface0);
+  border: 1px solid color-mix(in oklab, var(--bg-surface1) 65%, transparent);
+  border-radius: var(--radius);
+}
+.chip > .icon { font-size: 0.9em; color: var(--fg-sub0); }
+.chip-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chip-meta { color: var(--fg-overlay); white-space: nowrap; flex-shrink: 0; }
+
+/* Interactive chips (button/anchor) — hover fill, focus ring, no lift. */
+button.chip, a.chip {
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+button.chip:hover, a.chip:hover { background: var(--bg-surface1); text-decoration: none; }
+button.chip:focus-visible, a.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Toggle chips (filters) — pressed state via aria-pressed. Accent tint marks
+   active *selection* (the sanctioned accent family), never outcome state. */
+button.chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface0));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--bg-surface1));
+  color: var(--fg);
+}
+
+/* Reference chips point at actionable context — a dim accent icon hint is
+   sanctioned (matches the "active selection" accent family). Body stays neutral. */
+.chip--ref > .icon { color: var(--accent-dim); }
+
+/* Remove button — 10px glyph, hit area padded to 24px via negative margins. */
+.chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  margin: -4px -6px -4px -2px;
+  padding: 0;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-overlay);
+}
+.chip-remove::before {
+  content: '';
+  width: 10px; height: 10px;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-x); mask-image: var(--icon-x);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.chip-remove:hover { color: var(--error); }
+.chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+
+/* ================================================================
+   20. NOTIFICATIONS
+
+   Rows for the attention center (panel container is .card-glass — canon).
+   Grouped by section header; unread carries an accent left edge + tinted bg.
+   ================================================================ */
+
+.notif-group {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+}
+.notif-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  border-left: 2px solid transparent;
+  color: var(--fg-sub1);
+  text-decoration: none;
+  transition: background var(--transition);
+}
+.notif-item:hover { background: var(--bg-surface0); text-decoration: none; }
+.notif-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.notif-item-body { display: flex; flex-direction: column; min-width: 0; }
+.notif-item-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); }
+.notif-item-detail {
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notif-item-time { font-size: var(--text-xs); color: var(--fg-overlay); white-space: nowrap; }
+.notif-item--unread {
+  border-left-color: var(--accent);
+  background: var(--bg-sub-base);
+}
+
+
+/* ================================================================
+   21. COMMAND PALETTE
+
+   Rows inside the glass palette (.card-glass container + canonical input
+   at top are existing canon). --active is the keyboard cursor.
+   ================================================================ */
+
+/* Section header — intentionally the same recipe as .notif-group; kept a
+   separate class because the contexts differ. */
+.palette-section {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+}
+.palette-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius);
+  color: var(--fg-sub1);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.palette-item:hover { background: var(--bg-surface0); }
+.palette-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.palette-item > .icon { color: var(--fg-sub0); }
+.palette-item-label { font-size: var(--text-base); color: var(--fg); }
+.palette-item-context {
+  font-size: var(--text-xs);
+  color: var(--fg-overlay);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-item--active {
+  background: var(--bg-surface0);
+  border-left-color: var(--accent);
+}
+.palette-item--active > .icon { color: var(--fg); }
+
+@media (max-width: 768px) {
+  .palette-item { min-height: 48px; }
+}
+
+
+/* ================================================================
+   22. ORCHESTRATION
+
+   Run-board cards and the workflow-detail pipeline spine. Both are
+   composition-first: .run-card is a .card with an amber attention ring
+   (the sibling of .card-active); the pipeline is a step list with a
+   connector line whose fill encodes progress.
+   ================================================================ */
+
+.run-card-step {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--fg-overlay);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* The amber sibling of .card-active — the dot pulses, the card does not. */
+.run-card--attention {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--bg-surface0));
+  box-shadow: var(--shadow-sm), 0 0 12px color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.pipeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  row-gap: var(--sp-1);
+}
+.pipeline-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: var(--sp-3);
+  position: relative;
+  padding: var(--sp-2) 0;
+}
+/* Connector spine — centered under the node, bridging to the next step. */
+.pipeline-step::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: calc(50% + 10px);
+  bottom: calc(-50% + 10px);
+  width: 2px;
+  background: var(--bg-surface1);
+}
+.pipeline-step:last-child::before { display: none; }
+.pipeline-step--done::before { background: color-mix(in srgb, var(--success) 40%, var(--bg-surface1)); }
+.pipeline-step--pending::before {
+  background: repeating-linear-gradient(to bottom, var(--bg-surface0) 0 4px, transparent 4px 8px);
+}
+.pipeline-node {
+  width: 14px; height: 14px;
+  margin-top: 2px;
+  align-self: start;
+  border-radius: 50%;
+  border: 2px solid var(--bg-surface1);
+  background: var(--bg-base);
+  position: relative;
+  z-index: 1;
+}
+.pipeline-step--done .pipeline-node {
+  background: var(--success);
+  border-color: var(--success);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--success) 35%, transparent);
+}
+.pipeline-step--running .pipeline-node {
+  border-color: var(--accent);
+  background: var(--bg-base);
+}
+.pipeline-step--running .pipeline-node::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: pulse-ring 2s ease-out infinite;
+}
+.pipeline-step--failed .pipeline-node {
+  background: var(--error);
+  border-color: var(--error);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--error) 35%, transparent);
+}
+.pipeline-step--blocked .pipeline-node {
+  background: var(--warning);
+  border-color: var(--warning);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.pipeline-step-body { display: flex; flex-direction: column; }
+.pipeline-step-name { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); }
+.pipeline-step--running .pipeline-step-name { color: var(--accent); }
+.pipeline-step-meta { font-size: var(--text-xs); color: var(--fg-overlay); }
+
+
+/* ================================================================
+   23. CODE HIGHLIGHTING
+
+   Token theme for highlight.js output and server-rendered diffs
+   (--syntax-* tokens, tokens.css). Syntax hues are categorical —
+   the chart-ramp family, never state; only diff added/removed
+   carries meaning. Applies wherever code renders: .well-deep,
+   .terminal-frame-body, .msg-content pre.
+   ================================================================ */
+
+.hljs { color: var(--fg); background: transparent; }
+
+.hljs-keyword, .hljs-selector-tag, .hljs-literal,
+.hljs-meta .hljs-keyword                          { color: var(--syntax-keyword); }
+.hljs-string, .hljs-regexp                        { color: var(--syntax-string); }
+.hljs-number, .hljs-symbol                        { color: var(--syntax-number); }
+.hljs-comment, .hljs-quote, .hljs-meta,
+.hljs-doctag                                      { color: var(--syntax-comment); }
+.hljs-title, .hljs-title.function_,
+.hljs-section                                     { color: var(--syntax-function); }
+.hljs-type, .hljs-title.class_,
+.hljs-class .hljs-title                           { color: var(--syntax-type); }
+.hljs-built_in, .hljs-builtin-name, .hljs-attr,
+.hljs-attribute, .hljs-property                   { color: var(--syntax-builtin); }
+.hljs-operator, .hljs-punctuation                 { color: var(--syntax-punct); }
+
+/* Diff lines — server-rendered diffs and hljs diff grammar share one
+   treatment: a faint semantic wash, full-bleed within the code well. */
+.diff-line { display: block; padding: 0 var(--sp-2); margin: 0 calc(-1 * var(--sp-2)); }
+.diff-line--add, .hljs-addition {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: color-mix(in oklab, var(--success) 60%, var(--fg));
+}
+.diff-line--del, .hljs-deletion {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: color-mix(in oklab, var(--error) 60%, var(--fg));
+}
+.diff-line--hunk {
+  color: var(--syntax-function);
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+}
+
+
+/* ================================================================
+   24. REDUCED MOTION
+   ================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .status-dot--live::before,
+  .status-dot--live::after,
+  .status-dot--attention::before,
+  .pipeline-step--running .pipeline-node::after,
+  .msg-thinking-label::after,
+  .claw-loader span { animation: none; }
+}

@@ -174,6 +174,7 @@ String workflowDetailPageTemplate({
 /// Renders the step detail partial fragment for a workflow step.
 String workflowStepDetailFragment({
   required String? messagesHtml,
+  required String stepName,
   required List<Map<String, dynamic>> artifacts,
   required List<Map<String, dynamic>> inputs,
   required List<Map<String, dynamic>> outputKeys,
@@ -188,6 +189,7 @@ String workflowStepDetailFragment({
     context: {
       'hasSession': messagesHtml != null,
       'messagesHtml': messagesHtml,
+      'stepName': stepName,
       'noSessionText': 'No session started yet.',
       'hasArtifacts': artifacts.isNotEmpty,
       'artifacts': artifacts,

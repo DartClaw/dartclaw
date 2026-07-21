@@ -76,7 +76,7 @@ void main() {
     test('budget allow → turn proceeds normally', () async {
       // Seed today's actual date key at 20% usage.
       final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService);
-      final today = DateTime.now();
+      final today = DateTime.now().toUtc();
       final m = today.month.toString().padLeft(2, '0');
       final d = today.day.toString().padLeft(2, '0');
       final dateKey = 'usage_daily:${today.year}-$m-$d';
@@ -100,7 +100,7 @@ void main() {
       final sse = RecordingSseBroadcast();
       final notifications = <(String, BudgetCheckResult)>[];
       final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService);
-      final today = DateTime.now();
+      final today = DateTime.now().toUtc();
       final m = today.month.toString().padLeft(2, '0');
       final d = today.day.toString().padLeft(2, '0');
       final dateKey = 'usage_daily:${today.year}-$m-$d';
@@ -129,7 +129,7 @@ void main() {
 
     test('budget block → BudgetExhaustedException thrown, session lock NOT held', () async {
       final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService);
-      final today = DateTime.now();
+      final today = DateTime.now().toUtc();
       final m = today.month.toString().padLeft(2, '0');
       final d = today.day.toString().padLeft(2, '0');
       final dateKey = 'usage_daily:${today.year}-$m-$d';

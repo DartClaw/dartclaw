@@ -38,6 +38,8 @@ void main() {
     );
     expect(serverOutput, contains("'templates/page.html'"));
     expect(serverOutput, contains("'static/controllers/index.js'"));
+    expect(serverOutput, contains('embeddedServerBinaryAssets'));
+    expect(serverOutput, contains("'static/mascot.png'"));
     expect(serverOutput, contains("'static/empty.txt': '',"));
     expect(serverOutput, contains("'static/$_longEmptyAssetName':\n      '',"));
     expect(serverOutput, isNot(contains('page.dart')));
@@ -49,7 +51,7 @@ void main() {
     expect(workflowOutput, isNot(contains('.example.yaml.swp')));
     expect(
       summaries,
-      containsAll(<String>['dartclaw_server: 4 files, 41 bytes', 'dartclaw_workflow: 2 files, 30 bytes']),
+      containsAll(<String>['dartclaw_server: 5 files, 47 bytes', 'dartclaw_workflow: 2 files, 30 bytes']),
     );
     _expectFormatClean(<File>[_serverOutput(tempDir.path), _workflowOutput(tempDir.path)]);
   });
@@ -79,6 +81,9 @@ void _writeFixture(String root) {
     ..createSync(recursive: true)
     ..writeAsStringSync('export const x = 1;\n');
   File('$root/packages/dartclaw_server/lib/src/static/empty.txt').createSync();
+  File(
+    '$root/packages/dartclaw_server/lib/src/static/mascot.png',
+  ).writeAsBytesSync(<int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
   File('$root/packages/dartclaw_server/lib/src/static/$_longEmptyAssetName').createSync();
   File('$root/packages/dartclaw_server/lib/src/static/.cache/ignored.txt')
     ..createSync(recursive: true)

@@ -106,7 +106,7 @@ void main() {
       expect(controller, lessThan(mainEnd));
     });
 
-    test('budget bar at 25% has no warn class', () {
+    test('budget meter at 25% has no warning variant', () {
       final html = memoryDashboardTemplate(
         status: sampleStatus(sizeBytes: 8192, budgetBytes: 32768), // 25%
         sidebarData: emptySidebarData(),
@@ -115,11 +115,11 @@ void main() {
       );
 
       expect(html, contains('width:25%'));
-      // The warn class should not appear on the budget bar fill
-      expect(html, isNot(contains('budget-bar-fill warn')));
+      expect(html, contains('class="meter"'));
+      expect(html, isNot(contains('meter-fill--warning')));
     });
 
-    test('budget bar at 85% has warn class', () {
+    test('budget meter at 85% has warning variant', () {
       final html = memoryDashboardTemplate(
         status: sampleStatus(sizeBytes: 27853, budgetBytes: 32768), // ~85%
         sidebarData: emptySidebarData(),
@@ -127,7 +127,7 @@ void main() {
         workspacePath: '/tmp',
       );
 
-      expect(html, contains('warn'));
+      expect(html, contains('meter-fill--warning'));
     });
 
     test('empty pruner history shows empty state', () {

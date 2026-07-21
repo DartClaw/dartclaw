@@ -1,7 +1,7 @@
 <div tl:fragment="projects" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
     <div class="page-inner" id="projects-content" data-controller="dc-projects">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
@@ -50,7 +50,7 @@
       </div>
 
       <div tl:unless="${hasProjects}" class="empty-state">
-        <div class="empty-state-icon">&#128194;</div>
+        <div class="empty-state-icon"><span class="claw-mark"></span></div>
         <p class="empty-state-title">No projects registered</p>
         <p class="empty-state-text">Add a project to run tasks against external repositories.</p>
         <button class="btn btn-primary" type="button" data-project-dialog-open>Add Project</button>

@@ -50,11 +50,11 @@ String statusBadgeTemplate({required String variant, required String text}) {
 /// `error`, `warning`).
 /// Use for KPI displays with a single value and label. For metric cards with
 /// custom sub-content (budget bars, fill indicators), use inline HTML instead.
-String metricCardTemplate({required String color, required String value, required String label}) {
+String metricCardTemplate({required String color, required String value, required String label, String? labelTooltip}) {
   return templateLoader.trellis.renderFragment(
     templateLoader.source('components'),
     fragment: 'metricCard',
-    context: {'color': color, 'value': value, 'label': label},
+    context: {'color': color, 'value': value, 'label': label, 'labelTooltip': labelTooltip},
   );
 }
 

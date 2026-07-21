@@ -60,37 +60,37 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02] Task & project dialogs float as glass over the live page**
+- [x] **S01 [OC01] [TI01,TI02] Task & project dialogs float as glass over the live page**
   - **Given** the Tasks page is loaded with a visible task list behind it
   - **When** the operator opens the New-Task dialog (and, on the projects surface, the Add-Project dialog)
   - **Then** each `<dialog>` renders with the canonical `card-glass` treatment (translucent + backdrop blur) rather than an opaque `--bg-mantle` fill, and the content behind reads through the glass
 
-- [ ] **S02 [OC01] [TI02] Dialog backdrop is theme-derived, not raw black**
+- [x] **S02 [OC01] [TI02] Dialog backdrop is theme-derived, not raw black**
   - **Given** the New-Task dialog is open in dark theme, then again in light theme
   - **When** the modal backdrop renders
   - **Then** the dim comes from a token-derived `color-mix` (theme-aware, e.g. `--bg-pit`/`--bg-crust`) and no `rgba(0, 0, 0, ...)` literal remains on `.task-dialog::backdrop`
 
-- [ ] **S03 [OC02] [TI03] Diff and raw artifacts render as terminal frames**
+- [x] **S03 [OC02] [TI03] Diff and raw artifacts render as terminal frames**
   - **Given** a task detail page whose artifacts include a diff view and a raw-data artifact
   - **When** the artifact column renders
   - **Then** each diff/raw view is wrapped in a `.terminal-frame` (bar + `.terminal-frame-dots` + `.terminal-frame-body`) with no `--crt` modifier (CRT is login-only per scarcity)
 
-- [ ] **S04 [OC03] [TI04] Running task cards carry data-driven semantic tint**
+- [x] **S04 [OC03] [TI04] Running task cards carry data-driven semantic tint**
   - **Given** the Tasks page renders a running-status group (the only group rendered as cards today — non-running groups render as tables and stay untinted)
   - **When** the running task cards are built
   - **Then** each card applies the view-model `cardTintClass` (which maps running→`card-tint-accent`, queued/draft→`card-tint-info`, failed/cancelled→`card-tint-error`, review/interrupted→`card-tint-warning`) via `tl:classappend`, and no hardcoded `card-tint-accent` literal remains in `tasks.html` — this is a data-driven-consistency swap, NOT a table→card conversion
 
-- [ ] **S05 [OC03] [TI05] Review-bar actions render on the canonical button base**
+- [x] **S05 [OC03] [TI05] Review-bar actions render on the canonical button base**
   - **Given** a task in review state showing the Accept / Reject / Push Back bar
   - **When** the review bar renders
   - **Then** the three buttons compose the canonical `.btn` geometry (padding, font, radius, cursor inherited) carrying only their semantic success/error/warning tint, and render correctly in both themes
 
-- [ ] **S06 [OC04] [TI06] Push-back comment toggles via the hidden attribute**
+- [x] **S06 [OC04] [TI06] Push-back comment toggles via the hidden attribute**
   - **Given** a task in review; the push-back comment editor starts collapsed
   - **When** the operator triggers Push Back
   - **Then** the `.pushback-comment` block uses the `hidden` attribute (not `style="display:none"`), the controller reveals it by toggling the element's `hidden` attribute (`element.hidden`), and the show/hide behavior is unchanged from before
 
-- [ ] **S07 [OC01,OC04] [TI02,TI06,TI07] Task surface is grep-clean of raw color and inline display toggles**
+- [x] **S07 [OC01,OC04] [TI02,TI06,TI07] Task surface is grep-clean of raw color and inline display toggles**
   - **Given** the shipped `tasks.html`, `task_detail.html`, `task_timeline.html`, and the `.task-dialog` app CSS (the `task_form.dart` workflow-tab `display:none` toggles are S03-owned and explicitly carved out — see What We're NOT Doing)
   - **When** `tasks.html`/`task_detail.html` are swept for `style="display:none"` and the `.task-dialog::backdrop` app CSS is swept for `rgba(`
   - **Then** neither pattern remains, and `task_timeline.html` is confirmed free of S05-scope violations (no inline `style`, no `display:none`, no raw color) with no change required
@@ -100,9 +100,9 @@
 
 > Non-behavioral guards, each proved by a task Verify line.
 
-- [ ] No new runtime JS dependency, `@import`, or build step is introduced — changes are plain CSS + Trellis + Stimulus only (zero-npm constraint).
-- [ ] All CSS edits land in `static/app.css`; the synced `design-system.css` / `tokens.css` are untouched (drift check stays green).
-- [ ] `task_timeline.html` carries no S05-scope violation and is left unchanged.
+- [x] No new runtime JS dependency, `@import`, or build step is introduced — changes are plain CSS + Trellis + Stimulus only (zero-npm constraint).
+- [x] All CSS edits land in `static/app.css`; the synced `design-system.css` / `tokens.css` are untouched (drift check stays green).
+- [x] `task_timeline.html` carries no S05-scope violation and is left unchanged.
 
 
 ## Scope & Boundaries
@@ -156,33 +156,33 @@ file   | packages/dartclaw_server/lib/src/static/controllers/dc_tasks_controller
 
 ### Implementation Tasks
 
-- [ ] **TI01** The New-Task and Add-Project dialogs are glass surfaces over live content
+- [x] **TI01** The New-Task and Add-Project dialogs are glass surfaces over live content
   - Compose the canonical pairing `card card-glass` on the `<dialog class="task-dialog">` element in `task_form.dart` and `project_form.dart` (same canon-settled glass recipe as S04's composer palettes). In `static/app.css`, drop `.task-dialog`'s opaque `background: var(--bg-mantle)` **and** its local `border`/`box-shadow` declarations so the canonical `.card` border plus `.card-glass`'s `border-color`/`border-top-color` and inset-sheen `box-shadow` cascade through – `app.css` loads after `design-system.css`, so a retained same-specificity `border`/`box-shadow` would silently cancel the glass edges and sheen. Keep the dialog's layout/padding rules and the token-derived `::backdrop` work (TI02).
   - **Verify**: `Test: rendered newTaskFormDialogHtml() and addProjectDialogHtml() contain classes "card card-glass" on the <dialog>; grep static/app.css .task-dialog rule has no "background: var(--bg-mantle)" and carries no local "border"/"box-shadow" override` (+ visual: the dialog reads as glass – sheen and bright edges, not translucency+blur alone – in both themes)
 
-- [ ] **TI02** The dialog backdrop is a theme-derived token mix
+- [x] **TI02** The dialog backdrop is a theme-derived token mix
   - In `static/app.css`, replace `.task-dialog::backdrop { background: rgba(0,0,0,0.5) }` with a theme-aware `color-mix` (e.g. of `--bg-pit`/`--bg-crust`) so light theme dims correctly; keep the `backdrop-filter: blur(...)`.
   - **Verify**: `Test: grep static/app.css .task-dialog::backdrop block contains "color-mix" and contains no "rgba("`
 
-- [ ] **TI03** Diff and raw artifact views render as terminal frames
+- [x] **TI03** Diff and raw artifact views render as terminal frames
   - In `task_detail.html`, wrap the `pre.diff-view` / `div.diff-view` and `pre.task-artifact-raw` outputs in a `.terminal-frame` (with `.terminal-frame-bar` + `.terminal-frame-dots` + `.terminal-frame-body`). Plain frame only — no `--crt`. Preserve the existing `tl:utext`/`tl:text` bindings for content.
   - Each `.terminal-frame-bar` carries a short contextual title after the traffic-light dots, per the ratified `terminal-frame-title` convention (see Implementation Observations): the artifact filename, falling back to the artifact kind when no filename is available.
   - The common rendered-diff path is `div.diff-view` (`tasks_page.dart` sets `renderedHtml` for every diff artifact, via `_renderDiffHtml`) – a `div`, not a `pre`, so canon's `.terminal-frame-body pre` reset does not match it and its own `.diff-view` background/border/radius/padding would double-box inside the frame. Add to `static/app.css` a mirror reset `.terminal-frame-body .diff-view { background: transparent; border: none; box-shadow: none; padding: 0; }` so rendered diffs get the same flat framed look as canon's `pre` reset. The nested per-hunk `pre.task-artifact-raw` blocks inside that rendered diff go flat automatically via canon's descendant `pre` reset (canonical look; their `max-height`/`overflow` behavior survives, since the reset does not touch those). `tasks_page.dart` stays untouched (no Dart edit).
   - **Verify**: `Test: rendered task_detail with a diff artifact and a data artifact contains "terminal-frame" wrapping the diff-view and task-artifact-raw, with the artifact filename (or kind fallback) rendered as the title text in .terminal-frame-bar; contains no "terminal-frame--crt"; grep static/app.css contains a ".terminal-frame-body .diff-view" reset clearing background/border/box-shadow/padding`
 
-- [ ] **TI04** Running task cards carry the data-driven semantic tint
+- [x] **TI04** Running task cards carry the data-driven semantic tint
   - In `tasks.html`, the running task card (currently `class="card card-tint-accent task-card-running"`) applies `${task.cardTintClass}` via `tl:classappend` and drops the hardcoded `card-tint-accent` literal. The `cardTintClass` field already exists in `tasks.dart`.
   - **Verify**: `Test: grep tasks.html has tl:classappend referencing cardTintClass on the running card and no literal "card-tint-accent" string; rendered running group applies the class`
 
-- [ ] **TI05** Review-bar Accept/Reject/Push-Back render on the canonical button base
+- [x] **TI05** Review-bar Accept/Reject/Push-Back render on the canonical button base
   - In `static/app.css`, reduce `.btn-accept` / `.btn-reject` / `.btn-pushback` to their semantic tint only (background/border/color), inheriting geometry (padding, font, radius, cursor) from the canonical `.btn` base; the template already applies `class="btn btn-accept"` etc.
   - **Verify**: `Test: grep static/app.css .btn-accept/.btn-reject/.btn-pushback rules declare no "padding:" and no "cursor:" (inherited from .btn); visual validation confirms button sizing in both themes`
 
-- [ ] **TI06** Push-back comment visibility uses the hidden attribute
+- [x] **TI06** Push-back comment visibility uses the hidden attribute
   - In `task_detail.html`, change `<div class="pushback-comment" style="display:none">` to use the `hidden` attribute. In `dc_tasks_controller.js`, replace the `commentArea.style.display === 'none'` / `= ''` reveal (push_back branch) with a `.hidden` toggle. Behavior (collapsed until Push Back, then revealed) is unchanged.
   - **Verify**: `Test: grep task_detail.html .pushback-comment has "hidden" and no style="display; grep dc_tasks_controller.js push_back branch uses ".hidden" and not "style.display" for the comment area`
 
-- [ ] **TI07** `task_timeline.html` is confirmed free of S05-scope violations
+- [x] **TI07** `task_timeline.html` is confirmed free of S05-scope violations
   - Sweep `task_timeline.html` for inline `style` attributes, `display:none`, and raw color; it postdates the audit and is expected clean — record no change if so.
   - **Verify**: `Test: grep task_timeline.html finds no "style=" attribute (excluding tl:attr), no "display:none", no "rgba("`
 
@@ -191,13 +191,16 @@ file   | packages/dartclaw_server/lib/src/static/controllers/dc_tasks_controller
 
 
 ## Final Validation Checklist
-- [ ] `.task-dialog::backdrop` in `static/app.css` contains no `rgba(` literal (token-mix only).
-- [ ] No `style="display:none"` remains in `tasks.html` or `task_detail.html`.
+- [x] `.task-dialog::backdrop` in `static/app.css` contains no `rgba(` literal (token-mix only).
+- [x] No `style="display:none"` remains in `tasks.html` or `task_detail.html`.
 
 
 ## Implementation Observations
 
 Records implementation-time observations, discovered requirements, and resolved/deferred decisions for this story.
+
+- Critic review found the first backdrop token mix was opaque; the final mix uses `transparent` and computes to alpha 0.64 in both themes.
+- Artifact/review live states were unavailable in the seeded profile; focused render/controller tests cover those paths.
 
 #### DECISION NOTE: terminal-frame-title
 

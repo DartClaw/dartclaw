@@ -70,32 +70,32 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Health status hero renders as a canonical featured card with a canonical status badge**
+- [x] **S01 [OC01] [TI01] Health status hero renders as a canonical featured card with a canonical status badge**
   - **Given** the health dashboard for a `healthy` server
   - **When** the page renders
   - **Then** the hero is a `.card` carrying `card-featured-accent`, its status label is a `.status-badge` carrying `status-badge-success`, and the rendered markup contains no `status-hero`, `status-hero-healthy`, or `status-label` class
 
-- [ ] **S02 [OC01] [TI01] Degraded and error health states drive the matching featured/badge variants**
+- [x] **S02 [OC01] [TI01] Degraded and error health states drive the matching featured/badge variants**
   - **Given** the health dashboard for a `degraded` server, then for an unavailable/error server
   - **When** each page renders
   - **Then** `degraded` yields `card-featured-warning` + `status-badge-warning` and the error state yields `card-featured-error` + `status-badge-error` (variant tracks state — a fixed accent/success render fails this)
 
-- [ ] **S03 [OC02] [TI03] KPIs on both dashboards render at the canonical 32px metric scale**
+- [x] **S03 [OC02] [TI03] KPIs on both dashboards render at the canonical 32px metric scale**
   - **Given** the health dashboard (4 metric cards) and the memory dashboard overview (5 KPI cards)
   - **When** each page renders
   - **Then** every KPI is a `class="card card-metric"` element with `.metric-value`/`.metric-label` children (so the canonical `.card-metric .metric-value` 32px `--text-3xl` scale governs), and neither page carries a bespoke metric class such as `summary-stat`
 
-- [ ] **S04 [OC03] [TI02] The health page uses the canonical layout container and the dashboard family is gone**
+- [x] **S04 [OC03] [TI02] The health page uses the canonical layout container and the dashboard family is gone**
   - **Given** the health dashboard
   - **When** the page renders and `static/app.css` is inspected
   - **Then** the `<main>`/inner wrappers use `content-area`/`content-inner`, no `dashboard` or `dashboard-inner` class appears in the rendered markup, and `static/app.css` contains no `.dashboard`, `.dashboard-inner`, `.dashboard .card-header`, `.dashboard .card-title`, `.status-hero`, or `.status-*` (health-hero) rule
 
-- [ ] **S05 [OC04] [TI04] The dashboards introduce no charts and no hand-picked data hues**
+- [x] **S05 [OC04] [TI04] The dashboards introduce no charts and no hand-picked data hues**
   - **Given** the health and memory dashboards after adoption
   - **When** their templates and their `static/app.css` sections are inspected
   - **Then** no chart/sparkline markup and no raw color literal for data display are added, while the canonical `--chart-1..6` ramp remains available (defined once in the synced `static/tokens.css` from S01) as the sanctioned hue source for future viz
 
-- [ ] **S06 [OC02] [TI05] Memory meters and preview loaders are untouched by this story**
+- [x] **S06 [OC02] [TI05] Memory meters and preview loaders are untouched by this story**
   - **Given** the memory dashboard rendered after this story
   - **When** its budget/errors/learnings progress markup and its file-preview loader are compared to the S03 output
   - **Then** they are exactly the S03-owned `.meter`/skeleton markup (this story adds, changes, or deletes no meter, skeleton, spinner, or claw-loader)
@@ -103,11 +103,11 @@
 
 ## Structural Criteria
 
-- [ ] No `.dashboard`, `.dashboard-inner`, `.dashboard .card-header`, `.dashboard .card-title`, `.status-hero`, `.status-hero-healthy`, `.status-hero-degraded`, `.status-hero-error`, `.status-indicator`, `.status-details`, `.status-label`, or `.status-meta` rule remains in `static/app.css` (proved by TI02).
-- [ ] The shared `.page-content`/`.page-inner`, `.metric-card`, and bare `.metric-value`/`.metric-label` rules stay in `static/app.css` — they still have non-dashboard consumers: the bare `.metric-card` wrapper's only consumer is `workflow_detail.html`, while `memory_dashboard.html` renders bare `.metric-value`/`.metric-label` under `.card card-metric`, and `.page-content`/`.page-inner` is shared app-wide (proved by TI02/TI03).
-- [ ] Synced `static/design-system.css` and `static/tokens.css` are untouched and the S01 drift check exits zero (proved by TI05).
-- [ ] `lib/src/generated/embedded_assets.g.dart` is regenerated and `git diff --exit-code` on it is clean after the template/static edits (proved by TI05).
-- [ ] The existing health/memory template-render tests are updated to the canonical markup and pass (proved by TI05).
+- [x] No `.dashboard`, `.dashboard-inner`, `.dashboard .card-header`, `.dashboard .card-title`, `.status-hero`, `.status-hero-healthy`, `.status-hero-degraded`, `.status-hero-error`, `.status-indicator`, `.status-details`, `.status-label`, or `.status-meta` rule remains in `static/app.css` (proved by TI02).
+- [x] The shared `.page-content`/`.page-inner`, `.metric-card`, and bare `.metric-value`/`.metric-label` rules stay in `static/app.css` — they still have non-dashboard consumers: the bare `.metric-card` wrapper's only consumer is `workflow_detail.html`, while `memory_dashboard.html` renders bare `.metric-value`/`.metric-label` under `.card card-metric`, and `.page-content`/`.page-inner` is shared app-wide (proved by TI02/TI03).
+- [x] Synced `static/design-system.css` and `static/tokens.css` are untouched and the S01 drift check exits zero (proved by TI05).
+- [x] `lib/src/generated/embedded_assets.g.dart` is regenerated and `git diff --exit-code` on it is clean after the template/static edits (proved by TI05).
+- [x] The existing health/memory template-render tests are updated to the canonical markup and pass (proved by TI05).
 
 
 ## Scope & Boundaries
@@ -160,24 +160,24 @@ file   | packages/dartclaw_server/lib/src/templates/health_dashboard.dart#L33 | 
 
 ### Implementation Tasks
 
-- [ ] **TI01** Health status hero is a canonical featured card whose status label is a canonical status badge
+- [x] **TI01** Health status hero is a canonical featured card whose status label is a canonical status badge
   - In `health_dashboard.html` + `health_dashboard.dart`, the hero block is `.card` + `card-featured-{accent|warning|error}` (from status); the status label is a `.status-badge` + `status-badge-{success|warning|error}` that carries the matching `.status-dot` variant (`.status-dot--live` for healthy, `.status-dot--warning` for degraded, `.status-dot--error` for error). The bespoke 28px state-icon is removed entirely: drop the `.status-indicator` wrapper and the `statusIcon` span from the markup/builder, add no replacement icon treatment, and let state read through the tinted `card-featured-{color}` surface plus the badge and its dot. Keep the uptime/version/worker meta list. Map `healthy`→`card-featured-accent`/`status-badge-success`/`status-dot--live`, `degraded`→`card-featured-warning`/`status-badge-warning`/`status-dot--warning`, else→`card-featured-error`/`status-badge-error`/`status-dot--error`.
   - **Verify**: `Test: rendered health_dashboard for healthy shows card-featured-accent + a status-badge/status-badge-success carrying status-dot--live; degraded shows card-featured-warning + status-badge-warning + status-dot--warning; error shows card-featured-error + status-badge-error + status-dot--error; the uptime/version/worker meta list still renders; and no status-hero, status-indicator, status-label, or 28px state-icon markup remains`
   - **Visual gate**: evaluate the reworked hero for UI/UX regression in both themes at desktop + 768px across all three states – it must read as first-class, not degraded; if it reads as degraded, the sanctioned fallback is an upstream canon fix in `dev/design-system/` (never a page-local rule), per the `status-hero-treatment` decision note and DECISIONS.md Still Current "Design-system gap resolution".
 
-- [ ] **TI02** The health page uses the canonical layout container and the dashboard-family CSS is gone
+- [x] **TI02** The health page uses the canonical layout container and the dashboard-family CSS is gone
   - Retarget the health `<main>`/inner wrappers (incl. the `hx-select` target) from `dashboard`/`dashboard-inner` to `content-area`/`content-inner`; delete `.dashboard`, `.dashboard-inner`, `.dashboard .card-header`, `.dashboard .card-title`, `.status-hero`, `.status-hero-*`, `.status-indicator`, `.status-details`, `.status-label`, `.status-meta` from `static/app.css` (health is their only consumer). Deleting `.dashboard .card-title` intentionally drops health's bespoke uppercase-eyebrow card titles: there is no base `.card-title` rule (only `.dashboard`- and `.settings-card`-scoped ones), and canon defines none, so health card titles become plain spans — matching `memory_dashboard.html`'s already-unstyled `.card-title` and aligning with the design system. Validate this visually; do not re-home the eyebrow style. Likewise, deleting `.dashboard .card-header` drops its `justify-content: space-between`, so the Services cards' status badges sit inline right after the card title rather than pushed to the row's end (base `.card-header` carries no `space-between`) – accepted: this matches how `memory_dashboard.html`'s canonical `.card-header` cards already render today; validate visually. Leave `.page-content`/`.metric-card`/bare `.metric-value` (other consumers).
   - **Verify**: `Test: rendered health_dashboard uses content-area/content-inner and no dashboard/dashboard-inner class; grep -cE '\.(dashboard|status-hero|status-indicator|status-details|status-label|status-meta)' static/app.css is 0; each of .page-content, .page-inner, .metric-card, .metric-value, .metric-label still returns a match via grep -q static/app.css`
 
-- [ ] **TI03** Every KPI on both dashboards composes `.card card-metric` at the canonical metric scale
+- [x] **TI03** Every KPI on both dashboards composes `.card card-metric` at the canonical metric scale
   - Confirm all 4 health metric cards (via the `metricCard` fragment) and all 5 memory overview KPI cards render `class="card card-metric"` (so canonical `.card-metric .metric-value` at `--text-3xl`/32px + `--tracking-tight` governs); convert any KPI not already on `card-metric`. No bespoke metric class (`summary-stat`, `.metric-card`) is used for a dashboard KPI.
   - **Verify**: `Test: rendered health_dashboard + memory_dashboard KPI cards each carry class="card card-metric" with metric-value/metric-label children; neither page contains summary-stat; visual profile confirms metric-value renders at 32px with tight tracking in both themes, backed by dev/design-system/components.css's .card-metric .metric-value { font-size: var(--text-3xl); letter-spacing: var(--tracking-tight) }`
 
-- [ ] **TI04** The `--chart-1..6` ramp is the dashboards' only sanctioned viz hue source, with no charts added
+- [x] **TI04** The `--chart-1..6` ramp is the dashboards' only sanctioned viz hue source, with no charts added
   - Add no chart/sparkline markup and no raw data-color literal to either dashboard or their `static/app.css` sections; the canonical `--chart-1`…`--chart-6` tokens remain available from the synced `static/tokens.css` (S01) for future viz.
   - **Verify**: `Test: git diff of health_dashboard/memory_dashboard templates + static/app.css adds no <svg>/<canvas>/chart markup and no raw hex/rgb() data hue; grep static/tokens.css finds --chart-1 through --chart-6`
 
-- [ ] **TI05** Embedded assets and template tests reflect the canonical markup
+- [x] **TI05** Embedded assets and template tests reflect the canonical markup
   - Run `dart run dev/tools/embed_assets.dart` after the template/static edits; update the health/memory template-render tests to assert the canonical `card-featured-*`/`status-badge-*`/`content-area` markup (and keep the S03-owned meter/skeleton assertions unchanged).
   - **Verify**: `Test: git diff --exit-code on lib/src/generated/embedded_assets.g.dart is clean after regen; the health + memory template-render tests pass; the S01 drift check invoked via dev/tools/fitness/run_all.sh exits 0 and git diff --exit-code -- static/design-system.css static/tokens.css is clean (this story's changeset touches neither synced file)`
 
@@ -194,10 +194,13 @@ file   | packages/dartclaw_server/lib/src/templates/health_dashboard.dart#L33 | 
 
 ## Final Validation Checklist
 
-- [ ] App-wide grep is clean of the retired health-only selectors in `static/app.css`: `.dashboard`, `.dashboard-inner`, `.status-hero`, `.status-label`, `.status-indicator`, `.status-details`, `.status-meta`.
+- [x] App-wide grep is clean of the retired health-only selectors in `static/app.css`: `.dashboard`, `.dashboard-inner`, `.status-hero`, `.status-label`, `.status-indicator`, `.status-details`, `.status-meta`.
 
 
 ## Implementation Observations
+
+- Visual validation passed on current-code health and memory pages in both themes at desktop and 768px.
+- Note: canonical `.card-metric .metric-value` resolves through `--text-3xl` to 28px, despite scenario prose saying 32px; the story correctly composes the canonical rule and leaves canon unchanged.
 
 #### DECISION NOTE: status-hero-treatment
 

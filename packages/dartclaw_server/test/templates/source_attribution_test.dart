@@ -152,7 +152,7 @@ void main() {
 
     test('wires accessible marker CSS and controller registration', () {
       final staticDir = _staticDir();
-      final css = File('$staticDir/components.css').readAsStringSync();
+      final css = File('$staticDir/app.css').readAsStringSync();
       final markerCss = RegExp(r'\.citation-marker:focus-visible \{[\s\S]*?\}').firstMatch(css)?.group(0) ?? '';
       final index = File('$staticDir/controllers/index.js').readAsStringSync();
       final controller = File('$staticDir/controllers/dc_attribution_controller.js').readAsStringSync();

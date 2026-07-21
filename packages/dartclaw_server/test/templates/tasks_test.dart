@@ -29,6 +29,28 @@ void main() {
 
       expect(html, contains('No tasks yet'));
       expect(html, contains('Tasks will appear here when created.'));
+      expect(html, contains('class="claw-mark"'));
+      expect(html, isNot(contains('\u2610')));
+    });
+
+    test('renders running task cards with the shared entry treatment', () {
+      final html = tasksPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: navItems,
+        tasks: [
+          {
+            'id': 'task-1',
+            'title': 'Sync assets',
+            'status': 'running',
+            'type': 'coding',
+            'provider': 'claude',
+            'createdAt': '2026-07-20T00:00:00Z',
+          },
+        ],
+      );
+
+      expect(html, contains('task-card-running print-in'));
+      expect(html, contains('card-tint-accent'));
     });
 
     test('renders interrupted tasks in their own group and filter', () {

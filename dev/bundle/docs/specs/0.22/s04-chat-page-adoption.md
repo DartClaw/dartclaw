@@ -57,27 +57,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Command/reference palettes render as glass over the thread**
+- [x] **S01 [OC01] [TI01] Command/reference palettes render as glass over the thread**
   - **Given** the `chatArea` fragment is rendered for a writable session
   - **When** the command palette (`[data-dc-chat-target="commandPalette"]`) and reference palette (`[data-dc-chat-target="referencePalette"]`) markup is inspected
   - **Then** each palette element carries the canonical `card card-glass` pairing, and the app `.composer-palette`/`.composer-reference-palette` rules no longer set an opaque `background: var(--bg-mantle)` nor a local `border`/`box-shadow` that would cancel the glass edges; when opened over a populated thread in both themes the panel reads as glass – translucent with backdrop blur, the top-light sheen, and bright edges
 
-- [ ] **S02 [OC02] [TI02] Composer shortcut affordances render as keycaps**
+- [x] **S02 [OC02] [TI02] Composer shortcut affordances render as keycaps**
   - **Given** the `chatArea` composer is rendered
   - **When** the shortcut hints are inspected
   - **Then** a `/`-opens-commands hint and a send hint (the real binding is Ctrl/⌘+`Enter`, per `dc_chat_controller.js` — plain Enter does not send) present their key labels as `<kbd>` (or `.kbd`) keycap elements, distinct from the interactive `/` trigger button
 
-- [ ] **S03 [OC03] [TI03] Hidden chat UI uses the `hidden` attribute**
+- [x] **S03 [OC03] [TI03] Hidden chat UI uses the `hidden` attribute**
   - **Given** the `sendResponse` fragment is rendered
   - **When** the `#turn-error-target` element is inspected
   - **Then** it uses the `hidden` attribute for its initial hidden state and no `style="display:none"` (or any inline `display:none`) appears anywhere in `chat.html`
 
-- [ ] **S04 [OC04] [TI04] Message treatments read canonically in both themes**
+- [x] **S04 [OC04] [TI04] Message treatments read canonically in both themes**
   - **Given** the chat page in dark and light theme at desktop and 768px
   - **When** a user message and a streaming assistant message are shown
   - **Then** `.msg-user` tints to `var(--accent)`, `.msg-assistant` tints to `var(--info)`, the streaming cursor (`.streaming::after`) is the `var(--accent)` block glyph, and the input focus ring (`.input-area textarea:focus`) is the `var(--accent)` ring — all passing visual validation with no hardcoded color
 
-- [ ] **S05 [OC01,OC04] [TI01] Glass stays over live content only**
+- [x] **S05 [OC01,OC04] [TI01] Glass stays over live content only**
   - **Given** the rendered message thread (`.messages` with `.msg` cards) and composer row
   - **When** the in-flow content is inspected
   - **Then** no `.msg`/message card and no `.composer-row` carries `card-glass` — glass is confined to the floating palettes (never in-flow)
@@ -85,11 +85,11 @@
 
 ## Structural Criteria
 
-- [ ] No inline `display:none` (e.g. `style="display:none"`) remains in `chat.html` (grep-clean).
-- [ ] Synced `static/design-system.css` is untouched by this story; every CSS change lands in `static/app.css` only (S01 sync contract; drift check stays green).
-- [ ] Glass is composed by applying the canonical `.card-glass` class — no bespoke glass recipe (`--glass-bg`/`backdrop-filter`) is duplicated into `app.css`.
-- [ ] Existing chat template render tests and the UI smoke test (TC-01…TC-31) still pass.
-- [ ] No claw-loader, skeleton, or meter markup is added/changed on the chat page (S03 ownership); the pre-stream slot and load-earlier button are left as-is.
+- [x] No inline `display:none` (e.g. `style="display:none"`) remains in `chat.html` (grep-clean).
+- [x] Synced `static/design-system.css` is untouched by this story; every CSS change lands in `static/app.css` only (S01 sync contract; drift check stays green).
+- [x] Glass is composed by applying the canonical `.card-glass` class — no bespoke glass recipe (`--glass-bg`/`backdrop-filter`) is duplicated into `app.css`.
+- [x] Existing chat template render tests and the UI smoke test (TC-01…TC-31) still pass.
+- [x] No claw-loader, skeleton, or meter markup is added/changed on the chat page (S03 ownership); the pre-stream slot and load-earlier button are left as-is.
 
 
 ## Scope & Boundaries
@@ -139,23 +139,24 @@ file   | packages/dartclaw_server/test/templates/render_test.dart          | ren
 
 ### Implementation Tasks
 
-- [ ] **TI01** Composer command and reference palettes read as glass floating over the thread
+- [x] **TI01** Composer command and reference palettes read as glass floating over the thread
   - Compose the canonical pairing `card card-glass` on `.composer-palette`/`.composer-reference-palette` markup in `chat.html#chatArea` (per DESIGN.md's depth ladder + showcase usage). In `app.css`, drop the opaque `background: var(--bg-mantle)` **and** the local `border`/`box-shadow` declarations from those rules so `.card-glass`'s `border-color`/`border-top-color` and inset-sheen `box-shadow` cascade through – `app.css` loads after `design-system.css`, so a retained same-specificity `border`/`box-shadow` would silently cancel the glass sheen and edges. Keep positioning (`position/left/right/bottom/z-index`). Confirm `dc_chat_controller.js` still opens/closes via the `hidden` property.
   - **Verify**: `Test: renderFileFragment('chat', fragment:'chatArea') output shows commandPalette and referencePalette elements with classes "card card-glass"; grep confirms app.css .composer-palette/.composer-reference-palette no longer set "background: var(--bg-mantle)" and carry no local "border"/"box-shadow" override; no "backdrop-filter"/"--glass-bg" literal added to app.css` (+ visual: over a populated thread in both themes the panel reads as glass – translucent blur plus the top-light sheen and bright edges, not translucency+blur alone)
 
-- [ ] **TI02** Composer shortcut affordances present their keys as keycaps
+- [x] **TI02** Composer shortcut affordances present their keys as keycaps
   - Add `<kbd>` keycap hints in the composer, rendered inside the existing `.composer-suggestions` area (`chat.html#chatArea`, chat.html:70): a `/`-opens-commands hint and a send hint using the real binding Ctrl/⌘+`Enter` (confirmed at `dc_chat_controller.js:115` — `(ctrlKey||metaKey) && key==='Enter'`; plain Enter does not submit). Keep `kbd` presentational — do not wrap the interactive `/` trigger button. Text/token utilities only — no new runtime JS.
   - **Verify**: `Test: renderFileFragment('chat', fragment:'chatArea') output contains "<kbd" keycaps carrying the "/" label and an "Enter" label paired with a Ctrl/⌘ modifier keycap`
 
-- [ ] **TI03** Chat page hides UI via the `hidden` attribute (no inline display)
+- [x] **TI03** Chat page hides UI via the `hidden` attribute (no inline display)
   - Change `#turn-error-target` in `chat.html#sendResponse` from `style="display:none"` to the `hidden` attribute (works with the existing `htmx:afterSwap` handler and the `[hidden]` reset).
   - **Verify**: `Test: renderFileFragment('chat', fragment:'sendResponse') output shows #turn-error-target with the hidden attribute; grep of chat.html finds zero "display:none"`
 
-- [ ] **TI04** Message tints, streaming cursor, and input focus ring compose canonical tokens
+- [x] **TI04** Message tints, streaming cursor, and input focus ring compose canonical tokens
   - Confirm `.msg-user` → `var(--accent)`, `.msg-assistant` → `var(--info)`, `.streaming::after` → `var(--accent)` block glyph, `.input-area textarea:focus` → `var(--accent)` ring in `app.css`; align any off-token value found. No hardcoded hex.
   - **Verify**: `Test: grep of app.css chat rules shows .msg-user/.msg-assistant using var(--accent)/var(--info), .streaming::after and textarea:focus using var(--accent), with no hex literal` (+ visual: both themes, desktop + 768px, "good" compliance)
 
 
 ## Implementation Observations
 
-_No observations recorded yet._
+- Visual validation caught a missing positioned composer ancestor; restoring it anchors palettes over the thread at desktop and 768px.
+- Critic review caught a double-escaped streaming cursor override; removing the duplicate leaves the canonical `█` rule as the sole source.

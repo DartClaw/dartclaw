@@ -1,7 +1,7 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
     <div class="page-inner" id="tasks-content" data-controller="dc-tasks">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
@@ -34,19 +34,21 @@
           </h3>
 
           <div tl:if="${group.isRunning}" class="task-running-cards">
-            <div tl:each="task : ${group.tasks}" class="card card-tint-accent task-card-running">
+            <div tl:each="task : ${group.tasks}" class="card task-card-running print-in" tl:classappend="${task.cardTintClass}">
               <div class="task-card-title" tl:text="${task.title}">Task title</div>
               <div class="task-card-meta">
-                <span tl:if="${task.agentLabel}" class="task-agent-badge" tl:text="${task.agentLabel}">Agent #1</span>
+                <span tl:if="${task.agentLabel}" class="task-agent-badge"><span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${task.agentLabel},data-identicon-initials=${task.agentLabel}"></span><span tl:text="${task.agentLabel}">Agent #1</span></span>
                 <span tl:if="${task.projectName}" class="project-badge" tl:text="${task.projectName}">Project</span>
                 <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
                 <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
                       tl:text="${task.providerLabel}">Claude</span>
                 <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>
               </div>
-              <div class="task-progress" tl:classappend="${task.isIndeterminate} ? 'task-progress-indeterminate' : ''"
-                   tl:attr="id='task-progress-' + ${task.id}">
-                <div class="task-progress-fill" tl:attr="style='width:' + ${task.progressPct} + '%'"></div>
+              <div tl:attr="id='task-meter-' + ${task.id}">
+                <div tl:if="${task.isIndeterminate}" class="scan-bar"></div>
+                <div tl:unless="${task.isIndeterminate}" class="meter">
+                  <div class="meter-fill" tl:attr="style='width:' + ${task.progressPct} + '%'"></div>
+                </div>
               </div>
               <div class="task-tokens" tl:attr="id='task-tokens-' + ${task.id}">
                 <span tl:text="${task.tokenDisplay}">0 tokens</span>
@@ -101,7 +103,7 @@
       </div>
 
       <div tl:unless="${hasTasks}" class="empty-state">
-        <div class="empty-state-icon">&#9744;</div>
+        <div class="empty-state-icon"><span class="claw-mark"></span></div>
         <p class="empty-state-title">No tasks yet</p>
         <p class="empty-state-text">Tasks will appear here when created.</p>
       </div>

@@ -63,32 +63,32 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI05] Ground renders without banding in both themes**
+- [x] **S01 [OC01] [TI05] Ground renders without banding in both themes**
   - **Given** the app is loaded on a large (~2560px-wide) viewport with a sparse content page
   - **When** it is viewed in dark theme and then in light theme (`data-theme="light"` on `<html>`)
   - **Then** the 3-stop gradient plus the three ambient glows render with no visible banding, the film-grain layer sits behind in-flow content and above the gradient, and the light theme shows the Latte-tuned glows/opacity — with `design-system.css` and `tokens.css` left byte-identical to canon
 
-- [ ] **S02 [OC02] [TI01,TI03] Messages and swapped page content arrive via print-in**
+- [x] **S02 [OC02] [TI01,TI03] Messages and swapped page content arrive via print-in**
   - **Given** an active chat session and the sidebar navigation
   - **When** a new assistant message fragment is inserted into the thread, and separately a sidebar link swaps `#main-content` to another page
   - **Then** each newly-inserted root plays the `print-in` rise+fade once and carries the `print-in` class, and no second entry animation plays on it
 
-- [ ] **S03 [OC02] [TI02] Task cards and workflow run cards arrive via print-in**
+- [x] **S03 [OC02] [TI02] Task cards and workflow run cards arrive via print-in**
   - **Given** the tasks page and the workflow list page
   - **When** their card lists render
   - **Then** each task card root and each workflow run-card root carries `print-in` as its arrival treatment
 
-- [ ] **S04 [OC02] [TI04] The legacy view-transition cross-fade no longer competes on main-content swaps**
+- [x] **S04 [OC02] [TI04] The legacy view-transition cross-fade no longer competes on main-content swaps**
   - **Given** an HTMX navigation that swaps `#main-content`
   - **When** the swap occurs
   - **Then** the content arrives via `print-in` only — `app.css` defines no `::view-transition-old/new(main-content)` animation and no `vt-fade-in`/`vt-fade-out` keyframes, so no cross-fade competes with print-in
 
-- [ ] **S05 [OC03] [TI06] Reduced-motion yields static arrival and lifts**
+- [x] **S05 [OC03] [TI06] Reduced-motion yields static arrival and lifts**
   - **Given** the user agent reports `prefers-reduced-motion: reduce`
   - **When** a message/page/card arrives and a hoverable surface (`.btn`/`.card`) is hovered
   - **Then** no motion plays — `print-in` resolves instantly with no translate, micro-lifts are neutralized, and the ambient ground remains static
 
-- [ ] **S06 [OC01] [TI05] Ground stacks correctly under dialogs and live SSE content**
+- [x] **S06 [OC01] [TI05] Ground stacks correctly under dialogs and live SSE content**
   - **Given** a dialog open over live content and a chat streaming via SSE
   - **When** rendered in both themes
   - **Then** the film-grain/ground shows correctly behind content (grain at `z-index: -1` not clipped or covered by the shell grid or dialog stacking contexts) with no grain bleeding above in-flow content
@@ -96,10 +96,10 @@
 
 ## Structural Criteria
 
-- [ ] `static/design-system.css` and `static/tokens.css` remain byte-identical to canon (drift check green) — this story edited only `static/app.css` and templates.
-- [ ] The canonical `prefers-reduced-motion` rule that neutralizes `.claw-loader` animation is present in the synced `design-system.css` (keeps the loader-disable path intact for S03).
-- [ ] No new runtime JS dependency is introduced; `print-in` (via `@starting-style`) and the ground (gradient + inline SVG noise) are CSS-only.
-- [ ] Exactly one content-entry motion (`print-in`) exists app-wide; the toast slide is the only other sanctioned arrival animation.
+- [x] `static/design-system.css` and `static/tokens.css` remain byte-identical to canon (drift check green) — this story edited only `static/app.css` and templates.
+- [x] The canonical `prefers-reduced-motion` rule that neutralizes `.claw-loader` animation is present in the synced `design-system.css` (keeps the loader-disable path intact for S03).
+- [x] No new runtime JS dependency is introduced; `print-in` (via `@starting-style`) and the ground (gradient + inline SVG noise) are CSS-only.
+- [x] Exactly one content-entry motion (`print-in`) exists app-wide; the toast slide is the only other sanctioned arrival animation.
 
 
 ## Scope & Boundaries
@@ -150,27 +150,27 @@ wire   | dev/design-system/showcase.html                                     | A
 
 ### Implementation Tasks
 
-- [ ] **TI01** Chat message fragment roots arrive via `print-in`
+- [x] **TI01** Chat message fragment roots arrive via `print-in`
   - Add `print-in` to the `userMessage`, `assistantMessage`, inline user-echo, and `#streaming-msg` roots in `templates/chat.html` (the `.msg` roots); never on the `sse-swap="delta"` delta target.
   - **Verify**: `Test: rendered userMessage, assistantMessage, and #streaming-msg roots each include class token "print-in"; #streaming-content does NOT`
 
-- [ ] **TI02** Task cards and workflow run cards arrive via `print-in`
+- [x] **TI02** Task cards and workflow run cards arrive via `print-in`
   - Add `print-in` to the `tl:each` task-card root in `templates/tasks.html` and the `workflow-run-card` root in `templates/workflow_list.html`.
   - **Verify**: `Test: rendered tasks.html task-card root and workflow_list.html .workflow-run-card root each include class token "print-in"`
 
-- [ ] **TI03** HTMX-swapped page content arrives via `print-in`
+- [x] **TI03** HTMX-swapped page content arrives via `print-in`
   - Add `print-in` to every page template's `id="main-content"` swap-target root (the `hx-select="#main-content"` outerHTML swap surface); apply at the shared root, not per-inner-element.
   - **Verify**: `Test/grep: count of templates matching id="main-content" (18) equals count whose #main-content element also carries the print-in class`
 
-- [ ] **TI04** `#main-content` swaps have a single arrival treatment
+- [x] **TI04** `#main-content` swaps have a single arrival treatment
   - Remove the app-only view-transition cross-fade for main-content from `app.css`: the `::view-transition-old/new(main-content)` animations, the `vt-fade-in`/`vt-fade-out` keyframes, and the now-orphaned `view-transition-name: main-content` (leave the canonical toast slide untouched).
   - **Verify**: `grep -nE 'vt-fade|::view-transition[^{]*main-content' packages/dartclaw_server/lib/src/static/app.css` returns no matches; `Test: rendered #main-content arrival treatment is print-in only`
 
-- [ ] **TI05** Atmospheric ground renders correctly across shell grid, dialogs, and SSE swaps in both themes
+- [x] **TI05** Atmospheric ground renders correctly across shell grid, dialogs, and SSE swaps in both themes
   - Visual-validate the synced `body`/`body::before` ground: no banding on a large viewport; grain (`z-index: -1`) behind content and above the gradient; ground visible in `.messages`/content areas with opaque sidebar/topbar; both themes. Override `--noise-opacity` (or stacking) per theme in `app.css` only if a theme still bands.
   - **Verify**: `Visual: dark + light at desktop (large viewport) + 768px (including the mobile sidebar drawer OPEN over the ground – grain/ground renders correctly behind the drawer scrim) — no gradient banding; grain layered behind in-flow content; dialog-open and SSE-streaming views show ground correctly; design-system.css/tokens.css unchanged (drift check green)`
 
-- [ ] **TI06** `prefers-reduced-motion` yields static arrival, lifts, and ground
+- [x] **TI06** `prefers-reduced-motion` yields static arrival, lifts, and ground
   - Confirm the synced reduced-motion block neutralizes `print-in`, micro-lifts, and the `.claw-loader` animation; the ground is inherently static (no animation to disable). Add app.css reduced-motion coverage only for app-specific animated elements, if any.
   - **Verify**: `Visual (reduced-motion emulated): print-in resolves with no translate; .btn/.card hover produces no lift; ground static.` `grep -n 'claw-loader' packages/dartclaw_server/lib/src/static/design-system.css` shows the `.claw-loader` animation neutralized inside the reduced-motion block
 
@@ -182,9 +182,10 @@ wire   | dev/design-system/showcase.html                                     | A
 
 
 ## Final Validation Checklist
-- [ ] After all tasks, only `static/app.css` and files under `templates/` changed among CSS/synced assets — `design-system.css`, `tokens.css`, `icons.css` untouched (drift check green).
+- [x] After all tasks, only `static/app.css` and files under `templates/` changed among CSS/synced assets — `design-system.css`, `tokens.css`, `icons.css` untouched (drift check green).
 
 
 ## Implementation Observations
 
-_No observations recorded yet._
+- Applied `print-in` at fragment/card/page roots only; SSE delta targets remain unanimated.
+- Visual validation passed in dark and light themes at 2560px and 768px, including the open mobile drawer and reduced-motion mode.

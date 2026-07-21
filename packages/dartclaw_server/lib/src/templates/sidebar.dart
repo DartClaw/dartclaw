@@ -78,6 +78,7 @@ String sidebarTemplate({
   Map<String, Object?> mapChannel(SidebarSession ch) {
     final trimmed = ch.title.trim();
     return {
+      'id': ch.id,
       'title': trimmed.isEmpty ? 'Channel' : trimmed,
       'href': '/sessions/${ch.id}',
       'active': ch.id == resolvedActiveSessionId,
@@ -178,11 +179,10 @@ String sidebarTemplate({
       'showSystemNav': systemNavItems.isNotEmpty,
       'showExtensionNav': extensionNavItems.isNotEmpty,
       'systemNavItems': systemNavItems.map((item) {
-        // Inject hidden badge spans for Tasks and Workflows nav items (populated by JS via SSE).
         final labelHtml = item.label == 'Tasks'
-            ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" style="display:none"></span>'
+            ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" hidden></span>'
             : item.label == 'Workflows'
-            ? '${escapeHtml(item.label)}<span id="workflows-badge" class="nav-badge" style="display:none"></span>'
+            ? '${escapeHtml(item.label)}<span id="workflows-badge" class="nav-badge" hidden></span>'
             : escapeHtml(item.label);
         return {
           'label': labelHtml,

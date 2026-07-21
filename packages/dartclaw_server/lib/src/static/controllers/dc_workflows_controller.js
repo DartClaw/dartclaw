@@ -18,10 +18,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     if (!badge) return;
     if (count > 0) {
       badge.textContent = count;
-      badge.style.display = '';
-    } else {
-      badge.style.display = 'none';
     }
+    badge.hidden = count <= 0;
   }
 
   function incrementWorkflowNotification() {
@@ -73,8 +71,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       ? dartclaw.shell.apiQs()
       : '';
 
-    if (loadingEl) loadingEl.style.display = '';
-    if (emptyEl) emptyEl.style.display = 'none';
+    if (loadingEl) loadingEl.hidden = false;
+    if (emptyEl) emptyEl.hidden = true;
     listCards.innerHTML = '';
 
     fetch('/api/workflows/definitions' + qs)
@@ -84,9 +82,9 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       })
       .then((definitions) => {
         cachedWorkflowDefs = definitions;
-        if (loadingEl) loadingEl.style.display = 'none';
+        if (loadingEl) loadingEl.hidden = true;
         if (!definitions.length) {
-          if (emptyEl) emptyEl.style.display = '';
+          if (emptyEl) emptyEl.hidden = false;
           return;
         }
         listCards.innerHTML = definitions.map(renderWorkflowCard).join('');
@@ -95,7 +93,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         });
       })
       .catch((error) => {
-        if (loadingEl) loadingEl.style.display = 'none';
+        if (loadingEl) loadingEl.hidden = true;
         listCards.innerHTML =
           '<p class="empty-state-text">Failed to load workflows. ' +
           ui.escapeHtml(error.message) + '</p>';
@@ -136,7 +134,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
     if (selectedWorkflow === name) {
       selectedWorkflow = null;
-      if (formEl) formEl.style.display = 'none';
+      if (formEl) formEl.hidden = true;
       document.querySelectorAll('.workflow-card').forEach((card) => {
         card.classList.remove('workflow-card-selected');
       });
@@ -185,8 +183,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     }
 
     const hasProjectVar = variableNames.some((key) => key.toUpperCase() === 'PROJECT');
-    if (projectEl) projectEl.style.display = hasProjectVar ? '' : 'none';
-    if (formEl) formEl.style.display = '';
+    if (projectEl) projectEl.hidden = !hasProjectVar;
+    if (formEl) formEl.hidden = false;
   }
 
   function formatVariableName(name) {
@@ -303,11 +301,11 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       const listCards = document.querySelector('.workflow-list-cards');
       if (listCards) listCards.innerHTML = '';
       const formEl = document.getElementById('workflow-form');
-      if (formEl) formEl.style.display = 'none';
+      if (formEl) formEl.hidden = true;
       const loadingEl = document.querySelector('.workflow-list-loading');
-      if (loadingEl) loadingEl.style.display = 'none';
+      if (loadingEl) loadingEl.hidden = true;
       const emptyEl = document.querySelector('.workflow-list-empty');
-      if (emptyEl) emptyEl.style.display = 'none';
+      if (emptyEl) emptyEl.hidden = true;
       const errorEl = document.getElementById('new-task-error');
       if (errorEl) errorEl.textContent = '';
     });
@@ -464,16 +462,19 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   }
 
   function updateProgressBar(data) {
-    const fill = document.querySelector('.workflow-progress-fill');
-    const label = document.querySelector('.workflow-progress-label');
+    const section = document.querySelector('.workflow-progress-section');
+    const fill = section?.querySelector('.meter-fill');
+    const label = section?.querySelector('.workflow-progress-label');
+    const percentage = section?.querySelector('.workflow-progress-pct');
     if (!fill || !data.totalSteps) return;
 
     const completed = document.querySelectorAll('.workflow-step-card[data-step-status="completed"]').length;
     const percent = Math.round((completed / data.totalSteps) * 100);
     fill.style.width = percent + '%';
     if (label) {
-      label.innerHTML = '<span>' + completed + '</span> / <span>' + data.totalSteps + '</span> steps';
+      label.textContent = completed + ' / ' + data.totalSteps + ' steps complete';
     }
+    if (percentage) percentage.textContent = percent + '%';
   }
 
   function _mapTaskStatusToStepStatus(taskStatus) {
@@ -529,8 +530,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         const stepCard = stepToggle.closest('.workflow-step-card');
         const detail = stepCard && stepCard.querySelector('.workflow-step-detail');
         if (!detail) return;
-        const isHidden = detail.style.display === 'none';
-        detail.style.display = isHidden ? '' : 'none';
+        const isHidden = detail.hidden;
+        detail.hidden = !isHidden;
         const icon = stepToggle.querySelector('.workflow-step-expand-icon');
         if (icon) {
           icon.classList.toggle('icon-chevron-up', isHidden);
@@ -544,8 +545,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       const viewer = contextToggle.closest('.workflow-context-viewer');
       const body = viewer && viewer.querySelector('.workflow-context-body');
       if (!body) return;
-      const isHidden = body.style.display === 'none';
-      body.style.display = isHidden ? '' : 'none';
+      const isHidden = body.hidden;
+      body.hidden = !isHidden;
       const icon = contextToggle.querySelector('.icon');
       if (icon) {
         icon.classList.toggle('icon-chevron-up', isHidden);

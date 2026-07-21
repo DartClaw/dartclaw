@@ -8,26 +8,45 @@ import 'package:test/test.dart';
 void main() {
   test('S01 embedded server assets match every runtime-read source byte', () async {
     final packageRoot = await _packageRoot();
-    final expected = <String, List<int>>{};
+    final expectedText = <String, List<int>>{};
+    final expectedBinary = <String, List<int>>{};
 
-    _collectAssets(Directory('$packageRoot/lib/src/templates'), 'templates', expected, excludeDart: true);
-    _collectAssets(Directory('$packageRoot/lib/src/static'), 'static', expected);
+    _collectAssets(Directory('$packageRoot/lib/src/templates'), 'templates', expectedText, excludeDart: true);
+    _collectAssets(Directory('$packageRoot/lib/src/static'), 'static', expectedText, binary: expectedBinary);
 
-    expect(embeddedServerAssets.keys.toSet(), expected.keys.toSet());
-    for (final entry in expected.entries) {
+    expect(embeddedServerAssets.keys.toSet(), expectedText.keys.toSet());
+    for (final entry in expectedText.entries) {
       expect(utf8.encode(embeddedServerAssets[entry.key]!), entry.value, reason: entry.key);
     }
+    expect(embeddedServerBinaryAssets.keys.toSet(), expectedBinary.keys.toSet());
+    for (final entry in expectedBinary.entries) {
+      expect(embeddedServerBinaryAssets[entry.key], entry.value, reason: entry.key);
+    }
+    final firstBinary = embeddedServerBinaryAssets[expectedBinary.keys.first]!;
+    expect(() => firstBinary[0] = 0, throwsUnsupportedError);
     expect(() => embeddedServerAssets['unexpected'] = 'value', throwsUnsupportedError);
+    expect(() => embeddedServerBinaryAssets['unexpected'] = <int>[1], throwsUnsupportedError);
   });
 }
 
-void _collectAssets(Directory root, String prefix, Map<String, List<int>> result, {bool excludeDart = false}) {
+void _collectAssets(
+  Directory root,
+  String prefix,
+  Map<String, List<int>> text, {
+  Map<String, List<int>>? binary,
+  bool excludeDart = false,
+}) {
   for (final file in root.listSync(recursive: true).whereType<File>()) {
     final relative = file.path.substring(root.path.length + 1).replaceAll('\\', '/');
     if (relative.split('/').any((part) => part.startsWith('.')) || (excludeDart && relative.endsWith('.dart'))) {
       continue;
     }
-    result['$prefix/$relative'] = file.readAsBytesSync();
+    final key = '$prefix/$relative';
+    if (binary != null && relative.toLowerCase().endsWith('.png')) {
+      binary[key] = file.readAsBytesSync();
+    } else {
+      text[key] = file.readAsBytesSync();
+    }
   }
 }
 

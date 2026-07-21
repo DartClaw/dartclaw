@@ -354,6 +354,7 @@ The palette is rooted in **Catppuccin Mocha** (dark, default) and **Catppuccin L
 - **Foreground** has four steps from `fg` (primary text) to `fg-overlay` (placeholders/disabled). `fg-overlay` is intentionally low-emphasis — never use it for essential metadata.
 - **Accent** is terminal-green (`#a6e3a1` Mocha, `#24661c` Latte). It is the only "branding" color. Reserve it for primary actions, the streaming cursor, active selection, and the success state.
 - **Semantic** colors are reserved for state: `success` (green), `error` (pink/red), `warning` (orange), `info` (blue). Light-theme semantics are intentionally darker than raw Latte swatches so pills, badges, and active states remain readable on light surfaces.
+- **Provider brand** — `--brand-claude` and `--brand-codex` identify the agent provider on provider badges; they never carry state. `--brand-codex` aliases the extended-palette teal and replaces Codex's former borrow of semantic `--info`.
 - **Extended palette** — `mauve`, `teal`, `sky`, `pink`, `lavender` exist so the system isn't monochrome-plus-green. They are **decorative/categorical only**: multi-hue gradients (logo, featured cards, `.text-gradient`), the ambient body glows, identicons, and data-viz category colors. They never carry state — a user must never have to ask whether purple means failure.
 - **Chart ramp** — `--chart-1` through `--chart-6` is the *ordered* categorical ramp (accent, info, mauve, teal, pink, sky). Assign by series index, never by hand-picking — the order keeps adjacent series distinguishable and charts consistent across views.
 
@@ -396,6 +397,7 @@ The shell is a **CSS Grid two-column layout**: a 260px sidebar and a flexible ma
 
 - **Rhythm** — small gaps use `sp-2` (8px); component internal padding uses `sp-3` (12px) or `sp-4` (16px); page padding uses `sp-6` (24px); major section separation uses `sp-8` (32px).
 - **Shell** — `.shell` is the app frame, `.sidebar` is the primary nav rail, `.topbar` is the page header, `.content-area` / `.content-inner` is the scrollable body and width-constrained inner column.
+- **Migration note** — `.content-area` / `.content-inner` is canonical. The parallel app-only `.page-content` / `.page-inner` family intentionally remains until its last consumer migrates: deferred in-scope tasks, task detail, scheduling, projects, and memory dashboard pages, plus the out-of-scope knowledge UI.
 - **Responsive** — below 768px the sidebar becomes an off-canvas drawer (`.sidebar.open` + `.sidebar-scrim`) toggled by `.menu-toggle`. Above 768px the full two-column grid applies.
 
 ### Spacing scale
@@ -853,9 +855,11 @@ Every code-bearing surface takes the theme — an unhighlighted code block is a 
 | — | `triangle-alert` | `--icon-triangle-alert` | Warnings |
 | `arrow-left` | `arrow-left` | `--icon-arrow-left` | Back navigation |
 | `arrow-right` | `arrow-right` | `--icon-arrow-right` | Forward links |
+| `arrow-up` | `arrow-up` | `--icon-arrow-up` | Upward actions |
 | `chevron-down` | `chevron-down` | `--icon-chevron-down` | Collapse toggle |
 | `chevron-right` | `chevron-right` | `--icon-chevron-right` | Expand toggle |
 | `pencil` | `pencil` | `--icon-pencil` | Edit button |
+| `plus` | `plus` | `--icon-plus` | Add actions |
 | `square` | `square` | `--icon-square` | Stop button |
 | `file-text` | `file-text` | `--icon-file-text` | Artifact/document |
 | `gauge` | `gauge` | `--icon-gauge` | Token meter |
@@ -883,7 +887,7 @@ These remain as Unicode characters — text/punctuation, not UI icons:
 - `·`, `•`, `—`, `…`, `&` — text separators/punctuation
 - `█` — streaming cursor (text-level with glow animation)
 - `> ` — tool indicator prefix (terminal aesthetic)
-- `💬`, `📋`, `☐` — decorative empty-state glyphs
+- `💬`, `📋` — decorative empty-state glyphs
 
 ### Guidelines
 

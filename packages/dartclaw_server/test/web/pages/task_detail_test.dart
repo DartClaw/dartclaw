@@ -1,6 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
+import 'package:dartclaw_server/src/templates/project_form.dart';
 import 'package:dartclaw_server/src/templates/task_detail.dart';
 import 'package:dartclaw_server/src/templates/task_form.dart';
 import 'package:dartclaw_server/src/web/pages/tasks_page.dart';
@@ -76,6 +77,7 @@ void main() {
     test('returns dialog with form fields', () {
       final html = newTaskFormDialogHtml();
       expect(html, contains('id="new-task-dialog"'));
+      expect(html, contains('class="task-dialog card card-glass"'));
       expect(html, contains('id="new-task-form"'));
       expect(html, contains('name="title"'));
       expect(html, contains('name="description"'));
@@ -116,6 +118,12 @@ void main() {
       expect(html, contains('value="goal-1"'));
       expect(html, contains('Ship 0.8'));
     });
+  });
+
+  test('uses the canonical glass treatment for the add-project dialog', () {
+    final html = addProjectDialogHtml();
+
+    expect(html, contains('class="task-dialog card card-glass"'));
   });
 
   group('taskDetailPageTemplate', () {

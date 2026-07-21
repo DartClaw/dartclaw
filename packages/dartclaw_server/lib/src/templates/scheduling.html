@@ -1,7 +1,7 @@
 <div tl:fragment="scheduling" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
     <div class="page-inner" data-controller="dc-scheduling">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
@@ -23,14 +23,7 @@
           </label>
         </div>
         <div class="heartbeat-grid">
-          <div class="heartbeat-stat">
-            <span class="heartbeat-stat-label">Interval</span>
-            <span class="heartbeat-stat-value" tl:text="${intervalDisplay}">—</span>
-          </div>
-          <div class="heartbeat-stat">
-            <span class="heartbeat-stat-label">Status</span>
-            <span class="heartbeat-stat-value" tl:text="${badgeText}">Active</span>
-          </div>
+          <tl:block tl:utext="${heartbeatMetricCardsHtml}">heartbeat metrics</tl:block>
         </div>
       </div>
 
@@ -39,7 +32,7 @@
         <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#toggleJobForm">+ Add Job</button>
       </div>
 
-      <div class="job-form-card" id="job-form" style="display: none;">
+      <div class="well-content" id="job-form" hidden>
         <div class="form-title">Add New Job</div>
         <div class="form-grid">
           <div class="form-row">
@@ -120,12 +113,12 @@
       </div>
       </div>
 
-      <div class="section-toolbar" style="margin-top: var(--sp-6);">
+      <div class="section-toolbar section-toolbar--spaced">
         <h2 class="section-header">Scheduled Tasks</h2>
         <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#toggleTaskForm">+ Add Task</button>
       </div>
 
-      <div class="job-form-card" id="task-form" style="display: none;">
+      <div class="well-content" id="task-form" hidden>
         <div class="form-title" id="task-form-title">Add Scheduled Task</div>
         <input type="hidden" id="task-edit-id" value="">
         <div class="form-grid">
@@ -186,7 +179,7 @@
             <tr tl:if="${hasScheduledTasks}" tl:each="task : ${scheduledTasks}">
               <td>
                 <span tl:text="${task.title}">Task title</span>
-                <span class="cron-human" tl:text="${task.id}" style="display:block;opacity:0.6;font-size:0.85em;"></span>
+                <span class="cron-human cron-human--sub-id" tl:text="${task.id}"></span>
               </td>
               <td>
                 <span class="cron-expr" tl:text="${task.schedule}">* * * * *</span>

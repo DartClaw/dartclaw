@@ -42,18 +42,23 @@ void main() {
       expect(html, contains('data-tasks-enabled="true"'));
     });
 
-    test('chat entry icons live on the clickable link', () {
+    test('session and channel rows mount identicons without scope glyphs', () {
       final html = sidebarTemplate(
+        dmChannels: const [(id: 'dm-1', title: 'Team DM', type: SessionType.channel, provider: 'claude')],
+        groupChannels: const [(id: 'group-1', title: 'Team Group', type: SessionType.channel, provider: 'claude')],
         activeEntries: const [(id: 'chat-1', title: 'Inbox', type: SessionType.user, provider: 'codex')],
         archivedEntries: const [(id: 'chat-2', title: 'Done', type: SessionType.archive, provider: 'codex')],
         navItems: const [],
       );
 
-      expect(html, contains('class="session-item-link"'));
-      expect(html, contains('data-icon="message-circle"'));
-      expect(html, contains('data-icon="archive"'));
-      expect(html, isNot(contains('class="session-item" data-icon="message-circle"')));
-      expect(html, isNot(contains('class="session-item session-item-archive" data-icon="archive"')));
+      for (final id in ['dm-1', 'group-1', 'chat-1', 'chat-2']) {
+        expect(html, contains('class="identicon" aria-hidden="true" data-identicon-id="$id"'));
+      }
+      expect(html, isNot(contains('data-icon="message-circle"')));
+      expect(html, isNot(contains('data-icon="archive"')));
+      expect(html, isNot(contains('data-icon="hash"')));
+      expect(html, contains('class="provider-badge provider-badge-claude"'));
+      expect(html, contains('class="sidebar-archive-list" hidden'));
     });
   });
 }

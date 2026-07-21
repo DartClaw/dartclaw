@@ -332,8 +332,8 @@ void main() {
       final html = await res.readAsString();
       expect(html, contains('sse-connect="/api/sessions/'));
       expect(html, contains('id="streaming-content"'));
-      expect(html, contains('class="msg msg-user"'));
-      expect(html, contains('class="msg msg-assistant"'));
+      expect(html, contains('class="msg msg-user print-in"'));
+      expect(html, contains('class="msg msg-assistant print-in"'));
     });
 
     test('escapes user message in HTML fragment', () async {

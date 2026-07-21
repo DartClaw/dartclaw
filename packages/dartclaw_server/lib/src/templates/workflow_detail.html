@@ -1,8 +1,8 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
-    <div class="page-inner workflow-detail-page" data-controller="dc-workflows"
+  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+    <div class="content-inner workflow-detail-page" data-controller="dc-workflows"
          tl:attr="data-run-id=${runId},data-run-status=${status}">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
@@ -33,11 +33,11 @@
 
       <!-- Progress bar -->
       <div class="workflow-progress-section">
-        <div class="workflow-progress-bar">
-          <div class="workflow-progress-fill" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>
+        <div class="meter">
+          <div class="meter-fill meter-fill--info" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>
         </div>
         <div class="workflow-progress-text">
-          <span><span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps complete</span>
+          <span class="workflow-progress-label"><span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps complete</span>
           <span class="workflow-progress-pct" tl:text="${progressPercent} + '%'">50%</span>
         </div>
       </div>
@@ -107,8 +107,7 @@
               </span>
               <span class="workflow-step-expand-icon icon icon-chevron-down" aria-hidden="true"></span>
             </div>
-            <div class="workflow-step-detail" tl:attr="id='step-detail-' + ${step.index}"
-                 style="display: none;">
+            <div class="workflow-step-detail" tl:attr="id='step-detail-' + ${step.index}" hidden>
               <!-- Approval step: show message and no task link -->
               <div tl:if="${step.isApprovalStep}" class="workflow-approval-detail">
                 <div tl:if="${step.hasApproval}" class="workflow-approval-message">
@@ -123,7 +122,8 @@
               <!-- Standard task-backed step -->
               <div tl:unless="${step.isApprovalStep}" class="workflow-step-detail-loading"
                    tl:attr="hx-get='/workflows/' + ${runId} + '/steps/' + ${step.index},hx-trigger='intersect once',hx-swap='innerHTML'">
-                Loading step details...
+                <div class="skeleton skeleton-text"></div>
+                <div class="skeleton skeleton-text"></div>
               </div>
             </div>
           </div>
@@ -137,7 +137,7 @@
           <span>Shared Context</span>
           <span class="icon icon-chevron-down" aria-hidden="true"></span>
         </div>
-        <div class="workflow-context-body" style="display: none;">
+        <div class="workflow-context-body" hidden>
           <div tl:each="entry : ${contextEntries}" class="workflow-context-entry">
             <span class="workflow-context-key" tl:text="${entry.key}">key</span>
             <span tl:classappend="${entry.isLong} ? 'workflow-context-value-long' : ''"

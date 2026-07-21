@@ -52,32 +52,32 @@ _(Empty-state rollout is S12, not this story — see What We're NOT Doing.)_
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02,TI03] Favicon served as a real PNG through the embedded route**
+- [x] **S01 [OC01] [TI01,TI02,TI03] Favicon served as a real PNG through the embedded route**
   - **Given** a compiled/embedded server (assets served from the generated map, not the dev filesystem)
   - **When** a client requests the mascot favicon asset under `/static/`
   - **Then** the response is `200` with `Content-Type: image/png` and a body whose bytes equal the source mascot PNG (a text-only handler that UTF-8-encodes `String` content would corrupt the bytes and fail this)
 
-- [ ] **S02 [OC01] [TI04] Layout head points the favicon at the mascot**
+- [x] **S02 [OC01] [TI04] Layout head points the favicon at the mascot**
   - **Given** any page rendered through `layoutTemplate` (login and all dashboard pages share it)
   - **When** the `<head>` is inspected
   - **Then** it contains a `<link rel="icon">` whose `href` is the served mascot PNG path and there is no `href="data:,"` anywhere in the head
 
-- [ ] **S03 [OC02] [TI05] Login page is the CRT hero**
+- [x] **S03 [OC02] [TI05] Login page is the CRT hero**
   - **Given** the login page
   - **When** it is rendered
   - **Then** the login card is wrapped by the canonical terminal-frame structure — `.terminal-frame.terminal-frame--crt` > `.terminal-frame-bar` (with `.terminal-frame-dots` and a short contextual title) + `.terminal-frame-body` around the card content (a flat `terminal-frame--crt` on the card would no-op, since the CRT overlay renders on `.terminal-frame-body::after`) — a `.pixel-art` mascot masthead renders above the wordmark, and the wordmark uses the canonical display type
 
-- [ ] **S04 [OC02,OC03] [TI05] Exactly one CRT surface app-wide (scarcity doctrine)**
+- [x] **S04 [OC02,OC03] [TI05] Exactly one CRT surface app-wide (scarcity doctrine)**
   - **Given** all server templates and `static/app.css`
   - **When** grepping for `terminal-frame--crt`
   - **Then** exactly one template (login) applies it — no other view introduces a CRT surface
 
-- [ ] **S05 [OC03] [TI05] Login hero renders correctly across themes, mobile, and reduced motion**
+- [x] **S05 [OC03] [TI05] Login hero renders correctly across themes, mobile, and reduced motion**
   - **Given** the login page in dark and light themes, at 768px width, and with `prefers-reduced-motion: reduce`
   - **When** it is visually validated
   - **Then** the mascot stays crisp (`.pixel-art` / `image-rendering: pixelated`) and never smaller than ~32px, the token input font is ≥16px, there is no horizontal overflow at 768px, and no animation regression appears under reduced motion
 
-- [ ] **S06 [OC01] [TI01] Binary asset embeds without breaking the text pipeline**
+- [x] **S06 [OC01] [TI01] Binary asset embeds without breaking the text pipeline**
   - **Given** a non-UTF-8 PNG placed under `packages/dartclaw_server/lib/src/static/`
   - **When** `dart run dev/tools/embed_assets.dart` runs
   - **Then** it completes without the `asset is not valid UTF-8` abort, the PNG is embedded as byte-exact binary, and every existing text asset (templates/CSS/JS) still round-trips unchanged through the text map
@@ -85,7 +85,7 @@ _(Empty-state rollout is S12, not this story — see What We're NOT Doing.)_
 
 ## Structural Criteria
 
-- [ ] The embedded-asset drift gate (`packages/dartclaw_server/test/generated/embedded_assets_test.dart`) is green with the mascot PNG present — the generated map is byte-in-sync with the source tree.
+- [x] The embedded-asset drift gate (`packages/dartclaw_server/test/generated/embedded_assets_test.dart`) is green with the mascot PNG present — the generated map is byte-in-sync with the source tree.
 
 
 ## Scope & Boundaries
@@ -125,23 +125,23 @@ _(Empty-state rollout is S12, not this story — see What We're NOT Doing.)_
 
 ### Implementation Tasks
 
-- [ ] **TI01** The embed pipeline carries binary assets byte-exact alongside text assets
+- [x] **TI01** The embed pipeline carries binary assets byte-exact alongside text assets
   - Add a binary path to `embed_assets.dart` — route files by **extension allowlist** (`.png` initially) into a second, bytes-typed generated map (`Map<String, List<int>>`) in `embedded_assets.g.dart`, while non-allowlisted files keep the existing hard `asset is not valid UTF-8` abort (the mis-encoding safety net stays) — and extend `embedded_assets_test.dart` to assert byte-exact round-trip for the PNG; keep the text `Map<String, String>` contract for templates/CSS/JS unchanged
   - **Verify**: `Test: dart run dev/tools/embed_assets.dart embeds a .png under lib/src/static/ byte-exact without the "asset is not valid UTF-8" abort; a non-UTF-8 file with a non-allowlisted extension still aborts the build; embedded_assets_test.dart passes with byte-exact PNG bytes and every text asset still round-trips`
 
-- [ ] **TI02** The embedded static handler serves PNG bytes with the correct type
+- [x] **TI02** The embedded static handler serves PNG bytes with the correct type
   - `createEmbeddedStaticHandler` gains a second parameter for the binary (bytes) map from TI01 alongside the existing text map; on a hit in the bytes map it returns the raw bytes with `Content-Type: image/png` (add the `.png` case to `_contentType`), otherwise it serves text as today; update the `server.dart` `_mountStaticRoutes` call site (~:327) to pass `embeddedServerAssets` plus the new bytes map
   - **Verify**: `Test: GET a .png key returns 200, header Content-Type: image/png, and body bytes equal the source (embedded_static_routes_test.dart)`
 
-- [ ] **TI03** The mascot favicon variant is served at a stable static path
+- [x] **TI03** The mascot favicon variant is served at a stable static path
   - A pixel-art favicon-sized mascot PNG (16/32px) is generated by a one-off **dev-only Dart script under `dev/tools/`** — its own directory with its own `pubspec.yaml` depending on `package:image`, nearest-neighbor resize from `assets/logo-avatar-512-8bit.png` — run once and the variant committed under `lib/src/static/`, reachable via the static route. Document the exact regeneration command in this task (e.g. `cd dev/tools/<resize-script-dir> && dart pub get && dart run bin/<resize>.dart`) so it is repeatable on any machine, including unattended runs (fully offline, zero-npm). Record provenance — source asset path + generating command — in the script header **and** in a note alongside the committed variant; do **not** add it to `VENDORS.md` (that file tracks third-party vendored assets, not first-party generated brand assets)
   - **Verify**: `Test: GET /static/<mascot-favicon>.png returns 200 with Content-Type: image/png`
 
-- [ ] **TI04** The layout favicon is the mascot (empty favicon retired)
+- [x] **TI04** The layout favicon is the mascot (empty favicon retired)
   - `layout.html` `<link rel="icon">` points at the served mascot PNG; the `href="data:,"` placeholder is gone
   - **Verify**: `Test: rendered layoutTemplate head contains <link rel="icon"> to the mascot png and contains no href="data:,"`
 
-- [ ] **TI05** The login page is the single CRT hero with a pixel-art mascot masthead
+- [x] **TI05** The login page is the single CRT hero with a pixel-art mascot masthead
   - Wrap the login card in the **canonical terminal-frame structure** (classes from the S01 sync): `.terminal-frame.terminal-frame--crt` > `.terminal-frame-bar` (carrying `.terminal-frame-dots` plus a short contextual title after the dots — e.g. the wordmark/host label, implementer's wording latitude, per the app-wide terminal-frame title convention) + `.terminal-frame-body` wrapping the login card content. The CRT scanline/vignette renders only on `.terminal-frame-body::after`, so a flat `terminal-frame--crt` on the login card (without the `-body` wrapper) would silently no-op. Add a `.pixel-art` mascot masthead above the wordmark, using the original 512px `logo-avatar-512-8bit.png` (committed under `lib/src/static/`) scaled down via `.pixel-art` per DESIGN.md's brand-asset table — the small TI03 favicon variant is for the favicon `<link>` only. Compose the wordmark's display scale on the login wordmark selector from tokens (`--text-2xl` / `600` / `--tracking-tight`; canon has no `.display` class — see Constraints & Gotchas). Login-only app.css tweaks go in `static/app.css`; the mascot masthead renders ≥32px
   - **Verify**: `Test: rendered login HTML nests .terminal-frame.terminal-frame--crt > .terminal-frame-bar (with .terminal-frame-dots and a bar title) + .terminal-frame-body wrapping the card, plus a .pixel-art mascot masthead and the display-type wordmark; grep of lib/src/templates + static/app.css shows terminal-frame--crt in exactly one template (login)`
 
@@ -152,10 +152,10 @@ _(Empty-state rollout is S12, not this story — see What We're NOT Doing.)_
 
 ## Final Validation Checklist
 
-- [ ] `rg "data:," packages/dartclaw_server/lib/src/templates/layout.html` returns no match.
-- [ ] `rg -rc "terminal-frame--crt" packages/dartclaw_server/lib/src/templates/` reports exactly one template.
-- [ ] `git diff --stat` shows no change to `static/design-system.css` or `static/tokens.css` (S01-synced files); app CSS changes land only in `static/app.css`.
-- [ ] No new runtime JS dependency and no client-side build step introduced (zero-npm / server-first).
+- [x] `rg "data:," packages/dartclaw_server/lib/src/templates/layout.html` returns no match.
+- [x] `rg -rc "terminal-frame--crt" packages/dartclaw_server/lib/src/templates/` reports exactly one template.
+- [x] `git diff --stat` shows no change to `static/design-system.css` or `static/tokens.css` (S01-synced files); app CSS changes land only in `static/app.css`.
+- [x] No new runtime JS dependency and no client-side build step introduced (zero-npm / server-first).
 
 
 ## Implementation Observations
@@ -168,6 +168,10 @@ Affected surface: dev/tools/embed_assets.dart binary-channel routing + embedded_
 Decision: Route files to the binary channel by extension allowlist (.png initially; extending is a one-line edit), never by decode-probe.
 Rationale: Non-allowlisted files must still decode as UTF-8 or the build aborts loudly, preserving the existing mis-encoding safety net.
 Evidence: Ratified by owner during 0.22 preflight, 2026-07-20.
+
+#### Visual validation
+
+- Fresh direct-source validation passed in dark and light at 768px with reduced motion: the single CRT hero, pixel-art mascot, favicon variants, overflow, and 16px login input floor all rendered correctly. An earlier stale-server result was invalidated by cache-busted source and computed-style checks.
 
 #### DECISION NOTE: favicon-resize-tooling
 

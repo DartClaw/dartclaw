@@ -43,7 +43,7 @@ String newTaskFormDialogHtml({
       .join('\n              ');
 
   return '''
-<dialog id="new-task-dialog" class="task-dialog">
+<dialog id="new-task-dialog" class="task-dialog card card-glass">
   <form id="new-task-form" method="dialog">
     <div class="task-dialog-header">
       <h2>New Task</h2>
@@ -149,17 +149,19 @@ $goalSelectMarkup
 
       <div class="tab-panel" data-task-panel="workflow">
         <div id="workflow-list" class="workflow-list">
-          <div class="workflow-list-loading" style="display: none;">
-            <span class="spinner-sm"></span> Loading workflows...
+          <div class="workflow-list-loading" hidden>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
           </div>
-          <div class="workflow-list-empty" style="display: none;">
+          <div class="workflow-list-empty" hidden>
             <p class="empty-state-text">No workflows available.</p>
           </div>
           <div class="workflow-list-cards"></div>
         </div>
-        <div id="workflow-form" class="workflow-var-form" style="display: none;">
+        <div id="workflow-form" class="workflow-var-form" hidden>
           <div id="workflow-vars"></div>
-          <div id="workflow-project-select" class="form-group" style="display: none;">
+          <div id="workflow-project-select" class="form-group" hidden>
             <label class="form-label" for="workflow-project">Project</label>
             <select id="workflow-project" class="form-select" data-enhance="custom-select">
               <option value="">Default project</option>

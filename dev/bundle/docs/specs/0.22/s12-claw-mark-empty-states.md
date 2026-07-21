@@ -54,27 +54,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Tasks-list empty state shows the claw-mark**
+- [x] **S01 [OC01] [TI01] Tasks-list empty state shows the claw-mark**
   - **Given** the Tasks page rendered with no tasks (`hasTasks` false → the `.empty-state` block shows)
   - **When** the empty-state icon renders
   - **Then** the icon is the pixel `.claw-mark` (`<span class="claw-mark">`) and the previous `&#9744;` (☐) glyph is gone
 
-- [ ] **S02 [OC01] [TI02] Projects-list empty state shows the claw-mark (off-list 📂 eliminated)**
+- [x] **S02 [OC01] [TI02] Projects-list empty state shows the claw-mark (off-list 📂 eliminated)**
   - **Given** the Projects page rendered with no projects (`hasProjects` false → the `.empty-state` block shows)
   - **When** the empty-state icon renders
   - **Then** the icon is the `.claw-mark` and no `&#128194;` (📂) remains anywhere in `projects.html`
 
-- [ ] **S03 [OC02,OC03] [TI03] Task-detail artifacts empty state drops off-list 🗃 without gaining a mark**
+- [x] **S03 [OC02,OC03] [TI03] Task-detail artifacts empty state drops off-list 🗃 without gaining a mark**
   - **Given** a task-detail page whose artifact column is empty (`hasArtifacts` false → the "No artifacts yet" `.empty-state` shows)
   - **When** the artifacts empty state renders
   - **Then** the off-list `&#128451;` (🗃) glyph is gone and the empty state carries **no** `.claw-mark` — because task detail's single claw moment is the S03 activity-row loader
 
-- [ ] **S04 [OC02] [TI03,TI04] Sanctioned glyphs are preserved**
+- [x] **S04 [OC02] [TI03,TI04] Sanctioned glyphs are preserved**
   - **Given** the app-level/chat empty states (`components.html` `emptyState` + `emptyAppState`) and the task-detail session-not-started state
   - **When** those empty states render
   - **Then** the `❯_` prompt glyph (`&#10095;`) on both `components.html` states and the `&#128172;` (💬) on `task_detail.html` session-not-started remain unchanged, and no `.claw-mark` or mascot image is introduced on them
 
-- [ ] **S05 [OC03] [TI03] Per-view scarcity holds under co-occurrence**
+- [x] **S05 [OC03] [TI03] Per-view scarcity holds under co-occurrence**
   - **Given** a running task-detail whose artifacts are still empty (the activity-row `.claw-loader` from S03 is visible **and** the "No artifacts yet" empty state shows in the same render)
   - **When** the page renders
   - **Then** exactly one claw element is present app-wide on that view — the `.claw-loader` — and zero `.claw-mark` elements appear in `task_detail.html` (a naive substitute that branded either empty state would double the claw moment and fail here)
@@ -84,9 +84,9 @@
 
 > Non-behavioral guards, each proved by a task Verify line.
 
-- [ ] No off-list emoji codepoint (`&#128194;` / 📂, `&#128451;` / 🗃) remains in any template after this story.
-- [ ] All CSS edits (if any) land in `static/app.css`; the synced `design-system.css` / `tokens.css` are untouched (drift check stays green).
-- [ ] No new runtime JS dependency, `@import`, or build step is introduced — changes are plain Trellis templates (+ optional `app.css`) only (zero-npm constraint).
+- [x] No off-list emoji codepoint (`&#128194;` / 📂, `&#128451;` / 🗃) remains in any template after this story.
+- [x] All CSS edits (if any) land in `static/app.css`; the synced `design-system.css` / `tokens.css` are untouched (drift check stays green).
+- [x] No new runtime JS dependency, `@import`, or build step is introduced — changes are plain Trellis templates (+ optional `app.css`) only (zero-npm constraint).
 
 
 ## Scope & Boundaries
@@ -135,19 +135,19 @@ file   | packages/dartclaw_server/lib/src/templates/components.html        | emp
 
 ### Implementation Tasks
 
-- [ ] **TI01** The Tasks-list empty state icon is the pixel claw-mark
+- [x] **TI01** The Tasks-list empty state icon is the pixel claw-mark
   - In `tasks.html`, the `.empty-state-icon` for "No tasks yet" contains `<span class="claw-mark"></span>` instead of `&#9744;`. Static markup; the wrapper's `font-size` sizes the mark. Pattern: the "Pixel Claw Mark" card in `dev/design-system/showcase.html` (`<span class="claw-mark">` scaling with `font-size`).
   - **Verify**: `Test: rendered tasks.html empty state contains class token "claw-mark" and no "&#9744;"`
 
-- [ ] **TI02** The Projects-list empty state icon is the pixel claw-mark
+- [x] **TI02** The Projects-list empty state icon is the pixel claw-mark
   - In `projects.html`, the `.empty-state-icon` for "No projects registered" contains `<span class="claw-mark"></span>` instead of `&#128194;`. Off-list emoji eliminated.
   - **Verify**: `Test: rendered projects.html empty state contains class token "claw-mark"; grep projects.html contains no "&#128194;"`
 
-- [ ] **TI03** Task-detail artifacts empty state is off-list-emoji-free with no claw-mark; session-not-started keeps 💬
+- [x] **TI03** Task-detail artifacts empty state is off-list-emoji-free with no claw-mark; session-not-started keeps 💬
   - In `task_detail.html`, remove the `&#128451;` (🗃) from the "No artifacts yet" `.empty-state-icon` and add **no** `.claw-mark` (the S03 activity-row loader is this view's single claw moment). Leave the "Session not started" `&#128172;` (💬) untouched.
   - **Verify**: `Test: grep task_detail.html contains no "&#128451;" and no "claw-mark"; still contains "&#128172;"`
 
-- [ ] **TI04** App-level and chat empty states keep the prompt glyph (no mark/mascot)
+- [x] **TI04** App-level and chat empty states keep the prompt glyph (no mark/mascot)
   - Confirm `components.html` `emptyState` and `emptyAppState` fragments still render the `❯_` (`&#10095;`) glyph and gain no `.claw-mark` or mascot image. Verification-only — no edit expected.
   - **Verify**: `Test: grep components.html contains "&#10095;" in both empty-state fragments and contains no "claw-mark"`
 
@@ -156,9 +156,9 @@ file   | packages/dartclaw_server/lib/src/templates/components.html        | emp
 
 
 ## Final Validation Checklist
-- [ ] Per-view scarcity check: for each affected view (tasks list, projects list, task detail in running/not-started/review states) exactly one claw element (`.claw-mark` or `.claw-loader`) renders at most.
+- [x] Per-view scarcity check: for each affected view (tasks list, projects list, task detail in running/not-started/review states) exactly one claw element (`.claw-mark` or `.claw-loader`) renders at most.
 
 
 ## Implementation Observations
 
-_No observations recorded yet._
+- Dark/light 768px validation passed for the live Tasks empty state and controlled current-source Projects/task-detail fixtures. Tasks and Projects render one centered claw-mark with no overflow; task detail renders one activity claw-loader, zero claw-marks, and preserves the sanctioned session-not-started glyph.

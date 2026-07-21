@@ -62,27 +62,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **SC01 [OC01,OC04] [TI01] Scheduling forms toggle without inline display styles**
+- [x] **SC01 [OC01,OC04] [TI01] Scheduling forms toggle without inline display styles**
   - **Given** the scheduling page rendered with the job form initially hidden
   - **When** the operator clicks "+ Add Job", then "Cancel"
   - **Then** `#job-form` becomes visible then hidden via the `hidden` attribute (no `style="display:none"` in the template and the form show/hide functions no longer mutate `style.display`), and the same holds for `#task-form`
 
-- [ ] **SC02 [OC02] [TI03] Heartbeat renders as canonical primitives**
+- [x] **SC02 [OC02] [TI03] Heartbeat renders as canonical primitives**
   - **Given** heartbeat enabled on the scheduling page
   - **When** the page renders
   - **Then** the Interval and Status readouts use `card-metric` with `metric-value`/`metric-label`, the status pill is a canonical `.status-badge` (`.status-badge-success` when active), and no `.heartbeat-status-badge` class appears in markup or app.css
 
-- [ ] **SC03 [OC02,OC03] [TI05,TI06] Session info uses canonical container and metric type**
+- [x] **SC03 [OC02,OC03] [TI05,TI06] Session info uses canonical container and metric type**
   - **Given** a session with recorded token usage
   - **When** the session-info page renders
   - **Then** the page root uses `.content-area`/`.content-inner` (no `.info-content`/`.info-inner`), the Input/Output/Total token values render with canonical `metric-value` type, and `.info-content`/`.info-inner` rules no longer exist in app.css
 
-- [ ] **SC04 [OC04] [TI01] Sanctioned destructive confirm preserved**
+- [x] **SC04 [OC04] [TI01] Sanctioned destructive confirm preserved**
   - **Given** a user-defined scheduled task
   - **When** the operator clicks Delete
   - **Then** a `window.confirm` prompt (sanctioned by DESIGN.md) fires before the delete request is issued (the scheduling page's only `window.confirm` delete is `dc_scheduling_controller.js#deleteScheduledTask`; scheduled jobs use the inline `.delete-confirm-row` flow)
 
-- [ ] **SC05 [OC01,OC04] [TI02,TI04,TI07] Pages are hygiene-clean and pass the visual gate**
+- [x] **SC05 [OC01,OC04] [TI02,TI04,TI07] Pages are hygiene-clean and pass the visual gate**
   - **Given** `scheduling.html`, `projects.html`, and `session_info.html` after adoption
   - **When** each page is rendered and screenshotted in dark + light at desktop and 768px
   - **Then** no inline `style` attribute remains in any of the three templates, form/stat clusters read as canonical wells, and every page passes visual validation in both themes at both widths
@@ -90,11 +90,11 @@
 
 ## Structural Criteria
 
-- [ ] No `style="display:none"` (or other inline `style`) attribute remains in `scheduling.html`, `projects.html`, or `session_info.html`; toggled elements use the `hidden` attribute.
-- [ ] `.info-content` and `.info-inner` rules are removed from app.css and no template references them (session-info was the last consumer).
-- [ ] The orphaned `.heartbeat-status-badge` rules are removed from app.css (dead after the badge moved to `statusBadgeTemplate`).
-- [ ] Synced `design-system.css` / `tokens.css` are untouched; the drift check stays green.
-- [ ] No new npm/CDN or runtime-JS dependency is introduced; `embedded_assets.g.dart` is regenerated after template/static edits.
+- [x] No `style="display:none"` (or other inline `style`) attribute remains in `scheduling.html`, `projects.html`, or `session_info.html`; toggled elements use the `hidden` attribute.
+- [x] `.info-content` and `.info-inner` rules are removed from app.css and no template references them (session-info was the last consumer).
+- [x] The orphaned `.heartbeat-status-badge` rules are removed from app.css (dead after the badge moved to `statusBadgeTemplate`).
+- [x] Synced `design-system.css` / `tokens.css` are untouched; the drift check stays green.
+- [x] No new npm/CDN or runtime-JS dependency is introduced; `embedded_assets.g.dart` is regenerated after template/static edits.
 
 
 ## Scope & Boundaries
@@ -144,35 +144,35 @@ file   | packages/dartclaw_server/lib/src/static/controllers/dc_scheduling_contr
 
 ### Implementation Tasks
 
-- [ ] **TI01** Scheduling job/task forms open and close via the `hidden` attribute
+- [x] **TI01** Scheduling job/task forms open and close via the `hidden` attribute
   - Remove `style="display: none;"` from `#job-form` (`scheduling.html:42`) and `#task-form` (`:128`); update the four form show/hide/edit functions (`toggleJobForm`, `toggleTaskForm`, `editJob`, `editScheduledTask`) in `dc_scheduling_controller.js` to toggle the `hidden` property, not `style.display`. Leave the job delete-confirm-row flow (`confirmDeleteJob`/`cancelDeleteJob`) unchanged — it toggles a table-row reveal with no template `style="display:none"`, and is out of this story's scope.
   - **Verify**: `Test: clicking "+ Add Job"/"+ Add Task" then Cancel shows then hides the form; rendered scheduling.html contains no style="display"; the four form functions in dc_scheduling_controller.js contain no style.display`
 
-- [ ] **TI02** Scheduling inline margins/typography live in classes
+- [x] **TI02** Scheduling inline margins/typography live in classes
   - Move the `section-toolbar` inline `margin-top: var(--sp-6)` (`scheduling.html:123`) and the sub-id `opacity/font-size/display:block` inline style (`:189`) into app.css classes/utilities
   - **Verify**: `Test: rendered scheduling.html has no inline style= attribute`
 
-- [ ] **TI03** Heartbeat section composes canonical card-metric + status-badge
+- [x] **TI03** Heartbeat section composes canonical card-metric + status-badge
   - The Interval/Status `heartbeat-stat` grid blocks (`scheduling.html:26-33`) render as `.card.card-metric` (`metric-value`/`metric-label`, via `metricCardTemplate`), coloured per the `metric-color-convention` decision note: Interval → `card-metric--info`; Status → `card-metric--accent` when Active, `card-metric--warning` when Disabled. The header badge (`:12`, `heartbeatBadgeHtml`) already renders through `statusBadgeTemplate` – leave it; delete the dead `.heartbeat-status-badge` rules from app.css (no template references them)
   - **Wire the Status value**: the Status stat currently binds `${badgeText}` (`scheduling.html:32`) – a context key `schedulingTemplate()` never sets, so it renders empty today. As part of the conversion, feed the Status metric card its value from `heartbeatOn` ('Active' when enabled, 'Disabled' otherwise), matching the header badge's existing text logic in `schedulingTemplate()`.
   - **Verify**: `Test: rendered scheduling.html heartbeat section uses class "metric-value"/"metric-label"; the Interval card carries "card-metric--info" and the Status card "card-metric--accent"/"card-metric--warning" per state; the Status metric value renders the correct non-empty text ("Active" when enabled, "Disabled" otherwise); the header badge stays "status-badge"/"status-badge-success" when active; grep for heartbeat-status-badge in templates+app.css returns no match`
 
-- [ ] **TI04** Scheduling form clusters read as canonical wells
+- [x] **TI04** Scheduling form clusters read as canonical wells
   - `.well-content` (canonical, from S01 sync) replaces the OUTER box treatment of `.job-form-card` on the job/task form clusters. That swap orphans the descendant form styling currently scoped under `.job-form-card` (`.form-title`, `.form-grid`, `.form-row`, `.form-row label`, and the text-input/textarea + `:focus` rules) – rescope it in app.css so the form internals keep their typography/layout (e.g. re-parent the rules under `.well-content` or a retained wrapper class; implementer's naming latitude), and remove the now-dead `.job-form-card` rule
   - **Verify**: `Test: rendered scheduling.html form clusters carry class "well-content" (no "job-form-card"); the form internals stay styled – .form-title/.form-grid/.form-row and input :focus rules resolve under the new scope; grep for job-form-card in templates+app.css returns no match; visual validation shows well framing with form typography/spacing intact`
 
-- [ ] **TI05** Session token usage renders with canonical metric type
+- [x] **TI05** Session token usage renders with canonical metric type
   - The Input/Output/Total `token-stat` blocks are rebuilt as full canonical metric cards per the `token-stat-metric-shape` decision note: each becomes `.card.card-metric` (via `metricCardTemplate`, 32px `metric-value` + `metric-label`) in a small metric grid, coloured per the `metric-color-convention` decision note – Total → `card-metric--accent` (headline), Input/Output → `card-metric--info`. The Total row's bespoke label-left/value-right flex layout goes away with the family. Delete the whole `.token-stat*` family from app.css, including the `.token-stat.total` space-between variant.
   - The metric grid groups inside a `.well`: per the DESIGN.md container flowchart, stat groupings take the default `.well`, and `.well-content` is reserved for form sections (the job/task forms in TI04).
   - **Verify**: `Test: rendered session_info.html token grid emits "card card-metric" markup (metricCardTemplate) with metric-value/metric-label – Total "card-metric--accent", Input/Output "card-metric--info"; token values render at the 32px metric-value scale in both themes; grep for token-stat in templates+app.css returns no match`
 
-- [ ] **TI06** Session-info uses the canonical container and the parallel family is retired
+- [x] **TI06** Session-info uses the canonical container and the parallel family is retired
   - `session_info.html` root migrates from `.info-content`/`.info-inner` to `.content-area`/`.content-inner`; delete the `.info-content` and `.info-inner` rules from app.css (session-info was the last consumer)
   - Vertical spacing between the stacked sections is preserved by the canonical `.content-inner`'s flex-column + `gap: var(--sp-6)` (added upstream via S01's canon work, per the `content-inner-stack-gap` decision note) – add no page-local spacing rule to replace `.info-inner`'s flex/gap; the visual gate confirms rhythm parity
   - Depends on S01 having synced `.content-area`/`.content-inner` (with the flex/gap rule) into `design-system.css`
   - **Verify**: `Test: rendered session_info.html contains content-area/content-inner and no info-content/info-inner; grep for .info-content/.info-inner in app.css returns no match; stacked-section vertical rhythm reads coherent in the visual gate (spacing inherited from the canonical container, not collapsed)`
 
-- [ ] **TI07** All three pages are hygiene-clean and pass the visual gate
+- [x] **TI07** All three pages are hygiene-clean and pass the visual gate
   - Confirm `projects.html` carries no S10-scope violation (its 📂 empty-state is S12, dialog glass is S05, print-in is S02); run visual validation for scheduling, projects, session-info in dark + light at desktop + 768px
   - **Verify**: `Test: grep for inline style= across the three templates returns no match; each page passes visual validation in both themes at desktop and 768px`
 
@@ -181,10 +181,13 @@ file   | packages/dartclaw_server/lib/src/static/controllers/dc_scheduling_contr
 
 
 ## Final Validation Checklist
-- [ ] `grep -rn 'style=' scheduling.html projects.html session_info.html` returns no match (all inline styles removed).
+- [x] `grep -rn 'style=' scheduling.html projects.html session_info.html` returns no match (all inline styles removed).
 
 
 ## Implementation Observations
+
+- Review caught the Codex fresh-input tooltip on the whole token grid; it is now scoped to the Input metric label and rendered exactly once.
+- Real scheduling form toggles and project cards passed live checks; canonical seeded metrics/session-info used controlled current-source probes because the long-running source server had stale embedded output.
 
 #### DECISION NOTE: token-stat-metric-shape
 

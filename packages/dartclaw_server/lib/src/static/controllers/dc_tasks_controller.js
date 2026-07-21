@@ -201,19 +201,19 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       activityEl.textContent = data.currentActivity;
     }
 
-    const fillEl = document.getElementById('task-progress-fill-' + taskId);
-    if (fillEl) {
+    const wrapper = document.getElementById('task-meter-wrapper-' + taskId);
+    if (wrapper) {
       if (data.tokenBudget != null && data.tokenBudget > 0) {
-        fillEl.classList.remove('indeterminate');
         const pct = Math.min(Math.max(data.progress || 0, 0), 100);
+        const fillEl = ensureMeter(wrapper, taskId);
         fillEl.style.width = pct + '%';
         fillEl.setAttribute('aria-valuenow', pct);
       } else {
-        fillEl.classList.add('indeterminate');
+        showScanBar(wrapper);
       }
     }
 
-    const labelEl = document.getElementById('task-progress-label-' + taskId);
+    const labelEl = document.getElementById('task-meter-label-' + taskId);
     if (labelEl) {
       if (data.tokenBudget != null && data.tokenBudget > 0) {
         labelEl.textContent = formatTokenCount(data.tokensUsed) +
@@ -224,7 +224,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       }
     }
 
-    const section = document.getElementById('task-progress-section');
+    const section = document.getElementById('task-feedback-section');
     if (section) section.style.display = '';
 
     if (data.isComplete) {
@@ -235,18 +235,15 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
 
   function updateDashboardProgress(data) {
     const taskId = data.taskId;
-    const progressEl = document.getElementById('task-progress-' + taskId);
+    const progressEl = document.getElementById('task-meter-' + taskId);
     if (!progressEl) return;
 
-    const fillEl = progressEl.querySelector('.task-progress-fill');
-    if (fillEl) {
-      if (data.tokenBudget != null && data.tokenBudget > 0) {
-        progressEl.classList.remove('task-progress-indeterminate');
-        const pct = Math.min(Math.max(data.progress || 0, 0), 100);
-        fillEl.style.width = pct + '%';
-      } else {
-        progressEl.classList.add('task-progress-indeterminate');
-      }
+    if (data.tokenBudget != null && data.tokenBudget > 0) {
+      const pct = Math.min(Math.max(data.progress || 0, 0), 100);
+      const fillEl = ensureMeter(progressEl);
+      fillEl.style.width = pct + '%';
+    } else {
+      showScanBar(progressEl);
     }
 
     const tokensEl = document.getElementById('task-tokens-' + taskId);
@@ -268,12 +265,50 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     }
   }
 
+  function ensureMeter(container, taskId) {
+    let meter = container.querySelector('.meter');
+    if (!meter) {
+      meter = document.createElement('div');
+      meter.className = 'meter';
+      const scanBar = container.querySelector('.scan-bar');
+      if (scanBar) {
+        scanBar.replaceWith(meter);
+      } else {
+        container.appendChild(meter);
+      }
+    }
+    let fill = meter.querySelector('.meter-fill');
+    if (!fill) {
+      fill = document.createElement('div');
+      fill.className = 'meter-fill';
+      if (taskId) {
+        fill.setAttribute('role', 'progressbar');
+        fill.setAttribute('aria-valuemin', '0');
+        fill.setAttribute('aria-valuemax', '100');
+      }
+      meter.appendChild(fill);
+    }
+    return fill;
+  }
+
+  function showScanBar(container) {
+    if (container.querySelector('.scan-bar')) return;
+    const scanBar = document.createElement('div');
+    scanBar.className = 'scan-bar';
+    const meter = container.querySelector('.meter');
+    if (meter) {
+      meter.replaceWith(scanBar);
+    } else {
+      container.appendChild(scanBar);
+    }
+  }
+
   function updateDashboardEvents(data) {
     const taskId = data.taskId;
     let eventsEl = document.getElementById('task-events-' + taskId);
 
     if (!eventsEl) {
-      const card = document.querySelector('[id^="task-progress-' + taskId + '"]');
+      const card = document.querySelector('[id^="task-meter-' + taskId + '"]');
       const parent = card ? card.closest('.task-card-running') : null;
       if (!parent) return;
       eventsEl = document.createElement('div');
@@ -315,10 +350,8 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     if (!badge) return;
     if (count > 0) {
       badge.textContent = count;
-      badge.style.display = '';
-    } else {
-      badge.style.display = 'none';
     }
+    badge.hidden = count <= 0;
   }
 
   function initTaskElapsedTimers() {
@@ -504,8 +537,8 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
 
       if (action === 'push_back') {
         const commentArea = reviewBar.querySelector('.pushback-comment');
-        if (commentArea && commentArea.style.display === 'none') {
-          commentArea.style.display = '';
+        if (commentArea && commentArea.hidden) {
+          commentArea.hidden = false;
           return;
         }
       }

@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-19 12:36 CEST
+Last Updated: 2026-07-21 01:23 CEST
 
 ### Implemented Features (through 0.21)
 
@@ -25,11 +25,11 @@ Last Updated: 2026-07-19 12:36 CEST
 
 ## Current Phase
 
-**Phase 1: Foundation**
+**0.22 implementation complete**
 
-**Status**: On Track
+**Status**: Complete
 
-**Active milestone**: 0.22 – Afterglow Design-System Overhaul (planning complete; plan.json + FIS in dev/bundle/docs/specs/0.22/).
+**Active milestone**: 0.22 – Afterglow Design-System Overhaul (all 14 stories implemented and verified; plan.json + FIS in dev/bundle/docs/specs/0.22/).
 
 **Previous**: 0.21 – Windows Support & Cross-Platform Hardening (tagged `v0.21.0` on 2026-07-18). 0.20.1 – Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11).
 

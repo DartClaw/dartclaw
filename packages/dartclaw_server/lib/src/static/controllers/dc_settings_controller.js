@@ -24,7 +24,7 @@ function activateSettingsTab(tabId) {
     card.style.display = card.dataset.tab === tabId ? '' : 'none';
   });
 
-  const main = document.querySelector('.page-content');
+  const main = document.querySelector('.content-area');
   if (main) main.scrollTop = 0;
 }
 
@@ -351,7 +351,7 @@ function handleFormCancel(form) {
 }
 
 function attachSettingsListeners() {
-  var content = document.querySelector('.page-content');
+  var content = document.querySelector('.content-area');
   if (!content) return;
   if (content.dataset.settingsInit) return;
   content.dataset.settingsInit = '1';
@@ -1050,7 +1050,7 @@ function renderAllowlistEntries(page, listType, entries, channelType) {
 
 function showChannelRestartBanner() {
   var banner = document.getElementById('channel-restart-banner');
-  if (banner) banner.style.display = '';
+  if (banner) banner.hidden = false;
 }
 
 var pairingPollInterval = null;

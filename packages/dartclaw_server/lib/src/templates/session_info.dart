@@ -1,5 +1,6 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 
+import 'components.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -55,6 +56,24 @@ String sessionInfoTemplate({
     'sessionId': sessionId,
     'inputLabel': inputLabel,
     'inputTooltip': inputTooltip,
+    'tokenMetricCardsHtml': [
+      metricCardTemplate(
+        color: 'info',
+        value: inputTokens != null ? _formatNumber(inputTokens) : '\u2014',
+        label: inputLabel,
+        labelTooltip: inputTooltip,
+      ),
+      metricCardTemplate(
+        color: 'info',
+        value: outputTokens != null ? _formatNumber(outputTokens) : '\u2014',
+        label: 'Output',
+      ),
+      metricCardTemplate(
+        color: 'accent',
+        value: totalTokens > 0 ? _formatNumber(totalTokens) : '\u2014',
+        label: 'Total',
+      ),
+    ].join('\n'),
     'inputStr': inputTokens != null ? _formatNumber(inputTokens) : '\u2014',
     'outputStr': outputTokens != null ? _formatNumber(outputTokens) : '\u2014',
     'totalStr': totalTokens > 0 ? _formatNumber(totalTokens) : '\u2014',

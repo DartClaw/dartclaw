@@ -1,10 +1,10 @@
-<div tl:fragment="userMessage" class="msg msg-user">
+<div tl:fragment="userMessage" class="msg msg-user print-in">
   <div class="msg-role"><span tl:if="${hasSenderName}" tl:text="${senderName}">Alice</span><span tl:unless="${hasSenderName}">You</span></div>
   <div class="msg-content"><p tl:text="${content}">Message</p></div>
   <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
 </div>
 
-<div tl:fragment="assistantMessage" class="msg msg-assistant">
+<div tl:fragment="assistantMessage" class="msg msg-assistant print-in">
   <div class="msg-role">Assistant</div>
   <div class="msg-content" data-markdown="" tl:text="${content}">Response</div>
 </div>
@@ -25,7 +25,7 @@
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
 </div>
 
-<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area" data-controller="dc-chat dc-tasks"
+<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area print-in" data-controller="dc-chat dc-tasks"
   tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-earliest-cursor=${earliestCursor}">
   <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
   <div class="chat-load-earlier">
@@ -59,15 +59,17 @@
     <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
           data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
       <div class="composer-context" data-dc-chat-target="contextTray" hidden></div>
-      <div class="composer-palette" data-dc-chat-target="commandPalette" hidden>
+      <div class="composer-palette card card-glass" data-dc-chat-target="commandPalette" hidden>
         <div class="composer-palette-header">Commands</div>
         <div class="composer-palette-list" role="listbox" aria-label="Commands"></div>
       </div>
-      <div class="composer-reference-palette" data-dc-chat-target="referencePalette" hidden>
+      <div class="composer-reference-palette card card-glass" data-dc-chat-target="referencePalette" hidden>
         <div class="composer-palette-header">References</div>
         <div class="composer-palette-list" role="listbox" aria-label="References"></div>
       </div>
       <div class="composer-suggestions" aria-label="Suggestions">
+        <span><kbd>/</kbd> commands</span>
+        <span><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to send</span>
         <button type="button" class="composer-chip" data-action="dc-chat#applySuggestion" data-text="/workflow list">/workflow list</button>
         <button type="button" class="composer-chip" data-action="dc-chat#applySuggestion" data-text="Summarize this session">Summarize</button>
         <button type="button" class="composer-chip" data-action="dc-chat#applySuggestion" data-text="What changed since the last turn?">What's changed?</button>
@@ -89,24 +91,25 @@
 </main>
 
 <tl:block tl:fragment="sendResponse">
-  <div class="msg msg-user">
+  <div class="msg msg-user print-in">
     <div class="msg-role">You</div>
     <div class="msg-content"><p tl:text="${message}">message</p></div>
     <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
   </div>
-  <div class="msg msg-assistant" id="streaming-msg"
+  <div class="msg msg-assistant print-in" id="streaming-msg"
        hx-ext="sse"
        tl:attr="sse-connect=${sseUrl}"
        sse-close="done">
     <div class="msg-role">Assistant</div>
     <div class="msg-content streaming" id="streaming-content"
          sse-swap="delta" hx-swap="beforeend">
+      <span class="claw-loader" aria-label="Assistant is thinking"><span></span><span></span><span></span></span>
     </div>
     <div id="tool-container"
          sse-swap="tool_use" hx-swap="beforeend">
     </div>
     <div sse-swap="tool_result" hx-swap="none"></div>
-    <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" style="display:none"
+    <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden
          data-action="htmx:afterSwap->dc-chat#handleTurnError"></div>
   </div>
 </tl:block>

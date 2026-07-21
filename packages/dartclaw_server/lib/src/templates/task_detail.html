@@ -1,7 +1,7 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
     <div class="page-inner task-detail-page" id="tasks-content" data-controller="dc-tasks"
          tl:attr="data-task-id=${taskId}">
 
@@ -168,11 +168,19 @@
               </div>
               <div tl:if="${artifact.hasContent}">
                 <div tl:if="${artifact.isDiff}">
-                  <div tl:if="${artifact.hasRenderedHtml}" class="diff-view" tl:utext="${artifact.renderedHtml}">diff content</div>
-                  <pre tl:unless="${artifact.hasRenderedHtml}" class="diff-view" tl:text="${artifact.content}">diff content</pre>
+                  <div class="terminal-frame">
+                    <div class="terminal-frame-bar"><span class="terminal-frame-dots"><span></span><span></span><span></span></span><span class="terminal-frame-title" tl:text="${artifact.frameTitle}">diff</span></div>
+                    <div class="terminal-frame-body">
+                      <div tl:if="${artifact.hasRenderedHtml}" class="diff-view" tl:utext="${artifact.renderedHtml}">diff content</div>
+                      <pre tl:unless="${artifact.hasRenderedHtml}" class="diff-view" tl:text="${artifact.content}">diff content</pre>
+                    </div>
+                  </div>
                 </div>
                 <div tl:if="${artifact.isDocument}" class="task-artifact-content" data-markdown="" tl:text="${artifact.content}">document content</div>
-                <pre tl:if="${artifact.isData}" class="task-artifact-raw" tl:text="${artifact.content}">data content</pre>
+                <div tl:if="${artifact.isData}" class="terminal-frame">
+                  <div class="terminal-frame-bar"><span class="terminal-frame-dots"><span></span><span></span><span></span></span><span class="terminal-frame-title" tl:text="${artifact.frameTitle}">data</span></div>
+                  <div class="terminal-frame-body"><pre class="task-artifact-raw" tl:text="${artifact.content}">data content</pre></div>
+                </div>
               </div>
               <div tl:unless="${artifact.hasContent}" class="task-artifact-empty">
                 <span class="empty-state-text">Content unavailable</span>
@@ -180,7 +188,6 @@
             </div>
           </div>
           <div tl:unless="${hasArtifacts}" class="empty-state">
-            <div class="empty-state-icon">&#128451;</div>
             <p class="empty-state-title">No artifacts yet</p>
             <p class="empty-state-text">Artifacts will appear here when the task produces output.</p>
           </div>
@@ -188,10 +195,10 @@
       </div>
 
       <div tl:if="${isReview}" class="task-review-bar">
-        <button type="button" class="btn btn-accept">Accept</button>
-        <button type="button" class="btn btn-reject">Reject</button>
-        <button type="button" class="btn btn-pushback">Push Back</button>
-        <div class="pushback-comment" style="display:none">
+        <button type="button" class="btn btn-accept" data-action="accept">Accept</button>
+        <button type="button" class="btn btn-reject" data-action="reject">Reject</button>
+        <button type="button" class="btn btn-pushback" data-action="push_back">Push Back</button>
+        <div class="pushback-comment" hidden>
           <textarea id="pushback-comment" class="form-input" rows="2"
                     placeholder="Explain what needs to change..."></textarea>
           <button type="button" class="btn btn-primary btn-pushback-submit">Submit</button>
@@ -211,26 +218,26 @@
       </div>
 
       <!-- Live activity indicator and progress bar — hidden when not running -->
-      <div id="task-progress-section" class="task-progress-section"
+      <div id="task-feedback-section" class="task-feedback-section"
            tl:attr="style=${progressSectionStyle}">
         <div class="task-activity-indicator" tl:attr="id='task-activity-' + ${taskId}">
+          <span class="claw-loader" aria-label="Task is running"><span></span><span></span><span></span></span>
           <span class="status-dot status-dot--live" aria-hidden="true"></span>
           <span class="task-activity-text" tl:text="${initialActivity}"
                 tl:attr="id='task-activity-text-' + ${taskId}">Starting...</span>
         </div>
-        <div class="budget-bar-wrapper" tl:attr="id='task-progress-wrapper-' + ${taskId}">
-          <div class="budget-bar-label">
+        <div class="meter-wrapper" tl:attr="id='task-meter-wrapper-' + ${taskId}">
+          <div class="meter-label">
             <span tl:text="${initialProgressLabel}"
-                  tl:attr="id='task-progress-label-' + ${taskId}">0 tokens used</span>
+                  tl:attr="id='task-meter-label-' + ${taskId}">0 tokens used</span>
           </div>
-          <div class="budget-bar">
-            <div class="budget-bar-fill" tl:classappend="${initialProgressFillClass}"
-                 tl:attr="id='task-progress-fill-' + ${taskId},style='width: ' + ${initialProgressPct} + '%',aria-valuenow=${initialProgressPct}"
-                 role="progressbar"
-                 aria-valuemin="0"
-                 aria-valuemax="100">
+          <div tl:if="${hasTokenBudget}" class="meter">
+            <div class="meter-fill"
+                 tl:attr="style='width: ' + ${initialProgressPct} + '%',aria-valuenow=${initialProgressPct}"
+                 role="progressbar" aria-valuemin="0" aria-valuemax="100">
             </div>
           </div>
+          <div tl:unless="${hasTokenBudget}" class="scan-bar"></div>
         </div>
       </div>
 

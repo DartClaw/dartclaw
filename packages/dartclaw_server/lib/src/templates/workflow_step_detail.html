@@ -1,7 +1,12 @@
 <div tl:fragment="stepDetail" class="workflow-step-detail-content">
   <div tl:if="${hasSession}" class="workflow-step-chat">
     <h4>Session</h4>
-    <div class="messages" tl:utext="${messagesHtml}">messages</div>
+    <div class="terminal-frame">
+      <div class="terminal-frame-bar"><span class="terminal-frame-dots"><span></span><span></span><span></span></span><span class="terminal-frame-title" tl:text="${stepName}">Step</span></div>
+      <div class="terminal-frame-body">
+        <div class="messages" tl:utext="${messagesHtml}">messages</div>
+      </div>
+    </div>
   </div>
   <div tl:unless="${hasSession}" class="workflow-step-no-session">
     <span class="empty-state-text" tl:text="${noSessionText}">No session yet.</span>

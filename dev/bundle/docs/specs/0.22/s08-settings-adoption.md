@@ -61,27 +61,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02,TI07] Settings renders with no template-local `<style>` block**
+- [x] **S01 [OC01] [TI01,TI02,TI07] Settings renders with no template-local `<style>` block**
   - **Given** the settings page after S08, with its surviving provider-section rules relocated into `static/app.css`
   - **When** the settings page is rendered and viewed in the browser
   - **Then** `settings.html` contains no `<style>` element, and the provider section (summary + provider cards) is still fully styled — identical layout/spacing to before — because the rules now load from `app.css`
 
-- [ ] **S02 [OC02] [TI03] Provider summary stats are canonical metric cards**
+- [x] **S02 [OC02] [TI03] Provider summary stats are canonical metric cards**
   - **Given** a config with, e.g., 2 configured / 1 healthy / 1 degraded providers
   - **When** the Providers tab renders the summary grid
   - **Then** each stat is a `.card.card-metric` element with a `.metric-value` (the count) and a `.metric-label` (Configured / Healthy / Degraded), carrying the semantic-modifier convention – Configured → `.card-metric--info`, Healthy → `.card-metric--accent`, Degraded → `.card-metric--warning` (per the `metric-color-convention` decision note) – and no `.summary-stat`/`.summary-value`/`.summary-label` markup or CSS remains
 
-- [ ] **S03 [OC03] [TI04,TI02] Settings CSS is token-clean**
+- [x] **S03 [OC03] [TI04,TI02] Settings CSS is token-clean**
   - **Given** the relocated settings rules in `static/app.css`
   - **When** `app.css` is grepped for the settings provider rules
   - **Then** every uppercase-label `letter-spacing` uses `var(--tracking-caps)` (no hardcoded `0.04em`/`0.06em` remains), and `.provider-icon-codex` resolves its colour from `--brand-codex` (not `var(--info)`) while `.provider-icon-claude` uses `--brand-claude`
 
-- [ ] **S04 [OC04] [TI06] Settings uses the canonical layout container and passes both-theme validation**
+- [x] **S04 [OC04] [TI06] Settings uses the canonical layout container and passes both-theme validation**
   - **Given** the settings page migrated to `.content-area`/`.content-inner`
   - **When** it is visually validated at desktop and 768px in both Mocha (dark) and Latte (light) themes
   - **Then** the main scroll container is `.content-area > .content-inner` (no `.page-content`/`.page-inner` on this page), the provider-summary grid collapses from 3 columns to 1 at ≤768px, vertical spacing between the stacked settings cards is preserved by the upstream `.content-inner` gap (`flex-column` + `gap: var(--sp-6)` from S01's canon work – no settings-local compensating rule is added; per the `content-inner-stack-gap` decision note), and no visual regression is observed in either theme (the visual gate confirms spacing parity in both Mocha and Latte)
 
-- [ ] **S05 [OC01] [TI01,TI06] Synced foundation is untouched (sync-contract regression)**
+- [x] **S05 [OC01] [TI01,TI06] Synced foundation is untouched (sync-contract regression)**
   - **Given** S08's edits are confined to `settings.html` and `static/app.css`
   - **When** the design-system drift check runs after S08
   - **Then** it exits zero (`static/design-system.css` and `static/tokens.css` are byte-unchanged), and the still-shared `.page-content`/`.page-inner` app.css rules remain present for the other pages that still consume them
@@ -89,10 +89,10 @@
 
 ## Structural Criteria
 
-- [ ] No template under `packages/dartclaw_server/lib/src/templates/` contains a `<style>` element after this story (app-wide claim) — proved by TI01 Verify.
-- [ ] Any keyboard-key reference in settings help/hint copy is wrapped in `<kbd>`/`.kbd`; model shorthands (e.g. `claude/opus`) stay in `<code>` — proved by TI05 Verify.
-- [ ] `embedded_assets.g.dart` is regenerated so the edited `settings.html` and `static/app.css` are served in embedded mode — proved by TI07 Verify.
-- [ ] Existing settings behaviour (tab switching, form rendering, provider-summary counts) is unchanged — proved by the template/route test suite passing.
+- [x] No template under `packages/dartclaw_server/lib/src/templates/` contains a `<style>` element after this story (app-wide claim) — proved by TI01 Verify.
+- [x] Any keyboard-key reference in settings help/hint copy is wrapped in `<kbd>`/`.kbd`; model shorthands (e.g. `claude/opus`) stay in `<code>` — proved by TI05 Verify.
+- [x] `embedded_assets.g.dart` is regenerated so the edited `settings.html` and `static/app.css` are served in embedded mode — proved by TI07 Verify.
+- [x] Existing settings behaviour (tab switching, form rendering, provider-summary counts) is unchanged — proved by the template/route test suite passing.
 
 
 ## Scope & Boundaries
@@ -141,41 +141,44 @@ file   | packages/dartclaw_server/lib/src/static/app.css                        
 
 ### Implementation Tasks
 
-- [ ] **TI01** `settings.html` carries no `<style>` block; its surviving app-specific rules live in `static/app.css`
+- [x] **TI01** `settings.html` carries no `<style>` block; its surviving app-specific rules live in `static/app.css`
   - Move the provider-section rules (`.provider-section`, `.provider-summary` + its `@media`, `.provider-card*`, `.provider-icon*`, `.provider-title/subtitle`, `.provider-section-note`, etc.) into `static/app.css`; delete the `<style>` element. Follow `s01-css-foundation.md#TI05` for the app-only-layer pattern.
   - **Verify**: `grep -c "<style" packages/dartclaw_server/lib/src/templates/settings.html` → `0`; and `grep -rL "<style" packages/dartclaw_server/lib/src/templates/*.html | wc -l` equals the template count (no template has a `<style>` element)
 
-- [ ] **TI02** Relocated provider icon rules draw from the provider-brand token group
+- [x] **TI02** Relocated provider icon rules draw from the provider-brand token group
   - `.provider-icon-codex` uses `--brand-codex` (not `var(--info)`); `.provider-icon-claude` uses `--brand-claude` (from S01). No semantic state token backs a provider colour.
   - **Verify**: `grep -A3 "\.provider-icon-codex" packages/dartclaw_server/lib/src/static/app.css` shows `--brand-codex` and no `var(--info)`; `grep -c "var(--info)" ` on the relocated provider rules → `0`
 
-- [ ] **TI03** Provider summary stats render as canonical `card-metric`
+- [x] **TI03** Provider summary stats render as canonical `card-metric`
   - The three summary tiles become `<div class="card card-metric ...">` with `.metric-value` (count) + `.metric-label` (Configured/Healthy/Degraded), each carrying the semantic-modifier convention (per the `metric-color-convention` decision note): Configured → `card-metric--info`, Healthy → `card-metric--accent`, Degraded → `card-metric--warning`. Delete the `.summary-stat`/`.summary-value`/`.summary-label` rules (they re-implemented `card-metric` at 16px vs the 32px metric standard).
   - **Verify**: rendered Providers tab contains `card-metric` with `metric-value` + `metric-label` for each of Configured/Healthy/Degraded, and the Configured tile carries `card-metric--info`, Healthy `card-metric--accent`, Degraded `card-metric--warning`; `grep -rc "summary-stat\|summary-value\|summary-label" packages/dartclaw_server/lib/src/{templates/settings.html,static/app.css}` → `0`
 
-- [ ] **TI04** Settings uppercase-label letter-spacing uses tracking tokens
+- [x] **TI04** Settings uppercase-label letter-spacing uses tracking tokens
   - Replace the hardcoded `letter-spacing: 0.04em`/`0.06em` on uppercase labels (former `summary-label`, `provider-icon`, `provider-section-note`) with `var(--tracking-caps)`.
   - **Verify**: `grep -nE "letter-spacing:\s*0\.[0-9]+em" packages/dartclaw_server/lib/src/static/app.css` shows no match among the relocated settings provider rules; those rules use `var(--tracking-caps)`
 
-- [ ] **TI05** Settings key-reference copy uses `<kbd>`; model shorthands stay `<code>`
+- [x] **TI05** Settings key-reference copy uses `<kbd>`; model shorthands stay `<code>`
   - Any settings help/hint text that names a keyboard key uses `<kbd>`/`.kbd` (canonical selector from S01). Model shorthands (`claude/opus`, `codex/gpt-5.4`) correctly remain `<code>`. Settings copy currently contains no keyboard-key reference, so this task adds no invented shortcuts (see What We're NOT Doing).
   - **Verify**: `grep -nE "(Cmd|Ctrl|Enter|Esc|Shift|⌘)\b" packages/dartclaw_server/lib/src/templates/settings.html` — every match (if any) sits inside a `<kbd>`; no `<code>` element in `settings.html` wraps a bare keyboard key
 
-- [ ] **TI06** Settings uses the canonical `.content-area`/`.content-inner` container
+- [x] **TI06** Settings uses the canonical `.content-area`/`.content-inner` container
   - The page `<main>`/inner wrapper uses `.content-area`/`.content-inner` (off `.page-content`/`.page-inner`). Update `dc_settings_controller.js`'s two `document.querySelector('.page-content')` sites (~lines 27 and 354) to `.content-area` in the same migration – the line-354 lookup gates `attachSettingsListeners()`' entire delegated wiring, so a stale selector silently breaks Save/Cancel/immediate-apply. Do NOT delete the `.page-content`/`.page-inner` rules — 11 other templates still consume them.
   - **Verify**: `grep -c "page-content\|page-inner" packages/dartclaw_server/lib/src/templates/settings.html` → `0`; `grep -c "page-content" packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` → `0`; the page renders inside `content-area > content-inner`; `.page-content` rules still present in `app.css`; and the settings save/apply flow (the TC-25 restart-banner path) still functions after the selector migration
 
-- [ ] **TI07** `embedded_assets.g.dart` regenerated after the settings edits
+- [x] **TI07** `embedded_assets.g.dart` regenerated after the settings edits
   - Run `dart run dev/tools/embed_assets.dart` so the edited `settings.html` + `static/app.css` are embedded; never hand-edit the generated file.
   - **Verify**: `git status` shows `embedded_assets.g.dart` regenerated; the embedded settings entry contains no `<style>` (`grep "<style" ` on the generated settings payload → none)
 
 
 ## Final Validation Checklist
-- [ ] No `<style>` element remains in any template under `packages/dartclaw_server/lib/src/templates/` (app-wide claim of this story).
-- [ ] Design-system drift check exits zero (synced `design-system.css`/`tokens.css` unchanged).
+- [x] No `<style>` element remains in any template under `packages/dartclaw_server/lib/src/templates/` (app-wide claim of this story).
+- [x] Design-system drift check exits zero (synced `design-system.css`/`tokens.css` unchanged).
 
 
 ## Implementation Observations
+
+- Visual validation passed provider settings in dark/light at desktop and 768px, including responsive metric stacking.
+- Relocated `.detail-*` rules were scoped to Settings to avoid colliding with unrelated page conventions.
 
 #### DECISION NOTE: metric-color-convention
 

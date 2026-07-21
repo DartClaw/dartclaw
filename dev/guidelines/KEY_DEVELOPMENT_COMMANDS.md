@@ -135,6 +135,9 @@ git diff --check
 git status --short
 ```
 
+Run `bash dev/tools/fitness/check_design_system_sync.sh` after changing canonical
+design-system CSS. It verifies the served copies and their provenance hashes.
+
 
 ## Package Discovery (pub.dev)
 

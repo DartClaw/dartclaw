@@ -91,27 +91,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Step output renders as a plain terminal frame**
+- [x] **S01 [OC01] [TI01] Step output renders as a plain terminal frame**
   - **Given** a workflow step-detail fragment for a step that has a session transcript (`hasSession` true)
   - **When** the step-detail fragment renders
   - **Then** the session output (`.workflow-step-chat` messages) is wrapped in a `.terminal-frame` with a `.terminal-frame-bar` (carrying `.terminal-frame-dots` and the step name as its title) and a `.terminal-frame-body`, and no `terminal-frame--crt` modifier is present (CRT is login-only per scarcity)
 
-- [ ] **S02 [OC01] [TI01] A step with no session shows the empty text, not an empty frame**
+- [x] **S02 [OC01] [TI01] A step with no session shows the empty text, not an empty frame**
   - **Given** a step-detail fragment for a step with no session (`hasSession` false)
   - **When** the fragment renders
   - **Then** the "No session yet." empty text (`.workflow-step-no-session`) shows and no empty `.terminal-frame` is emitted (the frame wraps present output only)
 
-- [ ] **S03 [OC02] [TI02] Workflow cards hover with the canonical accent-mix border**
+- [x] **S03 [OC02] [TI02] Workflow cards hover with the canonical accent-mix border**
   - **Given** the New-Task dialog rendering the workflow picker cards (`.workflow-card`, each carrying the canonical `.card` base)
   - **When** a card is hovered
   - **Then** its hover border derives from the canonical accent-mix (`color-mix(... var(--accent) ...)`) and no workflow card `:hover` rule sets `border-color: var(--fg-overlay)`
 
-- [ ] **S04 [OC03] [TI03,TI04] Step-detail and shared-context toggles use the hidden attribute**
+- [x] **S04 [OC03] [TI03,TI04] Step-detail and shared-context toggles use the hidden attribute**
   - **Given** the workflow detail page with a collapsed step-detail row and a collapsed shared-context panel
   - **When** the operator expands the step (`data-step-toggle`) and the context (`data-context-toggle`)
   - **Then** each panel starts with the `hidden` attribute (no `style="display:none"`), the controller reveals it by clearing `hidden`, and the chevron flip / lazy `hx-trigger="intersect once"` step-detail load behave exactly as before
 
-- [ ] **S05 [OC04] [TI05] Workflow list and detail pages use the canonical layout container**
+- [x] **S05 [OC04] [TI05] Workflow list and detail pages use the canonical layout container**
   - **Given** the workflow list page and the workflow detail page
   - **When** each renders its main content region
   - **Then** the container is `.content-area` with a `.content-inner` child (page-specific `workflow-list-page`/`workflow-detail-page` modifiers preserved) and neither template carries `page-content` or `page-inner`
@@ -121,12 +121,12 @@
 
 > Non-behavioral guards, each proved by a task Verify line.
 
-- [ ] No `style="display:none"` / `style="display: none;"` remains in `workflow_list.html` or `workflow_detail.html` (proved by TI03).
-- [ ] No workflow card `:hover` rule in `static/app.css` sets `border-color: var(--fg-overlay)` (proved by TI02).
-- [ ] `workflow_list.html` and `workflow_detail.html` carry no `page-content`/`page-inner` class; the `.page-content`/`.page-inner` app.css rules are retained (S06 is not their last consumer) (proved by TI05).
-- [ ] All CSS edits land in `static/app.css`; the synced `design-system.css` / `tokens.css` are untouched and the S01 drift check still exits zero (proved by TI02/TI06).
-- [ ] `lib/src/generated/embedded_assets.g.dart` is regenerated and `git diff --exit-code` on it is clean after the template/static edits (proved by TI06).
-- [ ] No new runtime JS dependency, `@import`, or build step is introduced — changes are plain CSS + Trellis + Stimulus only (proved by TI06).
+- [x] No `style="display:none"` / `style="display: none;"` remains in `workflow_list.html` or `workflow_detail.html` (proved by TI03).
+- [x] No workflow card `:hover` rule in `static/app.css` sets `border-color: var(--fg-overlay)` (proved by TI02).
+- [x] `workflow_list.html` and `workflow_detail.html` carry no `page-content`/`page-inner` class; the `.page-content`/`.page-inner` app.css rules are retained (S06 is not their last consumer) (proved by TI05).
+- [x] All CSS edits land in `static/app.css`; the synced `design-system.css` / `tokens.css` are untouched and the S01 drift check still exits zero (proved by TI02/TI06).
+- [x] `lib/src/generated/embedded_assets.g.dart` is regenerated and `git diff --exit-code` on it is clean after the template/static edits (proved by TI06).
+- [x] No new runtime JS dependency, `@import`, or build step is introduced — changes are plain CSS + Trellis + Stimulus only (proved by TI06).
 
 
 ## Scope & Boundaries
@@ -178,27 +178,27 @@ file   | packages/dartclaw_server/lib/src/static/controllers/dc_workflows_contro
 
 ### Implementation Tasks
 
-- [ ] **TI01** Workflow step output renders inside a plain terminal frame
+- [x] **TI01** Workflow step output renders inside a plain terminal frame
   - In `workflow_step_detail.html`, wrap the step session output (the `.workflow-step-chat` block's `.messages`) in a `.terminal-frame` (`.terminal-frame-bar` with `.terminal-frame-dots` + `.terminal-frame-body`). Plain frame only — no `--crt`. Per the terminal-frame-title convention (see Implementation Observations), the bar carries the `.terminal-frame-dots` followed by a short contextual title — for step output that title is the step name, mirroring S05's artifact frames (which title the bar with the artifact filename). The `stepDetail` fragment context does not yet carry the step name, so thread it in from the step-detail render path (`workflowStepDetailFragment` / `_handleStepDetail`, which already resolves `definition.steps[stepIndex].name`) and bind it into the bar as the title; the frame is emitted only on the `hasSession` branch, so the title is only needed there. Keep the `tl:if="${hasSession}"` guard so the no-session branch (`.workflow-step-no-session`) still shows its empty text with no empty frame. Preserve the `tl:utext="${messagesHtml}"` binding.
   - **Verify**: `Test: rendered stepDetail fragment with hasSession=true contains "terminal-frame" wrapping the messages with "terminal-frame-bar", "terminal-frame-dots" and "terminal-frame-body", the step name renders as the bar title inside "terminal-frame-bar", and no "terminal-frame--crt"; with hasSession=false it contains "workflow-step-no-session" and no "terminal-frame"`
 
-- [ ] **TI02** Workflow picker cards hover with the canonical accent-mix border
+- [x] **TI02** Workflow picker cards hover with the canonical accent-mix border
   - The violating rule is `.workflow-card:hover` in `static/app.css`, which sets `border-color: var(--fg-overlay)`. `.workflow-card` is the workflow *picker* card that `dc_workflows_controller.js` renders into the New-Task dialog's `.workflow-list-cards` (each also carries the canonical `.card` base) — it is not a workflows-page card. The workflows-page run cards (`.workflow-run-card`) are already token-compliant: their `:hover` only sets `background: var(--bg-surface0)` and has no border to fix, so do not go looking for a run-card violation. Change `.workflow-card:hover` to the canonical accent-mix border (e.g. `color-mix(in srgb, var(--accent) 20%, var(--bg-surface0))`), or drop the override so the inherited canonical `.card:hover` accent-mix wins. Keep the edit in `static/app.css`; never touch the synced `design-system.css`. This story owns the picker-card hover rule (the plan assigns the app-CSS fix here); S05 carries the matching hand-off note.
   - **Verify**: `Test: grep static/app.css finds no ".workflow-card:hover" rule setting "border-color: var(--fg-overlay)"; the picker card (.workflow-card) hover border derives from a color-mix of --accent; visual validation confirms the accent hover on the New-Task dialog picker cards in both themes`
 
-- [ ] **TI03** Step-detail and shared-context panels toggle via the hidden attribute
+- [x] **TI03** Step-detail and shared-context panels toggle via the hidden attribute
   - In `workflow_detail.html`, replace `style="display: none;"` on the step-detail wrapper (`.workflow-step-detail`) and the shared-context body (`.workflow-context-body`) with the `hidden` attribute. Leave the inner `.workflow-step-detail-loading` placeholder and its `hx-trigger="intersect once"` untouched (S03-owned).
   - **Verify**: `Test: grep workflow_detail.html finds no "display: none" / "display:none"; the .workflow-step-detail wrapper and .workflow-context-body carry the "hidden" attribute`
 
-- [ ] **TI04** The reveal controller toggles `.hidden` instead of `.style.display`
+- [x] **TI04** The reveal controller toggles `.hidden` instead of `.style.display`
   - In `dc_workflows_controller.js`, change the step-detail reveal and the shared-context reveal toggles (currently reading/writing `detail.style.display === 'none'` / `body.style.display`) to toggle the `hidden` property (`el.hidden = !el.hidden`), keeping the chevron `icon-chevron-up`/`-down` flip. Do not touch the picker loading/empty/form toggles (S03-owned).
   - **Verify**: `Test: dc_workflows_controller.js step-detail and shared-context toggle handlers set el.hidden (no ".style.display" for those two panels); manual UI check — expand/collapse of a step row and the shared-context panel behaves as before, and an unexpanded step's details lazy-load on first expand`
 
-- [ ] **TI05** Workflow list and detail pages use the canonical layout container
+- [x] **TI05** Workflow list and detail pages use the canonical layout container
   - In `workflow_list.html` and `workflow_detail.html`, change the `<main ... class="page-content">` to `class="content-area"` and the inner `class="page-inner workflow-*-page"` to `class="content-inner workflow-*-page"`. Keep the page-specific modifier classes and the `data-controller`/`data-*` attributes. Canonical `.content-inner` carries the upstream stack gap (flex-column + `gap: var(--sp-6)`, landed by S01 — see the content-inner-stack-gap note in Implementation Observations), so section/card vertical spacing is preserved by the container itself; add no per-page spacing rule. Do not delete the `.page-content`/`.page-inner` rules from `static/app.css` (other pages still consume them).
   - **Verify**: `Test: rendered workflow_list and workflow_detail contain class="content-area" and "content-inner" and neither contains "page-content" or "page-inner"; grep static/app.css still defines .page-content and .page-inner`
 
-- [ ] **TI06** Embedded assets and workflow template tests reflect the canonical markup
+- [x] **TI06** Embedded assets and workflow template tests reflect the canonical markup
   - Run `dart run dev/tools/embed_assets.dart` after the template/static edits; extend `test/templates/workflow_detail_template_test.dart` and `test/templates/workflow_list_template_test.dart` with assertions for `content-area`/`content-inner`, the `hidden` toggles, and (via the step-detail render path) the `terminal-frame` wrap.
   - **Verify**: `Test: git diff --exit-code on lib/src/generated/embedded_assets.g.dart is clean after regen; dart test test/templates/workflow_detail_template_test.dart test/templates/workflow_list_template_test.dart passes; the S01 CSS drift check exits zero (synced design-system.css/tokens.css untouched)`
 
@@ -219,10 +219,13 @@ file   | packages/dartclaw_server/lib/src/static/controllers/dc_workflows_contro
 
 ## Final Validation Checklist
 
-- [ ] App-wide the workflow pages are grep-clean of the S06-scope violations: no `page-content`/`page-inner` on `workflow_list.html`/`workflow_detail.html`, no `style="display:none"` in either template, and no `border-color: var(--fg-overlay)` on a workflow card `:hover` in `static/app.css`.
+- [x] App-wide the workflow pages are grep-clean of the S06-scope violations: no `page-content`/`page-inner` on `workflow_list.html`/`workflow_detail.html`, no `style="display:none"` in either template, and no `border-color: var(--fg-overlay)` on a workflow card `:hover` in `static/app.css`.
 
 
 ## Implementation Observations
+
+- Visual validation passed the workflow containers, picker hover, and hidden context in both themes at desktop and 768px.
+- Seeded runs had zero steps, so terminal-frame and lazy step-detail live states were verified by render/controller tests rather than live capture.
 
 #### DECISION NOTE: terminal-frame-title
 

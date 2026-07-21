@@ -34,6 +34,8 @@ void main() {
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: []);
       expect(html, contains('No projects registered'));
       expect(html, contains('Add a project to run tasks against external repositories'));
+      expect(html, contains('class="claw-mark"'));
+      expect(html, isNot(contains('\ud83d\udcc2')));
     });
 
     test('renders project list with names', () {
@@ -186,6 +188,16 @@ void main() {
   });
 
   group('newTaskFormDialogHtml with projectOptions', () {
+    test('workflow feedback states start hidden with three skeleton rows', () {
+      final html = newTaskFormDialogHtml();
+
+      expect(html, contains('class="workflow-list-loading" hidden'));
+      expect(html, contains('class="workflow-list-empty" hidden'));
+      expect(html, contains('id="workflow-form" class="workflow-var-form" hidden'));
+      expect(html, contains('id="workflow-project-select" class="form-group" hidden'));
+      expect(RegExp('class="skeleton"').allMatches(html), hasLength(3));
+    });
+
     test('no project selector when only local project exists', () {
       final html = newTaskFormDialogHtml(
         projectOptions: [

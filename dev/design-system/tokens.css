@@ -39,6 +39,8 @@
      Gradients, ambient glows, data-viz categories. State stays semantic. */
   --mauve:       #cba6f7;
   --teal:        #94e2d5;
+  --brand-claude: #e07c4f;
+  --brand-codex:  var(--teal);
   --sky:         #89dceb;
   --pink:        #f5c2e7;
   --lavender:    #b4befe;
@@ -185,6 +187,8 @@
   /* Extended palette — Latte. Saturated mid-tones so gradients stay visible on light ground. */
   --mauve:       #8839ef;
   --teal:        #179299;
+  --brand-claude: #c05d35;
+  --brand-codex:  var(--teal);
   --sky:         #04a5e5;
   --pink:        #ea76cb;
   --lavender:    #7287fd;

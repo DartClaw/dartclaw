@@ -1,5 +1,6 @@
 import {
   apiQs,
+  applyIdenticons,
   closeAllCustomSelects,
   getApiToken,
   initCustomSelects,
@@ -42,6 +43,7 @@ export default class DcShellController extends Stimulus.Controller {
       this.connectGlobalEvents();
     }
     renderMarkdown();
+    applyIdenticons();
     scrollToBottom();
     this.applyTimelineAutoScroll();
   }
@@ -132,6 +134,7 @@ export default class DcShellController extends Stimulus.Controller {
     const source = event.detail && event.detail.elt;
     const isLoadEarlier = source && source.matches && source.matches('[data-load-earlier]');
     renderMarkdown();
+    applyIdenticons();
     if (!isLoadEarlier) {
       scrollToBottom();
     }
@@ -143,6 +146,7 @@ export default class DcShellController extends Stimulus.Controller {
 
   handleHistoryRestore() {
     renderMarkdown();
+    applyIdenticons();
     scrollToBottom();
     this.initializeShellUi();
     document.getElementById('main-content')?.focus({ preventScroll: true });
@@ -150,6 +154,7 @@ export default class DcShellController extends Stimulus.Controller {
 
   handleHistoryCacheMissLoad() {
     renderMarkdown();
+    applyIdenticons();
     scrollToBottom();
   }
 
@@ -228,7 +233,7 @@ export default class DcShellController extends Stimulus.Controller {
     const isCollapsed = section.classList.contains('force-expanded')
       ? false
       : localStorage.getItem(storageKey) !== 'false';
-    list.style.display = isCollapsed ? 'none' : '';
+    list.hidden = isCollapsed;
     toggle.setAttribute('aria-expanded', String(!isCollapsed));
     section.classList.toggle('expanded', !isCollapsed);
 
@@ -236,7 +241,7 @@ export default class DcShellController extends Stimulus.Controller {
     toggle.dataset.archiveInit = '1';
     toggle.addEventListener('click', () => {
       const wasExpanded = section.classList.contains('expanded');
-      list.style.display = wasExpanded ? 'none' : '';
+      list.hidden = wasExpanded;
       section.classList.toggle('expanded', !wasExpanded);
       toggle.setAttribute('aria-expanded', String(!wasExpanded));
       localStorage.setItem(storageKey, String(wasExpanded));
@@ -488,7 +493,7 @@ export default class DcShellController extends Stimulus.Controller {
     overlay.setAttribute('aria-live', 'assertive');
     overlay.innerHTML = `
       <div class="restart-overlay-content">
-        <div class="restart-spinner"></div>
+        <div class="claw-loader" aria-label="Server is restarting"><span></span><span></span><span></span></div>
         <h2>Server is restarting...</h2>
         <p id="restart-status">Waiting for server to come back online</p>
       </div>

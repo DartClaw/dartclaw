@@ -19,6 +19,36 @@ export function sanitizeClassToken(value, fallback) {
   return token || fallback;
 }
 
+export function identiconVariant(id) {
+  let hash = 0;
+  for (const char of String(id ?? '')) {
+    hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  }
+  return (hash % 6) + 1;
+}
+
+function identiconInitials(value) {
+  const words = String(value ?? '')
+    .trim()
+    .split(/\s+/)
+    .map((word) => Array.from(word).find((char) => /[\p{L}\p{N}]/u.test(char)))
+    .filter(Boolean);
+  if (words.length > 1) return words.slice(0, 2).join('');
+  return words[0] ? Array.from(String(value).trim()).slice(0, 2).join('') : '?';
+}
+
+export function applyIdenticons(root = document) {
+  const mounts = [];
+  if (root.matches?.('.identicon[data-identicon-id]')) mounts.push(root);
+  const descendants = root.querySelectorAll ? root.querySelectorAll('.identicon[data-identicon-id]') : [];
+  mounts.push(...descendants);
+  mounts.forEach((mount) => {
+    mount.classList.remove(...Array.from(mount.classList).filter((name) => /^identicon--[1-6]$/.test(name)));
+    mount.classList.add('identicon--' + identiconVariant(mount.dataset.identiconId));
+    mount.textContent = identiconInitials(mount.dataset.identiconInitials || mount.dataset.identiconId);
+  });
+}
+
 function toastContainer() {
   let container = document.getElementById('toast-container');
   if (!container) {

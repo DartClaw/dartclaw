@@ -1,26 +1,28 @@
 <div tl:fragment="healthDashboard" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div tl:utext="${topbar}"><!-- topbar --></div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="dashboard">
+  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
     <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-    <div class="dashboard-inner"
+    <div class="content-inner"
          data-controller="dc-health"
          data-health-refresh
          hx-get="/health-dashboard"
          hx-target="this"
-         hx-select=".dashboard-inner"
+         hx-select=".content-inner"
          hx-swap="outerHTML"
          hx-trigger="refresh">
 
-      <div class="status-hero" tl:classappend="${statusColorClass}">
-        <div class="status-indicator" tl:utext="${statusIcon}"><!-- icon --></div>
-        <div class="status-details">
-          <div class="status-label" tl:text="${statusLabel}">Healthy</div>
-          <dl class="status-meta">
-            <div><dt>Uptime</dt><dd tl:text="${uptimeStr}">0m</dd></div>
-            <div><dt>Version</dt><dd tl:text="${version}">0.0.0</dd></div>
-            <div><dt>Worker</dt><dd tl:text="${workerState}">unknown</dd></div>
-          </dl>
+      <div class="card" tl:classappend="${statusCardClass}">
+        <div class="card-header">
+          <span class="status-badge" tl:classappend="${statusBadgeClass}">
+            <span class="status-dot" tl:classappend="${statusDotClass}" aria-hidden="true"></span>
+            <span tl:text="${statusLabel}">Healthy</span>
+          </span>
+        </div>
+        <div class="card-rows">
+          <div class="card-row"><span class="card-row-label">Uptime</span><span class="card-row-value" tl:text="${uptimeStr}">0m</span></div>
+          <div class="card-row"><span class="card-row-label">Version</span><span class="card-row-value" tl:text="${version}">0.0.0</span></div>
+          <div class="card-row"><span class="card-row-label">Worker</span><span class="card-row-value" tl:text="${workerState}">unknown</span></div>
         </div>
       </div>
 

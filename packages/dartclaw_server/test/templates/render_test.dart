@@ -45,6 +45,8 @@ Map<String, dynamic> _sessionInfoContext(Map<String, dynamic> overrides) => {
   'inputStr': '1.2K',
   'outputStr': '3.4K',
   'totalStr': '4.6K',
+  'tokenMetricCardsHtml':
+      '''<div class="card card-metric card-metric--info"><div class="metric-value">1.2K</div><div class="metric-label">Input</div></div><div class="card card-metric card-metric--info"><div class="metric-value">3.4K</div><div class="metric-label">Output</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">4.6K</div><div class="metric-label">Total</div></div>''',
   'messageCount': 42,
   'createdAt': '2025-01-15',
   'sidebar': '',
@@ -134,7 +136,18 @@ void main() {
 
     test('login renders form states', () async {
       final empty = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
-      _expectAll(empty, ['login-form', 'name="token"', 'type="password"', 'name="remember"']);
+      _expectAll(empty, [
+        'terminal-frame terminal-frame--crt login-terminal',
+        'terminal-frame-bar',
+        'terminal-frame-dots',
+        'terminal-frame-body',
+        'login-mascot pixel-art',
+        'login-wordmark',
+        'login-form',
+        'name="token"',
+        'type="password"',
+        'name="remember"',
+      ]);
       expect(empty, isNot(contains('login-error')));
 
       final withError = await engine.renderFileFragment(
@@ -160,10 +173,12 @@ void main() {
       _expectAll(banner, ['banner-warning', '&lt;b&gt;oops']);
 
       final emptyState = await engine.renderFileFragment('components', fragment: 'emptyState', context: const {});
-      _expectAll(emptyState, ['No messages yet', 'empty-state']);
+      _expectAll(emptyState, ['No messages yet', 'empty-state', '❯_']);
+      expect(emptyState, isNot(anyOf(contains('claw-mark'), contains('mascot-'))));
 
       final emptyAppState = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
-      _expectAll(emptyAppState, ['No chats yet']);
+      _expectAll(emptyAppState, ['No chats yet', '❯_']);
+      expect(emptyAppState, isNot(anyOf(contains('claw-mark'), contains('mascot-'))));
       expect(emptyAppState, isNot(contains('data-dc-legacy-action')));
     });
   });
@@ -183,11 +198,15 @@ void main() {
         'marked',
         'purify.min.js',
         '/static/tokens.css',
-        '/static/components.css',
+        '/static/app-tokens.css',
+        '/static/design-system.css',
+        '/static/app.css',
+        '/static/mascot-favicon-32.png',
+        '/static/mascot-favicon-16.png',
         '/static/controllers/index.js',
         '/static/extra-page.js',
       ]);
-      _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js']);
+      _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js', 'href="data:,"']);
     });
 
     test('topbar fragments render expected controls', () async {
@@ -309,14 +328,21 @@ void main() {
         'Claude',
         'Codex',
         'data-icon="terminal"',
-        'data-icon="hash"',
-        'data-icon="message-circle"',
-        'data-icon="archive"',
+        'data-identicon-id="dm-1"',
+        'data-identicon-id="group-1"',
+        'data-identicon-id="s1"',
+        'data-identicon-id="s2"',
         'data-icon="new-session"',
         '>New Chat</button>',
         'data-icon="x"',
         'data-icon="chevron-down"',
       ]);
+      expect(
+        providers,
+        isNot(
+          anyOf(contains('data-icon="hash"'), contains('data-icon="message-circle"'), contains('data-icon="archive"')),
+        ),
+      );
 
       final entries = await engine.renderFileFragment(
         'sidebar',
@@ -469,9 +495,9 @@ void main() {
         fragment: 'scheduling',
         context: {
           'pulseClass': 'pulse-active',
-          'badgeClass': 'badge-success',
-          'badgeText': 'Active',
-          'intervalDisplay': 'every 30 min',
+          'heartbeatBadgeHtml': '<span class="status-badge status-badge-success">Active</span>',
+          'heartbeatMetricCardsHtml':
+              '<div class="card card-metric card-metric--info"><div class="metric-value">every 30 min</div><div class="metric-label">Interval</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">Active</div><div class="metric-label">Status</div></div>',
           'hasJobs': true,
           'jobs': [
             {
@@ -495,9 +521,9 @@ void main() {
         fragment: 'scheduling',
         context: {
           'pulseClass': '',
-          'badgeClass': 'badge-muted',
-          'badgeText': 'Disabled',
-          'intervalDisplay': '-',
+          'heartbeatBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'heartbeatMetricCardsHtml':
+              '<div class="card card-metric card-metric--info"><div class="metric-value">-</div><div class="metric-label">Interval</div></div><div class="card card-metric card-metric--warning"><div class="metric-value">Disabled</div><div class="metric-label">Status</div></div>',
           'hasJobs': false,
           'jobs': <Map<String, dynamic>>[],
           'sidebar': '',
@@ -560,7 +586,13 @@ void main() {
         '/settings/channels/whatsapp',
         '/settings/channels/signal',
         '/settings/channels/google_chat',
+        'class="content-area print-in"',
+        'class="content-inner"',
+        'card card-metric card-metric--info',
+        'card card-metric card-metric--accent',
+        'card card-metric card-metric--warning',
       ]);
+      _expectNone(html, ['<style', 'summary-stat', 'summary-value', 'summary-label', 'page-content', 'page-inner']);
     });
 
     test('shows WhatsApp configure link when enabled', () async {
@@ -588,6 +620,7 @@ void main() {
         context: {'content': 'Hello <world>'},
       );
       _expectAll(user, ['msg-user', '>You<', 'Hello &lt;world&gt;']);
+      expect(user, contains('msg-user print-in'));
 
       final rich = await engine.renderFileFragment(
         'chat',
@@ -605,6 +638,7 @@ void main() {
         context: {'content': 'Here is the answer'},
       );
       _expectAll(assistant, ['msg-assistant', 'data-markdown', 'Here is the answer']);
+      expect(assistant, contains('msg-assistant print-in'));
 
       final guard = await engine.renderFileFragment(
         'chat',
@@ -652,6 +686,10 @@ void main() {
         'hx-swap="beforeend"',
         'name="attachments"',
         'data-dc-chat-target="commandPalette"',
+        'composer-palette card card-glass',
+        'composer-reference-palette card card-glass',
+        '<kbd>/</kbd> commands',
+        '<kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to send',
       ]);
       expect(area, isNot(contains('sse-container')));
 
@@ -661,14 +699,18 @@ void main() {
         context: {'message': 'Hello <world>', 'sseUrl': '/api/sessions/s1/stream?turn=t1'},
       );
       _expectAll(response, [
-        'msg-user',
+        'msg-user print-in',
         'Hello &lt;world&gt;',
-        'streaming-msg',
+        'msg-assistant print-in',
+        'id="streaming-msg"',
         'sse-connect="/api/sessions/s1/stream?turn=t1"',
         'hx-ext="sse"',
         'sse-close="done"',
         'sse-swap="delta"',
+        'id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden',
       ]);
+      expect(response, isNot(contains('id="streaming-content" class="print-in"')));
+      expect(response, isNot(contains('display:none')));
     });
   });
 

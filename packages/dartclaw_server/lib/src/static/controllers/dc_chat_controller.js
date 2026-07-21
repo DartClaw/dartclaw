@@ -201,6 +201,7 @@ export default class DcChatController extends Stimulus.Controller {
     if (!isMessagesReload && !isLoadEarlier) return;
     if (isLoadEarlier) {
       elt.disabled = false;
+      this.element.querySelector('[data-load-earlier-skeleton]')?.remove();
     }
     if (!event.detail.successful) {
       if (isLoadEarlier) {
@@ -283,6 +284,11 @@ export default class DcChatController extends Stimulus.Controller {
     const earliestCursor = this.element.dataset.earliestCursor;
     if (!this.sessionId || !earliestCursor) return;
     button.disabled = true;
+    const messages = document.getElementById('messages');
+    const loading = document.createElement('div');
+    loading.className = 'skeleton skeleton-text';
+    loading.dataset.loadEarlierSkeleton = '1';
+    messages?.prepend(loading);
     htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html?before=' + earliestCursor, {
       target: '#messages',
       swap: 'afterbegin',
@@ -309,7 +315,10 @@ export default class DcChatController extends Stimulus.Controller {
     }
   }
 
-  handleSseMessage() {
+  handleSseMessage(event) {
+    if (event.detail?.type === 'delta') {
+      document.querySelector('#streaming-content .claw-loader')?.remove();
+    }
     scrollToBottom(this.element);
   }
 

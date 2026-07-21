@@ -51,34 +51,34 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC03] [TI01,TI02,TI03] Sidebar session rows get deterministic per-entity identicons**
+- [x] **S01 [OC01,OC03] [TI01,TI02,TI03] Sidebar session rows get deterministic per-entity identicons**
   - **Given** the shell is loaded with two chat sessions whose ids hash to different variants
   - **When** the sidebar renders and enhancement runs
   - **Then** each session row contains a `.identicon` element carrying exactly one `.identicon--N` class where `N == hash(sessionId) % 6 + 1` (an integer in 1..6) and 1–2 initials from the session title, and the two rows show different variants
   - **And** reloading the page renders each session's identicon with the identical variant
 
-- [ ] **S02 [OC01] [TI02,TI03] Channel-row identicon survives an OOB sidebar swap unchanged**
+- [x] **S02 [OC01] [TI02,TI03] Channel-row identicon survives an OOB sidebar swap unchanged**
   - **Given** a channel session row showing identicon variant `N`
   - **When** the operator navigates and the sidebar is replaced via `hx-select-oob="#sidebar"`
   - **Then** the same channel row re-renders with the same `.identicon--N` variant (stable across swaps)
   - **And** the same row still carries `.identicon--N` after an htmx history restore (browser back/forward through the history cache – `handleHistoryRestore` / `handleHistoryCacheMissLoad`)
 
-- [ ] **S03 [OC02] [TI04] Channel-detail hero shows the channel's identicon**
+- [x] **S03 [OC02] [TI04] Channel-detail hero shows the channel's identicon**
   - **Given** the WhatsApp channel-detail configuration page
   - **When** it renders
   - **Then** the `.channel-detail-hero` contains a `.identicon` element whose variant derives from the channel identity (`channelType`), and the Signal channel-detail hero carries a distinct `data-identicon-id` (the hash input differs per channel; the resolved variant may collide across the 6 variants and that is acceptable)
 
-- [ ] **S04 [OC02,OC03] [TI05] Task agent badge is identicon + label, provider stays a separate badge**
+- [x] **S04 [OC02,OC03] [TI05] Task agent badge is identicon + label, provider stays a separate badge**
   - **Given** a running task with `agentLabel` "Agent #1" and provider `codex`
   - **When** the tasks page renders
   - **Then** the `.task-agent-badge` contains a `.identicon` element plus the "Agent #1" text, and a separate `.provider-badge.provider-badge-codex` element still renders alongside it
 
-- [ ] **S05 [OC03] [TI01,TI03] Identicon encodes identity, not state**
+- [x] **S05 [OC03] [TI01,TI03] Identicon encodes identity, not state**
   - **Given** a session rendered with identicon variant `N`
   - **When** the same session (same id) is later re-rendered after its state changed (active → archived)
   - **Then** its identicon variant is still `N` — the variant is a function of id alone, unchanged by the state transition
 
-- [ ] **S06 [OC03] [TI01] Missing display name still yields a valid identicon**
+- [x] **S06 [OC03] [TI01] Missing display name still yields a valid identicon**
   - **Given** an entity with a non-empty id but an empty/absent title or label
   - **When** its identicon is computed
   - **Then** `identiconVariant(id)` returns an integer in 1..6 (never `0`, `7`, or `NaN`) and a fallback glyph is shown as initials — no row is left without an identicon and no `.identicon--0`/`.identicon--7` is emitted
@@ -86,13 +86,13 @@
 
 ## Structural Criteria
 
-- [ ] Exactly one identicon hash implementation exists — in `static/controllers/shared.js`; no parallel hash in Dart or another controller (proved by grep).
-- [ ] The hash utility adds no import and no new runtime dependency — plain JS (zero-npm constraint).
-- [ ] `identiconVariant` output is bounded to 1..6 for arbitrary and empty-string input (no `identicon--0`/`--7`/`NaN`).
-- [ ] `.provider-badge` markup and the `provider-badge-<provider>` class binding are unchanged on sidebar rows and task cards (provider stays a badge, per scope).
-- [ ] Existing sidebar / tasks / channel-detail Layer 2/3 render tests still pass (identicon markup is additive).
-- [ ] No `style="display"` remains in `sidebar.html` — the archive-list visibility toggle uses the `hidden` attribute (proved by TI06).
-- [ ] The new `shared.js` identicon utility is the milestone's only net-new runtime JS and adds zero dependencies — it stays trivially within the governance JS-payload ceiling (proved by TI01's no-import Verify).
+- [x] Exactly one identicon hash implementation exists — in `static/controllers/shared.js`; no parallel hash in Dart or another controller (proved by grep).
+- [x] The hash utility adds no import and no new runtime dependency — plain JS (zero-npm constraint).
+- [x] `identiconVariant` output is bounded to 1..6 for arbitrary and empty-string input (no `identicon--0`/`--7`/`NaN`).
+- [x] `.provider-badge` markup and the `provider-badge-<provider>` class binding are unchanged on sidebar rows and task cards (provider stays a badge, per scope).
+- [x] Existing sidebar / tasks / channel-detail Layer 2/3 render tests still pass (identicon markup is additive).
+- [x] No `style="display"` remains in `sidebar.html` — the archive-list visibility toggle uses the `hidden` attribute (proved by TI06).
+- [x] The new `shared.js` identicon utility is the milestone's only net-new runtime JS and adds zero dependencies — it stays trivially within the governance JS-payload ceiling (proved by TI01's no-import Verify).
 
 
 ## Scope & Boundaries
@@ -142,27 +142,27 @@ wire   | dev/design-system/showcase.html                               | Canonic
 
 ### Implementation Tasks
 
-- [ ] **TI01** `shared.js` exposes a deterministic, dependency-free identicon variant function and an enhancer
+- [x] **TI01** `shared.js` exposes a deterministic, dependency-free identicon variant function and an enhancer
   - `identiconVariant(id)` returns `hash(id) % 6 + 1` (integer 1..6, empty-safe); `applyIdenticons(root)` fills each `.identicon` mount from its `data-identicon-id` with the `.identicon--N` class and 1–2 initials; no new imports. Follow `shared.js#sanitizeClassToken` for export style
   - **Verify**: `Test: identiconVariant('abc') is stable across calls and in 1..6; identiconVariant('') in 1..6 (never 0/7/NaN); two distinct ids can yield different variants; grep shows no import added to shared.js and no other hash-to-variant implementation outside shared.js`
 
-- [ ] **TI02** The shell applies identicons on load, after every swap, and on htmx history restores
+- [x] **TI02** The shell applies identicons on load, after every swap, and on htmx history restores
   - Call `applyIdenticons` in `dc_shell_controller.connect()`, in the `htmx:afterSwap` handler beside `renderMarkdown()`, and in the two htmx history entry points – `handleHistoryRestore` and `handleHistoryCacheMissLoad` – so browser back/forward through the htmx history cache re-enhances identicon mounts; enhancement is idempotent
   - **Verify**: `Test: after an OOB sidebar swap, session/channel rows carry a .identicon--N class (1..6); after an htmx history restore and a history cache-miss load, the restored sidebar rows still carry .identicon--N; re-firing afterSwap does not add a second identicon element`
 
-- [ ] **TI03** Sidebar session and channel rows render an identicon mount for their entity (identicon replaces the scope glyph)
+- [x] **TI03** Sidebar session and channel rows render an identicon mount for their entity (identicon replaces the scope glyph)
   - `sidebar.html` session rows (`activeEntries`, `archivedEntries`) and channel rows (`dmChannels`, `groupChannels`) emit a `.identicon` mount carrying `data-identicon-id` = the entity id and an initials source from the title; thread the id through `sidebar.dart` records (`mapChannel`, active/archive maps). The identicon **replaces** the leading `data-icon` scope glyph on those rows: remove the `data-icon` attribute from the session/channel row links (only those rows – nav rows, archive chevron, new-session button, and archive/delete controls keep their `data-icon`); scope type is conveyed by the sidebar's section grouping
   - **Verify**: `Test: rendered sidebar HTML has one .identicon mount per session and channel row with data-identicon-id equal to the session id, and those rows carry no data-icon attribute; provider-badge markup unchanged`
 
-- [ ] **TI04** Channel-detail hero renders an identicon for the channel
+- [x] **TI04** Channel-detail hero renders an identicon for the channel
   - `channel_detail.html` `.channel-detail-hero` emits a `.identicon` mount keyed on `channelType`; thread `channelType` (already in context) as the hash id
   - **Verify**: `Test: channel_detail render for whatsapp includes a hero .identicon mount with data-identicon-id="whatsapp"; signal render carries data-identicon-id="signal"; google_chat render carries data-identicon-id="google_chat" (distinct hash input per channelType, not necessarily a distinct variant)`
 
-- [ ] **TI05** Task agent badge renders an identicon beside its label; provider badge unchanged
+- [x] **TI05** Task agent badge renders an identicon beside its label; provider badge unchanged
   - `tasks.html` `.task-agent-badge` gains a `.identicon` mount whose `data-identicon-id` is the `agentLabel` string (`Agent #1` / `Primary (#1)`), with initials derived from that same label, and keeps the `agentLabel` text; hashing the label keeps the identicon's color in agreement with the visible label beside it (pool-slot recycling accepted). The sibling `.provider-badge.provider-badge-<provider>` is untouched
   - **Verify**: `Test: tasks render shows .task-agent-badge containing a .identicon mount whose data-identicon-id equals the agentLabel string plus the agentLabel text, with a separate .provider-badge element still present`
 
-- [ ] **TI06** Sidebar archive-list visibility uses the `hidden` attribute (shell hygiene, rides the sidebar/controller edits)
+- [x] **TI06** Sidebar archive-list visibility uses the `hidden` attribute (shell hygiene, rides the sidebar/controller edits)
   - In `sidebar.html`, change the `.sidebar-archive-list` `style="display: none;"` to the `hidden` attribute; in `dc_shell_controller.js#initArchiveCollapse`, replace the two `list.style.display = … ? 'none' : ''` writes with `list.hidden = …` (collapsed→`true`, expanded→`false`). Behavior (collapsed by default, toggled by the archive button, `force-expanded` override) is unchanged; the `[hidden]` reset already ships app-side (S01).
   - **Verify**: `Test: grep sidebar.html finds no style="display" (the archive list uses hidden); dc_shell_controller.js initArchiveCollapse sets list.hidden and no longer sets list.style.display; toggling archived collapse still shows/hides the list`
 
@@ -175,10 +175,12 @@ wire   | dev/design-system/showcase.html                               | Canonic
 
 ## Final Validation Checklist
 
-- [ ] No identicon variant/class is bound to a state field anywhere (grep the touched templates/controllers for status/active/state-driven `identicon--` assignment) — identity-only.
+- [x] No identicon variant/class is bound to a state field anywhere (grep the touched templates/controllers for status/active/state-driven `identicon--` assignment) — identity-only.
 
 
 ## Implementation Observations
+
+- Dark/light desktop and 768px controlled current-source validation covered sidebar session/channel rows, channel hero, and task-agent badge. All six variants rendered, identity stayed stable through swap/history re-enhancement, scope glyphs stayed removed, provider badges remained separate, and no overflow occurred. Clean headless Chrome measured mobile session links and delete controls at exactly 48×48px in both themes.
 
 #### DECISION NOTE: sidebar-identicon-replaces-glyph
 

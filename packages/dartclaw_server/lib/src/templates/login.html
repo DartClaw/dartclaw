@@ -1,27 +1,36 @@
 <div tl:fragment="loginPage" class="login-container">
-  <div class="login-card">
-    <div class="login-header">
-      <div class="logo" tl:text="'❯ ' + ${appName}">❯ DartClaw</div>
-      <p class="login-subtitle">Enter your gateway token to continue</p>
+  <div class="terminal-frame terminal-frame--crt login-terminal">
+    <div class="terminal-frame-bar">
+      <span class="terminal-frame-dots" aria-hidden="true"></span>
+      <span class="login-terminal-title" tl:text="${appName}">DartClaw</span>
     </div>
-    <div tl:if="${error}" class="login-error" tl:text="${error}">Error message</div>
-    <form method="POST" action="/login" class="login-form">
-      <input tl:if="${nextPath}" type="hidden" name="next" tl:attr="value=${nextPath}">
-      <div class="login-field">
-        <label for="token-input" class="login-label">Gateway Token</label>
-        <input id="token-input" name="token" type="password" placeholder="Paste your token here"
-               autocomplete="off" autofocus required
-               class="login-input" tl:attr="value=${tokenValue}">
+    <div class="terminal-frame-body">
+      <div class="login-card">
+        <div class="login-header">
+          <img src="/static/mascot-avatar-512-8bit.png" class="login-mascot pixel-art" width="96" height="96" alt="DartClaw mascot">
+          <h1 class="login-wordmark" tl:text="${appName}">DartClaw</h1>
+          <p class="login-subtitle">Enter your gateway token to continue</p>
+        </div>
+        <div tl:if="${error}" class="login-error" tl:text="${error}">Error message</div>
+        <form method="POST" action="/login" class="login-form">
+          <input tl:if="${nextPath}" type="hidden" name="next" tl:attr="value=${nextPath}">
+          <div class="login-field">
+            <label for="token-input" class="login-label">Gateway Token</label>
+            <input id="token-input" name="token" type="password" placeholder="Paste your token here"
+                   autocomplete="off" autofocus required
+                   class="login-input" tl:attr="value=${tokenValue}">
+          </div>
+          <label class="login-checkbox">
+            <input type="checkbox" name="remember" value="1">
+            Remember this device
+          </label>
+          <button type="submit" class="btn btn-primary btn-login">Sign In &#10095;</button>
+        </form>
+        <div class="login-footer">
+          Token printed at server startup, or run<br>
+          <code>dartclaw token show</code>
+        </div>
       </div>
-      <label class="login-checkbox">
-        <input type="checkbox" name="remember" value="1">
-        Remember this device
-      </label>
-      <button type="submit" class="btn btn-primary btn-login">Sign In &#10095;</button>
-    </form>
-    <div class="login-footer">
-      Token printed at server startup, or run<br>
-      <code>dartclaw token show</code>
     </div>
   </div>
 </div>

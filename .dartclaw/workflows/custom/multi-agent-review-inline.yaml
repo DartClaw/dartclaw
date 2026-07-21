@@ -1,0 +1,172 @@
+name: multi-agent-review-inline
+description: >-
+  Parallel multi-agent review by two independent agents – Codex on Sol 5.6 and
+  Claude Code on Fable 5, both at xhigh effort – each running a full
+  andthen:review pass with no pinned mode (the skill selects modes from
+  TARGET), aggregated into a single report. A bounded remediation loop fixes
+  what the reviews surface, closing with the deterministic CI-equivalent
+  verification gate. Runs inline on the live checkout – no integration branch,
+  no worktree, no merge-back.
+variables:
+  TARGET:
+    required: true
+    description: >-
+      Free-text description of what to review. Carries the whole review
+      framing – scope (e.g. branch vs base) and anything that should steer
+      andthen:review's mode selection.
+  BRANCH:
+    required: false
+    description: Injected by run.sh from the operator's current branch; unused in prompts.
+    default: ""
+  PROJECT:
+    required: false
+    description: Target project for review/remediation steps (omit for default project)
+
+project: "{{PROJECT}}"
+
+gitStrategy:
+  integrationBranch: false
+  worktree: inline
+  # Inline mode runs in the live checkout. Reviews are repo-read-only (reports
+  # go to step artifacts dirs); remediation and verification fixes mutate the
+  # working tree directly – the operator owns the commit boundary, and a
+  # mid-run crash leaves remediation edits intermixed with operator state.
+  artifacts:
+    commit: false
+
+steps:
+  # Parallel group: consecutive `parallel: true` steps run concurrently and
+  # merge outputs before the aggregate step. Same skill and prompt on two
+  # model families – independent perspectives, not split lenses. No --mode:
+  # andthen:review selects modes from TARGET.
+  - id: codex-review
+    name: Codex Review (Sol 5.6)
+    skill: andthen:review
+    parallel: true
+    onFailure: retry
+    maxRetries: 1
+    provider: codex
+    model: gpt-5.6-sol
+    effort: xhigh
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      {{TARGET}}
+    outputs:
+      codex-review.review_report_path: review_report_path
+      codex-review.findings_count: findings_count
+      codex-review.gating_findings_count: gating_findings_count
+
+  - id: claude-review
+    name: Claude Code Review (Fable 5)
+    skill: andthen:review
+    parallel: true
+    onFailure: retry
+    maxRetries: 1
+    provider: claude
+    model: fable
+    effort: xhigh
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      {{TARGET}}
+    outputs:
+      claude-review.review_report_path: review_report_path
+      claude-review.findings_count: findings_count
+      claude-review.gating_findings_count: gating_findings_count
+
+  - id: review-aggregate
+    name: Aggregate Review Findings
+    type: aggregate-reviews
+    aggregateReviews: [codex-review, claude-review]
+    outputs:
+      review_report_path: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 5
+    entryGate: "gating_findings_count > 0"
+    exitGate: "gating_findings_count == 0"
+    # On exhaustion, fall through to the deterministic verify gate below
+    # instead of failing the run – the gate is the genuine fail point.
+    onMaxIterations: continue
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        skill: andthen:remediate-findings
+        entryGate: "gating_findings_count > 0"
+        provider: codex
+        model: gpt-5.6-sol
+        prompt: "--auto {{context.review_report_path}}"
+        outputs:
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
+
+      # Cross-model check: codex remediates, Claude re-reviews – fixes are
+      # never verified by the model that wrote them.
+      - id: re-review
+        name: Re-review After Remediation
+        skill: andthen:review
+        provider: claude
+        model: fable
+        effort: xhigh
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [remediation_summary]
+        prompt: >-
+          --auto
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+          {{TARGET}}
+        outputs:
+          review_report_path: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count
+
+  # Deterministic CI-equivalent gate: verify-gate.sh runs fixed commands (not
+  # agent-chosen), captures logs under the run artifacts dir, and prints
+  # pass/fail for the fix loop. Bash steps run on the host with workdir
+  # <dataDir>/workspace, hence the relative script path.
+  - id: verify-all
+    name: Verify CI Gate
+    type: bash
+    timeout: 90m
+    script: >-
+      bash ../workflows/custom/scripts/verify-gate.sh all
+      {{workflow.runtime_artifacts_dir}}
+    outputs:
+      verify-all.result: text
+
+  - id: verify-fix-loop
+    name: Verification Fix Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "verify-all.result == fail"
+    exitGate: "verify-recheck.result == pass"
+    steps:
+      - id: fix-verification
+        name: Fix Verification Failures
+        skill: andthen:triage
+        provider: codex
+        model: gpt-5.6-sol
+        prompt: >-
+          --auto The deterministic verification gate failed. Read the failure
+          logs under {{workflow.runtime_artifacts_dir}}/verify/ (format.log,
+          analyze.log, test.log, arch.log, fitness.log, whitespace.log) and
+          fix only the reported gate failures. Scope strictly to these failures
+          — preserve behavior and do not refactor unrelated code or touch other
+          operator work in the checkout.
+
+      - id: verify-recheck
+        name: Re-run Verification Gate
+        type: bash
+        timeout: 90m
+        script: >-
+          bash ../workflows/custom/scripts/verify-gate.sh all
+          {{workflow.runtime_artifacts_dir}}
+        outputs:
+          verify-recheck.result: text

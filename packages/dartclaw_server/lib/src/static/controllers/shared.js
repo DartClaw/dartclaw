@@ -31,10 +31,10 @@ function identiconInitials(value) {
   const words = String(value ?? '')
     .trim()
     .split(/\s+/)
-    .map((word) => Array.from(word).find((char) => /[\p{L}\p{N}]/u.test(char)))
-    .filter(Boolean);
-  if (words.length > 1) return words.slice(0, 2).join('');
-  return words[0] ? Array.from(String(value).trim()).slice(0, 2).join('') : '?';
+    .map((word) => Array.from(word).filter((char) => /[\p{L}\p{N}]/u.test(char)))
+    .filter((characters) => characters.length > 0);
+  if (words.length > 1) return words.slice(0, 2).map((characters) => characters[0]).join('');
+  return words[0]?.slice(0, 2).join('') || '?';
 }
 
 export function applyIdenticons(root = document) {

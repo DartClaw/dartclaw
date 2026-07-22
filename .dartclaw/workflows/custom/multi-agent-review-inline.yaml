@@ -44,7 +44,8 @@ steps:
     skill: andthen:review
     parallel: true
     onFailure: retry
-    maxRetries: 1
+    maxRetries: 2
+    timeout: 90m
     provider: codex
     model: gpt-5.6-sol
     effort: xhigh
@@ -63,7 +64,8 @@ steps:
     skill: andthen:review
     parallel: true
     onFailure: retry
-    maxRetries: 1
+    maxRetries: 2
+    timeout: 90m
     provider: claude
     model: fable
     effort: xhigh
@@ -113,6 +115,7 @@ steps:
       - id: re-review
         name: Re-review After Remediation
         skill: andthen:review
+        timeout: 90m
         provider: claude
         model: fable
         effort: xhigh

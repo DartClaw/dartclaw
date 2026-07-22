@@ -17,7 +17,7 @@ void main() {
 
   tearDown(() => tempDir.deleteSync(recursive: true));
 
-  test('S01/S02 generator output is complete, filtered, and deterministic', () {
+  test('generator output is complete, filtered, and deterministic', () {
     final summaries = <String>[];
 
     generateEmbeddedAssets(tempDir.path, log: summaries.add);

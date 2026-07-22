@@ -3,6 +3,7 @@
   <div tl:utext="${topbar}">topbar</div>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
     <div class="content-inner workflow-detail-page" data-controller="dc-workflows"
+         data-action="htmx:responseError->dc-workflows#showStepDetailError htmx:sendError->dc-workflows#showStepDetailError"
          tl:attr="data-run-id=${runId},data-run-status=${status}">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
@@ -121,9 +122,17 @@
               </div>
               <!-- Standard task-backed step -->
               <div tl:unless="${step.isApprovalStep}" class="workflow-step-detail-loading"
-                   tl:attr="hx-get='/workflows/' + ${runId} + '/steps/' + ${step.index},hx-trigger='intersect once',hx-swap='innerHTML'">
-                <div class="skeleton skeleton-text"></div>
-                <div class="skeleton skeleton-text"></div>
+                   tl:attr="hx-get='/workflows/' + ${runId} + '/steps/' + ${step.index},hx-trigger='intersect once, workflow-step-detail-retry',hx-swap='innerHTML'">
+                <div data-step-detail-loading="">
+                  <div class="skeleton skeleton-text"></div>
+                  <div class="skeleton skeleton-text"></div>
+                </div>
+                <div class="banner banner-error" data-step-detail-error="" hidden>
+                  <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+                  <span>Step details could not be loaded.</span>
+                  <button class="btn btn-secondary btn-sm" type="button"
+                          data-action="dc-workflows#retryStepDetail">Retry</button>
+                </div>
               </div>
             </div>
           </div>

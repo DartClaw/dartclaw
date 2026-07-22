@@ -180,7 +180,10 @@ Known limitation: outbound tools reached through the live `/mcp` adapter current
 until then, incident review should treat these adapter-originated audit rows as runtime-owned outbound activity, not a
 precise end-user session trace.
 
-HTTP outbound MCP dispatch requires HTTPS by default. For `network_class: public`, the transport applies the same
+HTTP outbound MCP dispatch requires HTTPS by default; the sole exception is a literal loopback host (`localhost`,
+`127.0.0.0/8`, `[::1]`), where plain HTTP is permitted since the traffic never leaves the machine. The loopback match is
+literal-only — no DNS resolution — so a hostname that resolves to loopback still fails closed (no rebinding bypass).
+For `network_class: public`, the transport applies the same
 blocked-range/DNS policy used by `web_fetch` to the initial configured target before sending a request body, and refuses
 redirects rather than following them. Stdio servers are still external code: they are started only from configured
 `mcp_servers` entries, and their tool calls stay behind the same egress guard and audit boundary. Credentialed stdio

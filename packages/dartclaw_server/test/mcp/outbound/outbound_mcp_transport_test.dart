@@ -468,24 +468,54 @@ void main() {
     });
 
     test('S03 HTTP transport rejects non-TLS endpoints when TLS is required', () async {
-      final transport = HttpMcpTransport(
-        'http://localhost/mcp',
-        requireTls: true,
-        client: MockClient((request) async {
-          fail('request must not be sent when TLS is required');
-        }),
-      );
+      for (final url in ['http://mcp.example/mcp', 'http://192.168.1.10/mcp']) {
+        final transport = HttpMcpTransport(
+          url,
+          requireTls: true,
+          client: MockClient((request) async {
+            fail('request must not be sent when TLS is required');
+          }),
+        );
 
-      await expectLater(
-        transport.sendRequest(
-          'tools/call',
+        await expectLater(
+          transport.sendRequest(
+            'tools/call',
+            const {},
+            timeout: const Duration(milliseconds: 50),
+            maxResponseBytes: 1024,
+          ),
+          throwsA(predicate((error) => error.toString().contains('tls_required'))),
+        );
+        await transport.close();
+      }
+    });
+
+    test('S03 HTTP transport allows plain HTTP to literal loopback hosts when TLS is required', () async {
+      for (final url in ['http://localhost:8080/mcp', 'http://127.0.0.1:8080/mcp', 'http://[::1]:8080/mcp']) {
+        final transport = HttpMcpTransport(
+          url,
+          requireTls: true,
+          client: MockClient((request) async {
+            return http.Response(
+              jsonEncode({
+                'jsonrpc': '2.0',
+                'id': 1,
+                'result': {'tools': []},
+              }),
+              200,
+            );
+          }),
+        );
+
+        final result = await transport.sendRequest(
+          'tools/list',
           const {},
           timeout: const Duration(milliseconds: 50),
           maxResponseBytes: 1024,
-        ),
-        throwsA(predicate((error) => error.toString().contains('tls_required'))),
-      );
-      await transport.close();
+        );
+        expect(result['tools'], isEmpty);
+        await transport.close();
+      }
     });
 
     test('S03 HTTP transport denies redirects to non-allowlisted hosts without resending body', () async {

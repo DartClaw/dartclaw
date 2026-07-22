@@ -431,6 +431,8 @@ class WorkflowExecutor {
                 totalSteps: totalSteps,
                 taskId: result.task?.id ?? '',
                 success: result.success,
+                outcome: result.outcome,
+                reason: result.outcomeReason,
                 tokenCount: result.tokenCount,
               );
             }

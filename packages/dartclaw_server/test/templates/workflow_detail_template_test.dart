@@ -416,11 +416,50 @@ void main() {
             'parallel': false,
             'taskId': 'task-0',
           },
+          {
+            'index': 1,
+            'id': 'step-1',
+            'name': 'Interrupted',
+            'status': 'interrupted',
+            'type': 'research',
+            'parallel': false,
+            'taskId': 'task-1',
+          },
         ],
         contextEntries: const [],
         loopInfo: const [],
       );
       expect(html, contains('workflow-step-icon--completed'));
+      expect(html, contains('workflow-step-icon--interrupted'));
+      expect(RegExp(r'workflow-step-icon--interrupted[^>]*>!</span>').hasMatch(html), isTrue);
+    });
+
+    test('lazy step details expose terminal error and retry states', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(),
+        steps: [
+          {
+            'index': 0,
+            'id': 'step-0',
+            'name': 'Research',
+            'status': 'running',
+            'type': 'research',
+            'parallel': false,
+            'taskId': 'task-0',
+          },
+        ],
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('htmx:responseError->dc-workflows#showStepDetailError'));
+      expect(html, contains('htmx:sendError->dc-workflows#showStepDetailError'));
+      expect(html, contains('intersect once, workflow-step-detail-retry'));
+      expect(html, contains('data-step-detail-loading'));
+      expect(html, contains('data-step-detail-error'));
+      expect(html, contains('dc-workflows#retryStepDetail'));
     });
   });
 

@@ -10,7 +10,7 @@ void main() {
   final componentsCssPath = '$baseDir/app.css';
   final designSystemCssPath = '$baseDir/design-system.css';
 
-  group('S04 legacy removal', () {
+  group('legacy static asset removal', () {
     test('streaming cursor retains the canonical block glyph', () {
       final appCss = File(componentsCssPath).readAsStringSync();
       final designSystemCss = File(designSystemCssPath).readAsStringSync();
@@ -36,7 +36,7 @@ void main() {
       expect(layoutSource, isNot(contains('/static/app.js')));
     });
 
-    test('Stimulus controllers include S04 migrations', () {
+    test('Stimulus registers the WhatsApp controller', () {
       final indexSource = File('$baseDir/controllers/index.js').readAsStringSync();
       expect(indexSource, contains("application.register('dc-whatsapp', DcWhatsappController);"));
     });
@@ -209,6 +209,50 @@ void main() {
       expect(appCss, contains('.workflow-list-loading .skeleton { width: 100%; min-height: 4rem; }'));
       expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 min(6rem, 30%); }'));
     });
+
+    test('app CSS does not shadow canonical message treatments', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+
+      for (final selector in ['msg-user', 'msg-assistant']) {
+        final definition = RegExp('^\\.$selector\\s*\\{', multiLine: true);
+        expect(definition.allMatches(appCss), isEmpty, reason: selector);
+        expect(definition.allMatches(designSystemCss), hasLength(1), reason: selector);
+      }
+    });
+
+    test('mobile form and composer floors use fixed accessible dimensions', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+
+      expect(designSystemCss, contains('.input-area textarea { min-height: 48px; font-size: 16px; }'));
+      expect(designSystemCss, contains('.input-area .btn-send { min-height: 48px; }'));
+      expect(designSystemCss, contains('.btn { min-width: 48px; min-height: 48px; }'));
+      expect(designSystemCss, contains('.sidebar-nav-item { min-height: 48px; }'));
+      expect(appCss, contains('button,\n  summary,\n  [role="button"] {\n    min-width: 48px;'));
+      expect(appCss, contains('.topbar .menu-toggle,\n  .theme-toggle,\n  .btn-icon-sm {\n    width: 48px;'));
+      expect(appCss, contains('.settings-tab,\n  .topbar-back {'));
+      expect(appCss, contains('.toggle-switch {\n    width: 48px;\n    height: 48px;'));
+      expect(appCss, contains('.login-input,\n  .login-checkbox {\n    min-height: 48px;'));
+      expect(appCss, contains('.card-link,\n  .guard-audit-link {'));
+      expect(appCss, isNot(contains('.btn-sm.btn-primary {')));
+      expect(appCss, isNot(contains('.btn-sm.btn-danger {')));
+      expect(RegExp(r'^\.metric-(value|label)\s*\{', multiLine: true).hasMatch(appCss), isFalse);
+      expect(appCss, isNot(contains('.input-area textarea:focus {')));
+      expect(appCss, isNot(contains('*, *::before, *::after {')));
+      expect(appCss, isNot(contains('.status-dot--live::before')));
+      expect(appCss, contains('.workflow-step-icon--interrupted {'));
+      expect(appCss, contains('.well-content .form-row select {\n    font-size: 16px;'));
+      expect(appCss, contains('.task-dialog .custom-select-trigger {\n    min-height: 48px;'));
+    });
+
+    test('pairing expiry uses the canonical clock icon', () {
+      final template = File('$baseDir/../templates/whatsapp_pairing.html').readAsStringSync();
+
+      expect(template, contains('class="pairing-expired-icon"><span class="icon icon-clock" aria-hidden="true">'));
+      expect(template, isNot(contains('&#9203;')));
+      expect(template, isNot(contains('⏳')));
+    });
   });
 
   group('running sidebar styling', () {
@@ -228,7 +272,7 @@ void main() {
     });
   });
 
-  group('S13 identicons', () {
+  group('identicon behavior', () {
     test('shared utility computes and applies identicons behaviorally', () async {
       final sharedFile = File('$baseDir/controllers/shared.js').absolute;
       ProcessResult result;
@@ -331,7 +375,14 @@ if (variants.size < 2) throw new Error('distinct identities did not produce dist
 
 const named = mount('entity-1', 'Alpha Name', 'identicon--1');
 const fallback = mount('', '', 'identicon--6');
-const root = { matches: () => false, querySelectorAll: () => [named, fallback] };
+const emojiPrefixed = mount('entity-2', '🧪Research');
+const punctuationPrefixed = mount('entity-3', '@alpha');
+const unicode = mount('entity-4', 'Ångström');
+const punctuationOnly = mount('entity-5', '🧪@');
+const root = {
+  matches: () => false,
+  querySelectorAll: () => [named, fallback, emojiPrefixed, punctuationPrefixed, unicode, punctuationOnly],
+};
 shared.applyIdenticons(root);
 shared.applyIdenticons(root);
 
@@ -343,4 +394,8 @@ for (const item of [named, fallback]) {
 }
 if (named.textContent !== 'AN') throw new Error('named initials were not derived');
 if (fallback.textContent !== '?') throw new Error('fallback initials were not rendered');
+if (emojiPrefixed.textContent !== 'Re') throw new Error('emoji leaked into initials');
+if (punctuationPrefixed.textContent !== 'al') throw new Error('punctuation leaked into initials');
+if (unicode.textContent !== 'Ån') throw new Error('Unicode initials were not preserved');
+if (punctuationOnly.textContent !== '?') throw new Error('punctuation-only initials did not fall back');
 ''';

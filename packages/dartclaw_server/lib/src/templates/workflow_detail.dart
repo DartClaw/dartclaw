@@ -106,6 +106,7 @@ String workflowDetailPageTemplate({
     s['statusIcon'] = switch (s['status']?.toString()) {
       'completed' => '&#x2713;',
       'running' => '&#x2022;',
+      'interrupted' => '!',
       'failed' || 'rejected' => '&#x2717;',
       'awaiting_approval' => '&#x25CF;',
       'queued' => '&#x25CB;',

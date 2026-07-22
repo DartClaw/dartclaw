@@ -6,7 +6,7 @@ import 'package:dartclaw_server/src/generated/embedded_assets.g.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('S01 embedded server assets match every runtime-read source byte', () async {
+  test('embedded server assets match every runtime-read source byte', () async {
     final packageRoot = await _packageRoot();
     final expectedText = <String, List<int>>{};
     final expectedBinary = <String, List<int>>{};

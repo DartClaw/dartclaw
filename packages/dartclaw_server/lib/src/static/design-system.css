@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-07-20.
-   sha256: 8f4dba43236ac21be3c16ecbab2d0ae94e6fcee65ed2f14d8d0533889e1713c1 */
+/* Synced from dev/design-system/components.css on 2026-07-21.
+   sha256: 892214c796b4db8291bec27f27d324b88cd0b9deec94ddee9f020bcdf48f6a32 */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -636,6 +636,14 @@ a:hover { text-decoration: underline; }
 .composer--streaming .composer-send,
 .composer-send:hover,
 .composer-send:focus-visible { opacity: 1; }
+
+@media (max-width: 768px) {
+  .btn { min-width: 48px; min-height: 48px; }
+  .sidebar-nav-item { min-height: 48px; }
+  .input-area textarea { min-height: 48px; font-size: 16px; }
+  .input-area .btn-send { min-height: 48px; }
+  .composer-send { width: 48px; height: 48px; min-width: 48px; min-height: 48px; }
+}
 
 /* Context row — chips + metadata adjacent to the composer (above or below). */
 .composer-context {

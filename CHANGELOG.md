@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Outbound MCP HTTP transport allows plain HTTP to loopback** – the HTTPS requirement now exempts literal loopback hosts (`localhost`, `127.x.x.x`, `[::1]`), so locally hosted HTTP MCP servers can be used without TLS. The match is literal-only (no DNS resolution); hostnames resolving to loopback are still rejected.
+
+---
+
 ## [0.21.0] - 2026-07-18
 
 ### Added

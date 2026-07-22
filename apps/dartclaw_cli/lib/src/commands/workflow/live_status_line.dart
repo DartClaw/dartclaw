@@ -97,6 +97,10 @@ class LiveStatusLine {
   bool _lineDrawn = false;
   bool _cursorHidden = false;
   final _active = <String, _ActiveStep>{};
+  // Live-tick tokens already folded into [_completedTokens] by [settleStep],
+  // keyed so the eventual authoritative completion count is reconciled instead
+  // of double-counted.
+  final _settledTokens = <String, int>{};
   int _completedTokens = 0;
 
   LiveStatusLine({
@@ -136,18 +140,49 @@ class LiveStatusLine {
   }
 
   /// Removes a finished step, folding [tokens] into the cumulative run total
-  /// shown when several steps run at once.
+  /// shown when several steps run at once. Any live-tick tokens an earlier
+  /// [settleStep] already folded for [key] are subtracted so the authoritative
+  /// count replaces them rather than stacking on top (never below zero, in
+  /// case the ticks overshot the final count).
   void completeStep(String key, int tokens) {
     if (!enabled) return;
     _active.remove(key);
-    _completedTokens += tokens;
+    final alreadyFolded = _settledTokens.remove(key) ?? 0;
+    if (tokens > alreadyFolded) _completedTokens += tokens - alreadyFolded;
     _afterRemoval();
   }
 
-  /// Removes a step whose token total is unknown (failed/blocked).
+  /// Removes a step whose token total is unknown (failed/blocked). Tokens an
+  /// earlier [settleStep] folded for [key] stay in the run total – they were
+  /// genuinely spent even though the step did not succeed.
   void removeStep(String key) {
     if (!enabled) return;
     _active.remove(key);
+    _settledTokens.remove(key);
+    _afterRemoval();
+  }
+
+  /// Removes a step whose task has settled ahead of its completion line – a
+  /// parallel-group member finishes long before the group barrier emits the
+  /// step-completed event, and until then it must not count as running.
+  ///
+  /// With [countTokens] (successful settle) the step's live-tick tokens fold
+  /// into the run total so the figure doesn't dip while the rest of the group
+  /// drains; [completeStep] for the same key later reconciles against the
+  /// authoritative count, and a re-settled key folds only the delta above its
+  /// prior record, never the prior fold twice. Without [countTokens] (failed/
+  /// cancelled/interrupted settle) the entry is simply dropped: a failed
+  /// attempt's spend re-enters via the barrier's across-attempts count and an
+  /// interrupted member stays uncharged, so folding would double-count.
+  void settleStep(String key, {required bool countTokens}) {
+    if (!enabled) return;
+    final step = _active.remove(key);
+    if (step == null) return;
+    final prior = _settledTokens[key] ?? 0;
+    if (countTokens && step.tokens > prior) {
+      _settledTokens[key] = step.tokens;
+      _completedTokens += step.tokens - prior;
+    }
     _afterRemoval();
   }
 

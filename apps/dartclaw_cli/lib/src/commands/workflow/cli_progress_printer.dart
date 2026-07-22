@@ -88,6 +88,15 @@ class CliProgressPrinter {
     _live?.updateTokens(progressKey, cumulativeTokens);
   }
 
+  /// Retires the live entry for a step whose task settled ahead of its
+  /// completion line (a parallel-group member settles before the barrier
+  /// fires the step-completed event). Prints nothing – the permanent
+  /// completion line still lands when that event arrives. [countTokens] is
+  /// true only for a successful settle, folding the member's live-tick tokens
+  /// into the run total until the barrier reconciles them.
+  void stepSettled(String progressKey, {required bool countTokens}) =>
+      _live?.settleStep(progressKey, countTokens: countTokens);
+
   void stepReview(int stepIndex, String stepId, {String? displayScope}) {
     _emitSpans([..._stepPrefix(stepIndex, stepId, displayScope), const StyledSpan(' review (auto-accepted)', _cInfo)]);
   }

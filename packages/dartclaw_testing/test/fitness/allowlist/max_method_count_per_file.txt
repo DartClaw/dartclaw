@@ -2,7 +2,7 @@ apps/dartclaw_cli/lib/src/commands/init/init_command.dart  # 53 methods; shrink 
 apps/dartclaw_cli/lib/src/commands/service/service_backend.dart  # 41 methods; shrink to <=40 by 0.16.6 service command cleanup.
 apps/dartclaw_cli/lib/src/commands/service_wiring_workflow.dart  # 50 methods (0.20 workflow bootstrap rename); shrink to <=40 by service wiring cleanup.
 apps/dartclaw_cli/lib/src/commands/workflow/workflow_git_support.dart  # 75 methods; shrink to <=40 by workflow git support split (+10 in S03: shared ref/branch/cleanup helpers and publish pre-push commit path).
-apps/dartclaw_cli/lib/src/commands/workflow/cli_progress_printer.dart  # 48 methods (0.20 why-paused + blocked/interrupted lines); shrink to <=40 by workflow CLI progress-renderer decomposition.
+apps/dartclaw_cli/lib/src/commands/workflow/cli_progress_printer.dart  # 49 methods (0.20 why-paused + blocked/interrupted lines; +1: stepSettled live-entry retirement); shrink to <=40 by workflow CLI progress-renderer decomposition.
 apps/dartclaw_cli/lib/src/dartclaw_api_client.dart  # 50 methods; shrink to <=40 by 0.16.6 API client decomposition.
 packages/dartclaw_config/lib/src/config_parser.dart  # 42 methods; shrink to <=40 by config parser decomposition.
 packages/dartclaw_core/lib/src/harness/claude_code_harness.dart  # 55 methods (+5: direct executable probe and bounded lifecycle cleanup); shrink to <=40 by harness cleanup.

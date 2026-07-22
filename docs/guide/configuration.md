@@ -625,8 +625,10 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 **Note on `mcp_servers`:** Each entry configures one external MCP server for hosts that instantiate the outbound MCP
 client. Use `command` for stdio servers or `url` for HTTP servers; exactly one transport is required. The default
 runtime requires HTTPS for HTTP transport dispatch; plain `http` is allowed only for literal loopback hosts
-(`localhost`, `127.x.x.x`, `[::1]`) — a hostname that merely resolves to loopback is still rejected. Config parsing
-also accepts absolute `http` URLs for custom transport paths. `credential` references a named `credentials:` entry, and unresolved or missing credentials disable the
+(`localhost`, `127.x.x.x`, `[::1]`) – a hostname that merely resolves to loopback is still rejected. A `credential`
+sent over plain HTTP travels in cleartext to an unauthenticated endpoint and is logged as a warning; prefer a stdio
+(`command`) server or TLS on multi-user hosts. Config parsing also accepts absolute `http` URLs for custom transport
+paths. `credential` references a named `credentials:` entry, and unresolved or missing credentials disable the
 server. The default runtime sends HTTP credentials as `Authorization: Bearer <secret>`. For stdio servers the resolved
 secret is injected into the subprocess environment via the sanctioned `SafeProcess`/`EnvPolicy` path — under the
 environment variable name(s) the referenced credential declares (e.g. a credential sourced from `${ACME_API_KEY}`

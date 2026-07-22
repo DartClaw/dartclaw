@@ -4,6 +4,7 @@ import 'dart:io' show InternetAddress;
 
 import 'package:dartclaw_config/dartclaw_config.dart' show McpNetworkClass;
 import 'package:http/http.dart' as http;
+import 'package:logging/logging.dart';
 
 import '../web_fetch_tool.dart';
 import 'json_rpc_utils.dart';
@@ -12,6 +13,7 @@ import 'outbound_mcp_transport.dart';
 
 final class HttpMcpTransport implements OutboundMcpTransport {
   static const _protocolVersion = '2025-03-26';
+  static final _log = Logger('HttpMcpTransport');
 
   final Uri _url;
   final http.Client _client;
@@ -35,7 +37,14 @@ final class HttpMcpTransport implements OutboundMcpTransport {
        _allowedRedirectHosts = Set.unmodifiable(allowedRedirectHosts ?? const []),
        _requireTls = requireTls,
        _networkClass = networkClass,
-       _credentialSecret = credentialSecret;
+       _credentialSecret = credentialSecret {
+    if (_credentialSecret != null && _url.scheme != 'https') {
+      _log.warning(
+        'MCP credential for "${_url.host}" will be sent over plain HTTP - '
+        'cleartext bearer token to an unauthenticated endpoint',
+      );
+    }
+  }
 
   @override
   Future<Map<String, dynamic>> sendRequest(
@@ -166,7 +175,7 @@ final class HttpMcpTransport implements OutboundMcpTransport {
   }
 
   // Loopback traffic never leaves the host, so TLS adds nothing there. Literal
-  // hosts only — no DNS resolution — so a name that merely resolves to
+  // hosts only – no DNS resolution – so a name that merely resolves to
   // 127.0.0.1 stays rejected (fails closed against rebinding).
   static bool _isLoopbackHost(String host) {
     if (host.toLowerCase() == 'localhost') return true;

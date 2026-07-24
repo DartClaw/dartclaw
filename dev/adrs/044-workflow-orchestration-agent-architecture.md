@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-06-28 (targets the **0.25** workflow slice (Dynamic Workflows + Orchestration Agent; renumbered from 0.22 on 2026-07-06); the feature was relocated out of the 0.20 maintenance milestone on 2026-06-28). Resolves the load-bearing technical decisions left open by the requirements clarification (private repo: `dartclaw-private/docs/specs/0.24/workflow-orchestration-agent/requirements-clarification.md`, 2026-06-27), which settled the product-level shape (autonomous-within-guardrails run supervisor; automatic trigger at every hold/failure; escalation via review-routing + safety-filter; never-auto = genuine human/security decisions + destructive actions; audit trail + kill switch; cost against the existing workflow budget). This ADR decides **how** that agent is wired, ahead of `andthen:prd` → `andthen:plan`.
+Proposed — 2026-06-28 (targets the **0.26** workflow slice (Dynamic Workflows + Orchestration Agent; renumbered from 0.22 on 2026-07-06, then 0.25→0.26 on 2026-07-24); the feature was relocated out of the 0.20 maintenance milestone on 2026-06-28). Resolves the load-bearing technical decisions left open by the requirements clarification (private repo: `dartclaw-private/docs/specs/0.25/workflow-orchestration-agent/requirements-clarification.md`, 2026-06-27), which settled the product-level shape (autonomous-within-guardrails run supervisor; automatic trigger at every hold/failure; escalation via review-routing + safety-filter; never-auto = genuine human/security decisions + destructive actions; audit trail + kill switch; cost against the existing workflow budget). This ADR decides **how** that agent is wired, ahead of `andthen:prd` → `andthen:plan`.
 
 **Related:** [ADR-022](022-workflow-run-status-and-step-outcome-protocol.md) (run-status split + `<step-outcome>` protocol this seam mirrors), [ADR-023](023-workflow-task-boundary.md) (workflow↔task boundary the agent must not cross), [ADR-028](028-unified-workflow-step-retry-authority.md) (the single workflow-owned retry budget whose error-class-normalization pattern D3 reuses), [ADR-041](041-framework-agnostic-workflow-engine-generic-output-validation.md) (engine `.dart` carries no framework knowledge — the orchestration verdict schema and safety filter must stay framework-neutral; routing semantics are read from skill output, not re-derived), [ADR-007](007-system-prompt-architecture.md) / [ADR-035](035-cross-harness-task-capability-trust-mapping.md) (prompt-scope + tool-capability layering D2 extends).
 
@@ -127,8 +127,8 @@ The choice interacts with D1's enactable-action enum (option 2 and 3 would each 
 
 ## References
 
-- Requirements clarification — private repo: `dartclaw-private/docs/specs/0.24/workflow-orchestration-agent/requirements-clarification.md`
-- PRD — private repo: `dartclaw-private/docs/specs/0.24/workflow-orchestration-agent/prd.md`
+- Requirements clarification — private repo: `dartclaw-private/docs/specs/0.25/workflow-orchestration-agent/requirements-clarification.md`
+- PRD — private repo: `dartclaw-private/docs/specs/0.25/workflow-orchestration-agent/prd.md`
 - Research appendix (public, frozen synthesis) — `dev/adrs/research/044-workflow-orchestration-agent.md`
 - Full research (private source of truth) — `dartclaw-private/docs/research/workflow-orchestration-agent/`
 - [ADR-022](022-workflow-run-status-and-step-outcome-protocol.md), [ADR-023](023-workflow-task-boundary.md), [ADR-028](028-unified-workflow-step-retry-authority.md), [ADR-041](041-framework-agnostic-workflow-engine-generic-output-validation.md), [ADR-007](007-system-prompt-architecture.md), [ADR-035](035-cross-harness-task-capability-trust-mapping.md)

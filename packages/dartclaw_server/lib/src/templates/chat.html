@@ -67,23 +67,19 @@
         <div class="composer-palette-header">References</div>
         <div class="composer-palette-list" role="listbox" aria-label="References"></div>
       </div>
-      <div class="composer-suggestions" aria-label="Suggestions">
-        <span><kbd>/</kbd> commands</span>
-        <span><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to send</span>
-        <button type="button" class="composer-chip" data-action="dc-chat#applySuggestion" data-text="/workflow list">/workflow list</button>
-        <button type="button" class="composer-chip" data-action="dc-chat#applySuggestion" data-text="Summarize this session">Summarize</button>
-        <button type="button" class="composer-chip" data-action="dc-chat#applySuggestion" data-text="What changed since the last turn?">What's changed?</button>
-      </div>
-      <div class="composer-row">
-        <button type="button" class="btn btn-ghost btn-icon composer-action" data-action="dc-chat#openCommandPalette"
+      <label class="sr-only" for="message-input">Message</label>
+      <textarea id="message-input" name="message" rows="1"
+                tl:attr="placeholder=${placeholder},disabled=${inputDisabled}"></textarea>
+      <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
+      <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
+      <div class="composer-toolbar">
+        <button type="button" class="btn btn-ghost btn-icon" data-action="dc-chat#openCommandPalette"
                 aria-label="Open commands" title="Commands">/</button>
-        <label class="sr-only" for="message-input">Message</label>
-        <textarea id="message-input" name="message" rows="1"
-                  tl:attr="placeholder=${placeholder},disabled=${inputDisabled}"></textarea>
-        <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
-        <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
-        <button id="send-btn" class="btn btn-primary btn-send" type="submit"
-                tl:attr="disabled=${inputDisabled}">Send</button>
+        <div class="composer-meta">
+          <button id="send-btn" class="btn btn-primary btn-icon composer-send" type="submit"
+                  data-icon="arrow-up" aria-label="Send" title="Send"
+                  tl:attr="disabled=${inputDisabled}"></button>
+        </div>
       </div>
       <div class="composer-recovery" data-dc-chat-target="recovery" hidden></div>
     </form>

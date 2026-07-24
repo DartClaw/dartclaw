@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_server/src/templates/chat.dart' show richInputHtmlFromMetadataMap;
 import 'package:dartclaw_server/src/templates/loader.dart' as server;
 import 'package:test/test.dart';
 import 'package:trellis/trellis.dart';
@@ -592,7 +593,18 @@ void main() {
         'card card-metric card-metric--accent',
         'card card-metric card-metric--warning',
       ]);
-      _expectNone(html, ['<style', 'summary-stat', 'summary-value', 'summary-label', 'page-content', 'page-inner']);
+      expect(RegExp('data-mutability-summary[^>]*hidden').allMatches(html), hasLength(7));
+      _expectNone(html, [
+        '<style',
+        'summary-stat',
+        'summary-value',
+        'summary-label',
+        'page-content',
+        'page-inner',
+        'id="agent"',
+        'id="server"',
+        'id="channels"',
+      ]);
     });
 
     test('shows WhatsApp configure link when enabled', () async {
@@ -613,6 +625,26 @@ void main() {
   });
 
   group('chat.html', () {
+    test('rich input metadata uses canonical chip anatomy', () {
+      final html = richInputHtmlFromMetadataMap({
+        'attachments': [
+          {'filename': 'notes.md', 'state': 'ready'},
+        ],
+        'references': [
+          {'id': 'memory-1', 'label': 'Memory note', 'type': 'memory'},
+        ],
+      });
+
+      _expectAll(html!, [
+        'msg-rich-input chip-row',
+        'class="chip"',
+        'class="chip chip--ref"',
+        'chip-name',
+        'chip-meta',
+      ]);
+      expect(html, isNot(contains('composer-chip')));
+    });
+
     test('message fragments render expected content and optional states', () async {
       final user = await engine.renderFileFragment(
         'chat',
@@ -627,7 +659,7 @@ void main() {
         fragment: 'userMessage',
         context: {
           'content': 'Review this',
-          'richInputHtml': '<div class="msg-rich-input"><span class="composer-chip">notes.md</span></div>',
+          'richInputHtml': '<div class="msg-rich-input chip-row"><span class="chip">notes.md</span></div>',
         },
       );
       _expectAll(rich, ['msg-rich-input', 'notes.md']);
@@ -688,9 +720,13 @@ void main() {
         'data-dc-chat-target="commandPalette"',
         'composer-palette card card-glass',
         'composer-reference-palette card card-glass',
-        '<kbd>/</kbd> commands',
-        '<kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to send',
+        'class="composer-toolbar"',
+        'class="composer-meta"',
+        'btn btn-primary btn-icon composer-send',
+        'data-icon="arrow-up" aria-label="Send"',
       ]);
+      expect(area, isNot(contains('composer-row')));
+      expect(area, isNot(contains('composer-suggestions')));
       expect(area, isNot(contains('sse-container')));
 
       final response = await engine.renderFileFragment(

@@ -375,7 +375,7 @@ The palette is rooted in **Catppuccin Mocha** (dark, default) and **Catppuccin L
 
 The entire system is set in **JetBrains Mono** (with `Fira Code` and system monospace as fallbacks). Monospace throughout is deliberate: it reinforces the terminal aesthetic, gives consistent column alignment in dense tables and tool indicators, and reduces font loading to a single family.
 
-- **Base size** — 14px (`body-md`). Larger sizes are reserved for page title (20px), display moments (24px), and metric values (32px). Smaller sizes carry metadata and pill text (12–13px).
+- **Base size** — 14px (`body-md`). The root stays at 16px so `rem` tokens resolve to their declared sizes; `body` applies `body-md`. Larger sizes are reserved for page title (20px), display moments (24px), and metric values (32px). Smaller sizes carry metadata and pill text (12–13px).
 - **Weights** — three only: `400` (normal body), `500` (medium — session titles, UI labels), `600` (bold — headings, role labels).
 - **Line height** — `1.6` for body and code; `1.3` for headings and tight UI like the input textarea; tighter still (≤1.2) at display sizes.
 - **Tracking** — monospace gets airy at large sizes and cramped at tiny uppercase sizes, so both ends are corrected: `-0.02em` (`tracking-tight`) on display/metric text, `+0.08em` (`tracking-caps`) on uppercase micro-labels (section labels, role labels, table headers).

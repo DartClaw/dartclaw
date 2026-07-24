@@ -32,6 +32,8 @@ void main() {
   group('projectsPageTemplate', () {
     test('empty state shown when no projects', () {
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: []);
+      expect(html, contains('<div class="pagehead">'));
+      expect(html, contains('<h1 class="page-title">Projects</h1>'));
       expect(html, contains('No projects registered'));
       expect(html, contains('Add a project to run tasks against external repositories'));
       expect(html, contains('class="claw-mark"'));

@@ -250,6 +250,45 @@ void main() {
       expect(appCss, contains('.task-dialog .custom-select-trigger {\n    min-height: 48px;'));
     });
 
+    test('design tokens resolve to their declared type and spacing scale', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+
+      expect(designSystemCss, contains('html {\n  font-family: var(--font-mono);\n  font-size: 16px;'));
+      expect(designSystemCss, contains('font-size: var(--text-base);\n  min-height: 100dvh;'));
+      expect(designSystemCss, contains('.card-title { font: inherit; }'));
+      expect(appCss, contains('grid-template-columns: minmax(0, 1fr);'));
+      expect(appCss, contains('font-size: var(--text-base);\n  font-weight: var(--weight-medium);'));
+    });
+
+    test('settings use full-width panes and discoverable responsive tabs', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+      final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
+
+      expect(appCss, contains('.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr);'));
+      expect(appCss, contains('@media (max-width: 1280px) {\n  .settings-tabs {'));
+      expect(appCss, contains('grid-template-columns: repeat(5, minmax(0, 1fr));'));
+      expect(appCss, contains('min-height: 44px;'));
+      expect(appCss, isNot(contains('.restart-required-badge')));
+      expect(settingsSource, contains("t.setAttribute('aria-current', 'page')"));
+      expect(settingsSource, contains('fields[group.dataset.field].mutable'));
+      expect(settingsSource, contains('Changes reload without a server restart.'));
+      expect(settingsSource, contains("present.has('restart')"));
+      expect(settingsSource, isNot(contains('restart-required-badge')));
+    });
+
+    test('composer rich input reuses canonical accessible chips', () {
+      final chatSource = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+
+      expect(chatSource, contains('<span class="chip">'));
+      expect(chatSource, contains('<span class="chip chip--ref">'));
+      expect(chatSource, contains('class="chip-remove" aria-label="Remove attachment"'));
+      expect(chatSource, contains('class="chip-remove" aria-label="Remove reference"'));
+      expect(chatSource, isNot(contains('composer-chip')));
+      expect(designSystemCss, contains('.chip-remove { width: 44px; height: 44px; }'));
+    });
+
     test('pairing expiry uses the canonical clock icon', () {
       final template = File('$baseDir/../templates/whatsapp_pairing.html').readAsStringSync();
 

@@ -9,12 +9,12 @@ void main() {
     'static/app.js': 'console.log("embedded");',
   }, const {});
 
-  test('serves embedded bytes with content and version-keyed cache headers', () async {
+  test('serves embedded bytes with revalidation and version-keyed cache headers', () async {
     final response = await handler(Request('GET', Uri.parse('http://localhost/tokens.css')));
 
     expect(response.statusCode, 200);
     expect(response.headers['content-type'], startsWith('text/css'));
-    expect(response.headers['cache-control'], contains('public'));
+    expect(response.headers['cache-control'], 'no-cache');
     expect(response.headers['etag'], contains(dartclawVersion));
     expect(await response.readAsString(), ':root { --color: blue; }');
   });

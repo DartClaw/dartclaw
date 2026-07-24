@@ -25,7 +25,7 @@
     <div class="settings-grid">
 
       <!-- Agent Configuration (editable, restart-required) -->
-      <div id="agent" class="card settings-card" data-tab="agent">
+      <div class="card settings-card" data-tab="agent">
         <div class="card-header">
           <span class="card-title">Agent Configuration</span>
         </div>
@@ -58,11 +58,11 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+        <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Workflow Configuration (editable, restart-required) -->
-      <div id="workflow" class="card settings-card" data-tab="workflow">
+      <div class="card settings-card" data-tab="workflow">
         <div class="card-header">
           <span class="card-title">Workflow Defaults</span>
         </div>
@@ -124,11 +124,11 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to workflow defaults require a server restart</p>
+        <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Server Configuration (editable, restart-required) -->
-      <div id="server" class="card settings-card" data-tab="server">
+      <div class="card settings-card" data-tab="server">
         <div class="card-header">
           <span class="card-title">Server Configuration</span>
         </div>
@@ -167,11 +167,11 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+        <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Sessions (editable, restart-required) -->
-      <div id="sessions" class="card settings-card" data-tab="sessions">
+      <div class="card settings-card" data-tab="sessions">
         <div class="card-header">
           <span class="card-title">Sessions</span>
         </div>
@@ -205,11 +205,11 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Session scope changes apply live. Reset, timeout, and maintenance changes still require a server restart.</p>
+        <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Memory Configuration (editable, restart-required) -->
-      <div id="memory" class="card settings-card" data-tab="memory">
+      <div class="card settings-card" data-tab="memory">
         <div class="card-header">
           <span class="card-title">Memory Configuration</span>
         </div>
@@ -231,11 +231,11 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+        <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Context (editable, restart-required) -->
-      <div id="context" class="card settings-card" data-tab="context">
+      <div class="card settings-card" data-tab="context">
         <div class="card-header">
           <span class="card-title">Context</span>
         </div>
@@ -266,11 +266,11 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Compact Instructions changes require a server restart</p>
+        <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Scheduling (mixed: live toggles + restart fields) -->
-      <div id="scheduling" class="card settings-card" data-tab="scheduling">
+      <div class="card settings-card" data-tab="scheduling">
         <div class="card-header">
           <span class="card-title">Scheduling</span>
         </div>
@@ -292,14 +292,14 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Heartbeat Interval changes require a server restart</p>
+        <p class="section-note" data-mutability-summary hidden></p>
         <div class="card-actions">
           <a href="/scheduling" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>View Schedule</a>
         </div>
       </div>
 
       <!-- WhatsApp Channel (read-only, server-rendered) -->
-      <div id="channels" class="card settings-card" data-tab="channels">
+      <div class="card settings-card" data-tab="channels">
         <div class="card-header">
           <span class="card-title">WhatsApp Channel</span>
           <tl:block tl:utext="${whatsAppStatusBadgeHtml}">badge</tl:block>
@@ -343,7 +343,7 @@
         <div tl:unless="${googleChatEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
       </div>
 
-      <section id="providers" class="provider-section" data-tab="providers">
+      <section class="provider-section" data-tab="providers">
         <div class="provider-summary">
           <div class="card card-metric card-metric--info">
             <div class="metric-value" tl:text="${providerConfiguredCount}">0</div>
@@ -466,7 +466,7 @@
       </div>
 
       <!-- Security & Guards (read-only, server-rendered — unchanged) -->
-      <div id="security" class="guard-detail-section" data-tab="security">
+      <div class="guard-detail-section" data-tab="security">
         <div class="guard-detail-header">
           <h2>Security &amp; Guards</h2>
           <span class="mode-badge">Editable extensions</span>

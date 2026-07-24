@@ -339,7 +339,7 @@ class DartclawServer {
       }
 
       final headers = Map<String, String>.from(response.headers);
-      headers['Cache-Control'] = 'public, max-age=86400';
+      headers['Cache-Control'] = 'no-cache';
       return response.change(headers: headers);
     };
   }

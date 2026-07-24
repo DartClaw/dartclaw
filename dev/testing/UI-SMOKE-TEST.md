@@ -320,17 +320,16 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 2. Confirm each lands on the correct page and the correct nav item is highlighted
 
 **Pass — full SYSTEM nav (registration order, conditional items in italic):**
-Health → Settings → Memory → Knowledge → Research → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
+Health → Settings → Memory → Knowledge → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
 
-The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge`,
-Research → `/knowledge/research`, Timeline → `/knowledge/timeline` — three separate nav
-items, not one.
+The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge` and
+Timeline → `/knowledge/timeline` — two separate nav items, not one.
 
 Conditional items appear when:
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
-Plain profile typically shows all 10.
+Plain profile typically shows all 9.
 
 **Fail:** Any link missing when its service is configured; wrong page loads; active state not updated
 

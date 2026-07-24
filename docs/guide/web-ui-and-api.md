@@ -616,7 +616,6 @@ After reconnect, clients should refresh the displayed session through `GET /api/
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
-| `GET /knowledge/research` | Read-only rendered `context_research` citation packet view |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
 
 #### Workflow API

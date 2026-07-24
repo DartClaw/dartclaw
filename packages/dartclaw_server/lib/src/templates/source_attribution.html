@@ -23,13 +23,6 @@
   <tl:block tl:utext="${attributionHtml}"><!-- attribution --></tl:block>
 </p>
 
-<div tl:fragment="sourceListItem" class="source-list-item" tl:classappend="${stateClass}">
-  <tl:block tl:utext="${attributionHtml}"><!-- attribution --></tl:block>
-  <a tl:if="${attributed}" class="source-list-link" tl:attr="href=${sourceHref}" tl:text="${sourceLabel}">Source</a>
-  <span tl:unless="${attributed}" class="source-list-label" tl:text="${sourceLabel}">Source</span>
-  <span class="source-list-locator" tl:text="${locator}">locator</span>
-</div>
-
 <div tl:fragment="hubItemFixture" class="knowledge-hub-item">
   <span class="hub-item-icon" aria-hidden="true">#</span>
   <span class="hub-item-body">

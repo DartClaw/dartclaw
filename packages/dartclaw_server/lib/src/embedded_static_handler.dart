@@ -17,7 +17,7 @@ Handler createEmbeddedStaticHandler(Map<String, String> assets, Map<String, List
         binaryContent,
         headers: {
           'Content-Type': _contentType(key),
-          'Cache-Control': 'public, max-age=86400',
+          'Cache-Control': 'no-cache',
           'ETag': '"dartclaw-$dartclawVersion"',
         },
       );
@@ -27,11 +27,7 @@ Handler createEmbeddedStaticHandler(Map<String, String> assets, Map<String, List
 
     return Response.ok(
       content,
-      headers: {
-        'Content-Type': _contentType(key),
-        'Cache-Control': 'public, max-age=86400',
-        'ETag': '"dartclaw-$dartclawVersion"',
-      },
+      headers: {'Content-Type': _contentType(key), 'Cache-Control': 'no-cache', 'ETag': '"dartclaw-$dartclawVersion"'},
     );
   };
 }

@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/templates/source_attribution.dart';
 import 'package:test/test.dart';
 
@@ -13,7 +12,6 @@ void main() {
 
   group('source attribution', () {
     const wikiRef = SourceRef(layer: CitationLayer.wiki, locator: 'wiki/layered-context.md', label: 'Layered context');
-    const kgRef = SourceRef(layer: CitationLayer.kg, locator: '8841', label: 'Fact edge');
     const memoryRef = SourceRef(layer: CitationLayer.memory, locator: 'MEMORY.md', label: 'Memory note');
 
     test('renders layer badge, marker, and escaped resolvable link', () async {
@@ -74,68 +72,6 @@ void main() {
       expect(html, contains('Open source'));
     });
 
-    test('renders packet citations, sources, no-source and degraded notices', () async {
-      final packet = CitationPacket(
-        statements: const [
-          CitationStatement(text: 'Provenance stays separable.', sourceRefs: [wikiRef]),
-          CitationStatement(text: 'Timeline fact survives.', sourceRefs: [kgRef]),
-        ],
-        sourceList: const [wikiRef, kgRef],
-        degradedLayers: const ['kg'],
-      );
-      final html = await researchPacketTemplate(
-        packet: packet,
-        resolver: const _MapResolver({
-          CitationLayer.wiki: {'wiki/layered-context.md'},
-          CitationLayer.kg: {'8841'},
-        }),
-        sidebarData: emptySidebarData,
-        navItems: const [],
-      );
-
-      expect(html, contains('Synthesized answer'));
-      expect(html, contains('Provenance stays separable.'));
-      expect(html, contains('Sources'));
-      expect(html, contains('Layered context'));
-      expect(html, contains('Degraded coverage'));
-      expect(html, contains('kg'));
-
-      final emptyHtml = await researchPacketTemplate(
-        packet: const CitationPacket(statements: [], sourceList: [], noSourcesFound: true),
-        resolver: const _MapResolver({}),
-        sidebarData: emptySidebarData,
-        navItems: const [],
-      );
-
-      expect(emptyHtml, contains('No sources found'));
-      expect(emptyHtml, isNot(contains('class="attribution-statement"')));
-    });
-
-    test('uses packet-wide marker numbers that match the source list', () async {
-      final packet = CitationPacket(
-        statements: const [
-          CitationStatement(text: 'Wiki-backed statement.', sourceRefs: [wikiRef]),
-          CitationStatement(
-            text: 'Fact-backed statement.',
-            sourceRefs: [SourceRef(layer: CitationLayer.kg, locator: '8841', label: 'Fact edge excerpt')],
-          ),
-        ],
-        sourceList: const [wikiRef, kgRef],
-      );
-      final html = await researchPacketTemplate(
-        packet: packet,
-        resolver: const _MapResolver({
-          CitationLayer.wiki: {'wiki/layered-context.md'},
-          CitationLayer.kg: {'8841'},
-        }),
-        sidebarData: emptySidebarData,
-        navItems: const [],
-      );
-
-      expect(html, contains('aria-label="Citation 1: Layered context"'));
-      expect(html, contains('aria-label="Citation 2: Fact edge excerpt"'));
-    });
-
     test('reuses identical attribution markup across packet hub and timeline fixtures', () async {
       final resolver = const _MapResolver({
         CitationLayer.memory: {'MEMORY.md'},
@@ -188,19 +124,6 @@ String _staticDir() {
   }
   return 'lib/src/static';
 }
-
-final emptySidebarData = (
-  main: null,
-  dmChannels: <SidebarSession>[],
-  groupChannels: <SidebarSession>[],
-  activeEntries: <SidebarSession>[],
-  archivedEntries: <SidebarSession>[],
-  activeTasks: <SidebarActiveTask>[],
-  activeWorkflows: <SidebarActiveWorkflow>[],
-  showChannels: true,
-  tasksEnabled: false,
-  activeSessionId: null,
-);
 
 final class _MapResolver implements CitationSourceResolver {
   final Map<CitationLayer, Set<String>> locators;

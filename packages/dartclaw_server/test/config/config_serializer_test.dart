@@ -678,6 +678,10 @@ governance:
           },
         ),
         (path: 'scheduling.heartbeat.enabled', expected: {'type': 'bool', 'mutable': 'live'}),
+        (path: 'scheduling.heartbeat.interval_minutes', expected: {'mutable': 'reloadable'}),
+        (path: 'sessions.reset_hour', expected: {'mutable': 'reloadable'}),
+        (path: 'sessions.dm_scope', expected: {'mutable': 'live'}),
+        (path: 'sessions.maintenance.mode', expected: {'mutable': 'restart'}),
         (path: 'agent.model', expected: {'nullable': true}),
         (path: 'gateway.auth_mode', expected: {'mutable': 'readonly'}),
       ];

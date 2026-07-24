@@ -11,10 +11,10 @@
         </div>
       </div>
 
-      <div class="knowledge-tabs" aria-label="Knowledge views">
-        <a class="tab-btn" href="/knowledge/research">Research</a>
-        <a class="tab-btn active" href="/knowledge/timeline">Timeline</a>
-      </div>
+      <nav class="knowledge-tabs" aria-label="Knowledge views">
+        <a class="tab-btn" href="/knowledge">Hub</a>
+        <a class="tab-btn active" href="/knowledge/timeline" aria-current="page">Timeline</a>
+      </nav>
 
       <form class="kg-timeline-controls" method="get" action="/knowledge/timeline">
         <label class="field">
@@ -31,7 +31,7 @@
         </div>
       </form>
 
-      <div tl:if="${hasError}" class="research-notice research-notice--degraded kg-timeline-error" role="alert">
+      <div tl:if="${hasError}" class="banner banner-warning kg-timeline-error" role="alert">
         <span class="card-badge badge-error" tl:text="${statusCode}">400</span>
         <span tl:text="${errorMessage}">invalid as-of timestamp</span>
       </div>

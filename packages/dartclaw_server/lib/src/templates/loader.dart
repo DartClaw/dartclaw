@@ -24,7 +24,6 @@ const expectedTemplates = [
   'memory_dashboard',
   'knowledge_hub',
   'source_attribution',
-  'research_packet',
   'kg_timeline',
   'restart_banner',
   'channel_detail',

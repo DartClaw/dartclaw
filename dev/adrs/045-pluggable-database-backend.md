@@ -1,6 +1,6 @@
 # ADR-045: Pluggable Database Backend — SQLite Default, PostgreSQL Opt-In
 
-**Status:** Proposed — 2026-07-01 (sequencing updated 2026-07-10 for the roadmap renumber: the workflow track is now 0.24/0.25). Three-phase delivery; no implementation started. Phase 1 (SQLite-only storage abstraction + migration runner) sequenced after 0.21's Windows SQLite work stabilizes; phases 2–3 (PostgreSQL backend, `pgvector`) form a demand-gated backend-track milestone — roadmap entry `0.next-database-backend` (private repo). See Proposed Sequencing.
+**Status:** Accepted — 2026-07-24. Proposed 2026-07-01; council-reviewed and remediated 2026-07-24 (report: `.agent_temp/reviews/adr-045-pluggable-database-backend-mixed-review-claude-2026-07-24.md`); owner accepted all eight council-surfaced posture/contract decisions same day (§ Decided Posture & Contracts). **Demand gate satisfied (owner, 2026-07-24):** multi-language (Swedish) FTS is a requirement; phases 1+2 are committed together as **one milestone — 0.23** (previously-planned 0.23+ shifted down; renumber sanctioned by owner). Phase 3 (`pgvector`) stays deferred pending an embedding-source decision. No implementation started; milestone is PRD-ready. See Proposed Sequencing.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-002](002-file-based-storage.md) (current storage architecture), [ADR-004](004-vector-search-approach.md) (vector/FTS search — QMD outpost), [ADR-017](017-multi-project-architecture.md) (multi-project storage layout)
@@ -16,7 +16,7 @@ DartClaw's current persistence layer (ADR-002) splits storage across two zones:
 
 This design was the right trade-off at MVP scale: single-user, single-process, Mac-local, zero operational overhead. Two forces are now pushing against its ceiling:
 
-1. **Production-grade FTS / vector search.** SQLite FTS5 has no language-aware stemming or stopword lists. The `unicode61` tokenizer handles character encoding (å/ä/ö) but treats all tokens as opaque — "springer"/"springa"/"sprang" are unrelated. Multi-language content makes this worse. The QMD outpost (ADR-004) addresses memory-search quality for individual users but is not a backend for relational task data. PostgreSQL ships `pg_trgm`, native language configurations (`swedish`, `english`, etc.), and `pgvector` for embeddings — covering both FTS and vector search in a single backend without an outpost dependency.
+1. **Production-grade FTS / vector search.** SQLite FTS5's only built-in stemmer is the English-only `porter` tokenizer; there is no stemming for Swedish or other non-English languages and no stopword lists. The default `unicode61` tokenizer handles character encoding (å/ä/ö) but treats all tokens as opaque — "springer"/"springa"/"sprang" are unrelated. Multi-language content makes this worse. The QMD outpost (ADR-004) addresses memory-search quality for individual users but is not a backend for relational task data. PostgreSQL's core `tsvector`/`tsquery` full-text search ships native language configurations (`swedish`, `english`, etc. — Snowball stemmers + stopword dictionaries, no extension required), and `pgvector` adds vector similarity — covering both FTS and vector search in a single backend without an outpost dependency. (`pg_trgm` is a separate trigram-similarity extension for fuzzy matching; it does not stem and is not the FTS mechanism.)
 
 2. **Separate hosting, backup, and data-tier scaling.** SQLite's file-local assumption ties the data to the same host as the process. Production deployments increasingly want the data tier on a separate, managed, backed-up host — decoupled from the app process for backup/restore, point-in-time recovery, and independent scaling. PostgreSQL provides this plus cloud-hosted options (RDS, Cloud SQL, Neon, Supabase) that map to established ops playbooks. This aligns with the product's existing move toward a connected/remote-server architecture (connected-CLI in 0.16.4, the desktop/mobile apps connecting to a remote `dartclaw serve`).
 
@@ -47,7 +47,7 @@ Before a pluggable backend is viable, these coupling points must be abstracted:
 - **Production FTS/vector search** — language-aware stemming, multi-language support, vector similarity without a separate outpost dependency
 - **Operational flexibility** — separate host, cloud-managed DB, standard backup/replication tooling
 - **Team/multi-instance deployments** — concurrent writers, MVCC isolation, connection pooling
-- **Single-binary default preserved** — SQLite remains the default; no PostgreSQL dependency for solo users
+- **Single-binary default preserved** — SQLite remains the default; no *running* PostgreSQL required for solo users. (Under AOT whole-program compilation with runtime backend selection, the `postgres` package still compiles into every binary — see Consequences/Negative; excluding it would need a build flavor or conditional import, recorded in Open Questions)
 - **Abstraction, not duplication** — one storage interface, two implementations; shared migration tooling
 
 ---
@@ -68,14 +68,14 @@ abstract interface class DatabaseBackend {
 }
 ```
 
-Storage services (`TaskService`, `GoalService`, `ArtifactService`, `TurnTraceService`, `TaskEventService`, `MemoryService`, `StateRecoveryService`) receive a `DatabaseBackend` via constructor injection. They issue only standard SQL — no FTS5 syntax, no pragmas, no `json_extract`.
+The coupled units receive a `DatabaseBackend` via constructor injection and issue only standard SQL — no FTS5 syntax, no pragmas, no `json_extract`. The rg-verified census (2026-07-24, `rg -l "package:sqlite3" packages/dartclaw_storage/lib/`) counts **14 production files**, not the ~7 the first draft estimated: `SqliteTaskRepository`, `SqliteGoalRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowRunRepository`, `SqliteWorkflowStepExecutionRepository`, `SqliteExecutionRepositoryTransactor`, `TaskEventService`, `TurnTraceService`, `MemoryService`, `TurnStateStore`, `WebhookDeliveryStore`, `TemporalKnowledgeGraphService` (KG facts, incl. its ad-hoc `PRAGMA table_info` column migrations), plus the `task_db.dart`/`search_db.dart` open helpers. The existing `TaskDbFactory`/`SearchDbFactory` typedefs return the concrete sqlite3 `Database` type — they are surface to *replace*, not seams that reduce the work. Re-run the census at spec time; it sizes Phase 1.
 
 ### Backend Implementations
 
 | Backend | Package | FTS | Vector | Concurrency | Deploy model |
 |---|---|---|---|---|---|
-| `SqliteBackend` | `sqlite3` (existing) | FTS5 (`unicode61`) | sqlite-vec (opt-in, alpha) | Single-writer | Embedded; single binary |
-| `PostgresBackend` | `postgres` (pub.dev) | `pg_trgm` + language configs | `pgvector` | MVCC; connection pool | External; `DATABASE_URL` config |
+| `SqliteBackend` | `sqlite3` (existing) | FTS5 (`unicode61`) | none (sqlite-vec is a stub — not implemented, see R4) | Single-writer | Embedded; single binary |
+| `PostgresBackend` | `postgres` (pub.dev) | `tsvector`/`tsquery` language configs (core PG) | `pgvector` (extension) | MVCC; connection pool | External; `DATABASE_URL` config |
 
 ### FTS Abstraction
 
@@ -83,16 +83,18 @@ FTS queries are issued through a `FullTextIndex` abstraction rather than raw SQL
 
 ```dart
 abstract interface class FullTextIndex {
-  Future<List<SearchResult>> search(String query, {int limit = 20});
-  Future<void> upsert(String id, String content, Map<String, String> metadata);
+  Future<List<SearchResult>> search(String query, {required String userId, int limit = 20});
+  Future<void> upsert(String id, String content, {required String userId, Map<String, String> metadata});
   Future<void> delete(String id);
 }
 ```
 
+The `userId` dimension is part of the contract (decided 2026-07-24, § Decided Posture & Contracts #7): the live `MemoryService` queries filter `AND mc.user_id = ?`, and that filter *is* the multi-user isolation mechanism — an implementation without it is a cross-user confidentiality regression. The shared contract-test suite asserts tenancy isolation on both backends. `SearchResult` fields and `metadata` semantics are pinned at spec time.
+
 `SqliteFtsIndex` → FTS5 + `bm25()`.  
 `PostgresFtsIndex` → `tsvector`/`tsquery` with configurable language (`english`, `swedish`, etc.).
 
-Vector search follows the same pattern (`VectorIndex` abstraction), with `SqliteVectorIndex` (sqlite-vec, alpha) and `PostgresVectorIndex` (pgvector).
+Vector search follows the same pattern (`VectorIndex` abstraction) — but with only `PostgresVectorIndex` (pgvector) as a real implementation. There is no SQLite-side counterpart: sqlite-vec never left stub status (ADR-002/004), and per R4 it will not be productionized. The SQLite backend simply has no in-database vector path.
 
 ### Configuration
 
@@ -106,10 +108,30 @@ database:
 # PostgreSQL opt-in
 database:
   backend: postgres
-  url: postgresql://user:pass@host:5432/dartclaw
-  pool_size: 5       # connection pool; default 5
+  url: ${DARTCLAW_DATABASE_URL}   # env-var reference — inline credentials are unsupported
+  pool_size: 5       # provisional default; sized for storage-layer await-concurrency in a single-threaded runtime — tune in Phase 2
   # fts_language: english   # language config for pg FTS; default english
 ```
+
+**Credential handling (binding).** `database.url` carries a secret and follows the project's reference-based credential model (`configuration-architecture.md` §Credentials: secrets are never stored literally in `dartclaw.yaml`): the value must resolve via `${ENV_VAR}` substitution or a named `credentials:` reference. Config validation rejects inline passwords in a persisted `database.url`. The DSN must additionally be covered by redaction everywhere it can surface — `MessageRedactor` gains a `://user:pass@` DSN pattern, driver connection/auth exceptions are redacted before logging (the fail-closed migration boot path throws on startup and must not log the raw DSN), and `dartclaw config` output masks the URL the same way `CredentialEntry.toString()` masks secrets.
+
+### Decided Posture & Contracts (owner-accepted, 2026-07-24)
+
+The 2026-07-24 council review surfaced eight posture/contract decisions; the owner accepted all eight. These are binding on the milestone spec.
+
+**Security & operational posture:**
+
+1. **TLS** — `sslmode` is required for any non-loopback host, default `verify-full`; a credential over cleartext to a non-loopback host **fails closed** (mirrors the outbound-MCP rule, ADR-039 / commit 387ae564). Loopback exemption uses a shared loopback-classification seam extracted for both the MCP and DB boundaries — never a cross-package reach into `HttpMcpTransport` internals.
+2. **Data fate on backend switch** — switching `database.backend` **never migrates data**: the new backend starts empty, and startup logs a prominent notice when an abandoned non-empty store exists for the other backend. The SQLite→PostgreSQL importer is explicitly a separate future tool (blocked on driver COPY support, see Resolved Q1). The PostgreSQL guide carries decommission guidance for a switched-away-from remote database, including provider snapshots/backups.
+3. **Webhook delivery ledger** — stays **instance-local SQLite** (same reasoning as `state.db`, Resolved Q4: its dedup semantics are per-instance). This closes the fourth-database scope gap; the abstraction scope remains `tasks.db` + `search.db`.
+4. **Single-writer interlock** — the PostgreSQL backend takes an advisory lock (or instance-lease row) at startup; a second instance pointing at the same database **fails loud** with a clear error. Active-active remains out of scope; this converts silent corruption into a refusal.
+5. **Egress classification** — the DB connection is **trusted host-side egress** (same category as git operations): initiated by the host storage layer, not reachable or influenceable from agent tooling, outside the agent egress guard chain. Connection lifecycle events (open, close, auth failure) are audited.
+6. **Role separation** — documented two-role model: an elevated *bootstrap* role for migrations/extension enablement, a least-privilege *runtime* role owning only DartClaw's schema (DML). Guidance plus a startup warning when the runtime role is superuser; not enforced in v1.
+
+**Runtime contracts:**
+
+7. **R1 fork — ratified: hybrid.** Portable-subset CRUD behind the thin `DatabaseBackend` (placeholder rewriting + result-type marshalling shim); FTS/vector behind `FullTextIndex`/`VectorIndex`. Riders folded in: the port exposes prepared-statement handles (current repos depend on statement reuse), literal-aware placeholder rewriting is counted as real shim cost, the `FullTextIndex` contract **carries the tenancy (`user_id`) dimension** (it is the multi-user isolation mechanism in the live queries), and `SearchResult`/metadata semantics are pinned at spec time.
+8. **Outage, parity, and migration recovery.** (a) *PG-unreachable*: fail closed at startup connect (consistent with the migration gate), bounded retry with surfaced errors mid-session; **local orphan-turn recovery runs before the backend/migration gate**, which makes Resolved Q4's offline-recovery rationale actually hold. (b) *Search parity*: only **set-membership** is contractual across backends; ranking order is explicitly backend-specific (`bm25()` vs `ts_rank`) — this is what makes the shared `databaseBackendContractTests` suite writable. (c) *Migration recovery*: no-transaction migrations must be idempotent (`IF NOT EXISTS`-style), and the wedged-boot runbook (manual `schema_migrations` repair) is documented.
 
 ### Migration Strategy
 
@@ -119,7 +141,7 @@ Replace ad-hoc `CREATE TABLE IF NOT EXISTS` with a versioned migration runner sh
 
 - File-based storage (sessions, messages, memory, config, projects) — untouched
 - QMD outpost (ADR-004) — remains valid; PostgreSQL FTS doesn't replace QMD's reranking/expansion pipeline for memory search. QMD operates over markdown files; this decision is about relational + indexed task data
-- Single-binary story for solo users — SQLite default means zero new dependencies at the default install level
+- Single-binary story for solo users — SQLite default means no PostgreSQL server, setup, or configuration is ever required. (The `postgres` *package* does compile into the binary — see Consequences/Negative)
 
 ---
 
@@ -135,16 +157,18 @@ Replace ad-hoc `CREATE TABLE IF NOT EXISTS` with a versioned migration runner sh
 
 ### Negative
 
-- **Abstraction cost** — the `DatabaseBackend` seam, `FullTextIndex`/`VectorIndex` abstractions, and dual implementations are real complexity. Phase 1 alone (SQLite-only refactor + migration runner) is medium (2–3 stories); the full three-phase arc including the dual-backend test harness (R3) is milestone-sized. Do not treat the whole thing as a 2–3 story effort.
-- **Migration tooling investment** — a proper migration runner must be built or adopted (e.g., `dbmate`, `atlas`, or a Dart-native runner). This is prerequisite work that pays off regardless of the PostgreSQL backend.
+- **Abstraction cost** — the `DatabaseBackend` seam, `FullTextIndex`/`VectorIndex` abstractions, and dual implementations are real complexity. The earlier "Phase 1 = 2–3 stories" estimate is superseded by the verified 14-file census (§ Decision) and the R2 sync→async contagion scope — Phase-1 sizing comes from the milestone spec, and the full arc including the dual-backend test harness (R3) is milestone-sized.
+- **Migration tooling investment** — a proper migration runner must be built (in-house Dart runner — external tools ruled out, see Resolved Q2). This is prerequisite work that pays off regardless of the PostgreSQL backend.
 - **Two implementations to maintain** — any schema change must be expressed in both dialects. Dialect-tagged migration files mitigate this but don't eliminate it.
 - **PostgreSQL operational burden** — PostgreSQL users take on connection management, backup, and version compatibility. DartClaw's role is to work correctly against a user-supplied PostgreSQL instance, not to manage it.
-- **`postgres` Dart package maturity** — evaluated and cleared (see Resolved Q1): production-ready, ecosystem-standard (Serverpod depends on it), but single-maintainer-led with lifecycle gaps (no COPY, no force-close, no auto-retry-on-restart) that DartClaw's backend wrapper must design around. Pin `>=3.5.12`.
+- **Third-party data-processor exposure** — `tasks.db` content (task prompts, artifacts, turn traces, KG facts) is Mac-local today; on a managed PostgreSQL (RDS/Neon/Supabase) it is stored, backed up, and retained by a third party under that provider's access model. This is precisely the data-leaves-the-trust-boundary shape the threat model otherwise works to prevent — acceptable because it is an explicit operator opt-in, but the user-facing PostgreSQL guide must say so and recommend at-rest encryption; retention/residency are the operator's responsibility.
+- **`postgres` package compiles into every binary** — runtime config-based backend selection makes `PostgresBackend` reachable from `main()`, so under Dart AOT whole-program compilation the `postgres` package (and its transitive deps) ships in the default solo-user binary too. The single-binary promise holds at the "no running PostgreSQL required" level, not the dependency level. A build flavor / conditional import could exclude it; see Open Questions.
+- **`postgres` Dart package maturity** — evaluated and cleared (see Resolved Q1): production-ready, ecosystem-standard (Serverpod depends on it), but single-maintainer-led with lifecycle gaps (no COPY, no force-close, no auto-retry-on-restart) that DartClaw's backend wrapper must design around. Pin `^3.5.12` (bounded per DART-PACKAGE-GUIDELINES §Version Constraints — never an open-ended lower bound at a transaction-critical boundary).
 
 ### Neutral
 
 - `sqlite3` package stays as a dependency (default backend). No change for existing users.
-- The `search.db` / `tasks.db` / `state.db` three-database split may collapse to a single database per backend (PostgreSQL uses schemas for isolation; SQLite keeps separate files). Schema layout TBD at implementation time.
+- Database layout is decided (see Resolved Q3/Q4): `tasks.db` + `search.db` collapse into one PostgreSQL database with one pool; `state.db` stays instance-local SQLite always and is out of the abstraction's scope; SQLite keeps its per-concern files.
 
 ---
 
@@ -166,7 +190,13 @@ Route all FTS and vector search through QMD (ADR-004), not just memory search.
 
 Keep SQLite for relational data; add Meilisearch/Typesense for full-text and vector search.
 
-**Rejected:** Adds a third external runtime dependency (after QMD). Splits the storage landscape further (file + SQLite + search engine) without solving the operational hosting or concurrency problems. PostgreSQL with `pg_trgm`/`pgvector` covers the search use case without an additional service.
+**Rejected:** Adds a third external runtime dependency (after QMD). Splits the storage landscape further (file + SQLite + search engine) without solving the operational hosting or concurrency problems. PostgreSQL with `tsvector`/`pgvector` covers the search use case without an additional service.
+
+### Keep SQLite; add hosted-SQLite tooling for the backup/hosting driver (Litestream/LiteFS, Turso/libSQL)
+
+Litestream/LiteFS provide continuous WAL streaming to object storage with point-in-time recovery; Turso/libSQL offer a SQLite-compatible server mode with replication. Either addresses driver #2 (separately-hosted, backed-up data tier) without a second backend.
+
+**Rejected:** Neither addresses driver #1 — language-aware FTS remains FTS5's, so the multi-language search requirement is unmet. Litestream adds an external sidecar process (outpost-shaped, but for the *authoritative* store rather than an optional enhancement), and the Dart client story for libSQL server mode is immature. Recorded for completeness; the rejection is driver-#1-decisive.
 
 ### Replace SQLite entirely with PostgreSQL (no opt-in)
 
@@ -188,58 +218,61 @@ The real fork:
 - **Thin** — shared portable-subset SQL + an adapter that normalizes placeholders and marshals result types. Constrains queries to a portable subset; needs a translation shim.
 - **Thick** — a repository *interface* with two full implementations each; every backend uses native idioms. No SQL portability constraint, but doubles the repository code.
 
-**Recommendation: hybrid.** The CRUD paths are simple (insert / select-by-id / update-status / list-by-status / the `ON CONFLICT … DO UPDATE SET … excluded.*` upsert already in `turn_state_store.dart` — which *is* portable across both) → keep them in portable-subset SQL behind a thin `DatabaseBackend` that owns **placeholder rewriting + result-type marshalling** (the non-negotiable shim). Push the genuinely divergent surfaces (FTS, vector) behind the `FullTextIndex`/`VectorIndex` abstractions where they already live. Decide and record this before any implementation — it dominates the story breakdown.
+**Ratified: hybrid (owner, 2026-07-24 — § Decided Posture & Contracts #7).** The CRUD paths are simple (insert / select-by-id / update-status / list-by-status / the `ON CONFLICT … DO UPDATE SET … excluded.*` upsert already in `turn_state_store.dart` — which *is* portable across both) → keep them in portable-subset SQL behind a thin `DatabaseBackend` that owns **placeholder rewriting + result-type marshalling** (the non-negotiable shim), and exposes prepared-statement handles. Push the genuinely divergent surfaces (FTS, vector) behind the `FullTextIndex`/`VectorIndex` abstractions where they already live.
 
 ### R2 — Async transaction trap (`sqlite3` is sync, `postgres` is async).
 
-The interface must be async (`Future`), because `postgres` is. But `sqlite3` is synchronous and single-connection: an `await` inside a `transaction(body)` on the SQLite backend does **not** actually isolate — another queued operation can interleave into the open `BEGIN…COMMIT` unless the backend serializes all access (write-queue/mutex, the pattern `MemoryFileService` already uses). This is a correctness trap, not a style choice: the SQLite `transaction()` implementation must hold an exclusive lock for the async body's full duration. Call it out in the abstraction contract.
+The interface must be async (`Future`), because `postgres` is. But `sqlite3` is synchronous and single-connection: an `await` inside a `transaction(body)` on the SQLite backend does **not** actually isolate — another queued operation can interleave into the open `BEGIN…COMMIT` unless the backend serializes all access. This is a correctness trap, not a style choice: the SQLite `transaction()` implementation must hold an exclusive lock for the async body's full duration. The canonical in-repo precedent is `SqliteExecutionRepositoryTransactor` (`dartclaw_storage`), which already implements exactly this single-slot queue holding `BEGIN…COMMIT` across an awaited body — reuse its pattern, not a new one. Second, the blast radius is wider than the transaction contract: the entire storage layer is currently *synchronous* sqlite3 (`_db.execute`/`_db.select`, no Futures), so an async `DatabaseBackend` forces async signatures through every storage call site and their upstream `dartclaw_server` callers. That sync→async contagion is a pervasive mechanical change and must be counted in Phase-1 sizing, not discovered mid-story.
 
 ### R3 — Dual-backend testing is a recurring cost, not a one-time one.
 
-Every storage test must exercise **both** backends or the PostgreSQL path silently rots — this is exactly the "green tests mask unwired features" failure mode this project has hit before. That means PostgreSQL in CI (a service container) and a locally-skippable tag so `dart test` still runs on a macOS dev box without a live PostgreSQL — but then local dev never exercises PG, widening the rot window. The portable-tests rule (Linux CI + macOS local) is complicated by this. Budget for it as first-class scope, not an afterthought.
+Every storage test must exercise **both** backends or the PostgreSQL path silently rots — this is exactly the "green tests mask unwired features" failure mode this project has hit before. The mechanism is not new machinery: TESTING-STRATEGY.md already defines `@Tags(['integration'])` for skipped-by-default live-resource tests (the PG-live path: skipped on a macOS dev box, run in the CI service container) and the shared contract-test pattern (`searchBackendContractTests` is the existing exemplar). Enforcement is a `databaseBackendContractTests`-style shared suite both backends must pass — which is where the tenancy and search-parity assertions also live. This *resolves* the portable-tests rule rather than conflicting with it; the residual cost (both dialects forever, local dev rarely exercising PG) is real and budgeted as first-class scope, not an afterthought.
 
 ### R4 — The search story now has three overlapping answers; draw the line.
 
 After this ADR, vector search could come from sqlite-vec (alpha stub, ADR-004), QMD (opt-in outpost, ADR-004), or pgvector (here); FTS from FTS5, QMD, or PostgreSQL native. Reconciliation: **QMD stays the memory-file search outpost — it indexes markdown (`MEMORY.md`, daily logs) with reranking/query-expansion, orthogonal to the DB backend.** `pgvector`/PostgreSQL-FTS serve **in-database structured search** (tasks, artifacts, KG facts) — a different corpus. Since sqlite-vec never left stub status, **pgvector would be DartClaw's first real in-database vector search** — which is why the vector slice belongs with the Future "vector search" item, gated behind the Postgres backend, rather than bolted onto the FTS driver work.
 
-### R5 — `pgvector`/`pg_trgm` are extensions with an enablement precondition.
+### R5 — `pgvector` is an extension with an enablement precondition. FTS is not.
 
-Both require `CREATE EXTENSION` (often superuser/`rds_superuser`); managed offerings support them but may not enable them by default, and locked-down corporate PostgreSQL may forbid them. The migration runner must `CREATE EXTENSION IF NOT EXISTS …` before dependent tables and fail with a clear, actionable message when the extension is unavailable — not a cryptic "type vector does not exist".
+PostgreSQL FTS (`tsvector`/`tsquery` + language configs) is core — it needs **no** extension, so the Phase-2 multi-language FTS payoff has no enablement precondition. `pgvector` (Phase 3) does require `CREATE EXTENSION` (often superuser/`rds_superuser`), as would `pg_trgm` if fuzzy matching were ever added; managed offerings support them but may not enable them by default, and locked-down corporate PostgreSQL may forbid them. When extension-dependent migrations exist, the runner must `CREATE EXTENSION IF NOT EXISTS …` before dependent tables and fail with a clear, actionable message when the extension is unavailable — not a cryptic "type vector does not exist".
 
 ## Resolved Questions (2026-07-01)
 
-1. **`postgres` Dart package evaluation — resolved: production-ready.** `postgres` 3.5.12 (2026-06-11), publisher agilord.com, 160/160 pub points, ~210k downloads/30 days, 85 releases, active maintenance. Built-in connection pool (`Pool.withUrl`, `max_connection_count`, `max_connection_age`), TLS (`sslmode=verify-full`), transactions (`runTx`), extended query protocol, connection-string URLs. Decisive validation: **Serverpod depends on it** (`postgres: ^3.4.0`) as its only PostgreSQL driver, and `drift_postgres` wraps it — it is the ecosystem's de facto standard. 31 open issues on `isoos/postgresql-dart`, none structural. No spike needed; adopt, with caveats:
-   - **Pin `>=3.5.12`** — 3.5.12 (2026-06-11) fixed three connection-left-broken-state bugs in `runTx` rollback/failure paths; older 3.x is not trustworthy for transaction-heavy code.
+1. **`postgres` Dart package evaluation — resolved: production-ready.** `postgres` 3.5.12 (2026-06-11), publisher agilord.com, 160/160 pub points, ~210k downloads/30 days, 85 releases, active maintenance. Built-in connection pool (`Pool.withUrl`, `max_connection_count`, `max_connection_age`), TLS (`sslmode=verify-full`), transactions (`runTx`), extended query protocol, connection-string URLs. Ecosystem validation: **Serverpod depends on it** (`postgres: ^3.4.0`) as its only PostgreSQL driver, and `drift_postgres` wraps it — it is the ecosystem's de facto standard. Caveat on that inference: Serverpod's `^3.4.0` range *includes* the pre-3.5.12 releases this ADR distrusts, so the social proof validates the driver generally, not the specific `runTx` transaction fixes DartClaw depends on — Phase 2 therefore includes a small targeted transaction-integrity spike (`runTx` rollback/failure paths + the R2 SQLite serialization contract) rather than waiving verification entirely. 31 open issues on `isoos/postgresql-dart`, none structural. Adopt, with caveats:
+   - **Pin `^3.5.12`** (bounded — never an open lower bound; DART-PACKAGE-GUIDELINES §Version Constraints) — 3.5.12 (2026-06-11) fixed three connection-left-broken-state bugs in `runTx` rollback/failure paths; older 3.x is not trustworthy for transaction-heavy code, and an unbounded range would let a breaking 4.x in on `pub upgrade`.
    - **No COPY protocol** (open request [#443](https://github.com/isoos/postgresql-dart/issues/443)) — bulk import/export needs batched INSERTs or a `psql`/`pg_dump` subprocess. Relevant to a future SQLite→PostgreSQL data-migration tool.
    - **No force-close connection API** ([#394](https://github.com/isoos/postgresql-dart/issues/394)) and no auto-retry on server restart ([#290](https://github.com/isoos/postgresql-dart/issues/290)) — reconnect/retry policy must live in DartClaw's backend wrapper.
    - Single-maintainer-led (agilord/isoos, responsive) — budget for occasional patch-level upgrades, not set-and-forget.
 
-2. **Migration runner choice — resolved: minimal in-house Dart runner.** The startup constraint (migrations run automatically at server boot, zero user-visible tooling, AOT single binary) rules out external binaries (`dbmate`, `atlas`, `golang-migrate`) — an outpost is wrong here because migration is not optional functionality; the server cannot boot without it. Dart-native pub.dev options are immature or dormant (`migrant` last published 2024-08, `dox_migration` 2023-12, `athena_migrate` 2024-11, `dbmigrator_psql` at 0.1.2). A minimal runner is ~150 lines: dialect-tagged migrations, `schema_migrations` tracking table, applied in transaction (PostgreSQL has transactional DDL; SQLite DDL is transactional too). Design notes from the research:
+2. **Migration runner choice — resolved: minimal in-house Dart runner.** The startup constraint (migrations run automatically at server boot, zero user-visible tooling, AOT single binary) rules out external binaries (`dbmate`, `atlas`, `golang-migrate`) — an outpost is wrong here because migration is not optional functionality; the server cannot boot without it. Dart-native pub.dev options are immature or dormant (`migrant` last published 2024-08, `dox_migration` 2023-12, `athena_migrate` 2024-11, `dbmigrator_psql` at 0.1.2). A minimal runner *core* is ~150 lines: dialect-tagged migrations, `schema_migrations` tracking table, applied in transaction (PostgreSQL has transactional DDL; SQLite DDL is transactional too, with documented exceptions — see the no-transaction note below). The ~150 figure covers the apply loop only — the build-time SQL→Dart-const codegen, the two dialect executors, the no-transaction flag, and extension-enablement handling are additional scope the Phase-1 spike (Open Questions) must size. Design notes from the research:
    - **AOT gotcha:** a single AOT binary has no asset bundle — migrations must be embedded as Dart string constants (generated at build time from `.sql` files, or maintained as a const map), not files read at runtime.
    - **No shared driver abstraction exists** between the `sqlite3` and `postgres` packages — the runner branches at an internal executor boundary (`SqliteExecutor`/`PostgresExecutor`), which is the same seam the `DatabaseBackend` abstraction provides.
-   - **Non-transactional DDL escape hatch from day one:** `CREATE INDEX CONCURRENTLY` (and similar) cannot run inside a PostgreSQL transaction — support a per-migration no-transaction flag rather than retrofitting it.
+   - **Non-transactional DDL escape hatch from day one:** `CREATE INDEX CONCURRENTLY` (and similar) cannot run inside a PostgreSQL transaction — support a per-migration no-transaction flag rather than retrofitting it. Note the flag's semantics are backend-asymmetric: the exceptions are PostgreSQL-motivated (SQLite has no `CONCURRENTLY` equivalent, and SQLite's own DDL-transactionality exceptions are different ones) — the runner must not assume the flag means the same thing on both engines.
    - **Forward-only** — no down-migrations, matching the project's early-experimental, breaking-changes-acceptable posture.
    - Fail-closed: any migration failure aborts server startup.
 
 3. **Three-DB vs single-DB layout — resolved: single PostgreSQL database, one connection pool.** `tasks.db` + `search.db` collapse into one PostgreSQL database (plain table namespace; schemas optional and not required at current table count). One pool, one backup target, one `DATABASE_URL`. SQLite keeps its per-concern files (WAL contention isolation still applies there). The search index tables remain rebuildable regardless of which database they live in.
 
-4. **`state.db` scope — resolved: stays instance-local SQLite always, out of scope for the backend abstraction.** Codebase inspection: `state.db` holds a single `turn_state` table (session_id → active turn), written once per turn start/end — turn-boundary frequency, not hot-path. The deciding factor is not latency but semantics: crash-recovery state is inherently **per-instance** (`turn_runner_cancellation.dart` scans for *this process's* orphaned turns). Putting it in a shared PostgreSQL would let one instance see another's live turns as orphans. Keeping it local also means crash recovery works when the network database is unreachable. This shrinks the abstraction scope to `tasks.db` + `search.db`.
+4. **`state.db` scope — resolved: stays instance-local SQLite always, out of scope for the backend abstraction.** Codebase inspection: `state.db` holds a single `turn_state` table (session_id → active turn), written once per turn start/end — turn-boundary frequency, not hot-path. The deciding factor is not latency but semantics: crash-recovery state is per-instance (`turn_runner_cancellation.dart` scans for *this process's* orphaned turns), and today per-instance-ness derives from file locality. A shared-PostgreSQL variant *is* technically possible (an `instance_id` column scoping the orphan scan) — it was considered and rejected: locality is the simpler mechanism, and it keeps crash recovery independent of the network database's availability. This is a deliberate simplicity choice, not a forced one — recorded so a future active-active effort doesn't mistake it for an impossibility. This shrinks the abstraction scope to `tasks.db` + `search.db`.
 
-## Proposed Sequencing (2026-07-01)
+## Proposed Sequencing (updated 2026-07-24)
 
-Grounded in the current roadmap (backend track 0.20 → 0.21 → 0.24/0.25 (renumbered 2026-07-06), running parallel to the UI track). Three phases, deliberately not one milestone:
+Shipped reality as of this update: 0.20.1 tagged 2026-07-11, 0.21 (Windows) tagged 2026-07-18, 0.22 (Afterglow) implementation complete. The Phase-1 precondition — a stable Windows SQLite baseline after 0.21 — is **satisfied**. This ADR's work is the backend track's next milestone.
 
-- **Phase 1 — Storage abstraction + versioned migration runner (SQLite-only, zero behavior change).** Introduce `DatabaseBackend` (+ the R1 placeholder/type shim), route the ~7 SQLite-coupled files in `dartclaw_storage` through it, and replace ad-hoc `CREATE TABLE IF NOT EXISTS` with the in-house migration runner. **Delivers value on its own** — versioned, auditable schema evolution regardless of whether PostgreSQL ever ships. Pure refactor; independently shippable.
-  - **Timing: after 0.21, not before.** 0.21 (Windows) hardens the bundled-SQLite build and `sqlite` source-mode ([memory: sqlite3 user_defines from workspace root]). Abstracting a *moving* SQLite baseline invites conflict, and two milestones editing storage wiring at once is avoidable churn. Sequence Phase 1 as a small prep milestone once the Windows SQLite baseline is stable — candidate slot: alongside or just after 0.24/0.25 on the backend track.
-- **Phase 2 — `PostgresBackend` + PostgreSQL-native FTS.** The opt-in backend, `DATABASE_URL` config, dual-backend CI harness (R3), language-aware `tsvector` FTS. This is the "production-grade FTS" + "separately-hosted data tier" payoff.
-- **Phase 3 — `pgvector` in-database vector search.** DartClaw's first real in-DB vector search (R4). Answers the Future "vector search" backlog item via the Postgres backend rather than productionizing the sqlite-vec stub.
+**Demand gate: satisfied.** The original gate (phases 2–3 wait for a concrete deployment needing separately-hosted data or multi-language FTS) was closed by the owner on 2026-07-24: multi-language (Swedish) FTS is a requirement. Consequence: phases 1 and 2 are **one committed milestone — proposed 0.23 "Pluggable Database Backend & Multi-Language Search"** — and the plans previously holding those numbers shift down one: Chat & Session Experience 0.23 → **0.24**, workflow track (DSL v2, Dynamic Workflows) 0.24/0.25 → **0.25/0.26** (renumber sanctioned by owner; the private ROADMAP is authoritative once updated). The phase split survives *inside* the milestone as story ordering, not as separate scheduling units:
 
-**Recommended home for phases 2–3: a dedicated backend-track milestone after 0.25**, roughly where the Future backlog already parks "vector search" and the data-tier half of "multi-user deployment." Strong synergy with `0.next-desktop-app`'s remote-`dartclaw serve` story — a remote server backed by managed PostgreSQL is precisely the deployment this unlocks; consider co-sequencing so the connected/remote architecture and its production data tier land together. Not a fit for 0.20 (active, workflow-focused) or as feature scope inside 0.21 (platform-focused).
+- **Phase 1 stories — Storage abstraction + versioned migration runner (SQLite-only, zero behavior change).** Introduce `DatabaseBackend` (+ the R1 placeholder/type shim), route the rg-verified 14-file coupling surface in `dartclaw_storage` (census in § Decision) through it, and replace ad-hoc `CREATE TABLE IF NOT EXISTS` + scattered `PRAGMA table_info` column-checks with the in-house migration runner. Lands first as a pure refactor with green tests; independently shippable if the milestone is interrupted.
+- **Phase 2 stories — `PostgresBackend` + PostgreSQL-native FTS.** The opt-in backend, `DATABASE_URL` config (credential-reference model per § Configuration), dual-backend contract-test harness (R3), language-aware `tsvector` FTS. The multi-language payoff — noting plainly: multi-language FTS ships **on the PostgreSQL backend only**; the SQLite default keeps `unicode61` exact/prefix matching.
+- **Phase 3 — `pgvector` in-database vector search: NOT in this milestone.** Deferred not on demand but on a missing prerequisite: an embedding-generation pipeline (ADR-004 deliberately keeps embeddings in the QMD outpost; pgvector without an embedding source is dead tables). Requires its own small design pass (embedding source: cloud API / local / QMD-generated) when in-database semantic search is actually wanted. QMD (multilingual embeddings) remains the available semantic-search answer meanwhile.
 
-**Demand-signal gate:** phases 2–3 should wait for a concrete deployment asking for it (a user wanting separately-hosted/backed-up data, or multi-language FTS in production). Phase 1 is worth doing on hygiene grounds alone and need not wait.
+Synergy noted for later scheduling: `0.next-desktop-app`'s remote-`dartclaw serve` story — a remote server backed by managed PostgreSQL is precisely the deployment this milestone unlocks.
+
+**Preconditions before the milestone PRD: resolved.** All Gate A/B decisions from the 2026-07-24 council review were accepted by the owner the same day and are recorded in § Decided Posture & Contracts. The remaining Open Questions (FTS language granularity, migration-runner spike sizing, `postgres` dependency-exclusion mechanism) are spec-time items, not PRD blockers. **The 0.23 milestone is PRD-ready.**
 
 ## Open Questions
 
-1. **R1 thin-vs-thick abstraction fork** — confirm the hybrid recommendation (portable-subset CRUD + type/placeholder shim, dialect modules only for FTS/vector) at the start of Phase 1; it dominates the story breakdown.
-2. **PostgreSQL FTS language config granularity** — single `fts_language` for the whole index, or per-document language detection? Default to single config; revisit if mixed-language corpora become a real complaint.
-3. **Migration-runner reuse vs. build** — a Phase-1 spike should confirm the ~150-line in-house runner over adapting the dormant `migrant` (last release 2024-08); default is build.
+Spec-time items — none block the milestone PRD. (The former Open Question 1, the R1 abstraction fork, was ratified 2026-07-24 — § Decided Posture & Contracts #7.)
+
+1. **PostgreSQL FTS language config granularity** — single `fts_language` for the whole index, or per-document language detection? Default to single config; note a mixed Swedish/English corpus under one config mis-stems the other language — revisit if that becomes a real complaint.
+2. **Migration-runner spike** — a Phase-1 spike sizes the full runner scope (core loop + build-time codegen + two executors + no-tx flag + extension handling) and confirms build over adapting the dormant `migrant`; default is build.
+3. **`postgres` dependency exclusion mechanism** — should the default solo-user binary exclude the `postgres` package via a build flavor / conditional import, or is the compile-in cost accepted? (See Consequences/Negative; decide before release packaging of the milestone.)

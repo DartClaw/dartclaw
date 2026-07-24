@@ -428,7 +428,12 @@ The ground is atmospheric, not flat:
 
 ```html
 <div class="shell">
-  <aside id="app-sidebar" class="sidebar">...</aside>
+  <aside id="app-sidebar" class="sidebar">
+    <div class="sidebar-header">
+      ...
+      <button class="sidebar-close" type="button" aria-label="Close sidebar"></button>
+    </div>
+  </aside>
   <button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>
 
   <header class="topbar">

@@ -9,9 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-24
+
+### Added
+
+- **Afterglow design system across the complete Web UI** – every shipped page now uses the canonical Catppuccin Mocha/Latte system with atmospheric ground, unified entry motion, semantic feedback primitives, terminal frames, identicons, mascot/favicon assets, branded empty states, and the CRT login hero. Responsive and reduced-motion treatments are included.
+- **Parallel multi-agent maintainer review** – a standalone inline workflow runs Codex and Claude reviews in parallel, aggregates their reports, remediates findings, and closes with the deterministic verification gate.
+
 ### Changed
 
-- **Outbound MCP HTTP transport allows plain HTTP to loopback** – the HTTPS requirement now exempts literal loopback hosts (`localhost`, `127.x.x.x`, `[::1]`), so locally hosted HTTP MCP servers can be used without TLS. The match is literal-only (no DNS resolution); hostnames resolving to loopback are still rejected. A credential configured on a plain-HTTP server travels in cleartext to an unauthenticated endpoint; the runtime logs a warning at transport setup.
+- **Canonical design-system CSS is now drift-checked** – served styles are split into a synced `design-system.css` foundation and app-only `app.css`; CI rejects divergence from the canonical tokens, components, and icons.
+
+### Fixed
+
+- **Mobile drawer close controls are visible and accessible** – the open drawer now exposes its own × control, synchronizes `aria-expanded`, and removes the inactive backdrop from keyboard and assistive-technology navigation.
+- **Parallel workflow CLI progress no longer retains settled members** – live status lines retire terminal tasks promptly while accepted-token totals remain authoritative across retries.
+- **Outbound MCP HTTP transport allows literal loopback hosts safely** – `localhost`, `127.x.x.x`, and `[::1]` may use plain HTTP for local MCP servers; other hosts remain HTTPS-only, DNS aliases do not bypass the rule, and credential-bearing cleartext loopback connections emit a warning.
 
 ---
 

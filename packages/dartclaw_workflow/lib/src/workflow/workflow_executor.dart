@@ -437,7 +437,6 @@ class WorkflowExecutor {
               );
             }
           }
-
           void fireParallelGroupCompletedEvent(List<StepOutcome> eventResults) {
             final eventFailedSteps = eventResults.where((result) => !result.success).toList();
             _eventBus.fire(
@@ -451,7 +450,6 @@ class WorkflowExecutor {
               ),
             );
           }
-
           if (failedSteps.isNotEmpty) {
             final refreshedRun = await _repository.getById(run.id) ?? run;
             if (refreshedRun.status == WorkflowRunStatus.paused || refreshedRun.status == WorkflowRunStatus.cancelled) {

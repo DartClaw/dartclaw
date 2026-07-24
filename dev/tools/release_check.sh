@@ -5,8 +5,8 @@
 # require provider credentials, a running server, or external platforms.
 #
 # Usage:
-#   bash dev/tools/release_check.sh --version 0.21.0
-#   bash dev/tools/release_check.sh --version 0.21.0 --quick  # skip workspace tests
+#   bash dev/tools/release_check.sh --version <version>
+#   bash dev/tools/release_check.sh --version <version> --quick  # skip workspace tests
 #
 # Exit code 0 = all automated gates passed, 1 = at least one failed.
 

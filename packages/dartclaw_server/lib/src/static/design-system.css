@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-07-21.
-   sha256: 892214c796b4db8291bec27f27d324b88cd0b9deec94ddee9f020bcdf48f6a32 */
+/* Synced from dev/design-system/components.css on 2026-07-24.
+   sha256: bf863d342ddc7dd84c488fe299b15ef19ef1e4b90633f0738267e1ba3ac99b8a */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -159,6 +159,15 @@ a:hover { text-decoration: underline; }
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: gradient-slide 6s linear infinite;
+}
+
+.sidebar-header .sidebar-close.btn-icon {
+  display: none;
+  margin-left: auto;
+}
+
+@media (max-width: 768px) {
+  .sidebar-header .sidebar-close.btn-icon { display: inline-flex; }
 }
 
 @keyframes gradient-slide {

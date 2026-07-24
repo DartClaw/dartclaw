@@ -2,9 +2,9 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-21 01:23 CEST
+Last Updated: 2026-07-24 17:31 CEST
 
-### Implemented Features (through 0.21)
+### Implemented Features (through 0.22)
 
 - **Runtime**: 2-layer model (Dart host → Claude Code JSONL + Codex JSON-RPC binaries). Multi-provider `HarnessPool` with per-task provider override. Task orchestrator: lifecycle state machine, parallel execution, optimistic locking. Coding tasks: worktree isolation, diff, merge, PR creation. Standalone AOT binary with embedded templates, static assets, and skills (`dev/tools/build.sh`)
 - **CLI**: `dartclaw init` onboarding wizard (interactive + non-interactive), `dartclaw service` management (LaunchAgent/systemd), connected-by-default workflow execution with SSE lifecycle control (`workflow run/status/pause/resume/cancel`), operational command groups (`tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, `jobs`). Unified instance directory (`~/.dartclaw/`)
@@ -15,7 +15,7 @@ Last Updated: 2026-07-21 01:23 CEST
 - **Security**: Guard chain (command/file/network/content guards) with hot-reload, Docker container isolation (`network:none` + proxy), credential proxy (Unix socket), governance (rate limiting, token budgets, loop detection), emergency `/stop`/`/pause`/`/resume`. Native Windows container isolation is unavailable and fails closed with POSIX/WSL remediation
 - **Configuration**: 3-tier (ephemeral/persistent/hot-reload), 25+ typed sections, `ConfigNotifier`/`Reconfigurable` with POSIX SIGUSR1 and cross-platform file-watch reload triggers, typed platform-capability surface, extension system, settings UI
 - **Observability**: Alert routing to channels, health monitoring, date-partitioned audit logging, usage/token tracking, turn traces, SSE streaming (tasks/chat/workflows), context monitoring, compaction observability (Claude + Codex lifecycle signals)
-- **Web UI & API**: HTMX+SSE UI (Trellis, zero JS build) with Stimulus `dc-*` controllers for browser behavior: dashboard, chat, tasks, workflows (with launch forms), projects, scheduling, memory, settings, health. REST API + MCP server. Multi-project support with PR creation. API read surfaces for sessions, traces, and scheduled jobs
+- **Web UI & API**: HTMX+SSE UI (Trellis, zero JS build) with Stimulus `dc-*` controllers for browser behavior: dashboard, chat, tasks, workflows (with launch forms), projects, scheduling, memory, settings, health. The Afterglow system supplies canonical drift-checked CSS, Mocha/Latte themes, responsive feedback primitives, identicons, and brand assets. REST API + MCP server. Multi-project support with PR creation. API read surfaces for sessions, traces, and scheduled jobs
 - **Personal AI & SDK docs (0.17)**: Structured behavior-file scaffolding, web-only personalization onboarding, curated inbox ingestion, wiki provenance/search/lint, temporal KG MCP tools, YAML-backed guard editor, SDK Concepts/Architecture/Security docs, runnable SDK examples, rich chat composer payload metadata, and automated kill/restart crash-recovery smoke validation
 - **Universal agent harness (0.18)**: ACP subprocess harness for JSON-RPC/stdio agents, Goose and Mistral Vibe target validation, provider-scoped harness pools, stuck-turn status and early cancel, guard-mediated ACP reverse calls, `delegate_to_agent` MCP delegation, versioned release assets, automated Homebrew tap publication, and refreshed architecture/user guides
 - **Storage**: Files as source of truth (YAML/JSON/NDJSON) + SQLite indexes (tasks.db, search.db, state.db). Workspace behavior files (SOUL/USER/TOOLS/AGENTS/MEMORY.md). FTS5 search with QMD hybrid opt-in; Windows releases bundle FTS5-enabled `lib/sqlite3.dll`
@@ -25,11 +25,11 @@ Last Updated: 2026-07-21 01:23 CEST
 
 ## Current Phase
 
-**0.22 implementation complete**
+**0.22 – Afterglow Design-System Overhaul: Release-ready, awaiting tag.**
 
-**Status**: Complete
+**Status**: Implementation, review, and release prep complete on `feat/0.22`; awaiting squash-merge and `v0.22.0` tag.
 
-**Active milestone**: 0.22 – Afterglow Design-System Overhaul (all 14 stories implemented and verified; plan.json + FIS in dev/bundle/docs/specs/0.22/).
+**Active milestone**: 0.22 – Afterglow Design-System Overhaul. All 14 stories implemented and verified; transient implementation specs closed into the private canonical PRD and removed before merge.
 
 **Previous**: 0.21 – Windows Support & Cross-Platform Hardening (tagged `v0.21.0` on 2026-07-18). 0.20.1 – Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11).
 

@@ -115,9 +115,13 @@ void main() {
       expect(chatSource, contains('finalizeTurn(options = {})'));
     });
 
-    test('mobile menu toggle swaps its glyph in sync with open state', () {
+    test('mobile drawer exposes visible and assistive close controls', () {
       final shellSource = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
       expect(shellSource, contains("menuToggle.setAttribute('data-icon', open ? 'x' : 'menu')"));
+      expect(shellSource, contains("menuToggle.setAttribute('aria-expanded', String(open))"));
+      expect(shellSource, contains("scrim.setAttribute('aria-hidden', String(!open))"));
+      expect(shellSource, contains('scrim.tabIndex = open ? 0 : -1'));
+      expect(shellSource, contains("sidebarClose.addEventListener('click', () => this.setSidebarOpen(false))"));
     });
 
     test('projects controller owns project actions on direct page load', () {

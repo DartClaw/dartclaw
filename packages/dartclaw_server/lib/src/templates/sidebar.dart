@@ -206,7 +206,8 @@ String sidebarTemplate({
   // The scrim must be a sibling of <aside class="sidebar"> so the CSS combinator
   // `.sidebar.open ~ .sidebar-scrim` can show it. Appending here covers all
   // render paths (direct string injection in web_routes.dart and tl:utext in HTML templates).
-  return '$aside<button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
+  return '$aside<button class="sidebar-scrim" type="button" aria-label="Close sidebar" '
+      'aria-hidden="true" tabindex="-1"></button>';
 }
 
 /// Builds the unified sidebar from [SidebarData] and system nav items.

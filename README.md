@@ -9,7 +9,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: 0.21.0 – native Windows x64 core-runtime support, PowerShell and Scoop distribution, Git Bash workflow steps, and cross-platform runtime hardening. See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.22.0 – the Afterglow design-system overhaul: canonical drift-checked CSS, full Web UI adoption, responsive feedback primitives, identicons, and DartClaw brand assets. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">

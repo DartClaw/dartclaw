@@ -207,6 +207,12 @@ export default class DcShellController extends Stimulus.Controller {
       scrim.addEventListener('click', () => this.setSidebarOpen(false));
     }
 
+    const sidebarClose = document.querySelector('.sidebar-close');
+    if (sidebarClose && !sidebarClose.dataset.sidebarInit) {
+      sidebarClose.dataset.sidebarInit = '1';
+      sidebarClose.addEventListener('click', () => this.setSidebarOpen(false));
+    }
+
     this.initArchiveCollapse();
     this.syncSidebarNavActiveState();
   }
@@ -215,9 +221,15 @@ export default class DcShellController extends Stimulus.Controller {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     sidebar.classList.toggle('open', open);
+    const scrim = document.querySelector('.sidebar-scrim');
+    if (scrim) {
+      scrim.setAttribute('aria-hidden', String(!open));
+      scrim.tabIndex = open ? 0 : -1;
+    }
     const menuToggle = document.querySelector('.menu-toggle');
     if (menuToggle) {
       menuToggle.setAttribute('aria-label', open ? 'Close sidebar' : 'Open sidebar');
+      menuToggle.setAttribute('aria-expanded', String(open));
       menuToggle.setAttribute('data-icon', open ? 'x' : 'menu');
     }
   }

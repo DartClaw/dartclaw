@@ -6,8 +6,9 @@
 
 ### 0.22 — Afterglow Design-System Overhaul
 
-**Status: Planned; not started.** Full Web UI adoption of the canonical "Afterglow" design system plus a drift-checked
-`design-system.css`/`app.css` split. Hard prerequisite for all later UI work.
+**Status: Release-ready on `feat/0.22`; awaiting squash-merge and `v0.22.0` tag.** Full Web UI adoption of the canonical
+"Afterglow" design system plus the drift-checked `design-system.css`/`app.css` split. All 14 stories are complete and
+the final implementation review passed.
 
 ## Planned
 

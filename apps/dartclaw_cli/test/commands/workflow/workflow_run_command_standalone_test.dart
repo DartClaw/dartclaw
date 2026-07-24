@@ -88,7 +88,7 @@ void main() {
       tempDir = Directory.systemTemp.createTempSync('dartclaw_workflow_run_standalone_test_');
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
-        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
 
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
@@ -329,7 +329,7 @@ steps:
     test('standalone run aborts early when a referenced credential resolves empty', () async {
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
-        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
         credentials: const CredentialsConfig(entries: {'github-main': CredentialEntry.githubToken(token: '')}),
         projects: const ProjectConfig(
           definitions: {
@@ -416,7 +416,7 @@ steps:
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
-        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final fakeHome = p.join(tempDir.path, 'claude-only-home');
       _writeSkill(p.join(fakeHome, '.claude', 'skills'), 'dartclaw-discover-andthen-spec');
@@ -616,7 +616,7 @@ steps:
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
-        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'agent-demo.yaml')).writeAsStringSync('''
@@ -719,7 +719,7 @@ steps:
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),
-        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'codex-only.yaml')).writeAsStringSync('''
@@ -779,7 +779,7 @@ steps:
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),
-        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final definition = WorkflowDefinition(
         name: 'codex-continue',

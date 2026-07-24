@@ -464,7 +464,7 @@ channels:
 
       final response = await capturedHandler(Request('GET', Uri.parse('http://localhost/static/sse.js')));
       expect(response.statusCode, 200);
-      expect(response.headers['cache-control'], 'public, max-age=86400');
+      expect(response.headers['cache-control'], 'no-cache');
     });
 
     test('secondary-provider validation warnings do not block startup', () async {

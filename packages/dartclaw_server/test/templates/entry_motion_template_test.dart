@@ -14,7 +14,7 @@ void main() {
         .where((file) => file.readAsStringSync().contains('id="main-content"'))
         .toList();
 
-    expect(templates, hasLength(18));
+    expect(templates, hasLength(17));
     for (final template in templates) {
       final main = RegExp(r'<main[^>]*id="main-content"[^>]*>').firstMatch(template.readAsStringSync())?.group(0);
       expect(main, isNotNull, reason: template.path);

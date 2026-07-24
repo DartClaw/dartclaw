@@ -137,6 +137,8 @@ The 2026-07-24 council review surfaced eight posture/contract decisions; the own
 
 Replace ad-hoc `CREATE TABLE IF NOT EXISTS` with a versioned migration runner shared across both backends. Migrations are plain SQL files tagged with a dialect (`common`, `sqlite`, `postgres`). The runner applies `common` + the backend-specific variant in sequence, tracking applied migrations in a `schema_migrations` table (standard Rails/Flyway convention — supported identically by both engines).
 
+Runner semantics are informed by a source-level analysis of Serverpod's migration system (private repo: `dartclaw-private/docs/research/serverpod-4-analysis/deep-dive-build-and-migrations.md`, 2026-07-10). Binding lessons for the spec: transaction scope is chosen **explicitly** — one transaction per migration file — rather than falling out of implementation plumbing (Serverpod's SQLite and PostgreSQL runners apply identical generated SQL with opposite mid-sequence failure semantics, purely by accident of parameter threading); applied-version bookkeeping is idempotent (upsert into `schema_migrations`, hard-stop on a recorded version the runner doesn't know); the runner re-verifies live schema against the expected definition after applying (fatal in development, warning in production); and non-additive SQLite changes (column type, `NOT NULL`, FK changes) use SQLite's documented 12-step table-rebuild recipe — in-place `ALTER TABLE` covers only additive cases.
+
 ### What Does NOT Change
 
 - File-based storage (sessions, messages, memory, config, projects) — untouched

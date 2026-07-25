@@ -1,6 +1,6 @@
 # ADR-004: Vector Search Approach for Hybrid Memory
 
-**Status:** Accepted — fully implemented. Two-tier search: FTS5 built-in (default) + QMD outpost (opt-in via `search.backend: qmd`). `QmdManager`, `QmdSearchBackend`, and `SearchBackendFactory` in `dartclaw_storage` (`lib/src/search/`); the `SearchBackend` contract lives in `dartclaw_config`, re-exported via `dartclaw_core`.
+**Status:** Superseded by [ADR-050](050-native-hybrid-search.md) (2026-07-25) — QMD remains the shipped opt-in path until 0.23 Phase B GA (deprecate-then-remove). Originally accepted and fully implemented. Two-tier search: FTS5 built-in (default) + QMD outpost (opt-in via `search.backend: qmd`). `QmdManager`, `QmdSearchBackend`, and `SearchBackendFactory` in `dartclaw_storage` (`lib/src/search/`); the `SearchBackend` contract lives in `dartclaw_config`, re-exported via `dartclaw_core`.
 **Date:** 2026-02-25 (accepted: 2026-02-27)
 **Deciders:** DartClaw team
 

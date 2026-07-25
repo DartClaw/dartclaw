@@ -100,8 +100,10 @@ fi
 section "3. Dependency lock"
 if {
   git ls-files --error-unmatch pubspec.lock
+  git ls-files --error-unmatch dev/tools/mascot_favicon/pubspec.lock
   dart pub get --enforce-lockfile
-  git diff --exit-code -- pubspec.lock
+  dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
+  git diff --exit-code -- pubspec.lock dev/tools/mascot_favicon/pubspec.lock
 } > /tmp/release_check_lock.log 2>&1; then
   pass "tracked workspace lockfile is current"
 else

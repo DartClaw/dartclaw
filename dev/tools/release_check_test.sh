@@ -11,8 +11,16 @@ if ! git -C "$ROOT_DIR" ls-files --error-unmatch pubspec.lock >/dev/null 2>&1; t
   echo "root workspace pubspec.lock must be tracked" >&2
   exit 1
 fi
+if ! git -C "$ROOT_DIR" ls-files --error-unmatch dev/tools/mascot_favicon/pubspec.lock >/dev/null 2>&1; then
+  echo "mascot favicon pubspec.lock must be tracked" >&2
+  exit 1
+fi
 if ! grep -Fq 'dart pub get --enforce-lockfile' "$ROOT_DIR/.github/workflows/ci.yml"; then
   echo "CI must enforce the tracked workspace lockfile" >&2
+  exit 1
+fi
+if ! grep -Fq 'dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile' "$ROOT_DIR/.github/workflows/ci.yml"; then
+  echo "CI must install the mascot favicon tool dependencies" >&2
   exit 1
 fi
 if ! grep -Eq '^for exported_dir in .* dev/testing/evidence; do$' "$ROOT_DIR/dev/tools/release_check.sh"; then
@@ -22,8 +30,10 @@ fi
 for release_lock_contract in \
   'section "3. Dependency lock"' \
   'git ls-files --error-unmatch pubspec.lock' \
+  'git ls-files --error-unmatch dev/tools/mascot_favicon/pubspec.lock' \
   'dart pub get --enforce-lockfile' \
-  'git diff --exit-code -- pubspec.lock'; do
+  'dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile' \
+  'git diff --exit-code -- pubspec.lock dev/tools/mascot_favicon/pubspec.lock'; do
   if ! grep -Fq "$release_lock_contract" "$ROOT_DIR/dev/tools/release_check.sh"; then
     echo "release check must enforce the tracked workspace lockfile: $release_lock_contract" >&2
     exit 1

@@ -2,6 +2,21 @@ import 'package:shelf/shelf.dart';
 
 import 'version.dart';
 
+/// Routes the current release's versioned static namespace to [handler].
+///
+/// Unversioned paths remain available for compatibility. A different version
+/// stays a miss so browsers cannot combine assets from two releases.
+Handler createVersionedStaticHandler(Handler handler) {
+  return (Request request) {
+    final segments = request.url.pathSegments;
+    final versionSegment = 'v$dartclawVersion';
+    if (segments.isNotEmpty && segments.first == versionSegment) {
+      return handler(request.change(path: versionSegment));
+    }
+    return handler(request);
+  };
+}
+
 /// Serves static assets compiled into the binary.
 Handler createEmbeddedStaticHandler(Map<String, String> assets, Map<String, List<int>> binaryAssets) {
   return (Request request) {

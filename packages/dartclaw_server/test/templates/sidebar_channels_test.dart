@@ -55,7 +55,6 @@ void main() {
         expect(html, contains('class="identicon" aria-hidden="true" data-identicon-id="$id"'));
       }
       expect(html, isNot(contains('data-icon="message-circle"')));
-      expect(html, isNot(contains('data-icon="archive"')));
       expect(html, isNot(contains('data-icon="hash"')));
       expect(html, contains('class="provider-badge provider-badge-claude"'));
       expect(html, contains('class="sidebar-archive-list" hidden'));

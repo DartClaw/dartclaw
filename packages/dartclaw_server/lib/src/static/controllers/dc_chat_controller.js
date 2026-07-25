@@ -129,6 +129,7 @@ export default class DcChatController extends Stimulus.Controller {
         // looks active but always fails.
         button.disabled = !this.canCancel;
         button.type = 'button';
+        button.textContent = '';
         button.setAttribute('data-icon', 'square');
         button.setAttribute('aria-label', 'Stop');
         button.title = 'Stop';
@@ -136,6 +137,7 @@ export default class DcChatController extends Stimulus.Controller {
       } else {
         button.disabled = !textarea || (!textarea.value.trim() && this.attachments.length === 0 && this.references.length === 0);
         button.type = 'submit';
+        button.textContent = '';
         button.setAttribute('data-icon', 'arrow-up');
         button.setAttribute('aria-label', 'Send');
         button.title = 'Send';
@@ -574,6 +576,15 @@ export default class DcChatController extends Stimulus.Controller {
     const nextCursor = tokenStart + replacement.length;
     textarea.setSelectionRange(nextCursor, nextCursor);
     textarea.focus();
+  }
+
+  applySuggestion(event) {
+    const text = event.currentTarget?.dataset.text;
+    if (!text || !this.textarea) return;
+    const spacer = this.textarea.value.trim() ? '\n' : '';
+    this.textarea.value += spacer + text;
+    this.textarea.focus();
+    this.updateSendState();
   }
 
   closePalettes() {

@@ -326,7 +326,7 @@ class DartclawServer {
     final handler = _core.assetSource == AssetSource.embedded
         ? createEmbeddedStaticHandler(embeddedServerAssets, embeddedServerBinaryAssets)
         : _filesystemStaticHandler();
-    router.mount('/static/', handler);
+    router.mount('/static/', createVersionedStaticHandler(handler));
   }
 
   Handler _filesystemStaticHandler() {

@@ -4,10 +4,12 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 void main() {
-  final handler = createEmbeddedStaticHandler({
-    'static/tokens.css': ':root { --color: blue; }',
-    'static/app.js': 'console.log("embedded");',
-  }, const {});
+  final handler = createVersionedStaticHandler(
+    createEmbeddedStaticHandler({
+      'static/tokens.css': ':root { --color: blue; }',
+      'static/app.js': 'console.log("embedded");',
+    }, const {}),
+  );
 
   test('serves embedded bytes with revalidation and version-keyed cache headers', () async {
     final response = await handler(Request('GET', Uri.parse('http://localhost/tokens.css')));
@@ -25,6 +27,16 @@ void main() {
 
     expect(missing.statusCode, 404);
     expect(traversal.statusCode, 404);
+  });
+
+  test('serves the current release asset namespace', () async {
+    final response = await handler(Request('GET', Uri.parse('http://localhost/v$dartclawVersion/tokens.css')));
+
+    expect(response.statusCode, 200);
+    expect(await response.readAsString(), ':root { --color: blue; }');
+
+    final staleVersion = await handler(Request('GET', Uri.parse('http://localhost/v0.0.0/tokens.css')));
+    expect(staleVersion.statusCode, 404);
   });
 
   test('serves embedded PNG bytes without text encoding', () async {

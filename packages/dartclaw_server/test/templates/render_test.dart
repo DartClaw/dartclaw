@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_server/src/templates/chat.dart' show richInputHtmlFromMetadataMap;
 import 'package:dartclaw_server/src/templates/loader.dart' as server;
+import 'package:dartclaw_server/src/version.dart';
 import 'package:test/test.dart';
 import 'package:trellis/trellis.dart';
 
@@ -190,6 +191,7 @@ void main() {
         'title': '<script>xss</script>',
         'body': '<p>Hello</p>',
         'appName': 'DartClaw',
+        'assetPrefix': '/static/v$dartclawVersion',
         'scriptsHtml': '<script defer="defer" src="/static/extra-page.js"></script>',
       });
       _expectAll(html, [
@@ -198,13 +200,13 @@ void main() {
         'htmx.org',
         'marked',
         'purify.min.js',
-        '/static/tokens.css',
-        '/static/app-tokens.css',
-        '/static/design-system.css',
-        '/static/app.css',
-        '/static/mascot-favicon-32.png',
-        '/static/mascot-favicon-16.png',
-        '/static/controllers/index.js',
+        '/static/v$dartclawVersion/tokens.css',
+        '/static/v$dartclawVersion/app-tokens.css',
+        '/static/v$dartclawVersion/design-system.css',
+        '/static/v$dartclawVersion/app.css',
+        '/static/v$dartclawVersion/mascot-favicon-32.png',
+        '/static/v$dartclawVersion/mascot-favicon-16.png',
+        '/static/v$dartclawVersion/controllers/index.js',
         '/static/extra-page.js',
       ]);
       _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js', 'href="data:,"']);
@@ -336,14 +338,10 @@ void main() {
         'data-icon="new-session"',
         '>New Chat</button>',
         'data-icon="x"',
+        'data-icon="archive"',
         'data-icon="chevron-down"',
       ]);
-      expect(
-        providers,
-        isNot(
-          anyOf(contains('data-icon="hash"'), contains('data-icon="message-circle"'), contains('data-icon="archive"')),
-        ),
-      );
+      expect(providers, isNot(anyOf(contains('data-icon="hash"'), contains('data-icon="message-circle"'))));
 
       final entries = await engine.renderFileFragment(
         'sidebar',
@@ -374,6 +372,8 @@ void main() {
         'Research',
         'data-session-archive="true"',
         'data-session-delete="true"',
+        'class="session-action session-archive"',
+        'class="delete-btn session-delete"',
         'aria-label="Archive chat"',
         'aria-label="Delete session"',
       ]);
@@ -721,12 +721,14 @@ void main() {
         'composer-palette card card-glass',
         'composer-reference-palette card card-glass',
         'class="composer-toolbar"',
+        'class="composer-hints"',
+        'data-action="dc-chat#applySuggestion"',
+        'Ctrl/⌘',
         'class="composer-meta"',
         'btn btn-primary btn-icon composer-send',
         'data-icon="arrow-up" aria-label="Send"',
       ]);
       expect(area, isNot(contains('composer-row')));
-      expect(area, isNot(contains('composer-suggestions')));
       expect(area, isNot(contains('sse-container')));
 
       final response = await engine.renderFileFragment(

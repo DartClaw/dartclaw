@@ -2,31 +2,35 @@
 <html lang="en" data-theme="">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/mascot-favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/mascot-favicon-16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/mascot-favicon-32.png"
+        tl:attr="href=${assetPrefix} + '/mascot-favicon-32.png'">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/mascot-favicon-16.png"
+        tl:attr="href=${assetPrefix} + '/mascot-favicon-16.png'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title tl:text="${title} + ' - ' + ${appName}">DartClaw</title>
   <script>(function(){var t=localStorage.getItem('dartclaw-theme');if(t==='light')document.documentElement.dataset.theme='light';})()</script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&amp;display=swap"
         rel="stylesheet">
-  <link rel="stylesheet" href="/static/tokens.css">
-  <link rel="stylesheet" href="/static/app-tokens.css">
-  <link rel="stylesheet" href="/static/design-system.css">
-  <link rel="stylesheet" href="/static/app.css">
-  <link rel="stylesheet" href="/static/icons.css">
-  <link rel="stylesheet" href="/static/hljs-catppuccin-mocha.css" id="hljs-theme">
+  <link rel="stylesheet" href="/static/tokens.css" tl:attr="href=${assetPrefix} + '/tokens.css'">
+  <link rel="stylesheet" href="/static/app-tokens.css" tl:attr="href=${assetPrefix} + '/app-tokens.css'">
+  <link rel="stylesheet" href="/static/design-system.css" tl:attr="href=${assetPrefix} + '/design-system.css'">
+  <link rel="stylesheet" href="/static/app.css" tl:attr="href=${assetPrefix} + '/app.css'">
+  <link rel="stylesheet" href="/static/icons.css" tl:attr="href=${assetPrefix} + '/icons.css'">
+  <link rel="stylesheet" href="/static/hljs-catppuccin-mocha.css" id="hljs-theme"
+        tl:attr="href=${assetPrefix} + '/hljs-catppuccin-mocha.css'">
   <script defer="defer" src="https://unpkg.com/htmx.org@2.0.8/dist/htmx.min.js"
           integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz"
           crossorigin="anonymous"></script>
-  <script defer="defer" src="/static/sse.js"></script>
+  <script defer="defer" src="/static/sse.js" tl:attr="src=${assetPrefix} + '/sse.js'"></script>
   <script defer="defer" src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"
           integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+"
           crossorigin="anonymous"></script>
-  <script defer="defer" src="/static/hljs.min.js"></script>
-  <script defer="defer" src="/static/hljs-dart.min.js"></script>
-  <script defer="defer" src="/static/purify.min.js"></script>
-  <script defer="defer" src="/static/stimulus.min.js"></script>
-  <script type="module" src="/static/controllers/index.js"></script>
+  <script defer="defer" src="/static/hljs.min.js" tl:attr="src=${assetPrefix} + '/hljs.min.js'"></script>
+  <script defer="defer" src="/static/hljs-dart.min.js" tl:attr="src=${assetPrefix} + '/hljs-dart.min.js'"></script>
+  <script defer="defer" src="/static/purify.min.js" tl:attr="src=${assetPrefix} + '/purify.min.js'"></script>
+  <script defer="defer" src="/static/stimulus.min.js" tl:attr="src=${assetPrefix} + '/stimulus.min.js'"></script>
+  <script type="module" src="/static/controllers/index.js"
+          tl:attr="src=${assetPrefix} + '/controllers/index.js'"></script>
 </head>
 <body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast">
 <tl:block tl:utext="${body}"></tl:block>

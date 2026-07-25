@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../version.dart';
 import 'loader.dart';
 
 const _defaultLayoutScripts = <String>[];
@@ -33,6 +34,7 @@ String layoutTemplate({
     'title': title,
     'body': body,
     'appName': appName,
+    'assetPrefix': '/static/v$dartclawVersion',
     'scriptsHtml': scriptsHtml,
   });
 }

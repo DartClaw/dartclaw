@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web UI assets no longer mix across release revisions** – versioned static URLs force browsers off previously cached typography and controller files; sidebar empty/archive states and chat composer affordances retain their intended styling and layout.
 - **Mobile drawer close controls are visible and accessible** – the open drawer now exposes its own × control, synchronizes `aria-expanded`, and removes the inactive backdrop from keyboard and assistive-technology navigation.
 - **Parallel workflow CLI progress no longer retains settled members** – live status lines retire terminal tasks promptly while accepted-token totals remain authoritative across retries.
 - **Outbound MCP HTTP transport allows literal loopback hosts safely** – `localhost`, `127.x.x.x`, and `[::1]` may use plain HTTP for local MCP servers; other hosts remain HTTPS-only, DNS aliases do not bypass the rule, and credential-bearing cleartext loopback connections emit a warning.

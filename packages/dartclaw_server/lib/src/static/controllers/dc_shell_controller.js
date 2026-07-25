@@ -170,7 +170,7 @@ export default class DcShellController extends Stimulus.Controller {
     if (saved === 'light') {
       document.documentElement.dataset.theme = 'light';
       const link = document.getElementById('hljs-theme');
-      if (link) link.href = '/static/hljs-catppuccin-latte.css';
+      if (link) link.href = new URL('hljs-catppuccin-latte.css', link.href).href;
     }
 
     const button = document.querySelector('.theme-toggle');
@@ -183,7 +183,8 @@ export default class DcShellController extends Stimulus.Controller {
       localStorage.setItem('dartclaw-theme', next || 'dark');
       const link = document.getElementById('hljs-theme');
       if (link) {
-        link.href = next === 'light' ? '/static/hljs-catppuccin-latte.css' : '/static/hljs-catppuccin-mocha.css';
+        const stylesheet = next === 'light' ? 'hljs-catppuccin-latte.css' : 'hljs-catppuccin-mocha.css';
+        link.href = new URL(stylesheet, link.href).href;
       }
     });
   }

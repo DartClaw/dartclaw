@@ -100,8 +100,8 @@
       <span tl:if="${entry.provider}" class="provider-badge"
         tl:classappend="'provider-badge-' + ${entry.provider}"
         tl:text="${entry.providerLabel}">Claude</span></a>
-    <button class="session-delete" data-session-archive="true"
-      tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Archive chat"></button>
+    <button class="session-action session-archive" data-session-archive="true"
+      tl:attr="data-session-id=${entry.id},data-icon=${'archive'}" aria-label="Archive chat"></button>
   </div>
 
   <div tl:if="${hasArchivedEntries}" class="sidebar-archive-section"
@@ -122,7 +122,7 @@
           <span tl:if="${entry.provider}" class="provider-badge"
             tl:classappend="'provider-badge-' + ${entry.provider}"
             tl:text="${entry.providerLabel}">Claude</span></a>
-        <button class="session-delete" data-session-delete="true"
+        <button class="delete-btn session-delete" data-session-delete="true"
           tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Delete session"></button>
       </div>
     </div>

@@ -289,6 +289,14 @@ void main() {
       expect(designSystemCss, contains('.chip-remove { width: 44px; height: 44px; }'));
     });
 
+    test('composer suggestions restore the message affordances', () {
+      final chatSource = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
+      final appCss = File(componentsCssPath).readAsStringSync();
+
+      expect(chatSource, contains('applySuggestion(event)'));
+      expect(appCss, contains('.composer-hints'));
+    });
+
     test('pairing expiry uses the canonical clock icon', () {
       final template = File('$baseDir/../templates/whatsapp_pairing.html').readAsStringSync();
 
@@ -360,8 +368,8 @@ void main() {
 
       expect(css, contains('.session-item { padding: 0; }'));
       expect(css, contains('.session-item-link,'));
-      expect(css, contains('.session-item .session-delete {\n    min-height: 48px;'));
-      expect(css, contains('.session-item .session-delete { min-width: 48px; }'));
+      expect(css, contains('.session-item .session-action,\n  .session-item .session-delete {\n    min-height: 48px;'));
+      expect(css, contains('.session-item :is(.session-action, .session-delete) {\n    min-width: 48px;'));
     });
   });
 

@@ -34,7 +34,7 @@ The interface has three main areas:
 - **Workflow chat commands**: Web chat supports `/workflow list` and `/workflow run <name> VAR=value` without creating a normal agent turn
 
 **Chat**
-- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the circular send button. During streaming the button changes to stop.
+- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. During streaming the button changes to stop.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
 - **Command palette**: Type `/` or use the command button to discover available slash commands. Availability is filtered by session type and request permissions.

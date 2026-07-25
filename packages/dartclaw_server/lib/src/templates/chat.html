@@ -75,6 +75,16 @@
       <div class="composer-toolbar">
         <button type="button" class="btn btn-ghost btn-icon" data-action="dc-chat#openCommandPalette"
                 aria-label="Open commands" title="Commands">/</button>
+        <div class="composer-hints" aria-label="Composer shortcuts and suggestions">
+          <span><kbd>/</kbd> commands</span>
+          <span><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> send</span>
+          <button type="button" class="composer-hint-action" data-action="dc-chat#applySuggestion"
+                  data-text="/workflow list">/workflow list</button>
+          <button type="button" class="composer-hint-action" data-action="dc-chat#applySuggestion"
+                  data-text="Summarize this session">Summarize</button>
+          <button type="button" class="composer-hint-action" data-action="dc-chat#applySuggestion"
+                  data-text="What changed since the last turn?">What's changed?</button>
+        </div>
         <div class="composer-meta">
           <button id="send-btn" class="btn btn-primary btn-icon composer-send" type="submit"
                   data-icon="arrow-up" aria-label="Send" title="Send"

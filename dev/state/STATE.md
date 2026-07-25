@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-24 17:31 CEST
+Last Updated: 2026-07-25 11:02 CEST
 
 ### Implemented Features (through 0.22)
 
@@ -25,13 +25,13 @@ Last Updated: 2026-07-24 17:31 CEST
 
 ## Current Phase
 
-**0.22 – Afterglow Design-System Overhaul: Release-ready, awaiting tag.**
+**0.22.1 – Design-System Refinement & Web UI Polish: PRD drafted, not yet planned.**
 
-**Status**: Implementation, review, and release prep complete on `feat/0.22`; awaiting squash-merge and `v0.22.0` tag.
+**Status**: Draft PRD in the private repo (`docs/specs/0.22.1/`). Next step: `/andthen:plan` on that directory.
 
-**Active milestone**: 0.22 – Afterglow Design-System Overhaul. All 14 stories implemented and verified; transient implementation specs closed into the private canonical PRD and removed before merge.
+**Active milestone**: 0.22.1 – Design-System Refinement & Web UI Polish. Opened 2026-07-25 after a post-release audit of `v0.22.0` (23 surfaces, 92 screenshots, both themes) found 232 verified defects whose root causes sit in the design-system canon rather than in the app: `.sidebar`/`.topbar`/`.card` and the end stop of the body ground gradient all resolve to `--bg-mantle` (card-vs-ground contrast 1.07:1, below JND); card colour is entirely `:hover`-gated; three of seven type tiers sit inside a 2px band and absorb ~90% of declarations; canon ships no form, tab or dialog primitives while sanctioning `window.confirm()`; and one 900px container serves prose and data alike. ~13 stories, all CSS/template/controller, zero backend surface. Sequenced before 0.24, whose Phase-0 conversation components this release changes by construction.
 
-**Previous**: 0.21 – Windows Support & Cross-Platform Hardening (tagged `v0.21.0` on 2026-07-18). 0.20.1 – Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11).
+**Previous**: 0.22 – Afterglow Design-System Overhaul (tagged `v0.22.0` on 2026-07-25). 0.21 – Windows Support & Cross-Platform Hardening (tagged `v0.21.0` on 2026-07-18). 0.20.1 – Embedded Binary Assets (tagged `v0.20.1` on 2026-07-11).
 
 ## Active Stories
 

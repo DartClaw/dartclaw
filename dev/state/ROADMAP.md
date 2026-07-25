@@ -4,11 +4,17 @@
 
 ## Active Milestone
 
-### 0.22 — Afterglow Design-System Overhaul
+### 0.22.1 — Design-System Refinement & Web UI Polish
 
-**Status: Release-ready on `feat/0.22`; awaiting squash-merge and `v0.22.0` tag.** Full Web UI adoption of the canonical
-"Afterglow" design system plus the drift-checked `design-system.css`/`app.css` split. All 14 stories are complete and
-the final implementation review passed.
+**Status: Draft PRD; not yet planned.** Point release opened 2026-07-25 after a post-release audit of `v0.22.0`
+(23 surfaces, 92 screenshots, both themes) found 232 verified defects whose root causes are in the design-system canon
+itself: `.sidebar`/`.topbar`/`.card` and the end stop of the body ground gradient all resolve to `--bg-mantle`
+(card-vs-ground contrast 1.07:1), card colour is entirely `:hover`-gated, three of seven type tiers sit inside a 2px
+band, and canon ships no form, tab or dialog primitives while sanctioning `window.confirm()`. Scope: surface/depth
+revision, type-scale rationalization + composite type layer, a `--container-wide` tier, form/tab/dialog primitives,
+native-dialog eradication, a 64-issue glitch sweep, and optional local vendoring of the three remaining CDN runtime
+dependencies. ~13 stories, zero backend surface. Sequenced before 0.24, whose Phase-0 chat components this release
+changes by construction.
 
 ## Planned
 
@@ -18,7 +24,10 @@ ADR-045 (Accepted 2026-07-24): `DatabaseBackend` abstraction + versioned in-hous
 
 ### 0.24 — Chat & Session Experience
 
-Best-in-class Web chat + session-management control-plane on the Afterglow system — the app-track flagship. Sequenced after 0.22 (renumbered from 0.23 on 2026-07-24).
+Best-in-class Web chat + session-management control-plane on the Afterglow system — the app-track flagship. Sequenced
+after 0.22 (renumbered from 0.23 on 2026-07-24). **Hard prerequisite: 0.22.1** — its canon revision changes the
+Phase-0 conversation components (`.composer`, `.tool-call`, `.approval-card`, `.notif-item`, `.palette-item`) this
+milestone builds on (added 2026-07-25).
 
 ### 0.25 — Workflow Track: DSL v2
 
@@ -29,6 +38,13 @@ Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.22 — Afterglow Design-System Overhaul ✅
+
+Tagged `v0.22.0` on 2026-07-25. Full Web UI adoption of the canonical "Afterglow" design system plus the drift-checked
+`design-system.css`/`app.css` split. All 14 stories complete; final implementation review passed. Its structural
+acceptance criteria hold (zero inline styles, zero template-local `<style>` blocks, tokenized typography) — the
+refinement follow-up in 0.22.1 addresses canon-level quality, not 0.22 execution. See `CHANGELOG.md` for details.
 
 ### 0.21 — Windows Support & Cross-Platform Hardening ✅
 

@@ -324,9 +324,9 @@ class DartclawServer {
 
   void _mountStaticRoutes(Router router) {
     final handler = _core.assetSource == AssetSource.embedded
-        ? createEmbeddedStaticHandler(embeddedServerAssets)
+        ? createEmbeddedStaticHandler(embeddedServerAssets, embeddedServerBinaryAssets)
         : _filesystemStaticHandler();
-    router.mount('/static/', handler);
+    router.mount('/static/', createVersionedStaticHandler(handler));
   }
 
   Handler _filesystemStaticHandler() {
@@ -339,7 +339,7 @@ class DartclawServer {
       }
 
       final headers = Map<String, String>.from(response.headers);
-      headers['Cache-Control'] = 'public, max-age=86400';
+      headers['Cache-Control'] = 'no-cache';
       return response.change(headers: headers);
     };
   }

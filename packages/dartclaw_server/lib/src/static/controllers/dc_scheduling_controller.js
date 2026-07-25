@@ -24,8 +24,8 @@ export default class DcSchedulingController extends Stimulus.Controller {
     const form = document.getElementById('job-form');
     if (!form) return;
 
-    const visible = form.style.display !== 'none';
-    form.style.display = visible ? 'none' : 'block';
+    const visible = !form.hidden;
+    form.hidden = visible;
     if (visible) return;
 
     form.querySelector('.form-title').textContent = 'Add New Job';
@@ -171,7 +171,7 @@ export default class DcSchedulingController extends Stimulus.Controller {
     saveBtn.textContent = 'Update Job';
     saveBtn.dataset.editName = jobName;
 
-    form.style.display = 'block';
+    form.hidden = false;
     form.querySelector('#job-schedule').focus();
     this.updateJobCronPreview();
   }
@@ -251,8 +251,8 @@ export default class DcSchedulingController extends Stimulus.Controller {
     const form = document.getElementById('task-form');
     if (!form) return;
 
-    const visible = form.style.display !== 'none';
-    form.style.display = visible ? 'none' : '';
+    const visible = !form.hidden;
+    form.hidden = visible;
     if (!visible) {
       this.resetTaskForm();
     }
@@ -370,7 +370,7 @@ export default class DcSchedulingController extends Stimulus.Controller {
       const taskDef = job.task || {};
 
       const form = document.getElementById('task-form');
-      if (form) form.style.display = '';
+      if (form) form.hidden = false;
       const titleEl = document.getElementById('task-form-title');
       if (titleEl) titleEl.textContent = 'Edit Scheduled Task';
       document.getElementById('task-edit-id').value = taskId;

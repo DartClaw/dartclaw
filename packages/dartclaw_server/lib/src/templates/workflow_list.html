@@ -1,8 +1,8 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
-    <div class="page-inner workflow-list-page" data-controller="dc-workflows">
+  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+    <div class="content-inner workflow-list-page" data-controller="dc-workflows">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
@@ -36,7 +36,7 @@
       <!-- Runs list -->
       <div class="workflow-runs-list" id="workflow-runs-list">
         <div tl:if="${hasRuns}">
-          <div tl:each="run : ${runs}" class="workflow-run-card card">
+          <div tl:each="run : ${runs}" class="workflow-run-card card print-in">
             <a tl:attr="href=${run.href},hx-get=${run.href}" class="workflow-run-link"
                hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
                hx-push-url="true" hx-select-oob="#topbar,#sidebar">
@@ -49,8 +49,8 @@
                 <span class="workflow-run-progress">
                   <span tl:text="${run.completedSteps}">3</span>/<span tl:text="${run.totalSteps}">6</span> steps
                 </span>
-                <div class="workflow-run-progress-bar-sm">
-                  <div class="workflow-run-progress-fill-sm"
+                <div class="meter workflow-run-meter">
+                  <div class="meter-fill"
                        tl:attr="style='width: ' + ${run.progressPercent} + '%'"></div>
                 </div>
                 <span class="workflow-run-time" tl:text="${run.startedAtDisplay}">2h ago</span>

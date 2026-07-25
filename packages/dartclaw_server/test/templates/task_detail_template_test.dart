@@ -42,6 +42,10 @@ void main() {
     expect(html, contains('data-task-start'));
     expect(html, contains('Start Task'));
     expect(html, contains('data-controller="dc-tasks"'));
+    expect(html, contains('No artifacts yet'));
+    expect(html, isNot(contains('\ud83d\uddc3')));
+    expect(html, isNot(contains('class="claw-mark"')));
+    expect(html, contains('\ud83d\udcac'));
   });
 
   test('renders session turn status with tasks controller mount', () {
@@ -66,6 +70,42 @@ void main() {
     expect(html, contains('data-turn-cancel'));
     expect(html, contains('data-session-id="session-123"'));
     expect(html, contains('data-turn-id="turn-456"'));
+  });
+
+  test('renders session token usage as canonical metric cards', () {
+    final html = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'Session',
+      messageCount: 2,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      inputTokens: 1500,
+      outputTokens: 500,
+    );
+
+    expect(html, contains('class="content-area print-in"'));
+    expect(html, contains('class="content-inner"'));
+    expect(html, contains('card-metric--info'));
+    expect(html, contains('card-metric--accent'));
+    expect(html, contains('metric-label">Total</div>'));
+    expect(html, isNot(contains('token-stat')));
+  });
+
+  test('scopes the Codex fresh-input tooltip to the Input metric label', () {
+    final html = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'Session',
+      messageCount: 2,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      provider: 'codex',
+      inputTokens: 1500,
+      outputTokens: 500,
+    );
+    const tooltip = 'Fresh input tokens only. Cached input is tracked separately below.';
+
+    expect(html, contains('class="metric-label" title="$tooltip">Input (fresh)</div>'));
+    expect(RegExp(RegExp.escape(tooltip)).allMatches(html), hasLength(1));
   });
 
   test('renders provider badge in the task meta grid', () {
@@ -114,6 +154,71 @@ void main() {
 
     expect(html, contains('task-diff-file'));
     expect(html, contains('lib/main.dart'));
+    expect(html, contains('terminal-frame'));
+    expect(html, contains('terminal-frame-dots'));
+    expect(html, contains('diff.json'));
+  });
+
+  test('frames raw artifacts with their filename title', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Data task',
+        'type': 'coding',
+        'status': 'review',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [
+        {'name': 'result.json', 'kind': 'data', 'content': '{"ok":true}'},
+      ],
+    );
+
+    expect(html, contains('terminal-frame-body'));
+    expect(html, contains('task-artifact-raw'));
+    expect(html, contains('result.json'));
+  });
+
+  test('uses the artifact kind when a framed artifact has no filename', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Untitled artifact',
+        'type': 'coding',
+        'status': 'review',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [
+        {'kind': 'data', 'content': '{"ok":true}'},
+      ],
+    );
+
+    expect(html, contains('>Data<'));
+  });
+
+  test('uses hidden for the initially collapsed push-back comment', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Review task',
+        'type': 'coding',
+        'status': 'review',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+    );
+
+    expect(html, contains('class="pushback-comment" hidden'));
+    expect(html, isNot(contains('pushback-comment" style=')));
+    expect(html, contains('data-action="push_back"'));
   });
 
   test('renders token summary card when traceCount > 0', () {
@@ -227,6 +332,28 @@ void main() {
     );
 
     expect(html, contains(sentinel));
+  });
+
+  test('renders a scan bar and one activity claw without a token budget', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Running task',
+        'type': 'coding',
+        'status': 'running',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+      timelineHtml: '<div class="task-timeline"></div>',
+    );
+
+    expect(html, contains('class="scan-bar"'));
+    expect(html, isNot(contains('budget-bar-fill')));
+    expect(RegExp('class="claw-loader"').allMatches(html), hasLength(1));
+    expect(html, isNot(contains('class="claw-mark"')));
   });
 
   test('renders bound channels section when bindings are present', () {

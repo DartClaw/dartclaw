@@ -4,7 +4,7 @@
 /// Form submission is handled by the active Stimulus project/task controller.
 String addProjectDialogHtml() {
   return '''
-<dialog id="add-project-dialog" class="task-dialog">
+<dialog id="add-project-dialog" class="task-dialog card card-glass">
   <form id="add-project-form" method="dialog">
     <div class="task-dialog-header">
       <h2>Add Project</h2>

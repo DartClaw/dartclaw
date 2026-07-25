@@ -171,14 +171,31 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
   // is a currently-running step of this run, so it needs no run-id scoping.
   final tokenSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) {
     if (jsonOutput) return;
-    final key = tokenProgressKey(event.taskId);
+    final key = taskProgressKey(event.taskId);
     if (key != null) printer.stepTokens(key, event.cumulativeTokens);
   });
+
+  // Task ids that settled while the running-branch task fetch below was still
+  // in flight – their deferred stepRunning must not resurrect a live entry.
+  final settledTaskIds = <String>{};
 
   final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) {
     final runId = activeRunId;
     if (runId == null) return;
+    if (taskSettlesLiveEntry(event.newStatus)) {
+      // Parallel-group members settle long before the group barrier fires
+      // WorkflowStepCompletedEvent – retire the live entry now so the live
+      // line counts actually-running tasks. Keys are task-scoped, so a
+      // foreign run's task id can never match an entry; no run scoping needed.
+      settledTaskIds.add(event.taskId);
+      final key = taskProgressKey(event.taskId);
+      if (key != null) printer.stepSettled(key, countTokens: event.newStatus == TaskStatus.accepted);
+      return;
+    }
     if (event.newStatus == TaskStatus.running || event.newStatus == TaskStatus.review) {
+      // A fresh running supersedes an earlier settle (failed/interrupted tasks
+      // re-queue on retry under the same id).
+      if (event.newStatus == TaskStatus.running) settledTaskIds.remove(event.taskId);
       taskService.get(event.taskId).then((task) {
         if (task == null || task.workflowRunId != runId) return;
         final stepIndex = task.stepIndex;
@@ -206,6 +223,9 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
           return;
         }
         if (event.newStatus == TaskStatus.running) {
+          // Settled while this fetch was in flight – the live entry is gone
+          // and must stay gone.
+          if (settledTaskIds.contains(event.taskId)) return;
           printer.stepRunning(
             stepIndex,
             stepId,
@@ -323,16 +343,23 @@ String progressStartKey({required int stepIndex, String? taskId, String? display
   return 'step:$stepIndex';
 }
 
-/// Key for matching a live token tick to its running step. A token event
-/// carries only a taskId, which always dominates [progressStartKey]'s
-/// step-index path — so this returns that `task:<id>` key directly and yields
-/// null for a blank taskId, rather than letting it collapse to `step:0` and
-/// mis-attribute the tick to whichever step holds that key.
-String? tokenProgressKey(String? taskId) {
+/// Key for matching a task-scoped event (live token tick, terminal settle) to
+/// its running step. Such events carry only a taskId, which always dominates
+/// [progressStartKey]'s step-index path – so this returns that `task:<id>` key
+/// directly and yields null for a blank taskId, rather than letting it
+/// collapse to `step:0` and mis-attribute the event to whichever step holds
+/// that key.
+String? taskProgressKey(String? taskId) {
   final normalized = taskId?.trim();
   if (normalized == null || normalized.isEmpty) return null;
   return progressStartKey(stepIndex: 0, taskId: normalized);
 }
+
+/// Whether [status] means the task is no longer executing, so its live-line
+/// entry must be retired immediately. Terminal states plus `interrupted`
+/// (execution stopped, resumable) qualify; `review` does not – workflow tasks
+/// auto-accept, so review resolves within the same settle.
+bool taskSettlesLiveEntry(TaskStatus status) => status.terminal || status == TaskStatus.interrupted;
 
 /// Reads a task's `displayScope` config value, normalized to null when blank.
 String? taskDisplayScope(Task task) {

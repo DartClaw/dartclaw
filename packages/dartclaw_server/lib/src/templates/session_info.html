@@ -1,9 +1,9 @@
 <div tl:fragment="sessionInfo" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="info-content" data-controller="dc-tasks">
+  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in" data-controller="dc-tasks">
     <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-    <div class="info-inner">
+    <div class="content-inner">
 
       <div>
         <div class="info-title" tl:text="${title}">Session Title</div>
@@ -12,21 +12,8 @@
 
       <div>
         <h2 class="section-label">Token Usage</h2>
-        <div class="token-grid">
-          <div class="token-stat">
-            <div class="token-stat-label" tl:attr="title=${inputTooltip}" tl:text="${inputLabel}">Input</div>
-            <div class="token-stat-value" tl:text="${inputStr}">0</div>
-          </div>
-          <div class="token-stat">
-            <div class="token-stat-label">Output</div>
-            <div class="token-stat-value" tl:text="${outputStr}">0</div>
-          </div>
-          <div class="token-stat total">
-            <div>
-              <div class="token-stat-label">Total</div>
-              <div class="token-stat-value" tl:text="${totalStr}">0</div>
-            </div>
-          </div>
+        <div class="well">
+          <div class="token-grid" tl:utext="${tokenMetricCardsHtml}">token metrics</div>
         </div>
         <div class="meta-row">
           <span class="meta-label">Cost</span>

@@ -458,12 +458,23 @@ class WorkflowRunCommand extends Command<void> {
         }
         switch (event['type']) {
           case 'task_status_changed':
+            final newStatus = event['newStatus']?.toString();
+            final settledStatus = newStatus == null ? null : TaskStatus.values.asNameMap()[newStatus];
+            if (settledStatus != null && taskSettlesLiveEntry(settledStatus)) {
+              // A parallel-group member settles long before the barrier emits
+              // workflow_step_completed – retire its live entry now so the
+              // live line counts actually-running tasks.
+              if (!jsonOutput) {
+                final key = taskProgressKey(event['taskId']?.toString());
+                if (key != null) printer.stepSettled(key, countTokens: settledStatus == TaskStatus.accepted);
+              }
+              break;
+            }
             final stepIndex = event['stepIndex'] as int?;
             if (stepIndex == null || stepIndex >= definition.steps.length) {
               break;
             }
             final step = definition.steps[stepIndex];
-            final newStatus = event['newStatus']?.toString();
             final displayScope = _eventDisplayScope(event);
             final taskId = event['taskId']?.toString();
             if (newStatus == TaskStatus.running.name) {
@@ -536,7 +547,7 @@ class WorkflowRunCommand extends Command<void> {
             break;
           case 'workflow_cli_turn_progress':
             if (!jsonOutput) {
-              final key = tokenProgressKey(event['taskId']?.toString());
+              final key = taskProgressKey(event['taskId']?.toString());
               final cumulative = event['cumulativeTokens'] as int?;
               if (key != null && cumulative != null) {
                 printer.stepTokens(key, cumulative);

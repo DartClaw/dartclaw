@@ -106,6 +106,7 @@ String workflowDetailPageTemplate({
     s['statusIcon'] = switch (s['status']?.toString()) {
       'completed' => '&#x2713;',
       'running' => '&#x2022;',
+      'interrupted' => '!',
       'failed' || 'rejected' => '&#x2717;',
       'awaiting_approval' => '&#x25CF;',
       'queued' => '&#x25CB;',
@@ -174,6 +175,7 @@ String workflowDetailPageTemplate({
 /// Renders the step detail partial fragment for a workflow step.
 String workflowStepDetailFragment({
   required String? messagesHtml,
+  required String stepName,
   required List<Map<String, dynamic>> artifacts,
   required List<Map<String, dynamic>> inputs,
   required List<Map<String, dynamic>> outputKeys,
@@ -188,6 +190,7 @@ String workflowStepDetailFragment({
     context: {
       'hasSession': messagesHtml != null,
       'messagesHtml': messagesHtml,
+      'stepName': stepName,
       'noSessionText': 'No session started yet.',
       'hasArtifacts': artifacts.isNotEmpty,
       'artifacts': artifacts,

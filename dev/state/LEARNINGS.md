@@ -218,3 +218,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Green unit suites hide wiring gaps.** Tests injecting absolute paths/null deps prove units, not the product. Require ≥1 test driving the real composition root + path discovery.
 - **Bounded filesystem traversal must stream entries.** `Directory.list().toList()` defeats traversal budgets in large flat directories even if callers later cap result counts.
 - **Contract-changing stories need the full CI gate.** Retyping a parse/validation contract consumed cross-package requires workspace analyze + all-package tests + fitness.
+
+## Specs / Documentation
+
+- **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.

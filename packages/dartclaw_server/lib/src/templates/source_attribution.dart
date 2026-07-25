@@ -1,10 +1,7 @@
 import 'package:dartclaw_server/dartclaw_server.dart'
-    show CitationLayer, CitationPacket, CitationSourceResolver, CitationStatement, SourceRef;
+    show CitationLayer, CitationSourceResolver, CitationStatement, SourceRef;
 
-import 'layout.dart';
 import 'loader.dart';
-import 'sidebar.dart';
-import 'topbar.dart';
 
 final class _ResolvedSourceAttribution {
   final SourceRef? sourceRef;
@@ -55,24 +52,6 @@ Future<String> citationStatementHtml({
   );
 }
 
-/// Renders the full read-only research packet page.
-Future<String> researchPacketTemplate({
-  required CitationPacket packet,
-  required CitationSourceResolver resolver,
-  required SidebarData sidebarData,
-  required List<NavItem> navItems,
-  String bannerHtml = '',
-  String appName = 'DartClaw',
-}) async {
-  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final topbar = pageTopbarTemplate(title: 'Research Packet');
-  final context = await _buildResearchContext(packet, resolver, sidebar, topbar);
-  if (bannerHtml.isNotEmpty) context['bannerHtml'] = bannerHtml;
-
-  final body = templateLoader.trellis.render(templateLoader.source('research_packet'), context);
-  return layoutTemplate(title: 'Research Packet', body: body, appName: appName, scripts: standardShellScripts());
-}
-
 /// Renders a hub-style item fixture through the same shared attribution fragment.
 Future<String> hubItemAttributionFixture({
   required SourceRef sourceRef,
@@ -101,38 +80,6 @@ Future<String> timelineItemAttributionFixture({
   );
 }
 
-Future<Map<String, dynamic>> _buildResearchContext(
-  CitationPacket packet,
-  CitationSourceResolver resolver,
-  String sidebar,
-  String topbar,
-) async {
-  final statements = <String>[];
-  final markerBySourceKey = _markerBySourceKey(packet.sourceList);
-  for (final statement in packet.statements) {
-    statements.add(
-      await citationStatementHtml(statement: statement, resolver: resolver, markerBySourceKey: markerBySourceKey),
-    );
-  }
-
-  final sources = <String>[];
-  for (var i = 0; i < packet.sourceList.length; i++) {
-    sources.add(await _sourceListItemHtml(sourceRef: packet.sourceList[i], marker: i + 1, resolver: resolver));
-  }
-
-  return {
-    'sidebar': sidebar,
-    'topbar': topbar,
-    'hasNoSourcesFound': packet.noSourcesFound,
-    'hasStatements': statements.isNotEmpty,
-    'statementHtml': statements.join('\n'),
-    'hasSources': sources.isNotEmpty,
-    'sourceListHtml': sources.join('\n'),
-    'hasDegradedLayers': packet.degradedLayers.isNotEmpty,
-    'degradedLayers': packet.degradedLayers,
-  };
-}
-
 Future<List<_ResolvedSourceAttribution>> _statementAttributions(
   List<SourceRef> sourceRefs,
   CitationSourceResolver resolver,
@@ -152,33 +99,7 @@ Future<List<_ResolvedSourceAttribution>> _statementAttributions(
   return attributions;
 }
 
-Map<String, int> _markerBySourceKey(List<SourceRef> sourceList) => {
-  for (var i = 0; i < sourceList.length; i++) _sourceKey(sourceList[i]): i + 1,
-};
-
 String _sourceKey(SourceRef ref) => '${ref.layer.wireName}\u{1f}${ref.locator}';
-
-Future<String> _sourceListItemHtml({
-  required SourceRef sourceRef,
-  required int marker,
-  required CitationSourceResolver resolver,
-}) async {
-  final attributed = await resolver.resolves(sourceRef);
-  final attribution = _renderSourceAttribution(
-    _ResolvedSourceAttribution(sourceRef: sourceRef, attributed: attributed, marker: marker),
-  );
-  return _renderFragment(
-    fragment: 'sourceListItem',
-    context: {
-      'attributed': attributed,
-      'stateClass': attributed ? 'source-list-item--attributed' : 'source-list-item--unattributed',
-      'attributionHtml': attribution,
-      'sourceHref': attributed ? _sourceHref(sourceRef) : '',
-      'sourceLabel': sourceRef.label,
-      'locator': sourceRef.locator,
-    },
-  );
-}
 
 String _renderSourceAttribution(_ResolvedSourceAttribution attribution) {
   final sourceRef = attribution.sourceRef;

@@ -1,5 +1,6 @@
 import {
   apiQs,
+  applyIdenticons,
   closeAllCustomSelects,
   getApiToken,
   initCustomSelects,
@@ -42,6 +43,7 @@ export default class DcShellController extends Stimulus.Controller {
       this.connectGlobalEvents();
     }
     renderMarkdown();
+    applyIdenticons();
     scrollToBottom();
     this.applyTimelineAutoScroll();
   }
@@ -132,6 +134,7 @@ export default class DcShellController extends Stimulus.Controller {
     const source = event.detail && event.detail.elt;
     const isLoadEarlier = source && source.matches && source.matches('[data-load-earlier]');
     renderMarkdown();
+    applyIdenticons();
     if (!isLoadEarlier) {
       scrollToBottom();
     }
@@ -143,6 +146,7 @@ export default class DcShellController extends Stimulus.Controller {
 
   handleHistoryRestore() {
     renderMarkdown();
+    applyIdenticons();
     scrollToBottom();
     this.initializeShellUi();
     document.getElementById('main-content')?.focus({ preventScroll: true });
@@ -150,6 +154,7 @@ export default class DcShellController extends Stimulus.Controller {
 
   handleHistoryCacheMissLoad() {
     renderMarkdown();
+    applyIdenticons();
     scrollToBottom();
   }
 
@@ -165,7 +170,7 @@ export default class DcShellController extends Stimulus.Controller {
     if (saved === 'light') {
       document.documentElement.dataset.theme = 'light';
       const link = document.getElementById('hljs-theme');
-      if (link) link.href = '/static/hljs-catppuccin-latte.css';
+      if (link) link.href = new URL('hljs-catppuccin-latte.css', link.href).href;
     }
 
     const button = document.querySelector('.theme-toggle');
@@ -178,7 +183,8 @@ export default class DcShellController extends Stimulus.Controller {
       localStorage.setItem('dartclaw-theme', next || 'dark');
       const link = document.getElementById('hljs-theme');
       if (link) {
-        link.href = next === 'light' ? '/static/hljs-catppuccin-latte.css' : '/static/hljs-catppuccin-mocha.css';
+        const stylesheet = next === 'light' ? 'hljs-catppuccin-latte.css' : 'hljs-catppuccin-mocha.css';
+        link.href = new URL(stylesheet, link.href).href;
       }
     });
   }
@@ -202,6 +208,12 @@ export default class DcShellController extends Stimulus.Controller {
       scrim.addEventListener('click', () => this.setSidebarOpen(false));
     }
 
+    const sidebarClose = document.querySelector('.sidebar-close');
+    if (sidebarClose && !sidebarClose.dataset.sidebarInit) {
+      sidebarClose.dataset.sidebarInit = '1';
+      sidebarClose.addEventListener('click', () => this.setSidebarOpen(false));
+    }
+
     this.initArchiveCollapse();
     this.syncSidebarNavActiveState();
   }
@@ -210,9 +222,15 @@ export default class DcShellController extends Stimulus.Controller {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     sidebar.classList.toggle('open', open);
+    const scrim = document.querySelector('.sidebar-scrim');
+    if (scrim) {
+      scrim.setAttribute('aria-hidden', String(!open));
+      scrim.tabIndex = open ? 0 : -1;
+    }
     const menuToggle = document.querySelector('.menu-toggle');
     if (menuToggle) {
       menuToggle.setAttribute('aria-label', open ? 'Close sidebar' : 'Open sidebar');
+      menuToggle.setAttribute('aria-expanded', String(open));
       menuToggle.setAttribute('data-icon', open ? 'x' : 'menu');
     }
   }
@@ -228,7 +246,7 @@ export default class DcShellController extends Stimulus.Controller {
     const isCollapsed = section.classList.contains('force-expanded')
       ? false
       : localStorage.getItem(storageKey) !== 'false';
-    list.style.display = isCollapsed ? 'none' : '';
+    list.hidden = isCollapsed;
     toggle.setAttribute('aria-expanded', String(!isCollapsed));
     section.classList.toggle('expanded', !isCollapsed);
 
@@ -236,7 +254,7 @@ export default class DcShellController extends Stimulus.Controller {
     toggle.dataset.archiveInit = '1';
     toggle.addEventListener('click', () => {
       const wasExpanded = section.classList.contains('expanded');
-      list.style.display = wasExpanded ? 'none' : '';
+      list.hidden = wasExpanded;
       section.classList.toggle('expanded', !wasExpanded);
       toggle.setAttribute('aria-expanded', String(!wasExpanded));
       localStorage.setItem(storageKey, String(wasExpanded));
@@ -488,7 +506,7 @@ export default class DcShellController extends Stimulus.Controller {
     overlay.setAttribute('aria-live', 'assertive');
     overlay.innerHTML = `
       <div class="restart-overlay-content">
-        <div class="restart-spinner"></div>
+        <div class="claw-loader" aria-label="Server is restarting"><span></span><span></span><span></span></div>
         <h2>Server is restarting...</h2>
         <p id="restart-status">Waiting for server to come back online</p>
       </div>

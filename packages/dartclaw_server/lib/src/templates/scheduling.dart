@@ -105,6 +105,18 @@ String schedulingTemplate({
       text: heartbeatEnabled ? 'Active' : 'Disabled',
     ),
     'intervalDisplay': heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
+    'heartbeatMetricCardsHtml': [
+      metricCardTemplate(
+        color: 'info',
+        value: heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
+        label: 'Interval',
+      ),
+      metricCardTemplate(
+        color: heartbeatEnabled ? 'accent' : 'warning',
+        value: heartbeatEnabled ? 'Active' : 'Disabled',
+        label: 'Status',
+      ),
+    ].join('\n'),
     'heartbeatOn': heartbeatEnabled,
     'hasJobs': jobRows.isNotEmpty,
     'hasUserJobs': jobRows.any((j) => j['isSystem'] != true),

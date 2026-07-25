@@ -38,6 +38,7 @@ void main() {
       live.addStep('k', 'step');
       live.updateTokens('k', 5000);
       live.writePermanent('permanent');
+      live.settleStep('k', countTokens: true);
       live.completeStep('k', 5000);
       live.stop();
       expect(out, isEmpty);
@@ -103,6 +104,113 @@ void main() {
       final rendered = out.join();
       expect(rendered, contains('4K tokens'));
       expect(rendered, contains('7K total'));
+      live.stop();
+    });
+
+    test('settleStep retires a parallel member early without dropping its tokens from the total', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      live.addStep('b', 'step b');
+      live.updateTokens('a', 3000);
+      live.updateTokens('b', 4000);
+      out.clear();
+      live.settleStep('a', countTokens: true); // a's task settled; the group barrier has not fired yet
+      final rendered = out.join();
+      // Only b counts as running, but a's live-tick tokens stay in the total.
+      expect(rendered, isNot(contains('2 steps running')));
+      expect(rendered, contains('step b'));
+      expect(rendered, contains('7K total'));
+      live.stop();
+    });
+
+    test('completeStep after settleStep reconciles to the authoritative count without double-counting', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      live.addStep('b', 'step b');
+      live.updateTokens('a', 3000);
+      live.updateTokens('b', 4000);
+      live.settleStep('a', countTokens: true); // folds a's 3K live ticks
+      out.clear();
+      live.completeStep('a', 5000); // barrier fires with the authoritative count
+      final rendered = out.join();
+      // Total = authoritative 5K for a + 4K live for b – not 3K + 5K + 4K.
+      expect(rendered, contains('9K total'));
+      expect(rendered, isNot(contains('12K')));
+      live.stop();
+    });
+
+    test('an authoritative count below the folded live ticks never shrinks the total', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      live.addStep('b', 'step b');
+      live.updateTokens('a', 3000);
+      live.settleStep('a', countTokens: true);
+      out.clear();
+      live.completeStep('a', 0); // e.g. a barrier event with no usage attached
+      live.updateTokens('b', 1000);
+      expect(out.join(), contains('4K total'));
+      live.stop();
+    });
+
+    test('a re-settled key (same-id retry) folds only the delta above its prior record', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      live.addStep('b', 'step b');
+      live.updateTokens('a', 3000);
+      live.settleStep('a', countTokens: true); // attempt 1 settles: folds 3K
+      live.addStep('a', 'step a'); // retry re-queues the same task id
+      live.updateTokens('a', 5000); // cumulative ticks span attempts
+      live.settleStep('a', countTokens: true); // must fold only the 2K delta, not another 5K
+      out.clear();
+      live.completeStep('a', 6000); // barrier reconciles to the authoritative count
+      live.updateTokens('b', 1000);
+      final rendered = out.join();
+      expect(rendered, contains('7K total')); // 6K authoritative + 1K live for b
+      expect(rendered, isNot(contains('9K'))); // first fold must not survive (3K + 5K + 1K)
+      live.stop();
+    });
+
+    test('a non-counting settle (failed member) drops its ticks; the barrier count re-charges them', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      live.addStep('b', 'step b');
+      live.updateTokens('a', 3000);
+      live.updateTokens('b', 1000);
+      out.clear();
+      live.settleStep('a', countTokens: false); // failed attempt: no fold, no record
+      final rendered = out.join();
+      expect(rendered, contains('step b'));
+      expect(rendered, isNot(contains('4K'))); // a's ticks left the aggregate
+      // The retry's barrier completion carries the across-attempts count once.
+      out.clear();
+      live.completeStep('task:retry', 5000);
+      live.updateTokens('b', 2000);
+      expect(out.join(), contains('7K total')); // 5K accumulated + 2K live for b, no double count
+      live.stop();
+    });
+
+    test('removeStep after settleStep keeps the folded tokens in the total', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      live.addStep('b', 'step b');
+      live.updateTokens('a', 3000);
+      live.settleStep('a', countTokens: true);
+      out.clear();
+      live.removeStep('a'); // barrier reports the member failed/blocked (no token count)
+      live.updateTokens('b', 1000);
+      // a's live ticks were genuinely spent; the total retains them.
+      expect(out.join(), contains('4K total'));
+      live.stop();
+    });
+
+    test('settleStep for an unknown key is a no-op', () {
+      final live = build();
+      live.addStep('a', 'step a');
+      out.clear();
+      live.settleStep('other', countTokens: true);
+      // The active step is untouched; a later render still shows it running.
+      live.updateTokens('a', 2000);
+      expect(out.join(), contains('step a'));
       live.stop();
     });
 

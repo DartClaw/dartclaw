@@ -39,6 +39,9 @@
 | Atomic Write | Temp file + rename pattern preventing corruption on crash | safe write, transactional write | Storage |
 | Memory Chunk | Text snippet indexed in FTS5 search database. Fields: `textContent`, `source`, `category` | memory entry, indexed text | Memory system |
 | Search Index | FTS5-backed full-text search over MEMORY.md and daily logs. QMD hybrid search opt-in | search database | Search |
+| Database Backend | Pluggable database engine behind the storage layer (`DatabaseBackend`: `SqliteBackend` default, `PostgresBackend` opt-in; ADR-045). Always qualified as *database* backend — bare "backend" is a disfavored synonym for Provider (LLM) in the Configuration context | engine, database provider | Storage |
+| Full-Text Index | `FullTextIndex` abstraction over backend-native FTS (FTS5 `bm25()` / PostgreSQL `tsvector`). Contract carries the tenancy (`user_id`) dimension — the multi-user isolation mechanism (ADR-045, decided 2026-07-24) | FTS layer, search abstraction | Storage |
+| Migration Runner | Versioned, forward-only, fail-closed schema-migration engine; dialect-tagged SQL embedded as build-time constants; `schema_migrations` tracking table (ADR-045) | migrator, schema tool | Storage |
 
 ## Security & Guards
 

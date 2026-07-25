@@ -60,6 +60,10 @@ void main() {
       final body = await res.readAsString();
       expect(body, contains('sgnl://linkdevice'));
       expect(body, contains('Connect Signal'));
+      expect(body, contains('class="well pairing-section pairing-qr-section"'));
+      expect(body, contains('class="pairing-qr-frame"'));
+      expect(body, isNot(contains('style="')));
+      expect(body, isNot(contains('wa-')));
     });
 
     test('sidecar not reachable shows setup instructions', () async {
@@ -68,6 +72,9 @@ void main() {
       expect(res.statusCode, 200);
       final body = await res.readAsString();
       expect(body, contains('signal-cli Not Reachable'));
+      expect(body, contains('class="well-deep"'));
+      expect(body, isNot(contains('style="')));
+      expect(body, isNot(contains('wa-')));
     });
 
     test('status probe failure shows clean setup card without leaking the exception', () async {

@@ -14,7 +14,14 @@ function handleSettingsTabClick(event) {
 
 function activateSettingsTab(tabId) {
   document.querySelectorAll('.settings-tab').forEach((t) => {
-    t.classList.toggle('active', t.getAttribute('href') === '#' + tabId);
+    const active = t.getAttribute('href') === '#' + tabId;
+    t.classList.toggle('active', active);
+    if (active) {
+      t.setAttribute('aria-current', 'page');
+      t.scrollIntoView({block: 'nearest', inline: 'center'});
+    } else {
+      t.removeAttribute('aria-current');
+    }
   });
 
   const grid = document.querySelector('.settings-grid');
@@ -24,7 +31,7 @@ function activateSettingsTab(tabId) {
     card.style.display = card.dataset.tab === tabId ? '' : 'none';
   });
 
-  const main = document.querySelector('.page-content');
+  const main = document.querySelector('.content-area');
   if (main) main.scrollTop = 0;
 }
 
@@ -92,6 +99,54 @@ function setFieldValue(input, value) {
   }
 }
 
+function mutabilitySummaryText(mutabilities) {
+  if (mutabilities.length === 1) {
+    if (mutabilities[0] === 'live') return 'Changes apply live.';
+    if (mutabilities[0] === 'reloadable') return 'Changes reload without a server restart.';
+    return 'Changes apply after a server restart.';
+  }
+
+  var phrases = mutabilities.map(function (mutability) {
+    if (mutability === 'live') return 'live';
+    if (mutability === 'reloadable') return 'on reload';
+    return 'after a server restart';
+  });
+  var joined = phrases.length === 2
+    ? phrases.join(' or ')
+    : phrases.slice(0, -1).join(', ') + ', or ' + phrases[phrases.length - 1];
+  return 'Changes apply ' + joined + ', depending on the field.';
+}
+
+function updateMutabilitySummaries(meta) {
+  var fields = meta && meta.fields ? meta.fields : {};
+  document.querySelectorAll('.settings-form').forEach(function (form) {
+    var card = form.closest('[data-tab]');
+    var note = card && card.querySelector('[data-mutability-summary]');
+    if (!note) return;
+
+    var present = new Set();
+    form.querySelectorAll('[data-field]').forEach(function (group) {
+      var mutability = fields[group.dataset.field] && fields[group.dataset.field].mutable;
+      if (mutability === 'live' || mutability === 'reloadable' || mutability === 'restart') {
+        present.add(mutability);
+      }
+    });
+    var mutabilities = ['live', 'reloadable', 'restart'].filter(function (tier) { return present.has(tier); });
+    if (mutabilities.length === 0) return;
+
+    note.replaceChildren();
+    if (present.has('restart')) {
+      var icon = document.createElement('span');
+      icon.className = 'icon icon-triangle-alert';
+      icon.setAttribute('aria-hidden', 'true');
+      note.appendChild(icon);
+    }
+    note.appendChild(document.createTextNode(mutabilitySummaryText(mutabilities)));
+    note.classList.toggle('section-note-restart', present.has('restart'));
+    note.hidden = false;
+  });
+}
+
 function populateSettingsForm(config, meta) {
   var groups = document.querySelectorAll('.settings-form [data-field]');
   groups.forEach(function (group) {
@@ -125,28 +180,8 @@ function populateSettingsForm(config, meta) {
 
     input.disabled = false;
     input.placeholder = '';
-
-    // Mark restart-required fields with a visual indicator
-    if (metaField && metaField.mutable === 'restart') {
-      group.setAttribute('data-needs-restart', '1');
-      if (!group.querySelector('.restart-required-badge')) {
-        var badge = document.createElement('span');
-        badge.className = 'restart-required-badge';
-        badge.title = 'Requires restart';
-        badge.textContent = '↺';
-        var labelEl = group.querySelector('.form-label');
-        if (labelEl) {
-          labelEl.appendChild(badge);
-        } else {
-          group.appendChild(badge);
-        }
-      }
-    } else {
-      group.removeAttribute('data-needs-restart');
-      var existing = group.querySelector('.restart-required-badge');
-      if (existing) existing.remove();
-    }
   });
+  updateMutabilitySummaries(meta);
 }
 
 function checkRestartBanner(config) {
@@ -351,7 +386,7 @@ function handleFormCancel(form) {
 }
 
 function attachSettingsListeners() {
-  var content = document.querySelector('.page-content');
+  var content = document.querySelector('.content-area');
   if (!content) return;
   if (content.dataset.settingsInit) return;
   content.dataset.settingsInit = '1';
@@ -1050,7 +1085,7 @@ function renderAllowlistEntries(page, listType, entries, channelType) {
 
 function showChannelRestartBanner() {
   var banner = document.getElementById('channel-restart-banner');
-  if (banner) banner.style.display = '';
+  if (banner) banner.hidden = false;
 }
 
 var pairingPollInterval = null;

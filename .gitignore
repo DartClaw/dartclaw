@@ -13,6 +13,7 @@ build/
 !packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
 pubspec.lock
 !/pubspec.lock
+!/dev/tools/mascot_favicon/pubspec.lock
 
 # IDE
 .idea/

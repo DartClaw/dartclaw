@@ -111,8 +111,8 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   final bool success;
 
   /// Semantic outcome the executor recorded for the step (`succeeded`,
-  /// `failed`, `needsInput`/`blocked`, `skipped`), or null when the emit site
-  /// has no per-step outcome (aggregate/cancelled events).
+  /// `failed`, `cancelled`, `needsInput`/`blocked`, `skipped`), or null when the
+  /// emit site has no per-step outcome.
   final String? outcome;
 
   /// Human-readable reason the step settled with this [outcome], or null when

@@ -114,6 +114,10 @@ void main() {
     test('renders without error with empty data', () {
       final html = _render();
       expect(html, contains('workflow-list-page'));
+      expect(html, contains('class="content-area print-in"'));
+      expect(html, contains('class="content-inner workflow-list-page"'));
+      expect(html, isNot(contains('page-content')));
+      expect(html, isNot(contains('page-inner')));
     });
 
     test('shows empty state when no runs', () {
@@ -123,7 +127,7 @@ void main() {
 
     test('renders run cards when runs present', () {
       final html = _render(runs: [_makeRun()]);
-      expect(html, contains('workflow-run-card'));
+      expect(html, contains('workflow-run-card card print-in'));
       expect(html, contains('spec-and-implement'));
     });
 

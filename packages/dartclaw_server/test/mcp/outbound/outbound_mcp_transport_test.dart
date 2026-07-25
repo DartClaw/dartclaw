@@ -7,6 +7,7 @@ import 'package:dartclaw_server/src/mcp/outbound/stdio_mcp_transport.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -468,24 +469,80 @@ void main() {
     });
 
     test('S03 HTTP transport rejects non-TLS endpoints when TLS is required', () async {
-      final transport = HttpMcpTransport(
-        'http://localhost/mcp',
-        requireTls: true,
-        client: MockClient((request) async {
-          fail('request must not be sent when TLS is required');
-        }),
-      );
+      for (final url in [
+        'http://mcp.example/mcp',
+        'http://192.168.1.10/mcp',
+        'http://0.0.0.0/mcp',
+        'http://[::ffff:127.0.0.1]/mcp',
+        'http://foo.localhost/mcp',
+        'http://localhost./mcp',
+      ]) {
+        final transport = HttpMcpTransport(
+          url,
+          requireTls: true,
+          client: MockClient((request) async {
+            fail('request must not be sent when TLS is required');
+          }),
+        );
 
-      await expectLater(
-        transport.sendRequest(
-          'tools/call',
+        await expectLater(
+          transport.sendRequest(
+            'tools/call',
+            const {},
+            timeout: const Duration(milliseconds: 50),
+            maxResponseBytes: 1024,
+          ),
+          throwsA(predicate((error) => error.toString().contains('tls_required'))),
+        );
+        await transport.close();
+      }
+    });
+
+    test('HTTP transport warns when a credential is configured over plain HTTP, silent over HTTPS', () async {
+      final records = <LogRecord>[];
+      final prevLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      addTearDown(() => Logger.root.level = prevLevel);
+      final sub = Logger('HttpMcpTransport').onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      final insecure = HttpMcpTransport('http://localhost:8080/mcp', credentialSecret: 'secret-token');
+      final secure = HttpMcpTransport('https://allowed.example/mcp', credentialSecret: 'secret-token');
+
+      final warnings = records.where((r) => r.loggerName == 'HttpMcpTransport' && r.level == Level.WARNING).toList();
+      expect(warnings, hasLength(1));
+      expect(warnings.single.message, contains('plain HTTP'));
+      expect(warnings.single.message, isNot(contains('secret-token')));
+      await insecure.close();
+      await secure.close();
+    });
+
+    test('HTTP transport allows plain HTTP to literal loopback hosts when TLS is required', () async {
+      for (final url in ['http://localhost:8080/mcp', 'http://127.0.0.1:8080/mcp', 'http://[::1]:8080/mcp']) {
+        final transport = HttpMcpTransport(
+          url,
+          requireTls: true,
+          client: MockClient((request) async {
+            return http.Response(
+              jsonEncode({
+                'jsonrpc': '2.0',
+                'id': 1,
+                'result': {'tools': []},
+              }),
+              200,
+            );
+          }),
+        );
+
+        final result = await transport.sendRequest(
+          'tools/list',
           const {},
           timeout: const Duration(milliseconds: 50),
           maxResponseBytes: 1024,
-        ),
-        throwsA(predicate((error) => error.toString().contains('tls_required'))),
-      );
-      await transport.close();
+        );
+        expect(result['tools'], isEmpty);
+        await transport.close();
+      }
     });
 
     test('S03 HTTP transport denies redirects to non-allowlisted hosts without resending body', () async {

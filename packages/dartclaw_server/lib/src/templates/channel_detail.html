@@ -1,14 +1,15 @@
 <div tl:fragment="channel_detail" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div tl:utext="${topbar}"><!-- topbar --></div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
-    <div class="page-inner" data-controller="dc-channel-detail">
+  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+    <div class="content-inner" data-controller="dc-channel-detail">
 
     <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
     <div class="channel-detail-page" tl:attr="data-channel-type=${channelType}">
       <section class="card channel-detail-hero">
         <div class="channel-detail-hero-row">
+          <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${channelType},data-identicon-initials=${channelLabel}"></span>
           <div class="channel-detail-hero-title">
             <h1 tl:text="${heroTitle}">Channel</h1>
             <p tl:text="${heroSubtitle}">Subtitle</p>
@@ -69,7 +70,7 @@
             <option tl:each="mode : ${dmAccessModes}" tl:attr="value=${mode},selected=${mode == dmAccessMode ? 'selected' : null}" tl:text="${mode}">mode</option>
           </select>
 
-          <div tl:if="${showPairingSection}" class="channel-sub-card channel-pairing-card" data-section="pairing">
+          <div tl:if="${showPairingSection}" class="well well-content channel-sub-card channel-pairing-card" data-section="pairing">
             <h3>Pending Pairing Requests</h3>
             <div id="pairing-requests-container" class="pairing-requests">
               <div tl:if="${pendingPairings}" class="pairing-list">
@@ -93,7 +94,7 @@
             <div class="channel-hint">This block appears only while DM mode is set to pairing.</div>
           </div>
 
-          <div class="channel-sub-card">
+          <div class="well well-content channel-sub-card">
             <h3>Known DM Allowlist</h3>
             <div class="allowlist-section" data-allowlist="dm">
               <div class="allowlist-header">
@@ -157,7 +158,7 @@
               <option tl:each="mode : ${groupAccessModes}" tl:attr="value=${mode},selected=${mode == groupAccessMode ? 'selected' : null}" tl:text="${mode}">mode</option>
             </select>
 
-            <div class="channel-sub-card">
+            <div class="well well-content channel-sub-card">
               <h3>Allowed Groups</h3>
               <div class="allowlist-section" data-allowlist="group">
                 <div class="allowlist-header">
@@ -189,7 +190,7 @@
               </div>
             </div>
 
-            <div class="channel-sub-card channel-mention-section" data-section="mention" tl:classappend="${groupAccessDisabled} ? 'channel-mention-disabled' : ''">
+            <div class="well well-content channel-sub-card channel-mention-section" data-section="mention" tl:classappend="${groupAccessDisabled} ? 'channel-mention-disabled' : ''">
               <h3>Mention Gating</h3>
               <label class="channel-checkbox-row" for="require-mention">
                 <input type="checkbox" id="require-mention" class="form-checkbox" tl:attr="checked=${requireMention ? 'checked' : null}">
@@ -201,7 +202,7 @@
               </div>
             </div>
 
-            <div class="channel-sub-card channel-task-trigger-section" data-section="task-trigger">
+            <div class="well well-content channel-sub-card channel-task-trigger-section" data-section="task-trigger">
               <h3>Task Trigger</h3>
               <label class="channel-checkbox-row" for="task-trigger-enabled">
                 <input
@@ -216,7 +217,7 @@
               </div>
 
               <div
-                class="channel-sub-card"
+                class="well well-content channel-sub-card"
                 data-task-trigger-fields
                 tl:attr="hidden=${taskTriggerEnabled ? null : 'hidden'},aria-hidden=${taskTriggerEnabled ? 'false' : 'true'}">
                 <label class="form-label" for="task-trigger-prefix">Trigger prefix</label>
@@ -253,7 +254,7 @@
         </div>
       </div>
 
-      <div id="channel-restart-banner" class="banner banner-warning" style="display: none;">
+      <div id="channel-restart-banner" class="banner banner-warning" hidden>
         <span class="icon icon-triangle-alert" aria-hidden="true"></span> Configuration changed. Restart required for changes to take effect.
       </div>
     </div>

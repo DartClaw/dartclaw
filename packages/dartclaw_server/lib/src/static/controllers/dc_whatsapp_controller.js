@@ -17,10 +17,10 @@ export default class DcWhatsappController extends Stimulus.Controller {
   attachQrFallback() {
     this.qrImageTargets.forEach((img) => {
       const showFallback = () => {
-        img.style.display = 'none';
+        img.hidden = true;
         const placeholder = img.nextElementSibling;
-        if (placeholder && placeholder.classList.contains('wa-qr-placeholder')) {
-          placeholder.style.display = 'flex';
+        if (placeholder && placeholder.classList.contains('pairing-qr-placeholder')) {
+          placeholder.hidden = false;
         }
       };
 
@@ -59,8 +59,8 @@ export default class DcWhatsappController extends Stimulus.Controller {
       if (remaining <= 0) {
         clearInterval(this.timerId);
         this.timerId = null;
-        this.activeTarget.style.display = 'none';
-        this.expiredTarget.style.display = '';
+        this.activeTarget.hidden = true;
+        this.expiredTarget.hidden = false;
         return;
       }
       this.countdownTarget.textContent = format(remaining);

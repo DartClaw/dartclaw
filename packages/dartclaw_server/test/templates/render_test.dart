@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:dartclaw_server/src/templates/chat.dart' show richInputHtmlFromMetadataMap;
 import 'package:dartclaw_server/src/templates/loader.dart' as server;
+import 'package:dartclaw_server/src/version.dart';
 import 'package:test/test.dart';
 import 'package:trellis/trellis.dart';
 
@@ -45,6 +47,8 @@ Map<String, dynamic> _sessionInfoContext(Map<String, dynamic> overrides) => {
   'inputStr': '1.2K',
   'outputStr': '3.4K',
   'totalStr': '4.6K',
+  'tokenMetricCardsHtml':
+      '''<div class="card card-metric card-metric--info"><div class="metric-value">1.2K</div><div class="metric-label">Input</div></div><div class="card card-metric card-metric--info"><div class="metric-value">3.4K</div><div class="metric-label">Output</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">4.6K</div><div class="metric-label">Total</div></div>''',
   'messageCount': 42,
   'createdAt': '2025-01-15',
   'sidebar': '',
@@ -134,7 +138,18 @@ void main() {
 
     test('login renders form states', () async {
       final empty = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
-      _expectAll(empty, ['login-form', 'name="token"', 'type="password"', 'name="remember"']);
+      _expectAll(empty, [
+        'terminal-frame terminal-frame--crt login-terminal',
+        'terminal-frame-bar',
+        'terminal-frame-dots',
+        'terminal-frame-body',
+        'login-mascot pixel-art',
+        'login-wordmark',
+        'login-form',
+        'name="token"',
+        'type="password"',
+        'name="remember"',
+      ]);
       expect(empty, isNot(contains('login-error')));
 
       final withError = await engine.renderFileFragment(
@@ -160,10 +175,12 @@ void main() {
       _expectAll(banner, ['banner-warning', '&lt;b&gt;oops']);
 
       final emptyState = await engine.renderFileFragment('components', fragment: 'emptyState', context: const {});
-      _expectAll(emptyState, ['No messages yet', 'empty-state']);
+      _expectAll(emptyState, ['No messages yet', 'empty-state', '❯_']);
+      expect(emptyState, isNot(anyOf(contains('claw-mark'), contains('mascot-'))));
 
       final emptyAppState = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
-      _expectAll(emptyAppState, ['No chats yet']);
+      _expectAll(emptyAppState, ['No chats yet', '❯_']);
+      expect(emptyAppState, isNot(anyOf(contains('claw-mark'), contains('mascot-'))));
       expect(emptyAppState, isNot(contains('data-dc-legacy-action')));
     });
   });
@@ -174,6 +191,7 @@ void main() {
         'title': '<script>xss</script>',
         'body': '<p>Hello</p>',
         'appName': 'DartClaw',
+        'assetPrefix': '/static/v$dartclawVersion',
         'scriptsHtml': '<script defer="defer" src="/static/extra-page.js"></script>',
       });
       _expectAll(html, [
@@ -182,12 +200,16 @@ void main() {
         'htmx.org',
         'marked',
         'purify.min.js',
-        '/static/tokens.css',
-        '/static/components.css',
-        '/static/controllers/index.js',
+        '/static/v$dartclawVersion/tokens.css',
+        '/static/v$dartclawVersion/app-tokens.css',
+        '/static/v$dartclawVersion/design-system.css',
+        '/static/v$dartclawVersion/app.css',
+        '/static/v$dartclawVersion/mascot-favicon-32.png',
+        '/static/v$dartclawVersion/mascot-favicon-16.png',
+        '/static/v$dartclawVersion/controllers/index.js',
         '/static/extra-page.js',
       ]);
-      _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js']);
+      _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js', 'href="data:,"']);
     });
 
     test('topbar fragments render expected controls', () async {
@@ -309,14 +331,17 @@ void main() {
         'Claude',
         'Codex',
         'data-icon="terminal"',
-        'data-icon="hash"',
-        'data-icon="message-circle"',
-        'data-icon="archive"',
+        'data-identicon-id="dm-1"',
+        'data-identicon-id="group-1"',
+        'data-identicon-id="s1"',
+        'data-identicon-id="s2"',
         'data-icon="new-session"',
         '>New Chat</button>',
         'data-icon="x"',
+        'data-icon="archive"',
         'data-icon="chevron-down"',
       ]);
+      expect(providers, isNot(anyOf(contains('data-icon="hash"'), contains('data-icon="message-circle"'))));
 
       final entries = await engine.renderFileFragment(
         'sidebar',
@@ -347,6 +372,8 @@ void main() {
         'Research',
         'data-session-archive="true"',
         'data-session-delete="true"',
+        'class="session-action session-archive"',
+        'class="delete-btn session-delete"',
         'aria-label="Archive chat"',
         'aria-label="Delete session"',
       ]);
@@ -469,9 +496,9 @@ void main() {
         fragment: 'scheduling',
         context: {
           'pulseClass': 'pulse-active',
-          'badgeClass': 'badge-success',
-          'badgeText': 'Active',
-          'intervalDisplay': 'every 30 min',
+          'heartbeatBadgeHtml': '<span class="status-badge status-badge-success">Active</span>',
+          'heartbeatMetricCardsHtml':
+              '<div class="card card-metric card-metric--info"><div class="metric-value">every 30 min</div><div class="metric-label">Interval</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">Active</div><div class="metric-label">Status</div></div>',
           'hasJobs': true,
           'jobs': [
             {
@@ -495,9 +522,9 @@ void main() {
         fragment: 'scheduling',
         context: {
           'pulseClass': '',
-          'badgeClass': 'badge-muted',
-          'badgeText': 'Disabled',
-          'intervalDisplay': '-',
+          'heartbeatBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'heartbeatMetricCardsHtml':
+              '<div class="card card-metric card-metric--info"><div class="metric-value">-</div><div class="metric-label">Interval</div></div><div class="card card-metric card-metric--warning"><div class="metric-value">Disabled</div><div class="metric-label">Status</div></div>',
           'hasJobs': false,
           'jobs': <Map<String, dynamic>>[],
           'sidebar': '',
@@ -560,6 +587,23 @@ void main() {
         '/settings/channels/whatsapp',
         '/settings/channels/signal',
         '/settings/channels/google_chat',
+        'class="content-area print-in"',
+        'class="content-inner"',
+        'card card-metric card-metric--info',
+        'card card-metric card-metric--accent',
+        'card card-metric card-metric--warning',
+      ]);
+      expect(RegExp('data-mutability-summary[^>]*hidden').allMatches(html), hasLength(7));
+      _expectNone(html, [
+        '<style',
+        'summary-stat',
+        'summary-value',
+        'summary-label',
+        'page-content',
+        'page-inner',
+        'id="agent"',
+        'id="server"',
+        'id="channels"',
       ]);
     });
 
@@ -581,6 +625,26 @@ void main() {
   });
 
   group('chat.html', () {
+    test('rich input metadata uses canonical chip anatomy', () {
+      final html = richInputHtmlFromMetadataMap({
+        'attachments': [
+          {'filename': 'notes.md', 'state': 'ready'},
+        ],
+        'references': [
+          {'id': 'memory-1', 'label': 'Memory note', 'type': 'memory'},
+        ],
+      });
+
+      _expectAll(html!, [
+        'msg-rich-input chip-row',
+        'class="chip"',
+        'class="chip chip--ref"',
+        'chip-name',
+        'chip-meta',
+      ]);
+      expect(html, isNot(contains('composer-chip')));
+    });
+
     test('message fragments render expected content and optional states', () async {
       final user = await engine.renderFileFragment(
         'chat',
@@ -588,13 +652,14 @@ void main() {
         context: {'content': 'Hello <world>'},
       );
       _expectAll(user, ['msg-user', '>You<', 'Hello &lt;world&gt;']);
+      expect(user, contains('msg-user print-in'));
 
       final rich = await engine.renderFileFragment(
         'chat',
         fragment: 'userMessage',
         context: {
           'content': 'Review this',
-          'richInputHtml': '<div class="msg-rich-input"><span class="composer-chip">notes.md</span></div>',
+          'richInputHtml': '<div class="msg-rich-input chip-row"><span class="chip">notes.md</span></div>',
         },
       );
       _expectAll(rich, ['msg-rich-input', 'notes.md']);
@@ -605,6 +670,7 @@ void main() {
         context: {'content': 'Here is the answer'},
       );
       _expectAll(assistant, ['msg-assistant', 'data-markdown', 'Here is the answer']);
+      expect(assistant, contains('msg-assistant print-in'));
 
       final guard = await engine.renderFileFragment(
         'chat',
@@ -652,7 +718,17 @@ void main() {
         'hx-swap="beforeend"',
         'name="attachments"',
         'data-dc-chat-target="commandPalette"',
+        'composer-palette card card-glass',
+        'composer-reference-palette card card-glass',
+        'class="composer-toolbar"',
+        'class="composer-hints"',
+        'data-action="dc-chat#applySuggestion"',
+        'Ctrl/⌘',
+        'class="composer-meta"',
+        'btn btn-primary btn-icon composer-send',
+        'data-icon="arrow-up" aria-label="Send"',
       ]);
+      expect(area, isNot(contains('composer-row')));
       expect(area, isNot(contains('sse-container')));
 
       final response = await engine.renderFileFragment(
@@ -661,14 +737,18 @@ void main() {
         context: {'message': 'Hello <world>', 'sseUrl': '/api/sessions/s1/stream?turn=t1'},
       );
       _expectAll(response, [
-        'msg-user',
+        'msg-user print-in',
         'Hello &lt;world&gt;',
-        'streaming-msg',
+        'msg-assistant print-in',
+        'id="streaming-msg"',
         'sse-connect="/api/sessions/s1/stream?turn=t1"',
         'hx-ext="sse"',
         'sse-close="done"',
         'sse-swap="delta"',
+        'id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden',
       ]);
+      expect(response, isNot(contains('id="streaming-content" class="print-in"')));
+      expect(response, isNot(contains('display:none')));
     });
   });
 

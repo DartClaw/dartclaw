@@ -25,7 +25,9 @@ jobs:
           sdk: 3.12.0
 
       - name: Install dependencies
-        run: dart pub get --enforce-lockfile
+        run: |
+          dart pub get --enforce-lockfile
+          dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
 
       - name: Format check
         run: dart format --line-length=120 --output=none --set-exit-if-changed .

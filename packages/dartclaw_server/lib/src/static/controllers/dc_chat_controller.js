@@ -129,12 +129,18 @@ export default class DcChatController extends Stimulus.Controller {
         // looks active but always fails.
         button.disabled = !this.canCancel;
         button.type = 'button';
-        button.textContent = 'Stop';
+        button.textContent = '';
+        button.setAttribute('data-icon', 'square');
+        button.setAttribute('aria-label', 'Stop');
+        button.title = 'Stop';
         button.classList.add('btn-stop');
       } else {
         button.disabled = !textarea || (!textarea.value.trim() && this.attachments.length === 0 && this.references.length === 0);
         button.type = 'submit';
-        button.textContent = 'Send';
+        button.textContent = '';
+        button.setAttribute('data-icon', 'arrow-up');
+        button.setAttribute('aria-label', 'Send');
+        button.title = 'Send';
         button.classList.remove('btn-stop');
       }
     }
@@ -149,6 +155,7 @@ export default class DcChatController extends Stimulus.Controller {
     }
     this.streaming = true;
     document.body.classList.add('streaming');
+    this.form?.classList.add('composer--streaming');
     if (button) button.disabled = false;
     this.closePalettes();
     this._startTurnStatusPolling();
@@ -163,6 +170,7 @@ export default class DcChatController extends Stimulus.Controller {
       textarea.placeholder = 'Type a message...';
     }
     this.streaming = false;
+    this.form?.classList.remove('composer--streaming');
     this._stopTurnStatusPolling();
     if (button) button.disabled = !textarea || !textarea.value.trim();
     this.updateSendState();
@@ -201,6 +209,7 @@ export default class DcChatController extends Stimulus.Controller {
     if (!isMessagesReload && !isLoadEarlier) return;
     if (isLoadEarlier) {
       elt.disabled = false;
+      this.element.querySelector('[data-load-earlier-skeleton]')?.remove();
     }
     if (!event.detail.successful) {
       if (isLoadEarlier) {
@@ -283,6 +292,11 @@ export default class DcChatController extends Stimulus.Controller {
     const earliestCursor = this.element.dataset.earliestCursor;
     if (!this.sessionId || !earliestCursor) return;
     button.disabled = true;
+    const messages = document.getElementById('messages');
+    const loading = document.createElement('div');
+    loading.className = 'skeleton skeleton-text';
+    loading.dataset.loadEarlierSkeleton = '1';
+    messages?.prepend(loading);
     htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html?before=' + earliestCursor, {
       target: '#messages',
       swap: 'afterbegin',
@@ -309,7 +323,10 @@ export default class DcChatController extends Stimulus.Controller {
     }
   }
 
-  handleSseMessage() {
+  handleSseMessage(event) {
+    if (event.detail?.type === 'delta') {
+      document.querySelector('#streaming-content .claw-loader')?.remove();
+    }
     scrollToBottom(this.element);
   }
 
@@ -692,19 +709,22 @@ export default class DcChatController extends Stimulus.Controller {
 
   renderAttachmentChip(attachment) {
     const failed = attachment.state === 'failed';
-    return '<span class="composer-chip composer-chip-attachment' + (failed ? ' is-error' : '') + '">' +
-      '<span>' + escapeHtml(attachment.filename) + '</span>' +
-      '<small>' + escapeHtml(attachment.state || 'ready') + '</small>' +
-      (failed ? '<button type="button" data-action="dc-chat#retryAttachment" data-attachment-id="' + escapeHtml(attachment.id) + '">Retry</button>' : '') +
-      '<button type="button" aria-label="Remove attachment" data-action="dc-chat#removeAttachment" data-attachment-id="' + escapeHtml(attachment.id) + '">x</button>' +
-      '</span>';
+    const id = escapeHtml(attachment.id);
+    const retry = failed
+      ? '<button type="button" class="chip" data-action="dc-chat#retryAttachment" data-attachment-id="' + id + '"><span class="chip-name">Retry upload</span></button>'
+      : '';
+    return '<span class="chip">' +
+      '<span class="chip-name">' + escapeHtml(attachment.filename) + '</span>' +
+      '<span class="chip-meta">' + escapeHtml(attachment.state || 'ready') + '</span>' +
+      '<button type="button" class="chip-remove" aria-label="Remove attachment" data-action="dc-chat#removeAttachment" data-attachment-id="' + id + '"></button>' +
+      '</span>' + retry;
   }
 
   renderReferenceChip(reference) {
-    return '<span class="composer-chip composer-chip-reference">' +
-      '<span>@' + escapeHtml(reference.label) + '</span>' +
-      '<small>' + escapeHtml(reference.type) + '</small>' +
-      '<button type="button" aria-label="Remove reference" data-action="dc-chat#removeReference" data-reference-id="' + escapeHtml(reference.id) + '">x</button>' +
+    return '<span class="chip chip--ref">' +
+      '<span class="chip-name">@' + escapeHtml(reference.label) + '</span>' +
+      '<span class="chip-meta">' + escapeHtml(reference.type) + '</span>' +
+      '<button type="button" class="chip-remove" aria-label="Remove reference" data-action="dc-chat#removeReference" data-reference-id="' + escapeHtml(reference.id) + '"></button>' +
       '</span>';
   }
 

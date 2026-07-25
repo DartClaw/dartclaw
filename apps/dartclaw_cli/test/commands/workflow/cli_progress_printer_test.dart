@@ -1,6 +1,8 @@
 import 'package:dartclaw_cli/src/commands/workflow/cli_progress_printer.dart';
 import 'package:dartclaw_cli/src/commands/workflow/live_status_line.dart';
-import 'package:dartclaw_cli/src/commands/workflow/standalone_run_harness.dart' show progressStartKey, tokenProgressKey;
+import 'package:dartclaw_cli/src/commands/workflow/standalone_run_harness.dart'
+    show progressStartKey, taskProgressKey, taskSettlesLiveEntry;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskStatus;
 import 'package:test/test.dart';
 
 void main() {
@@ -231,13 +233,33 @@ void main() {
       // stepIndex + displayScope. Both must collapse to the same `task:<id>` key
       // for the live token tick to land on the right step.
       final runningKey = progressStartKey(stepIndex: 3, taskId: '1', displayScope: 'S01');
-      final tokenKey = tokenProgressKey('1');
+      final tokenKey = taskProgressKey('1');
       expect(tokenKey, runningKey);
-      expect(tokenProgressKey('  '), isNull); // blank taskId never collapses to step:0
+      expect(taskProgressKey('  '), isNull); // blank taskId never collapses to step:0
 
       printer.stepRunning(3, 'implement', 'Implement', 'codex', displayScope: 'S01', progressKey: runningKey);
       printer.stepTokens(tokenKey!, 6000);
       expect(liveOutput.join(), contains('6K tokens'));
+    });
+
+    test('stepSettled retires a settled parallel member without printing a permanent line', () {
+      printer.stepRunning(0, 'review-a', 'Review A', 'claude', progressKey: 'task:1');
+      printer.stepRunning(0, 'review-b', 'Review B', 'claude', progressKey: 'task:2');
+      printer.stepTokens('task:1', 8400);
+      liveOutput.clear();
+      printer.stepSettled('task:1', countTokens: true);
+      expect(writeLineOutput, isEmpty);
+      final live = liveOutput.join();
+      // Only the still-running member counts; the settled member's live-tick
+      // tokens stay in the run total until the barrier reconciles them.
+      expect(live, isNot(contains('2 steps running')));
+      expect(live, contains('review-b'));
+      expect(live, contains('8K total'));
+      // The barrier's completion line still lands as permanent output.
+      liveOutput.clear();
+      printer.stepCompleted(0, 'review-a', const Duration(seconds: 5), 9000, progressKey: 'task:1');
+      expect(liveOutput.join(), contains('[step 1/6] review-a: completed (5s, 9K tokens)'));
+      printer.workflowCompleted(6, 0);
     });
 
     test('disposeLive clears a drawn spinner line and is idempotent', () {
@@ -252,6 +274,23 @@ void main() {
       liveOutput.clear();
       printer.disposeLive(); // second call is a no-op
       expect(liveOutput, isEmpty);
+    });
+  });
+
+  group('taskSettlesLiveEntry', () {
+    test('terminal statuses and interrupted retire the live entry', () {
+      expect(taskSettlesLiveEntry(TaskStatus.accepted), isTrue);
+      expect(taskSettlesLiveEntry(TaskStatus.rejected), isTrue);
+      expect(taskSettlesLiveEntry(TaskStatus.failed), isTrue);
+      expect(taskSettlesLiveEntry(TaskStatus.cancelled), isTrue);
+      expect(taskSettlesLiveEntry(TaskStatus.interrupted), isTrue);
+    });
+
+    test('active and pre-run statuses keep the live entry', () {
+      expect(taskSettlesLiveEntry(TaskStatus.running), isFalse);
+      expect(taskSettlesLiveEntry(TaskStatus.review), isFalse);
+      expect(taskSettlesLiveEntry(TaskStatus.queued), isFalse);
+      expect(taskSettlesLiveEntry(TaskStatus.draft), isFalse);
     });
   });
 

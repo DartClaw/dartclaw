@@ -48,14 +48,14 @@ void main() {
   };
 
   group('S11 running card enhancements', () {
-    test('renders indeterminate progress bar when no token budget', () {
+    test('renders a scan bar when no token budget', () {
       final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [runningTask]);
 
-      expect(html, contains('task-progress-indeterminate'));
-      expect(html, contains('task-progress'));
+      expect(html, contains('class="scan-bar"'));
+      expect(html, isNot(contains('task-progress-indeterminate')));
     });
 
-    test('renders determinate progress bar with percentage when budget set', () {
+    test('renders a determinate meter with percentage when budget set', () {
       final tracker = _stubTrackerWithTokens('task-run', tokensUsed: 5000, tokenBudget: 10000);
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -65,7 +65,8 @@ void main() {
       );
 
       expect(html, contains('width:50%'));
-      expect(html, isNot(contains('task-progress-indeterminate')));
+      expect(html, contains('class="meter"'));
+      expect(html, contains('class="meter-fill"'));
     });
 
     test('renders token display text for running task', () {
@@ -107,7 +108,9 @@ void main() {
       );
 
       expect(html, contains('task-agent-badge'));
+      expect(html, contains('data-identicon-id="Agent #2"'));
       expect(html, contains('Agent #2'));
+      expect(html, contains('class="provider-badge provider-badge-claude"'));
     });
 
     test('agent badge shows Primary label for primary role runner', () {

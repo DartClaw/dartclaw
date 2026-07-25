@@ -693,18 +693,20 @@ Future<Response> _workflowRunSseHandler(
   controller.onCancel = cancelSubscriptions;
 
   late final List<Task> allTasks;
+  late final WorkflowRun snapshotRun;
   try {
     allTasks = await tasks.list();
+    snapshotRun = await workflows.get(runId) ?? run;
   } catch (_) {
     await cancelSubscriptions();
-    await controller.close();
+    unawaited(controller.close());
     rethrow;
   }
 
   // Build connected payload with current run state and step statuses.
   WorkflowDefinition definition;
   try {
-    definition = WorkflowDefinition.fromJson(run.definitionJson);
+    definition = WorkflowDefinition.fromJson(snapshotRun.definitionJson);
   } catch (e) {
     _log.warning('Failed to deserialize definitionJson for run $runId: $e');
     definition = WorkflowDefinition(name: run.definitionName, description: '', steps: const [], variables: const {});
@@ -719,17 +721,23 @@ Future<Response> _workflowRunSseHandler(
         'index': i,
         'id': definition.steps[i].id,
         'name': definition.steps[i].name,
-        'status': stepStatusFromTask(run, i, tasksByStepIndex[i], stepId: definition.steps[i].id),
+        'status': _stepStatusWithApproval(
+          snapshotRun,
+          i,
+          definition.steps[i].id,
+          definition.steps[i].taskType,
+          tasksByStepIndex[i],
+        ),
         'taskId': tasksByStepIndex[i]?.id,
       },
   ];
   sendSseData(controller, {
     'type': 'connected',
     'run': {
-      'id': run.id,
-      'status': run.status.name,
-      'currentStepIndex': run.currentStepIndex,
-      'totalTokens': run.totalTokens,
+      'id': snapshotRun.id,
+      'status': snapshotRun.status.name,
+      'currentStepIndex': snapshotRun.currentStepIndex,
+      'totalTokens': snapshotRun.totalTokens,
     },
     'steps': stepsPayload,
   });

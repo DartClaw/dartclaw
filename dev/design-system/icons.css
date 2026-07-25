@@ -32,8 +32,14 @@
   /* arrow-right — forward navigation */
   --icon-arrow-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='m12 5 7 7-7 7'/%3E%3C/svg%3E");
 
+  /* arrow-up — composer send */
+  --icon-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 7-7 7 7'/%3E%3Cpath d='M12 19V5'/%3E%3C/svg%3E");
+
   /* at-sign — DMs subsection */
   --icon-at-sign: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8'/%3E%3C/svg%3E");
+
+  /* bell — notification center */
+  --icon-bell: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.268 21a2 2 0 0 0 3.464 0'/%3E%3Cpath d='M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326'/%3E%3C/svg%3E");
 
   /* brain — AI memory */
   --icon-brain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 18V5'/%3E%3Cpath d='M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4'/%3E%3Cpath d='M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5'/%3E%3Cpath d='M17.997 5.125a4 4 0 0 1 2.526 5.77'/%3E%3Cpath d='M18 18a4 4 0 0 0 2-7.464'/%3E%3Cpath d='M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517'/%3E%3Cpath d='M6 18a4 4 0 0 1-2-7.464'/%3E%3Cpath d='M6.003 5.125a4 4 0 0 0-2.526 5.77'/%3E%3C/svg%3E");
@@ -59,11 +65,19 @@
   /* clipboard-list — tasks */
   --icon-clipboard-list: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='8' height='4' x='8' y='2' rx='1' ry='1'/%3E%3Cpath d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/%3E%3Cpath d='M12 11h4'/%3E%3Cpath d='M12 16h4'/%3E%3Cpath d='M8 11h.01'/%3E%3Cpath d='M8 16h.01'/%3E%3C/svg%3E");
 
+  /* clock — durations, timestamps */
+  --icon-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E");
+
+  /* corner-down-right — forked-from lineage */
+  --icon-corner-down-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 10 20 15 15 20'/%3E%3Cpath d='M4 4v7a4 4 0 0 0 4 4h12'/%3E%3C/svg%3E");
+
   /* folder-kanban — projects */
   --icon-folder-kanban: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z'/%3E%3Cpath d='M8 10v4'/%3E%3Cpath d='M12 10v2'/%3E%3Cpath d='M16 10v6'/%3E%3C/svg%3E");
 
   /* folder-git — repository projects */
   --icon-folder-git: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z'/%3E%3Ccircle cx='10' cy='11' r='1'/%3E%3Ccircle cx='14' cy='15' r='1'/%3E%3Cpath d='M10 12v3a1 1 0 0 0 1 1h2'/%3E%3C/svg%3E");
+  /* git-branch — session fork/lineage */
+  --icon-git-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='6' x2='6' y1='3' y2='15'/%3E%3Ccircle cx='18' cy='6' r='3'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Cpath d='M18 9a9 9 0 0 1-9 9'/%3E%3C/svg%3E");
 
   /* hash — channel indicator */
   --icon-hash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='4' x2='20' y1='9' y2='9'/%3E%3Cline x1='4' x2='20' y1='15' y2='15'/%3E%3Cline x1='10' x2='8' y1='3' y2='21'/%3E%3Cline x1='16' x2='14' y1='3' y2='21'/%3E%3C/svg%3E");
@@ -83,11 +97,20 @@
   /* moon — theme toggle (light mode) */
   --icon-moon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401'/%3E%3C/svg%3E");
 
+  /* paperclip — attachment chips, composer */
+  --icon-paperclip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E");
+
   /* pencil — edit */
   --icon-pencil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E");
 
+  /* plus — composer attach / add */
+  --icon-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+
   /* radio-tower — channels section */
   --icon-radio-tower: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.9 16.1C1 12.2 1 5.8 4.9 1.9'/%3E%3Cpath d='M7.8 4.7a6.14 6.14 0 0 0-.8 7.5'/%3E%3Ccircle cx='12' cy='9' r='2'/%3E%3Cpath d='M16.2 4.8c2 2 2.26 5.11.8 7.47'/%3E%3Cpath d='M19.1 1.9a9.96 9.96 0 0 1 0 14.1'/%3E%3Cpath d='M9.5 18h5'/%3E%3Cpath d='m8 22 4-11 4 11'/%3E%3C/svg%3E");
+
+  /* search — command palette, search inputs */
+  --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
 
   /* server — system section */
   --icon-server: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='20' height='8' x='2' y='2' rx='2' ry='2'/%3E%3Crect width='20' height='8' x='2' y='14' rx='2' ry='2'/%3E%3Cline x1='6' x2='6.01' y1='6' y2='6'/%3E%3Cline x1='6' x2='6.01' y1='18' y2='18'/%3E%3C/svg%3E");
@@ -127,6 +150,9 @@
 
   /* users — groups subsection */
   --icon-users: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Cpath d='M16 3.128a4 4 0 0 1 0 7.744'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3C/svg%3E");
+
+  /* workflow — workflows nav/run board */
+  --icon-workflow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='8' height='8' x='3' y='3' rx='2'/%3E%3Cpath d='M7 11v4a2 2 0 0 0 2 2h4'/%3E%3Crect width='8' height='8' x='13' y='13' rx='2'/%3E%3C/svg%3E");
 
   /* x — close/delete/dismiss */
   --icon-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
@@ -191,7 +217,9 @@
 .icon-archive           { -webkit-mask-image: var(--icon-archive);         mask-image: var(--icon-archive); }
 .icon-arrow-left        { -webkit-mask-image: var(--icon-arrow-left);      mask-image: var(--icon-arrow-left); }
 .icon-arrow-right       { -webkit-mask-image: var(--icon-arrow-right);     mask-image: var(--icon-arrow-right); }
+.icon-arrow-up          { -webkit-mask-image: var(--icon-arrow-up);        mask-image: var(--icon-arrow-up); }
 .icon-at-sign           { -webkit-mask-image: var(--icon-at-sign);         mask-image: var(--icon-at-sign); }
+.icon-bell              { -webkit-mask-image: var(--icon-bell);            mask-image: var(--icon-bell); }
 .icon-brain             { -webkit-mask-image: var(--icon-brain);           mask-image: var(--icon-brain); }
 .icon-calendar-clock    { -webkit-mask-image: var(--icon-calendar-clock);  mask-image: var(--icon-calendar-clock); }
 .icon-check             { -webkit-mask-image: var(--icon-check);           mask-image: var(--icon-check); }
@@ -201,7 +229,10 @@
 .icon-circle-x          { -webkit-mask-image: var(--icon-circle-x);        mask-image: var(--icon-circle-x); }
 .icon-clipboard-list    { -webkit-mask-image: var(--icon-clipboard-list);  mask-image: var(--icon-clipboard-list); }
 .icon-folder-git        { -webkit-mask-image: var(--icon-folder-git);       mask-image: var(--icon-folder-git); }
+.icon-clock             { -webkit-mask-image: var(--icon-clock);           mask-image: var(--icon-clock); }
+.icon-corner-down-right { -webkit-mask-image: var(--icon-corner-down-right); mask-image: var(--icon-corner-down-right); }
 .icon-folder-kanban     { -webkit-mask-image: var(--icon-folder-kanban);   mask-image: var(--icon-folder-kanban); }
+.icon-git-branch        { -webkit-mask-image: var(--icon-git-branch);      mask-image: var(--icon-git-branch); }
 .icon-hash              { -webkit-mask-image: var(--icon-hash);            mask-image: var(--icon-hash); }
 .icon-info              { -webkit-mask-image: var(--icon-info);            mask-image: var(--icon-info); }
 .icon-file-text         { -webkit-mask-image: var(--icon-file-text);       mask-image: var(--icon-file-text); }
@@ -210,8 +241,11 @@
 .icon-message-circle    { -webkit-mask-image: var(--icon-message-circle);  mask-image: var(--icon-message-circle); }
 .icon-messages-square   { -webkit-mask-image: var(--icon-messages-square); mask-image: var(--icon-messages-square); }
 .icon-moon              { -webkit-mask-image: var(--icon-moon);            mask-image: var(--icon-moon); }
+.icon-paperclip         { -webkit-mask-image: var(--icon-paperclip);       mask-image: var(--icon-paperclip); }
 .icon-pencil            { -webkit-mask-image: var(--icon-pencil);          mask-image: var(--icon-pencil); }
+.icon-plus              { -webkit-mask-image: var(--icon-plus);            mask-image: var(--icon-plus); }
 .icon-radio-tower       { -webkit-mask-image: var(--icon-radio-tower);     mask-image: var(--icon-radio-tower); }
+.icon-search            { -webkit-mask-image: var(--icon-search);          mask-image: var(--icon-search); }
 .icon-server            { -webkit-mask-image: var(--icon-server);          mask-image: var(--icon-server); }
 .icon-settings          { -webkit-mask-image: var(--icon-settings);        mask-image: var(--icon-settings); }
 .icon-shield-alert      { -webkit-mask-image: var(--icon-shield-alert);    mask-image: var(--icon-shield-alert); }
@@ -265,6 +299,14 @@
 [data-icon="file-text"]::before     { -webkit-mask-image: var(--icon-file-text);      mask-image: var(--icon-file-text); }
 [data-icon="gauge"]::before         { -webkit-mask-image: var(--icon-gauge);          mask-image: var(--icon-gauge); }
 [data-icon="wrench"]::before        { -webkit-mask-image: var(--icon-wrench);         mask-image: var(--icon-wrench); }
+
+/* Conversation & control plane — notifications, search, composer, workflows */
+[data-icon="bell"]::before          { -webkit-mask-image: var(--icon-bell);           mask-image: var(--icon-bell); }
+[data-icon="search"]::before        { -webkit-mask-image: var(--icon-search);         mask-image: var(--icon-search); }
+[data-icon="paperclip"]::before     { -webkit-mask-image: var(--icon-paperclip);      mask-image: var(--icon-paperclip); }
+[data-icon="workflow"]::before      { -webkit-mask-image: var(--icon-workflow);       mask-image: var(--icon-workflow); }
+[data-icon="plus"]::before          { -webkit-mask-image: var(--icon-plus);           mask-image: var(--icon-plus); }
+[data-icon="arrow-up"]::before      { -webkit-mask-image: var(--icon-arrow-up);       mask-image: var(--icon-arrow-up); }
 
 
 /* ----------------------------------------------------------------

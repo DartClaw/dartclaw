@@ -62,6 +62,9 @@ void main() {
       final body = await res.readAsString();
       expect(body, contains('Not Connected'));
       expect(body, contains('GOWA sidecar is not running or not ready'));
+      expect(body, contains('class="well-deep"'));
+      expect(body, isNot(contains('style="')));
+      expect(body, isNot(contains('wa-')));
     });
 
     test('does not leak the raw exception into the UI', () async {

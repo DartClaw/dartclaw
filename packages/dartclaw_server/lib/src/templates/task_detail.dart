@@ -93,7 +93,6 @@ String taskDetailPageTemplate({
   final effectiveBudget = (tokenBudget != null && tokenBudget > 0) ? tokenBudget : null;
   final hasTokenBudget = effectiveBudget != null;
   final initialProgressPct = hasTokenBudget ? (initialTokensUsed / effectiveBudget * 100).round().clamp(0, 100) : 0;
-  final initialProgressFillClass = hasTokenBudget ? '' : 'indeterminate';
   final initialProgressLabel = hasTokenBudget
       ? '${formatNumber(initialTokensUsed)} / ${formatNumber(effectiveBudget)} tokens ($initialProgressPct%)'
       : '${formatNumber(initialTokensUsed)} tokens used';
@@ -103,9 +102,12 @@ String taskDetailPageTemplate({
   // Build artifact items for template.
   final artifactItems = artifacts.map((a) {
     final kind = a['kind']?.toString() ?? 'data';
+    final kindLabel = kind[0].toUpperCase() + kind.substring(1);
+    final name = a['name']?.toString() ?? '';
     return {
       ...a,
-      'kindLabel': kind[0].toUpperCase() + kind.substring(1),
+      'kindLabel': kindLabel,
+      'frameTitle': name.isNotEmpty ? name : kindLabel,
       'isDiff': kind == 'diff',
       'isDocument': kind == 'document',
       'isData': kind == 'data',
@@ -174,9 +176,9 @@ String taskDetailPageTemplate({
     'hasTimeline': timelineHtml != null && timelineHtml.isNotEmpty,
     // Progress section.
     'progressSectionStyle': progressSectionStyle,
+    'hasTokenBudget': hasTokenBudget,
     'initialActivity': initialActivity ?? 'Starting...',
     'initialProgressLabel': initialProgressLabel,
-    'initialProgressFillClass': initialProgressFillClass,
     'initialProgressPct': initialProgressPct,
   });
 

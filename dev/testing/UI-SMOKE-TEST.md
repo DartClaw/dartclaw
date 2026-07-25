@@ -8,7 +8,7 @@ See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and s
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.21.0
+**Last refreshed for**: DartClaw 0.22.0
 
 ---
 
@@ -73,7 +73,7 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 1. Navigate to `/login`
 
 **Pass:**
-- `❯ DartClaw` logo in accent color
+- CRT mascot and `DartClaw` wordmark
 - Card with visible border/shadow
 - Token input (type=password), "Remember this device" checkbox, "Sign In ❯" button
 - Footer hint with `<code>`-styled token path
@@ -278,7 +278,7 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 **Pass:**
 - Sidebar hidden behind hamburger; opens as full-height overlay with semi-transparent backdrop
 - All sidebar sections (per TC-04) render in the overlay
-- × closes overlay; backdrop click closes overlay
+- Visible × in the drawer closes the overlay; backdrop click closes the overlay
 - No layout shift in underlying content while overlay is open
 
 **Fail:** Sidebar visible at mobile without opening; overlay missing backdrop; × not working
@@ -320,17 +320,16 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 2. Confirm each lands on the correct page and the correct nav item is highlighted
 
 **Pass — full SYSTEM nav (registration order, conditional items in italic):**
-Health → Settings → Memory → Knowledge → Research → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
+Health → Settings → Memory → Knowledge → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
 
-The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge`,
-Research → `/knowledge/research`, Timeline → `/knowledge/timeline` — three separate nav
-items, not one.
+The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge` and
+Timeline → `/knowledge/timeline` — two separate nav items, not one.
 
 Conditional items appear when:
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
-Plain profile typically shows all 10.
+Plain profile typically shows all 9.
 
 **Fail:** Any link missing when its service is configured; wrong page loads; active state not updated
 

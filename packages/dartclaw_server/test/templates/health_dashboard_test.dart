@@ -21,8 +21,8 @@ SidebarData _emptySidebar() => (
 
 const _emptyNavItems = <NavItem>[];
 
-String _render({Map<String, dynamic>? pubsubHealth}) => healthDashboardTemplate(
-  status: 'healthy',
+String _render({String status = 'healthy', Map<String, dynamic>? pubsubHealth}) => healthDashboardTemplate(
+  status: status,
   uptimeSeconds: 3600,
   workerState: 'idle',
   sessionCount: 5,
@@ -40,6 +40,26 @@ void main() {
   tearDownAll(() => resetTemplates());
 
   group('health dashboard Pub/Sub card', () {
+    test('renders canonical health status variants and metric cards', () {
+      for (final (status, featured, badge, dot) in [
+        ('healthy', 'card-featured-accent', 'status-badge-success', 'status-dot--live'),
+        ('degraded', 'card-featured-warning', 'status-badge-warning', 'status-dot--warning'),
+        ('unavailable', 'card-featured-error', 'status-badge-error', 'status-dot--error'),
+      ]) {
+        final html = _render(status: status);
+
+        expect(html, contains(featured));
+        expect(html, contains(badge));
+        expect(html, contains(dot));
+        expect(html, contains('content-area'));
+        expect(html, contains('content-inner'));
+        expect(RegExp('class="card card-metric').allMatches(html), hasLength(4));
+        expect(html, isNot(contains('status-hero')));
+        expect(html, isNot(contains('status-indicator')));
+        expect(html, isNot(contains('status-label')));
+      }
+    });
+
     test('renders Pub/Sub card when pubsubHealth provided', () {
       final html = _render(
         pubsubHealth: {

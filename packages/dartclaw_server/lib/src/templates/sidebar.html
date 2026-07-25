@@ -1,6 +1,8 @@
 <aside tl:fragment="sidebar" class="sidebar" id="sidebar" tl:attr="data-tasks-enabled=${tasksEnabledAttr}">
   <div class="sidebar-header">
     <span class="logo" tl:text="'❯ ' + ${appName}">❯ DartClaw</span>
+    <button class="btn btn-icon btn-ghost sidebar-close" type="button" aria-label="Close sidebar"
+      data-icon="x"></button>
   </div>
 
   <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
@@ -24,9 +26,10 @@
     <div tl:if="${showDmLabel}" class="sidebar-subsection-label">DMs</div>
     <div tl:each="ch : ${dmChannels}" class="session-item session-item-channel"
       tl:classappend="${ch.active} ? 'active' : ''">
-      <a tl:attr="href=${ch.href},hx-get=${ch.href},data-icon=${'hash'}" class="session-item-link"
+      <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
         hx-select-oob="#topbar,#sidebar">
+        <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${ch.id},data-identicon-initials=${ch.title}"></span>
         <span class="session-item-title" tl:text="${ch.title}">Channel</span>
         <span tl:if="${ch.provider}" class="provider-badge"
           tl:classappend="'provider-badge-' + ${ch.provider}"
@@ -36,9 +39,10 @@
     <div tl:if="${hasGroupChannels}" class="sidebar-subsection-label">Groups</div>
     <div tl:each="ch : ${groupChannels}" class="session-item session-item-channel"
       tl:classappend="${ch.active} ? 'active' : ''">
-      <a tl:attr="href=${ch.href},hx-get=${ch.href},data-icon=${'hash'}" class="session-item-link"
+      <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
         hx-select-oob="#topbar,#sidebar">
+        <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${ch.id},data-identicon-initials=${ch.title}"></span>
         <span class="session-item-title" tl:text="${ch.title}">Channel</span>
         <span tl:if="${ch.provider}" class="provider-badge"
           tl:classappend="'provider-badge-' + ${ch.provider}"
@@ -88,15 +92,16 @@
 
   <div tl:each="entry : ${activeEntries}" class="session-item"
     tl:classappend="${entry.extraClass}">
-    <a tl:attr="href=${entry.href},hx-get=${entry.href},data-icon=${'message-circle'}" class="session-item-link"
+    <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
+      <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
       <span class="session-item-title" tl:text="${entry.title}">Session</span>
       <span tl:if="${entry.provider}" class="provider-badge"
         tl:classappend="'provider-badge-' + ${entry.provider}"
         tl:text="${entry.providerLabel}">Claude</span></a>
-    <button class="session-delete" data-session-archive="true"
-      tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Archive chat"></button>
+    <button class="session-action session-archive" data-session-archive="true"
+      tl:attr="data-session-id=${entry.id},data-icon=${'archive'}" aria-label="Archive chat"></button>
   </div>
 
   <div tl:if="${hasArchivedEntries}" class="sidebar-archive-section"
@@ -106,17 +111,18 @@
       <span class="sidebar-archive-count" tl:text="${archivedCount}">0</span>
       <span class="sidebar-archive-chevron" data-icon="chevron-down" aria-hidden="true"></span>
     </button>
-    <div class="sidebar-archive-list" style="display: none;">
+    <div class="sidebar-archive-list" hidden>
       <div tl:each="entry : ${archivedEntries}" class="session-item session-item-archive"
         tl:classappend="${entry.extraClass}">
-        <a tl:attr="href=${entry.href},hx-get=${entry.href},data-icon=${'archive'}" class="session-item-link"
+        <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
           hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
           hx-select-oob="#topbar,#sidebar">
+          <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
           <span class="session-item-title" tl:text="${entry.title}">Archived session</span>
           <span tl:if="${entry.provider}" class="provider-badge"
             tl:classappend="'provider-badge-' + ${entry.provider}"
             tl:text="${entry.providerLabel}">Claude</span></a>
-        <button class="session-delete" data-session-delete="true"
+        <button class="delete-btn session-delete" data-session-delete="true"
           tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Delete session"></button>
       </div>
     </div>
@@ -139,4 +145,4 @@
       tl:text="${nav.label}">Link</a>
   </nav>
 </aside>
-<button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>
+<button class="sidebar-scrim" type="button" aria-label="Close sidebar" aria-hidden="true" tabindex="-1"></button>

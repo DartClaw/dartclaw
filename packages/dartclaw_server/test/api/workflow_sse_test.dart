@@ -6,7 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, Harnes
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show InMemoryDefinitionSource, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep;
+    show InMemoryDefinitionSource, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep, WorkflowTaskType;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -33,6 +33,7 @@ WorkflowRun _makeRun({
   String id = 'run-001',
   WorkflowRunStatus status = WorkflowRunStatus.running,
   int currentStepIndex = 0,
+  Map<String, dynamic>? contextJson,
   Map<String, dynamic>? definitionJson,
 }) {
   final now = DateTime.parse('2026-03-24T10:00:00Z');
@@ -41,6 +42,7 @@ WorkflowRun _makeRun({
     id: id,
     definitionName: def.name,
     status: status,
+    contextJson: contextJson ?? const {},
     startedAt: now,
     updatedAt: now,
     variablesJson: const {},
@@ -75,6 +77,27 @@ class _ControllableListTaskService extends TaskService {
       _releaseList = null;
     }
     return super.list(status: status, type: type);
+  }
+}
+
+class _SubscriptionTrackingEventBus extends EventBus {
+  int activeSubscriptions = 0;
+
+  @override
+  Stream<T> on<T extends DartclawEvent>() {
+    final source = super.on<T>();
+    return Stream<T>.multi((controller) {
+      final subscription = source.listen(
+        controller.addSync,
+        onError: controller.addErrorSync,
+        onDone: controller.closeSync,
+      );
+      activeSubscriptions++;
+      controller.onCancel = () async {
+        activeSubscriptions--;
+        await subscription.cancel();
+      };
+    }, isBroadcast: source.isBroadcast);
   }
 }
 
@@ -140,7 +163,7 @@ void main() {
   late Database taskDb;
   late Database workflowDb;
   late SqliteTaskRepository taskRepo;
-  late EventBus eventBus;
+  late _SubscriptionTrackingEventBus eventBus;
   late _ControllableListTaskService tasks;
   late FakeWorkflowService workflows;
   late Handler handler;
@@ -150,7 +173,7 @@ void main() {
   setUp(() async {
     taskDb = openTaskDbInMemory();
     workflowDb = sqlite3.openInMemory();
-    eventBus = EventBus();
+    eventBus = _SubscriptionTrackingEventBus();
     taskRepo = SqliteTaskRepository(taskDb);
     tasks = _ControllableListTaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
@@ -221,6 +244,40 @@ void main() {
       expect((connected['steps'] as List), hasLength(2));
     });
 
+    test('connected payload matches approval-aware server rendering', () async {
+      final definition = WorkflowDefinition(
+        name: 'approval-test',
+        description: 'test',
+        steps: const [
+          WorkflowStep(id: 'approve', name: 'Approve', taskType: WorkflowTaskType.approval, prompts: ['approve']),
+        ],
+      );
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.awaitingApproval,
+        contextJson: const {'approve.approval.status': 'pending'},
+        definitionJson: definition.toJson(),
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+      final frames = await collectSseFrames(response);
+      final connected = frames.firstWhere((frame) => frame['type'] == 'connected');
+      expect((connected['steps'] as List).single['status'], 'awaiting_approval');
+    });
+
+    test('snapshot failure cancels subscriptions installed during setup', () async {
+      final subscriptionsBeforeRequest = eventBus.activeSubscriptions;
+      workflows
+        ..getError = StateError('snapshot failed')
+        ..throwOnGetCall = 2;
+
+      await expectLater(
+        handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events'))),
+        throwsA(isA<StateError>()),
+      );
+      await pumpEventQueue();
+      expect(eventBus.activeSubscriptions, subscriptionsBeforeRequest);
+    });
+
     test('does not miss lifecycle transitions while the initial snapshot loads', () async {
       tasks.blockNextList();
       final responseFuture = handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
@@ -248,10 +305,13 @@ void main() {
           timestamp: DateTime.now(),
         ),
       );
+      workflows.getResult = _makeRun(currentStepIndex: 1);
       tasks.releaseList();
 
       final response = await responseFuture;
       final frames = await collectSseFrames(response);
+      final connected = frames.firstWhere((frame) => frame['type'] == 'connected');
+      expect(connected['run']['currentStepIndex'], 1, reason: 'connected snapshot must refetch after subscriptions');
       expect(
         frames,
         contains(allOf(containsPair('type', 'workflow_status_changed'), containsPair('newStatus', 'awaitingApproval'))),

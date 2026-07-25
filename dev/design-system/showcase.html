@@ -254,7 +254,7 @@
     <p class="use-case"><code>.card.card-glass</code> &mdash; translucent + backdrop blur. Only over live content (modals, command palettes, toasts). Left half sharp, right half through the glass.</p>
     <div style="position:relative;border-radius:var(--radius-lg);overflow:hidden;border:var(--border);background:var(--bg-base)">
       <div style="padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-3)">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;white-space:nowrap">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);justify-items:center;align-items:center;white-space:nowrap">
           <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-1)">1,402</span>
           <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-2)">47</span>
           <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-3)">85%</span>
@@ -262,7 +262,7 @@
           <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-5)">12</span>
           <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-6)">340K</span>
         </div>
-        <div style="display:flex;justify-content:space-between;flex-wrap:nowrap;white-space:nowrap">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);justify-items:center;align-items:center;white-space:nowrap">
           <span class="status-pill status-pill--live">Running</span>
           <span class="status-pill status-pill--info">Research</span>
           <span class="status-pill status-pill--warning">85% Budget</span>
@@ -414,8 +414,8 @@ done.<span class="streaming"></span></code></pre>
       <div class="msg msg-user"><div class="msg-role">You</div><div class="msg-content">Refactor auth to JWT?</div></div>
       <div class="msg msg-assistant"><div class="msg-role">Assistant</div><div class="msg-content">
         <div class="tool-indicator success">Reading handler.ts</div>
-        <pre><code>export function verifyToken(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
+        <pre><code class="hljs"><span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title">verifyToken</span>(req, res, next) {
+  <span class="hljs-keyword">const</span> token = req.headers.authorization?.<span class="hljs-built_in">split</span>(<span class="hljs-string">' '</span>)[<span class="hljs-number">1</span>];
 }</code></pre>
         <p>Done.<span class="streaming"></span></p>
       </div></div>
@@ -432,10 +432,10 @@ done.<span class="streaming"></span></code></pre>
             <div class="tool-indicator pending">Writing src/auth/jwt.ts</div>
           </div>
           <div class="well-deep">
-            <pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code>+ import { verify } from 'jsonwebtoken';
-+ export function jwtMiddleware(req, res, next) {
-+   verify(token, process.env.JWT_SECRET);
-+ }</code></pre>
+            <pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="diff-line diff-line--add">+ <span class="hljs-keyword">import</span> { verify } <span class="hljs-keyword">from</span> <span class="hljs-string">'jsonwebtoken'</span>;</span>
+<span class="diff-line diff-line--add">+ <span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title">jwtMiddleware</span>(req, res, next) {</span>
+<span class="diff-line diff-line--add">+   <span class="hljs-built_in">verify</span>(token, process.env.JWT_SECRET);</span>
+<span class="diff-line diff-line--add">+ }</span></code></pre>
           </div>
         </div>
       </div>
@@ -501,12 +501,325 @@ done.<span class="streaming"></span></code></pre>
       </div>
     </div>
 
+    <h3>Status Vocabulary &mdash; six dots, two animate</h3>
+    <p class="use-case">Motion is rationed: only <code>--live</code> (working) and <code>--attention</code> (needs you) pulse. Every attention treatment also carries a text cue.</p>
+    <div class="card">
+      <div class="btn-row" style="gap:var(--sp-6)">
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--live"></span><span class="text-sm">Working</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--attention"></span><span class="text-sm">Waiting on you</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--success"></span><span class="text-sm">Finished OK</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--error"></span><span class="text-sm">Failed</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--warning"></span><span class="text-sm">Degraded</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--idle"></span><span class="text-sm">Idle</span></span>
+      </div>
+    </div>
+
     <h3>Gradient Dividers</h3>
     <div class="card card-sunken" style="padding:var(--sp-6)">
       <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Left-fade (section boundaries):</div>
       <hr class="divider divider-fade" style="margin:var(--sp-3) 0">
       <div class="text-sm text-muted" style="margin:var(--sp-4) 0 var(--sp-2)">Center-fade (content breaks):</div>
       <hr class="divider divider-center" style="margin:var(--sp-3) 0">
+    </div>
+
+
+    <!-- TOOL CALLS -->
+    <h2>Tool Calls</h2>
+    <p>Structured, disclosure-enabled record of a tool invocation &mdash; the timeline sibling of the <code>.tool-indicator</code> line. State on the left edge and name glyph; expand for args/result. Built on <code>&lt;details&gt;</code> (zero-JS).</p>
+    <div class="well-flush" style="display:grid;gap:var(--sp-1);padding:var(--sp-2);max-width:640px">
+      <details class="tool-call tool-call--success" open>
+        <summary class="tool-call-summary">
+          <span class="tool-call-name">Read</span>
+          <span class="tool-call-detail">packages/dartclaw_core/lib/harness.dart</span>
+          <span class="tool-call-time">0.4s</span>
+        </summary>
+        <div class="tool-call-body">
+          <div class="tool-call-io"><span class="tool-call-io-label">args</span>
+            <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-punctuation">{</span><span class="hljs-attr">"file_path"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"packages/dartclaw_core/lib/harness.dart"</span><span class="hljs-punctuation">}</span></code></pre></div>
+          </div>
+          <div class="tool-call-io"><span class="tool-call-io-label">result</span>
+            <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Harness</span> {
+  <span class="hljs-type">Future</span>&lt;<span class="hljs-type">void</span>&gt; <span class="hljs-title function_">start</span>();
+  <span class="hljs-type">Stream</span>&lt;<span class="hljs-type">HarnessEvent</span>&gt; <span class="hljs-title function_">events</span>();
+}</code></pre></div>
+          </div>
+        </div>
+      </details>
+      <details class="tool-call tool-call--pending">
+        <summary class="tool-call-summary">
+          <span class="tool-call-name">Bash</span>
+          <span class="tool-call-detail">dart test -t integration</span>
+          <span class="tool-call-time">12s</span>
+          <div class="scan-bar"></div>
+        </summary>
+        <div class="tool-call-body">
+          <div class="tool-call-io"><span class="tool-call-io-label">args</span>
+            <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-punctuation">{</span><span class="hljs-attr">"command"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dart test -t integration"</span><span class="hljs-punctuation">}</span></code></pre></div>
+          </div>
+        </div>
+      </details>
+      <details class="tool-call tool-call--error">
+        <summary class="tool-call-summary">
+          <span class="tool-call-name">Bash</span>
+          <span class="tool-call-detail">npm run build</span>
+          <span class="tool-call-time">3.1s</span>
+        </summary>
+        <div class="tool-call-body">
+          <div class="tool-call-io"><span class="tool-call-io-label">result</span>
+            <div class="well-deep">exit 1: npm: command not found</div>
+          </div>
+        </div>
+      </details>
+      <details class="tool-call tool-call--blocked">
+        <summary class="tool-call-summary">
+          <span class="icon icon-shield-alert" aria-hidden="true"></span>
+          <span class="tool-call-name">Bash</span>
+          <span class="tool-call-detail">blocked: rm -rf / &mdash; DestructiveCommandGuard</span>
+        </summary>
+        <div class="tool-call-body">
+          <div class="tool-call-io"><span class="tool-call-io-label">verdict</span>
+            <div class="well-deep">Guard DestructiveCommandGuard vetoed the command: matches recursive delete of a root path.</div>
+          </div>
+        </div>
+      </details>
+    </div>
+    <p class="use-case" style="margin-top:var(--sp-2)">States: <code>--success</code> (expanded) · <code>--pending</code> (scan sweep) · <code>--error</code> (name reddens) · <code>--blocked</code> (shield + guard verdict).</p>
+
+
+    <!-- APPROVAL GATES -->
+    <h2>Approval Gates</h2>
+    <p>The plan-approval / HITL gate as a first-class object &mdash; governance rendered as UX. The dot pulses; the card doesn't.</p>
+    <div class="grid-2">
+      <div class="card approval-card approval-card--waiting print-in">
+        <div class="card-header">
+          <span class="status-dot status-dot--attention"></span>
+          Plan approval requested
+          <span class="approval-card-meta">workflow: release-prep &middot; step 3</span>
+        </div>
+        <div class="card-body">
+          <div class="well-content approval-card-plan">
+            <p style="margin-bottom:var(--sp-2)"><strong style="color:var(--fg)">Proposed plan</strong></p>
+            <ol style="padding-left:var(--sp-5)">
+              <li>Bump version to 0.17.0</li>
+              <li>Regenerate the CHANGELOG</li>
+              <li>Tag and push the release branch</li>
+            </ol>
+          </div>
+        </div>
+        <div class="card-footer approval-card-actions">
+          <button type="button" class="btn btn-primary">Approve</button>
+          <button type="button" class="btn btn-danger">Reject</button>
+          <button type="button" class="btn btn-ghost">Comment</button>
+        </div>
+      </div>
+      <div class="card approval-card approval-card--approved">
+        <div class="card-header">Plan approval <span class="approval-card-meta">release-prep &middot; step 3</span></div>
+        <div class="card-body">Release plan accepted; the workflow resumed.</div>
+        <div class="card-footer approval-card-resolution"><span class="icon icon-check" aria-hidden="true"></span> Approved &middot; 12:41</div>
+      </div>
+      <div class="card approval-card approval-card--rejected">
+        <div class="card-header">Plan approval <span class="approval-card-meta">deploy-prod &middot; step 5</span></div>
+        <div class="card-body">Rejected &mdash; needs a rollback step before deploy.</div>
+        <div class="card-footer approval-card-resolution"><span class="icon icon-circle-x" aria-hidden="true"></span> Rejected &middot; 12:44</div>
+      </div>
+      <div class="card approval-card approval-card--expired">
+        <div class="card-header">Plan approval <span class="approval-card-meta">nightly-digest &middot; step 2</span></div>
+        <div class="card-body">No response within the approval window.</div>
+        <div class="card-footer approval-card-resolution"><span class="icon icon-clock" aria-hidden="true"></span> Expired &middot; waited 30m</div>
+      </div>
+    </div>
+
+
+    <!-- CHIPS -->
+    <h2>Chips</h2>
+    <p>Neutral reference/content tokens for the composer and metadata rows. They <em>reference</em> things; they never carry state.</p>
+    <h3>File &amp; reference chips</h3>
+    <div class="chip-row" style="margin-bottom:var(--sp-4)">
+      <span class="chip chip--file">
+        <span class="icon icon-paperclip" aria-hidden="true"></span>
+        <span class="chip-name">harness.dart</span> <span class="chip-meta">4.1 KB</span>
+        <button type="button" class="chip-remove" aria-label="Remove attachment"></button>
+      </span>
+      <button type="button" class="chip chip--ref">
+        <span class="icon icon-at-sign" aria-hidden="true"></span> <span class="chip-name">session:release-prep</span>
+      </button>
+      <button type="button" class="chip chip--ref">
+        <span class="icon icon-git-branch" aria-hidden="true"></span> <span class="chip-name">forked from main</span>
+      </button>
+    </div>
+    <h3>Overflow (name ellipsizes at 240px)</h3>
+    <div class="chip-row" style="margin-bottom:var(--sp-4)">
+      <span class="chip chip--file">
+        <span class="icon icon-paperclip" aria-hidden="true"></span>
+        <span class="chip-name">a-very-long-attachment-filename-that-keeps-going.dart</span> <span class="chip-meta">18 KB</span>
+        <button type="button" class="chip-remove" aria-label="Remove attachment"></button>
+      </span>
+    </div>
+    <h3>Toggle chips (filters) &mdash; pressed = accent selection tint, never outcome state</h3>
+    <div class="chip-row">
+      <button type="button" class="chip" aria-pressed="true">All</button>
+      <button type="button" class="chip" aria-pressed="false">Running</button>
+      <button type="button" class="chip" aria-pressed="false">Waiting</button>
+      <button type="button" class="chip" aria-pressed="false">Done</button>
+    </div>
+
+
+    <!-- THINKING SLOT -->
+    <h2>Thinking Slot</h2>
+    <p class="use-case"><code>.msg-thinking</code> &mdash; the claw moment of the chat view. Replaced by streamed content on the first token; at most one per view.</p>
+    <div class="well-content">
+      <div class="msg msg-user"><div class="msg-role">You</div><div class="msg-content">Refactor auth to JWT?</div></div>
+      <div class="msg msg-assistant msg-thinking print-in">
+        <span class="msg-role">Agent</span>
+        <span class="claw-loader" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="msg-thinking-label">thinking</span>
+      </div>
+    </div>
+
+
+    <!-- NOTIFICATIONS -->
+    <h2>Notifications</h2>
+    <p class="use-case">Attention-center rows in a <code>.card-glass</code> panel. Unread carries an accent left edge + tint.</p>
+    <div style="max-width:420px">
+      <div class="card card-glass" style="padding:var(--sp-2) 0">
+        <div class="notif-group">Needs input</div>
+        <a class="notif-item notif-item--unread" href="#" onclick="return false">
+          <span class="status-dot status-dot--attention"></span>
+          <span class="notif-item-body">
+            <span class="notif-item-title">Plan approval requested</span>
+            <span class="notif-item-detail">release-prep &middot; step 3 waiting 4m</span>
+          </span>
+          <span class="notif-item-time">12:40</span>
+        </a>
+        <div class="notif-group">Earlier</div>
+        <a class="notif-item" href="#" onclick="return false">
+          <span class="status-dot status-dot--success"></span>
+          <span class="notif-item-body">
+            <span class="notif-item-title">Session finished</span>
+            <span class="notif-item-detail">refactor-auth &middot; 8 tools &middot; 2m 41s</span>
+          </span>
+          <span class="notif-item-time">12:31</span>
+        </a>
+        <a class="notif-item" href="#" onclick="return false">
+          <span class="status-dot status-dot--error"></span>
+          <span class="notif-item-body">
+            <span class="notif-item-title">Guard blocked a command</span>
+            <span class="notif-item-detail">deploy-prod &middot; rm -rf / vetoed</span>
+          </span>
+          <span class="notif-item-time">12:18</span>
+        </a>
+      </div>
+    </div>
+
+
+    <!-- COMMAND PALETTE -->
+    <h2>Command Palette</h2>
+    <p class="use-case">Rows inside the glass palette. <code>--active</code> is the keyboard cursor (accent edge + surface).</p>
+    <div style="max-width:520px">
+      <div class="card card-glass" style="padding:var(--sp-2)">
+        <div style="display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border-highlight);margin-bottom:var(--sp-2)">
+          <span class="icon icon-search" style="color:var(--fg-overlay)" aria-hidden="true"></span>
+          <input id="palette-input" name="palette-input" placeholder="Search sessions, workflows, commands…" style="flex:1;background:transparent;border:none;outline:none;color:var(--fg);font:inherit;font-size:var(--text-base)">
+        </div>
+        <div class="palette-section">Sessions</div>
+        <button type="button" class="palette-item palette-item--active">
+          <span class="icon icon-message-circle" aria-hidden="true"></span>
+          <span class="palette-item-label">release-prep</span>
+          <span class="palette-item-context">session &middot; running</span>
+          <kbd>&#8629;</kbd>
+        </button>
+        <button type="button" class="palette-item">
+          <span class="icon icon-message-circle" aria-hidden="true"></span>
+          <span class="palette-item-label">refactor-auth</span>
+          <span class="palette-item-context">session &middot; idle</span>
+        </button>
+        <div class="palette-section">Workflows</div>
+        <button type="button" class="palette-item">
+          <span class="icon icon-workflow" aria-hidden="true"></span>
+          <span class="palette-item-label">nightly-digest</span>
+          <span class="palette-item-context">workflow &middot; scheduled</span>
+        </button>
+      </div>
+    </div>
+
+
+    <!-- ORCHESTRATION -->
+    <h2>Orchestration</h2>
+    <p>Run-board cards and the workflow pipeline spine. Composition-first &mdash; a <code>.card</code> with an attention ring, and an <code>&lt;ol&gt;</code> step list.</p>
+    <h3>Run cards</h3>
+    <div class="grid-2">
+      <div class="card run-card run-card--attention">
+        <div class="card-header">
+          <span class="status-dot status-dot--attention"></span>
+          release-prep
+          <span class="run-card-step">step 3/7</span>
+        </div>
+        <div class="card-body">
+          <div class="tool-indicator pending">awaiting plan approval</div>
+          <div class="meter" style="margin-top:var(--sp-2)"><div class="meter-fill meter-fill--warning" style="width:43%"></div></div>
+        </div>
+        <div class="card-footer">
+          <span class="identicon identicon--3">CL</span>
+          <span>claude &middot; 12m</span>
+          <span style="margin-left:auto" class="status-pill status-pill--warning">waiting</span>
+        </div>
+      </div>
+      <div class="card run-card">
+        <div class="card-header">
+          <span class="status-dot status-dot--live"></span>
+          nightly-digest
+          <span class="run-card-step">step 2/4</span>
+        </div>
+        <div class="card-body">
+          <div class="tool-indicator pending">summarizing 142 messages</div>
+          <div class="meter" style="margin-top:var(--sp-2)"><div class="meter-fill" style="width:55%"></div></div>
+        </div>
+        <div class="card-footer">
+          <span class="identicon identicon--2">CX</span>
+          <span>codex &middot; 3m</span>
+          <span style="margin-left:auto" class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> running</span>
+        </div>
+      </div>
+    </div>
+    <h3>Pipeline &mdash; all step states</h3>
+    <div class="card" style="max-width:420px">
+      <ol class="pipeline">
+        <li class="pipeline-step pipeline-step--done">
+          <span class="pipeline-node"></span>
+          <div class="pipeline-step-body">
+            <span class="pipeline-step-name">research</span>
+            <span class="pipeline-step-meta">2m 10s &middot; claude &middot; done</span>
+          </div>
+        </li>
+        <li class="pipeline-step pipeline-step--failed">
+          <span class="pipeline-node"></span>
+          <div class="pipeline-step-body">
+            <span class="pipeline-step-name">scaffold</span>
+            <span class="pipeline-step-meta">0m 48s &middot; failed &mdash; retried</span>
+          </div>
+        </li>
+        <li class="pipeline-step pipeline-step--running">
+          <span class="pipeline-node"></span>
+          <div class="pipeline-step-body">
+            <span class="pipeline-step-name">implement</span>
+            <span class="pipeline-step-meta">running &middot; codex</span>
+          </div>
+        </li>
+        <li class="pipeline-step pipeline-step--blocked">
+          <span class="pipeline-node"></span>
+          <div class="pipeline-step-body">
+            <span class="pipeline-step-name">review</span>
+            <span class="pipeline-step-meta">blocked &middot; waiting on you</span>
+          </div>
+        </li>
+        <li class="pipeline-step pipeline-step--pending">
+          <span class="pipeline-node"></span>
+          <div class="pipeline-step-body">
+            <span class="pipeline-step-name">release</span>
+            <span class="pipeline-step-meta">pending</span>
+          </div>
+        </li>
+      </ol>
     </div>
 
 
@@ -544,24 +857,45 @@ done.<span class="streaming"></span></code></pre>
     </div>
 
 
-    <!-- INPUT AREA -->
-    <h2>Input Area</h2>
-    <div class="grid-2">
-      <div>
-        <p class="use-case">Active</p>
-        <div class="input-area" style="border-radius:var(--radius-lg)">
-          <textarea id="active-message" name="active-message" rows="2" placeholder="Type a message..."></textarea>
-          <button type="button" class="btn btn-primary btn-send">Send</button>
-        </div>
-      </div>
-      <div>
-        <p class="use-case">Disabled (streaming)</p>
-        <div class="input-area" style="border-radius:var(--radius-lg)">
-          <textarea id="disabled-message" name="disabled-message" rows="2" placeholder="Agent is responding..." disabled></textarea>
-          <button type="button" class="btn btn-primary btn-send" disabled>Send</button>
+    <!-- COMPOSER -->
+    <h2>Composer</h2>
+    <p><code>.input-area</code> is the anchored strip (gradient + top highlight); <code>.composer</code> is the input object it holds &mdash; textarea on top, toolbar inside, focus ring on the container. The bare textarea + Send layout is superseded for chat.</p>
+
+    <h3>Idle &mdash; toolbar + context row</h3>
+    <div class="input-area" style="border-radius:var(--radius-lg)">
+      <div class="composer">
+        <textarea id="composer-message" name="composer-message" rows="1" placeholder="Message DartClaw..."></textarea>
+        <div class="composer-toolbar">
+          <button type="button" class="btn btn-ghost btn-icon" data-icon="plus" aria-label="Attach"></button>
+          <span class="status-badge"><span class="icon icon-shield-alert" aria-hidden="true"></span> guards: standard</span>
+          <div class="composer-meta">
+            <button type="button" class="composer-model">claude &middot; high</button>
+            <button type="button" class="btn btn-primary btn-icon composer-send" data-icon="arrow-up" aria-label="Send"></button>
+          </div>
         </div>
       </div>
     </div>
+    <div class="composer-context" style="margin-top:var(--sp-2)">
+      <span class="chip"><span class="icon icon-folder-kanban" aria-hidden="true"></span> <span class="chip-name">dartclaw-core</span></span>
+      <span class="chip"><span class="icon icon-git-branch" aria-hidden="true"></span> <span class="chip-name">main</span></span>
+    </div>
+
+    <h3 style="margin-top:var(--sp-6)">Streaming &mdash; textarea disabled, send swaps to stop</h3>
+    <div class="input-area" style="border-radius:var(--radius-lg)">
+      <div class="composer composer--streaming">
+        <textarea id="composer-streaming" name="composer-streaming" rows="1" placeholder="Agent is responding..." disabled></textarea>
+        <div class="composer-toolbar">
+          <button type="button" class="btn btn-ghost btn-icon" data-icon="plus" aria-label="Attach" disabled></button>
+          <span class="status-badge status-badge-warning"><span class="icon icon-shield-alert" aria-hidden="true"></span> guards: elevated</span>
+          <div class="composer-meta">
+            <button type="button" class="composer-model">codex &middot; medium</button>
+            <button type="button" class="btn btn-danger btn-icon composer-send" data-icon="square" aria-label="Stop"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="use-case" style="margin-top:var(--sp-3)"><code>.input-area</code> alone remains the anchored strip; a mode is a <code>.status-badge</code> (neutral / <code>--warning</code> when elevated &mdash; never a chip), and refs are chips in <code>.composer-context</code> or a <code>.chip-row</code> above the toolbar.</p>
 
 
     <!-- EMPTY STATE -->
@@ -574,6 +908,29 @@ done.<span class="streaming"></span></code></pre>
         <button type="button" class="btn btn-primary">+ New Session</button>
       </div>
     </div>
+
+
+    <!-- CODE HIGHLIGHTING -->
+    <h2>Code Highlighting</h2>
+    <p class="use-case"><code>--syntax-*</code> tokens theme highlight.js output and server-rendered diffs. Categorical, like the chart ramp &mdash; only the diff wash means anything.</p>
+    <h3>Highlighted code (in a terminal frame)</h3>
+    <div class="terminal-frame" style="margin-bottom:var(--sp-4)">
+      <div class="terminal-frame-bar"><span class="terminal-frame-dots"></span>harness_pool.dart</div>
+      <div class="terminal-frame-body"><pre><code class="hljs"><span class="hljs-comment">/// Spawns a harness for [provider], reusing warm pool slots.</span>
+<span class="hljs-keyword">Future</span>&lt;<span class="hljs-type">AgentHarness</span>&gt; <span class="hljs-title">acquire</span>(<span class="hljs-type">ProviderId</span> provider) <span class="hljs-keyword">async</span> {
+  <span class="hljs-keyword">final</span> slot = _pool.<span class="hljs-built_in">firstWhere</span>((s) =&gt; s.idle, orElse: () =&gt; <span class="hljs-literal">null</span>);
+  <span class="hljs-keyword">if</span> (slot != <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> slot.harness;
+  <span class="hljs-keyword">return</span> _spawn(provider, timeout: <span class="hljs-keyword">const</span> <span class="hljs-type">Duration</span>(seconds: <span class="hljs-number">30</span>),
+      label: <span class="hljs-string">'pool-${_pool.length}'</span>);
+}</code></pre></div>
+    </div>
+    <h3>Diff (server-rendered)</h3>
+    <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code><span class="diff-line diff-line--hunk">@@ -12,6 +12,8 @@ class HarnessPool {</span>
+<span class="diff-line">  final _pool = &lt;PoolSlot&gt;[];</span>
+<span class="diff-line diff-line--del">-  Duration get timeout =&gt; const Duration(seconds: 10);</span>
+<span class="diff-line diff-line--add">+  Duration get timeout =&gt; _config.spawnTimeout;</span>
+<span class="diff-line diff-line--add">+  bool get hasIdle =&gt; _pool.any((s) =&gt; s.idle);</span>
+<span class="diff-line">  int get size =&gt; _pool.length;</span></code></pre></div>
 
 
     <!-- COMPOSITION EXAMPLE -->
@@ -602,7 +959,7 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- ICONS -->
     <h2>Icons</h2>
-    <p>32 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
+    <p>39 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
 
     <h3>Inline Icons (<code>.icon.icon-*</code>)</h3>
     <div class="card" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--sp-3); padding:var(--sp-4)">
@@ -611,6 +968,7 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-left"></span><span class="text-xs">arrow-left</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-right"></span><span class="text-xs">arrow-right</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-at-sign"></span><span class="text-xs">at-sign</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-bell"></span><span class="text-xs">bell</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-brain"></span><span class="text-xs">brain</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-calendar-clock"></span><span class="text-xs">calendar-clock</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-check"></span><span class="text-xs">check</span></span>
@@ -619,15 +977,20 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-check"></span><span class="text-xs">circle-check</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-x"></span><span class="text-xs">circle-x</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clipboard-list"></span><span class="text-xs">clipboard-list</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clock"></span><span class="text-xs">clock</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-corner-down-right"></span><span class="text-xs">corner-down-right</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-folder-kanban"></span><span class="text-xs">folder-kanban</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-git-branch"></span><span class="text-xs">git-branch</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-hash"></span><span class="text-xs">hash</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-info"></span><span class="text-xs">info</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-menu"></span><span class="text-xs">menu</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-message-circle"></span><span class="text-xs">message-circle</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-messages-square"></span><span class="text-xs">messages-square</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-moon"></span><span class="text-xs">moon</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-paperclip"></span><span class="text-xs">paperclip</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-pencil"></span><span class="text-xs">pencil</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-radio-tower"></span><span class="text-xs">radio-tower</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-search"></span><span class="text-xs">search</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-server"></span><span class="text-xs">server</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-settings"></span><span class="text-xs">settings</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-shield-alert"></span><span class="text-xs">shield-alert</span></span>
@@ -637,6 +1000,7 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-terminal"></span><span class="text-xs">terminal</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-triangle-alert"></span><span class="text-xs">triangle-alert</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-users"></span><span class="text-xs">users</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-workflow"></span><span class="text-xs">workflow</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-x"></span><span class="text-xs">x</span></span>
     </div>
 
@@ -703,8 +1067,17 @@ done.<span class="streaming"></span></code></pre>
           <div class="msg msg-assistant"><div class="msg-role">Assistant</div><div class="msg-content"><div class="tool-indicator success">Reading handler.ts</div><p>Done!<span class="streaming"></span></p></div></div>
         </div>
         <div class="input-area">
-          <textarea id="demo-message" name="demo-message" rows="1" placeholder="Type a message..."></textarea>
-          <button type="button" class="btn btn-primary btn-send">Send</button>
+          <div class="composer">
+            <textarea id="demo-message" name="demo-message" rows="1" placeholder="Message DartClaw..."></textarea>
+            <div class="composer-toolbar">
+              <button type="button" class="btn btn-ghost btn-icon" data-icon="plus" aria-label="Attach"></button>
+              <span class="status-badge"><span class="icon icon-shield-alert" aria-hidden="true"></span> guards: standard</span>
+              <div class="composer-meta">
+                <button type="button" class="composer-model">claude &middot; high</button>
+                <button type="button" class="btn btn-primary btn-icon composer-send" data-icon="arrow-up" aria-label="Send"></button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

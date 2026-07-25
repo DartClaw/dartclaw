@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 final Map<String, String> embeddedWorkflowAssets = _EmbeddedAssets(_assetsBase64);
+final Map<String, List<int>> embeddedWorkflowBinaryAssets = _EmbeddedBinaryAssets(_binaryAssetsBase64);
 
 const _assetsBase64 = <String, String>{
   'skills/dartclaw-discover-andthen-plan/SKILL.md':
@@ -732,6 +733,8 @@ const _assetsBase64 = <String, String>{
       'aW5kaW5nc19jb3VudAo=',
 };
 
+const _binaryAssetsBase64 = <String, String>{};
+
 final class _EmbeddedAssets extends MapBase<String, String> {
   _EmbeddedAssets(this._encoded);
 
@@ -758,4 +761,32 @@ final class _EmbeddedAssets extends MapBase<String, String> {
 
   @override
   String? remove(Object? key) => throw UnsupportedError('Embedded assets are read-only.');
+}
+
+final class _EmbeddedBinaryAssets extends MapBase<String, List<int>> {
+  _EmbeddedBinaryAssets(this._encoded);
+
+  final Map<String, String> _encoded;
+  final Map<String, List<int>> _decoded = <String, List<int>>{};
+
+  @override
+  List<int>? operator [](Object? key) {
+    final encoded = _encoded[key];
+    if (encoded == null || key is! String) {
+      return null;
+    }
+    return _decoded.putIfAbsent(key, () => List<int>.unmodifiable(base64Decode(encoded)));
+  }
+
+  @override
+  void operator []=(String key, List<int> value) => throw UnsupportedError('Embedded assets are read-only.');
+
+  @override
+  void clear() => throw UnsupportedError('Embedded assets are read-only.');
+
+  @override
+  Iterable<String> get keys => _encoded.keys;
+
+  @override
+  List<int>? remove(Object? key) => throw UnsupportedError('Embedded assets are read-only.');
 }

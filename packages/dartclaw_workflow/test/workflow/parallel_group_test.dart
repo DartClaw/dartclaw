@@ -200,6 +200,8 @@ void main() {
 
     var resumeLeg = false;
     final tasksByStep = <String, int>{};
+    final stepEvents = <WorkflowStepCompletedEvent>[];
+    final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen(stepEvents.add);
     final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
@@ -235,6 +237,8 @@ void main() {
     });
 
     await h.executor.execute(run, definition, context);
+    await Future<void>.delayed(Duration.zero);
+    await stepSub.cancel();
 
     final pausedRun = await h.repository.getById('run-1');
     expect(pausedRun?.status, equals(WorkflowRunStatus.paused), reason: 'a cancelled member must pause, never fail');
@@ -244,6 +248,12 @@ void main() {
     // The interrupted member's partial attempt stays uncharged (resume re-runs
     // it, so charging would double-count); the failed member is still charged.
     expect(pausedRun?.totalTokens, equals(11 + 40));
+    final failedEvent = stepEvents.singleWhere((event) => event.stepId == 'p2');
+    expect(failedEvent.outcome, 'failed');
+    expect(failedEvent.reason, 'p2 broke');
+    final cancelledEvent = stepEvents.singleWhere((event) => event.stepId == 'p3');
+    expect(cancelledEvent.outcome, 'cancelled');
+    expect(cancelledEvent.reason, 'finished before teardown');
 
     // Resume re-runs only the recorded non-success members.
     resumeLeg = true;

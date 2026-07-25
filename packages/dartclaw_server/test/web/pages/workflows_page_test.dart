@@ -337,6 +337,22 @@ void main() {
       expect(response.statusCode, 400);
     });
 
+    test('returns 400 for negative step index', () async {
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final response = await page.handler(_get('/workflows/run-001/steps/-1'), context);
+      expect(response.statusCode, 400);
+      expect(await response.readAsString(), 'Invalid step index');
+    });
+
+    test('returns 400 for out-of-range step index', () async {
+      await workflows.start(_makeDefinition(), const {});
+      final runId = (await workflows.list()).first.id;
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final response = await page.handler(_get('/workflows/$runId/steps/2'), context);
+      expect(response.statusCode, 400);
+      expect(await response.readAsString(), 'Invalid step index');
+    });
+
     test('returns 503 when services not configured', () async {
       final context = _makeContext();
       final response = await page.handler(_get('/workflows/run-001/steps/0'), context);

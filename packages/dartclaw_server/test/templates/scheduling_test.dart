@@ -82,11 +82,30 @@ void main() {
       expect(html, contains('No scheduled jobs configured'));
     });
 
-    test('add job form card is present but hidden', () {
+    test('forms use hidden attributes and canonical metric cards', () {
       final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
       expect(html, contains('job-form'));
-      expect(html, contains('display: none'));
+      expect(html, contains('class="well-content" id="job-form" hidden=""'));
+      expect(html, contains('class="well-content" id="task-form" hidden=""'));
+      expect(html, isNot(contains('style=')));
       expect(html, contains('click->dc-scheduling#toggleJobForm'));
+      expect(html, contains('card-metric--info'));
+      expect(html, contains('card-metric--warning'));
+      expect(html, contains('metric-value">Disabled</div>'));
+    });
+
+    test('active heartbeat renders accent metric and success badge', () {
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        heartbeatEnabled: true,
+        heartbeatIntervalMinutes: 15,
+      );
+
+      expect(html, contains('card-metric--accent'));
+      expect(html, contains('metric-value">Active</div>'));
+      expect(html, contains('every 15 min'));
+      expect(html, contains('status-badge-success'));
     });
 
     test('restart badge present in form', () {

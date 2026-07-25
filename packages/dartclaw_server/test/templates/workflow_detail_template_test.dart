@@ -77,9 +77,12 @@ void main() {
       expect(count, 4);
       expect(html, contains('data-controller="dc-workflows"'));
       expect(html, contains('data-run-status="running"'));
+      expect(html, contains('class="content-area print-in"'));
+      expect(html, contains('class="content-inner workflow-detail-page"'));
+      expect(html, contains('class="workflow-step-detail" hidden="" id="step-detail-0"'));
     });
 
-    test('progress bar: 0/6 -> 0%', () {
+    test('progress meter keeps count and percentage labels', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
         navItems: const [],
@@ -89,6 +92,9 @@ void main() {
         loopInfo: const [],
       );
       expect(html, contains('width: 0%'));
+      expect(html, contains('class="workflow-progress-label"'));
+      expect(html, contains('<span>0</span> / <span>6</span> steps complete'));
+      expect(html, contains('class="workflow-progress-pct">0%</span>'));
     });
 
     test('why-paused banner: awaitingApproval names the pending step and its request', () {
@@ -410,11 +416,50 @@ void main() {
             'parallel': false,
             'taskId': 'task-0',
           },
+          {
+            'index': 1,
+            'id': 'step-1',
+            'name': 'Interrupted',
+            'status': 'interrupted',
+            'type': 'research',
+            'parallel': false,
+            'taskId': 'task-1',
+          },
         ],
         contextEntries: const [],
         loopInfo: const [],
       );
       expect(html, contains('workflow-step-icon--completed'));
+      expect(html, contains('workflow-step-icon--interrupted'));
+      expect(RegExp(r'workflow-step-icon--interrupted[^>]*>!</span>').hasMatch(html), isTrue);
+    });
+
+    test('lazy step details expose terminal error and retry states', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(),
+        steps: [
+          {
+            'index': 0,
+            'id': 'step-0',
+            'name': 'Research',
+            'status': 'running',
+            'type': 'research',
+            'parallel': false,
+            'taskId': 'task-0',
+          },
+        ],
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('htmx:responseError->dc-workflows#showStepDetailError'));
+      expect(html, contains('htmx:sendError->dc-workflows#showStepDetailError'));
+      expect(html, contains('intersect once, workflow-step-detail-retry'));
+      expect(html, contains('data-step-detail-loading'));
+      expect(html, contains('data-step-detail-error'));
+      expect(html, contains('dc-workflows#retryStepDetail'));
     });
   });
 
@@ -422,27 +467,38 @@ void main() {
     test('renders session section when messagesHtml provided', () {
       final html = workflowStepDetailFragment(
         messagesHtml: '<div class="msg">Hello</div>',
+        stepName: 'Research',
         artifacts: const [],
         inputs: const [],
         outputKeys: const [],
       );
       expect(html, contains('workflow-step-chat'));
       expect(html, contains('<div class="msg">Hello</div>'));
+      expect(html, contains('terminal-frame'));
+      expect(html, contains('terminal-frame-bar'));
+      expect(html, contains('terminal-frame-dots'));
+      expect(html, contains('terminal-frame-body'));
+      expect(html, contains('terminal-frame-title">Research</span>'));
+      expect(html, isNot(contains('terminal-frame--crt')));
     });
 
     test('renders no-session empty state when messagesHtml is null', () {
       final html = workflowStepDetailFragment(
         messagesHtml: null,
+        stepName: 'Research',
         artifacts: const [],
         inputs: const [],
         outputKeys: const [],
       );
       expect(html, contains('No session started yet.'));
+      expect(html, contains('workflow-step-no-session'));
+      expect(html, isNot(contains('terminal-frame')));
     });
 
     test('renders artifacts when provided', () {
       final html = workflowStepDetailFragment(
         messagesHtml: null,
+        stepName: 'Research',
         artifacts: [
           {'name': 'output.md', 'kindLabel': 'Document'},
         ],
@@ -456,6 +512,7 @@ void main() {
     test('renders token count when provided', () {
       final html = workflowStepDetailFragment(
         messagesHtml: null,
+        stepName: 'Research',
         artifacts: const [],
         inputs: const [],
         outputKeys: const [],

@@ -17,7 +17,6 @@ import 'pages/knowledge_hub_page.dart';
 import 'pages/kg_timeline_page.dart';
 import 'pages/memory_page.dart';
 import 'pages/projects_page.dart';
-import 'pages/research_packet_page.dart';
 import 'pages/scheduling_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/tasks_page.dart';
@@ -90,7 +89,6 @@ void registerSystemDashboardPages(
       },
     ),
   );
-  registry.register(ResearchPacketPage());
   registry.register(KgTimelinePage(kgGetter: kgServiceGetter));
   if (showScheduling) {
     registry.register(

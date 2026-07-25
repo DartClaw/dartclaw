@@ -9,7 +9,7 @@
   <p>Send a message to start the conversation.</p>
 </div>
 
-<main tl:fragment="emptyAppState" id="main-content" tabindex="-1" hx-history-elt class="chat-area">
+<main tl:fragment="emptyAppState" id="main-content" tabindex="-1" hx-history-elt class="chat-area print-in">
   <div class="empty-state flex-fill">
     <div class="icon">&#10095;_</div>
     <p><strong>No chats yet</strong></p>
@@ -25,7 +25,7 @@
 <div tl:fragment="metricCard" class="card card-metric"
      tl:classappend="'card-metric--' + ${color}">
   <div class="metric-value" tl:text="${value}">0</div>
-  <div class="metric-label" tl:text="${label}">Metric</div>
+  <div class="metric-label" tl:attr="title=${labelTooltip}" tl:text="${label}">Metric</div>
 </div>
 
 <div tl:fragment="infoCard" class="card">

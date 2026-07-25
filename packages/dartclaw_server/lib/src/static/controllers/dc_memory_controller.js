@@ -121,7 +121,7 @@ export default class DcMemoryController extends Stimulus.Controller {
     if (!fileName) return;
 
     preview.dataset.loading = '1';
-    preview.textContent = 'Loading...';
+    preview.innerHTML = '<div class="skeleton skeleton-text"></div>';
     try {
       const response = await fetch('/api/memory/files/' + encodeURIComponent(fileName) + this.apiQs);
       if (!response.ok) throw new Error('Memory file request failed');

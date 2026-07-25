@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+## [0.22.0] - 2026-07-24
+
+### Added
+
+- **Afterglow design system across the complete Web UI** – every shipped page now uses the canonical Catppuccin Mocha/Latte system with atmospheric ground, unified entry motion, semantic feedback primitives, terminal frames, identicons, mascot/favicon assets, branded empty states, and the CRT login hero. Responsive and reduced-motion treatments are included.
+- **Parallel multi-agent maintainer review** – a standalone inline workflow runs Codex and Claude reviews in parallel, aggregates their reports, remediates findings, and closes with the deterministic verification gate.
+
+### Changed
+
+- **Canonical design-system CSS is now drift-checked** – served styles are split into a synced `design-system.css` foundation and app-only `app.css`; CI rejects divergence from the canonical tokens, components, and icons.
+
+### Fixed
+
+- **Web UI assets no longer mix across release revisions** – versioned static URLs force browsers off previously cached typography and controller files; sidebar empty/archive states and chat composer affordances retain their intended styling and layout.
+- **Mobile drawer close controls are visible and accessible** – the open drawer now exposes its own × control, synchronizes `aria-expanded`, and removes the inactive backdrop from keyboard and assistive-technology navigation.
+- **Parallel workflow CLI progress no longer retains settled members** – live status lines retire terminal tasks promptly while accepted-token totals remain authoritative across retries.
+- **Outbound MCP HTTP transport allows literal loopback hosts safely** – `localhost`, `127.x.x.x`, and `[::1]` may use plain HTTP for local MCP servers; other hosts remain HTTPS-only, DNS aliases do not bypass the rule, and credential-bearing cleartext loopback connections emit a warning.
+
+---
+
 ## [0.21.0] - 2026-07-18
 
 ### Added
@@ -86,9 +108,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web UI layout and typography contracts are coherent again** – the token scale now resolves to its declared 12–20px roles and 4px spacing rhythm, semantic card headings no longer inherit browser-default heading sizes, the chat composer uses its canonical toolbar with Send/Stop at bottom-right, and each Settings section uses the full content width with accessible responsive tabs and section-level restart guidance.
+- **Static UI assets revalidate after upgrades** – CSS and JavaScript no longer remain fresh in the browser cache for 24 hours across a server upgrade, preventing old controllers and styles from mixing with new templates.
 - **Scheduling page — task-type jobs no longer render a phantom row** – a `type: task` entry in the unified `scheduling.jobs` list showed up as a blank, actionable row in the *Scheduled Jobs* table (on top of its correct *Scheduled Tasks* row); the Jobs table now excludes task-type entries, and its empty state reflects the filtered rows.
 - **Mobile sidebar close button is clickable** – the topbar menu button now sits above the open sidebar drawer at the mobile breakpoint, so tapping it closes the sidebar (previously only a backdrop tap worked).
-- **Knowledge / Research / Timeline nav icons render** – the `database` / `search` / `clock` system-nav icons (added with the 0.19 Knowledge UI) were missing their icon definitions and showed as blank squares; the mappings are now present.
+- **Knowledge navigation no longer advertises an inert Research page** – the component-only citation-packet renderer had no query or production data path and always showed an empty result. The dead route and nav item are withdrawn until a query-backed UI exists; Knowledge Hub and Timeline keep consistent working navigation and icons.
 - **Login page no longer opens an unauthenticated event stream** – the global SSE connection (restart / context-warning events) is established only on authenticated shell pages, removing a spurious `/api/events` 401 and its console error on `/login`.
 - **Web UI renders true step status** – blocked, needs-input, and cancelled workflow steps now render with their real status in the run detail view instead of appearing as failures (the step-completed handler honors the forwarded outcome; visually verified).
 - **Resolved/sliced workflow YAML keeps variable defaults** – the definition resolver emitted the persisted-JSON key `defaultValue` where the YAML parser reads `default`, so emitted YAML silently dropped variable defaults.

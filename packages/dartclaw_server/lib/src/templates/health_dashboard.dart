@@ -30,19 +30,10 @@ String healthDashboardTemplate({
   final artifactDiskStr = formatBytes(totalArtifactDiskBytes);
   final statusLabel = status[0].toUpperCase() + status.substring(1);
 
-  final statusColorClass = switch (status) {
-    'healthy' => 'status-hero-healthy',
-    'degraded' => 'status-hero-degraded',
-    _ => 'status-hero-error',
-  };
-
-  final statusIcon = switch (status) {
-    'healthy' =>
-      '<span class="icon icon-check" style="color:var(--success);width:28px;height:28px" aria-hidden="true"></span>',
-    'degraded' =>
-      '<span class="icon icon-triangle-alert" style="color:var(--warning);width:28px;height:28px" aria-hidden="true"></span>',
-    _ =>
-      '<span class="icon icon-circle-x" style="color:var(--error);width:28px;height:28px" aria-hidden="true"></span>',
+  final (statusCardClass, statusBadgeClass, statusDotClass) = switch (status) {
+    'healthy' => ('card-featured-accent', 'status-badge-success', 'status-dot--live'),
+    'degraded' => ('card-featured-warning', 'status-badge-warning', 'status-dot--warning'),
+    _ => ('card-featured-error', 'status-badge-error', 'status-dot--error'),
   };
 
   final workerBadgeClass = switch (workerState) {
@@ -166,8 +157,9 @@ String healthDashboardTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('health_dashboard'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'statusColorClass': statusColorClass,
-    'statusIcon': statusIcon,
+    'statusCardClass': statusCardClass,
+    'statusBadgeClass': statusBadgeClass,
+    'statusDotClass': statusDotClass,
     'statusLabel': statusLabel,
     'uptimeStr': uptimeStr,
     'version': version,

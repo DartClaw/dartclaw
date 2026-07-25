@@ -80,7 +80,7 @@ void main() {
     });
 
     test('budget enabled → response includes "Token Budget" section with usage data', () async {
-      final today = BudgetEnforcer.dateKeyForTime(DateTime.now());
+      final today = BudgetEnforcer.dateKeyForTime(DateTime.now().toUtc());
       await seedTokens(today, input: 300, output: 200); // 500/1000 = 50%
 
       final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.warn);
@@ -100,7 +100,7 @@ void main() {
     });
 
     test('budget exhausted (block mode) → section still shows, no crash', () async {
-      final today = BudgetEnforcer.dateKeyForTime(DateTime.now());
+      final today = BudgetEnforcer.dateKeyForTime(DateTime.now().toUtc());
       await seedTokens(today, input: 600, output: 400); // 100%
 
       final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.block);

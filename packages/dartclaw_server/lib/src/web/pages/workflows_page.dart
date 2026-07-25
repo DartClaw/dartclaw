@@ -28,7 +28,7 @@ final _log = Logger('WorkflowsPage');
 ///
 /// Handles `/workflows/<runId>` (detail page) and
 /// `/workflows/<runId>/steps/<stepIndex>` (HTMX lazy-load partial).
-/// The workflow run list page is S12's responsibility.
+/// Renders the workflow run list and detail routes.
 class WorkflowsPage extends DashboardPage {
   static String _stepStatusForRunDetail(WorkflowRun run, int index, WorkflowStep step, Task? task) {
     if (step.taskType == WorkflowTaskType.approval) {
@@ -306,7 +306,7 @@ class WorkflowsPage extends DashboardPage {
   }
 
   Future<Response> _handleStepDetail(String runId, int? stepIndex, Request request, PageContext context) async {
-    if (stepIndex == null) {
+    if (stepIndex == null || stepIndex < 0) {
       return Response.badRequest(body: 'Invalid step index', headers: htmlHeaders);
     }
 
@@ -318,6 +318,7 @@ class WorkflowsPage extends DashboardPage {
         503,
         body: workflowStepDetailFragment(
           messagesHtml: null,
+          stepName: 'Step ${stepIndex + 1}',
           artifacts: const [],
           inputs: const [],
           outputKeys: const [],
@@ -329,6 +330,14 @@ class WorkflowsPage extends DashboardPage {
     final run = await workflowService.get(runId);
     if (run == null) {
       return Response.notFound('Workflow run not found: $runId', headers: htmlHeaders);
+    }
+
+    WorkflowDefinition? definition;
+    try {
+      definition = WorkflowDefinition.fromJson(run.definitionJson);
+    } catch (_) {} // Malformed stored definition — render step detail without input/output context.
+    if (definition != null && stepIndex >= definition.steps.length) {
+      return Response.badRequest(body: 'Invalid step index', headers: htmlHeaders);
     }
 
     // Find the child task for this step.
@@ -370,13 +379,11 @@ class WorkflowsPage extends DashboardPage {
     }
 
     // Build context inputs/outputs from workflow definition step.
-    WorkflowDefinition? definition;
-    try {
-      definition = WorkflowDefinition.fromJson(run.definitionJson);
-    } catch (_) {} // Malformed stored definition — render step detail without input/output context.
-
     final inputs = <Map<String, dynamic>>[];
     final outputKeys = <Map<String, dynamic>>[];
+    final stepName = definition != null && stepIndex < definition.steps.length
+        ? definition.steps[stepIndex].name
+        : 'Step ${stepIndex + 1}';
     if (definition != null && stepIndex < definition.steps.length) {
       final step = definition.steps[stepIndex];
       // Extract context references from the step prompt (keys accessed via {{context.key}}).
@@ -411,6 +418,7 @@ class WorkflowsPage extends DashboardPage {
 
     final html = workflowStepDetailFragment(
       messagesHtml: messagesHtml,
+      stepName: stepName,
       artifacts: artifacts,
       inputs: inputs,
       outputKeys: outputKeys,

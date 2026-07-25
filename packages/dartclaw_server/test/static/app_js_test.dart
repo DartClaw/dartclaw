@@ -261,16 +261,32 @@ void main() {
       expect(appCss, contains('font-size: var(--text-base);\n  font-weight: var(--weight-medium);'));
     });
 
-    test('settings use full-width panes and discoverable responsive tabs', () {
+    test('settings use full-width panes and a single-row responsive tab strip', () {
       final appCss = File(componentsCssPath).readAsStringSync();
       final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
 
       expect(appCss, contains('.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr);'));
-      expect(appCss, contains('@media (max-width: 1280px) {\n  .settings-tabs {'));
-      expect(appCss, contains('grid-template-columns: repeat(5, minmax(0, 1fr));'));
-      expect(appCss, contains('min-height: 44px;'));
+      expect(RegExp(r'\.settings-tabs\s*\{[^}]*overflow-x:\s*auto;').hasMatch(appCss), isTrue);
+      expect(RegExp(r'\.settings-tabs\s*\{[^}]*flex-wrap:\s*nowrap;').hasMatch(appCss), isTrue);
+      expect(RegExp(r'\.settings-tab\s*\{[^}]*flex:\s*0 0 auto;').hasMatch(appCss), isTrue);
+      expect(RegExp(r'\.settings-tabs\s*\{[^}]*grid-template-columns').hasMatch(appCss), isFalse);
+      expect(appCss, contains('scrollbar-color: var(--fg-overlay) transparent;'));
+      expect(
+        RegExp(
+          r'\.settings-tabs::\-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(--fg-overlay\);',
+        ).hasMatch(appCss),
+        isTrue,
+      );
       expect(appCss, isNot(contains('.restart-required-badge')));
-      expect(settingsSource, contains("t.setAttribute('aria-current', 'page')"));
+      expect(
+        RegExp(
+          r"if \(active\) \{[^}]*t\.setAttribute\('aria-current', 'page'\);[^}]*t\.scrollIntoView\(\{block: 'nearest', inline: 'center'\}\);",
+          dotAll: true,
+        ).hasMatch(settingsSource),
+        isTrue,
+      );
+      expect(settingsSource, contains('activateSettingsTab(targetId);'));
+      expect(settingsSource, contains('activateSettingsTab(initialTab);'));
       expect(settingsSource, contains('fields[group.dataset.field].mutable'));
       expect(settingsSource, contains('Changes reload without a server restart.'));
       expect(settingsSource, contains("present.has('restart')"));

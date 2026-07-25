@@ -1166,6 +1166,7 @@
 
 .settings-tabs {
   display: flex;
+  flex-wrap: nowrap;
   border-bottom: 1px solid var(--bg-surface1);
   margin-bottom: var(--sp-4);
   overflow-x: auto;
@@ -1173,13 +1174,19 @@
   top: 0;
   background: var(--bg-base);
   z-index: 10;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--fg-overlay) transparent;
 }
 
-.settings-tabs::-webkit-scrollbar { display: none; }
+.settings-tabs::-webkit-scrollbar { height: 4px; }
+.settings-tabs::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--fg-overlay);
+}
 
 .settings-tab {
-  padding: var(--sp-2) var(--sp-4);
+  flex: 0 0 auto;
+  padding: var(--sp-2) var(--sp-3);
   font-size: var(--text-sm);
   color: var(--fg-sub0);
   text-decoration: none;
@@ -1194,38 +1201,6 @@
 .settings-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
-}
-
-@media (max-width: 1280px) {
-  .settings-tabs {
-    position: relative;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: var(--sp-1);
-    border-bottom: none;
-    padding-bottom: var(--sp-2);
-  }
-  .settings-tabs::after { display: none; }
-  .settings-tab {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    padding: var(--sp-1) var(--sp-2);
-    font-size: var(--text-xs);
-    margin-bottom: 0;
-    border: 1px solid var(--bg-surface1);
-    border-radius: 999px;
-    text-align: center;
-    white-space: normal;
-  }
-  .settings-tab.active {
-    background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
-  }
-}
-
-@media (max-width: 768px) {
-  .settings-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* Card-level restart/live notice (replaces per-field badges) */

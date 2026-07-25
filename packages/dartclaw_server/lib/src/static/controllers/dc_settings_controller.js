@@ -18,6 +18,7 @@ function activateSettingsTab(tabId) {
     t.classList.toggle('active', active);
     if (active) {
       t.setAttribute('aria-current', 'page');
+      t.scrollIntoView({block: 'nearest', inline: 'center'});
     } else {
       t.removeAttribute('aria-current');
     }

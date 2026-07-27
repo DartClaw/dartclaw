@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Workflow Run Board</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* Layout glue only — no re-styling of canonical components. */
+    .page-content { overflow-y: auto; padding: var(--sp-6); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-6); }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+    .page-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .page-subtitle { font-size: var(--text-sm); color: var(--fg-overlay); margin-top: var(--sp-1); max-width: 60ch; }
+    .page-header-actions { display: flex; gap: var(--sp-2); align-items: center; flex-shrink: 0; }
+
+    /* Board sections */
+    .board-section { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .board-section-head { display: flex; align-items: center; gap: var(--sp-2); }
+    .board-section-title {
+      font-size: var(--text-xs); font-weight: var(--weight-bold);
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-sub1);
+    }
+    .board-section-count { font-size: var(--text-xs); color: var(--fg-overlay); }
+    .board-section-rule { flex: 1; height: 1px; background: var(--bg-surface0); }
+
+    /* Card grids that collapse at 768px */
+    .run-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4); }
+    .run-grid--three { grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 900px) { .run-grid--three { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 768px) {
+      .run-grid, .run-grid--three { grid-template-columns: 1fr; }
+      .board-split { grid-template-columns: 1fr; }
+    }
+
+    /* Card-footer layout glue for run cards (the classes inside are canonical). */
+    .run-card .card-footer {
+      display: flex; align-items: center; gap: var(--sp-2);
+      font-size: var(--text-xs); color: var(--fg-overlay);
+    }
+    .run-card .card-body { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+    /* Recent (dimmed, terminal) row */
+    .recent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }
+    @media (max-width: 900px) { .recent-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 768px) { .recent-grid { grid-template-columns: 1fr; } }
+    .run-card--recent { opacity: 0.66; transition: opacity var(--transition); }
+    .run-card--recent:hover { opacity: 1; }
+
+    /* Split: running board beside the expanded run panel */
+    .board-split { display: grid; grid-template-columns: 1fr minmax(320px, 380px); gap: var(--sp-5); align-items: start; }
+
+    /* Expanded run panel — glue only; pipeline + metas are canonical */
+    .run-panel .card-header { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+    .run-panel-title { font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--fg); }
+    .run-panel-sub { font-size: var(--text-xs); color: var(--fg-overlay); margin-left: auto; }
+    .run-panel-footer {
+      display: flex; align-items: center; gap: var(--sp-2);
+      margin-top: var(--sp-3); padding-top: var(--sp-3);
+      border-top: 1px solid var(--bg-surface0);
+      font-size: var(--text-xs); color: var(--fg-overlay);
+    }
+    .push-right { margin-left: auto; }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Signal Bob</div>
+      <div class="session-item" data-icon="hash">Google Chat Ops</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+      <div class="session-item" data-icon="message-circle">Debug API endpoints<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item" data-icon="tasks">Tasks</a>
+      <a href="#" class="sidebar-nav-item" data-icon="canvas">Canvas</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+      <a href="workflow-list.html" class="sidebar-nav-item active" data-icon="workflows">Workflows</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Run Board</span>
+    <div class="topbar-actions">
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Content -->
+  <main class="page-content">
+    <div class="page-inner">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <div class="page-title">Run Board</div>
+          <div class="page-subtitle">Live view of every workflow run. What needs you sits up top; running pipelines stream below.</div>
+        </div>
+        <div class="page-header-actions">
+          <a href="workflow-list.html" class="btn btn-ghost" style="font-size:var(--text-sm)">All workflows</a>
+          <button class="btn btn-primary" data-icon="new-session" style="font-size:var(--text-sm)">Launch run</button>
+        </div>
+      </div>
+
+      <!-- ============ NEEDS YOU (pinned) ============ -->
+      <section class="board-section">
+        <div class="board-section-head">
+          <span class="status-dot status-dot--attention"></span>
+          <span class="board-section-title">Needs you</span>
+          <span class="board-section-count">1 waiting</span>
+          <span class="board-section-rule"></span>
+        </div>
+
+        <div class="card run-card run-card--attention">
+          <div class="card-header">
+            <span class="status-dot status-dot--attention"></span>
+            release-prep &middot; 0.21
+            <span class="run-card-step">step 3/7</span>
+          </div>
+          <div class="card-body">
+            <div class="tool-indicator pending">awaiting plan approval</div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:var(--text-xs);color:var(--fg-overlay);margin-bottom:2px">
+                <span>budget consumed</span><span>85%</span>
+              </div>
+              <div class="meter"><div class="meter-fill meter-fill--warning" style="width:85%"></div></div>
+            </div>
+          </div>
+          <div class="card-footer">
+            <span class="identicon identicon--3">CL</span>
+            <span>claude &middot; blocked 12m</span>
+            <button class="btn btn-primary push-right" style="font-size:var(--text-xs);padding:2px var(--sp-3)">Review plan</button>
+            <span class="status-pill status-pill--warning">waiting</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ RUNNING (grid) + expanded panel ============ -->
+      <div class="board-split">
+
+        <section class="board-section">
+          <div class="board-section-head">
+            <span class="status-dot status-dot--live"></span>
+            <span class="board-section-title">Running</span>
+            <span class="board-section-count">3 active</span>
+            <span class="board-section-rule"></span>
+          </div>
+
+          <div class="run-grid">
+
+            <!-- Running card 1 -->
+            <div class="card run-card">
+              <div class="card-header">
+                <span class="status-dot status-dot--live"></span>
+                docs-sync
+                <span class="run-card-step">step 2/4</span>
+              </div>
+              <div class="card-body">
+                <div class="tool-indicator pending">Writing docs/guide/channels.md</div>
+                <div class="meter"><div class="meter-fill" style="width:55%"></div></div>
+              </div>
+              <div class="card-footer">
+                <span class="identicon identicon--2">CX</span>
+                <span>codex &middot; 3m</span>
+                <span class="status-pill status-pill--live push-right"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> running</span>
+              </div>
+            </div>
+
+            <!-- Running card 2 -->
+            <div class="card run-card">
+              <div class="card-header">
+                <span class="status-dot status-dot--live"></span>
+                plan-and-implement
+                <span class="run-card-step">step 4/9</span>
+              </div>
+              <div class="card-body">
+                <div class="tool-indicator pending">Running dart test -t integration</div>
+                <div class="meter"><div class="meter-fill" style="width:44%"></div></div>
+              </div>
+              <div class="card-footer">
+                <span class="identicon identicon--1">CL</span>
+                <span>claude &middot; 18m</span>
+                <span class="status-pill status-pill--live push-right"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> running</span>
+              </div>
+            </div>
+
+            <!-- Running card 3 -->
+            <div class="card run-card">
+              <div class="card-header">
+                <span class="status-dot status-dot--live"></span>
+                nightly-digest
+                <span class="run-card-step">step 1/3</span>
+              </div>
+              <div class="card-body">
+                <div class="tool-indicator pending">Summarizing 142 messages</div>
+                <div class="meter"><div class="meter-fill meter-fill--info" style="width:22%"></div></div>
+              </div>
+              <div class="card-footer">
+                <span class="identicon identicon--5">CX</span>
+                <span>codex &middot; 40s</span>
+                <span class="status-pill status-pill--info push-right">research</span>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- Expanded run panel -->
+        <section class="board-section">
+          <div class="board-section-head">
+            <span class="board-section-title">release-prep &middot; pipeline</span>
+            <span class="board-section-rule"></span>
+          </div>
+
+          <div class="card run-panel">
+            <div class="card-header">
+              <span class="status-dot status-dot--attention"></span>
+              <span class="run-panel-title">release-prep</span>
+              <span class="run-panel-sub">3/7 &middot; 12m elapsed</span>
+            </div>
+
+            <ol class="pipeline">
+              <li class="pipeline-step pipeline-step--done">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">changelog</span>
+                  <span class="pipeline-step-meta">1m 32s &middot; claude &middot; done</span>
+                </div>
+              </li>
+              <li class="pipeline-step pipeline-step--done">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">version-bump</span>
+                  <span class="pipeline-step-meta">0m 48s &middot; codex &middot; done</span>
+                </div>
+              </li>
+              <li class="pipeline-step pipeline-step--running">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">plan-review</span>
+                  <span class="pipeline-step-meta">running &middot; claude</span>
+                </div>
+              </li>
+              <li class="pipeline-step pipeline-step--blocked">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">approve-release</span>
+                  <span class="pipeline-step-meta">blocked &middot; waiting on you</span>
+                </div>
+              </li>
+              <li class="pipeline-step pipeline-step--failed">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">smoke-test</span>
+                  <span class="pipeline-step-meta">0m 21s &middot; failed &mdash; retry queued</span>
+                </div>
+              </li>
+              <li class="pipeline-step pipeline-step--pending">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">tag</span>
+                  <span class="pipeline-step-meta">pending</span>
+                </div>
+              </li>
+              <li class="pipeline-step pipeline-step--pending">
+                <span class="pipeline-node"></span>
+                <div class="pipeline-step-body">
+                  <span class="pipeline-step-name">publish</span>
+                  <span class="pipeline-step-meta">pending</span>
+                </div>
+              </li>
+            </ol>
+
+            <div class="run-panel-footer">
+              <span class="identicon identicon--3">CL</span>
+              <span>claude</span>
+              <span class="status-pill status-pill--warning push-right">waiting</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ============ RECENT (dimmed) ============ -->
+      <section class="board-section">
+        <div class="board-section-head">
+          <span class="board-section-title">Recent</span>
+          <span class="board-section-count">last 24h</span>
+          <span class="board-section-rule"></span>
+        </div>
+
+        <div class="recent-grid">
+
+          <!-- Recent success -->
+          <div class="card run-card run-card--recent">
+            <div class="card-header">
+              <span class="status-dot status-dot--success"></span>
+              feature-branch-ci
+              <span class="run-card-step">7/7</span>
+            </div>
+            <div class="card-body">
+              <div class="tool-indicator success">All checks passed</div>
+              <div class="meter"><div class="meter-fill" style="width:100%"></div></div>
+            </div>
+            <div class="card-footer">
+              <span class="identicon identicon--2">CX</span>
+              <span>codex &middot; 6m &middot; 1h ago</span>
+              <span class="status-pill status-pill--live push-right">done</span>
+            </div>
+          </div>
+
+          <!-- Recent success -->
+          <div class="card run-card run-card--recent">
+            <div class="card-header">
+              <span class="status-dot status-dot--success"></span>
+              docs-sync
+              <span class="run-card-step">4/4</span>
+            </div>
+            <div class="card-body">
+              <div class="tool-indicator success">Synced 12 files</div>
+              <div class="meter"><div class="meter-fill" style="width:100%"></div></div>
+            </div>
+            <div class="card-footer">
+              <span class="identicon identicon--6">CL</span>
+              <span>claude &middot; 4m &middot; 3h ago</span>
+              <span class="status-pill status-pill--live push-right">done</span>
+            </div>
+          </div>
+
+          <!-- Recent error -->
+          <div class="card run-card run-card--recent">
+            <div class="card-header">
+              <span class="status-dot status-dot--error"></span>
+              deploy-staging
+              <span class="run-card-step">failed 5/6</span>
+            </div>
+            <div class="card-body">
+              <div class="tool-indicator error">Bash: docker push &mdash; exit 1</div>
+              <div class="meter"><div class="meter-fill meter-fill--error" style="width:82%"></div></div>
+            </div>
+            <div class="card-footer">
+              <span class="identicon identicon--4">CX</span>
+              <span>codex &middot; 2m &middot; 5h ago</span>
+              <span class="status-pill status-pill--error push-right">failed</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+
+</body>
+</html>

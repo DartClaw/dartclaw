@@ -13,7 +13,7 @@ itself: `.sidebar`/`.topbar`/`.card` and the end stop of the body ground gradien
 band, and canon ships no form, tab or dialog primitives while sanctioning `window.confirm()`. Scope: surface/depth
 revision, type-scale rationalization + composite type layer, a `--container-wide` tier, form/tab/dialog primitives,
 native-dialog eradication, a 64-issue glitch sweep, and optional local vendoring of the three remaining CDN runtime
-dependencies. ~13 stories, zero backend surface. Sequenced before 0.24, whose Phase-0 chat components this release
+dependencies. 14 stories, zero backend surface. Sequenced before 0.24, whose Phase-0 chat components this release
 changes by construction.
 
 ## Planned

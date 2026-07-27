@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DartClaw Wireframe — Knowledge Hub</title>
+<style>
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:#f5f5f5;color:#222;margin:0}
+.app{display:flex;min-height:100vh}
+.sidebar{width:200px;background:#ececec;border-right:2px solid #ddd;padding:16px;flex-shrink:0}
+.logo{height:32px;background:#ddd;border:2px dashed #999;border-radius:6px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#777}
+.nav-item{padding:8px 10px;border-radius:6px;font-size:13px;color:#555;margin-bottom:4px}
+.nav-item.active{background:#ddd;color:#222;font-weight:600}
+.main{flex:1;padding:24px;max-width:1100px}
+.pagehead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 10px}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border:1px solid #999;border-radius:10px;color:#555;background:#fff}
+.box{background:#fff;border:2px solid #ddd;border-radius:8px;padding:16px;margin-bottom:16px}
+.placeholder{background:#e0e0e0;border:2px dashed #999;border-radius:6px;color:#777;display:flex;align-items:center;justify-content:center;font-size:12px}
+.btn{background:#666;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer}
+.btn.ghost{background:#fff;color:#555;border:1px solid #bbb}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input.search{flex:1;min-width:160px;padding:8px 10px;border:1px solid #bbb;border-radius:6px;font-size:13px}
+.chip{font-size:12px;padding:4px 10px;border:1px solid #bbb;border-radius:14px;background:#fff;color:#555;cursor:pointer}
+.chip.active{background:#444;color:#fff;border-color:#444}
+.anno{font-size:11px;color:#0a6;background:#eafaf2;border-left:3px solid #0a6;padding:6px 10px;margin:8px 0;border-radius:0 4px 4px 0}
+.layer-badge{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:2px 6px;border-radius:4px;border:1px solid #999;color:#444;background:#f0f0f0}
+.muted{color:#888;font-size:12px}
+@media (max-width:768px){.app{flex-direction:column}.sidebar{width:auto;display:flex;gap:8px;overflow-x:auto}.main{padding:16px}}
+/* wireframe-local helpers (grayscale only) */
+.tabs{display:flex;gap:6px;margin-top:10px;border-bottom:2px solid #ddd}
+.tab{font-size:13px;padding:6px 12px;color:#666;border:2px solid transparent;border-bottom:none;border-radius:6px 6px 0 0}
+.tab.active{background:#fff;border-color:#ddd;color:#222;font-weight:600;margin-bottom:-2px}
+.select{padding:8px 10px;border:1px solid #bbb;border-radius:6px;font-size:13px;background:#fff;color:#555}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat{background:#fff;border:2px solid #ddd;border-radius:8px;padding:12px;text-align:center}
+.stat .n{font-size:22px;font-weight:700;color:#333}
+.stat .l{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.itemhead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.itemtitle{font-size:14px;font-weight:600;color:#333}
+.snippet{height:30px;margin:6px 0}
+.attr{font-size:11px;color:#555;background:#f7f7f7;border:1px dashed #ccc;border-radius:4px;padding:4px 8px;margin-top:6px}
+.attr a{color:#444}
+.pager{display:flex;gap:6px;align-items:center;justify-content:center}
+.pg{font-size:13px;padding:6px 10px;border:1px solid #bbb;border-radius:6px;background:#fff;color:#555}
+.pg.active{background:#444;color:#fff;border-color:#444}
+@media (max-width:768px){.strip{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><div class="app">
+<aside class="sidebar"><div class="logo">DartClaw</div>
+<div class="nav-item">Sessions</div><div class="nav-item">Tasks</div><div class="nav-item">Workflows</div>
+<div class="nav-item active">Knowledge</div><div class="nav-item">Channels</div><div class="nav-item">Settings</div></aside>
+<main class="main">
+
+<!-- 1. PAGE HEAD -->
+<div class="pagehead">
+  <div class="row">
+    <h1>Knowledge Hub</h1>
+    <span class="badge">READ-ONLY</span>
+  </div>
+  <span class="muted">as of: now</span>
+</div>
+<div class="tabs">
+  <span class="tab active">Browse</span>
+  <span class="tab">Timeline &rarr; <span class="muted">kg-timeline</span></span>
+  <span class="tab">Research packet &rarr; <span class="muted">source-attribution / context_research</span></span>
+</div>
+<div class="anno">FR6: unified human view over the four 0.17 knowledge layers — Wiki, KG, Memory, Inbox. Sibling views (Timeline, Research packet) reachable via the tab row above.</div>
+
+<!-- 2. SEARCH + FILTER BAR -->
+<div class="box">
+  <div class="row">
+    <input class="search" placeholder="Search across wiki, KG, memory, inbox…">
+    <button class="btn">Search</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <span class="chip active">All</span>
+    <span class="chip">Wiki</span>
+    <span class="chip">KG</span>
+    <span class="chip">Memory</span>
+    <span class="chip">Inbox</span>
+    <span style="flex:1"></span>
+    <span class="select">Category / type ▾</span>
+    <span class="select">Sort: Relevance / Recent ▾</span>
+  </div>
+  <div class="anno">FR6 AC: a single query lists/searches across all four layers; layer chips scope results to one layer.</div>
+</div>
+
+<!-- 3. LAYER SUMMARY STRIP -->
+<h2>Layer summary</h2>
+<div class="strip" style="margin-bottom:16px">
+  <div class="stat"><div class="n">— </div><div class="l">Wiki pages</div></div>
+  <div class="stat"><div class="n">— </div><div class="l">KG facts</div></div>
+  <div class="stat"><div class="n">— </div><div class="l">Memory entries</div></div>
+  <div class="stat"><div class="n">— </div><div class="l">Inbox items</div></div>
+</div>
+
+<!-- 4. RESULTS LIST -->
+<h2>Results</h2>
+
+<div class="box">
+  <div class="itemhead">
+    <span class="layer-badge">WIKI</span>
+    <span class="itemtitle">Project onboarding overview</span>
+  </div>
+  <div class="placeholder snippet">snippet — 1–2 lines of matched page body…</div>
+  <div class="attr">Source: <a href="#">wiki/onboarding</a> · provenance: synthesized from sessions #142, #150</div>
+  <div class="muted" style="margin-top:6px">updated 2h ago</div>
+</div>
+
+<div class="box">
+  <div class="itemhead">
+    <span class="layer-badge">KG</span>
+    <span class="itemtitle">Fact: "ServiceA depends-on ServiceB"</span>
+  </div>
+  <div class="placeholder snippet">snippet — subject · relation · object, with validity window…</div>
+  <div class="attr">Source: <a href="#">kg/fact/8821</a> · provenance: extracted from doc ingest run 2026-06-10</div>
+  <div class="muted" style="margin-top:6px">asserted 1d ago · still valid</div>
+</div>
+
+<div class="box">
+  <div class="itemhead">
+    <span class="layer-badge">MEMORY</span>
+    <span class="itemtitle">User preference: prefers squash merges</span>
+  </div>
+  <div class="placeholder snippet">snippet — remembered fact / preference text…</div>
+  <div class="attr">Source: <a href="#">memory/entry/415</a> · provenance: captured from chat feedback</div>
+  <div class="muted" style="margin-top:6px">recorded 3d ago</div>
+</div>
+
+<div class="box">
+  <div class="itemhead">
+    <span class="layer-badge">INBOX</span>
+    <span class="itemtitle">Unprocessed: research note on temporal KG</span>
+  </div>
+  <div class="placeholder snippet">snippet — raw captured item awaiting triage…</div>
+  <div class="attr">Source: <a href="#">inbox/item/77</a> · provenance: pasted by operator</div>
+  <div class="muted" style="margin-top:6px">added 5h ago · pending</div>
+</div>
+
+<div class="box">
+  <div class="itemhead">
+    <span class="layer-badge">WIKI</span>
+    <span class="itemtitle">Security model summary</span>
+  </div>
+  <div class="placeholder snippet">snippet — matched section of a wiki page…</div>
+  <div class="attr">Source: <a href="#">wiki/security-model</a> · provenance: synthesized from architecture docs</div>
+  <div class="muted" style="margin-top:6px">updated 6d ago</div>
+</div>
+
+<div class="anno">FR6 AC: each result links to its source layer (see Source link). Strictly READ-ONLY — no edit/delete/create controls anywhere on this view. Attribution line is the shared attribution component (FR8), reused identically across all four layers.</div>
+
+<!-- 5. EMPTY STATE -->
+<h2>Empty state (example)</h2>
+<div class="box">
+  <div class="placeholder" style="height:90px;flex-direction:column;gap:6px">
+    <div>No results for this filter</div>
+    <div class="muted">Hint: clear filters, broaden the query, or switch layer chip.</div>
+  </div>
+  <div class="anno">FR6 AC: meaningful empty states per layer — e.g. Wiki "no pages yet", KG "no facts extracted", Memory "nothing remembered", Inbox "inbox is clear". Each layer shows its own copy, not a generic blank.</div>
+</div>
+
+<!-- 6. PAGINATION FOOTER -->
+<div class="box">
+  <div class="pager">
+    <span class="pg">‹ Prev</span>
+    <span class="pg active">1</span>
+    <span class="pg">2</span>
+    <span class="pg">3</span>
+    <span class="muted">…</span>
+    <span class="pg">9</span>
+    <span class="pg">Next ›</span>
+  </div>
+</div>
+
+</main></div></body></html>

@@ -48,19 +48,21 @@ html {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Atmospheric ground. The glow centres must stay inside the viewport for more
-   than their tails to land. The ambient tokens are opaque ground tints, not
-   alpha washes (see tokens.css), so the glows carry most of the variation; the
-   band underneath must never reach the card plane, or cards dissolve into it. */
+/* Aurora ground (Phosphor Aurora). The washes are visible alpha tints (see
+   tokens.css) over a deep band — the deep band is what buys them luminance
+   headroom without costing the card-contrast floor. Geometry: blue top-right,
+   mauve centre, teal bottom-right, green kicker in the brand corner. Glow
+   centres must stay inside the viewport for more than their tails to land. */
 body {
   background:
-    radial-gradient(ellipse 80% 62% at 16% 4%, var(--ambient-a), transparent 76%),
-    radial-gradient(ellipse 75% 62% at 88% 3%, var(--ambient-b), transparent 76%),
-    radial-gradient(ellipse 115% 72% at 50% 100%, var(--ambient-c), transparent 76%),
+    radial-gradient(ellipse 70% 58% at 85% -6%, var(--ambient-a), transparent 74%),
+    radial-gradient(ellipse 62% 50% at 42% 40%, var(--ambient-b), transparent 74%),
+    radial-gradient(ellipse 60% 50% at 92% 98%, var(--ambient-c), transparent 74%),
+    radial-gradient(ellipse 44% 38% at 3% -4%, var(--ambient-d), transparent 72%),
     linear-gradient(170deg,
       var(--bg-ground-edge) 0%,
-      var(--bg-base) 52%,
-      color-mix(in oklab, var(--bg-base) 50%, var(--bg-ground-edge)) 100%);
+      color-mix(in oklab, var(--bg-base) 55%, var(--bg-ground-edge)) 52%,
+      var(--bg-ground-edge) 100%);
   background-attachment: fixed;
   color: var(--fg);
   font-size: var(--text-base);
@@ -447,6 +449,22 @@ a:hover { text-decoration: underline; }
   box-shadow: none;
 }
 .btn-ghost:hover { background: var(--bg-surface0); color: var(--fg); box-shadow: none; }
+
+/* Colored secondary — the orchestration action (run workflow, open studio).
+   Sits deliberately between primary (accent = create) and danger (error =
+   destroy): info-tinted glass fill and ring, info-glow lift on hover. */
+.btn-secondary {
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  box-shadow: none;
+}
+.btn-secondary:hover {
+  background: color-mix(in srgb, var(--info) 18%, transparent);
+  border-color: color-mix(in srgb, var(--info) 55%, transparent);
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--info) 50%, transparent);
+}
+.btn-secondary:active { background: color-mix(in srgb, var(--info) 24%, transparent); }
 
 .btn-danger { background: transparent; color: var(--error); border-color: var(--error); box-shadow: none; }
 .btn-danger:hover {
@@ -911,9 +929,17 @@ a:hover { text-decoration: underline; }
    .card-active   — Selected/focused. Persistent glow.
    ================================================================ */
 
+/* The prismatic hairline: a centred 1.5px light-catch along the card's top
+   edge in the card's own hue (--card-hue, accent by default — role variants
+   override it). It is the Afterglow "light persisting on glass" cue carried at
+   rest, replacing nothing: border, shadow and fill all stay. */
 .card {
   display: block;
-  background: var(--bg-card);
+  background:
+    linear-gradient(90deg, transparent 4%,
+      color-mix(in srgb, var(--card-hue, var(--accent)) 55%, transparent) 50%,
+      transparent 96%) top / 100% 1.5px no-repeat,
+    var(--bg-card);
   border: var(--border);
   border-top-color: var(--border-highlight);
   border-radius: var(--radius-lg);
@@ -924,10 +950,13 @@ a:hover { text-decoration: underline; }
 }
 
 .card:hover, .card.card-hover {
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--bg-surface0));
-  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--card-hue, var(--accent)) 20%, var(--bg-surface0));
+  box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--card-hue, var(--accent)) 6%, transparent);
   background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 70%),
+    linear-gradient(90deg, transparent 4%,
+      color-mix(in srgb, var(--card-hue, var(--accent)) 70%, transparent) 50%,
+      transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--card-hue, var(--accent)) 4%, transparent) 0%, transparent 70%),
     var(--bg-card);
   translate: 0 -1px;
 }
@@ -1158,38 +1187,58 @@ a:hover { text-decoration: underline; }
 }
 
 .card-metric--accent {
-  background: radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--accent));
+  --card-hue: var(--accent);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--accent));
 }
 .card-metric--accent .metric-value { color: var(--accent); }
 .card-metric--accent:hover {
-  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--accent));
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--accent));
   box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .card-metric--info {
-  background: radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--info) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--info));
+  --card-hue: var(--info);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--info) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--info));
 }
 .card-metric--info .metric-value { color: var(--info); }
 .card-metric--info:hover {
-  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--info) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--info));
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--info) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--info));
   box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--info) 7%, transparent);
 }
 
 .card-metric--error {
-  background: radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--error) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--error));
+  --card-hue: var(--error);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--error) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--error));
 }
 .card-metric--error .metric-value { color: var(--error); }
 .card-metric--error:hover {
-  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--error) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--error));
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--error) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--error));
   box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--error) 7%, transparent);
 }
 
 .card-metric--warning {
-  background: radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--warning) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--warning));
+  --card-hue: var(--warning);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 70% 70% at 50% 50%, color-mix(in srgb, var(--warning) 4%, transparent) 0%, transparent 72%), color-mix(in oklab, var(--bg-card) 95.8%, var(--warning));
 }
 .card-metric--warning .metric-value { color: var(--warning); }
 .card-metric--warning:hover {
-  background: radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--warning) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--warning));
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    radial-gradient(ellipse 60% 60% at 50% 50%, color-mix(in srgb, var(--warning) 12%, transparent) 0%, transparent 70%), color-mix(in oklab, var(--bg-card) 89%, var(--warning));
   box-shadow: var(--shadow-md), 0 0 30px color-mix(in srgb, var(--warning) 7%, transparent);
 }
 
@@ -1205,36 +1254,52 @@ a:hover { text-decoration: underline; }
    Apply alongside .card: <div class="card card-tint-accent">
    ================================================================ */
 
-.card-tint-accent { background: color-mix(in oklab, var(--bg-card) 95.8%, var(--accent)); }
+.card-tint-accent { --card-hue: var(--accent);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    color-mix(in oklab, var(--bg-card) 95.8%, var(--accent)); }
 .card-tint-accent:hover {
   background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
     radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 70%),
     color-mix(in oklab, var(--bg-card) 89%, var(--accent));
   box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--accent) 6%, transparent);
   border-top-color: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.card-tint-info { background: color-mix(in oklab, var(--bg-card) 95.8%, var(--info)); }
+.card-tint-info { --card-hue: var(--info);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    color-mix(in oklab, var(--bg-card) 95.8%, var(--info)); }
 .card-tint-info:hover {
   background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
     radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--info) 6%, transparent) 0%, transparent 70%),
     color-mix(in oklab, var(--bg-card) 89%, var(--info));
   box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--info) 6%, transparent);
   border-top-color: color-mix(in srgb, var(--info) 12%, transparent);
 }
 
-.card-tint-error { background: color-mix(in oklab, var(--bg-card) 95.8%, var(--error)); }
+.card-tint-error { --card-hue: var(--error);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    color-mix(in oklab, var(--bg-card) 95.8%, var(--error)); }
 .card-tint-error:hover {
   background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
     radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--error) 6%, transparent) 0%, transparent 70%),
     color-mix(in oklab, var(--bg-card) 89%, var(--error));
   box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--error) 6%, transparent);
   border-top-color: color-mix(in srgb, var(--error) 12%, transparent);
 }
 
-.card-tint-warning { background: color-mix(in oklab, var(--bg-card) 95.8%, var(--warning)); }
+.card-tint-warning { --card-hue: var(--warning);
+  background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 55%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
+    color-mix(in oklab, var(--bg-card) 95.8%, var(--warning)); }
 .card-tint-warning:hover {
   background:
+    linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--card-hue) 70%, transparent) 50%, transparent 96%) top / 100% 1.5px no-repeat,
     radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--warning) 6%, transparent) 0%, transparent 70%),
     color-mix(in oklab, var(--bg-card) 89%, var(--warning));
   box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--warning) 6%, transparent);
@@ -1520,37 +1585,43 @@ a:hover { text-decoration: underline; }
 
 
 /* --- Meters (determinate progress) ---
-   Recessed track + gradient fill with a soft glow. Budget consumption,
-   turn progress, upload state. Pair with a visible label/percentage —
-   color alone must not carry the reading. */
+   The phosphor beam: a dark recessed channel with a luminous two-layer-glow
+   fill. Progress IS the live trace, so meters are deliberately among the
+   brightest resting elements on a page. Default runs the claw's green→blue;
+   semantic variants ramp from a deeper root of their own hue. Pair with a
+   visible label/percentage — color alone must not carry the reading. */
 
 .meter {
-  height: 6px;
-  background: var(--bg-crust);
+  height: 7px;
+  background: var(--meter-track);
   border-radius: 999px;
   overflow: hidden;
-  box-shadow: var(--inset-sm);
+  box-shadow: var(--meter-track-inset);
 }
 
 .meter-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: linear-gradient(90deg, var(--accent), var(--info));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent),
+              0 0 22px color-mix(in srgb, var(--accent) 30%, transparent);
   transition: width 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .meter-fill--info {
-  background: linear-gradient(90deg, color-mix(in oklab, var(--info) 70%, var(--bg-surface1)), var(--info));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--info) 35%, transparent);
+  background: linear-gradient(90deg, color-mix(in oklab, var(--info) 60%, var(--bg-crust)), var(--info));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--info) 60%, transparent),
+              0 0 22px color-mix(in srgb, var(--info) 30%, transparent);
 }
 .meter-fill--warning {
-  background: linear-gradient(90deg, color-mix(in oklab, var(--warning) 70%, var(--bg-surface1)), var(--warning));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--warning) 35%, transparent);
+  background: linear-gradient(90deg, #d1421e, #ef8b3a 55%, var(--warning));
+  box-shadow: 0 0 12px color-mix(in srgb, #ef8b3a 65%, transparent),
+              0 0 26px color-mix(in srgb, var(--warning) 35%, transparent);
 }
 .meter-fill--error {
-  background: linear-gradient(90deg, color-mix(in oklab, var(--error) 70%, var(--bg-surface1)), var(--error));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--error) 35%, transparent);
+  background: linear-gradient(90deg, color-mix(in oklab, var(--error) 55%, #500a18), var(--error));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--error) 60%, transparent),
+              0 0 22px color-mix(in srgb, var(--error) 30%, transparent);
 }
 
 /* Nothing measured yet. A full-strength crust track at 0% reads as a solid
@@ -1948,6 +2019,50 @@ a:hover { text-decoration: underline; }
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* --- Prompt hero — the typed-glyph greeting ---
+   The claw moment of a landing or status view: teal eyebrow, a display-tier
+   line opening with the prompt mark, one gradient word (.text-gradient), and
+   the blinking block cursor. Markup composes .t-display on the title and
+   .t-caption.tracking-caps on the eyebrow. One per view — it replaces, never
+   joins, a mascot or claw-loader moment (scarcity doctrine). */
+.prompt-hero { margin-bottom: var(--sp-6); }
+.prompt-hero--center { text-align: center; }
+/* Empty-area placement (chat landing): claims the flex space of its container
+   (.messages is a flex column) and centers vertically — without nesting inside
+   .empty-state, whose generic p rule would out-specify the hero's children. */
+.prompt-hero--fill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-12) var(--sp-4);
+  margin-bottom: 0;
+}
+.prompt-hero-mascot { margin-bottom: var(--sp-3); }
+.prompt-hero-eyebrow { color: var(--teal); text-transform: uppercase; margin-bottom: var(--sp-1); }
+.prompt-hero-title { color: var(--fg); }
+.prompt-hero-title .prompt-mark {
+  color: var(--accent);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent);
+  margin-right: var(--sp-2);
+}
+.prompt-hero-sub { color: var(--fg-sub0); margin-top: var(--sp-1); }
+
+/* The cursor is 8-bit motion: it snaps (steps), never fades. Em-proportioned
+   so it sits like a character of the line it ends. */
+.cursor-blink {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.78em;
+  margin-left: 0.14em;
+  vertical-align: -0.04em;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: cursor-blink 1.1s steps(1) infinite;
+}
+@keyframes cursor-blink { 50% { opacity: 0; } }
 
 /* Keycap — keyboard shortcuts in help text, tooltips, command hints */
 kbd, .kbd {
@@ -2572,11 +2687,18 @@ button.chip[aria-pressed="true"] {
 .form-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
 .form-row > .form-field { flex: 1 1 12rem; min-width: 0; }
 
+/* Labels wear the eyebrow voice: uppercase + the teal instrument hue here,
+   size and tracking composed in markup as .t-caption.tracking-caps (control
+   rules declare no font-size, and a later tier would override component
+   letter-spacing — see § type tiers). The teal is decorative structure, never
+   state (state hues stay semantic): it is what keeps a resting form from
+   reading as a gray stack. Both themes' --teal clear AA at caption size. */
 .form-label {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  color: var(--fg-sub0);
+  color: var(--teal);
+  text-transform: uppercase;
 }
 
 /* --- Text controls --- */
@@ -2586,14 +2708,23 @@ select.form-select,
 textarea.form-textarea {
   width: 100%;
   padding: var(--sp-2) var(--sp-3);
-  background: var(--bg-base);
+  /* Text fields join the deep-well family (code wells, terminal bodies): a
+     crust-level channel, not a tinted rectangle. Depth does the resting work;
+     the border carries a 15% accent whisper — the phosphor reads faintly at
+     rest and wakes fully on focus. */
+  background: var(--bg-crust);
   color: var(--fg);
-  border: var(--border);
+  caret-color: var(--accent);  /* terminal-native: the caret is part of the focus signal */
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--bg-surface0));
   border-radius: var(--radius);
   box-shadow: var(--inset-sm);
   font: inherit;
   transition: border-color var(--transition), box-shadow var(--transition-glow);
 }
+
+input.form-input:hover:not(:disabled):not(:focus),
+select.form-select:hover:not(:disabled):not(:focus),
+textarea.form-textarea:hover:not(:disabled):not(:focus) { border-color: var(--bg-surface2); }
 
 textarea.form-textarea { resize: vertical; min-height: 6rem; }
 
@@ -2604,9 +2735,18 @@ input.form-input:disabled,
 select.form-select:disabled,
 textarea.form-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Focus is the field's phosphor moment: accent border + a soft glow ring on
+   top of the recessed inset. The ring is atmosphere, not the a11y signal —
+   the :focus-visible outline below stays the guaranteed cue. */
 input.form-input:focus,
 select.form-select:focus,
-textarea.form-textarea:focus { outline: none; border-color: var(--accent); }
+textarea.form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--inset-sm),
+              0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent),
+              0 0 14px color-mix(in srgb, var(--accent) 12%, transparent);
+}
 
 input.form-input:focus-visible,
 select.form-select:focus-visible,
@@ -2681,8 +2821,8 @@ input.form-radio {
   margin: 0;
   display: inline-grid;
   place-content: center;
-  background: var(--bg-base);
-  border: var(--border);
+  background: var(--bg-crust);
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--bg-surface0));
   box-shadow: var(--inset-sm);
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition);
@@ -2691,7 +2831,11 @@ input.form-checkbox { border-radius: var(--radius); }
 input.form-radio { border-radius: 50%; }
 
 input.form-checkbox:checked,
-input.form-radio:checked { background: var(--accent); border-color: var(--accent); }
+input.form-radio:checked {
+  background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 82%, white), var(--accent));
+  border-color: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 40%, transparent);
+}
 
 input.form-checkbox:checked::before {
   content: '';
@@ -2748,8 +2892,9 @@ input.form-radio:disabled { opacity: 0.5; cursor: not-allowed; }
   inset: 0;
   border-radius: 999px;
   background: var(--bg-surface2);
+  box-shadow: var(--inset-sm);
   pointer-events: none;
-  transition: background var(--transition);
+  transition: background var(--transition), box-shadow var(--transition-glow);
 }
 .form-toggle-slider::before {
   content: '';
@@ -2762,7 +2907,10 @@ input.form-radio:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--fg-overlay);
   transition: transform var(--transition), background var(--transition);
 }
-.form-toggle input:checked + .form-toggle-slider { background: var(--accent); }
+.form-toggle input:checked + .form-toggle-slider {
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent);
+}
 .form-toggle input:checked + .form-toggle-slider::before {
   transform: translateX(16px);
   background: var(--bg-crust);
@@ -3297,6 +3445,7 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
   .status-dot--attention::before,
   .pipeline-step--running .pipeline-node::after,
   .msg-thinking-label::after,
+  .cursor-blink,
   .claw-loader span { animation: none; }
 
   /* The tab overflow cue conveys state — there is more content this way — not

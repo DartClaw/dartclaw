@@ -163,20 +163,14 @@ class ServerWebDeps {
 SidebarFeatureVisibility computeServerSidebarVisibility({
   required DartclawConfig? config,
   required bool hasChannels,
-  required GuardChain? guardChain,
-  required bool hasHealthService,
   required bool hasTaskService,
-  required bool hasPubSubHealth,
   required HeartbeatDisplayParams heartbeatDisplay,
   required SchedulingDisplayParams schedulingDisplay,
   required WorkspaceDisplayParams workspaceDisplay,
 }) => computeSidebarFeatureVisibility(
   config: config,
   hasChannels: hasChannels,
-  guardChain: guardChain,
-  hasHealthService: hasHealthService,
   hasTaskService: hasTaskService,
-  hasPubSubHealth: hasPubSubHealth,
   heartbeatDisplay: heartbeatDisplay,
   schedulingDisplay: schedulingDisplay,
   workspaceDisplay: workspaceDisplay,
@@ -227,7 +221,6 @@ void registerServerSystemPages(
     pubsubHealthGetter: healthService != null
         ? () => healthService.pubsubHealth ?? const {'status': 'disabled', 'enabled': false}
         : null,
-    showHealth: visibility.showHealth,
     showMemory: visibility.showMemory,
     showScheduling: visibility.showScheduling,
     showTasks: visibility.showTasks,

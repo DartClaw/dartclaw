@@ -93,9 +93,10 @@ ClassifiedMessage classifyMessage({
 /// Each message should already be classified via [classifyMessage].
 String messagesHtmlFragment(List<ClassifiedMessage> messages) {
   if (messages.isEmpty) {
-    return emptyStateTemplate(
-      title: 'No messages yet',
-      body: 'Send a message to start the conversation.',
+    return promptHeroTemplate(
+      titleHtml: '<span class="text-gradient">Welcome back</span>',
+      sub: 'Send a message to start the conversation.',
+      modifiers: 'prompt-hero--center prompt-hero--fill',
       useMascot: true,
     );
   }

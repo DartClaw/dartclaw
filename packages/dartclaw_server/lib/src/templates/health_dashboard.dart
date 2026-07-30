@@ -36,6 +36,17 @@ String healthDashboardTemplate({
     _ => ('card-featured-error', 'status-badge-error', 'status-dot--error'),
   };
 
+  // Status is never carried by the hero copy alone — the badge card below
+  // remains the semantic signal; this is the view's brand moment.
+  final heroHtml = promptHeroTemplate(
+    eyebrow: 'System health',
+    titleHtml: switch (status) {
+      'healthy' => 'All systems <span class="text-gradient">luminous</span>',
+      'degraded' => 'Running degraded',
+      _ => 'Attention needed',
+    },
+  );
+
   final workerValueClass = switch (workerState) {
     '' => 'value-absent',
     'running' || 'idle' => 'text-success',
@@ -130,6 +141,7 @@ String healthDashboardTemplate({
     'statusCardClass': statusCardClass,
     'statusBadgeClass': statusBadgeClass,
     'statusDotClass': statusDotClass,
+    'heroHtml': heroHtml,
     'statusLabel': statusLabel,
     'version': version,
     'workerState': workerState,

@@ -89,6 +89,20 @@ void main() {
     });
   });
 
+  group('GET /health-dashboard', () {
+    test('registers core Health UI and renders degraded fallback without runtime services', () async {
+      final res = await handler(Request('GET', Uri.parse('http://localhost/health-dashboard')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('href="/health-dashboard"'));
+      expect(body, contains('aria-current="page"'));
+      expect(body, contains('Running degraded'));
+      expect(body, contains('>Degraded<'));
+      expect(body, contains('>unknown<'));
+    });
+  });
+
   group('GET /knowledge/wiki/<source>', () {
     /// Builds the wiki handler. A null [workspacePath] reproduces the
     /// unconfigured-workspace rejection.
@@ -540,11 +554,12 @@ void main() {
       expect(res.statusCode, equals(404));
     });
 
-    test('returns empty state for no messages', () async {
+    test('returns prompt-hero greeting for no messages', () async {
       final session = await sessions.createSession();
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
       final body = await res.readAsString();
-      expect(body, contains('empty-state'));
+      expect(body, contains('prompt-hero'));
+      expect(body, contains('Welcome back'));
     });
 
     test('returns message list when messages exist', () async {

@@ -8,6 +8,12 @@ import 'package:path/path.dart' as p;
 import '../observability/usage_tracker.dart';
 import '../version.dart';
 
+String healthStatusForWorkerState(WorkerState? state) => switch (state) {
+  WorkerState.stopped => 'unhealthy',
+  WorkerState.crashed || null => 'degraded',
+  _ => 'healthy',
+};
+
 /// Collects runtime health metrics: uptime, worker state, session count, DB size.
 class HealthService {
   static final _log = Logger('HealthService');
@@ -51,11 +57,7 @@ class HealthService {
   Future<Map<String, dynamic>> getStatus() async {
     _refreshCacheIfNeeded();
 
-    final status = switch (_worker.state) {
-      WorkerState.stopped => 'unhealthy',
-      WorkerState.crashed => 'degraded',
-      _ => 'healthy',
-    };
+    final status = healthStatusForWorkerState(_worker.state);
 
     final result = <String, dynamic>{
       'status': status,

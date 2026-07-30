@@ -13,32 +13,32 @@ String addProjectDialogHtml() {
 
     <div class="dialog-body">
       <div class="form-field">
-        <label class="form-label t-label" for="project-remote-url">Remote URL</label>
+        <label class="form-label t-caption tracking-caps" for="project-remote-url">Remote URL</label>
         <input type="text" id="project-remote-url" name="remoteUrl" class="form-input" required
                placeholder="git@github.com:user/repo.git">
       </div>
 
       <div class="form-field">
-        <label class="form-label t-label" for="project-name">Name</label>
+        <label class="form-label t-caption tracking-caps" for="project-name">Name</label>
         <input type="text" id="project-name" name="name" class="form-input" required
                placeholder="my-project">
       </div>
 
       <div class="form-field">
-        <label class="form-label t-label" for="project-branch">Default Branch</label>
+        <label class="form-label t-caption tracking-caps" for="project-branch">Default Branch</label>
         <input type="text" id="project-branch" name="defaultBranch" class="form-input"
                value="main" placeholder="main">
       </div>
 
       <div class="form-field">
-        <label class="form-label t-label" for="project-creds-ref">Credentials Reference</label>
+        <label class="form-label t-caption tracking-caps" for="project-creds-ref">Credentials Reference</label>
         <input type="text" id="project-creds-ref" name="credentialsRef" class="form-input"
                placeholder="github-main">
         <small class="form-hint t-caption">Optional. Name of a credential defined in dartclaw.yaml.</small>
       </div>
 
       <div class="form-field">
-        <label class="form-label t-label" for="project-pr-strategy">PR Strategy</label>
+        <label class="form-label t-caption tracking-caps" for="project-pr-strategy">PR Strategy</label>
         <select id="project-pr-strategy" name="prStrategy" class="form-select">
           <option value="githubPr">GitHub PR</option>
           <option value="branchOnly" selected>Branch Only</option>
@@ -51,7 +51,7 @@ String addProjectDialogHtml() {
       </div>
 
       <div class="form-field">
-        <label class="form-label t-label" for="project-labels">Labels</label>
+        <label class="form-label t-caption tracking-caps" for="project-labels">Labels</label>
         <input type="text" id="project-labels" name="labels" class="form-input"
                placeholder="agent, automated">
         <small class="form-hint t-caption">Optional. Comma-separated labels to apply to PRs.</small>

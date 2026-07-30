@@ -22,6 +22,32 @@ String bannerTemplate(String type, String message) {
 /// visuals are decorative (`aria-hidden` / empty `alt`) because [title] and
 /// [body] carry the state; the mascot exists for the in-session chat empty
 /// only, and every other caller keeps the default.
+/// Prompt-hero greeting — the typed-glyph claw moment for a landing or status
+/// view. One per view; it replaces, never joins, a mascot or claw-loader
+/// moment. [titleHtml] is rendered unescaped so a word can wrap in
+/// `.text-gradient`: it must be a server-authored static string — never
+/// interpolate user data into it. User-sourced copy belongs in [eyebrow] or
+/// [sub], which are escaped.
+String promptHeroTemplate({
+  required String titleHtml,
+  String? eyebrow,
+  String? sub,
+  String? modifiers,
+  bool useMascot = false,
+}) {
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('components'),
+    fragment: 'promptHero',
+    context: {
+      'titleHtml': titleHtml,
+      'eyebrow': _slot(eyebrow),
+      'sub': _slot(sub),
+      'modifiers': modifiers ?? '',
+      'useMascot': useMascot,
+    },
+  );
+}
+
 String emptyStateTemplate({required String title, required String body, String? actionHtml, bool useMascot = false}) {
   return templateLoader.trellis.renderFragment(
     templateLoader.source('components'),

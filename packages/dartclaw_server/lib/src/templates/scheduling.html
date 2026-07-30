@@ -38,22 +38,22 @@
         <div class="form-title">Add New Job</div>
         <div class="form-grid">
           <div class="form-field">
-            <label class="form-label" for="job-name">Name</label>
+            <label class="form-label t-caption tracking-caps" for="job-name">Name</label>
             <input type="text" class="form-input" id="job-name" placeholder="e.g. code-review">
           </div>
           <div class="form-field">
-            <label class="form-label" for="job-schedule">Schedule</label>
+            <label class="form-label t-caption tracking-caps" for="job-schedule">Schedule</label>
             <div class="schedule-row">
               <input type="text" class="form-input" id="job-schedule" placeholder="0 7 * * *" data-action="input->dc-scheduling#updateJobCronPreview">
               <span class="cron-preview" id="cron-preview"></span>
             </div>
           </div>
           <div class="form-field">
-            <label class="form-label" for="job-prompt">Prompt</label>
+            <label class="form-label t-caption tracking-caps" for="job-prompt">Prompt</label>
             <textarea class="form-textarea" id="job-prompt" rows="3" placeholder="Describe the task for the agent..."></textarea>
           </div>
           <div class="form-field">
-            <span class="form-label">Delivery</span>
+            <span class="form-label t-caption tracking-caps">Delivery</span>
             <div class="radio-group">
               <label><input type="radio" name="delivery" value="announce" checked> announce</label>
               <label><input type="radio" name="delivery" value="webhook"> webhook</label>
@@ -126,37 +126,37 @@
         <input type="hidden" id="task-edit-id" value="">
         <div class="form-grid">
           <div class="form-field">
-            <label class="form-label" for="task-id">ID</label>
+            <label class="form-label t-caption tracking-caps" for="task-id">ID</label>
             <input type="text" class="form-input" id="task-id" placeholder="e.g. weekly-report">
           </div>
           <div class="form-field">
-            <label class="form-label" for="task-schedule">Schedule</label>
+            <label class="form-label t-caption tracking-caps" for="task-schedule">Schedule</label>
             <div class="schedule-row">
               <input type="text" class="form-input" id="task-schedule" placeholder="0 9 * * 1" data-action="input->dc-scheduling#updateTaskCronPreview">
               <span class="cron-preview" id="task-cron-preview"></span>
             </div>
           </div>
           <div class="form-field">
-            <label class="form-label" for="task-title">Title</label>
+            <label class="form-label t-caption tracking-caps" for="task-title">Title</label>
             <input type="text" class="form-input" id="task-title" placeholder="Task title">
           </div>
           <div class="form-field">
-            <label class="form-label" for="task-description">Description</label>
+            <label class="form-label t-caption tracking-caps" for="task-description">Description</label>
             <textarea class="form-textarea" id="task-description" rows="3" placeholder="Describe what the task should accomplish..."></textarea>
           </div>
           <div class="form-field">
-            <label class="form-label" for="task-type">Type</label>
+            <label class="form-label t-caption tracking-caps" for="task-type">Type</label>
             <select class="form-select" id="task-type">
               <option tl:each="t : ${taskTypes}" tl:attr="value=${t}" tl:text="${t}">type</option>
             </select>
           </div>
           <div class="form-field">
-            <label class="form-label" for="task-acceptance">Acceptance Criteria</label>
+            <label class="form-label t-caption tracking-caps" for="task-acceptance">Acceptance Criteria</label>
             <textarea class="form-textarea" id="task-acceptance" rows="2" placeholder="Optional acceptance criteria..."></textarea>
           </div>
           <div class="form-field form-field--checkbox">
             <input type="checkbox" id="task-enabled" checked>
-            <label class="form-label" for="task-enabled">Enabled</label>
+            <label class="form-label t-caption tracking-caps" for="task-enabled">Enabled</label>
           </div>
           <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
           <div class="form-actions">

@@ -278,10 +278,7 @@ class DartclawServerBuilder {
     final visibility = computeServerSidebarVisibility(
       config: config,
       hasChannels: whatsAppChannel != null || signalChannel != null || googleChatWebhookHandler?.channel != null,
-      guardChain: guardChain,
-      hasHealthService: healthService != null,
       hasTaskService: taskService != null,
-      hasPubSubHealth: healthService?.pubsubHealth != null,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
       workspaceDisplay: workspaceDisplay,

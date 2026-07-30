@@ -102,10 +102,7 @@ Router webRoutes(
   final visibility = computeSidebarFeatureVisibility(
     config: config,
     hasChannels: whatsAppChannel != null || signalChannel != null || googleChatChannel != null,
-    guardChain: guardChain,
-    hasHealthService: healthService != null,
     hasTaskService: taskService != null,
-    hasPubSubHealth: healthService?.pubsubHealth != null,
     heartbeatDisplay: heartbeatDisplay,
     schedulingDisplay: schedulingDisplay,
     workspaceDisplay: workspaceDisplay,
@@ -128,7 +125,6 @@ Router webRoutes(
       schedulingDisplay: schedulingDisplay,
       workspaceDisplay: workspaceDisplay,
       auditReader: auditReader,
-      showHealth: visibility.showHealth,
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,

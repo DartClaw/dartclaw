@@ -109,6 +109,14 @@
     </div>
     <p class="subtitle">Terminal-aesthetic design system. Catppuccin Mocha/Latte, monospace typography, green accent. See <code>DESIGN.md</code> for full documentation.</p>
 
+    <!-- The showcase's own greeting: the prompt hero as shipped on the chat
+         landing state (mascot-crowned, gradient title, blinking cursor). -->
+    <div class="prompt-hero prompt-hero--center" style="margin-top:var(--sp-8)">
+      <img src="assets/logo-avatar-512-8bit.png" class="pixel-art prompt-hero-mascot" width="64" height="64" alt="">
+      <p class="prompt-hero-title t-display"><span class="prompt-mark" aria-hidden="true">&#10095;</span><span class="text-gradient">Welcome back</span><span class="cursor-blink" aria-hidden="true"></span></p>
+      <p class="prompt-hero-sub t-caption">.prompt-hero &mdash; the typed-glyph greeting, as shipped on the chat landing and the health dashboard.</p>
+    </div>
+
 
     <!-- SURFACE LADDER -->
     <h2>Surface Ladder (7 levels)</h2>
@@ -278,6 +286,14 @@ const wide = "..................................................................
     <h3>Gradient Text</h3>
     <p class="use-case"><code>.text-gradient</code> — hero titles and brand moments only, max once per view.</p>
     <div style="font-size:var(--text-2xl);font-weight:var(--weight-bold)"><span class="text-gradient">Agent runtime, instrumented.</span></div>
+
+    <h3>Prompt Hero</h3>
+    <p class="use-case"><code>.prompt-hero</code> — the typed-glyph greeting for landing and status views; one per view, and it replaces (never joins) a mascot or claw-loader moment. The cursor blinks in <code>steps()</code>; reduced motion pins it visible.</p>
+    <div class="prompt-hero">
+      <p class="prompt-hero-eyebrow t-caption tracking-caps">System health</p>
+      <p class="prompt-hero-title t-display"><span class="prompt-mark" aria-hidden="true">&#10095;</span>All systems <span class="text-gradient">luminous</span><span class="cursor-blink" aria-hidden="true"></span></p>
+      <p class="prompt-hero-sub t-caption">2 workflows running &middot; 12 sessions active &middot; guards armed</p>
+    </div>
 
 
     <!-- CARD TAXONOMY -->
@@ -908,10 +924,12 @@ done.<span class="streaming"></span></code></pre>
     <div class="btn-row">
       <button type="button" class="btn">Default</button>
       <button type="button" class="btn btn-primary">Primary</button>
+      <button type="button" class="btn btn-secondary">Secondary</button>
       <button type="button" class="btn btn-ghost">Ghost</button>
       <button type="button" class="btn btn-danger">Danger</button>
       <button type="button" class="btn btn-primary" disabled>Disabled</button>
     </div>
+    <p class="use-case"><code>.btn-secondary</code> is the orchestration action (run workflow, open studio) &mdash; info-tinted fill and ring between primary (create) and danger (destroy).</p>
 
     <h3>Size tier &amp; filled destructive</h3>
     <p class="use-case"><code>.btn-sm</code> / <code>.btn-icon-sm</code> differ by padding and <code>min-height</code> only &mdash; neither declares a <code>font-size</code>. <code>.btn-danger-fill</code> is the committed destructive step; outlined <code>.btn-danger</code> stays the default.</p>
@@ -956,12 +974,12 @@ done.<span class="streaming"></span></code></pre>
     <div class="well-content">
       <div class="grid-2">
         <div class="form-field">
-          <label class="form-label t-label" for="demo-provider">Provider</label>
+          <label class="form-label t-caption tracking-caps" for="demo-provider">Provider</label>
           <input type="text" class="form-input" id="demo-provider" value="claude">
           <span class="form-hint t-caption">Accepts a bare model or shorthand like <code>claude/opus</code>.</span>
         </div>
         <div class="form-field">
-          <label class="form-label t-label" for="demo-effort">Effort</label>
+          <label class="form-label t-caption tracking-caps" for="demo-effort">Effort</label>
           <select class="form-select" id="demo-effort">
             <option>low</option>
             <option selected>medium</option>
@@ -972,12 +990,12 @@ done.<span class="streaming"></span></code></pre>
       </div>
 
       <div class="form-field" style="margin-top:var(--sp-4)">
-        <label class="form-label t-label" for="demo-prompt">System prompt</label>
+        <label class="form-label t-caption tracking-caps" for="demo-prompt">System prompt</label>
         <textarea class="form-textarea" id="demo-prompt" placeholder="Describe the agent's role&hellip;"></textarea>
       </div>
 
       <div class="form-field" style="margin-top:var(--sp-4)">
-        <label class="form-label t-label" for="demo-disabled">Data directory (disabled)</label>
+        <label class="form-label t-caption tracking-caps" for="demo-disabled">Data directory (disabled)</label>
         <input type="text" class="form-input" id="demo-disabled" value="/var/lib/dartclaw" disabled>
       </div>
     </div>
@@ -987,15 +1005,15 @@ done.<span class="streaming"></span></code></pre>
     <div class="well-content">
       <div class="form-row">
         <div class="form-field">
-          <label class="form-label t-label" for="demo-port">Port</label>
+          <label class="form-label t-caption tracking-caps" for="demo-port">Port</label>
           <input type="text" class="form-input form-input--num" id="demo-port" value="3333">
         </div>
         <div class="form-field">
-          <label class="form-label t-label" for="demo-host">Host</label>
+          <label class="form-label t-caption tracking-caps" for="demo-host">Host</label>
           <input type="text" class="form-input form-input--short" id="demo-host" value="127.0.0.1">
         </div>
         <div class="form-field">
-          <label class="form-label t-label" for="demo-dir">Working directory</label>
+          <label class="form-label t-caption tracking-caps" for="demo-dir">Working directory</label>
           <input type="text" class="form-input" id="demo-dir" value="/Users/you/projects/dartclaw">
         </div>
       </div>
@@ -1006,12 +1024,12 @@ done.<span class="streaming"></span></code></pre>
     <div class="well-content">
       <div class="grid-2">
         <div class="form-field">
-          <label class="form-label t-label" for="demo-invalid">Max turns <span class="text-sm text-muted">(aria-invalid)</span></label>
+          <label class="form-label t-caption tracking-caps" for="demo-invalid">Max turns <span class="text-sm text-muted">(aria-invalid)</span></label>
           <input type="text" class="form-input" id="demo-invalid" value="-4" aria-invalid="true" aria-describedby="demo-invalid-err">
           <span class="form-error t-caption" id="demo-invalid-err">Must be a positive integer.</span>
         </div>
         <div class="form-field">
-          <label class="form-label t-label" for="demo-uinvalid">Allowlist entry <span class="text-sm text-muted">(required &mdash; focus, then leave empty)</span></label>
+          <label class="form-label t-caption tracking-caps" for="demo-uinvalid">Allowlist entry <span class="text-sm text-muted">(required &mdash; focus, then leave empty)</span></label>
           <input type="text" class="form-input" id="demo-uinvalid" required placeholder="+15551234567">
           <span class="form-hint t-caption">Clean on load; the treatment appears only after you interact and leave.</span>
         </div>
@@ -1024,21 +1042,21 @@ done.<span class="streaming"></span></code></pre>
       <div class="grid-3">
         <div>
           <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Checkbox</div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-on" checked><label class="form-label t-label" for="cb-on">Checked</label></div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-off"><label class="form-label t-label" for="cb-off">Unchecked</label></div>
-          <div class="form-field form-field--checkbox"><input type="checkbox" class="form-checkbox" id="cb-dis" disabled><label class="form-label t-label" for="cb-dis">Disabled</label></div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-on" checked><label class="form-label t-caption tracking-caps" for="cb-on">Checked</label></div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-off"><label class="form-label t-caption tracking-caps" for="cb-off">Unchecked</label></div>
+          <div class="form-field form-field--checkbox"><input type="checkbox" class="form-checkbox" id="cb-dis" disabled><label class="form-label t-caption tracking-caps" for="cb-dis">Disabled</label></div>
         </div>
         <div>
           <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Radio</div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-on" checked><label class="form-label t-label" for="rb-on">Selected</label></div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-off"><label class="form-label t-label" for="rb-off">Unselected</label></div>
-          <div class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="demo-r2" id="rb-dis" disabled><label class="form-label t-label" for="rb-dis">Disabled</label></div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-on" checked><label class="form-label t-caption tracking-caps" for="rb-on">Selected</label></div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-off"><label class="form-label t-caption tracking-caps" for="rb-off">Unselected</label></div>
+          <div class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="demo-r2" id="rb-dis" disabled><label class="form-label t-caption tracking-caps" for="rb-dis">Disabled</label></div>
         </div>
         <div>
           <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Toggle (<code>.form-field--inline</code>)</div>
-          <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-label" for="tg-on">Enabled</label><span class="form-toggle"><input type="checkbox" id="tg-on" checked><span class="form-toggle-slider"></span></span></div>
-          <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-label" for="tg-off">Disabled state</label><span class="form-toggle"><input type="checkbox" id="tg-off"><span class="form-toggle-slider"></span></span></div>
-          <div class="form-field form-field--inline"><label class="form-label t-label" for="tg-dis">Not editable</label><span class="form-toggle"><input type="checkbox" id="tg-dis" checked disabled><span class="form-toggle-slider"></span></span></div>
+          <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-caption tracking-caps" for="tg-on">Enabled</label><span class="form-toggle"><input type="checkbox" id="tg-on" checked><span class="form-toggle-slider"></span></span></div>
+          <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-caption tracking-caps" for="tg-off">Disabled state</label><span class="form-toggle"><input type="checkbox" id="tg-off"><span class="form-toggle-slider"></span></span></div>
+          <div class="form-field form-field--inline"><label class="form-label t-caption tracking-caps" for="tg-dis">Not editable</label><span class="form-toggle"><input type="checkbox" id="tg-dis" checked disabled><span class="form-toggle-slider"></span></span></div>
         </div>
       </div>
     </div>
@@ -1201,11 +1219,11 @@ done.<span class="streaming"></span></code></pre>
         </div>
         <div class="dialog-body">
           <div class="form-field">
-            <label class="form-label t-label" for="demo-dialog-title">Title</label>
+            <label class="form-label t-caption tracking-caps" for="demo-dialog-title">Title</label>
             <input type="text" class="form-input" id="demo-dialog-title" placeholder="Brief task title">
           </div>
           <div class="form-field">
-            <label class="form-label t-label" for="demo-dialog-type">Type</label>
+            <label class="form-label t-caption tracking-caps" for="demo-dialog-type">Type</label>
             <select class="form-select" id="demo-dialog-type">
               <option selected>Coding</option>
               <option>Research</option>
@@ -1214,15 +1232,15 @@ done.<span class="streaming"></span></code></pre>
             <span class="form-hint t-caption">Coding tasks run in isolated git worktrees and produce diffs for review.</span>
           </div>
           <div class="form-field">
-            <label class="form-label t-label" for="demo-dialog-brief">Implementation brief</label>
+            <label class="form-label t-caption tracking-caps" for="demo-dialog-brief">Implementation brief</label>
             <textarea class="form-textarea" id="demo-dialog-brief" placeholder="What should change in the codebase?"></textarea>
           </div>
           <div class="form-field form-field--checkbox">
             <input type="checkbox" class="form-checkbox" id="demo-dialog-auto" checked>
-            <label class="form-label t-label" for="demo-dialog-auto">Auto-accept the diff</label>
+            <label class="form-label t-caption tracking-caps" for="demo-dialog-auto">Auto-accept the diff</label>
           </div>
           <div class="form-field">
-            <label class="form-label t-label" for="demo-dialog-dod">Definition of done</label>
+            <label class="form-label t-caption tracking-caps" for="demo-dialog-dod">Definition of done</label>
             <textarea class="form-textarea" id="demo-dialog-dod" placeholder="How do we know it is finished?"></textarea>
           </div>
         </div>
@@ -1242,7 +1260,7 @@ done.<span class="streaming"></span></code></pre>
       </div>
       <div class="dialog-body">
         <div class="form-field">
-          <label class="form-label t-label" for="demo-dialog-sm-name">Session name</label>
+          <label class="form-label t-caption tracking-caps" for="demo-dialog-sm-name">Session name</label>
           <input type="text" class="form-input" id="demo-dialog-sm-name" value="Renamed Session">
           <span class="form-hint t-caption">The small tier is <code>min(92vw, 480px)</code> &mdash; one question, one field.</span>
         </div>

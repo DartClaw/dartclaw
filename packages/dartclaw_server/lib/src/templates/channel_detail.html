@@ -242,7 +242,7 @@
                 class="well well-content channel-sub-card"
                 data-task-trigger-fields
                 tl:attr="hidden=${taskTriggerEnabled ? null : 'hidden'},aria-hidden=${taskTriggerEnabled ? 'false' : 'true'}">
-                <label class="form-label t-label" for="task-trigger-prefix">Trigger prefix</label>
+                <label class="form-label t-caption tracking-caps" for="task-trigger-prefix">Trigger prefix</label>
                 <input
                   type="text"
                   id="task-trigger-prefix"
@@ -250,7 +250,7 @@
                   tl:attr="value=${taskTriggerPrefix}">
                 <div class="channel-hint">Example: <code>task:</code> or <code>do:</code>.</div>
 
-                <label class="form-label t-label" for="task-trigger-default-type">Default task type</label>
+                <label class="form-label t-caption tracking-caps" for="task-trigger-default-type">Default task type</label>
                 <select id="task-trigger-default-type" class="form-select">
                   <option
                     tl:each="taskType : ${taskTriggerTypes}"

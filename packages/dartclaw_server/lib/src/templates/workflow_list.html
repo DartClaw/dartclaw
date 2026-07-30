@@ -9,7 +9,7 @@
       <div class="workflow-filters card">
         <div class="workflow-filter-row">
           <div class="workflow-filter-group">
-            <label class="form-label t-label">Status</label>
+            <label class="form-label t-caption tracking-caps">Status</label>
             <div class="tabs">
               <a tl:each="opt : ${statusOptions}"
                  tl:classappend="${opt.active} ? 'active' : ''"
@@ -21,7 +21,7 @@
             </div>
           </div>
           <div class="workflow-filter-group">
-            <label class="form-label t-label" for="workflow-definition-filter">Workflow</label>
+            <label class="form-label t-caption tracking-caps" for="workflow-definition-filter">Workflow</label>
             <select class="form-select" id="workflow-definition-filter">
               <option value="">All workflows</option>
               <option tl:each="def : ${definitionOptions}"
@@ -91,12 +91,12 @@
                     hx-swap="innerHTML">
                 <input type="hidden" name="definition" tl:attr="value=${def.name}">
                 <div tl:each="field : ${def.variableInputs}" class="form-field">
-                  <label class="form-label t-label" tl:attr="for=${field.id}" tl:text="${field.label}">Variable</label>
+                  <label class="form-label t-caption tracking-caps" tl:attr="for=${field.id}" tl:text="${field.label}">Variable</label>
                   <input class="form-input" type="text"
                          tl:attr="id=${field.id},name=${field.inputName},placeholder=${field.placeholder},value=${field.defaultValue},required=${field.required} ? 'required' : null">
                 </div>
                 <div tl:if="${hasProjects}" class="form-field">
-                  <label class="form-label t-label" tl:attr="for=${def.projectSelectId}">Project</label>
+                  <label class="form-label t-caption tracking-caps" tl:attr="for=${def.projectSelectId}">Project</label>
                   <select class="form-select" tl:attr="id=${def.projectSelectId},name='project'">
                     <option value="">Default project</option>
                     <option tl:each="project : ${projectOptions}"

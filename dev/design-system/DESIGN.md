@@ -426,6 +426,7 @@ The palette is rooted in **Catppuccin Mocha** (dark, default) and **Catppuccin L
 - **Semantic** colors are reserved for state: `success` (green), `error` (pink/red), `warning` (orange), `info` (blue). Light-theme semantics are intentionally darker than raw Latte swatches so pills, badges, and active states remain readable on light surfaces.
 - **Provider brand** – `--brand-claude` and `--brand-codex` identify the agent provider on provider badges; they never carry state. `--brand-codex` aliases the extended-palette teal and replaces Codex's former borrow of semantic `--info`. Because these two are the only extended-palette hues that render as *text*, their light values are held dark enough to clear 4.5:1 as badge labels – legibility outranks swatch fidelity for them, and the dark values are unconstrained.
 - **Extended palette** — `mauve`, `teal`, `sky`, `pink`, `lavender` exist so the system isn't monochrome-plus-green. They are **decorative/categorical only**: multi-hue gradients (logo, featured cards, `.text-gradient`), the ambient body glows, identicons, and data-viz category colors. They never carry state — a user must never have to ask whether purple means failure.
+- **Prompt hero** — `.prompt-hero` (+ `-mascot`/`-eyebrow`/`-title`/`-sub`, `--center`, `--fill`) is the typed-glyph greeting: optional mascot crown, teal eyebrow, display-tier line opening with the accent prompt mark, a `.text-gradient` phrase, and the `steps()`-blinking `.cursor-blink` block (pinned visible under reduced motion). It is a **claw moment** — one per view; a mascot-crowned hero counts as that view's single brand moment (the crown belongs on landing surfaces, not status pages). Ships mascot-crowned on the chat landing state and plain on the health dashboard; copy may follow status, but the hero is never the semantic signal — a badge or dot still carries state.
 - **Chart ramp** — `--chart-1` through `--chart-6` is the *ordered* categorical ramp (accent, info, mauve, teal, pink, sky). Assign by series index, never by hand-picking — the order keeps adjacent series distinguishable and charts consistent across views.
 
 ### Surface ladder (7 levels)
@@ -479,9 +480,9 @@ Every tier has exactly one backing composite class that binds all four typograph
 
 | Token | Class | Size | Usage |
 |---|---|---|---|
-| `caption` | `.t-caption` | 12px | Timestamps, metadata, hints, micro-labels |
+| `caption` | `.t-caption` | 12px | Timestamps, metadata, hints, micro-labels, field labels (as `.t-caption.tracking-caps` — the eyebrow voice) |
 | `body-md` | `.t-body` | 14px | Running copy, code, messages, card bodies |
-| `label-md` | `.t-label` | 14px / 500 | Field labels, tabs, compact named values |
+| `label-md` | `.t-label` | 14px / 500 | Tabs, compact named values |
 | `heading-md` | `.t-heading` | 18px / 600, tight tracking | Section titles, card headers, dialog titles |
 | `page-title` | `.t-page-title` | 20px / 600 | Topbar and shared page headers |
 | `display` | `.t-display` | 24px / 600, tight tracking | The once-per-view display/error-code moment |
@@ -561,13 +562,13 @@ The system carries forward-compatibility tokens for a future webview desktop she
 
 ### Body background
 
-The ground is atmospheric, not flat:
+The ground is the **aurora** — the afterglow rendered as northern lights, and the page's single largest carrier of atmosphere. It must *read as coloured light at arm's length*, not merely measure as non-flat:
 
-1. **Base gradient** – a fixed 3-stop `linear-gradient(170deg, …)` whose every stop derives from `bg-base`. It stays a narrow band inside the page-ground plane and **never terminates on the card tone**; the old `crust → base → mantle` sweep ended exactly on the card fill, which is what made cards dissolve into the page.
-2. **Ambient glows** – three radial gradients centred *inside* the viewport (pushed off-canvas, only their tails landed and the ground read flat). Tokens: `--ambient-a/-b/-c`. They are **opaque ground tints, not alpha washes**: a translucent wash of a bright Mocha hue lifts luminance far faster than it adds chroma, and the ground has only ~0.05 of oklab L to travel before it reaches the card plane. In dark they tint the crust upward, `a` the light end and `c` the dark end. In light every Latte hue is darker than the ground, so a tint can only pull down: `a` lifts neutrally toward the chrome plane and `b`/`c` carry the hue.
+1. **Deep band** – a fixed 3-stop `linear-gradient(170deg, …)` that dives toward `--bg-ground-edge` (below the crust in dark). The deep band is what buys the washes their luminance headroom: cards keep their contrast floor because the ground drops, not because the colour mutes. It **never terminates on the card tone**.
+2. **Aurora washes** – four radial gradients centred *inside* the viewport (pushed off-canvas, only their tails landed and the ground read flat). Tokens: `--ambient-a/-b/-c/-d` — **visible alpha washes at 10–16%** (the ui-polish-audit's prescribed strength), cool-led: blue (`a`, top-right), mauve (`b`, centre), teal (`c`, bottom-right), and the green kicker (`d`) in the brand corner. Do not re-architect these into near-ground opaque tints: that is precisely the 0.22.1 regression this section replaces — a mechanism that protected a card-contrast floor by deleting the atmosphere. In light every Latte hue is darker than the ground, so light carries the same geometry as hue-at-matched-lightness tints.
 3. **Film grain** — an SVG-turbulence noise overlay (`--noise`, `--noise-opacity`) on a fixed `body::before`, painted above the gradient but below all content. Its job is killing gradient banding on large monitors; it should be felt, not seen.
 
-Corner-to-corner the ground varies by **≥ 0.04 ΔE(oklab) in dark and ≥ 0.02 in light** – below that it measures as flat regardless of how the recipe reads.
+Corner-to-corner the ground varies by a **target of 0.10–0.15 ΔE(oklab) in dark** (hue-led, ~0.02–0.04 in light) – these are *design targets*, not detection floors. A value that merely clears a just-noticeable-difference floor is a defect here: JND is where flatness stops being measurable, not where atmosphere starts. **No change to this section's tokens or recipe ships on numeric gates alone — a rendered screenshot is reviewed against the Phosphor Aurora reference before it lands.**
 
 The two thresholds differ because the themes have very different room to move. Dark can spend real luminance: the ground runs between the chrome plane below it and the card plane above it. Light is boxed in from both sides – `fg-sub0` helper text needs the *darkest* ground to stay above its 4.5:1 floor, and a semantically tinted white card needs the *lightest* ground to stay 1.15:1 below it, which leaves under 0.005 of oklab L between them. Light therefore carries its variation as **hue at matched lightness** rather than as luminance, and 0.02 is what that yields. Do not "restore" light to 0.04 by widening the luminance band: it lands directly on either the text-contrast floor or the card-contrast floor.
 
@@ -755,7 +756,7 @@ Standalone content units with hover effects, optional structure (`card-header`, 
 
 | Variant | Background | Hover | Use for |
 |---|---|---|---|
-| `.card` | `bg-card` + top highlight | accent glow + border tint | any standalone content block |
+| `.card` | `bg-card` + top highlight + prismatic hairline (a centred 1.5px light-catch in `--card-hue`, accent by default; metric/tint variants refract their own hue) | accent glow + border tint, hairline brightens | any standalone content block |
 | `.card-sunken` | `bg-crust`, inset shadow | none | code wells, form fields, embeds |
 | `.card-elevated` | `bg-surface0`, stronger shadow | large shadow + accent glow | modals, dropdowns, popovers |
 | `.card-glass` | translucent + backdrop blur | none (anchored) | overlays above live content: modals, command palettes |
@@ -811,7 +812,7 @@ Card sub-elements:
 
 **Scanning bar** — animated gradient sweep, 2px high. Terminal-native spinner alternative. Not the same as gradient dividers (1px and static).
 
-**Meters** — determinate progress: recessed 6px track (`.meter`) + gradient fill (`.meter-fill`, semantic variants `--info`/`--warning`/`--error`) with a soft matching glow. Budget consumption, turn progress, uploads. Always pair with a visible label or percentage — the color shift alone must not carry the reading. Add `.meter--empty` at 0%: a full-strength track with no fill reads as a solid rule — an emphatic line reporting no data — so the empty case drops the depth and lightens the track until it reads as an unfilled slot.
+**Meters** — determinate progress as the **phosphor beam**: a dark recessed 7px channel (`.meter`) + a luminous fill with a two-layer glow (`.meter-fill`, semantic variants `--info`/`--warning`/`--error`). The default runs the claw's green→blue; `--warning` ramps from a deep ember root so it reads with equal authority. Progress *is* the live trace, so meters are deliberately among the brightest resting elements on a page. Budget consumption, turn progress, uploads. Always pair with a visible label or percentage — the color shift alone must not carry the reading. Add `.meter--empty` at 0%: a full-strength track with no fill reads as a solid rule — an emphatic line reporting no data — so the empty case drops the depth and lightens the track until it reads as an unfilled slot.
 
 **Skeletons** — indeterminate loading: shimmer placeholders (`.skeleton`, `.skeleton-text`) shaped like the eventual content. Use for initial page/fragment loads; once content is in flight, the scanning bar takes over.
 
@@ -825,6 +826,7 @@ Card sub-elements:
 
 - `.btn` — default (surface bg + border + inset top-edge highlight)
 - `.btn-primary` — top-lit accent gradient, high-contrast text, glow on hover
+- `.btn-secondary` — info-tinted fill and ring, info-glow lift on hover. The orchestration action (run workflow, open studio): sits deliberately between primary (accent = create) and danger (error = destroy)
 - `.btn-ghost` — transparent bg, no fill, no highlight, but a **resting boundary**
 - `.btn-danger` — transparent bg, error border, error glow on hover
 - `.btn-danger-fill` — filled error bg. The committed destructive step (confirmation dialogs, delete bars); outlined `.btn-danger` stays the default
@@ -888,18 +890,18 @@ Native elements under canonical classes. Any DartClaw form — settings, task, s
 | `.form-field--inline` | Label left, control trailing. Toggle rows and other control-follows-label cases. **Compose onto `.form-field`.** |
 | `.form-field--checkbox` | Control first, label after, `sp-2` gap. **Compose onto `.form-field`.** |
 | `.form-row` | Multi-field horizontal group; fields share the row and stack when they run out of width. |
-| `.form-label` | Field label. Flex row so an icon or badge can sit beside the text. |
-| `.form-input` | Text input. Input-family surface + `inset-sm` depth. |
+| `.form-label` | Field label in the **eyebrow voice**: the rule uppercases; markup composes `.t-caption.tracking-caps` for size and tracking. The eyebrow rhythm is what keeps a resting form from reading as a gray stack. Flex row so an icon or badge can sit beside the text. |
+| `.form-input` | Text input. Recessed well (a step below `bg-base` toward the crust) + `inset-sm` depth + accent caret. Focus adds the phosphor ring — a soft accent glow on top of the recess; the `:focus-visible` outline stays the guaranteed a11y cue. |
 | `.form-select` | Native `<select>` — see § Native selects. |
 | `.form-textarea` | Multi-line input; vertical resize only. |
 | `.form-error` | Validation message. Floors a filled message at one line; an empty one takes no height. It does not pre-reserve the line, so a layout that must not reflow when an error appears has to reserve the slot itself. |
 | `.form-hint` | Helper text below a control. |
-| `.form-checkbox` / `.form-radio` | Native inputs, `appearance: none`. Accent fill when checked. |
-| `.form-toggle` + `.form-toggle-slider` | Switch presentation of a checkbox. CSS-only, state from `:checked`. |
+| `.form-checkbox` / `.form-radio` | Native inputs, `appearance: none`. Checked = top-lit accent gradient + micro-glow. |
+| `.form-toggle` + `.form-toggle-slider` | Switch presentation of a checkbox. CSS-only, state from `:checked`; the on state runs the accent gradient with a micro-glow, the off track is recessed. |
 
 **Control rules are element-qualified** — `input.form-input`, not `.form-input`. The app stylesheet loads after the design system, so a bare class rule loses every shared property to the app's own copy and lands half-applied. Qualification also keeps the family class-bound: an unqualified `input {` here would re-skin every unadopted template at once.
 
-Controls do not inherit the document font, so each control rule sets `font: inherit`. That is a reset, not a type tier — no control rule declares a `font-size`. Compose `.t-label` on labels and tabs, `.t-caption` on hints and errors.
+Controls do not inherit the document font, so each control rule sets `font: inherit`. That is a reset, not a type tier — no control rule declares a `font-size`. Compose `.t-caption.tracking-caps` on labels (the eyebrow voice), `.t-label` on tabs, `.t-caption` on hints and errors.
 
 **Invalid state.** `[aria-invalid="true"]` and `:user-invalid` are **equivalent hooks** — both are keyed, so a controller setting the ARIA attribute and the browser's own validity state cannot render differently. The validity pseudo-class is deliberately `:user-invalid` and never the plain one: the plain form also matches an empty `required` field on page load, which would paint an error before the user has typed a character.
 

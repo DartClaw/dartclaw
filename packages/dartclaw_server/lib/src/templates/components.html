@@ -3,6 +3,13 @@
   <button class="dismiss" aria-label="Dismiss" data-icon="x"></button>
 </div>
 
+<div tl:fragment="promptHero" class="prompt-hero" tl:classappend="${modifiers}">
+  <img tl:if="${useMascot}" src="/static/mascot-avatar-512-8bit.png" class="pixel-art prompt-hero-mascot" width="64" height="64" alt="">
+  <p tl:if="${eyebrow}" class="prompt-hero-eyebrow t-caption tracking-caps" tl:text="${eyebrow}">System health</p>
+  <p class="prompt-hero-title t-display"><span class="prompt-mark" aria-hidden="true">&#10095;</span><tl:block tl:utext="${titleHtml}">All systems luminous</tl:block><span class="cursor-blink" aria-hidden="true"></span></p>
+  <p tl:if="${sub}" class="prompt-hero-sub t-caption" tl:text="${sub}">Send a message to start the conversation.</p>
+</div>
+
 <div tl:fragment="emptyState" class="empty-state">
   <img tl:if="${useMascot}" src="/static/mascot-avatar-512-8bit.png" class="pixel-art" width="64" height="64" alt="">
   <div tl:unless="${useMascot}" class="icon" aria-hidden="true">&#10095;_</div>

@@ -58,13 +58,13 @@ String newTaskFormDialogHtml({
     <div class="dialog-body">
       <div class="tab-panel active" data-task-panel="single">
         <div class="form-field">
-          <label class="form-label t-label" for="task-title">Title</label>
+          <label class="form-label t-caption tracking-caps" for="task-title">Title</label>
           <input type="text" id="task-title" name="title" class="form-input" required
                  placeholder="Brief task title">
         </div>
 
         <div class="form-field">
-          <label class="form-label t-label" for="task-type-select">Type</label>
+          <label class="form-label t-caption tracking-caps" for="task-type-select">Type</label>
           <select id="task-type-select" name="type" class="form-select" data-enhance="custom-select" required>
             <option value="coding">Coding</option>
             <option value="research">Research</option>
@@ -84,39 +84,39 @@ String newTaskFormDialogHtml({
         </div>
 $projectSelectorMarkup
         <div class="form-field">
-          <label class="form-label t-label" for="task-description" data-task-description-label>Description</label>
+          <label class="form-label t-caption tracking-caps" for="task-description" data-task-description-label>Description</label>
           <textarea id="task-description" name="description" class="form-textarea" required data-task-description-input
                     rows="3" placeholder="What should the agent do?"></textarea>
         </div>
 
         <div class="form-field">
-          <label class="form-label t-label" for="task-goal-select">Goal</label>
+          <label class="form-label t-caption tracking-caps" for="task-goal-select">Goal</label>
           <select id="task-goal-select" name="goalId" class="form-select" data-enhance="custom-select">
 $goalSelectMarkup
           </select>
         </div>
 
         <div class="form-field">
-          <label class="form-label t-label" for="task-acceptance-criteria" data-task-criteria-label>Acceptance Criteria</label>
+          <label class="form-label t-caption tracking-caps" for="task-acceptance-criteria" data-task-criteria-label>Acceptance Criteria</label>
           <textarea id="task-acceptance-criteria" name="acceptanceCriteria" class="form-textarea" data-task-criteria-input
                     rows="3" placeholder="How will you know when it's done?"></textarea>
         </div>
 
         <details class="task-advanced-section">
-          <summary class="form-label t-label">Advanced</summary>
+          <summary class="form-label t-caption tracking-caps">Advanced</summary>
           <div class="task-advanced-fields">
             <div class="form-field">
-              <label class="form-label t-label" for="task-model">Model Override</label>
+              <label class="form-label t-caption tracking-caps" for="task-model">Model Override</label>
               <input type="text" id="task-model" name="model" class="form-input"
                      placeholder="default">
             </div>
             <div class="form-field">
-              <label class="form-label t-label" for="task-token-budget">Token Budget</label>
+              <label class="form-label t-caption tracking-caps" for="task-token-budget">Token Budget</label>
               <input type="number" id="task-token-budget" name="tokenBudget" class="form-input"
                      min="0" placeholder="No limit">
             </div>
             <fieldset class="form-field task-tool-allowlist">
-              <legend class="form-label t-label">Allowed Tools</legend>
+              <legend class="form-label t-caption tracking-caps">Allowed Tools</legend>
               <p class="form-help-text">When checked, only selected tools are permitted. Leave all unchecked for default policy.</p>
               <div class="tool-checklist">
                 <label><input type="checkbox" name="allowedTools" value="shell"> Shell</label>
@@ -128,7 +128,7 @@ $goalSelectMarkup
               </div>
             </fieldset>
             <div class="form-field">
-              <label class="form-label t-label" for="task-review-mode">Review Mode</label>
+              <label class="form-label t-caption tracking-caps" for="task-review-mode">Review Mode</label>
               <select id="task-review-mode" name="reviewMode" class="form-select" data-enhance="custom-select">
                 <option value="" selected>Default</option>
                 <option value="auto-accept">Auto-accept</option>
@@ -160,7 +160,7 @@ $goalSelectMarkup
         <div id="workflow-form" class="workflow-var-form" hidden>
           <div id="workflow-vars"></div>
           <div id="workflow-project-select" class="form-field" hidden>
-            <label class="form-label t-label" for="workflow-project">Project</label>
+            <label class="form-label t-caption tracking-caps" for="workflow-project">Project</label>
             <select id="workflow-project" class="form-select" data-enhance="custom-select">
               <option value="">Default project</option>
               $workflowProjectOptionsHtml
@@ -205,7 +205,7 @@ String _buildProjectSelectorMarkup(List<Map<String, String>> projectOptions, Htm
 
   return '''
       <div class="form-field">
-        <label class="form-label t-label" for="task-project-select">Project</label>
+        <label class="form-label t-caption tracking-caps" for="task-project-select">Project</label>
         <select id="task-project-select" name="projectId" class="form-select" data-enhance="custom-select">
       $optionsHtml
         </select>

@@ -29,8 +29,10 @@
   --bg-card:     var(--bg-sub-base);   /* .card rest, and every card-family hover fill */
   /* Far end of the page-ground gradient. Per-theme because the two themes have
      very different room to move: dark can spend real luminance, light is boxed
-     between an AA floor and a tinted-card ceiling and stays nearly flat. */
-  --bg-ground-edge: color-mix(in oklab, var(--bg-base) 62%, var(--bg-crust));
+     between an AA floor and a tinted-card ceiling and stays nearly flat.
+     Dark dives below the crust: the deep band is what buys the aurora washes
+     their luminance headroom while cards keep their contrast floor. */
+  --bg-ground-edge: color-mix(in oklab, var(--bg-crust) 82%, #000000);
 
   /* --- Foreground (brightest → most muted) --- */
   --fg:          #cdd6f4;   /* Primary text */
@@ -67,15 +69,17 @@
   --chart-5: var(--pink);
   --chart-6: var(--sky);
 
-  /* --- Ambient glows (atmospheric body ground, see components.css body) ---
-     Opaque hue-tinted grounds, not alpha washes: a translucent wash of a bright
-     Mocha hue lifts luminance far faster than it adds chroma, and the ground has
-     only ~0.05 of oklab L to move in before it reaches the card plane. Tinting
-     the crust instead spends that budget deliberately – a is the light end, c
-     the dark end, and the hue spread is what makes the ground read atmospheric. */
-  --ambient-a: color-mix(in oklab, var(--bg-crust) 90%, var(--accent));
-  --ambient-b: color-mix(in oklab, var(--bg-crust) 95%, var(--mauve));
-  --ambient-c: color-mix(in oklab, var(--bg-crust) 99%, var(--info));
+  /* --- Ambient aurora (atmospheric body ground, see components.css body) ---
+     Visible alpha washes at the ui-polish-audit's prescribed strength (12–16%):
+     the ground must READ as coloured light at arm's length, not merely measure
+     as non-flat. The luminance headroom the washes need comes from the deeper
+     ground band below them (see --bg-ground-edge), not from muting the wash.
+     Cool-led per the Phosphor Aurora direction: blue (a) / mauve (b) / teal (c)
+     carry the atmosphere; the green kicker (d) sits top-left by the brand. */
+  --ambient-a: color-mix(in srgb, var(--info) 16%, transparent);
+  --ambient-b: color-mix(in srgb, var(--mauve) 14%, transparent);
+  --ambient-c: color-mix(in srgb, var(--teal) 12%, transparent);
+  --ambient-d: color-mix(in srgb, var(--accent) 10%, transparent);
 
   /* --- Film-grain noise (SVG turbulence) — kills banding on the gradient ground --- */
   --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -159,11 +163,18 @@
   --border-active:    1px solid var(--accent);
   --border-highlight: rgba(255, 255, 255, 0.08);  /* Luminous top-edge on cards */
 
+  /* Meter channel — per-theme because the fills invert their value relation:
+     dark fills are light pastels (dark channel gives contrast), light fills
+     are dark Latte hues (a dark channel would swallow the fill's end). */
+  --meter-track:       color-mix(in srgb, #000000 55%, var(--bg-crust));
+  --meter-track-inset: inset 0 1px 3px rgba(0, 0, 0, 0.7);
+
   /* Hue-aware shadows: blue-violet tint (rgba(9,9,26,...)) instead of pure black.
-     Matches Mocha's ~264° hue angle for cohesive depth. */
-  --shadow-sm: 0 1px 2px rgba(9,9,26,0.55), 0 4px 10px -2px rgba(9,9,26,0.45);
-  --shadow-md: 0 4px 12px rgba(9,9,26,0.50), 0 2px 6px rgba(9,9,26,0.30);
-  --shadow-lg: 0 8px 32px rgba(9,9,26,0.55), 0 4px 12px rgba(9,9,26,0.30);
+     Matches Mocha's ~264° hue angle for cohesive depth. Deepened for the aurora
+     ground: cards float on real dark, so the long throw carries the depth. */
+  --shadow-sm: 0 2px 4px rgba(6,7,18,0.55), 0 10px 24px -8px rgba(6,7,18,0.55);
+  --shadow-md: 0 6px 16px rgba(6,7,18,0.55), 0 14px 34px -12px rgba(6,7,18,0.6);
+  --shadow-lg: 0 12px 40px rgba(6,7,18,0.6), 0 6px 16px rgba(6,7,18,0.35);
   --inset-sm:  inset 0 1px 3px rgba(9,9,26,0.45);
 
   /* Glass tier — translucent surface + backdrop blur for true overlays */
@@ -257,13 +268,16 @@
      below it. That leaves almost no room to move vertically, so each glow is a
      hue mixed into the chrome plane at a fraction that lands back on the
      ground's own lightness – the tint reads, the luminance does not move. */
-  --ambient-a: color-mix(in oklab, var(--bg-mantle) 92.5%, #40a02b);
+  --ambient-a: color-mix(in oklab, var(--bg-mantle) 94.2%, #1e66f5);
   --ambient-b: color-mix(in oklab, var(--bg-mantle) 94.2%, var(--mauve));
-  --ambient-c: color-mix(in oklab, var(--bg-mantle) 94.2%, #1e66f5);
+  --ambient-c: color-mix(in oklab, var(--bg-mantle) 94.5%, #179299);
+  --ambient-d: color-mix(in oklab, var(--bg-mantle) 92.5%, #40a02b);
 
   --noise-opacity: 0.008;
 
   --border-highlight: rgba(0,0,0,0.06);
+  --meter-track:       color-mix(in oklab, var(--bg-surface2) 85%, var(--fg));
+  --meter-track-inset: inset 0 1px 2px rgba(0, 0, 0, 0.18);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.10), 0 4px 10px -2px rgba(0,0,0,.12);
   --shadow-md: 0 2px 8px rgba(0,0,0,.10);
   --shadow-lg: 0 4px 20px rgba(0,0,0,.12);

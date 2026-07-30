@@ -43,30 +43,28 @@ String newTaskFormDialogHtml({
       .join('\n              ');
 
   return '''
-<dialog id="new-task-dialog" class="task-dialog card card-glass">
+<dialog id="new-task-dialog" class="dialog dialog--md card card-glass">
   <form id="new-task-form" method="dialog">
-    <div class="task-dialog-header">
-      <h2>New Task</h2>
+    <div class="dialog-header">
+      <h2 class="t-heading">New Task</h2>
       <button type="button" class="btn-close" aria-label="Close" data-task-dialog-close data-icon="x"></button>
     </div>
 
-    <div class="task-dialog-tabs">
-      <div class="tab-bar">
-        <button type="button" class="tab-btn active" data-task-tab="single">Single Task</button>
-        <button type="button" class="tab-btn" data-task-tab="workflow">Workflow</button>
-      </div>
+    <div class="tabs">
+      <button type="button" class="tab t-label active" data-task-tab="single">Single Task</button>
+      <button type="button" class="tab t-label" data-task-tab="workflow">Workflow</button>
     </div>
 
-    <div class="task-dialog-body">
+    <div class="dialog-body">
       <div class="tab-panel active" data-task-panel="single">
-        <div class="form-group">
-          <label class="form-label" for="task-title">Title</label>
+        <div class="form-field">
+          <label class="form-label t-label" for="task-title">Title</label>
           <input type="text" id="task-title" name="title" class="form-input" required
                  placeholder="Brief task title">
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="task-type-select">Type</label>
+        <div class="form-field">
+          <label class="form-label t-label" for="task-type-select">Type</label>
           <select id="task-type-select" name="type" class="form-select" data-enhance="custom-select" required>
             <option value="coding">Coding</option>
             <option value="research">Research</option>
@@ -77,48 +75,48 @@ String newTaskFormDialogHtml({
           </select>
         </div>
 
-        <div class="form-group">
+        <div class="form-field">
           <div id="task-type-guidance" class="task-type-guidance">
-            <p class="empty-state-text" data-task-type-hint>
+            <p class="text-muted" data-task-type-hint>
               Coding tasks run in isolated git worktrees and produce diffs for review.
             </p>
           </div>
         </div>
 $projectSelectorMarkup
-        <div class="form-group">
-          <label class="form-label" for="task-description" data-task-description-label>Description</label>
-          <textarea id="task-description" name="description" class="form-input" required data-task-description-input
+        <div class="form-field">
+          <label class="form-label t-label" for="task-description" data-task-description-label>Description</label>
+          <textarea id="task-description" name="description" class="form-textarea" required data-task-description-input
                     rows="3" placeholder="What should the agent do?"></textarea>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="task-goal-select">Goal</label>
+        <div class="form-field">
+          <label class="form-label t-label" for="task-goal-select">Goal</label>
           <select id="task-goal-select" name="goalId" class="form-select" data-enhance="custom-select">
 $goalSelectMarkup
           </select>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="task-acceptance-criteria" data-task-criteria-label>Acceptance Criteria</label>
-          <textarea id="task-acceptance-criteria" name="acceptanceCriteria" class="form-input" data-task-criteria-input
+        <div class="form-field">
+          <label class="form-label t-label" for="task-acceptance-criteria" data-task-criteria-label>Acceptance Criteria</label>
+          <textarea id="task-acceptance-criteria" name="acceptanceCriteria" class="form-textarea" data-task-criteria-input
                     rows="3" placeholder="How will you know when it's done?"></textarea>
         </div>
 
         <details class="task-advanced-section">
-          <summary class="form-label">Advanced</summary>
+          <summary class="form-label t-label">Advanced</summary>
           <div class="task-advanced-fields">
-            <div class="form-group">
-              <label class="form-label" for="task-model">Model Override</label>
+            <div class="form-field">
+              <label class="form-label t-label" for="task-model">Model Override</label>
               <input type="text" id="task-model" name="model" class="form-input"
                      placeholder="default">
             </div>
-            <div class="form-group">
-              <label class="form-label" for="task-token-budget">Token Budget</label>
+            <div class="form-field">
+              <label class="form-label t-label" for="task-token-budget">Token Budget</label>
               <input type="number" id="task-token-budget" name="tokenBudget" class="form-input"
                      min="0" placeholder="No limit">
             </div>
-            <fieldset class="form-group task-tool-allowlist">
-              <legend class="form-label">Allowed Tools</legend>
+            <fieldset class="form-field task-tool-allowlist">
+              <legend class="form-label t-label">Allowed Tools</legend>
               <p class="form-help-text">When checked, only selected tools are permitted. Leave all unchecked for default policy.</p>
               <div class="tool-checklist">
                 <label><input type="checkbox" name="allowedTools" value="shell"> Shell</label>
@@ -129,8 +127,8 @@ $goalSelectMarkup
                 <label><input type="checkbox" name="allowedTools" value="mcp_call"> MCP Call</label>
               </div>
             </fieldset>
-            <div class="form-group">
-              <label class="form-label" for="task-review-mode">Review Mode</label>
+            <div class="form-field">
+              <label class="form-label t-label" for="task-review-mode">Review Mode</label>
               <select id="task-review-mode" name="reviewMode" class="form-select" data-enhance="custom-select">
                 <option value="" selected>Default</option>
                 <option value="auto-accept">Auto-accept</option>
@@ -141,8 +139,8 @@ $goalSelectMarkup
           </div>
         </details>
 
-        <div class="form-group form-group-checkbox">
-          <input type="checkbox" id="auto-start-checkbox" name="autoStart">
+        <div class="form-field form-field--checkbox">
+          <input type="checkbox" class="form-checkbox" id="auto-start-checkbox" name="autoStart">
           <label for="auto-start-checkbox">Start immediately</label>
         </div>
       </div>
@@ -155,14 +153,14 @@ $goalSelectMarkup
             <div class="skeleton"></div>
           </div>
           <div class="workflow-list-empty" hidden>
-            <p class="empty-state-text">No workflows available.</p>
+            <p class="text-muted">No workflows available.</p>
           </div>
           <div class="workflow-list-cards"></div>
         </div>
         <div id="workflow-form" class="workflow-var-form" hidden>
           <div id="workflow-vars"></div>
-          <div id="workflow-project-select" class="form-group" hidden>
-            <label class="form-label" for="workflow-project">Project</label>
+          <div id="workflow-project-select" class="form-field" hidden>
+            <label class="form-label t-label" for="workflow-project">Project</label>
             <select id="workflow-project" class="form-select" data-enhance="custom-select">
               <option value="">Default project</option>
               $workflowProjectOptionsHtml
@@ -172,9 +170,9 @@ $goalSelectMarkup
       </div>
     </div>
 
-    <div class="task-dialog-footer">
-      <div id="new-task-error" class="form-error"></div>
-      <div class="task-dialog-actions">
+    <div class="dialog-footer">
+      <div id="new-task-error" class="form-error t-caption"></div>
+      <div class="dialog-actions">
         <button type="button" class="btn btn-ghost" data-task-dialog-close>Cancel</button>
         <button type="submit" class="btn btn-primary" id="task-dialog-submit">Create Task</button>
       </div>
@@ -206,8 +204,8 @@ String _buildProjectSelectorMarkup(List<Map<String, String>> projectOptions, Htm
       .join('\n      ');
 
   return '''
-      <div class="form-group">
-        <label class="form-label" for="task-project-select">Project</label>
+      <div class="form-field">
+        <label class="form-label t-label" for="task-project-select">Project</label>
         <select id="task-project-select" name="projectId" class="form-select" data-enhance="custom-select">
       $optionsHtml
         </select>

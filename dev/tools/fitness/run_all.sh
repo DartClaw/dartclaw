@@ -23,6 +23,9 @@ bash dev/tools/fitness/check_no_framework_coupling.sh
 echo "==> fitness: check_design_system_sync"
 bash dev/tools/fitness/check_design_system_sync.sh
 
+echo "==> fitness: check_no_external_origins"
+bash dev/tools/fitness/check_no_external_origins.sh
+
 echo "==> fitness: check_task_executor_workflow_refs"
 dart run dev/tools/fitness/check_task_executor_workflow_refs.dart \
   --source packages/dartclaw_server/lib/src/task/task_executor.dart \

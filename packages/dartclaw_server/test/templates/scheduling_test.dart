@@ -1,3 +1,5 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show ScheduledTaskDefinition;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskType;
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/scheduling.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
@@ -79,7 +81,9 @@ void main() {
 
     test('empty state when no jobs', () {
       final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
-      expect(html, contains('No scheduled jobs configured'));
+      expect(html, contains('No scheduled jobs'));
+      expect(html, contains('Add a job to have the agent run a prompt on a cron schedule.'));
+      expect(html, contains('empty-state-title'));
     });
 
     test('forms use hidden attributes and canonical metric cards', () {
@@ -89,12 +93,15 @@ void main() {
       expect(html, contains('class="well-content" id="task-form" hidden=""'));
       expect(html, isNot(contains('style=')));
       expect(html, contains('click->dc-scheduling#toggleJobForm'));
-      expect(html, contains('card-metric--info'));
-      expect(html, contains('card-metric--warning'));
-      expect(html, contains('metric-value">Disabled</div>'));
+      // A disabled heartbeat has no interval to report, so the block shows only
+      // its status badge. Nothing non-numeric reaches the 32px metric tier.
+      expect(html, isNot(contains('card-metric')));
+      expect(html, isNot(contains('metric-value')));
+      expect(html, contains('status-badge-muted'));
+      expect(html, contains('Disabled'));
     });
 
-    test('active heartbeat renders accent metric and success badge', () {
+    test('active heartbeat renders one numeric metric and one status badge', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,
         navItems: emptyNavItems,
@@ -102,10 +109,14 @@ void main() {
         heartbeatIntervalMinutes: 15,
       );
 
-      expect(html, contains('card-metric--accent'));
-      expect(html, contains('metric-value">Active</div>'));
-      expect(html, contains('every 15 min'));
+      // The interval is the block's only numeric KPI, so it is the only metric
+      // card; status is stated exactly once, by the header badge.
+      expect(html, contains('card-metric--info'));
+      expect(html, contains('metric-value t-metric">15</div>'));
+      expect(html, contains('Interval (min)'));
+      expect('card-metric--'.allMatches(html).length, 1);
       expect(html, contains('status-badge-success'));
+      expect('status-badge-success'.allMatches(html).length, 1);
     });
 
     test('restart badge present in form', () {
@@ -135,7 +146,7 @@ void main() {
         ],
         systemJobNames: [],
       );
-      expect(html, contains('No scheduled jobs configured'));
+      expect(html, contains('No scheduled jobs'));
       expect(html, isNot(contains('click->dc-scheduling#editJob')));
       expect(html, isNot(contains('click->dc-scheduling#confirmDeleteJob')));
     });
@@ -158,6 +169,60 @@ void main() {
       // Exactly one actionable row — the prompt job — proving the task entry
       // added no second (phantom) row.
       expect('click->dc-scheduling#editJob'.allMatches(html).length, 1);
+    });
+
+    test('scheduled-task delete carries the escaped title, not just the id', () {
+      // The in-row confirmation names the task the way the Title column does, so
+      // a hostile title must survive as attribute text rather than as markup.
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        scheduledTasks: [
+          const ScheduledTaskDefinition(
+            id: 'visual-review-seed',
+            cronExpression: '0 9 * * *',
+            title: 'Deploy "prod" <now> & wait',
+            description: 'seed',
+            type: TaskType.coding,
+          ),
+        ],
+      );
+
+      expect(html, contains('click->dc-scheduling#deleteScheduledTask'));
+      expect(html, contains('data-task-id="visual-review-seed"'));
+      // The quote and ampersand are escaped, so the title cannot break out of the
+      // attribute; angle brackets need no escaping inside a quoted value.
+      expect(html, contains('data-task-title="Deploy &quot;prod&quot; <now> &amp; wait"'));
+      expect(html, isNot(contains('data-task-title="Deploy "prod"')));
+    });
+
+    test('the scheduled-task toggle carries its state in the glyph', () {
+      // Both states painted a blank square while the icon name was hardcoded, so
+      // the enabled/disabled reading lived entirely in an aria-label.
+      String render({required bool enabled}) => schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        scheduledTasks: [
+          ScheduledTaskDefinition(
+            id: 'weekly-report',
+            cronExpression: '0 9 * * 1',
+            title: 'Weekly report',
+            description: 'seed',
+            type: TaskType.coding,
+            enabled: enabled,
+          ),
+        ],
+      );
+
+      final on = render(enabled: true);
+      final off = render(enabled: false);
+      expect(on, contains('data-icon="check"'));
+      expect(on, contains('aria-label="Disable scheduled task"'));
+      expect(off, contains('data-icon="circle-x"'));
+      expect(off, contains('aria-label="Enable scheduled task"'));
+      // The toggle no longer reserves a label-sized box, so it matches its
+      // icon-only siblings instead of stretching to 5.5rem.
+      expect(on, isNot(contains('scheduling-action-toggle" data-icon="check" ')));
     });
 
     test('row-system class applied to system job rows', () {

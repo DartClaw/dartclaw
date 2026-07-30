@@ -13,18 +13,17 @@ String projectsPageTemplate({
   required List<NavItem> navItems,
   required List<Project> projects,
   Project? defaultProject,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final topbar = pageTopbarTemplate(title: 'Projects');
+  final topbar = pageTopbarTemplate(title: 'Projects', restartBannerHtml: restartBannerHtml);
 
   final projectMaps = projects.map((p) => _projectToMap(p, defaultProject: defaultProject)).toList();
 
   final body = templateLoader.trellis.render(templateLoader.source('projects'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
     'hasProjects': projects.isNotEmpty,
     'projects': projectMaps,
     'addProjectDialogHtml': addProjectDialogHtml(),
@@ -48,6 +47,7 @@ Map<String, dynamic> _projectToMap(Project project, {Project? defaultProject}) {
     'statusLabel': titleCase(project.status.name),
     'statusBadgeClass': _statusBadgeClass(project.status),
     'lastFetchDisplay': project.lastFetchAt != null ? formatRelativeTime(project.lastFetchAt!) : 'Never',
+    'lastFetchIso': project.lastFetchAt?.toIso8601String(),
     'isLocal': isLocal,
     'isConfigDefined': project.configDefined,
     'configDefinedLabel': project.configDefined ? 'Config' : 'Runtime',

@@ -1,38 +1,66 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
 
 import '../task/tool_call_summary.dart';
+import 'components.dart';
 import 'helpers.dart';
 import 'loader.dart';
 import 'task_event_display.dart';
 
+/// The filter buckets the chip row offers, in display order. `null` is the
+/// unfiltered bucket; the rest are the values [eventMatchesFilter] accepts.
+const _filterBuckets = <(String label, String? key)>[
+  ('All', null),
+  ('Status', 'status'),
+  ('Tools', 'tools'),
+  ('Artifacts', 'artifacts'),
+  ('Errors', 'errors'),
+];
+
 /// Renders the full timeline section (filter bar + event list) for a task.
 ///
-/// Returns an HTML string suitable for injection via `tl:utext`.
+/// Returns an HTML string suitable for injection via `tl:utext`, or `''` when
+/// [events] is empty — a task that has recorded nothing has no timeline to show.
+/// Emptiness is judged on the unfiltered list: a filter that matches nothing
+/// still renders the panel, because the chip row is the only way back to All.
 String taskTimelineHtml({
   required List<TaskEvent> events,
   required String taskId,
   required String taskStatus,
   String? activeFilter,
 }) {
+  if (events.isEmpty) return '';
+
   final filtered = _applyFilter(events, activeFilter);
   final eventVms = filtered.map(_buildEventViewModel).toList();
   final autoScroll = taskStatus == 'running';
   final filter = activeFilter ?? 'all';
 
+  // Counts come from the unfiltered list so they keep reporting what the other
+  // buckets hold; derived from the filtered list they would all collapse to the
+  // active one.
+  final filters = _filterBuckets
+      .map((bucket) {
+        final (label, key) = bucket;
+        return {
+          'label': label,
+          'count': key == null ? events.length : events.where((e) => eventMatchesFilter(e.kind, key)).length,
+          'active': filter == (key ?? 'all'),
+          'href': key == null ? '/tasks/$taskId' : '/tasks/$taskId?filter=$key',
+        };
+      })
+      .toList(growable: false);
+
   final context = {
-    'filterAll': filter == 'all',
-    'filterStatus': filter == 'status',
-    'filterTools': filter == 'tools',
-    'filterArtifacts': filter == 'artifacts',
-    'filterErrors': filter == 'errors',
-    'filterAllHref': '/tasks/$taskId',
-    'filterStatusHref': '/tasks/$taskId?filter=status',
-    'filterToolsHref': '/tasks/$taskId?filter=tools',
-    'filterArtifactsHref': '/tasks/$taskId?filter=artifacts',
-    'filterErrorsHref': '/tasks/$taskId?filter=errors',
+    'filters': filters,
     'autoScroll': autoScroll,
     'hasEvents': eventVms.isNotEmpty,
     'events': eventVms,
+    'emptyStateHtml': eventVms.isEmpty
+        ? emptyStateTemplate(
+            title: 'No matching events',
+            body: 'No events of this kind were recorded. Select All to see the full timeline.',
+          )
+        : null,
   };
 
   return templateLoader.trellis.renderFragment(
@@ -89,9 +117,10 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
 
   switch (kind) {
     case TaskEventKind.statusChanged:
-      label = titleCase(newStatus ?? 'unknown');
+      final status = absentValue(newStatus);
+      label = status.isAbsent ? 'Status changed' : titleCase(status.value! as String);
       statusBadgeClassVal = statusBadgeClass(newStatus);
-      statusLabel = titleCase(newStatus ?? 'unknown');
+      statusLabel = label;
     case TaskEventKind.toolCalled:
       final name = details['name']?.toString() ?? '(unknown tool)';
       final context = details['context']?.toString();

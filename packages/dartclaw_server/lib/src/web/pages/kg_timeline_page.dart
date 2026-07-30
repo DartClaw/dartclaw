@@ -62,7 +62,7 @@ class KgTimelinePage extends DashboardPage {
         navItems: context.navItems(activePage: title),
         selectedCategory: selectedCategory,
         asOf: asOf,
-        bannerHtml: context.restartBannerHtml(),
+        restartBannerHtml: context.restartBannerHtml(),
         appName: context.appDisplay.name,
       );
       return Response.ok(page, headers: htmlHeaders);
@@ -75,7 +75,7 @@ class KgTimelinePage extends DashboardPage {
         asOf: asOf,
         errorMessage: 'invalid as-of timestamp',
         statusCode: 400,
-        bannerHtml: context.restartBannerHtml(),
+        restartBannerHtml: context.restartBannerHtml(),
         appName: context.appDisplay.name,
       );
       return Response(400, body: page, headers: htmlHeaders);
@@ -88,7 +88,7 @@ class KgTimelinePage extends DashboardPage {
         asOf: asOf,
         errorMessage: 'Temporal KG query failed.',
         statusCode: 500,
-        bannerHtml: context.restartBannerHtml(),
+        restartBannerHtml: context.restartBannerHtml(),
         appName: context.appDisplay.name,
       );
       return Response.internalServerError(body: page, headers: htmlHeaders);

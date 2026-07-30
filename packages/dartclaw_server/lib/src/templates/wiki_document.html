@@ -1,0 +1,13 @@
+<div tl:fragment="wikiDocument" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
+    <div class="page-inner">
+      <article class="card">
+        <div class="msg-content" data-markdown="" tl:text="${markdown}">document content</div>
+      </article>
+    </div>
+  </main>
+  </div>
+</div>

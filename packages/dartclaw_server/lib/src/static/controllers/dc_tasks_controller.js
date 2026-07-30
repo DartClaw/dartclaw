@@ -11,6 +11,34 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
   let taskElapsedTimer = null;
   let taskDetailRefreshTimer = null;
 
+  // Mirror of templates/task_event_display.dart#eventIconClass, keyed by the
+  // `kind` the task_event SSE payload already carries. Canonical keys are the
+  // TaskEventKind value names; 'error' is TaskEventKind.fromName's legacy alias
+  // for taskError. A new kind must be added in both places — task_event_icon_map_test
+  // asserts exact map equality, so the omission fails there rather than in the UI.
+  const TASK_EVENT_ICON_CLASSES = {
+    statusChanged: 'icon-circle-check',
+    toolCalled: 'icon-wrench',
+    artifactCreated: 'icon-file-text',
+    structuredOutputFinalizerUsed: 'icon-file-json',
+    structuredOutputInlineUsed: 'icon-file-json',
+    structuredOutputFallbackUsed: 'icon-file-warning',
+    structuredOutputValidationFailed: 'icon-file-warning',
+    pushBack: 'icon-message-circle',
+    tokenUpdate: 'icon-gauge',
+    taskError: 'icon-triangle-alert',
+    compaction: 'icon-layers',
+    error: 'icon-triangle-alert',
+  };
+
+  // Null for an unrecognized kind. The caller then emits neither the base `icon`
+  // class nor a mask, because a masked element with no mask paints a solid block.
+  function taskEventIconClass(kind) {
+    return Object.prototype.hasOwnProperty.call(TASK_EVENT_ICON_CLASSES, kind)
+      ? TASK_EVENT_ICON_CLASSES[kind]
+      : null;
+  }
+
   function workflowPage() {
     return dartclaw.workflowsControllerApi || {};
   }
@@ -146,7 +174,13 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     const stateEl = panel.querySelector('[data-turn-status-state]');
     if (stateEl) stateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
     const reasonEl = panel.querySelector('[data-turn-status-reason]');
-    if (reasonEl) reasonEl.textContent = reason || '\u2014';
+    if (reasonEl) {
+      // Same absent treatment the server rendered into this element: canon's
+      // .value-absent supplies the dash from an empty span, so writing one here
+      // would leave the live update and the first paint disagreeing.
+      reasonEl.textContent = reason;
+      reasonEl.classList.toggle('value-absent', reason === '');
+    }
     setPanelText(panel, '[data-turn-status-waiting]', data.waiting_since || '');
     setPanelText(panel, '[data-turn-status-stuck]', data.stuck_since || '');
     setPanelText(panel, '[data-turn-status-timeout]', data.global_timeout_at || '');
@@ -317,11 +351,16 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       parent.appendChild(eventsEl);
     }
 
+    const maskClass = taskEventIconClass(data.kind);
+    const iconClasses = ['task-event-icon', data.iconClass || '']
+      .concat(maskClass ? ['icon', maskClass] : [])
+      .filter(Boolean)
+      .join(' ');
+
     const eventDiv = document.createElement('div');
     eventDiv.className = 'task-event';
     eventDiv.innerHTML =
-      '<span class="task-event-icon ' + ui.escapeHtml(data.iconClass || '') + '">' +
-      ui.escapeHtml(data.iconChar || '\u25CF') + '</span>' +
+      '<span class="' + ui.escapeHtml(iconClasses) + '" aria-hidden="true"></span>' +
       '<span>' + ui.escapeHtml(data.text || '') + '</span>';
 
     eventsEl.insertBefore(eventDiv, eventsEl.firstChild);

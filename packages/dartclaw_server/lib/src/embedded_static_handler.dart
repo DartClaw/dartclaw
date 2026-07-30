@@ -53,5 +53,6 @@ String _contentType(String path) => switch (path.split('.').last.toLowerCase()) 
   'html' => 'text/html; charset=utf-8',
   'svg' => 'image/svg+xml; charset=utf-8',
   'png' => 'image/png',
+  'woff2' => 'font/woff2',
   _ => 'application/octet-stream',
 };

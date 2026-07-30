@@ -1,11 +1,12 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
-    <div class="page-inner task-detail-page" id="tasks-content" data-controller="dc-tasks"
+    <div class="page-inner page-inner--wide task-detail-page" id="tasks-content" data-controller="dc-tasks"
          tl:attr="data-task-id=${taskId}">
 
-      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+      <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
 
       <div class="task-meta-card card">
         <div class="task-meta-grid">
@@ -28,19 +29,19 @@
           </div>
           <div class="task-meta-item">
             <span class="task-meta-label">Created by</span>
-            <span tl:text="${createdByDisplay}">—</span>
+            <span tl:classappend="${createdByAbsent} ? 'value-absent' : ''" tl:text="${createdByDisplay}">agent</span>
           </div>
           <div class="task-meta-item">
             <span class="task-meta-label">Created</span>
-            <span tl:text="${createdAtDisplay}">2h ago</span>
+            <span tl:attr="title=${createdAtIso}" tl:text="${createdAtDisplay}">2h ago</span>
           </div>
           <div tl:if="${hasStartedAt}" class="task-meta-item">
             <span class="task-meta-label">Started</span>
-            <span tl:text="${startedAtDisplay}">1h ago</span>
+            <span tl:attr="title=${startedAtIso}" tl:text="${startedAtDisplay}">1h ago</span>
           </div>
           <div tl:if="${hasCompletedAt}" class="task-meta-item">
             <span class="task-meta-label">Completed</span>
-            <span tl:text="${completedAtDisplay}">30m ago</span>
+            <span tl:attr="title=${completedAtIso}" tl:text="${completedAtDisplay}">30m ago</span>
           </div>
         </div>
         <div tl:if="${description}" class="task-meta-description">
@@ -69,34 +70,8 @@
         </div>
       </div>
 
-      <div tl:if="${hasTokenSummary}" class="card task-token-summary">
-        <div class="task-meta-grid">
-          <div class="task-meta-item">
-            <span class="task-meta-label">Total Tokens</span>
-            <span tl:text="${totalTokens}">0</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Input / Output</span>
-            <span><span tl:text="${totalInputTokens}">0</span> in / <span tl:text="${totalOutputTokens}">0</span> out</span>
-          </div>
-          <div tl:if="${hasCacheTokens}" class="task-meta-item">
-            <span class="task-meta-label">Cache</span>
-            <span><span tl:text="${totalCacheReadTokens}">0</span> read / <span tl:text="${totalCacheWriteTokens}">0</span> write</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Duration</span>
-            <span tl:text="${totalDurationDisplay}">0s</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Tool Calls</span>
-            <span tl:text="${totalToolCalls}">0</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Turns</span>
-            <span tl:text="${traceCount}">0</span>
-          </div>
-        </div>
-      </div>
+      <div tl:if="${hasTokenSummary}" class="metrics-grid task-token-summary"
+           tl:utext="${tokenMetricCardsHtml}">token metrics</div>
 
       <div tl:if="${hasTimeline}" tl:utext="${timelineHtml}">timeline</div>
 
@@ -106,26 +81,28 @@
       </div>
 
       <div tl:if="${isQueued}" class="task-status-bar task-status-running">
-        <span class="status-badge status-badge-queued">Queued</span>
-        <span class="empty-state-text">Waiting for an available runner...</span>
+        <tl:block tl:utext="${statusBadgeHtml}">badge</tl:block>
+        <span class="text-muted">Waiting for an available runner...</span>
         <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
       </div>
 
       <div class="task-detail-columns">
         <div class="task-chat-column">
-          <h3>Session</h3>
-          <div tl:if="${hasSession}" class="task-chat-embed">
+          <h3 class="t-heading">Session</h3>
+          <div tl:if="${hasSession}" class="card task-chat-embed">
             <div tl:if="${hasTurnStatus}" class="turn-status-panel"
                  tl:attr="data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
               <div class="turn-status-row">
                 <span class="task-meta-label">Turn</span>
                 <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">Waiting</span>
-                <span class="empty-state-text" data-turn-status-reason tl:text="${turnStatus.reasonLabel}">session lock</span>
+                <span class="text-muted" data-turn-status-reason
+                      tl:classappend="${turnStatus.reasonAbsent} ? 'value-absent' : ''"
+                      tl:text="${turnStatus.reasonLabel}">session lock</span>
               </div>
               <div class="turn-status-times">
-                <span data-turn-status-waiting tl:text="${turnStatus.waitingSince}">waiting since</span>
-                <span data-turn-status-stuck tl:text="${turnStatus.stuckSince}">stuck since</span>
-                <span data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}">timeout</span>
+                <span class="turn-status-time"><span class="turn-status-time-label t-caption">waiting since</span><span class="turn-status-time-value" data-turn-status-waiting tl:text="${turnStatus.waitingSince}"></span></span>
+                <span class="turn-status-time"><span class="turn-status-time-label t-caption">stuck since</span><span class="turn-status-time-value" data-turn-status-stuck tl:text="${turnStatus.stuckSince}"></span></span>
+                <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
               </div>
               <button type="button" class="btn btn-ghost" data-turn-cancel
                       tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},disabled=${turnStatus.cancelDisabled}">
@@ -134,31 +111,24 @@
             </div>
             <div class="messages" tl:utext="${messagesHtml}">messages</div>
           </div>
-          <div tl:unless="${hasSession}" class="task-no-session">
-            <div class="empty-state">
-              <div class="empty-state-icon">&#128172;</div>
-              <p class="empty-state-title" tl:text="${noSessionTitle}">Session not started</p>
-              <p class="empty-state-text" tl:text="${noSessionText}">
-                This task has not been started yet. No session messages to display.
-              </p>
-            </div>
-          </div>
+          <div tl:unless="${hasSession}" class="card task-no-session"
+               tl:utext="${noSessionEmptyStateHtml}">no session</div>
         </div>
 
         <div class="task-artifact-column">
-          <h3>Artifacts</h3>
+          <h3 class="t-heading">Artifacts</h3>
           <div tl:if="${hasConflict}" class="task-artifact-item card">
             <div class="task-artifact-header">
               <span class="status-badge status-badge-interrupted">Merge Conflict</span>
               <span class="task-artifact-name">Resolve in worktree</span>
             </div>
-            <p class="empty-state-text">Resolve conflicts via git CLI in the worktree, then push-back or reject the task.</p>
+            <p class="text-muted">Resolve conflicts via git CLI in the worktree, then push-back or reject the task.</p>
             <ul class="task-conflict-files">
               <li tl:each="conflictFile : ${conflictingFiles}">
                 <code tl:text="${conflictFile}">lib/main.dart</code>
               </li>
             </ul>
-            <p tl:if="${conflictDetails}" class="empty-state-text" tl:text="${conflictDetails}">Automatic merge failed</p>
+            <p tl:if="${conflictDetails}" class="text-muted" tl:text="${conflictDetails}">Automatic merge failed</p>
           </div>
           <div tl:if="${hasArtifacts}">
             <div tl:each="artifact : ${artifacts}" class="task-artifact-item card">
@@ -182,24 +152,22 @@
                   <div class="terminal-frame-body"><pre class="task-artifact-raw" tl:text="${artifact.content}">data content</pre></div>
                 </div>
               </div>
-              <div tl:unless="${artifact.hasContent}" class="task-artifact-empty">
-                <span class="empty-state-text">Content unavailable</span>
+              <div tl:unless="${artifact.hasContent}" class="text-muted">
+                <span class="text-muted">Content unavailable</span>
               </div>
             </div>
           </div>
-          <div tl:unless="${hasArtifacts}" class="empty-state">
-            <p class="empty-state-title">No artifacts yet</p>
-            <p class="empty-state-text">Artifacts will appear here when the task produces output.</p>
-          </div>
+          <div tl:unless="${hasArtifacts}" class="card"
+               tl:utext="${noArtifactsEmptyStateHtml}">no artifacts</div>
         </div>
       </div>
 
-      <div tl:if="${isReview}" class="task-review-bar">
+      <div tl:if="${isReview}" class="card task-review-bar">
         <button type="button" class="btn btn-accept" data-action="accept">Accept</button>
         <button type="button" class="btn btn-reject" data-action="reject">Reject</button>
         <button type="button" class="btn btn-pushback" data-action="push_back">Push Back</button>
         <div class="pushback-comment" hidden>
-          <textarea id="pushback-comment" class="form-input" rows="2"
+          <textarea id="pushback-comment" class="form-textarea" rows="2"
                     placeholder="Explain what needs to change..."></textarea>
           <button type="button" class="btn btn-primary btn-pushback-submit">Submit</button>
         </div>
@@ -207,11 +175,11 @@
 
       <div tl:unless="${isReview}">
         <div tl:if="${isInterrupted}" class="task-status-bar task-status-running">
-          <span class="status-badge status-badge-interrupted">Interrupted</span>
+          <tl:block tl:utext="${statusBadgeHtml}">badge</tl:block>
           <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
         </div>
         <div tl:if="${isRunning}" class="task-status-bar task-status-running">
-          <span class="status-badge status-badge-running">Running</span>
+          <tl:block tl:utext="${statusBadgeHtml}">badge</tl:block>
           <span class="task-elapsed" tl:attr="data-started-at=${startedAtIso}">--:--</span>
           <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
         </div>
@@ -243,4 +211,5 @@
 
     </div>
   </main>
+  </div>
 </div>

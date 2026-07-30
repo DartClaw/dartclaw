@@ -95,7 +95,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       .catch((error) => {
         if (loadingEl) loadingEl.hidden = true;
         listCards.innerHTML =
-          '<p class="empty-state-text">Failed to load workflows. ' +
+          '<p class="text-muted">Failed to load workflows. ' +
           ui.escapeHtml(error.message) + '</p>';
       });
   }
@@ -154,7 +154,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
     if (varsEl) {
       if (!variableNames.length) {
-        varsEl.innerHTML = '<p class="empty-state-text">This workflow has no input variables.</p>';
+        varsEl.innerHTML = '<p class="text-muted">This workflow has no input variables.</p>';
       } else {
         varsEl.innerHTML = variableNames.map((variableName) => {
           const variable = variables[variableName] || {};
@@ -166,15 +166,15 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
           const requiredMark = isRequired ? ' <span class="form-required">*</span>' : '';
           const isLongForm = ['FEATURE', 'BUG_DESCRIPTION', 'QUESTION', 'TARGET'].includes(variableName);
           const inputHtml = isLongForm
-            ? '<textarea class="form-input" name="wf-var-' + ui.escapeHtml(variableName) +
+            ? '<textarea class="form-textarea" name="wf-var-' + ui.escapeHtml(variableName) +
               '" rows="3" placeholder="' + placeholder + '"' + requiredAttr + '>' +
               defaultVal + '</textarea>'
             : '<input type="text" class="form-input" name="wf-var-' + ui.escapeHtml(variableName) +
               '" value="' + defaultVal + '" placeholder="' + placeholder + '"' +
               requiredAttr + '>';
           return (
-            '<div class="form-group">' +
-              '<label class="form-label">' + label + requiredMark + '</label>' +
+            '<div class="form-field">' +
+              '<label class="form-label t-label">' + label + requiredMark + '</label>' +
               inputHtml +
             '</div>'
           );

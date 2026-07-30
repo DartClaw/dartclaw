@@ -73,9 +73,11 @@ import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
 import 'embedded_static_handler.dart';
 import 'templates/sidebar.dart' show NavItem, SidebarData, buildSidebar;
+import 'templates/topbar.dart' show pageTopbarTemplate;
 import 'turn_manager.dart' show TurnManager;
 import 'web/dashboard_page.dart';
 import 'web/page_registry.dart';
+import 'web/page_support.dart' show restartBannerHtml;
 import 'web/sidebar_data_builder.dart';
 import 'web/sidebar_feature_visibility.dart';
 import 'web/signal_pairing_routes.dart';
@@ -740,10 +742,42 @@ class DartclawServer {
         .add(router.call)
         .add(
           (_) => Response.notFound(
-            errorPageTemplate(404, 'Page Not Found', 'The requested page does not exist.'),
+            errorPageTemplate(
+              404,
+              'Page Not Found',
+              'The requested page does not exist.',
+              appName: _web.appDisplay.name,
+              sidebarHtml: _navOnlySidebarHtml(),
+              topbarHtml: pageTopbarTemplate(
+                title: 'Page Not Found',
+                restartBannerHtml: restartBannerHtml(_web.appDisplay.dataDir),
+              ),
+            ),
             headers: htmlHeaders,
           ),
         );
     return pipeline.addHandler(cascade.handler);
   }
+
+  /// The rail built from registered nav items alone, with no session rows.
+  ///
+  /// The 404 falls out of the router, so it has no request context and — more
+  /// importantly — must not read the session store: a failure there would throw
+  /// from inside the handler that exists to report failures.
+  String _navOnlySidebarHtml() => buildSidebar(
+    sidebarData: (
+      main: null,
+      dmChannels: const [],
+      groupChannels: const [],
+      activeEntries: const [],
+      archivedEntries: const [],
+      activeTasks: const [],
+      activeWorkflows: const [],
+      showChannels: false,
+      tasksEnabled: false,
+      activeSessionId: null,
+    ),
+    navItems: _pageRegistry.navItems(activePage: ''),
+    appName: _web.appDisplay.name,
+  );
 }

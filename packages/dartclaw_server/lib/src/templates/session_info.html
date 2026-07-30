@@ -1,17 +1,14 @@
 <div tl:fragment="sessionInfo" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in" data-controller="dc-tasks">
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="content-inner">
 
-      <div>
-        <div class="info-title" tl:text="${title}">Session Title</div>
-        <div class="info-subtitle" tl:text="${sessionId}">session-id</div>
-      </div>
+      <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
 
       <div>
-        <h2 class="section-label">Token Usage</h2>
+        <h2 class="section-title">Token Usage</h2>
         <div class="well">
           <div class="token-grid" tl:utext="${tokenMetricCardsHtml}">token metrics</div>
         </div>
@@ -32,18 +29,20 @@
       </div>
 
       <div>
-        <h2 class="section-label">Session Details</h2>
+        <h2 class="section-title">Session Details</h2>
         <div tl:if="${hasTurnStatus}" class="turn-status-panel"
              tl:attr="data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
           <div class="turn-status-row">
             <span class="meta-label">Turn</span>
             <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
-            <span class="meta-value" data-turn-status-reason tl:text="${turnStatus.reasonLabel}">session lock</span>
+            <span tl:if="${turnStatus.reasonAbsent}" class="meta-value value-absent" data-turn-status-reason></span>
+            <span tl:unless="${turnStatus.reasonAbsent}" class="meta-value" data-turn-status-reason
+                  tl:text="${turnStatus.reasonLabel}">session lock</span>
           </div>
           <div class="turn-status-times">
-            <span data-turn-status-waiting tl:text="${turnStatus.waitingSince}">waiting since</span>
-            <span data-turn-status-stuck tl:text="${turnStatus.stuckSince}">stuck since</span>
-            <span data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}">timeout</span>
+            <span class="turn-status-time"><span class="turn-status-time-label t-caption">waiting since</span><span class="turn-status-time-value" data-turn-status-waiting tl:text="${turnStatus.waitingSince}"></span></span>
+            <span class="turn-status-time"><span class="turn-status-time-label t-caption">stuck since</span><span class="turn-status-time-value" data-turn-status-stuck tl:text="${turnStatus.stuckSince}"></span></span>
+            <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
           </div>
           <button type="button" class="btn btn-ghost" data-turn-cancel
                   tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},disabled=${turnStatus.cancelDisabled}">
@@ -56,7 +55,9 @@
         </div>
         <div class="meta-row">
           <span class="meta-label">Created</span>
-          <span class="meta-value" tl:text="${createdAt}">—</span>
+          <span tl:if="${createdAtAbsent}" class="meta-value value-absent"></span>
+          <span tl:unless="${createdAtAbsent}" class="meta-value" tl:attr="title=${createdAtIso}"
+                tl:text="${createdAt}">2h ago</span>
         </div>
         <div class="meta-row">
           <span class="meta-label">Session ID</span>
@@ -65,7 +66,7 @@
       </div>
 
       <div tl:if="${hasRecentTurns}">
-        <h2 class="section-label">Recent Turns</h2>
+        <h2 class="section-title">Recent Turns</h2>
         <div class="card card-compact">
           <div class="turns-list">
             <div tl:each="turn : ${recentTurns}" class="turn-row">
@@ -79,4 +80,5 @@
 
     </div>
   </main>
+  </div>
 </div>

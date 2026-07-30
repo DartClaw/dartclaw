@@ -42,7 +42,7 @@ class MemoryPage extends DashboardPage {
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
       workspacePath: workspaceDisplay.path ?? '~/.dartclaw/workspace/',
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
     );
 

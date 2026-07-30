@@ -100,42 +100,42 @@ _Audit evidence for the chained-prompt defects (section C, `settings/security`):
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI04] Deleting a chat confirms in the app's own dialog**
+- [x] **S01 [OC01] [TI01,TI04] Deleting a chat confirms in the app's own dialog**
   - **Given** a session row in the sidebar with a delete control, on the `visual` profile (port 3338)
   - **When** the delete control is clicked
   - **Then** a `<dialog class="dialog dialog--confirm card card-glass">` is present in the DOM and open, its body names the session's title as shown in the sidebar, the page behind it is dimmed by the canonical scrim, no OS dialog appears, and the JS event loop keeps running (an in-flight SSE update still lands); pressing Escape closes it and issues no `DELETE /api/sessions/…` request
 
-- [ ] **S02 [OC01] [TI02] `hx-confirm` markup routes through the same dialog with the attribute untouched**
+- [x] **S02 [OC01] [TI02] `hx-confirm` markup routes through the same dialog with the attribute untouched**
   - **Given** `templates/workflow_detail.html` still declaring `hx-confirm="Reject this approval? The workflow will be cancelled."` on the Reject button, byte-identical to before this story
   - **When** Reject is clicked and the dialog's confirm action is chosen
   - **Then** the same `dialog dialog--confirm card card-glass` frame renders the attribute's text as its body with a `btn btn-danger-fill btn-sm` confirm control, and on confirm the original htmx request is issued exactly once with no second confirmation prompt
 
-- [ ] **S03 [OC01] [TI02] An htmx request with no `hx-confirm` is not intercepted**
+- [x] **S03 [OC01] [TI02] An htmx request with no `hx-confirm` is not intercepted**
   - **Given** the sidebar session-list refresh, an `hx-get` with no `hx-confirm` attribute
   - **When** it fires
   - **Then** the request completes and swaps normally, no dialog is created, and no element remains in the DOM afterwards
 
-- [ ] **S04 [OC02] [TI05] The scheduled-task delete swaps atomically from native confirm to the inline bar**
+- [x] **S04 [OC02] [TI05] The scheduled-task delete swaps atomically from native confirm to the inline bar**
   - **Given** the scheduled task titled `Visual review seed task` with id `visual-review-seed`, as rendered in the Title column
   - **When** its row's delete control is inspected and then clicked
   - **Then** the control carries `data-task-title="Visual review seed task"` alongside its existing `data-task-id="visual-review-seed"`, clicking it raises no OS dialog and creates no `dialog.dialog--confirm`, and a functional in-row `.delete-confirm-bar` names `Visual review seed task`; cancelling issues no `DELETE`, while confirming issues exactly one delete for `visual-review-seed`. With a task titled `Deploy "prod" <now> & wait`, `tl:attr` escapes the attribute and the bar's `textContent` renders that title literally.
 
-- [ ] **S05 [OC03] [TI07] Editing a guard file rule is one atomic form with the level select**
+- [x] **S05 [OC03] [TI07] Editing a guard file rule is one atomic form with the level select**
   - **Given** the Guard Extensions panel on `/settings`, on the `file` guard's `extra_rules` list, with an existing rule
   - **When** its Edit control is clicked
   - **Then** one dialog opens containing both the pattern input and a select offering exactly `no_access`, `read_only` and `no_delete` – no free-text level entry, no second prompt – and cancelling it issues no `PUT` and leaves the row unchanged; confirming issues a single `PUT` whose body carries the `pattern` and `level` values chosen in the dialog
 
-- [ ] **S06 [OC03] [TI08] Deleting a guard rule is confirmed and names the rule**
+- [x] **S06 [OC03] [TI08] Deleting a guard rule is confirmed and names the rule**
   - **Given** the Guard Extensions panel showing the `file` guard's `extra_rules` list with a pattern rule
   - **When** its Delete control is clicked
   - **Then** the confirm dialog names that rule's field label and the row's displayed value (never `[object Object]`), and no `DELETE /api/config/guards/…` request is issued until it is confirmed
 
-- [ ] **S07 [OC04] [TI03] A failed restart reports through a visible toast**
+- [x] **S07 [OC04] [TI03] A failed restart reports through a visible toast**
   - **Given** `/api/system/restart` responding with an error body
   - **When** the restart is confirmed
   - **Then** the confirm dialog is closed before the request is issued, a `toast-error` reading `Restart failed: <message>` is visible on screen and dismissible, and the page remains interactive
 
-- [ ] **S08 [OC05] [TI10] Removing an allowlist entry is confirmed and names the entry**
+- [x] **S08 [OC05] [TI10] Removing an allowlist entry is confirmed and names the entry**
   - **Given** a channel's detail page with an entry in the Known DM Allowlist and an entry containing `"` and `&` in the Allowed Groups list
   - **When** Remove is clicked on each in turn
   - **Then** each opens the canonical confirm dialog whose body names that exact entry — rendered literally, no HTML entities visible, never `undefined` — and states which of the two lists it is being removed from; no `DELETE /api/config/channels/<type>/dm-allowlist` or `…/group-allowlist` request is issued until the dialog is confirmed (Network panel); cancelling leaves the row and the `.allowlist-count-num` unchanged; and confirming the group entry still raises the channel restart banner and the `Group entry removed (restart required)` toast
@@ -143,14 +143,14 @@ _Audit evidence for the chained-prompt defects (section C, `settings/security`):
 
 ## Structural Criteria
 
-- [ ] No forbidden native-dialog call form (`window.alert` / `window.confirm` / `window.prompt` / bare `alert(` / `confirm(` / `prompt(`) remains anywhere under `lib/src/static/controllers/`.
-- [ ] The scheduled-task delete has no unconfirmed story boundary: the same TI05 change that removes `window.confirm` makes the inline `.delete-confirm-bar` functional, names the task by title, and gates the existing `DELETE` until explicit confirmation.
-- [ ] Exactly one `confirmDialog` definition and exactly one `htmx:confirm` listener exist across `lib/src/static/controllers/` (scoped to `controllers/` because S13 vendors htmx into `lib/src/static/`, and htmx's own source contains the literal `htmx:confirm`) — no second **confirmation API**. TI07's structured-input dialog is not a second implementation: it composes S04's canon `.dialog` + S03's `.form-*` classes directly, per S04's decision-table row, and defines no dialog frame of its own (see Architecture Decision).
-- [ ] Every `dialog`-prefixed class name this story emits is one S04 defined: each distinct token from `rg -o "'[^']*dialog[^']*'" packages/dartclaw_server/lib/src/static/controllers/shared.js packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` has a matching rule in `rg -n '^\.dialog' dev/design-system/components.css`. Every emitted frame also carries `card card-glass`; `confirmDialog()` emits exactly `dialog dialog--confirm card card-glass`, and the structured-input frame emits `dialog` + its applicable width modifier + `card card-glass`. Both commands return nothing before this story and S04, so a green result is evidence, not vacuity.
-- [ ] No canon-owned CSS is edited app-side: `app.css` gains no `.dialog*` rule, and `dev/tools/fitness/check_design_system_sync.sh` is green.
-- [ ] The three `hx-confirm` attributes in `templates/topbar.html` and `templates/workflow_detail.html` are unchanged.
-- [ ] The `htmx:confirm` listener is bound in `connect()` and removed in `disconnect()` per the Stimulus controller contract.
-- [ ] No backend surface changes: nothing under `lib/src/api/`, `lib/src/security/` or any Dart handler is modified, and no runtime JS dependency is added.
+- [x] No forbidden native-dialog call form (`window.alert` / `window.confirm` / `window.prompt` / bare `alert(` / `confirm(` / `prompt(`) remains anywhere under `lib/src/static/controllers/`.
+- [x] The scheduled-task delete has no unconfirmed story boundary: the same TI05 change that removes `window.confirm` makes the inline `.delete-confirm-bar` functional, names the task by title, and gates the existing `DELETE` until explicit confirmation.
+- [x] Exactly one `confirmDialog` definition and exactly one `htmx:confirm` listener exist across `lib/src/static/controllers/` (scoped to `controllers/` because S13 vendors htmx into `lib/src/static/`, and htmx's own source contains the literal `htmx:confirm`) — no second **confirmation API**. TI07's structured-input dialog is not a second implementation: it composes S04's canon `.dialog` + S03's `.form-*` classes directly, per S04's decision-table row, and defines no dialog frame of its own (see Architecture Decision).
+- [x] Every `dialog`-prefixed class name this story emits is one S04 defined: each distinct token from `rg -o "'[^']*dialog[^']*'" packages/dartclaw_server/lib/src/static/controllers/shared.js packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` has a matching rule in `rg -n '^\.dialog' dev/design-system/components.css`. Every emitted frame also carries `card card-glass`; `confirmDialog()` emits exactly `dialog dialog--confirm card card-glass`, and the structured-input frame emits `dialog` + its applicable width modifier + `card card-glass`. Both commands return nothing before this story and S04, so a green result is evidence, not vacuity.
+- [x] No canon-owned CSS is edited app-side: `app.css` gains no `.dialog*` rule, and `dev/tools/fitness/check_design_system_sync.sh` is green.
+- [x] The three `hx-confirm` attributes in `templates/topbar.html` and `templates/workflow_detail.html` are unchanged.
+- [x] The `htmx:confirm` listener is bound in `connect()` and removed in `disconnect()` per the Stimulus controller contract.
+- [x] No backend surface changes: nothing under `lib/src/api/`, `lib/src/security/` or any Dart handler is modified, and no runtime JS dependency is added.
 
 
 ## Scope & Boundaries
@@ -227,43 +227,43 @@ cp packages/dartclaw_server/lib/src/static/app.css "$BASE/packages/dartclaw_serv
 cp -R packages/dartclaw_server/lib/src/api packages/dartclaw_server/lib/src/security "$BASE/packages/dartclaw_server/lib/src/"
 ```
 
-- [ ] **TI01** `shared.js` exports a single promise-returning `confirmDialog({title, body, confirmLabel, danger})`
+- [x] **TI01** `shared.js` exports a single promise-returning `confirmDialog({title, body, confirmLabel, danger})`
   - Builds and appends to `document.body` one `<dialog class="dialog dialog--confirm card card-glass">` — the exact canonical confirm-frame composition S04 ships — mirrors the confirm/cancel button pairing in `dc_scheduling_controller.js#confirmDeleteJob` (`btn btn-danger-fill btn-sm` for a `danger` confirm, `btn btn-ghost btn-sm` for cancel), opens it with `showModal()`, gives Cancel initial focus when `danger` is true, resolves `true` on confirm and `false` on cancel/Escape/backdrop, settling exactly once off the dialog's `close` event, and closes **and removes** the element before resolving. At most one confirmation may be active: a call made while one is open immediately resolves `false`, creates no second dialog and neither queues nor replaces the active call. `title` is optional (omitted from the markup when absent), `confirmLabel` defaults to `'Confirm'`, and `title` / `body` are inserted as text, never HTML.
   - **Verify**: `Test: rg -n "export function confirmDialog" packages/dartclaw_server/lib/src/static/controllers/shared.js` returns exactly one match, and its body contains the exact class string `dialog dialog--confirm card card-glass`, `showModal()` and `.close()`; browser: `await confirmDialog({title:'t', body:'<b>x</b> & "y"', confirmLabel:'Delete', danger:true})` renders `<b>x</b> & "y"` literally, the open frame's `className === 'dialog dialog--confirm card card-glass'`, Escape resolves `false`, and `document.querySelectorAll('dialog.dialog--confirm').length === 0` afterwards; invoking it twice before settling the first leaves exactly one dialog, resolves the second call `false` immediately and leaves the first call active
 
-- [ ] **TI02** Every `hx-confirm` attribute in the app renders as the canonical dialog, with no template edits
+- [x] **TI02** Every `hx-confirm` attribute in the app renders as the canonical dialog, with no template edits
   - One `htmx:confirm` listener bound in `dc_shell_controller.js#connect` and removed in `disconnect` (follow the `handleAfterSwap` bind/remove pattern in the same file). Returns immediately when `event.detail.question` is falsy; otherwise `event.preventDefault()`, awaits `confirmDialog()` from TI01 with the question as `body` and `danger: true` (every current `hx-confirm` use is destructive), and on accept calls `event.detail.issueRequest(true)` – unless `event.detail.elt` has left the DOM while the dialog was open (an SSE-driven swap can remove it), in which case it skips `issueRequest` (htmx silently drops requests for detached elements) and reports via `showToast('error', …)`.
   - **Verify**: `Test: rg -n "htmx:confirm" packages/dartclaw_server/lib/src/static/controllers/ | wc -l` is 2 (one add, one remove) and `rg -n "issueRequest\(true\)" packages/dartclaw_server/lib/src/static/controllers/dc_shell_controller.js` matches; with `BASE=.agent_temp/0.22.1-s06-entry`, `cmp -s "$BASE/packages/dartclaw_server/lib/src/templates/topbar.html" packages/dartclaw_server/lib/src/templates/topbar.html && cmp -s "$BASE/packages/dartclaw_server/lib/src/templates/workflow_detail.html" packages/dartclaw_server/lib/src/templates/workflow_detail.html` exits 0; browser: each of the three `hx-confirm` sites (topbar session reset, workflow Cancel, workflow Reject on `/workflows/<id>`) opens the dialog and confirming issues the request exactly once (Network panel), while an ordinary `hx-get` sidebar refresh creates no dialog
 
-- [ ] **TI03** Restart confirmation and its three failure paths use the app's own feedback vocabulary
+- [x] **TI03** Restart confirmation and its three failure paths use the app's own feedback vocabulary
   - `confirmRestart()` in `dc_shell_controller.js` awaits `confirmDialog()` instead of `confirm(...)`, and the three `alert(...)` calls become `showToast('error', ...)` carrying the same strings – `'Restart failed: ' + (data.error?.message || 'Unknown error')`, `'Restart failed'`, `'Failed to reach server'`. `showToast` is already imported in this file.
   - **Verify**: `Test: rg -n "alert\(" packages/dartclaw_server/lib/src/static/controllers/dc_shell_controller.js` prints nothing, and `rg -n "Restart failed: |'Restart failed'|'Failed to reach server'" packages/dartclaw_server/lib/src/static/controllers/dc_shell_controller.js` shows all three inside `showToast('error', …)` calls; browser: a failing `/api/system/restart` shows a visible `.toast-error` with no dialog left open behind it
 
-- [ ] **TI04** Deleting a chat is confirmed through the canonical dialog
+- [x] **TI04** Deleting a chat is confirmed through the canonical dialog
   - `deleteSession()` in `dc_shell_controller.js` awaits `confirmDialog({..., confirmLabel: 'Delete', danger: true})` with the session's title in the body, read from a new `data-session-title` attribute on the sidebar delete control (emit via `tl:attr` alongside the existing `data-session-id` in `templates/sidebar.html`); the existing `showToast('error', …)` failure path is unchanged.
   - **Verify**: `Test: rg -n "confirm\(" packages/dartclaw_server/lib/src/static/controllers/dc_shell_controller.js` prints nothing and `rg -n "data-session-title" packages/dartclaw_server/lib/src/templates/sidebar.html` matches on the delete control; browser: clicking delete opens `dialog.dialog--confirm` naming the session's title, Escape issues no `DELETE /api/sessions/…` (Network panel), confirming issues exactly one
 
-- [ ] **TI05** The scheduled-task delete swaps atomically from native confirm to the inline bar
+- [x] **TI05** The scheduled-task delete swaps atomically from native confirm to the inline bar
   - Land the full safe path in one change. In `templates/scheduling.html`, emit escaped `data-task-title=${task.title}` alongside `data-task-id` on the scheduled-task delete button. In `dc_scheduling_controller.js`, reuse the existing `confirmDeleteJob` row construction through one small internal builder: `confirmDeleteJob` keeps its current job label/action, while `deleteScheduledTask` captures `taskId` + `taskTitle` and inserts the same canonical `.delete-confirm-bar` with a task-specific confirm action. Move the existing scheduled-task `DELETE` body behind that confirm action; cancel restores the original row and issues no request. Only after the inline path is functional, remove `window.confirm`. Add no modal and no `confirmDialog()` import. S08 may later consolidate names or restyle the two row call sites, but TI05 itself closes safety.
   - **Verify**: `rg -n 'window\.confirm|confirmDialog|dialog--confirm' packages/dartclaw_server/lib/src/static/controllers/dc_scheduling_controller.js` prints nothing; `rg -n 'data-task-title' packages/dartclaw_server/lib/src/templates/scheduling.html` matches the `dc-scheduling#deleteScheduledTask` button; `rg -c 'delete-confirm-bar' packages/dartclaw_server/lib/src/static/controllers/dc_scheduling_controller.js` reports exactly one construction serving both row types. Browser on the `visual` profile: the first click inserts one in-row bar whose visible text contains `Visual review seed task` and not `visual-review-seed`, hides the source row, and issues no request; Cancel restores the row; Confirm issues exactly one `DELETE /api/scheduling/tasks/visual-review-seed`.
 
-- [ ] **TI06** Removing a project is confirmed through the canonical dialog
+- [x] **TI06** Removing a project is confirmed through the canonical dialog
   - `removeProject()` in `dc_projects_controller.js` awaits `confirmDialog()` with the project name in the body and `danger: true`; the file's four `window.location.reload()` calls all stay as they are (S15 TI10 swaps them).
   - **Verify**: `Test: rg -n "window\.confirm" packages/dartclaw_server/lib/src/static/controllers/dc_projects_controller.js` prints nothing – this task closes the `dc_projects_controller.js` share of the forbidden-call-form criterion; browser: removing a project named `a & <b>` shows that text literally in the dialog
 
-- [ ] **TI07** Editing a guard extension is a single atomic form in a dialog
+- [x] **TI07** Editing a guard extension is a single atomic form in a dialog
   - This is the story's one **structured-input** dialog and it is built inline, not through `confirmDialog()` — permitted and bounded by the Architecture Decision's "Boundary of the one-implementation rule": compose the canon frame, never fork it, and add no second confirmation API. The `[data-guard-editor-edit]` handler in `dc_settings_controller.js` opens one `<dialog class="dialog dialog--md card card-glass">` (S04 frame, S03 `.form-field` / `.form-input` / `.form-select` controls) containing the value input pre-filled from the current entry and, for the `file` guard's `extra_rules`, a select offering exactly `no_access`, `read_only` and `no_delete` – mirroring `templates/settings.html:499-507`. The dialog's controls carry their own hooks (not the singleton `data-guard-editor-*` attributes the panel reads via `root.querySelector`) and the dialog lives outside `[data-guard-editor]`. Both values submit together in the existing single `PUT`; cancelling submits nothing. The dialog closes before the request's toast fires.
   - **Verify**: `Test: rg -n "window\.prompt" packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` prints nothing, and the new dialog markup contains `no_access`, `read_only` and `no_delete`; browser on `/settings` security tab: editing a `file` `extra_rules` row shows one dialog with a select (not a text field) for the level, cancel issues no `PUT`, confirm issues one `PUT` whose body carries both `pattern` and `level`
 
-- [ ] **TI08** Deleting a guard extension requires confirmation naming the rule
+- [x] **TI08** Deleting a guard extension requires confirmation naming the rule
   - The `[data-guard-editor-delete]` handler in `dc_settings_controller.js` awaits `confirmDialog({..., danger: true})` naming the rule's field label and its displayed value – looked up from the current group's entries and formatted with `guardEntryDisplay` (`file` `extra_rules` entries are objects, never interpolated raw) – before the existing `fetch(..., {method:'DELETE'})`; the success toast path is unchanged.
   - **Verify**: `Test: browser on /settings security tab – clicking Delete on a guard row issues no DELETE /api/config/guards/… until the dialog is confirmed (Network panel), and the dialog body contains the row's displayed value (a file extra_rules pattern, not [object Object])`
 
-- [ ] **TI09** The forbidden call forms, single modal implementation and scheduled-task atomic path are guarded by tests
+- [x] **TI09** The forbidden call forms, single modal implementation and scheduled-task atomic path are guarded by tests
   - Extend `packages/dartclaw_server/test/static/app_js_test.dart` (follow its existing read-the-source assertion style) with a case that scans every file under `lib/src/static/controllers/` for the six forbidden call forms and asserts exactly one `confirmDialog` definition and one `htmx:confirm` binding pair. Add source-level assertions that the scheduling controller has one `.delete-confirm-bar` construction serving both row types, the scheduled-task first-click handler does not call `fetch`, and its confirm action owns the task `DELETE`; pair that with the rendered-template assertion that the delete button carries escaped `data-task-title`.
   - **Verify**: `Test: dart test packages/dartclaw_server/test/static/app_js_test.dart` passes; the new cases fail when a `window.confirm(` call is re-introduced, `data-task-title` is removed, or the scheduled-task `DELETE` moves back into the first-click handler
 
-- [ ] **TI10** Removing a DM- or group-allowlist entry is confirmed by name
+- [x] **TI10** Removing a DM- or group-allowlist entry is confirmed by name
   - The delegated `.allowlist-remove` click handler in `dc_settings_controller.js` (`:896-941`) awaits `confirmDialog({body: …, confirmLabel: 'Remove', danger: true})` and returns early on cancel, before either branch's `fetch(…, {method:'DELETE'})`. `listType` is already resolved above the branch, so one call placed there serves both lists — the body names the captured `entry` verbatim and says which list it leaves. The plan calls these two the security-load-bearing bucket: they gate who may message the agent, they fire on a single click today, and there is no undo. Per the Constraints bullets, make the callback `async`, keep the `entry` / `listType` reads above the `await`, and leave both success paths (including the group branch's `showChannelRestartBanner()` and its distinct toast) untouched. No template edit: `data-entry` is already emitted by both `channel_detail.html` and `renderAllowlistEntries()`.
   - **Verify**: `rg -n -A45 'Allowlist remove handler' packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` shows `await confirmDialog(` and its cancel-return between the `entry` capture and the `dm` / `group` branches, and both `fetch(…, {method:'DELETE'})` calls still inside them; `rg -c 'confirmDialog' packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` is ≥3 — the `./shared.js` import, TI08's guard-delete call, and the allowlist gate (currently 0, exit 1); `rg -n 'showChannelRestartBanner' packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js` still matches inside the group success path; with `BASE=.agent_temp/0.22.1-s06-entry`, `cmp -s "$BASE/packages/dartclaw_server/lib/src/templates/channel_detail.html" packages/dartclaw_server/lib/src/templates/channel_detail.html` exits 0; browser on a channel detail page: Remove on a DM entry and on a group entry each open the dialog naming that entry, cancel issues no `DELETE` and leaves `.allowlist-count-num` unchanged, confirm issues exactly one (Network panel)
 
@@ -282,12 +282,12 @@ cp -R packages/dartclaw_server/lib/src/api packages/dartclaw_server/lib/src/secu
 
 ## Final Validation Checklist
 
-- [ ] `rg -n 'window\.(alert|confirm|prompt)|(^|[^.\w])(alert|confirm|prompt)\(' packages/dartclaw_server/lib/src/static/controllers/` prints nothing (it currently prints the nine call sites).
-- [ ] `bash dev/tools/fitness/check_design_system_sync.sh` is green and, with `BASE=.agent_temp/0.22.1-s06-entry`, `git diff --no-index -U0 "$BASE/packages/dartclaw_server/lib/src/static/app.css" packages/dartclaw_server/lib/src/static/app.css | rg '^\+[^+].*\.dialog'` exits with code exactly 1.
-- [ ] All three of the plan's security-load-bearing deletes are confirmed, not deferred: the guard-editor Delete (TI08) and both allowlist removals (TI10). On the running `visual` profile, clicking each of the three issues no `DELETE` request until its dialog is confirmed (Network panel).
-- [ ] The scheduled-task delete closes atomically in TI05: source contains no native confirm, the first click inserts the title-bearing inline bar without issuing a request, Cancel restores the row, and Confirm issues exactly one `DELETE`. S08 is not required for a safe story boundary.
-- [ ] With `BASE=.agent_temp/0.22.1-s06-entry`, `rsync -ainc --delete "$BASE/packages/dartclaw_server/lib/src/api/" packages/dartclaw_server/lib/src/api/` and `rsync -ainc --delete "$BASE/packages/dartclaw_server/lib/src/security/" packages/dartclaw_server/lib/src/security/` both print nothing – proves the protected backend directories are unchanged by this story.
-- [ ] After the final embed-root edit, `git ls-files --error-unmatch -- packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart` exits 0, `dart run dev/tools/embed_assets.dart` completes, and `dart test packages/dartclaw_server/test/generated/embedded_assets_test.dart` passes before story close.
+- [x] `rg -n 'window\.(alert|confirm|prompt)|(^|[^.\w])(alert|confirm|prompt)\(' packages/dartclaw_server/lib/src/static/controllers/` prints nothing (it currently prints the nine call sites).
+- [x] `bash dev/tools/fitness/check_design_system_sync.sh` is green and, with `BASE=.agent_temp/0.22.1-s06-entry`, `git diff --no-index -U0 "$BASE/packages/dartclaw_server/lib/src/static/app.css" packages/dartclaw_server/lib/src/static/app.css | rg '^\+[^+].*\.dialog'` exits with code exactly 1.
+- [x] All three of the plan's security-load-bearing deletes are confirmed, not deferred: the guard-editor Delete (TI08) and both allowlist removals (TI10). On the running `visual` profile, clicking each of the three issues no `DELETE` request until its dialog is confirmed (Network panel).
+- [x] The scheduled-task delete closes atomically in TI05: source contains no native confirm, the first click inserts the title-bearing inline bar without issuing a request, Cancel restores the row, and Confirm issues exactly one `DELETE`. S08 is not required for a safe story boundary.
+- [x] With `BASE=.agent_temp/0.22.1-s06-entry`, `rsync -ainc --delete "$BASE/packages/dartclaw_server/lib/src/api/" packages/dartclaw_server/lib/src/api/` and `rsync -ainc --delete "$BASE/packages/dartclaw_server/lib/src/security/" packages/dartclaw_server/lib/src/security/` both print nothing – proves the protected backend directories are unchanged by this story.
+- [x] After the final embed-root edit, `git ls-files --error-unmatch -- packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart` exits 0, `dart run dev/tools/embed_assets.dart` completes, and `dart test packages/dartclaw_server/test/generated/embedded_assets_test.dart` passes before story close.
 
 
 ## Implementation Observations
@@ -300,3 +300,32 @@ Affected surface: `shared.js#confirmDialog` lifecycle and every destructive conf
 Decision: Permit one active confirmation; calls made while it is open immediately resolve `false`, with no queue, replacement or second dialog.
 Rationale: Fails closed without allowing duplicate destructive actions or introducing queue state and stale-action surprises.
 Evidence: User ratified the recommended preflight option on 2026-07-26.
+
+### Run: 2026-07-29 20:26 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- `dc_settings_controller.js#resolveGuardEntryIndex` re-resolves the guard-rule index against the **client-side** `guardEditorState` only, so a concurrent edit from another tab/admin still lets the index-addressed `PUT`/`DELETE` hit a different rule. The FIS gotcha names the local re-render race, which is closed; the cross-client case is pre-existing to the index-addressed `/api/config/guards/<guard>/<field>/<index>` endpoint and S06 widens the window by the dialog duration. A client-side `refreshGuardEditorState()` before firing narrows but cannot close it (TOCTOU remains); the real fix is a content-addressed endpoint = backend work, out of scope. Candidate for TECH-DEBT-BACKLOG.
+- `shared.js#confirmDialog` clears its single-active guard only in the `close` handler. If an open dialog were ever removed from the DOM without firing `close`, `activeConfirmDialog` would stay set and every later confirmation would fail-closed silently until reload. Unreachable today (the dialog is parented to `document.body` and no swap replaces body children), but the invariant is undocumented. One-line hardening available: gate on `activeConfirmDialog.isConnected`.
+- `dc_settings_controller.js#openGuardEntryDialog` assigns a stored `level` straight onto the three-option select; an out-of-enum value (hand-edited YAML) yields `selectedIndex -1` and submits `level: ""`. The server rejects it via `_normalizeEntry`, so the outcome is a confusing error rather than a silent guard downgrade.
+- The same dialog rejects an empty pattern by refocusing the input with no `.form-error` / `aria-invalid`, unlike the settings forms in the same file. Not a regression (the replaced `prompt()` flow also discarded silently).
+- `.font-mono` is applied to the guard pattern input (mirroring `settings.html`) but is defined in no stylesheet; the input renders proportional. Canon-owned, pre-existing, and canon is closed to this story - route to the canon owner to either add the utility or retire the three usages.
+- The forbidden-call-form test scans the six literal spellings the PRD names as the binding constraint; indirect forms (`window["confirm"]`, `globalThis.confirm`, an aliased reference) would evade it. Widening beyond the contracted gate was left out deliberately.
+- Visual validation flagged that the `/scheduling` jobs and tasks tables overflow horizontally at 768px (columns scroll out of view). Pre-existing page-level table behavior, unrelated to the confirm bar, which stays fully visible.
+
+### Run: 2026-07-29 21:36 UTC – observations
+
+#### CLOSE-OUT RECOVERY AND QUICK-REVIEW (orchestrator-applied during API outage)
+
+The implementation worker completed all story work but terminated repeatedly on transient API 500/529 errors during close-out; the orchestrator verified gates in-process and a fresh-context reviewer ran the contracted quick-review. Verdict: PASS with findings. Disposition:
+
+- F3 (Fix, applied): confirmDialog backdrop dismissal gated on pointerdown origin in shared.js – a text-selection drag released over the scrim no longer dismisses the dialog and silently resolves false.
+- F5 (Fix, applied): duplicate mobile-floor CSS assertion removed from app_js_test.dart; comment reworded to name the markup check as the second half.
+- N6 (applied, minimal): dead `font-mono` class dropped from the new guard-editor value input – no `.font-mono` rule exists in any stylesheet; the wider dead-usage question (two-plus pre-existing sites, hoist-a-utility vs retire) is deferred to the release ledger.
+- N8 (applied): two new toast strings switched from spaced hyphens to en dashes per project writing rules.
+- N1 (attribution, recorded): seven class-vocabulary repoints in dc_memory_controller.js, dc_workflows_controller.js, scheduling.html and test files (.settings-tab→.tab, .tab-btn→.tab, .form-group→.form-field, .form-input.error→aria-invalid, toggle-switch→form-toggle, btn-icon-sm→btn btn-icon-sm) are mechanical follow-on of the S05 vocabulary migration that had to ride with this story's controller edits; they trace to S05's purge, not to an S06 work area.
+- N2 (routed to S08): executeDeleteJob lacks the double-click guard executeDeleteScheduledTask received; fold the two-line mirror into S08's row-delete unification.
+- N4 (routed to S11): activateSettingsTab/initSettingsForm query `.tab` document-wide; scope to the settings tab-strip container when S11 touches those functions.
+- N7 (accepted): allowlist remove handler trusts data-entry per template discipline; all three emitters carry it.
+
+Gates re-run after remediation, all green: embedded-asset regeneration plus parity, 39 static-asset tests, dart analyze, format, FR5 grep zero native dialog calls.

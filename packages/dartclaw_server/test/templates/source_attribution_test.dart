@@ -31,6 +31,28 @@ void main() {
       expect(html, isNot(contains('<script>')));
     });
 
+    // TI03: a host row that already prints the layer badge must not get a
+    // second one inline; the popover keeps its own copy either way.
+    test('showLayerBadge: false drops the inline badge and keeps the popover badge', () async {
+      const resolver = _MapResolver({
+        CitationLayer.wiki: {'wiki/layered-context.md'},
+      });
+
+      final withBadge = await sourceAttributionFragment(sourceRef: wikiRef, marker: 1, resolver: resolver);
+      final withoutBadge = await sourceAttributionFragment(
+        sourceRef: wikiRef,
+        marker: 1,
+        resolver: resolver,
+        showLayerBadge: false,
+      );
+
+      expect(RegExp('class="layer-badge').allMatches(withBadge), hasLength(2));
+      expect(RegExp('class="layer-badge').allMatches(withoutBadge), hasLength(1));
+      // The surviving one is the popover's, not the inline sibling.
+      expect(withoutBadge.indexOf('class="layer-badge'), greaterThan(withoutBadge.indexOf('attribution-popover')));
+      expect(withoutBadge, contains('class="citation-marker"'));
+    });
+
     test('flags unresolvable and missing citations without valid links', () async {
       final fabricatedHtml = await citationStatementHtml(
         statement: const CitationStatement(

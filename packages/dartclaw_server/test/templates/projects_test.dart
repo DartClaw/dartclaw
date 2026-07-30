@@ -196,7 +196,7 @@ void main() {
       expect(html, contains('class="workflow-list-loading" hidden'));
       expect(html, contains('class="workflow-list-empty" hidden'));
       expect(html, contains('id="workflow-form" class="workflow-var-form" hidden'));
-      expect(html, contains('id="workflow-project-select" class="form-group" hidden'));
+      expect(html, contains('id="workflow-project-select" class="form-field" hidden'));
       expect(RegExp('class="skeleton"').allMatches(html), hasLength(3));
     });
 

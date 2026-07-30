@@ -1,6 +1,9 @@
 <div tl:fragment="errorPage" class="error-page">
-  <div class="error-code" tl:text="${code}">500</div>
-  <div class="error-title" tl:text="${title}">Error</div>
-  <div class="error-detail" tl:text="${detail}">Something went wrong.</div>
-  <a href="/" class="btn btn-primary"><span class="icon icon-arrow-left" aria-hidden="true"></span> Back to Home</a>
+  <div class="empty-state">
+    <img src="/static/mascot-avatar-512-8bit.png" class="pixel-art" width="64" height="64" alt="">
+    <div class="error-code t-display text-gradient" tl:text="${code}">500</div>
+    <p class="empty-state-title t-label" tl:text="${title}">Error</p>
+    <p tl:text="${detail}">Something went wrong.</p>
+    <a href="/" class="btn btn-primary"><span class="icon icon-arrow-left" aria-hidden="true"></span> Back to Home</a>
+  </div>
 </div>

@@ -87,6 +87,105 @@ export function dispatchToast(type, message) {
   document.body.dispatchEvent(new CustomEvent('dc:toast', { detail: { type, message } }));
 }
 
+export const TOAST_QUEUE_KEY = 'dartclaw-queued-toast';
+
+// Parks a toast for the next page load. A mutation that navigates tears down
+// its own toast along with the document, so the operator sees the page change
+// with no confirmation that it worked. Only navigation mutations queue; an
+// in-place swap shows its toast directly.
+export function queueToast(type, message) {
+  try {
+    sessionStorage.setItem(TOAST_QUEUE_KEY, JSON.stringify({ type, message }));
+  } catch (_) {}
+}
+
+let activeConfirmDialog = null;
+
+export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false } = {}) {
+  // Fail closed rather than stack dialogs: a second confirmation raised while one
+  // is open would ask about an action the user can no longer see the context for.
+  if (activeConfirmDialog) return Promise.resolve(false);
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'dialog dialog--confirm card card-glass';
+
+  if (title) {
+    const header = document.createElement('div');
+    header.className = 'dialog-header';
+    const heading = document.createElement('h3');
+    heading.className = 't-heading';
+    heading.textContent = title;
+    header.appendChild(heading);
+    dialog.appendChild(header);
+  }
+
+  const bodyElement = document.createElement('div');
+  bodyElement.className = 'dialog-body';
+  // Severity is markup, not a second frame — see DESIGN.md § Feedback.
+  if (danger) {
+    const glyph = document.createElement('span');
+    glyph.className = 'icon icon-triangle-alert';
+    glyph.setAttribute('aria-hidden', 'true');
+    bodyElement.appendChild(glyph);
+  }
+  const message = document.createElement('p');
+  message.textContent = body == null ? '' : String(body);
+  bodyElement.appendChild(message);
+  dialog.appendChild(bodyElement);
+  dialog.setAttribute('aria-label', title || message.textContent);
+
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.className = 'btn btn-ghost btn-sm';
+  cancelButton.textContent = 'Cancel';
+
+  const confirmButton = document.createElement('button');
+  confirmButton.type = 'button';
+  confirmButton.className = danger ? 'btn btn-danger-fill btn-sm' : 'btn btn-sm';
+  confirmButton.textContent = confirmLabel;
+
+  const actions = document.createElement('div');
+  actions.className = 'dialog-actions';
+  actions.append(cancelButton, confirmButton);
+  const footer = document.createElement('div');
+  footer.className = 'dialog-footer';
+  footer.appendChild(actions);
+  dialog.appendChild(footer);
+
+  document.body.appendChild(dialog);
+  activeConfirmDialog = dialog;
+
+  return new Promise((resolve) => {
+    let confirmed = false;
+    // Settle off `close` so Escape, the backdrop and both buttons share one exit,
+    // and remove the element first so a caller's toast is not occluded by the
+    // top layer this dialog occupies.
+    dialog.addEventListener('close', () => {
+      dialog.remove();
+      activeConfirmDialog = null;
+      resolve(confirmed);
+    }, { once: true });
+    confirmButton.addEventListener('click', () => {
+      confirmed = true;
+      dialog.close();
+    });
+    cancelButton.addEventListener('click', () => dialog.close());
+    // The frame owns no padding, so a click reaching it directly is the backdrop.
+    // Gate on where the press started, not where it ended — a text-selection drag
+    // released over the scrim dispatches its click at the frame and would
+    // otherwise dismiss the dialog mid-gesture.
+    let pressStartedOnBackdrop = false;
+    dialog.addEventListener('pointerdown', (event) => {
+      pressStartedOnBackdrop = event.target === dialog;
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog && pressStartedOnBackdrop) dialog.close();
+    });
+    dialog.showModal();
+    if (danger) cancelButton.focus();
+  });
+}
+
 export function closeAllCustomSelects(except) {
   document.querySelectorAll('.custom-select[data-open="true"]').forEach((wrapper) => {
     if (except && wrapper === except) return;
@@ -222,11 +321,78 @@ export function renderMarkdown(root = document) {
   });
 }
 
-export function scrollToBottom(root = document) {
+/// Whether [el] is scrolled to (or within [threshold] of) its bottom.
+///
+/// A container that does not overflow reports true: there is nothing to scroll
+/// back through, so new content should keep tracking.
+export function isAtBottom(el, threshold = 32) {
+  if (!el) return false;
+  return el.scrollHeight - el.clientHeight - el.scrollTop <= threshold;
+}
+
+/// Anchors the `.messages` region inside [root] to its bottom.
+///
+/// Acts only when [force] is set (initial render and history restoration) or
+/// when the caller passes a [stickToBottom] intent it captured **before** the
+/// DOM mutation. Recomputing the intent afterwards is too late: appended
+/// content has already moved the bottom away from the reader's position, so a
+/// user who had scrolled up would be yanked back down on every frame.
+export function scrollToBottom(root = document, { force = false, stickToBottom = false } = {}) {
+  if (!force && !stickToBottom) return;
   const messages = root.querySelector('.messages');
   if (messages) {
     messages.scrollTop = messages.scrollHeight;
   }
+}
+
+/// Restart-banner state, shared so the shell controller, the settings save path
+/// and an out-of-band slot replacement cannot disagree about dismissal.
+///
+/// The slot always holds one `#restart-banner` node; these helpers only reveal
+/// and re-hide it, never create or remove markup.
+let restartBannerDismissed = false;
+
+function setRestartBannerVisible(banner, visible) {
+  banner.toggleAttribute('hidden', !visible);
+  banner.toggleAttribute('inert', !visible);
+}
+
+/// Applies [pendingFields] to the banner.
+///
+/// An empty list is the cleared state: it blanks the field list, re-hides the
+/// node and resets dismissal, so a later independent pending set can surface.
+export function reconcileRestartBanner(pendingFields) {
+  const banner = document.getElementById('restart-banner');
+  const fields = document.getElementById('restart-banner-fields');
+  if (!banner || !fields) return;
+  const names = (Array.isArray(pendingFields) ? pendingFields : []).filter(Boolean);
+  if (!names.length) {
+    restartBannerDismissed = false;
+    fields.textContent = '';
+    setRestartBannerVisible(banner, false);
+    return;
+  }
+  fields.textContent = names.join(', ');
+  setRestartBannerVisible(banner, !restartBannerDismissed);
+}
+
+export function dismissRestartBanner() {
+  restartBannerDismissed = true;
+  const banner = document.getElementById('restart-banner');
+  if (banner) setRestartBannerVisible(banner, false);
+}
+
+/// Re-applies the shared dismissal state after HTMX replaces the slot.
+///
+/// The replacement is server-rendered and knows nothing about this session's
+/// dismissal, so without this a navigation would resurrect a dismissed banner.
+export function syncRestartBannerAfterSwap() {
+  const banner = document.getElementById('restart-banner');
+  const fields = document.getElementById('restart-banner-fields');
+  if (!banner || !fields) return;
+  const pending = fields.textContent.trim().length > 0;
+  if (!pending) restartBannerDismissed = false;
+  setRestartBannerVisible(banner, pending && !restartBannerDismissed);
 }
 
 export function showBanner(type, message) {

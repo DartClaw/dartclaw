@@ -23,7 +23,7 @@ class ProjectsPage extends DashboardPage {
     final projectService = context.projectService;
     if (projectService == null) {
       return Response.ok(
-        '<div class="empty-state"><p class="empty-state-title">Projects not configured</p></div>',
+        '<div class="empty-state"><p class="empty-state-title t-label">Projects not configured</p></div>',
         headers: htmlHeaders,
       );
     }
@@ -37,7 +37,7 @@ class ProjectsPage extends DashboardPage {
       navItems: context.navItems(activePage: title),
       projects: projects,
       defaultProject: defaultProject,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
     );
 

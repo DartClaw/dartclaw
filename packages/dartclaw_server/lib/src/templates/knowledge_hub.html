@@ -1,69 +1,78 @@
 <div tl:fragment="knowledgeHub" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
-  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="page-inner knowledge-hub-page">
       <header class="pagehead">
         <div>
-          <h1 class="page-title">Knowledge Hub</h1>
           <p class="page-subtitle">Browse wiki, temporal KG, memory, and inbox sources.</p>
         </div>
-        <span class="read-only-marker" tl:text="${readOnlyMarker}">READ-ONLY</span>
+        <span class="status-badge status-badge-muted" tl:text="${readOnlyMarker}">READ-ONLY</span>
       </header>
 
-      <nav class="knowledge-tabs" aria-label="Knowledge views">
-        <a class="tab-btn active" href="/knowledge" aria-current="page">Hub</a>
-        <a class="tab-btn" href="/knowledge/timeline">Timeline</a>
+      <nav class="tabs" aria-label="Knowledge views">
+        <a class="tab t-label active" href="/knowledge" aria-current="page">Hub</a>
+        <a class="tab t-label" href="/knowledge/timeline">Timeline</a>
       </nav>
 
-      <section class="knowledge-search-strip" aria-label="Knowledge search">
-        <form class="knowledge-search-form" action="/knowledge" method="get">
+      <section aria-label="Knowledge search">
+        <form class="list-toolbar" action="/knowledge" method="get">
           <label class="sr-only" for="knowledge-search">Search knowledge</label>
-          <input id="knowledge-search" name="q" type="search" maxlength="160" placeholder="Search knowledge..."
-                 tl:attr="value=${query}">
+          <span class="icon icon-search" aria-hidden="true"></span>
+          <input id="knowledge-search" name="q" type="search" maxlength="160" class="form-input form-input--search"
+                 placeholder="Search knowledge..." tl:attr="value=${query}">
           <input type="hidden" name="layer" tl:attr="value=${activeLayer}">
           <button class="btn btn-primary" type="submit">Search</button>
         </form>
-        <div class="filter-chip-row" role="list">
-          <a tl:each="chip : ${layerChips}" role="listitem" tl:attr="href=${chip.href},class=${chip.className}"
+        <div class="chip-row" role="list">
+          <a tl:each="chip : ${layerChips}" class="chip" role="listitem"
+             tl:attr="href=${chip.href},aria-current=${chip.current}"
              tl:text="${chip.label}">All</a>
         </div>
       </section>
 
-      <section class="knowledge-summary-strip" aria-label="Layer summary">
-        <div tl:each="summary : ${layerSummaries}" class="knowledge-summary-item">
-          <span class="knowledge-summary-count" tl:text="${summary.count}">0</span>
-          <span class="knowledge-summary-label" tl:text="${summary.label}">Wiki</span>
+      <section aria-labelledby="knowledge-summary-heading">
+        <h2 id="knowledge-summary-heading" class="section-label">Layers in these results</h2>
+        <div class="knowledge-summary-strip">
+          <div tl:each="summary : ${layerSummaries}" class="card card-metric" tl:classappend="${summary.cardClass}">
+            <span tl:if="${summary.failed}" class="metric-value">
+              <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+              <span class="sr-only">Failed to load</span>
+            </span>
+            <span tl:unless="${summary.failed}" class="metric-value" tl:text="${summary.count}">0</span>
+            <span class="metric-label" tl:text="${summary.label}">Wiki</span>
+          </div>
         </div>
       </section>
 
-      <div tl:if="${hasFailedLayers}" class="notice notice-warning knowledge-partial-notice">
+      <div tl:if="${hasFailedLayers}" class="banner banner-warning">
         Partial results: <span tl:text="${failedLayerNames}">KG</span> failed to load.
       </div>
 
       <section class="knowledge-results" aria-label="Knowledge results">
-        <article tl:each="item : ${items}" class="knowledge-result-row">
-          <span class="layer-badge" tl:classappend="${item.layerClass}" tl:text="${item.layerLabel}">WIKI</span>
-          <div class="knowledge-result-body">
-            <h2 class="knowledge-result-title" tl:text="${item.title}">Source title</h2>
-            <p class="knowledge-result-snippet" tl:text="${item.snippet}">Snippet</p>
-            <div class="knowledge-result-meta">
-              <a class="source-link" tl:attr="href=${item.sourceHref}" tl:text="${item.sourceLabel}">Source</a>
-              <tl:block tl:utext="${item.attributionHtml}"><!-- attribution --></tl:block>
-            </div>
+        <article tl:each="item : ${items}" class="card knowledge-result-body">
+          <div class="knowledge-result-head">
+            <span class="layer-badge" tl:classappend="${item.layerClass}" tl:text="${item.layerLabel}">WIKI</span>
+            <h2 class="knowledge-result-title">
+              <a tl:attr="href=${item.sourceHref}" tl:text="${item.title}">Source title</a>
+            </h2>
+          </div>
+          <p class="knowledge-result-snippet" tl:text="${item.snippet}">Snippet</p>
+          <div class="knowledge-result-meta">
+            <a class="source-link" tl:attr="href=${item.sourceHref}" tl:text="${item.sourceLabel}">Source</a>
+            <tl:block tl:utext="${item.attributionHtml}"><!-- attribution --></tl:block>
           </div>
         </article>
-        <div tl:unless="${hasItems}" class="knowledge-empty-state">
-          <p tl:text="${emptyMessage}">No results for this filter.</p>
-        </div>
+        <tl:block tl:unless="${hasItems}" tl:utext="${emptyStateHtml}"><!-- empty state --></tl:block>
       </section>
 
       <nav tl:if="${hasPagination}" class="pager" aria-label="Knowledge pagination">
-        <a tl:if="${hasPreviousPage}" class="pager-link" tl:attr="href=${previousHref}">Previous</a>
-        <span class="pager-label" tl:text="${pageLabel}">Page 1 of 1</span>
-        <a tl:if="${hasNextPage}" class="pager-link" tl:attr="href=${nextHref}">Next</a>
+        <a tl:if="${hasPreviousPage}" class="btn btn-ghost" tl:attr="href=${previousHref}">Previous</a>
+        <span class="pager-label t-caption" tl:text="${pageLabel}">Page 1 of 1</span>
+        <a tl:if="${hasNextPage}" class="btn btn-ghost" tl:attr="href=${nextHref}">Next</a>
       </nav>
     </div>
   </main>
+  </div>
 </div>

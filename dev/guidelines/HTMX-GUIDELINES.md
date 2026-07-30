@@ -118,8 +118,10 @@ X-Accel-Buffering: no
 ## Asset Rules
 
 - Pin HTMX to an exact version
-- Use a real SRI hash for CDN-loaded core assets
-- Pin or vendor extensions used at runtime
+- Vendor HTMX and its extensions under `lib/src/static/` and load them same-origin; DartClaw contacts no CDN at
+  runtime, and `dev/tools/fitness/check_no_external_origins.sh` fails the build if one reappears
+- Record the upstream URL and published SRI hash in `VENDORS.md` so vendored bytes stay verifiable once `integrity`
+  no longer applies (it is meaningless same-origin)
 - Keep version and asset policy documented near the actual asset-loading code
 - Do not put package-manager setup instructions here unless the repo actually uses them
 

@@ -6,6 +6,7 @@ import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
+import 'task_status_display.dart';
 import 'topbar.dart';
 
 /// Renders the task detail page with embedded chat view, artifacts, and review controls.
@@ -28,7 +29,7 @@ String taskDetailPageTemplate({
   Map<String, dynamic>? turnStatus,
   String? messagesHtml,
   String? timelineHtml,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
   String defaultProvider = 'claude',
   int initialTokensUsed = 0,
@@ -37,8 +38,17 @@ String taskDetailPageTemplate({
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final title = task['title']?.toString() ?? 'Task';
-  final topbar = pageTopbarTemplate(title: 'Task: $title', backHref: '/tasks', backLabel: 'Back to Tasks');
-  final statusName = task['status']?.toString() ?? 'draft';
+  final topbar = pageTopbarTemplate(
+    title: 'Task: $title',
+    backHref: '/tasks',
+    backLabel: 'Back to Tasks',
+    restartBannerHtml: restartBannerHtml,
+  );
+  // Same normalisation the task list groups by, so a status cannot read one way
+  // in the table and another here — and an unrecognised one is never presented
+  // as a draft, which would offer a Start button for a task nobody can start.
+  final statusName = taskStatusKey(task['status']);
+  final statusPresentation = taskStatusPresentation(task['status']);
   final isDraft = statusName == 'draft';
   final isQueued = statusName == 'queued';
   final isReview = statusName == 'review';
@@ -88,6 +98,25 @@ String taskDetailPageTemplate({
   final totalDurationMs = (tokenSummary?['totalDurationMs'] as num?)?.toInt() ?? 0;
   final totalToolCalls = (tokenSummary?['totalToolCalls'] as num?)?.toInt() ?? 0;
   final hasCacheTokens = totalCacheReadTokens > 0 || totalCacheWriteTokens > 0;
+  final tokenMetricCardsHtml = [
+    metricCardTemplate(color: 'accent', value: formatNumber(totalTokens), label: 'Total Tokens'),
+    metricCardTemplate(
+      color: 'info',
+      value: '${formatNumber(totalInputTokens)} / ${formatNumber(totalOutputTokens)}',
+      label: 'Input / Output',
+      labelTooltip: 'Input tokens / output tokens',
+    ),
+    if (hasCacheTokens)
+      metricCardTemplate(
+        color: 'info',
+        value: '${formatNumber(totalCacheReadTokens)} / ${formatNumber(totalCacheWriteTokens)}',
+        label: 'Cache Read / Write',
+        labelTooltip: 'Cache read tokens / cache write tokens',
+      ),
+    metricCardTemplate(color: 'info', value: humanizeDurationMs(totalDurationMs), label: 'Duration'),
+    metricCardTemplate(color: 'info', value: formatNumber(totalToolCalls), label: 'Tool Calls'),
+    metricCardTemplate(color: 'info', value: formatNumber(traceCount), label: 'Turns'),
+  ].join('\n');
 
   // Build progress section data.
   final effectiveBudget = (tokenBudget != null && tokenBudget > 0) ? tokenBudget : null;
@@ -121,12 +150,23 @@ String taskDetailPageTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('task_detail'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+    // The topbar owns this page's <h1>, so the head carries a description line
+    // rather than a second title (DESIGN.md § Layout → Page title and skip link).
+    'pageHeaderHtml': pageHeaderTemplate(subtitle: _detailSubtitle(task, statusPresentation.label)),
+    'noSessionEmptyStateHtml': emptyStateTemplate(title: noSessionTitle, body: noSessionText),
+    'noArtifactsEmptyStateHtml': emptyStateTemplate(
+      title: 'No artifacts yet',
+      body: 'Artifacts will appear here when the task produces output.',
+    ),
     'taskId': task['id'],
     'title': title,
     'typeLabel': titleCase(task['type']?.toString() ?? ''),
     'status': statusName,
-    'statusBadgeHtml': statusBadgeTemplate(variant: statusName, text: titleCase(statusName)),
+    'statusBadgeHtml': statusBadgeTemplate(
+      variant: statusName,
+      text: statusPresentation.label,
+      dot: statusPresentation.dot,
+    ),
     'provider': provider,
     'providerLabel': ProviderIdentity.displayName(provider),
     'hasProvider': provider.isNotEmpty,
@@ -138,10 +178,13 @@ String taskDetailPageTemplate({
     'showPushBackWarning': showPushBackWarning,
     'hasBindings': bindingItems.isNotEmpty,
     'bindings': bindingItems,
-    'createdAtDisplay': _formatRelativeTimeIso(task['createdAt']?.toString()),
-    'createdByDisplay': task['createdBy']?.toString() ?? '—',
-    'startedAtDisplay': _formatRelativeTimeIso(task['startedAt']?.toString()),
-    'completedAtDisplay': _formatRelativeTimeIso(task['completedAt']?.toString()),
+    'createdAtDisplay': formatRelativeTimeIso(task['createdAt']?.toString()),
+    'createdAtIso': isoTitle(task['createdAt']?.toString()),
+    'completedAtIso': isoTitle(task['completedAt']?.toString()),
+    'createdByDisplay': absentValue(task['createdBy']?.toString()).value,
+    'createdByAbsent': absentValue(task['createdBy']?.toString()).isAbsent,
+    'startedAtDisplay': formatRelativeTimeIso(task['startedAt']?.toString()),
+    'completedAtDisplay': formatRelativeTimeIso(task['completedAt']?.toString()),
     'startedAtIso': task['startedAt']?.toString(),
     'hasStartedAt': task['startedAt'] != null,
     'hasCompletedAt': task['completedAt'] != null,
@@ -163,15 +206,7 @@ String taskDetailPageTemplate({
     'conflictingFiles': conflictingFiles,
     'conflictDetails': conflictDetails,
     'hasTokenSummary': hasTokenSummary,
-    'traceCount': traceCount,
-    'totalTokens': formatNumber(totalTokens),
-    'totalInputTokens': formatNumber(totalInputTokens),
-    'totalOutputTokens': formatNumber(totalOutputTokens),
-    'totalCacheReadTokens': formatNumber(totalCacheReadTokens),
-    'totalCacheWriteTokens': formatNumber(totalCacheWriteTokens),
-    'hasCacheTokens': hasCacheTokens,
-    'totalDurationDisplay': humanizeDurationMs(totalDurationMs),
-    'totalToolCalls': totalToolCalls,
+    'tokenMetricCardsHtml': tokenMetricCardsHtml,
     'timelineHtml': timelineHtml,
     'hasTimeline': timelineHtml != null && timelineHtml.isNotEmpty,
     // Progress section.
@@ -198,7 +233,8 @@ Map<String, dynamic>? _turnStatusView(Map<String, dynamic>? status, {String? fal
     'state': state,
     'stateLabel': titleCase(state),
     'reason': reason ?? '',
-    'reasonLabel': reason == null ? '—' : reason.replaceAll('_', ' '),
+    'reasonLabel': reason?.replaceAll('_', ' '),
+    'reasonAbsent': absentValue(reason).isAbsent,
     'waitingSince': status['waiting_since']?.toString() ?? '',
     'stuckSince': status['stuck_since']?.toString() ?? '',
     'globalTimeoutAt': status['global_timeout_at']?.toString() ?? '',
@@ -207,13 +243,13 @@ Map<String, dynamic>? _turnStatusView(Map<String, dynamic>? status, {String? fal
   };
 }
 
-String _formatRelativeTimeIso(String? iso) {
-  if (iso == null) return '';
-  try {
-    return formatRelativeTime(DateTime.parse(iso));
-  } catch (e) {
-    return '';
-  }
+/// The page head's description line, built from what the task already carries:
+/// its goal when it has one, otherwise its type and current status.
+String _detailSubtitle(Map<String, dynamic> task, String statusLabel) {
+  final goal = task['goalTitle']?.toString();
+  if (goal != null && goal.isNotEmpty) return 'Goal: $goal';
+  final type = task['type']?.toString();
+  return type == null || type.isEmpty ? statusLabel : '${titleCase(type)} task – $statusLabel';
 }
 
 String _channelTypeLabel(String channelType) {

@@ -218,7 +218,17 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Green unit suites hide wiring gaps.** Tests injecting absolute paths/null deps prove units, not the product. Require ≥1 test driving the real composition root + path discovery.
 - **Bounded filesystem traversal must stream entries.** `Directory.list().toList()` defeats traversal budgets in large flat directories even if callers later cap result counts.
 - **Contract-changing stories need the full CI gate.** Retyping a parse/validation contract consumed cross-package requires workspace analyze + all-package tests + fitness.
+- **.dart templates compile into the serve VM; static/.html reload from disk.** Long-running serves render stale .dart output – verify 'no consumers' sweeps against source; test edits on a fresh port.
 
 ## Specs / Documentation
 
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
+- **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** — it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
+
+## CSS
+
+- **Contrast checks must resolve colours via canvas** — `color-mix()` computes to `oklab()`/`color(srgb 0–1)`; regex rgb parsing reads those as near-black and fabricates pass/fail verdicts.
+- **`margin: 0 auto` cancels flex stretch.** The child turns shrink-to-fit, sized by its children's `max-width` — a prose measure collapses the container and full-width siblings. Fix: `width: 100%`.
+- **Verify a measure change by the rendered width of NON-prose siblings.** Per-element checks pass while the outcome inverts — a table rendered 605px inside an 866px chat bubble.
+- **`ch` units resolve against the element's own font-size.** `72ch` on an h1 is ~864px, not the ~605px the same value gives body prose — put reading measures on the text element.
+- **Re-check served CSS with cache bypass after a token edit.** Assets come from a versioned `/static/v<version>/` path, so a concurrent canon change renders stale until a hard reload.

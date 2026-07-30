@@ -1,52 +1,75 @@
 <div tl:fragment="memoryDashboard" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
-  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in" data-controller="dc-memory">
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-    <div class="page-inner" id="memory-content"
-         hx-get="/memory/content" hx-trigger="every 30s"
-         hx-swap="innerHTML" hx-select="#memory-inner">
+    <div id="memory-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
+      <div class="scan-bar"></div>
+    </div>
+    <div class="page-inner page-inner--wide">
 
-      <div id="memory-inner">
+      <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
+
+      <div id="memory-content"
+           hx-get="/memory/content" hx-trigger="every 30s"
+           hx-indicator="#memory-loading"
+           hx-swap="innerHTML" hx-select="#memory-inner">
+
+        <div id="memory-inner">
 
         <!-- Section 1: Overview -->
-        <h2 class="section-label">Overview</h2>
+        <h2 class="section-title">Overview</h2>
         <div class="metrics-grid metrics-grid-5">
 
-          <div class="card card-metric card-metric--accent">
-            <div class="metric-value" tl:text="${memorySizeStr}">0 B</div>
+          <div class="card card-metric" tl:classappend="${memorySizeCardClass}">
+            <div class="metric-value t-metric metric-value--suffixed">
+              <span class="metric-number" tl:text="${memorySizeValue}">0</span>
+              <span class="metric-sub-inline" tl:text="${memorySizeUnit}">B</span>
+            </div>
             <div class="metric-label">Memory Size</div>
             <div class="meter-wrapper">
               <div class="meter-label">
                 <span>of <span tl:text="${budgetStr}">32 KB</span></span>
-                <span tl:text="${budgetPercent}">0</span>%
+                <span tl:text="${budgetPercentLabel}">0%</span>
               </div>
-              <div class="meter">
+              <div class="meter" tl:classappend="${budgetMeterEmptyClass}">
                 <div class="meter-fill" tl:classappend="${budgetWarnClass}" tl:attr="style=${'width:' + budgetBarWidth}">
                 </div>
               </div>
             </div>
           </div>
 
-          <tl:block tl:utext="${activeEntriesCardHtml}"><!-- active entries metric card --></tl:block>
+          <div class="card card-metric">
+            <div class="metric-value t-metric" tl:text="${entryCount}">0</div>
+            <div class="metric-label">Active Entries</div>
+          </div>
 
-          <tl:block tl:utext="${archivedEntriesCardHtml}"><!-- archived entries metric card --></tl:block>
+          <div class="card card-metric">
+            <div class="metric-value t-metric" tl:text="${archivedCount}">0</div>
+            <div class="metric-label">Archived Entries</div>
+          </div>
 
-          <div class="card card-metric card-metric--error">
-            <div class="metric-value"><span tl:text="${errorsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${errorsCap}">50</span></span></div>
+          <div class="card card-metric" tl:classappend="${errorsCardClass}">
+            <div class="metric-value t-metric metric-value--suffixed">
+              <span class="metric-number" tl:text="${errorsCount}">0</span>
+              <span class="metric-sub-inline" tl:text="${errorsCapLabel}">/ 50</span>
+            </div>
             <div class="metric-label">Errors</div>
             <div class="meter-wrapper">
-              <div class="meter">
+              <div class="meter" tl:classappend="${errorsMeterEmptyClass}">
                 <div class="meter-fill meter-fill--error" tl:attr="style=${'width:' + errorsPercent}"></div>
               </div>
             </div>
           </div>
 
-          <div class="card card-metric card-metric--accent">
-            <div class="metric-value"><span tl:text="${learningsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${learningsCap}">50</span></span></div>
+          <div class="card card-metric">
+            <div class="metric-value t-metric metric-value--suffixed">
+              <span class="metric-number" tl:text="${learningsCount}">0</span>
+              <span class="metric-sub-inline" tl:text="${learningsCapLabel}">/ 50</span>
+            </div>
             <div class="metric-label">Learnings</div>
             <div class="meter-wrapper">
-              <div class="meter">
+              <div class="meter" tl:classappend="${learningsMeterEmptyClass}">
                 <div class="meter-fill" tl:attr="style=${'width:' + learningsPercent}"></div>
               </div>
             </div>
@@ -55,7 +78,7 @@
         </div>
 
         <!-- Section 2: Pruning -->
-        <h2 class="section-label">Memory Pruning</h2>
+        <h2 class="section-title">Memory Pruning</h2>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Pruner</span>
@@ -64,11 +87,13 @@
           <div class="card-rows">
             <div class="card-row">
               <span class="card-row-label">Config</span>
-              <span class="card-row-value">Archive after <span tl:text="${prunerArchiveDays}">90</span>d &middot; Schedule: <code tl:text="${prunerSchedule}">0 3 * * *</code></span>
+              <span class="card-row-value">Archive after <span tl:text="${prunerArchiveDays}">90</span>d &middot; Schedule: <code tl:if="${prunerScheduleAbsent}" class="value-absent"></code><code
+                tl:unless="${prunerScheduleAbsent}" tl:text="${prunerSchedule}">0 3 * * *</code></span>
             </div>
             <div class="card-row">
               <span class="card-row-label">Next run</span>
-              <span class="card-row-value" tl:text="${prunerNextRun}">N/A</span>
+              <span class="card-row-value" tl:classappend="${prunerNextRun} ? '' : 'value-absent'"
+                    tl:attr="title=${prunerNextRunIso}" tl:text="${prunerNextRun}">2h ago</span>
             </div>
             <div class="card-row">
               <span class="card-row-label">Undated entries</span>
@@ -95,7 +120,7 @@
                 </thead>
                 <tbody>
                   <tr tl:each="run : ${prunerHistory}">
-                    <td tl:text="${run.date}">-</td>
+                    <td tl:attr="title=${run.dateIso}" tl:text="${run.date}">-</td>
                     <td tl:text="${run.archived}">0</td>
                     <td tl:text="${run.deduped}">0</td>
                     <td tl:text="${run.remaining}">0</td>
@@ -108,12 +133,12 @@
           <p tl:unless="${hasPrunerHistory}" class="card-detail card-detail-muted card-subsection">No prune runs recorded yet</p>
 
           <div class="card-actions">
-            <button class="btn btn-ghost" data-action="click->dc-memory#confirmPrune">Prune Now</button>
+            <button class="btn btn-danger" data-action="click->dc-memory#confirmPrune">Prune Now</button>
           </div>
         </div>
 
         <!-- Section 3: Search & Index -->
-        <h2 class="section-label">Search &amp; Index</h2>
+        <h2 class="section-title">Search &amp; Index</h2>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Search Backend</span>
@@ -122,7 +147,8 @@
           <div class="card-rows">
             <div class="card-row">
               <span class="card-row-label">Backend</span>
-              <span class="card-row-value" tl:text="${searchBackend}">fts5</span>
+              <span class="card-row-value" tl:classappend="${searchBackendAbsent} ? 'value-absent' : ''"
+                    tl:text="${searchBackend}">fts5</span>
             </div>
             <div class="card-row">
               <span class="card-row-label">Search depth</span>
@@ -139,15 +165,23 @@
           </div>
         </div>
 
+        </div>
+      </div>
+
+      <!-- Outside the 30s poll on purpose: the swap would discard the reader's
+           active tab, the preview it loaded and that preview's scroll position.
+           Nothing below refreshes faster than a page load anyway. -->
+      <div>
+
         <!-- Section 4: Memory Files -->
-        <h2 class="section-label">Memory Files</h2>
+        <h2 class="section-title">Memory Files</h2>
         <div class="card" id="memory-files-card">
-          <div class="tab-bar" role="tablist">
-            <button class="tab-btn active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
-            <button class="tab-btn" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
-            <button class="tab-btn" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
-            <button class="tab-btn" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
-            <div class="tab-header-actions">
+          <div class="tabs" role="tablist">
+            <button class="tab t-label active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
+            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
+            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
+            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
+            <div class="tabs-actions">
               <div class="toggle-btn-group">
                 <button class="toggle-btn active" data-action="click->dc-memory#toggleView" data-mode="raw">Raw</button>
                 <button class="toggle-btn" data-action="click->dc-memory#toggleView" data-mode="rendered">Rendered</button>
@@ -158,21 +192,19 @@
           <!-- Tab: MEMORY.md -->
           <div class="tab-panel active" id="tab-memory" role="tabpanel">
             <div class="tab-meta">
-              <div class="tab-meta-item">
-                <span class="tab-meta-label">Entries</span>
-                <span class="tab-meta-value" tl:text="${memoryMdEntries}">0</span>
-              </div>
-              <div class="tab-meta-item">
-                <span class="tab-meta-label">Size</span>
-                <span class="tab-meta-value" tl:text="${memoryMdSize}">0 B</span>
-              </div>
+              <!-- Entry count and file size are Overview tiles. This card sits
+                   outside the 30s poll so the reader's tab and loaded preview
+                   survive it, which would leave a second copy of those numbers
+                   frozen at page load while the Overview moved on. -->
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Oldest</span>
-                <span class="tab-meta-value" tl:text="${memoryMdOldest}">N/A</span>
+                <span class="tab-meta-value" tl:classappend="${memoryMdOldest} ? '' : 'value-absent'"
+                      tl:attr="title=${memoryMdOldestIso}" tl:text="${memoryMdOldest}">2 Mar</span>
               </div>
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Newest</span>
-                <span class="tab-meta-value" tl:text="${memoryMdNewest}">N/A</span>
+                <span class="tab-meta-value" tl:classappend="${memoryMdNewest} ? '' : 'value-absent'"
+                      tl:attr="title=${memoryMdNewestIso}" tl:text="${memoryMdNewest}">9 Mar</span>
               </div>
             </div>
 
@@ -204,10 +236,6 @@
           <div class="tab-panel" id="tab-errors" role="tabpanel">
             <div class="tab-meta">
               <div class="tab-meta-item">
-                <span class="tab-meta-label">Entries</span>
-                <span class="tab-meta-value" tl:text="${errorsCount}">0</span>
-              </div>
-              <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
                 <span class="tab-meta-value" tl:text="${errorsMdSize}">0 B</span>
               </div>
@@ -218,10 +246,6 @@
           <!-- Tab: learnings.md -->
           <div class="tab-panel" id="tab-learnings" role="tabpanel">
             <div class="tab-meta">
-              <div class="tab-meta-item">
-                <span class="tab-meta-label">Entries</span>
-                <span class="tab-meta-value" tl:text="${learningsCount}">0</span>
-              </div>
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
                 <span class="tab-meta-value" tl:text="${learningsMdSize}">0 B</span>
@@ -234,10 +258,6 @@
           <div class="tab-panel" id="tab-archive" role="tabpanel">
             <div class="tab-meta">
               <div class="tab-meta-item">
-                <span class="tab-meta-label">Entries</span>
-                <span class="tab-meta-value" tl:text="${archiveMdEntries}">0</span>
-              </div>
-              <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
                 <span class="tab-meta-value" tl:text="${archiveMdSize}">0 B</span>
               </div>
@@ -247,7 +267,7 @@
         </div>
 
         <!-- Section 5: Daily Logs -->
-        <h2 class="section-label">Daily Logs</h2>
+        <h2 class="section-title">Daily Logs</h2>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Log Files</span>
@@ -286,4 +306,5 @@
       </div>
     </div>
   </main>
+  </div>
 </div>

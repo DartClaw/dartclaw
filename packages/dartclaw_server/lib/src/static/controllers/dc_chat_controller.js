@@ -1,4 +1,12 @@
-import { escapeHtml, readHtmxErrorMessage, renderMarkdown, scrollToBottom, showBanner, showToast } from './shared.js';
+import {
+  escapeHtml,
+  isAtBottom,
+  readHtmxErrorMessage,
+  renderMarkdown,
+  scrollToBottom,
+  showBanner,
+  showToast,
+} from './shared.js';
 
 export default class DcChatController extends Stimulus.Controller {
   connect() {
@@ -15,6 +23,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.turnStatusTimer = null;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
     this.handleAfterRequest = this.handleAfterRequest.bind(this);
+    this.captureSseStickyIntent = this.captureSseStickyIntent.bind(this);
     this.handleSseMessage = this.handleSseMessage.bind(this);
     this.handleSseClose = this.handleSseClose.bind(this);
     this.handleLoadEarlierClick = this.handleLoadEarlierClick.bind(this);
@@ -24,6 +33,7 @@ export default class DcChatController extends Stimulus.Controller {
 
     document.body.addEventListener('htmx:beforeRequest', this.handleBeforeRequest);
     document.body.addEventListener('htmx:afterRequest', this.handleAfterRequest);
+    document.body.addEventListener('htmx:sseBeforeMessage', this.captureSseStickyIntent);
     document.body.addEventListener('htmx:sseMessage', this.handleSseMessage);
     document.body.addEventListener('htmx:sseClose', this.handleSseClose);
     this.element.addEventListener('click', this.handleLoadEarlierClick);
@@ -33,12 +43,13 @@ export default class DcChatController extends Stimulus.Controller {
     this.loadCommands();
     this.updateSendState();
     renderMarkdown(this.element);
-    scrollToBottom(this.element);
+    scrollToBottom(this.element, { force: true });
   }
 
   disconnect() {
     document.body.removeEventListener('htmx:beforeRequest', this.handleBeforeRequest);
     document.body.removeEventListener('htmx:afterRequest', this.handleAfterRequest);
+    document.body.removeEventListener('htmx:sseBeforeMessage', this.captureSseStickyIntent);
     document.body.removeEventListener('htmx:sseMessage', this.handleSseMessage);
     document.body.removeEventListener('htmx:sseClose', this.handleSseClose);
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
@@ -323,11 +334,17 @@ export default class DcChatController extends Stimulus.Controller {
     }
   }
 
+  captureSseStickyIntent() {
+    this.sseStickyIntent = isAtBottom(this.element.querySelector('.messages'));
+  }
+
   handleSseMessage(event) {
     if (event.detail?.type === 'delta') {
-      document.querySelector('#streaming-content .claw-loader')?.remove();
+      document.getElementById('streaming-msg')?.querySelector('.msg-thinking')?.remove();
+      document.getElementById('streaming-content')?.classList.add('streaming');
     }
-    scrollToBottom(this.element);
+    scrollToBottom(this.element, { stickToBottom: this.sseStickyIntent === true });
+    this.sseStickyIntent = null;
   }
 
   handleSseClose() {
@@ -361,6 +378,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.enableInput();
     if (!this.sessionId || !refreshMessages) return;
 
+    const stickToBottom = isAtBottom(this.element.querySelector('.messages'));
     htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html', {
       target: '#messages',
       swap: 'innerHTML',
@@ -368,7 +386,7 @@ export default class DcChatController extends Stimulus.Controller {
     })
       .then(() => {
         renderMarkdown(this.element);
-        scrollToBottom(this.element);
+        scrollToBottom(this.element, { stickToBottom });
         this.autoTitleSession();
       })
       .catch(() => showToast('error', 'Failed to refresh messages'));

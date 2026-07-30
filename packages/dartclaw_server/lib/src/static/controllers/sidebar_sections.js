@@ -23,6 +23,10 @@ export function updateRunningTasksSection(tasks) {
     return activeTasks;
   }
 
+  // Mirrors the server-side uniformity gate so an injected row does not
+  // reintroduce the badge the rendered rail deliberately suppressed.
+  const showBadges = document.getElementById('sidebar')?.dataset.providerBadges !== 'hidden';
+
   const itemsHtml = activeTasks.map((task) => {
     const taskId = encodeURIComponent(task.id || '');
     const href = '/tasks/' + taskId;
@@ -39,11 +43,13 @@ export function updateRunningTasksSection(tasks) {
       '<div class="session-item sidebar-running-item">' +
         '<a href="' + href + '" hx-get="' + href + '" class="session-item-link"' +
           ' hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"' +
-          ' hx-select-oob="#topbar,#sidebar">' +
+          ' hx-select-oob="#topbar,#restart-banner-slot,#sidebar">' +
           '<span class="' + statusClass + '" aria-hidden="true"></span>' +
           '<span class="session-item-title">' + title + '</span>' +
           trailingMeta +
-          '<span class="provider-badge provider-badge-' + provider + '">' + providerLabel + '</span>' +
+          (showBadges
+            ? '<span class="provider-badge provider-badge-' + provider + '">' + providerLabel + '</span>'
+            : '') +
         '</a>' +
       '</div>'
     );
@@ -82,7 +88,7 @@ export function updateRunningWorkflowsSection(workflows) {
       '<div class="session-item sidebar-workflow-item">' +
         '<a href="' + href + '" hx-get="' + href + '" class="session-item-link"' +
           ' hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"' +
-          ' hx-push-url="true" hx-select-oob="#topbar,#sidebar">' +
+          ' hx-push-url="true" hx-select-oob="#topbar,#restart-banner-slot,#sidebar">' +
           '<span class="' + statusClass + '" aria-hidden="true"></span>' +
           '<span class="session-item-title">' + name + '</span>' +
           '<span class="workflow-step-progress">' + progress + '</span>' +

@@ -1,4 +1,5 @@
 import 'package:dartclaw_server/src/embedded_static_handler.dart';
+import 'package:dartclaw_server/src/generated/embedded_assets.g.dart';
 import 'package:dartclaw_server/src/version.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -48,5 +49,49 @@ void main() {
     expect(response.statusCode, 200);
     expect(response.headers['content-type'], 'image/png');
     expect(await response.read().expand((chunk) => chunk).toList(), png);
+  });
+
+  test('serves embedded WOFF2 bytes as font/woff2 without text encoding', () async {
+    // wOF2 signature plus a byte sequence that is not valid UTF-8, so any
+    // text round-trip would corrupt the body rather than fail loudly.
+    const woff2 = <int>[0x77, 0x4f, 0x46, 0x32, 0x00, 0x01, 0x00, 0x00, 0xff, 0xfe, 0x80, 0xc3];
+    final binaryHandler = createEmbeddedStaticHandler(const {}, {'static/fonts/jetbrains-mono-latin.woff2': woff2});
+
+    final response = await binaryHandler(
+      Request('GET', Uri.parse('http://localhost/fonts/jetbrains-mono-latin.woff2')),
+    );
+
+    expect(response.statusCode, 200);
+    expect(response.headers['content-type'], 'font/woff2');
+    expect(await response.read().expand((chunk) => chunk).toList(), woff2);
+  });
+
+  test('serves the real vendored WOFF2 subsets byte-identically from the generated bundle', () async {
+    final fontHandler = createEmbeddedStaticHandler(embeddedServerAssets, embeddedServerBinaryAssets);
+
+    for (final name in const ['jetbrains-mono-latin.woff2', 'jetbrains-mono-latin-ext.woff2']) {
+      final key = 'static/fonts/$name';
+      final embedded = embeddedServerBinaryAssets[key];
+      expect(embedded, isNotNull, reason: '$key must be embedded as a binary asset, not text');
+      expect(embedded!.take(4), const [0x77, 0x4f, 0x46, 0x32], reason: '$name must retain its wOF2 signature');
+
+      final response = await fontHandler(Request('GET', Uri.parse('http://localhost/fonts/$name')));
+
+      expect(response.statusCode, 200, reason: name);
+      expect(response.headers['content-type'], 'font/woff2', reason: name);
+      expect(await response.read().expand((chunk) => chunk).toList(), embedded, reason: name);
+    }
+  });
+
+  test('serves the vendored htmx and marked bundles same-origin', () async {
+    final scriptHandler = createEmbeddedStaticHandler(embeddedServerAssets, embeddedServerBinaryAssets);
+
+    for (final name in const ['htmx.min.js', 'marked.min.js']) {
+      final response = await scriptHandler(Request('GET', Uri.parse('http://localhost/$name')));
+
+      expect(response.statusCode, 200, reason: name);
+      expect(response.headers['content-type'], startsWith('text/javascript'), reason: name);
+      expect(await response.readAsString(), embeddedServerAssets['static/$name'], reason: name);
+    }
   });
 }

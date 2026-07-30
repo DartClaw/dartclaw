@@ -1,4 +1,4 @@
-import { initCustomSelects, showToast } from './shared.js';
+import { confirmDialog, initCustomSelects, showToast } from './shared.js';
 
 export default class DcProjectsController extends Stimulus.Controller {
   connect() {
@@ -186,10 +186,17 @@ export default class DcProjectsController extends Stimulus.Controller {
   }
 
   async removeProject(button) {
+    // Read the dataset before awaiting — the row is re-rendered under us.
     const projectId = button.dataset.projectRemove;
     const projectName = button.dataset.projectName || projectId;
     if (!projectId) return;
-    if (!window.confirm('Remove project \'' + projectName + '\'? Running tasks will be cancelled.')) return;
+    const confirmed = await confirmDialog({
+      title: 'Remove project',
+      body: 'Remove project "' + projectName + '"? Running tasks will be cancelled.',
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch('/api/projects/' + projectId, { method: 'DELETE' });
       if (response.ok || response.status === 204) {

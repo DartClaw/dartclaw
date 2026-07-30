@@ -16,11 +16,11 @@ String workflowListPageTemplate({
   required List<Map<String, dynamic>> definitions,
   required List<Map<String, dynamic>> projectOptions,
   required Map<String, dynamic> filters,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final topbar = pageTopbarTemplate(title: 'Workflows');
+  final topbar = pageTopbarTemplate(title: 'Workflows', restartBannerHtml: restartBannerHtml);
 
   final activeStatus = filters['activeStatus']?.toString() ?? 'all';
   final activeDefinition = filters['activeDefinition']?.toString();
@@ -50,7 +50,6 @@ String workflowListPageTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('workflow_list'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
     'runs': runs,
     'hasRuns': runs.isNotEmpty,
     'definitions': definitions,

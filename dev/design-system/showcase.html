@@ -13,13 +13,15 @@
     /* Showcase-only styles (not part of the design system) */
     .showcase { padding: var(--sp-6); max-width: 1100px; margin: 0 auto; }
     .showcase h1 { font-size: var(--text-xl); margin-bottom: var(--sp-2); }
-    .showcase .subtitle { font-size: var(--text-sm); color: var(--fg-sub0); margin-bottom: var(--sp-6); }
+    .showcase .subtitle { font-size: var(--text-base); color: var(--fg-sub0); margin-bottom: var(--sp-6); }
     .showcase h2 {
       font-size: var(--text-lg); margin: var(--sp-8) 0 var(--sp-3);
       padding-bottom: var(--sp-2); border-bottom: var(--border); color: var(--fg-sub1);
     }
-    .showcase h3 { font-size: var(--text-base); margin: var(--sp-4) 0 var(--sp-2); color: var(--fg-sub0); }
-    .showcase > p, .showcase .note { font-size: var(--text-sm); color: var(--fg-sub0); margin-bottom: var(--sp-3); }
+    /* Excludes .t-heading so a demo that deliberately applies a composite type
+       tier is not out-specified by this section-label default. */
+    .showcase h3:not(.t-heading) { font-size: var(--text-base); margin: var(--sp-4) 0 var(--sp-2); color: var(--fg-sub0); }
+    .showcase > p, .showcase .note { font-size: var(--text-base); color: var(--fg-sub0); margin-bottom: var(--sp-3); }
     .showcase .use-case { font-size: var(--text-xs); color: var(--fg-sub0); font-style: italic; margin-bottom: var(--sp-3); }
 
     .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-2); }
@@ -31,7 +33,19 @@
     .swatch span { background: rgba(0,0,0,.4); color: #fff; padding: 1px 4px; border-radius: 2px; }
 
     .type-scale > div { margin-bottom: var(--sp-2); display: flex; align-items: baseline; gap: var(--sp-3); }
-    .type-scale .label { font-size: var(--text-xs); color: var(--fg-sub0); min-width: 80px; }
+    .type-scale .label { font-size: var(--text-xs); color: var(--fg-sub0); min-width: 110px; flex-shrink: 0; }
+
+    .container-demo { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+    .container-spec {
+      /* .content-inner's `margin: 0 auto` cancels flex stretch, so without an
+         explicit width both specimens would collapse to their label width and
+         the two tiers would look alike. */
+      width: 100%;
+      border: 1px dashed var(--bg-surface2); border-radius: var(--radius);
+      padding: var(--sp-2) var(--sp-3); font-size: var(--text-xs); color: var(--fg-sub0);
+      background: color-mix(in srgb, var(--accent) 4%, transparent);
+    }
+    .container-spec--wide { background: color-mix(in srgb, var(--info) 6%, transparent); }
 
     .btn-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .toggle-row { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
@@ -57,16 +71,30 @@
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
     @media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
 
+    /* Framing only – .shell supplies display/columns/rows so the demo inspects
+       the canon sizing (including the shrinkable minmax(0, 1fr) second row). */
     .demo-shell {
       border: var(--border); border-radius: var(--radius-lg); overflow: hidden;
-      height: 500px; display: grid; grid-template-columns: var(--sidebar-w) 1fr;
-      grid-template-rows: var(--topbar-h) 1fr; box-shadow: var(--shadow-md); position: relative;
+      height: 500px; box-shadow: var(--shadow-md); position: relative;
     }
+    .demo-shell--short { height: 320px; }
     @media (max-width: 768px) {
-      .demo-shell { grid-template-columns: 1fr; height: 400px; }
+      .demo-shell { height: 400px; }
     }
+    .plane-demo .plane-chrome { background: var(--bg-chrome); }
+    .plane-demo .plane-ground { background: var(--bg-base); }
+    .plane-demo .plane-card   { background: var(--bg-card); }
 
     .banner-demo { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+    /* Scroll box for the .tabs--sticky specimen. Deliberately has no background
+       of its own, so the sticky bar is judged against the body gradient rather
+       than against a flat demo surface. */
+    .tabs-sticky-demo {
+      height: 200px; overflow-y: auto;
+      border: var(--border); border-radius: var(--radius);
+      padding: 0 var(--sp-3) var(--sp-3);
+    }
   </style>
 </head>
 <body>
@@ -92,6 +120,16 @@
       <div style="background:var(--bg-sub-base)"><span>sub-base</span></div>
       <div style="background:var(--bg-surface0)"><span>srf0</span></div>
       <div style="background:var(--bg-surface1)"><span>srf1</span></div>
+    </div>
+
+    <h3>The three planes</h3>
+    <p>Chrome, page ground and card are mutually distinct in <em>both</em> themes &ndash; and they sit on
+      different rungs per theme, which is why they are their own tokens. Toggle the theme: dark puts chrome
+      <em>below</em> the ground, light puts it <em>above</em>.</p>
+    <div class="depth-demo plane-demo">
+      <div class="plane-chrome"><span>chrome</span></div>
+      <div class="plane-ground"><span>ground</span></div>
+      <div class="plane-card"><span>card</span></div>
     </div>
 
     <h3>Foreground &amp; Semantic</h3>
@@ -206,14 +244,35 @@
 
     <!-- TYPOGRAPHY -->
     <h2>Typography</h2>
+    <p>One composite class per named tier &mdash; each binds font-size, weight, line-height and letter-spacing together. Apply the class; raw <code>--text-*</code> tokens are for one-offs only.</p>
     <div class="type-scale">
-      <div><span class="label">text-xs</span> <span style="font-size:var(--text-xs)">The quick brown fox jumps (12px)</span></div>
-      <div><span class="label">text-sm</span> <span style="font-size:var(--text-sm)">The quick brown fox jumps (13px)</span></div>
-      <div><span class="label">text-base</span> <span style="font-size:var(--text-base)">The quick brown fox jumps (14px)</span></div>
-      <div><span class="label">text-lg</span> <span style="font-size:var(--text-lg)">The quick brown fox jumps (16px)</span></div>
-      <div><span class="label">text-xl</span> <span style="font-size:var(--text-xl)">The quick brown fox jumps (20px)</span></div>
-      <div><span class="label">text-2xl</span> <span style="font-size:var(--text-2xl);letter-spacing:var(--tracking-tight)">The quick brown fox (24px)</span></div>
-      <div><span class="label">text-3xl</span> <span style="font-size:var(--text-3xl);letter-spacing:var(--tracking-tight)">1,402 tokens (32px)</span></div>
+      <div><span class="label">caption</span> <span class="t-caption">The quick brown fox jumps (12px / 400)</span></div>
+      <div><span class="label">body-md</span> <span class="t-body">The quick brown fox jumps (14px / 400)</span></div>
+      <div><span class="label">label-md</span> <span class="t-label">The quick brown fox jumps (14px / 500)</span></div>
+      <div><span class="label">heading-md</span> <span class="t-heading">The quick brown fox jumps (18px / 600)</span></div>
+      <div><span class="label">page-title</span> <span class="t-page-title">The quick brown fox (20px / 600)</span></div>
+      <div><span class="label">display</span> <span class="t-display">The quick brown fox (24px / 600)</span></div>
+      <div><span class="label">metric-value</span> <span class="t-metric">1,402 tokens (32px / 600)</span></div>
+    </div>
+    <p class="use-case">Uppercase micro-labels compose <code>.tracking-caps</code> on top of <code>.t-caption</code> rather than getting their own tier. There is no 13px tier &mdash; it was indistinguishable from the body tier and collapsed into it.</p>
+    <div class="type-scale">
+      <div><span class="label">caption</span> <span class="t-caption">SERVICES &mdash; caption tier alone, tracking reset to normal</span></div>
+      <div><span class="label">+ tracking-caps</span> <span class="t-caption tracking-caps">SERVICES &mdash; composed, caps tracking restored</span></div>
+    </div>
+
+    <h3>Container Tiers &amp; Reading Measure</h3>
+    <p class="use-case">Two column widths. <code>.content-inner</code> is the default reading column; <code>.content-inner--wide</code> is opt-in for data-dense surfaces. The showcase wrap is 1100px, so the wide tier is clipped here &mdash; the annotations carry the declared values.</p>
+    <div class="container-demo">
+      <div class="content-inner container-spec"><span><code>.content-inner</code> &mdash; max-width <strong>900px</strong> (<code>--container-max</code>, default reading column)</span></div>
+      <div class="content-inner content-inner--wide container-spec container-spec--wide"><span><code>.content-inner--wide</code> &mdash; max-width <strong>1280px</strong> (<code>--container-wide</code>, opt-in; rendered clipped to the 1100px showcase wrap)</span></div>
+    </div>
+    <p class="use-case">Inside the 900px tier, running prose constrains further to <code>--measure</code> (72ch, ~605px at the 14px body advance). Top-level code blocks and tables are excluded &mdash; they keep the full bubble width. Nested inside a list item or blockquote they sit within that block's measure.</p>
+    <div class="messages">
+      <div class="msg msg-assistant"><div class="msg-role">Assistant</div><div class="msg-content">
+        <p>This paragraph is running prose, so it stops at the reading measure rather than filling the bubble &mdash; roughly 72 characters per line, which is where a monospace column stays comfortable to read across.</p>
+        <pre><code>// Code is excluded from the measure: full bubble width, horizontal scroll when needed.
+const wide = "................................................................................";</code></pre>
+      </div></div>
     </div>
 
     <h3>Gradient Text</h3>
@@ -361,6 +420,25 @@
       <div class="card"><div class="card-header-gradient">Gradient Header</div><div class="card-body">Accent gradient underline.</div></div>
     </div>
 
+    <h3>Card Header Actions Slot</h3>
+    <p class="use-case"><code>.card-header-actions</code> &mdash; trailing slot; the header without it renders exactly as above.</p>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          Scheduled Jobs
+          <span class="card-header-actions">
+            <button type="button" class="btn btn-ghost btn-sm">Refresh</button>
+            <button type="button" class="btn btn-primary btn-sm">New</button>
+          </span>
+        </div>
+        <div class="card-body">Buttons sit at the right edge; the title keeps its baseline and the border-bottom runs the full width.</div>
+      </div>
+      <div class="card">
+        <div class="card-header">No Actions Slot</div>
+        <div class="card-body">Unchanged.</div>
+      </div>
+    </div>
+
 
     <!-- WELLS -->
     <h2>Wells &mdash; Grouping Containers</h2>
@@ -467,6 +545,14 @@ done.<span class="streaming"></span></code></pre>
         <div style="display:flex;justify-content:space-between;margin-bottom:var(--sp-1)"><span class="text-sm">Token budget</span><span class="text-sm text-error">97%</span></div>
         <div class="meter"><div class="meter-fill meter-fill--error" style="width:97%"></div></div>
       </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:var(--sp-1)"><span class="text-sm">Token budget</span><span class="text-sm text-muted">0% &mdash; <code>.meter</code>, reads as a solid rule</span></div>
+        <div class="meter"><div class="meter-fill" style="width:0%"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:var(--sp-1)"><span class="text-sm">Token budget</span><span class="text-sm text-muted">0% &mdash; <code>.meter--empty</code></span></div>
+        <div class="meter meter--empty"><div class="meter-fill" style="width:0%"></div></div>
+      </div>
     </div>
 
     <h3>Skeletons &mdash; Loading Placeholders</h3>
@@ -491,6 +577,13 @@ done.<span class="streaming"></span></code></pre>
         <span class="status-badge status-badge-success"><span class="status-dot status-dot--live"></span>Running</span>
         <span class="status-badge status-badge-error"><span class="status-dot status-dot--error"></span>Failed</span>
         <span class="status-badge status-badge-warning"><span class="status-dot status-dot--warning"></span>Pending</span>
+        <span class="status-badge status-badge-muted"><span class="status-dot status-dot--idle"></span>Disabled</span>
+      </div>
+      <p class="use-case"><code>.status-badge-muted</code> &mdash; the neutral disabled/unavailable treatment. No semantic hue, no animation; pairs with the existing <code>.status-dot--idle</code>, not a dot variant of its own.</p>
+      <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Absent value:</div>
+      <div class="btn-row" style="margin-bottom:var(--sp-4)">
+        <span class="text-sm">Last run: <span class="value-absent"></span></span>
+        <span class="text-sm">Owner: <span class="value-absent">unassigned</span></span>
       </div>
       <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Pills (gradient-filled):</div>
       <div class="btn-row">
@@ -833,9 +926,205 @@ done.<span class="streaming"></span></code></pre>
       <button type="button" class="btn btn-primary" disabled>Disabled</button>
     </div>
 
+    <h3>Size tier &amp; filled destructive</h3>
+    <p class="use-case"><code>.btn-sm</code> / <code>.btn-icon-sm</code> differ by padding and <code>min-height</code> only &mdash; neither declares a <code>font-size</code>. <code>.btn-danger-fill</code> is the committed destructive step; outlined <code>.btn-danger</code> stays the default.</p>
+    <div class="btn-row">
+      <button type="button" class="btn btn-sm">Default</button>
+      <button type="button" class="btn btn-primary btn-sm">Primary</button>
+      <button type="button" class="btn btn-ghost btn-sm">Ghost</button>
+      <button type="button" class="btn btn-danger btn-sm">Danger</button>
+      <button type="button" class="btn btn-danger-fill btn-sm">Delete</button>
+      <button type="button" class="btn btn-danger-fill">Delete permanently</button>
+      <button type="button" class="btn btn-icon-sm" aria-label="Edit"><span class="icon icon-pencil"></span></button>
+      <button type="button" class="btn btn-icon-sm" aria-label="Remove"><span class="icon icon-x"></span></button>
+    </div>
+
+    <h3>Ghost buttons at rest &mdash; on both planes</h3>
+    <p class="use-case">Resting boundary holds &ge;3:1 (WCAG 1.4.11) against the card plane <em>and</em> the page ground, in both themes &mdash; identifiable without hovering.</p>
+    <div class="grid-2">
+      <div class="card" id="ghost-plane-card">
+        <div class="card-body" style="margin-bottom:var(--sp-3)">On <code>.card</code></div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" id="ghost-on-card">Fetch</button>
+          <button type="button" class="btn btn-ghost btn-sm">Fetch</button>
+        </div>
+      </div>
+      <div id="ghost-plane-ground">
+        <div class="text-sm text-muted" style="margin-bottom:var(--sp-3)">On the page ground (no container)</div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" id="ghost-on-ground">Fetch</button>
+          <button type="button" class="btn btn-ghost btn-sm">Fetch</button>
+        </div>
+      </div>
+    </div>
+
     <h3>Keycaps</h3>
     <p class="use-case"><code>kbd</code> / <code>.kbd</code> &mdash; keyboard shortcuts in help text and command hints.</p>
     <p class="text-sm">Press <kbd>&#8984;</kbd> <kbd>K</kbd> to open the command palette, <kbd>Esc</kbd> to dismiss, <kbd>Shift</kbd>+<kbd>Enter</kbd> for a newline.</p>
+
+
+    <!-- FORMS -->
+    <h2>Forms</h2>
+    <p class="use-case">Every control is a native element under a canonical class. Control rules are element-qualified (<code>input.form-input</code>), declare no <code>font-size</code>, and compose <code>.t-label</code> / <code>.t-caption</code> for their type tier.</p>
+    <div class="well-content">
+      <div class="grid-2">
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-provider">Provider</label>
+          <input type="text" class="form-input" id="demo-provider" value="claude">
+          <span class="form-hint t-caption">Accepts a bare model or shorthand like <code>claude/opus</code>.</span>
+        </div>
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-effort">Effort</label>
+          <select class="form-select" id="demo-effort">
+            <option>low</option>
+            <option selected>medium</option>
+            <option>high</option>
+          </select>
+          <span class="form-hint t-caption">Native <code>&lt;select&gt;</code> with the DartClaw chevron &mdash; no browser-default arrow.</span>
+        </div>
+      </div>
+
+      <div class="form-field" style="margin-top:var(--sp-4)">
+        <label class="form-label t-label" for="demo-prompt">System prompt</label>
+        <textarea class="form-textarea" id="demo-prompt" placeholder="Describe the agent's role&hellip;"></textarea>
+      </div>
+
+      <div class="form-field" style="margin-top:var(--sp-4)">
+        <label class="form-label t-label" for="demo-disabled">Data directory (disabled)</label>
+        <input type="text" class="form-input" id="demo-disabled" value="/var/lib/dartclaw" disabled>
+      </div>
+    </div>
+
+    <h3>Field width scale</h3>
+    <p class="use-case"><code>.form-input--num</code> (12ch) and <code>.form-input--short</code> (32ch) cap rather than set, so an unmodified field in the same <code>.form-row</code> still fills its column.</p>
+    <div class="well-content">
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-port">Port</label>
+          <input type="text" class="form-input form-input--num" id="demo-port" value="3333">
+        </div>
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-host">Host</label>
+          <input type="text" class="form-input form-input--short" id="demo-host" value="127.0.0.1">
+        </div>
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-dir">Working directory</label>
+          <input type="text" class="form-input" id="demo-dir" value="/Users/you/projects/dartclaw">
+        </div>
+      </div>
+    </div>
+
+    <h3>Invalid state</h3>
+    <p class="use-case">The boundary is never the whole signal &mdash; an invalid control always renders its <code>.form-error</code>. <code>[aria-invalid="true"]</code> and <code>:user-invalid</code> are equivalent hooks, and the error boundary survives <code>:focus-visible</code>.</p>
+    <div class="well-content">
+      <div class="grid-2">
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-invalid">Max turns <span class="text-sm text-muted">(aria-invalid)</span></label>
+          <input type="text" class="form-input" id="demo-invalid" value="-4" aria-invalid="true" aria-describedby="demo-invalid-err">
+          <span class="form-error t-caption" id="demo-invalid-err">Must be a positive integer.</span>
+        </div>
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-uinvalid">Allowlist entry <span class="text-sm text-muted">(required &mdash; focus, then leave empty)</span></label>
+          <input type="text" class="form-input" id="demo-uinvalid" required placeholder="+15551234567">
+          <span class="form-hint t-caption">Clean on load; the treatment appears only after you interact and leave.</span>
+        </div>
+      </div>
+    </div>
+
+    <h3>Checkbox, radio and toggle</h3>
+    <p class="use-case">CSS-only on native inputs &mdash; state comes from <code>:checked</code>, never JavaScript.</p>
+    <div class="well-content">
+      <div class="grid-3">
+        <div>
+          <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Checkbox</div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-on" checked><label class="form-label t-label" for="cb-on">Checked</label></div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-off"><label class="form-label t-label" for="cb-off">Unchecked</label></div>
+          <div class="form-field form-field--checkbox"><input type="checkbox" class="form-checkbox" id="cb-dis" disabled><label class="form-label t-label" for="cb-dis">Disabled</label></div>
+        </div>
+        <div>
+          <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Radio</div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-on" checked><label class="form-label t-label" for="rb-on">Selected</label></div>
+          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-off"><label class="form-label t-label" for="rb-off">Unselected</label></div>
+          <div class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="demo-r2" id="rb-dis" disabled><label class="form-label t-label" for="rb-dis">Disabled</label></div>
+        </div>
+        <div>
+          <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Toggle (<code>.form-field--inline</code>)</div>
+          <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-label" for="tg-on">Enabled</label><span class="form-toggle"><input type="checkbox" id="tg-on" checked><span class="form-toggle-slider"></span></span></div>
+          <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-label" for="tg-off">Disabled state</label><span class="form-toggle"><input type="checkbox" id="tg-off"><span class="form-toggle-slider"></span></span></div>
+          <div class="form-field form-field--inline"><label class="form-label t-label" for="tg-dis">Not editable</label><span class="form-toggle"><input type="checkbox" id="tg-dis" checked disabled><span class="form-toggle-slider"></span></span></div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- TABS -->
+    <h2>Tabs</h2>
+    <p class="use-case">One tab component. The bar scrolls on a single line and signals its own overflow; it never wraps. Active state is keyed on both <code>.active</code> and <code>aria-selected="true"</code>.</p>
+
+    <h3>Ten tabs &mdash; the settings case (overflows at 768px)</h3>
+    <div class="tabs tabs-demo-ten" role="tablist">
+      <button type="button" class="tab t-label active" role="tab" aria-selected="true">Agent</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Workflows</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Server</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Sessions</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Memory</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Context</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Scheduling</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Channels</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Model Providers</button>
+      <button type="button" class="tab t-label" role="tab" aria-selected="false">Security</button>
+      <span class="tabs-actions">
+        <button type="button" class="btn btn-ghost btn-sm">Reset</button>
+      </span>
+    </div>
+
+    <h3>Four tabs &mdash; fits, so no overflow indicator at any scroll position</h3>
+    <div class="tabs tabs-demo-four" role="tablist">
+      <a href="#tabs" class="tab t-label" role="tab" aria-selected="true">Overview</a>
+      <a href="#tabs" class="tab t-label" role="tab" aria-selected="false">Logs</a>
+      <a href="#tabs" class="tab t-label" role="tab" aria-selected="false">Files</a>
+      <a href="#tabs" class="tab t-label" role="tab" aria-selected="false">Info</a>
+      <span class="tabs-actions">
+        <button type="button" class="btn btn-ghost btn-sm">Export</button>
+      </span>
+    </div>
+    <p class="use-case">Second bar carries a <code>.tabs-actions</code> slot &mdash; pushed right while the bar fits, directly after the last tab once it overflows.</p>
+
+    <h3>Sticky bar over scrolled content</h3>
+    <p class="use-case"><code>.tabs--sticky</code> &mdash; translucent over the page ground rather than a flat slab, so it reads as part of the plane it pins to. Scroll the box.</p>
+    <div class="tabs-sticky-demo">
+      <div class="tabs tabs--sticky tabs-demo-sticky">
+        <button type="button" class="tab t-label active">Overview</button>
+        <button type="button" class="tab t-label">Activity</button>
+        <button type="button" class="tab t-label">Settings</button>
+      </div>
+      <p class="use-case" style="margin-top:var(--sp-2)">This bar carries <strong>only</strong> the <code>.active</code> class &mdash; the four-tab bar above carries <strong>only</strong> <code>aria-selected</code>. Each hook is proven on its own.</p>
+      <p class="text-sm" style="margin-top:var(--sp-3)">Scroll this box: the bar pins to the top and the content passes behind it.</p>
+      <p class="text-sm">The fill is a tint of the ground token plus a backdrop blur, so it has no hard edge against the body gradient in either theme.</p>
+      <p class="text-sm">An opaque slab is the defect this replaces &mdash; it lands as a visible rectangle wherever the ambient wash differs from the fixed colour.</p>
+      <p class="text-sm">More content, so there is something to scroll.</p>
+      <p class="text-sm">More content.</p>
+      <p class="text-sm">More content.</p>
+      <p class="text-sm">End of the scrolled region.</p>
+    </div>
+
+
+    <!-- LIST TOOLBAR & PAGER -->
+    <h2>List Toolbar &amp; Pager</h2>
+    <p class="use-case"><code>.list-toolbar</code> &mdash; the search field takes the slack, actions keep their width, the row stacks rather than crushing the input. <code>.pager</code> renders plain <code>.btn.btn-ghost</code> controls around a <code>.pager-label</code>.</p>
+    <div class="well-content">
+      <div class="list-toolbar">
+        <span class="icon icon-search" aria-hidden="true"></span>
+        <input type="search" class="form-input form-input--search" placeholder="Search knowledge&hellip;" aria-label="Search knowledge">
+        <button type="button" class="btn btn-sm">Filters</button>
+        <button type="button" class="btn btn-primary btn-sm">Add entry</button>
+      </div>
+      <div class="pager">
+        <button type="button" class="btn btn-ghost">Previous</button>
+        <span class="pager-label t-caption">Page 1 of 5</span>
+        <button type="button" class="btn btn-ghost">Next</button>
+      </div>
+    </div>
 
 
     <!-- BANNERS -->
@@ -849,11 +1138,157 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- TOASTS -->
     <h2>Toast Notifications</h2>
+    <p class="use-case">Severity never rides on colour alone: each variant carries its own glyph as well as its edge hue, so the set stays readable in greyscale and for colour-blind users. <code>showToast()</code> passes its type through unvalidated, so an unrecognised variant falls back to the info glyph rather than rendering an empty box.</p>
+    <div class="banner-demo">
+      <div class="toast toast-success"><span>Session renamed</span><button type="button" class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button></div>
+      <div class="toast toast-error"><span>Failed to delete</span><button type="button" class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button></div>
+      <div class="toast toast-warning"><span>Rate limit approaching</span><button type="button" class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button></div>
+      <div class="toast toast-info"><span>Agent processing</span><button type="button" class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button></div>
+      <div class="toast toast-bogus"><span>Unrecognised variant &mdash; info glyph, neutral edge</span><button type="button" class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button></div>
+    </div>
+
+    <p class="use-case" style="margin-top:var(--sp-4)">Raised live they stack bottom-right in <code>.toast-container</code>, which sits at <code>--z-toast</code> &mdash; the top of the stacking ladder.</p>
     <div class="btn-row">
       <button type="button" class="btn" onclick="showDemoToast('success', 'Session renamed')">Success</button>
       <button type="button" class="btn" onclick="showDemoToast('error', 'Failed to delete')">Error</button>
       <button type="button" class="btn" onclick="showDemoToast('warning', 'Rate limit approaching')">Warning</button>
       <button type="button" class="btn" onclick="showDemoToast('info', 'Agent processing')">Info</button>
+    </div>
+
+
+    <!-- DIALOGS -->
+    <h2>Dialogs</h2>
+    <p class="use-case">One frame shape for every modal: <code>dialog</code> + its applicable width modifier + <code>card card-glass</code>. The family supplies the width contract, the <code>::backdrop</code> scrim and the header / body / footer split; colour and material come from the card. The frame carries no <code>z-index</code> &mdash; <code>showModal()</code> promotes it into the browser top layer, above every tier of the ladder.</p>
+    <p class="use-case">The two confirmations below are the <strong>same</strong> <code>.dialog--confirm</code> frame. Danger is a markup choice, not a variant: destructive adds the <code>triangle-alert</code> glyph and a <code>.btn-danger-fill</code> confirm, non-destructive has neither.</p>
+    <p class="use-case">The structured-input demo wraps its sections in a <code>&lt;form&gt;</code>, as every submitting dialog does. The three-part split has to survive that wrapper &mdash; without the <code>.dialog &gt; form</code> pass-through the form becomes the frame's only flex item, the body stops absorbing the squeeze and the footer is clipped out of reach.</p>
+    <div class="btn-row">
+      <button type="button" class="btn btn-danger" onclick="document.getElementById('demo-dialog-confirm').showModal()">Destructive confirmation</button>
+      <button type="button" class="btn" onclick="document.getElementById('demo-dialog-confirm-benign').showModal()">Non-destructive confirmation</button>
+      <button type="button" class="btn" onclick="document.getElementById('demo-dialog-form').showModal()">Structured input (<code>--md</code>)</button>
+      <button type="button" class="btn" onclick="document.getElementById('demo-dialog-sm').showModal()">Small tier (<code>--sm</code>)</button>
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('demo-dialog-default').showModal()">No width modifier</button>
+    </div>
+
+    <dialog id="demo-dialog-confirm" class="dialog dialog--confirm card card-glass" aria-labelledby="demo-dialog-confirm-title">
+      <div class="dialog-header">
+        <h3 class="t-heading" id="demo-dialog-confirm-title">Delete project</h3>
+        <button type="button" class="btn btn-ghost btn-icon" data-icon="x" aria-label="Close" onclick="this.closest('dialog').close()"></button>
+      </div>
+      <div class="dialog-body">
+        <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+        <p>Delete <strong>dartclaw-core</strong>? Its worktrees and task history go with it. This cannot be undone.</p>
+      </div>
+      <div class="dialog-footer">
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancel</button>
+          <button type="button" class="btn btn-danger-fill" onclick="this.closest('dialog').close()">Delete project</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="demo-dialog-confirm-benign" class="dialog dialog--confirm card card-glass" aria-labelledby="demo-dialog-confirm-benign-title">
+      <div class="dialog-header">
+        <h3 class="t-heading" id="demo-dialog-confirm-benign-title">Restart DartClaw</h3>
+        <button type="button" class="btn btn-ghost btn-icon" data-icon="x" aria-label="Close" onclick="this.closest('dialog').close()"></button>
+      </div>
+      <div class="dialog-body">
+        <p>Restart DartClaw? Active turns will complete first.</p>
+      </div>
+      <div class="dialog-footer">
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancel</button>
+          <button type="button" class="btn" onclick="this.closest('dialog').close()">Restart</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="demo-dialog-form" class="dialog dialog--md card card-glass" aria-labelledby="demo-dialog-form-title">
+      <form method="dialog" onsubmit="this.closest('dialog').close(); return false;">
+        <div class="dialog-header">
+          <h3 class="t-heading" id="demo-dialog-form-title">New task</h3>
+          <button type="button" class="btn btn-ghost btn-icon" data-icon="x" aria-label="Close" onclick="this.closest('dialog').close()"></button>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab t-label active" role="tab" aria-selected="true">Single Task</button>
+          <button type="button" class="tab t-label" role="tab" aria-selected="false">Workflow</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-field">
+            <label class="form-label t-label" for="demo-dialog-title">Title</label>
+            <input type="text" class="form-input" id="demo-dialog-title" placeholder="Brief task title">
+          </div>
+          <div class="form-field">
+            <label class="form-label t-label" for="demo-dialog-type">Type</label>
+            <select class="form-select" id="demo-dialog-type">
+              <option selected>Coding</option>
+              <option>Research</option>
+              <option>Review</option>
+            </select>
+            <span class="form-hint t-caption">Coding tasks run in isolated git worktrees and produce diffs for review.</span>
+          </div>
+          <div class="form-field">
+            <label class="form-label t-label" for="demo-dialog-brief">Implementation brief</label>
+            <textarea class="form-textarea" id="demo-dialog-brief" placeholder="What should change in the codebase?"></textarea>
+          </div>
+          <div class="form-field form-field--checkbox">
+            <input type="checkbox" class="form-checkbox" id="demo-dialog-auto" checked>
+            <label class="form-label t-label" for="demo-dialog-auto">Auto-accept the diff</label>
+          </div>
+          <div class="form-field">
+            <label class="form-label t-label" for="demo-dialog-dod">Definition of done</label>
+            <textarea class="form-textarea" id="demo-dialog-dod" placeholder="How do we know it is finished?"></textarea>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <div class="dialog-actions">
+            <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create task</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="demo-dialog-sm" class="dialog dialog--sm card card-glass" aria-labelledby="demo-dialog-sm-title">
+      <div class="dialog-header">
+        <h3 class="t-heading" id="demo-dialog-sm-title">Rename session</h3>
+        <button type="button" class="btn btn-ghost btn-icon" data-icon="x" aria-label="Close" onclick="this.closest('dialog').close()"></button>
+      </div>
+      <div class="dialog-body">
+        <div class="form-field">
+          <label class="form-label t-label" for="demo-dialog-sm-name">Session name</label>
+          <input type="text" class="form-input" id="demo-dialog-sm-name" value="Renamed Session">
+          <span class="form-hint t-caption">The small tier is <code>min(92vw, 480px)</code> &mdash; one question, one field.</span>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="this.closest('dialog').close()">Rename</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="demo-dialog-default" class="dialog card card-glass" aria-labelledby="demo-dialog-default-title">
+      <div class="dialog-header">
+        <h3 class="t-heading" id="demo-dialog-default-title">Bare <code>.dialog</code></h3>
+        <button type="button" class="btn btn-ghost btn-icon" data-icon="x" aria-label="Close" onclick="this.closest('dialog').close()"></button>
+      </div>
+      <div class="dialog-body">
+        <p>No width modifier, so this frame takes the <code>--md</code> default &mdash; <code>min(92vw, 680px)</code>. It neither collapses to its content nor spans the viewport.</p>
+      </div>
+      <div class="dialog-footer">
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <h3>Row-scoped destructive confirmation</h3>
+    <p class="use-case"><code>.delete-confirm-bar</code> &mdash; a delete that belongs to one row confirms in place, so the row stays visible as its own context. A modal here would hide the thing being deleted behind the question about deleting it.</p>
+    <div class="delete-confirm-bar">
+      <span class="confirm-msg">Delete 'daily-summary'?</span>
+      <button type="button" class="btn btn-danger-fill btn-sm">Confirm Delete</button>
+      <button type="button" class="btn btn-ghost btn-sm">Cancel</button>
     </div>
 
 
@@ -900,12 +1335,33 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- EMPTY STATE -->
     <h2>Empty State</h2>
+    <p class="use-case"><code>.empty-state-title</code> carries the headline at <code>--fg</code>, so the panel no longer needs an inline colour override on its <code>&lt;strong&gt;</code>.</p>
     <div class="well-content">
       <div class="empty-state">
         <img src="assets/logo-avatar-512-8bit.png" alt="" class="pixel-art" width="64" height="64">
-        <p><strong style="color:var(--fg)">No sessions yet</strong></p>
+        <p class="empty-state-title t-label">No sessions yet</p>
         <p>Create a new session to start chatting.</p>
         <button type="button" class="btn btn-primary">+ New Session</button>
+      </div>
+    </div>
+
+    <h3>Glyph variant &mdash; prompt mark instead of the mascot</h3>
+    <p class="use-case">The lighter shape for panel-level empties. <code>.empty-state .icon</code> is a <em>text</em> treatment here, so the glyph must not inherit the icon system's mask fill.</p>
+    <div class="well-content">
+      <div class="empty-state">
+        <div class="icon" aria-hidden="true">&#10095;_</div>
+        <p class="empty-state-title t-label">No guard events recorded yet</p>
+        <p>Events appear here as guards evaluate.</p>
+      </div>
+    </div>
+
+    <h3>Masked icon inside an empty state</h3>
+    <p class="use-case">A real <code>.icon.icon-*</code> keeps the mask system's fill &mdash; only the bare text glyph above opts out.</p>
+    <div class="well-content">
+      <div class="empty-state">
+        <span class="icon icon-file-text" aria-hidden="true"></span>
+        <p class="empty-state-title t-label">No knowledge entries</p>
+        <p>Ingest a document to populate the hub.</p>
       </div>
     </div>
 
@@ -959,7 +1415,7 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- ICONS -->
     <h2>Icons</h2>
-    <p>39 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
+    <p>49 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
 
     <h3>Inline Icons (<code>.icon.icon-*</code>)</h3>
     <div class="card" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--sp-3); padding:var(--sp-4)">
@@ -974,15 +1430,19 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-check"></span><span class="text-xs">check</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-chevron-down"></span><span class="text-xs">chevron-down</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-chevron-right"></span><span class="text-xs">chevron-right</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-chevron-up"></span><span class="text-xs">chevron-up</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-check"></span><span class="text-xs">circle-check</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-x"></span><span class="text-xs">circle-x</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clipboard-list"></span><span class="text-xs">clipboard-list</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clock"></span><span class="text-xs">clock</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-corner-down-right"></span><span class="text-xs">corner-down-right</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-file-json"></span><span class="text-xs">file-json</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-file-warning"></span><span class="text-xs">file-warning</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-folder-kanban"></span><span class="text-xs">folder-kanban</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-git-branch"></span><span class="text-xs">git-branch</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-hash"></span><span class="text-xs">hash</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-info"></span><span class="text-xs">info</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-layers"></span><span class="text-xs">layers</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-menu"></span><span class="text-xs">menu</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-message-circle"></span><span class="text-xs">message-circle</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-messages-square"></span><span class="text-xs">messages-square</span></span>
@@ -1018,9 +1478,8 @@ done.<span class="streaming"></span></code></pre>
     <p class="use-case">Icons scale with <code>font-size</code> via <code>em</code> units:</p>
     <div class="btn-row" style="align-items:flex-end; gap:var(--sp-4)">
       <span style="font-size:var(--text-xs)"><span class="icon icon-settings"></span> 12px</span>
-      <span style="font-size:var(--text-sm)"><span class="icon icon-settings"></span> 13px</span>
       <span style="font-size:var(--text-base)"><span class="icon icon-settings"></span> 14px</span>
-      <span style="font-size:var(--text-lg)"><span class="icon icon-settings"></span> 16px</span>
+      <span style="font-size:var(--text-lg)"><span class="icon icon-settings"></span> 18px</span>
       <span style="font-size:var(--text-xl)"><span class="icon icon-settings"></span> 20px</span>
       <span style="font-size:24px"><span class="icon icon-settings"></span> 24px</span>
     </div>
@@ -1037,9 +1496,39 @@ done.<span class="streaming"></span></code></pre>
     </div>
 
 
+    <!-- SHELL SIZING & SKIP NAVIGATION -->
+    <h2>Shell row sizing &amp; skip navigation</h2>
+    <p>The <code>.skip-link</code> is the shell's first child. It is out of the visual flow at rest and
+      keyboard focus reveals it <em>above</em> the sidebar and topbar chrome &ndash; tab into the demo to see it.
+      <code>.shell</code>'s second row is <code>minmax(0, 1fr)</code> and <code>.content-area</code> carries
+      <code>min-height: 0</code>. Without both, a grid row refuses to shrink below its content and a long page
+      pushes the shell past <code>100dvh</code> instead of scrolling inside it. Here the content overflows and
+      the shell holds its height &ndash; only <code>.content-area</code> scrolls.</p>
+    <div class="shell demo-shell demo-shell--short">
+      <a class="skip-link" href="#skip-target">Skip to content</a>
+      <div class="sidebar">
+        <div class="sidebar-header"><span class="logo">DartClaw</span></div>
+        <div class="sidebar-section">
+          <div class="sidebar-section-label">Workspace</div>
+          <a class="sidebar-nav-item" data-icon="health">Health</a>
+          <hr class="sidebar-divider">
+          <a class="sidebar-nav-item" data-icon="settings">Settings</a>
+        </div>
+      </div>
+      <div class="topbar"><div class="session-title-static">Long page</div></div>
+      <div class="content-area">
+        <div class="content-inner">
+          <div class="card" id="skip-target"><div class="card-header">One</div><div class="card-body">The row shrinks to the shell, so this column scrolls. The skip link above lands here.</div></div>
+          <div class="card"><div class="card-header">Two</div><div class="card-body">Content keeps going.</div></div>
+          <div class="card"><div class="card-header">Three</div><div class="card-body">And going.</div></div>
+          <div class="card"><div class="card-header">Four</div><div class="card-body">The shell never grows past its own height.</div></div>
+        </div>
+      </div>
+    </div>
+
     <!-- FULL LAYOUT -->
     <h2>Full Layout</h2>
-    <div class="demo-shell">
+    <div class="shell demo-shell">
       <div class="sidebar" id="demo-sidebar">
         <div class="sidebar-header"><span class="claw-mark" style="font-size:var(--text-base)"></span><span class="logo">DartClaw</span></div>
         <button type="button" class="btn btn-ghost btn-new-session" style="width:calc(100% - var(--sp-6))">+ New Session</button>
@@ -1078,6 +1567,38 @@ done.<span class="streaming"></span></code></pre>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="use-case">The session topbar above keeps an editable <code>.session-title</code> input &mdash; it names a
+      thing the reader can rename. Every other page uses the <code>pageTopbar</code> shape below: the topbar owns the
+      page title as the document's only <code>&lt;h1&gt;</code>, and a page that sits under another renders
+      <code>.topbar-back</code> before it with a destination-specific label.</p>
+    <div class="shell demo-shell demo-shell--short">
+      <div class="sidebar" id="demo-page-sidebar">
+        <div class="sidebar-header"><span class="claw-mark" style="font-size:var(--text-base)"></span><span class="logo">DartClaw</span></div>
+        <div class="session-list">
+          <div class="sidebar-section-label">System</div>
+          <div class="sidebar-nav-item active">Tasks</div>
+          <div class="sidebar-nav-item">Health</div>
+        </div>
+      </div>
+      <button type="button" class="sidebar-scrim" aria-label="Close sidebar"></button>
+      <div class="topbar">
+        <button
+          type="button"
+          class="btn btn-ghost btn-icon menu-toggle"
+          aria-controls="demo-page-sidebar"
+          aria-expanded="false"
+          aria-label="Open sidebar">&#9776;</button>
+        <a href="#" class="topbar-back"><span class="icon icon-arrow-left" aria-hidden="true"></span> <span>Back to Tasks</span></a>
+        <h1 class="session-title-static t-page-title">Task: Refactor auth module</h1>
+        <div class="topbar-actions"><button type="button" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button></div>
+      </div>
+      <div class="content-area">
+        <div class="content-inner">
+          <div class="card"><div class="card-body">Page content.</div></div>
         </div>
       </div>
     </div>
@@ -1141,8 +1662,8 @@ done.<span class="streaming"></span></code></pre>
       const dismiss = document.createElement('button');
       dismiss.type = 'button';
       dismiss.className = 'toast-dismiss';
-      dismiss.setAttribute('aria-label', 'Dismiss notification');
-      dismiss.textContent = '\u00D7';
+      dismiss.setAttribute('aria-label', 'Dismiss');
+      dismiss.setAttribute('data-icon', 'x');
       dismiss.addEventListener('click', () => {
         t.classList.add('removing');
         t.addEventListener('animationend', () => t.remove(), {once:true});

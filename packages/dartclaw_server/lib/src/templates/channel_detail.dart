@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show TaskType;
 
+import '../web/channel_status.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -9,12 +10,14 @@ import 'topbar.dart';
 ///
 /// Shows DM access mode + allowlist, group access mode + allowlist,
 /// and mention gating toggle. Mode changes are restart-required;
-/// DM allowlist changes are live.
+/// DM allowlist changes are live only while the channel is connected.
+///
+/// [status] is the sole source of every status-derived value on the page —
+/// badge, dot, state banner, DM policy hint and the connected-only action.
 String channelDetailTemplate({
   required String channelType,
   required String channelLabel,
-  required String statusLabel,
-  required String statusClass,
+  required ChannelStatus status,
   String? phone,
   required String dmAccessMode,
   required List<String> dmAccessModes,
@@ -32,7 +35,7 @@ String channelDetailTemplate({
   required SidebarData sidebarData,
   required List<NavItem> navItems,
   List<Map<String, dynamic>> pendingPairings = const [],
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
@@ -40,6 +43,7 @@ String channelDetailTemplate({
     title: '$channelLabel Channel',
     backHref: '/settings#channels',
     backLabel: 'Settings',
+    restartBannerHtml: restartBannerHtml,
   );
 
   final pairingHref = switch (channelType) {
@@ -48,7 +52,7 @@ String channelDetailTemplate({
     _ => null,
   };
   final disconnectHref = pairingHref != null ? '$pairingHref/disconnect' : null;
-  final isConnected = statusLabel == 'Connected';
+  final presentation = status.presentation;
   final heroTitle = channelLabel;
   final heroSubtitle = switch (channelType) {
     'whatsapp' => 'Channel access rules, pairing approvals, and session routing.',
@@ -66,23 +70,32 @@ String channelDetailTemplate({
     'topbar': topbar,
     'channelType': channelType,
     'channelLabel': channelLabel,
-    'statusLabel': statusLabel,
-    'statusClass': statusClass,
+    'statusLabel': presentation.label,
+    'statusClass': presentation.badgeClass,
+    'statusDotClass': 'status-dot--${presentation.dotVariant}',
+    'stateBannerClass': presentation.stateBannerVariant == null
+        ? null
+        : 'banner banner-${presentation.stateBannerVariant}',
+    'stateBannerText': presentation.stateBannerText,
+    'dmPolicyHint': presentation.dmPolicyHint,
     'phone': phone,
     'pairingHref': pairingHref,
     'disconnectHref': disconnectHref,
-    'showDisconnectAction': isConnected && pairingHref != null,
+    'showDisconnectAction': presentation.connected && pairingHref != null,
     'heroTitle': heroTitle,
     'heroSubtitle': heroSubtitle,
     'dmAccessMode': dmAccessMode,
     'dmAccessModes': dmAccessModes,
     'dmModeCards': dmCards,
-    'dmAllowlist': dmAllowlist,
+    // Trellis `tl:unless` does not fire for an empty-but-non-null list, so the
+    // "No entries" row only appears if emptiness arrives as null — the same
+    // mapping pendingPairings already uses. Counts stay on the real lists.
+    'dmAllowlist': dmAllowlist.isEmpty ? null : dmAllowlist,
     'dmAllowlistCount': dmAllowlist.length,
     'groupAccessMode': groupAccessMode,
     'groupAccessModes': groupAccessModes,
     'groupModeCards': groupCards,
-    'groupAllowlist': groupAllowlist,
+    'groupAllowlist': groupAllowlist.isEmpty ? null : groupAllowlist,
     'groupAllowlistCount': groupAllowlist.length,
     'requireMention': requireMention,
     'taskTriggerEnabled': taskTriggerEnabled,
@@ -93,9 +106,8 @@ String channelDetailTemplate({
     'groupAccessDisabled': groupAccessDisabled,
     'entryPlaceholder': entryPlaceholder,
     'groupPlaceholder': groupPlaceholder,
-    'showPairingSection': dmAccessMode == 'pairing',
+    'pairingSectionHidden': dmAccessMode == 'pairing' ? null : 'hidden',
     'pendingPairings': pendingPairings.isNotEmpty ? pendingPairings : null,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
   return layoutTemplate(title: '$channelLabel Channel', body: body, appName: appName, scripts: standardShellScripts());

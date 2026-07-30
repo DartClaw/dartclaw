@@ -9,7 +9,7 @@
     </div>
   </div>
   <div tl:unless="${hasSession}" class="workflow-step-no-session">
-    <span class="empty-state-text" tl:text="${noSessionText}">No session yet.</span>
+    <span class="text-muted" tl:text="${noSessionText}">No session yet.</span>
   </div>
 
   <div tl:if="${hasArtifacts}" class="workflow-step-artifacts">

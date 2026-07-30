@@ -4,39 +4,58 @@
 </div>
 
 <div tl:fragment="emptyState" class="empty-state">
-  <div class="icon">&#10095;_</div>
-  <p><strong>No messages yet</strong></p>
-  <p>Send a message to start the conversation.</p>
+  <img tl:if="${useMascot}" src="/static/mascot-avatar-512-8bit.png" class="pixel-art" width="64" height="64" alt="">
+  <div tl:unless="${useMascot}" class="icon" aria-hidden="true">&#10095;_</div>
+  <p class="empty-state-title t-label" tl:text="${title}">No messages yet</p>
+  <p tl:text="${body}">Send a message to start the conversation.</p>
+  <tl:block tl:if="${actionHtml}" tl:utext="${actionHtml}"></tl:block>
 </div>
 
 <main tl:fragment="emptyAppState" id="main-content" tabindex="-1" hx-history-elt class="chat-area print-in">
   <div class="empty-state flex-fill">
-    <div class="icon">&#10095;_</div>
-    <p><strong>No chats yet</strong></p>
+    <img src="/static/mascot-avatar-512-8bit.png" class="pixel-art" width="64" height="64" alt="">
+    <p class="empty-state-title t-label">No chats yet</p>
     <p tl:text="'Create a new chat to start chatting with ' + ${appName} + '.'">Create a new chat to start chatting with DartClaw.</p>
-    <button class="btn btn-primary" data-session-create="true">+ New Chat</button>
+    <button class="btn btn-primary" data-session-create="true" data-icon="plus">New Chat</button>
   </div>
 </main>
 
 <span tl:fragment="statusBadge" class="status-badge"
-      tl:classappend="'status-badge-' + ${variant}"
-      tl:text="${text}">status</span>
+      tl:classappend="'status-badge-' + ${variant}">
+  <span tl:if="${dot}" class="status-dot" tl:classappend="'status-dot--' + ${dot}" aria-hidden="true"></span>
+  <span tl:text="${text}">status</span></span>
+
+<span tl:fragment="statusPill" class="status-pill"
+      tl:classappend="'status-pill--' + ${variant}">
+  <span tl:if="${dot}" class="status-dot" tl:classappend="'status-dot--' + ${dot}" aria-hidden="true"></span>
+  <span tl:text="${text}">status</span></span>
 
 <div tl:fragment="metricCard" class="card card-metric"
      tl:classappend="'card-metric--' + ${color}">
-  <div class="metric-value" tl:text="${value}">0</div>
+  <div class="metric-value t-metric" tl:classappend="${valueAbsent} ? 'value-absent' : ''"
+       tl:text="${value}">0</div>
   <div class="metric-label" tl:attr="title=${labelTooltip}" tl:text="${label}">Metric</div>
 </div>
+
+<header tl:fragment="pageHeader" class="pagehead">
+  <div>
+    <h2 tl:if="${title}" class="t-page-title" tl:text="${title}">Page Title</h2>
+    <p tl:if="${subtitle}" class="page-subtitle t-body" tl:text="${subtitle}">Subtitle</p>
+  </div>
+  <div tl:if="${actionsHtml}" class="pagehead-actions" tl:utext="${actionsHtml}"></div>
+</header>
 
 <div tl:fragment="infoCard" class="card">
   <div class="card-header">
     <span class="card-title" tl:text="${title}">Title</span>
-    <span class="card-badge" tl:classappend="${badgeClass}" tl:text="${badgeText}">ok</span>
   </div>
-  <div class="card-rows">
+  <div class="card-body">
     <div class="card-row" tl:each="row : ${rows}">
       <span class="card-row-label" tl:text="${row.label}">Label</span>
       <span class="card-row-value" tl:classappend="${row.valueClass}" tl:text="${row.value}">Value</span>
     </div>
+  </div>
+  <div class="card-footer">
+    <span class="status-badge" tl:classappend="'status-badge-' + ${variant}" tl:text="${badgeText}">ok</span>
   </div>
 </div>

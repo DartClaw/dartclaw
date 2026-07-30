@@ -1,10 +1,16 @@
 import 'dart:io';
 
 import 'package:dartclaw_server/src/templates/chat.dart' show richInputHtmlFromMetadataMap;
+import 'package:dartclaw_server/src/templates/components.dart';
+import 'package:dartclaw_server/src/templates/error_page.dart';
+import 'package:dartclaw_server/src/templates/layout.dart';
 import 'package:dartclaw_server/src/templates/loader.dart' as server;
+import 'package:dartclaw_server/src/templates/login.dart';
 import 'package:dartclaw_server/src/version.dart';
 import 'package:test/test.dart';
 import 'package:trellis/trellis.dart';
+
+import '../test_utils.dart';
 
 void _expectAll(String html, Iterable<String> needles) {
   for (final needle in needles) {
@@ -41,8 +47,17 @@ Map<String, dynamic> _sidebarContext(Map<String, dynamic> overrides) => {
   ...overrides,
 };
 
+/// Session info's title/session-id head is the shared `pageHeader` fragment, so
+/// the page-level tests compose it through the same engine rather than pinning a
+/// literal – a change to the fragment's anatomy must reach these cases.
+Future<String> _sessionHeader(Trellis engine, {required String title, required String sessionId}) =>
+    engine.renderFileFragment(
+      'components',
+      fragment: 'pageHeader',
+      context: {'title': title, 'subtitle': sessionId, 'actionsHtml': null},
+    );
+
 Map<String, dynamic> _sessionInfoContext(Map<String, dynamic> overrides) => {
-  'title': 'My Research',
   'sessionId': 'abc-123',
   'inputStr': '1.2K',
   'outputStr': '3.4K',
@@ -174,13 +189,30 @@ void main() {
       );
       _expectAll(banner, ['banner-warning', '&lt;b&gt;oops']);
 
-      final emptyState = await engine.renderFileFragment('components', fragment: 'emptyState', context: const {});
+      final emptyState = await engine.renderFileFragment(
+        'components',
+        fragment: 'emptyState',
+        context: const {'title': 'No messages yet', 'body': 'Send a message to start the conversation.'},
+      );
       _expectAll(emptyState, ['No messages yet', 'empty-state', '❯_']);
       expect(emptyState, isNot(anyOf(contains('claw-mark'), contains('mascot-'))));
 
       final emptyAppState = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
-      _expectAll(emptyAppState, ['No chats yet', '❯_']);
-      expect(emptyAppState, isNot(anyOf(contains('claw-mark'), contains('mascot-'))));
+      // The empty-install state uses the same brand recipe as the generic
+      // fragment's mascot variant: one 64px decorative mascot, a titled
+      // headline, and a verb+noun action with an icon rather than a '+ ' label.
+      _expectAll(emptyAppState, [
+        'No chats yet',
+        'empty-state-title',
+        'mascot-avatar-512-8bit.png',
+        'class="pixel-art"',
+        'alt=""',
+        'data-icon="plus"',
+        '>New Chat<',
+      ]);
+      expect(emptyAppState, isNot(contains('❯_')));
+      expect(emptyAppState, isNot(contains('+ New Chat')));
+      expect(emptyAppState, isNot(contains('claw-mark')));
       expect(emptyAppState, isNot(contains('data-dc-legacy-action')));
     });
   });
@@ -197,9 +229,10 @@ void main() {
       _expectAll(html, [
         '<!DOCTYPE html>',
         '&lt;script&gt;',
-        'htmx.org',
-        'marked',
+        '/static/v$dartclawVersion/htmx.min.js',
+        '/static/v$dartclawVersion/marked.min.js',
         'purify.min.js',
+        '/static/v$dartclawVersion/fonts/jetbrains-mono-latin.woff2',
         '/static/v$dartclawVersion/tokens.css',
         '/static/v$dartclawVersion/app-tokens.css',
         '/static/v$dartclawVersion/design-system.css',
@@ -210,6 +243,20 @@ void main() {
         '/static/extra-page.js',
       ]);
       _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js', 'href="data:,"']);
+
+      // Every runtime dependency is vendored, so the rendered layout must name
+      // no external origin at all. Asserting the absence of any scheme (rather
+      // than of the specific hosts once loaded here) also catches a CDN nobody
+      // predicted, and catches it in the rendered output rather than the source
+      // template, where `${assetPrefix}` has already been applied.
+      _expectNone(html, ['https://', 'http://', 'src="//', 'href="//']);
+
+      // htmx must execute before the SSE extension registers against it; both
+      // are `defer`, so document order is execution order.
+      expect(
+        html.indexOf('/static/v$dartclawVersion/htmx.min.js'),
+        lessThan(html.indexOf('/static/v$dartclawVersion/sse.js')),
+      );
     });
 
     test('topbar fragments render expected controls', () async {
@@ -260,6 +307,35 @@ void main() {
   });
 
   group('sidebar.html', () {
+    test('archived session delete carries the escaped title, not just the id', () async {
+      // The delete confirmation names the chat the way the sidebar does, so a
+      // hostile title must survive as attribute text rather than as markup.
+      final html = await engine.renderFileFragment(
+        'sidebar',
+        fragment: 'sidebar',
+        context: _sidebarContext({
+          'hasArchivedEntries': true,
+          'archivedEntries': [
+            {
+              'id': 's2',
+              'href': '/sessions/s2',
+              'active': false,
+              'extraClass': '',
+              'title': 'Deploy "prod" <now> & wait',
+              'provider': 'claude',
+              'providerLabel': 'Claude',
+              'showProvider': true,
+            },
+          ],
+          'archivedCount': 1,
+        }),
+      );
+
+      expect(html, contains('data-session-id="s2"'));
+      expect(html, contains('data-session-title="Deploy &quot;prod&quot; <now> &amp; wait"'));
+      expect(html, isNot(contains('data-session-title="Deploy "prod"')));
+    });
+
     test('renders empty, provider, navigation, and action states', () async {
       final empty = await engine.renderFileFragment('sidebar', fragment: 'sidebar', context: _sidebarContext({}));
       _expectAll(empty, ['No active channels', 'No chats yet']);
@@ -285,6 +361,7 @@ void main() {
               'title': 'DM session',
               'provider': 'codex',
               'providerLabel': 'Codex',
+              'showProvider': true,
             },
           ],
           'groupChannels': [
@@ -295,6 +372,7 @@ void main() {
               'title': 'Group session',
               'provider': 'claude',
               'providerLabel': 'Claude',
+              'showProvider': true,
             },
           ],
           'noActiveEntries': false,
@@ -307,6 +385,7 @@ void main() {
               'title': 'Active session',
               'provider': 'codex',
               'providerLabel': 'Codex',
+              'showProvider': true,
             },
           ],
           'hasArchivedEntries': true,
@@ -319,6 +398,7 @@ void main() {
               'title': 'Archived session',
               'provider': 'claude',
               'providerLabel': 'Claude',
+              'showProvider': true,
             },
           ],
           'archivedCount': 1,
@@ -368,7 +448,9 @@ void main() {
       _expectAll(entries, [
         'hx-target="#main-content"',
         'hx-push-url="true"',
-        'hx-select-oob="#topbar,#sidebar"',
+        // Navigation replaces the restart slot alongside the topbar, so the
+        // banner cannot survive as stale chrome from the previous page.
+        'hx-select-oob="#topbar,#restart-banner-slot,#sidebar"',
         'Research',
         'data-session-archive="true"',
         'data-session-delete="true"',
@@ -411,7 +493,9 @@ void main() {
       final basic = await engine.renderFileFragment(
         'session_info',
         fragment: 'sessionInfo',
-        context: _sessionInfoContext({}),
+        context: _sessionInfoContext({
+          'pageHeaderHtml': await _sessionHeader(engine, title: 'My Research', sessionId: 'abc-123'),
+        }),
       );
       _expectAll(basic, ['My Research', 'abc-123', '1.2K', '3.4K', '4.6K', '42']);
 
@@ -419,7 +503,7 @@ void main() {
         'session_info',
         fragment: 'sessionInfo',
         context: _sessionInfoContext({
-          'title': 'Claude Session',
+          'pageHeaderHtml': await _sessionHeader(engine, title: 'Claude Session', sessionId: 'claude-1'),
           'sessionId': 'claude-1',
           'inputStr': '120',
           'outputStr': '80',
@@ -427,6 +511,7 @@ void main() {
           'messageCount': 2,
           'provider': 'claude',
           'providerLabel': 'Claude',
+          'showProvider': true,
           'hasEstimatedCost': true,
           'estimatedCostUsd': 0.42,
           'estimatedCostDisplay': r'$0.42',
@@ -442,7 +527,7 @@ void main() {
         'session_info',
         fragment: 'sessionInfo',
         context: _sessionInfoContext({
-          'title': 'Codex Session',
+          'pageHeaderHtml': await _sessionHeader(engine, title: 'Codex Session', sessionId: 'codex-1'),
           'sessionId': 'codex-1',
           'inputStr': '310',
           'outputStr': '90',
@@ -450,6 +535,7 @@ void main() {
           'messageCount': 4,
           'provider': 'codex',
           'providerLabel': 'Codex',
+          'showProvider': true,
           'hasEstimatedCost': false,
           'estimatedCostUsd': 0.0,
           'estimatedCostDisplay': null,
@@ -463,9 +549,13 @@ void main() {
       final escaped = await engine.renderFileFragment(
         'session_info',
         fragment: 'sessionInfo',
-        context: _sessionInfoContext({'title': '<script>xss</script>', 'sessionId': 'x'}),
+        context: _sessionInfoContext({
+          'pageHeaderHtml': await _sessionHeader(engine, title: '<script>xss</script>', sessionId: 'x'),
+          'sessionId': 'x',
+        }),
       );
       expect(escaped, contains('&lt;script&gt;'));
+      expect(escaped, isNot(contains('<script>xss')));
     });
 
     test('defaults legacy usage data to Claude-style cost display', () async {
@@ -473,7 +563,7 @@ void main() {
         'session_info',
         fragment: 'sessionInfo',
         context: _sessionInfoContext({
-          'title': 'Legacy Session',
+          'pageHeaderHtml': await _sessionHeader(engine, title: 'Legacy Session', sessionId: 'legacy-1'),
           'sessionId': 'legacy-1',
           'inputStr': '10',
           'outputStr': '15',
@@ -497,8 +587,10 @@ void main() {
         context: {
           'pulseClass': 'pulse-active',
           'heartbeatBadgeHtml': '<span class="status-badge status-badge-success">Active</span>',
+          'hasHeartbeatMetrics': true,
           'heartbeatMetricCardsHtml':
-              '<div class="card card-metric card-metric--info"><div class="metric-value">every 30 min</div><div class="metric-label">Interval</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">Active</div><div class="metric-label">Status</div></div>',
+              '<div class="card card-metric card-metric--info"><div class="metric-value t-metric">30</div>'
+              '<div class="metric-label">Interval (min)</div></div>',
           'hasJobs': true,
           'jobs': [
             {
@@ -523,15 +615,18 @@ void main() {
         context: {
           'pulseClass': '',
           'heartbeatBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'heartbeatMetricCardsHtml':
-              '<div class="card card-metric card-metric--info"><div class="metric-value">-</div><div class="metric-label">Interval</div></div><div class="card card-metric card-metric--warning"><div class="metric-value">Disabled</div><div class="metric-label">Status</div></div>',
+          // Disabled: no interval to report, so no metric card is emitted at all.
+          'hasHeartbeatMetrics': false,
+          'jobsEmptyStateHtml':
+              '<div class="empty-state"><p class="empty-state-title t-label">No scheduled jobs</p></div>',
           'hasJobs': false,
           'jobs': <Map<String, dynamic>>[],
           'sidebar': '',
           'topbar': '',
         },
       );
-      _expectAll(empty, ['No scheduled jobs configured', 'Disabled']);
+      _expectAll(empty, ['No scheduled jobs', 'Disabled']);
+      _expectNone(empty, ['card-metric']);
     });
 
     test('health dashboard renders metrics and escapes version', () async {
@@ -542,11 +637,14 @@ void main() {
           'statusColorClass': 'status-healthy',
           'statusIcon': '<svg>check</svg>',
           'statusLabel': 'Healthy',
-          'uptimeStr': '3d 14h 22m',
           'version': '0.3.0',
           'workerState': 'running',
-          'cardsHtml': '<div class="card"><span class="card-title">Worker</span><span>running</span></div>',
-          'metricsHtml': '<div class="metric-value">12</div><div class="metric-label">DB Size</div><div>2.4 MB</div>',
+          'workerValueClass': 'text-success',
+          'cardsHtml': '<div class="card"><span class="card-title">Storage</span><span>SQLite</span></div>',
+          // Uptime is a KPI tile now, not a hero row – the fixture mirrors that.
+          'metricsHtml':
+              '<div class="metric-value">3d 14h 22m</div><div class="metric-label">Uptime</div>'
+              '<div class="metric-value">12</div><div class="metric-label">DB Size</div><div>2.4 MB</div>',
           'sidebar': '',
           'topbar': '',
         },
@@ -560,9 +658,9 @@ void main() {
           'statusColorClass': 'status-error',
           'statusIcon': '',
           'statusLabel': 'Down',
-          'uptimeStr': '0m',
           'version': '<script>',
           'workerState': 'crashed',
+          'workerValueClass': 'text-error',
           'cardsHtml': '',
           'metricsHtml': '',
           'sidebar': '',
@@ -749,6 +847,171 @@ void main() {
       ]);
       expect(response, isNot(contains('id="streaming-content" class="print-in"')));
       expect(response, isNot(contains('display:none')));
+    });
+  });
+
+  group('shell scaffolding contracts', () {
+    setUp(() => server.initTemplates(resolveTemplatesDir()));
+    tearDown(server.resetTemplates);
+
+    test('skip link is emitted only where the body supplies #main-content', () {
+      // A skip link is a focusable control. Rendering one on a body with no
+      // #main-content gives the keyboard operator a first Tab stop that does
+      // nothing, which is worse than having no skip link at all.
+      final shell = layoutTemplate(
+        title: 'Test',
+        body: '<main id="main-content" tabindex="-1"></main>',
+        showSkipLink: true,
+      );
+      expect('skip-link'.allMatches(shell).length, 1);
+      expect(shell, contains('<a class="skip-link" href="#main-content">Skip to content</a>'));
+      expect(shell, contains('id="main-content"'));
+      expect(
+        shell.indexOf('skip-link'),
+        lessThan(shell.indexOf('id="main-content"')),
+        reason: 'the skip link must precede its target so it is the first Tab stop',
+      );
+      final bodyOpenEnd = shell.indexOf('>', shell.indexOf('<body')) + 1;
+      expect(
+        shell.substring(bodyOpenEnd, shell.indexOf('<a class="skip-link"')).trim(),
+        isEmpty,
+        reason: 'the skip link must be the first element in <body> so nothing focusable precedes it',
+      );
+
+      final login = loginPageTemplate();
+      expect(login, isNot(contains('skip-link')));
+      expect(login, isNot(contains('id="main-content"')));
+
+      final bareError = errorPageTemplate(404, 'Not Found', 'Gone');
+      expect(bareError, isNot(contains('skip-link')));
+      expect(bareError, isNot(contains('id="main-content"')));
+    });
+
+    test('the shared topbar owns the page h1', () async {
+      // The topbar is the only <h1> on a page; per-surface templates carry a
+      // subtitle or description head instead.
+      final page = await engine.renderFileFragment(
+        'topbar',
+        fragment: 'pageTopbar',
+        context: {'title': 'Settings', 'backHref': '/', 'backLabel': 'Back'},
+      );
+      expect('<h1'.allMatches(page).length, 1);
+      expect(page, contains('<h1 class="session-title-static t-page-title">Settings</h1>'));
+
+      final plain = await engine.renderFileFragment(
+        'topbar',
+        fragment: 'plainTopbar',
+        context: const {'appName': 'DartClaw'},
+      );
+      expect('<h1'.allMatches(plain).length, 1);
+      expect(plain, contains('t-page-title'));
+
+      // sessionTopbar's title is an editable input (and its archive twin a
+      // read-only span), neither of which can be a heading.
+      final session = await engine.renderFileFragment(
+        'topbar',
+        fragment: 'sessionTopbar',
+        context: {
+          'displayTitle': 'My Chat',
+          'sessionId': 'sess-1',
+          'isArchive': false,
+          'showResume': false,
+          'showReset': false,
+          'infoHref': '/sessions/sess-1/info',
+          'resetHref': '/api/sessions/sess-1/reset',
+        },
+      );
+      expect(session, isNot(contains('<h1')));
+    });
+  });
+
+  group('shared page fragments', () {
+    setUp(() => server.initTemplates(resolveTemplatesDir()));
+    tearDown(server.resetTemplates);
+
+    test('pageHeader emits one heading treatment with optional subtitle and actions', () {
+      final full = pageHeaderTemplate(
+        title: 'Projects',
+        subtitle: 'Repositories the agent can work in.',
+        actionsHtml: '<button class="btn btn-primary" data-icon="plus">Add Project</button>',
+      );
+      _expectAll(full, [
+        '<header class="pagehead">',
+        '<h2 class="t-page-title">Projects</h2>',
+        'Repositories the agent can work in.',
+        'pagehead-actions',
+        'Add Project',
+      ]);
+      // The topbar owns the page's single <h1>; this heading is one tier down.
+      expect(full, isNot(contains('<h1')));
+      expect(full.indexOf('t-page-title'), lessThan(full.indexOf('page-subtitle')));
+      expect(full.indexOf('page-subtitle'), lessThan(full.indexOf('pagehead-actions')));
+
+      final headless = pageHeaderTemplate(
+        subtitle: 'No title on this one.',
+        actionsHtml: '<button class="btn">Act</button>',
+      );
+      expect(headless, isNot(contains('<h2')));
+      _expectAll(headless, ['No title on this one.', 'pagehead-actions', 'Act']);
+
+      final bare = pageHeaderTemplate(title: 'Tasks');
+      _expectAll(bare, ['<h2 class="t-page-title">Tasks</h2>']);
+      _expectNone(bare, ['pagehead-actions', 'page-subtitle']);
+
+      expect(pageHeaderTemplate(title: '<script>x</script>'), contains('&lt;script&gt;'));
+    });
+
+    test('emptyState is one implementation with two bounded visual branches', () {
+      final plain = emptyStateTemplate(title: 'No tasks yet', body: 'Tasks will appear here when created.');
+      _expectAll(plain, [
+        'class="empty-state"',
+        'class="icon" aria-hidden="true"',
+        '<p class="empty-state-title t-label">No tasks yet</p>',
+        'Tasks will appear here when created.',
+      ]);
+      _expectNone(plain, ['mascot-', '<button', 'pixel-art']);
+
+      final withAction = emptyStateTemplate(
+        title: 'No projects registered',
+        body: 'Add a project to run tasks against external repositories.',
+        actionHtml: '<button class="btn btn-primary" data-project-dialog-open>Add Project</button>',
+      );
+      _expectAll(withAction, ['No projects registered', 'data-project-dialog-open', 'Add Project']);
+      expect(withAction, contains('class="icon" aria-hidden="true"'));
+
+      // The mascot is the one bounded alternative visual, decorative because
+      // title and body carry the state. The in-session chat caller is its only consumer.
+      final mascot = emptyStateTemplate(title: 'No messages yet', body: 'Say something.', useMascot: true);
+      expect('pixel-art'.allMatches(mascot).length, 1);
+      _expectAll(mascot, ['mascot-avatar-512-8bit.png', 'width="64"', 'height="64"', 'alt=""']);
+      expect(mascot, isNot(contains('class="icon"')));
+
+      // Caller-supplied title and body are escaped; only the action slot is raw.
+      expect(
+        emptyStateTemplate(title: '<script>x</script>', body: 'a & b'),
+        allOf(contains('&lt;script&gt;'), contains('a &amp; b')),
+      );
+    });
+
+    test('metricCard binds the canonical metric tier once for every consumer', () {
+      final card = metricCardTemplate(color: 'accent', value: '42', label: 'Tasks');
+      expect(card, contains('class="metric-value t-metric"'));
+      _expectAll(card, ['card card-metric', 'card-metric--accent', '42', 'Tasks']);
+    });
+
+    test('metricCard renders the canon absent treatment, and a real zero stays a zero', () {
+      // The rendered half of the absent contract: helpers_test pins the record,
+      // this pins that the Trellis ternary and the context key actually emit it.
+      final absent = metricCardTemplate(color: 'info', value: null, label: 'Input');
+      expect(absent, contains('class="metric-value t-metric value-absent"'));
+      // Empty, so canon's .value-absent:empty::before supplies the dash.
+      expect(absent, contains('value-absent"></div>'));
+
+      for (final zero in <Object>[0, '0']) {
+        final card = metricCardTemplate(color: 'info', value: zero, label: 'Steps');
+        expect(card, isNot(contains('value-absent')), reason: '$zero is a value, not an absent field');
+        expect(card, contains('>$zero</div>'));
+      }
     });
   });
 

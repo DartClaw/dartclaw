@@ -9,7 +9,7 @@
   left: 0;
   right: 0;
   bottom: calc(100% + var(--sp-2));
-  z-index: 20;
+  z-index: var(--z-dropdown);
   overflow: hidden;
 }
 
@@ -75,33 +75,12 @@
   white-space: nowrap;
 }
 .composer-hints > span { flex-shrink: 0; }
-.composer-hint-action {
-  min-width: 0;
-  padding: var(--sp-1) var(--sp-2);
-  overflow: hidden;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--fg-sub0);
-  cursor: pointer;
-  font: inherit;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color var(--transition), background var(--transition);
-}
-.composer-hint-action:hover,
-.composer-hint-action:focus-visible {
-  background: var(--bg-surface0);
-  color: var(--fg);
-}
-.composer-hint-action:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
 
 @media (max-width: 768px) {
-  .composer-hints > span:nth-child(2),
-  .composer-hint-action { display: none; }
+  .composer-hints > span:nth-child(2) { display: none; }
+  /* The quick prompts are the widest thing in the toolbar and the send button
+     must not be pushed off; the typed `/` path still reaches every command. */
+  .composer-toolbar > .chip-row { display: none; }
 }
 
 .session-item { padding: 0; }
@@ -116,6 +95,9 @@
 }
 .session-item-link:hover { text-decoration: none; }
 .session-item-link > .identicon { margin-right: var(--sp-2); }
+/* The row is a gapless flex, so its trailing badge spaces itself here rather
+   than in `.provider-badge`, which other call sites need flush. */
+.session-item-link > .provider-badge { margin-left: var(--sp-2); }
 .session-item-title {
   flex: 1;
   min-width: 0;
@@ -166,12 +148,6 @@
 .session-item-archive:hover,
 .session-item-archive:focus-within { opacity: 1; }
 
-.sidebar-placeholder {
-  padding: var(--sp-1) var(--sp-4) var(--sp-2);
-  color: var(--fg-overlay);
-  font-size: var(--text-xs);
-  font-style: italic;
-}
 
 .sidebar-archive-section { margin-top: var(--sp-1); }
 .sidebar-archive-toggle {
@@ -183,7 +159,7 @@
   padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
   border: none;
   background: none;
-  color: var(--fg-overlay);
+  color: var(--fg-sub0);
   cursor: pointer;
   font: inherit;
   font-size: var(--text-xs);
@@ -213,7 +189,7 @@
   min-width: 28px;
   min-height: 28px;
   border-radius: var(--radius);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   transition: transform var(--transition), background var(--transition), color var(--transition);
 }
 .sidebar-archive-toggle:hover .sidebar-archive-chevron,
@@ -235,7 +211,10 @@
     margin: 0;
     transform: translateY(-50%);
   }
-  .session-item:has(.session-action, .session-delete):is(:hover, :focus-within) .provider-badge { opacity: 0; }
+  /* Keyed to the same trigger set as the action reveal above: whenever the
+     absolutely-positioned archive/delete button is visible it sits on top of
+     the badge, so the badge must yield in the active state too. */
+  .session-item:has(.session-action, .session-delete):is(:hover, :focus-within, .active) .provider-badge { opacity: 0; }
 }
 
 @media (max-width: 768px) {
@@ -255,7 +234,7 @@
   display: flex;
   align-items: center;
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   border-left: 2px solid transparent;
 }
 .sidebar-running-item .session-item-link { flex: 1; display: flex; align-items: center; gap: var(--sp-2); min-width: 0; padding: var(--sp-2) var(--sp-4); color: inherit; text-decoration: none; }
@@ -266,24 +245,13 @@
 
 /* === TOPBAR BACK LINK (breadcrumb-style, before title) === */
 .topbar-back {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-overlay);
   text-decoration: none;
   white-space: nowrap;
   transition: color var(--transition);
 }
 .topbar-back:hover { color: var(--fg); }
-
-/* === STATIC TOPBAR TITLE === */
-.session-title-static {
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
-  color: var(--fg-sub1);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* === SIDEBAR SYSTEM NAV === */
 .sidebar > .sidebar-section { margin-top: auto; }
@@ -300,29 +268,12 @@
 .error-page {
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  gap: var(--sp-4);
-  padding: var(--sp-8);
-  text-align: center;
+  min-height: 100dvh;
 }
-.error-code {
-  font-size: 4rem;
-  font-weight: var(--weight-bold);
-  color: var(--fg-overlay);
-  line-height: 1;
-}
-.error-title {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-bold);
-  color: var(--fg);
-}
-.error-detail {
-  font-size: var(--text-sm);
-  color: var(--fg-sub0);
-  max-width: 480px;
-}
+/* Shell-wrapped, the shell already owns the viewport; a second viewport-height
+   box here would force a page scrollbar beside the content area's own. */
+#main-content > .error-page { min-height: 100%; }
 
 /* === LOGIN === */
 .login-container {
@@ -338,7 +289,7 @@
 .login-card {
   width: 100%;
   max-width: none;
-  background: var(--bg-mantle);
+  background: var(--bg-card);
   border: var(--border);
   border-radius: var(--radius-lg);
   padding: var(--sp-8);
@@ -351,7 +302,7 @@
 .login-mascot { width: 96px; height: 96px; margin-bottom: var(--sp-3); }
 .login-wordmark { font-size: var(--text-2xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); }
 .login-subtitle {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-overlay);
 }
 .login-error {
@@ -360,7 +311,7 @@
   color: var(--error);
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 .login-form {
   display: flex;
@@ -394,7 +345,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-sub0);
   cursor: pointer;
   user-select: none;
@@ -428,16 +379,17 @@
 }
 
 /* === SESSION INFO === */
-.info-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); margin-bottom: var(--sp-1); }
-.info-subtitle { font-size: var(--text-xs); color: var(--fg-overlay); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.token-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+/* Three token cards. The count is fixed, so the track steps 3 -> 1 rather than
+   passing through two columns, which would leave the third card alone. */
+.token-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+@media (max-width: 640px) { .token-grid { grid-template-columns: 1fr; } }
 .meta-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
   padding: var(--sp-2) 0; border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
 }
 .meta-row:last-child { border-bottom: none; }
-.meta-label { font-size: var(--text-sm); color: var(--fg-sub0); flex-shrink: 0; }
-.meta-value { font-size: var(--text-sm); color: var(--fg); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-label { font-size: var(--text-base); color: var(--fg-sub0); flex-shrink: 0; }
+.meta-value { font-size: var(--text-base); color: var(--fg); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meta-value-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 
 /* === GUARD AND TURN FAILURE MESSAGES === */
@@ -471,7 +423,7 @@
 }
 .guard-block-reason,
 .msg-turn-failed-detail {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-sub0);
   line-height: var(--leading);
 }
@@ -484,16 +436,15 @@
 .msg-turn-failed-icon { font-size: var(--text-base); }
 
 /* === SETTINGS === */
-.settings-header { margin-bottom: var(--sp-6); }
-.settings-header h1 { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); margin-bottom: var(--sp-1); }
-.settings-header p { font-size: var(--text-sm); color: var(--fg-overlay); }
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
 .settings-card { display: flex; flex-direction: column; gap: var(--sp-3); }
 .settings-card .card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.settings-card .card-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg); }
+/* Colour only — the markup composes .t-heading for size and weight, and
+   declaring either here would out-specify the tier it is meant to carry. */
+.settings-card .card-title { color: var(--fg); }
 .card-compact { padding: var(--sp-3) var(--sp-4); }
 .card-subsection { margin-top: var(--sp-4); }
-.card-detail { font-size: var(--text-sm); color: var(--fg-sub0); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+.card-detail { font-size: var(--text-base); color: var(--fg-sub0); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 .file-tags { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .file-tag { font-size: var(--text-xs); color: var(--fg-sub0); background: var(--bg-surface0); padding: 2px var(--sp-2); border-radius: var(--radius); font-family: var(--font-mono); }
 .card-detail-value { color: var(--fg); }
@@ -501,7 +452,7 @@
 .card-detail-hint { font-size: var(--text-xs); color: var(--fg-overlay); }
 .card-detail-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .guard-list { display: flex; flex-direction: column; gap: var(--sp-1); }
-.guard-item { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--fg-sub0); }
+.guard-item { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-base); color: var(--fg-sub0); }
 .guard-check { color: var(--success); font-weight: var(--weight-bold); flex-shrink: 0; }
 /* Guard detail viewer (settings page) */
 .guard-detail-section { grid-column: 1 / -1; }
@@ -522,7 +473,7 @@
 .guard-config-section { display: flex; flex-direction: column; gap: var(--sp-1); }
 .guard-config-section-label { font-size: var(--text-xs); font-weight: var(--weight-bold); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
 .guard-config-items { display: flex; flex-direction: column; gap: var(--sp-1); }
-.guard-config-item { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-sm); padding: var(--sp-1) 0; }
+.guard-config-item { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-base); padding: var(--sp-1) 0; }
 .guard-config-item-label { color: var(--fg-sub0); }
 .guard-config-item-value { color: var(--fg); font-weight: var(--weight-medium); text-align: right; }
 .guard-config-item-value.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
@@ -530,7 +481,7 @@
 .guard-config-item-value.badge-muted { color: var(--fg-overlay); }
 
 .token-row { display: flex; align-items: center; gap: var(--sp-2); }
-.token-masked { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg); letter-spacing: var(--tracking-caps); }
+.token-masked { font-family: var(--font-mono); font-size: var(--text-base); color: var(--fg); letter-spacing: var(--tracking-caps); }
 .card-actions {
   margin-top: auto; padding-top: var(--sp-2);
   border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
@@ -542,34 +493,50 @@
 
 /* === AUDIT TABLE === */
 .table-section { margin-bottom: var(--sp-6); }
-.table-toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-.filter-btn { font-size: var(--text-xs); padding: var(--sp-1) var(--sp-2); background: var(--bg-surface0); border: var(--border); border-radius: var(--radius); color: var(--fg-sub0); cursor: pointer; font-family: inherit; transition: background var(--transition), color var(--transition); }
-.filter-btn:hover { background: var(--bg-surface1); color: var(--fg); }
-.filter-btn.active { background: color-mix(in srgb, var(--accent) 15%, var(--bg-base)); color: var(--accent); border-color: var(--accent); }
+.table-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 #audit-table-container .table-scroll { border: var(--border); border-radius: var(--radius-lg); }
+/* Four columns of unwrappable content need more room than the narrowest
+   supported viewport; the scroller absorbs the difference. */
 #audit-table-container .table-scroll table { width: 100%; min-width: 700px; }
-#audit-table-container .table-scroll th, #audit-table-container .table-scroll td { border: var(--border); white-space: nowrap; }
-#audit-table-container .table-scroll th { background: var(--bg-surface0); color: var(--fg-sub1); }
-#audit-table-container .table-scroll tbody tr:not(.audit-detail-row) { cursor: pointer; }
-#audit-table-container .table-scroll tbody tr:not(.audit-detail-row):hover { background: var(--bg-surface0); }
+/* `th` nowrap is canon's (.data-table th); only the body cells are declared
+   here, so the canonical header rule stays the single owner of the header.
+   The three fixed-vocabulary columns stay on one line; Detail carries a free
+   -text guard reason, and holding that unwrapped pushed the scroller past the
+   container at every width below the widest desktop. */
+#audit-table-container .table-scroll td:not(:last-child) { white-space: nowrap; }
+/* Disclosure sits inside the timestamp cell, so the trigger is a real button
+   with its own focus ring instead of a click handler bound to the row. */
+.audit-row-time { display: flex; align-items: center; gap: var(--sp-2); }
+/* Holds the chevron's width for a row with nothing to disclose, so the
+   timestamp column reads as one column rather than a ragged edge. Matches
+   canon .btn-icon-sm's 28px min-width. */
+.audit-row-toggle-spacer { display: inline-block; width: 28px; flex-shrink: 0; }
+.audit-row-toggle::before { transition: rotate var(--transition); }
+.audit-row-toggle[aria-expanded="true"]::before { rotate: 90deg; }
 .verdict-pass { color: var(--success); }
 .verdict-warn { color: var(--warning); }
 .verdict-block { color: var(--error); font-weight: var(--weight-bold); }
 .guard-type { font-size: var(--text-xs); padding: 1px var(--sp-2); border-radius: var(--radius); background: var(--bg-surface0); color: var(--fg-sub0); }
-.hook-type { font-size: var(--text-xs); font-family: var(--font-mono); padding: 1px var(--sp-2); border-radius: var(--radius); background: var(--bg-surface0); color: var(--fg-sub0); }
-.audit-detail-row td { background: var(--bg-mantle); padding: var(--sp-3) var(--sp-4); border-top: none; }
+.audit-detail-row td { background: var(--bg-base); padding: var(--sp-3) var(--sp-4); border-top: none; }
 .audit-detail { display: flex; flex-direction: column; gap: var(--sp-3); }
-.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); font-size: var(--text-sm); }
-.detail-label { color: var(--fg-overlay); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); display: block; margin-bottom: var(--sp-1); }
+.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); font-size: var(--text-base); }
+.detail-label { color: var(--fg-sub0); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); display: block; margin-bottom: var(--sp-1); }
 .detail-reason pre { font-size: var(--text-xs); background: var(--bg-base); padding: var(--sp-2); border-radius: var(--radius); overflow-x: auto; color: var(--fg-sub0); white-space: pre-wrap; word-break: break-word; }
-.pagination { display: flex; justify-content: space-between; align-items: center; padding: var(--sp-3) 0; font-size: var(--text-sm); }
-.pagination-info { color: var(--fg-overlay); }
+.pagination { display: flex; justify-content: space-between; align-items: center; padding: var(--sp-3) 0; font-size: var(--text-base); }
+.pagination-info { color: var(--fg-sub0); }
 .pagination-controls { display: flex; align-items: center; gap: var(--sp-2); }
 .pagination-page { color: var(--fg-sub0); }
-.btn-sm { font-size: var(--text-xs); padding: var(--sp-1) var(--sp-3); }
 
+/* The health page's polled status region is a nested stack so its 30s refresh
+   can replace itself without touching the self-polling guard audit below it.
+   It repeats .content-inner's rhythm, so the nesting changes no spacing. */
+#health-live { display: flex; flex-direction: column; gap: var(--sp-6); }
+
+/* Service cards are a variable-length set (Pub/Sub only appears when
+   configured), so the track is content-driven – a fixed two-column track
+   leaves a lone card sitting in half the row. */
 .card-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--sp-4);
   margin-bottom: var(--sp-6);
 }
 @media (max-width: 768px) { .card-grid { grid-template-columns: 1fr; } }
@@ -579,25 +546,47 @@
 .badge-error   { background: color-mix(in srgb, var(--error)   15%, var(--bg-base)); color: var(--error); }
 .badge-muted   { background: var(--bg-surface0); color: var(--fg-sub0); }
 .card-rows { display: flex; flex-direction: column; gap: var(--sp-2); }
-.card-row { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-sm); }
-.card-row-label { color: var(--fg-overlay); }
+.card-row { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-base); }
+/* Canon .card-body is typography-only; rows stacked directly in it need their own rhythm. */
+.card-body > .card-row + .card-row { margin-top: var(--sp-2); }
+.card-row-label { color: var(--fg-sub0); }
 .card-row-value { color: var(--fg); font-weight: var(--weight-medium); text-align: right; }
+/* .card-row-value and canon's .text-* utilities have equal specificity and
+   app.css loads last, so a row value needs the paired selector or the utility
+   silently loses. */
 .card-row-value.text-success { color: var(--success); }
+.card-row-value.text-warning { color: var(--warning); }
+.card-row-value.text-error { color: var(--error); }
+.card-row-value.text-muted { color: var(--fg-sub0); }
 .metrics-grid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); margin-bottom: var(--sp-4);
 }
 @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+/* Health KPI row – exactly four tiles. The column count steps 4 -> 2 -> 1 so it
+   always divides the tile count; an auto-fit track resolves to three columns
+   across a wide band of viewports and strands the fourth tile on its own row. */
+.metrics-grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1280px) { .metrics-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .metrics-grid-4 { grid-template-columns: 1fr; } }
 .metric-card {
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-card); border: var(--border); border-radius: var(--radius-lg);
   padding: var(--sp-3) var(--sp-4); text-align: center;
 }
 .metric-card .metric-value { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); line-height: var(--leading-tight); }
 .metric-card .metric-label { font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: var(--tracking-caps); margin-top: var(--sp-1); }
 
 /* === SCHEDULING === */
-.page-content { overflow-y: auto; padding: var(--sp-6) var(--sp-6) var(--sp-10); }
+/* `position: relative` is load-bearing, not decoration: a scroll container only
+   clips absolutely-positioned descendants for which it is the containing block.
+   Without it every `.sr-only` table caption inside escapes to the initial
+   containing block and stretches the root scroller — which is what made a
+   900px-tall shell report a 1340px document. */
+.page-content { position: relative; min-height: 0; overflow-y: auto; padding: var(--sp-6) var(--sp-6) var(--sp-10); }
 @media (max-width: 768px) { .page-content { padding: var(--sp-4) var(--sp-3) var(--sp-8); } }
 .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-6); }
+/* App-local mirror of canon's .content-inner--wide. Lives here, not in canon,
+   because the .page-inner family is transitional (DESIGN.md § Layout). */
+.page-inner--wide { max-width: var(--container-wide); }
 .pagehead {
   display: flex;
   justify-content: space-between;
@@ -605,6 +594,7 @@
   gap: var(--sp-4);
   margin-bottom: var(--sp-4);
 }
+.pagehead-actions { display: flex; align-items: center; gap: var(--sp-2); }
 .page-title {
   margin: 0;
   font-size: var(--text-xl);
@@ -613,7 +603,6 @@
   color: var(--fg);
 }
 .heartbeat-card {
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg);
   padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4);
 }
 @media (max-width: 768px) { .heartbeat-card { padding: var(--sp-4); } }
@@ -632,20 +621,35 @@
   50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--success) 0%, transparent); }
 }
 .section-header { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg); }
-.table-wrap { overflow-x: auto; border: var(--border); border-radius: var(--radius-lg); -webkit-overflow-scrolling: touch; }
+/* Canon's card treatment, applied by hand: `.table-wrap` is a scroll container,
+   so it cannot take `.card` itself without inheriting the hover lift. Fill,
+   top-edge highlight and shadow are what put the table on a surface instead of
+   drawing a border around the page ground. */
+.table-wrap {
+  overflow-x: auto;
+  background: var(--bg-card);
+  border: var(--border);
+  border-top-color: var(--border-highlight);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  -webkit-overflow-scrolling: touch;
+}
 @media (max-width: 768px) {
   .table-fade-wrap { position: relative; }
-  .table-fade-wrap::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 32px; background: linear-gradient(to right, transparent, var(--bg-base)); pointer-events: none; z-index: 1; }
+  /* Inset by the wrapper's own 1px border and decayed to the table's fill: at
+     full bleed the gradient painted over the right border and the table read as
+     dissolving into the page. */
+  .table-fade-wrap::after { content: ''; position: absolute; top: 1px; right: 1px; bottom: 1px; width: 32px; background: linear-gradient(to right, transparent, var(--bg-card)); pointer-events: none; z-index: 1; }
   .table-wrap { padding-right: var(--sp-2); }
 }
 .scheduling-jobs-table, .scheduling-tasks-table { min-width: 560px; }
 .data-table tr.row-error { background: color-mix(in srgb, var(--error) 5%, transparent); }
-.data-table tr.row-error:hover { background: color-mix(in srgb, var(--error) 10%, var(--bg-mantle)); }
-.cron-expr { font-size: var(--text-xs); color: var(--fg-overlay); font-family: var(--font-mono); }
-.delivery-badge { font-size: var(--text-xs); padding: 0.1em 0.4em; border-radius: var(--radius); background: var(--bg-surface0); color: var(--fg-sub0); }
-.delivery-badge.announce { background: color-mix(in srgb, var(--info) 15%, var(--bg-surface0)); color: var(--info); }
-.delivery-badge.webhook { background: color-mix(in srgb, var(--warning) 15%, var(--bg-surface0)); color: var(--warning); }
-.info-footer { font-size: var(--text-xs); color: var(--fg-overlay); padding: var(--sp-2) 0; border-top: var(--border); }
+.data-table tr.row-error:hover { background: color-mix(in srgb, var(--error) 10%, var(--bg-card)); }
+.cron-expr { font-size: var(--text-xs); color: var(--fg-sub0); font-family: var(--font-mono); }
+.delivery-badge { font-size: var(--text-xs); padding: 0.1em 0.4em; border: 1px solid color-mix(in oklab, var(--bg-surface1) 65%, transparent); border-radius: var(--radius); background: var(--bg-surface0); color: var(--fg-sub0); }
+.delivery-badge.announce { background: color-mix(in srgb, var(--info) 10%, var(--bg-base)); color: var(--info); border-color: color-mix(in srgb, var(--info) 22%, var(--bg-surface1)); }
+.delivery-badge.webhook { background: color-mix(in srgb, var(--warning) 10%, var(--bg-base)); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 22%, var(--bg-surface1)); }
+.info-footer { font-size: var(--text-xs); color: var(--fg-sub0); padding: var(--sp-2) 0; border-top: var(--border); }
 .info-footer code { background: var(--bg-surface0); padding: 0.1em 0.3em; border-radius: var(--radius); }
 
 /* === CHANNEL PAIRING === */
@@ -661,7 +665,7 @@
   font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg);
 }
 .pairing-step-icon { font-size: var(--text-xl); }
-.pairing-detail { font-size: var(--text-sm); color: var(--fg-sub0); }
+.pairing-detail { font-size: var(--text-base); color: var(--fg-sub0); }
 .pairing-detail-value { color: var(--fg); }
 .pairing-qr-wrapper {
   display: flex; flex-direction: column; align-items: center; gap: var(--sp-3);
@@ -678,10 +682,10 @@
   background: var(--bg-surface0); border: 2px dashed var(--bg-surface2);
   border-radius: var(--radius-lg);
   align-items: center; justify-content: center;
-  color: var(--fg-overlay); font-size: var(--text-sm);
+  color: var(--fg-overlay); font-size: var(--text-base);
 }
 .pairing-qr-placeholder:not([hidden]) { display: flex; }
-.pairing-hint { font-size: var(--text-sm); color: var(--fg-sub0); text-align: center; }
+.pairing-hint { font-size: var(--text-base); color: var(--fg-sub0); text-align: center; }
 .pairing-status-row { display: flex; align-items: center; gap: var(--sp-2); }
 .pairing-status-row .scan-bar { flex: 0 0 min(6rem, 30%); }
 .pairing-connected-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
@@ -699,7 +703,7 @@
 .pairing-input {
   width: 180px; background: var(--bg-base); color: var(--fg); border: var(--border);
   border-radius: var(--radius); padding: var(--sp-2) var(--sp-3);
-  font: inherit; font-size: var(--text-sm); line-height: var(--leading);
+  font: inherit; font-size: var(--text-base); line-height: var(--leading);
   text-align: center; letter-spacing: var(--tracking-caps);
 }
 .pairing-input-wide { width: 100%; }
@@ -715,7 +719,7 @@
 .pairing-link-uri { word-break: break-all; color: var(--accent); display: block; margin-top: var(--sp-1); }
 .pairing-code-display {
   background: var(--bg-surface0); border: var(--border); border-radius: var(--radius);
-  padding: var(--sp-3); font-size: var(--text-sm); color: var(--fg);
+  padding: var(--sp-3); font-size: var(--text-base); color: var(--fg);
 }
 .pairing-code-display code {
   font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--accent);
@@ -739,7 +743,7 @@
   font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg);
 }
 .pairing-expired-text {
-  font-size: var(--text-sm); color: var(--fg-sub0); max-width: 320px;
+  font-size: var(--text-base); color: var(--fg-sub0); max-width: 320px;
 }
 
 /* === TOGGLE SWITCH === */
@@ -749,63 +753,11 @@
   gap: var(--sp-2);
 }
 
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 20px;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-.toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background: var(--bg-surface2);
-  border-radius: 10px;
-  transition: background 150ms ease;
-}
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  left: 3px;
-  bottom: 3px;
-  background: var(--fg-overlay);
-  border-radius: 50%;
-  transition: transform 150ms ease, background 150ms ease;
-}
-.toggle-switch input:checked + .toggle-slider { background: var(--accent); }
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(16px);
-  background: var(--bg-base);
-}
 .toggle-inline { margin-left: auto; }
-
-/* Icon-only action button for job tables */
-.btn-icon-sm {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: none;
-  border: 1px solid var(--bg-surface2);
-  color: var(--fg-overlay);
-  border-radius: var(--radius);
-  padding: 0;
-  cursor: pointer;
-  font-size: var(--text-sm);
-  line-height: 1;
-}
-.btn-icon-sm:hover { color: var(--fg); border-color: var(--accent); }
 
 @media (max-width: 1024px) {
   .topbar .menu-toggle,
-  .theme-toggle,
-  .btn-icon-sm {
+  .theme-toggle {
     min-width: 44px;
     min-height: 44px;
     width: 44px;
@@ -813,46 +765,13 @@
   }
 }
 
-/* === SETTINGS FORM === */
-.form-group { display: flex; flex-direction: column; gap: var(--sp-1); }
-.form-group-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
-.form-group-checkbox { flex-direction: row; align-items: center; gap: var(--sp-2); }
-.form-label {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  color: var(--fg-sub0);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
-}
-.form-input, .form-select {
-  font-family: var(--font-mono); font-size: var(--text-base);
-  background: var(--bg-base); color: var(--fg);
-  border: var(--border); border-radius: var(--radius);
-  padding: var(--sp-2) var(--sp-3);
-  width: 100%;
-}
-.form-input:focus, .form-select:focus { border-color: var(--accent); }
-.form-input:focus:not(:focus-visible), .form-select:focus:not(:focus-visible) { outline: none; border-color: var(--accent); }
-.form-input:focus-visible, .form-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
-.form-input:disabled, .form-select:disabled { opacity: 0.5; cursor: not-allowed; }
-.form-input::placeholder { color: var(--fg-overlay); }
-.form-input.error { border-color: var(--error); }
-.form-error { font-size: var(--text-xs); color: var(--error); min-height: 0; }
-.form-error:not(:empty) { min-height: 1em; }
-.form-textarea {
-  resize: vertical;
-  min-height: 6rem;
-  font-family: inherit;
-}
-.form-hint { font-size: var(--text-xs); color: var(--fg-overlay); }
 .custom-select {
   position: relative;
   width: 100%;
 }
 
 .custom-select[data-open="true"] {
-  z-index: 30;
+  z-index: var(--z-dropdown);
 }
 
 .custom-select .native-select-hidden {
@@ -876,7 +795,7 @@
   border-radius: var(--radius);
   box-shadow: var(--inset-sm);
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   text-align: left;
   cursor: pointer;
   transition: border-color var(--transition), box-shadow var(--transition-glow),
@@ -948,7 +867,7 @@
   padding: var(--sp-2);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--fg) 4%, transparent), transparent 22%),
-    var(--bg-mantle);
+    var(--bg-surface0);
   border: var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -969,7 +888,7 @@
   border-radius: var(--radius);
   color: var(--fg);
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   text-align: left;
   cursor: pointer;
 }
@@ -1018,27 +937,45 @@
   border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
 }
 .restart-banner {
-  background: color-mix(in srgb, var(--warning) 10%, var(--bg-mantle));
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-card));
   border: 1px solid var(--warning); border-radius: var(--radius);
   padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4);
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
 }
-.restart-banner-text { flex: 1; font-size: var(--text-sm); color: var(--fg); }
+.restart-banner-text { flex: 1; font-size: var(--text-base); color: var(--fg); }
 .restart-banner-fields { font-weight: var(--weight-medium); color: var(--warning); }
-.restart-banner .dismiss { margin-left: auto; }
 
 /* === MEMORY DASHBOARD === */
 
-/* 5-column metrics grid */
-.metrics-grid-5 { grid-template-columns: repeat(5, 1fr); }
-@media (max-width: 900px) { .metrics-grid-5 { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 768px) { .metrics-grid-5 { grid-template-columns: repeat(2, 1fr); } }
+/* Overview row – exactly five tiles. The ladder steps 5 -> 3 -> 1 and skips the
+   two-column rung, which would strand the fifth tile alone on a final row. */
+.metrics-grid-5 { grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(3, auto); }
+@media (max-width: 1400px) { .metrics-grid-5 { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px) { .metrics-grid-5 { grid-template-columns: 1fr; } }
+
+/* Every tile takes the row's three tracks – numeral, label, meter – so the two
+   tiles with no bounded ratio still align their numeral and label with the
+   three that have one, instead of ending short of them. */
+.metrics-grid-5 > .card-metric { display: grid; grid-template-rows: subgrid; grid-row: span 3; }
+.metrics-grid-5 .meter-wrapper { display: flex; flex-direction: column; justify-content: flex-end; }
 
 /* Inline sub-text inside metric values */
-.metric-sub-inline { font-size: var(--text-sm); color: var(--fg-overlay); font-weight: var(--weight-normal); }
+.metric-sub-inline { font-size: var(--text-base); color: var(--fg-sub0); font-weight: var(--weight-normal); }
+
+/* A unit or cap suffix must not push its numeral off the tile's centre line:
+   the numeral holds the middle track and the suffix hangs into an equal-width
+   track beside it, so suffixed and bare tiles read as one column of numbers. */
+.metric-value--suffixed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--sp-1);
+}
+.metric-value--suffixed > .metric-number { grid-column: 2; }
+.metric-value--suffixed > .metric-sub-inline { grid-column: 3; justify-self: start; white-space: nowrap; }
 
 .meter-wrapper { margin-top: var(--sp-2); }
-.meter-label { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--fg-overlay); margin-bottom: var(--sp-1); }
+.meter-label { display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--text-xs); color: var(--fg-sub0); margin-bottom: var(--sp-1); }
 
 /* Live activity indicator */
 .task-activity-indicator {
@@ -1046,7 +983,7 @@
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-2) 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-overlay);
 }
 .task-activity-text {
@@ -1058,14 +995,6 @@
 
 /* Task progress section spacing */
 .task-feedback-section { margin-bottom: var(--sp-4); }
-
-/* Tab bar */
-.tab-bar { display: flex; gap: 0; border-bottom: var(--border); margin-bottom: var(--sp-4); }
-.tab-btn { font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg-sub0); background: none; border: none; padding: var(--sp-2) var(--sp-3); cursor: pointer; border-bottom: 2px solid transparent; transition: color var(--transition), border-color var(--transition); }
-.tab-btn:hover { color: var(--fg); }
-.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-.tab-header-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-1); padding-bottom: var(--sp-1); }
-@media (max-width: 768px) { .tab-bar { flex-wrap: wrap; } .tab-header-actions { width: 100%; margin-left: 0; padding-top: var(--sp-1); justify-content: flex-end; } }
 
 /* Raw/rendered toggle */
 .toggle-btn-group { display: inline-flex; border: var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -1081,9 +1010,13 @@
 /* Tab metadata grid */
 .tab-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .tab-meta-item { display: flex; flex-direction: column; gap: var(--sp-1); }
-.tab-meta-label { font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
-.tab-meta-value { font-size: var(--text-sm); color: var(--fg); font-weight: var(--weight-medium); }
+.tab-meta-label { font-size: var(--text-xs); color: var(--fg-sub0); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+.tab-meta-value { font-size: var(--text-base); color: var(--fg); font-weight: var(--weight-medium); }
 @media (max-width: 768px) { .tab-meta { grid-template-columns: repeat(2, 1fr); } }
+
+/* Canon's .tabs carries no trailing margin, and this card is a block box with no
+   gap of its own, so the strip would sit flush against the panel it labels. */
+#memory-files-card .tabs { margin-bottom: var(--sp-4); }
 
 /* Memory file content preview */
 .memory-preview { max-height: 300px; overflow-y: auto; background: var(--bg-crust); border: var(--border); border-radius: var(--radius); padding: var(--sp-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-sub0); line-height: var(--leading); white-space: pre-wrap; word-wrap: break-word; }
@@ -1099,19 +1032,11 @@
 .section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .section-toolbar--spaced { margin-top: var(--sp-6); }
 
-/* Scheduling form internals remain app-owned inside canonical well-content. */
+/* Scheduling form internals inside canonical well-content. The controls are
+   canon's `.form-input` / `.form-textarea` / `.form-select`; only the section
+   title and the field stack are app-owned. */
 .well-content .form-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg); margin-bottom: var(--sp-3); }
 .well-content .form-grid { display: flex; flex-direction: column; gap: var(--sp-3); }
-.well-content .form-row { display: flex; flex-direction: column; gap: var(--sp-1); }
-.well-content .form-row label { font-size: var(--text-sm); color: var(--fg-sub0); font-weight: var(--weight-bold); }
-.well-content .form-row input[type="text"],
-.well-content .form-row textarea {
-  background: var(--bg-crust); color: var(--fg); border: var(--border); border-radius: var(--radius);
-  padding: var(--sp-2) var(--sp-3); font-family: var(--font-mono); font-size: var(--text-sm);
-}
-.well-content .form-row input[type="text"]:focus,
-.well-content .form-row textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.well-content .form-row textarea { resize: vertical; min-height: 60px; }
 
 /* Schedule row: input + preview */
 .schedule-row { display: flex; align-items: center; gap: var(--sp-3); }
@@ -1119,20 +1044,17 @@
 .cron-preview { font-size: var(--text-xs); color: var(--fg-overlay); font-style: italic; white-space: nowrap; }
 
 /* In-table cron human description */
-.cron-human { display: block; font-size: var(--text-xs); color: var(--fg-overlay); margin-top: 2px; }
-.cron-human--sub-id { opacity: 0.6; font-size: 0.85em; }
-
-/* Empty cell in data tables */
-.table-empty-cell { text-align: center; color: var(--fg-overlay); padding: var(--sp-6); }
+.cron-human { display: block; font-size: var(--text-xs); color: var(--fg-sub0); margin-top: 2px; }
+.cron-human--sub-id { font-size: 0.85em; }
 
 /* Radio group */
 .radio-group { display: flex; gap: var(--sp-4); align-items: center; }
-.radio-group label { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--fg); cursor: pointer; }
+.radio-group label { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--text-base); color: var(--fg); cursor: pointer; }
 
 /* Action buttons in table cells */
 .action-btns { display: flex; align-items: center; gap: var(--sp-2); }
 .scheduling-action-btns { flex-wrap: wrap; }
-.scheduling-action-toggle { min-width: 5.5rem; justify-content: center; }
+.scheduling-action-toggle { justify-content: center; }
 
 /* System badge */
 .system-badge {
@@ -1147,63 +1069,9 @@
 
 /* Delete confirmation row */
 .delete-confirm-row td { padding: 0 !important; }
-.delete-confirm-bar {
-  display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3);
-  background: color-mix(in srgb, var(--error) 10%, var(--bg-surface0));
-  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
-}
-.delete-confirm-bar .confirm-msg { flex: 1; font-size: var(--text-sm); color: var(--fg); }
-.btn-danger-fill {
-  background: var(--error); color: var(--bg-base); border: none; border-radius: var(--radius);
-  padding: var(--sp-1) var(--sp-3); font-size: var(--text-sm); font-weight: var(--weight-bold);
-  cursor: pointer;
-}
-.btn-danger-fill:hover { filter: brightness(1.1); }
-
-/* ============================================================
-   Settings in-page tab navigation
-   ============================================================ */
-
-.settings-tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  border-bottom: 1px solid var(--bg-surface1);
-  margin-bottom: var(--sp-4);
-  overflow-x: auto;
-  position: sticky;
-  top: 0;
-  background: var(--bg-base);
-  z-index: 10;
-  scrollbar-width: thin;
-  scrollbar-color: var(--fg-overlay) transparent;
-}
-
-.settings-tabs::-webkit-scrollbar { height: 4px; }
-.settings-tabs::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: var(--fg-overlay);
-}
-
-.settings-tab {
-  flex: 0 0 auto;
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--text-sm);
-  color: var(--fg-sub0);
-  text-decoration: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  white-space: nowrap;
-  transition: color var(--transition), border-color var(--transition);
-}
-
-.settings-tab:hover { color: var(--fg); }
-
-.settings-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-/* Card-level restart/live notice (replaces per-field badges) */
+/* Card-level mutability notice (replaces per-field badges). Neutral helper copy
+   on one divider: it renders unconditionally on most tabs, so it is not a state
+   and must not borrow --warning, which means the pending-restart banner. */
 .section-note {
   display: flex;
   align-items: center;
@@ -1213,10 +1081,6 @@
   padding-top: var(--sp-2);
   margin-top: var(--sp-1);
   border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
-}
-
-.section-note-restart {
-  color: color-mix(in srgb, var(--warning) 60%, var(--fg-overlay));
 }
 
 /* ============================================================
@@ -1234,7 +1098,7 @@
   gap: var(--sp-2);
   align-items: baseline;
   padding: var(--sp-2) 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
   min-width: 0;
 }
@@ -1288,19 +1152,28 @@
   gap: var(--sp-4);
   flex-wrap: wrap;
 }
+/* Claims the free space so the identicon-title pair stays left-aligned and the
+   status badge is the only right-aligned item — without it, space-between
+   centres the title and its x-position shifts with the channel name. */
 .channel-detail-hero-title {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.channel-detail-hero-title h1 {
+/* Tier comes from canon .t-display; only the reset stays local. */
+.channel-detail-hero-title > :is(h1, h2) {
   margin: 0;
-  font-size: var(--text-xl);
   color: var(--fg);
+}
+/* The page's identity moment, stepped off the sidebar list scale. */
+.channel-detail-hero .identicon {
+  font-size: var(--text-lg);
 }
 .channel-detail-hero-title p {
   margin: 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-sub0);
 }
 .channel-detail-meta {
@@ -1316,7 +1189,7 @@
   border-radius: var(--radius);
   background: var(--bg-base);
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   border: 1px solid var(--bg-surface0);
 }
 .channel-meta-pill strong {
@@ -1353,19 +1226,13 @@
   flex-direction: column;
   gap: var(--sp-1);
 }
-.channel-panel-kicker {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
-  color: var(--fg-overlay);
-}
 .channel-panel-title {
   font-size: var(--text-lg);
   color: var(--fg);
   font-weight: var(--weight-bold);
 }
 .channel-panel-copy {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-sub0);
 }
 .channel-mode-grid {
@@ -1402,7 +1269,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg);
   font-weight: var(--weight-medium);
 }
@@ -1411,13 +1278,16 @@
   color: var(--fg-overlay);
   line-height: 1.45;
 }
+/* Ground is the plain surface, not an accent self-tint: the 16% tint lifted the
+   ground toward the text and dragged light theme to 3.69:1. --accent on
+   --bg-surface0 measures 4.55:1 light / 8.46:1 dark. */
 .channel-mode-badge {
-  font-size: 0.625rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg-surface0));
+  background: var(--bg-surface0);
   color: var(--accent);
 }
 .channel-mode-select-hidden {
@@ -1430,12 +1300,14 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+/* Owns the rhythm between the heading and its content, which had none. */
+.channel-sub-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
 .channel-sub-card h3 {
   margin: 0;
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
-  color: var(--fg-sub0);
 }
 .channel-hint {
   font-size: var(--text-xs);
@@ -1452,7 +1324,7 @@
   justify-content: space-between;
 }
 .allowlist-count {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-sub0);
 }
 .allowlist-table {
@@ -1478,7 +1350,7 @@
 }
 .entry-main {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1507,11 +1379,6 @@
   color: var(--warning);
   background: color-mix(in srgb, var(--warning) 12%, var(--bg-base));
 }
-.allowlist-empty {
-  font-size: var(--text-sm);
-  color: var(--fg-overlay);
-  padding: var(--sp-2) 0;
-}
 .allowlist-add-form {
   display: flex;
   gap: var(--sp-2);
@@ -1536,7 +1403,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg);
 }
 
@@ -1553,11 +1420,6 @@
   border: 1px solid var(--bg-surface0);
 }
 .pairing-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
-.pairing-empty {
-  font-size: var(--text-sm);
-  color: var(--fg-overlay);
-  padding: var(--sp-3) 0;
-}
 .pairing-badge {
   display: inline-flex;
   align-items: center;
@@ -1607,61 +1469,44 @@
   min-width: 170px;
 }
 .task-status-group { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* Tier comes from `.t-heading` on the markup; only layout and colour are local. */
 .task-status-group h3 {
   display: flex; align-items: center; gap: var(--sp-2);
-  font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
+  color: var(--fg);
 }
-.task-status-group .table-wrap {
-  overflow-x: visible;
-}
+/* Auto layout, not fixed: a nowrap header (canon `.data-table th`) can only size
+   its own column when the algorithm is allowed to read it. Under the previous
+   fixed layout the percentage widths won and the labels shattered mid-word.
+   The min-widths below are floors for the columns whose header is
+   wider than their content; the title column absorbs the remainder. */
 .task-status-group .data-table {
-  min-width: 0;
   width: 100%;
-  table-layout: fixed;
+  min-width: 840px;
 }
-.task-status-group .data-table th,
 .task-status-group .data-table td {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.task-status-group .data-table th,
+.task-status-group .data-table td {
   vertical-align: top;
 }
-.task-status-group .data-table th:nth-child(1),
-.task-status-group .data-table td:nth-child(1) {
-  width: 34%;
-}
-.task-status-group .data-table th:nth-child(2),
-.task-status-group .data-table td:nth-child(2) {
-  width: 12%;
-}
-.task-status-group .data-table th:nth-child(3),
-.task-status-group .data-table td:nth-child(3) {
-  width: 10%;
-}
-.task-status-group .data-table th:nth-child(4),
-.task-status-group .data-table td:nth-child(4) {
-  width: 9%;
-}
-.task-status-group .data-table th:nth-child(5),
-.task-status-group .data-table td:nth-child(5) {
-  width: 11%;
-}
-.task-status-group .data-table th:nth-child(6),
-.task-status-group .data-table td:nth-child(6) {
-  width: 9%;
-}
-.task-status-group .data-table th:nth-child(7),
-.task-status-group .data-table td:nth-child(7) {
-  width: 10%;
-}
-.task-status-group .data-table th:nth-child(8),
-.task-status-group .data-table td:nth-child(8) {
-  width: 5%;
-}
-.task-status-group .data-table td:nth-child(3),
-.task-status-group .data-table td:nth-child(4),
-.task-status-group .data-table td:nth-child(7),
-.task-status-group .data-table td:nth-child(8) {
+.task-status-group .task-col-title { width: 34%; }
+.task-status-group .task-col-created-by { min-width: 7rem; }
+.task-status-group .task-col-created { min-width: 6.5rem; }
+.task-status-group .task-col-status { min-width: 6.5rem; }
+.task-status-group .task-col-tokens { min-width: 5rem; }
+/* Every metadata column holds a single token, so none of them may break
+   mid-word when auto layout squeezes the table to its min-width. Only the title
+   column stays wrappable — it is the one that absorbs the remaining width. */
+.task-status-group td.task-col-project,
+.task-status-group td.task-col-type,
+.task-status-group td.task-col-provider,
+.task-status-group td.task-col-created-by,
+.task-status-group td.task-col-created,
+.task-status-group td.task-col-status,
+.task-status-group td.task-col-tokens {
   white-space: nowrap;
 }
 .task-status-group .type-badge,
@@ -1671,12 +1516,12 @@
 }
 
 @media (max-width: 768px) {
-  .task-status-group .table-wrap {
-    overflow-x: auto;
-  }
-
+  /* Only three columns survive here, so fixed layout is what makes two
+     consecutive status groups line up instead of each sizing to its own rows.
+     The desktop rule uses auto layout (see above) — this is the sole fixed use. */
   .task-status-group .data-table {
-    table-layout: auto;
+    table-layout: fixed;
+    min-width: 0;
   }
 
   .task-status-group .task-col-project,
@@ -1687,14 +1532,9 @@
     display: none;
   }
 
-  .task-status-group .data-table th:nth-child(1),
-  .task-status-group .data-table td:nth-child(1),
-  .task-status-group .data-table th:nth-child(3),
-  .task-status-group .data-table td:nth-child(3),
-  .task-status-group .data-table th:nth-child(7),
-  .task-status-group .data-table td:nth-child(7) {
-    width: auto;
-  }
+  .task-status-group .task-col-title { width: 52%; }
+  .task-status-group .task-col-type { width: 20%; }
+  .task-status-group .task-col-status { width: 28%; min-width: 0; }
 }
 
 @media (max-width: 768px) {
@@ -1702,11 +1542,6 @@
   .scheduling-jobs-table td:nth-child(3),
   .scheduling-tasks-table th:nth-child(3),
   .scheduling-tasks-table td:nth-child(3) {
-    display: none;
-  }
-
-  .scheduling-tasks-table th:nth-child(4),
-  .scheduling-tasks-table td:nth-child(4) {
     display: none;
   }
 
@@ -1737,14 +1572,22 @@
   display: flex; flex-wrap: wrap; gap: var(--sp-3);
 }
 .task-card-running {
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg);
   padding: var(--sp-4); min-width: 180px; flex: 1; max-width: 280px;
   display: flex; flex-direction: column; gap: var(--sp-2);
   border-left: 3px solid var(--success);
 }
+/* Canon .card:hover sets the border-color shorthand, which would repaint the
+   running-state edge; restate it so the status stays readable while hovered. */
+.task-card-running:hover {
+  border-left-color: var(--success);
+}
 .task-card-title {
-  font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--fg);
+  font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Owns the spacing between its badges now that `.provider-badge` carries none. */
+.task-card-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
 }
 .task-elapsed {
   font-family: var(--font-mono); font-size: var(--text-xs);
@@ -1770,16 +1613,23 @@
                           border-color: color-mix(in srgb, var(--error) 22%, var(--bg-surface1)); }
 .status-badge-cancelled { color: var(--fg-overlay); background: var(--bg-surface0);
                           border-color: color-mix(in oklab, var(--bg-surface1) 50%, transparent); }
+/* A status the server does not recognise. Neutral on purpose — it reports "no
+   reading available", which must not borrow another state's colour. */
+.status-badge-unknown   { color: var(--fg-sub0); background: var(--bg-surface0);
+                          border-color: color-mix(in oklab, var(--bg-surface1) 50%, transparent); }
 .status-badge-failed    { color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
                           border-color: color-mix(in srgb, var(--error) 22%, var(--bg-surface1)); }
+/* No margin: a badge that carries its own outer spacing cannot left-align with
+   anything, which is why it sat 8px off the runner card's other rows. Call sites
+   space it — via their own gap, or the sidebar rule below. */
 .provider-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: var(--sp-2);
-  padding: 1px var(--sp-1);
+  padding: 0 var(--sp-1);
+  border: 1px solid color-mix(in oklab, var(--bg-surface1) 65%, transparent);
   border-radius: 3px;
-  font-size: 0.625rem;
+  font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-caps);
   line-height: 1.4;
@@ -1787,17 +1637,69 @@
   flex-shrink: 0;
 }
 .provider-badge-claude {
-  background: color-mix(in srgb, var(--brand-claude) 15%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--brand-claude) 10%, var(--bg-base));
   color: var(--brand-claude);
+  border-color: color-mix(in srgb, var(--brand-claude) 22%, var(--bg-surface1));
 }
 .provider-badge-codex {
-  background: color-mix(in srgb, var(--brand-codex) 15%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--brand-codex) 10%, var(--bg-base));
   color: var(--brand-codex);
+  border-color: color-mix(in srgb, var(--brand-codex) 22%, var(--bg-surface1));
 }
+
+/* Indicator shown while a polled or filtered region refetches, so the region
+   reports that it is loading instead of silently swapping under the operator.
+   Overlaid on the region's top edge rather than laid out in flow: the content
+   underneath is already rendered, so an in-flow placeholder pushed every line
+   of it down for the length of each refresh cycle – a recurring jump mid-read,
+   not a first-payload gap. Its containing block is the scroll region
+   (`.content-area` / `.page-content` / `.task-timeline`, all positioned). */
+.poll-skeleton { position: absolute; inset: 0 0 auto 0; display: none; z-index: 1; }
+.poll-skeleton.htmx-request { display: block; }
+
+/* Navigation progress: canon .scan-bar pinned under the topbar. `hx-indicator`
+   on <body> is inherited by every htmx element, so any in-flight request in the
+   document sweeps it — no per-surface template carries an indicator of its own.
+   htmx supplies the opacity toggle via .htmx-indicator / .htmx-request. */
+#nav-progress {
+  position: fixed;
+  top: var(--topbar-h);
+  left: var(--sidebar-w);
+  right: 0;
+  z-index: var(--z-sticky);
+}
+@media (max-width: 768px) { #nav-progress { left: 0; } }
 
 .shell { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }
 /* Trellis wraps injected shell fragments; keep those wrappers out of the grid. */
 .shell > div { display: contents; }
+/* The right column is one flex stack rather than bare grid items. Canon's
+   .shell is a fixed two-row grid, so a restart banner appended beside #topbar
+   and #main-content would auto-place into a third row and push or overlay the
+   page; inside this wrapper it participates in normal column flow instead.
+   Wins over `.shell > div` above on specificity, not order. */
+.shell > .shell-main {
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#restart-banner-slot { flex: none; }
+/* min-height:0 lets the scroll region shrink below its content; without it the
+   banner's height would grow the column past the viewport. */
+.shell-main > #main-content { flex: 1 1 auto; min-height: 0; }
+/* A live pulse and a sweeping scan-bar assert that the view is current. While
+   the event stream is down that assertion is false, so they stop. This is an
+   ADDITIONAL gate: prefers-reduced-motion suppresses them independently in
+   design-system.css and is not routed through this attribute.
+   Scoped to inside the shell on purpose. `#nav-progress` is a sibling of the
+   shell and keeps sweeping while disconnected — it reports an HTTP request that
+   really is in flight, not a claim about stream freshness. */
+.shell[data-connection="lost"] .status-dot--live::before,
+.shell[data-connection="lost"] .status-dot--live::after,
+.shell[data-connection="lost"] .scan-bar::after {
+  animation: none;
+}
 .nav-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 1.25rem; height: 1.25rem; padding: 0 0.35rem;
@@ -1805,9 +1707,6 @@
   color: var(--bg-base); background: var(--warning);
   border-radius: 9999px; margin-left: var(--sp-2);
 }
-.empty-state-icon { font-size: 2.5rem; color: var(--fg-overlay); }
-.empty-state-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg-sub0); }
-.empty-state-text { font-size: var(--text-sm); color: var(--fg-overlay); }
 @media (max-width: 768px) {
   .task-filter-bar { flex-direction: column; align-items: stretch; }
   .task-filter-bar select { width: 100%; }
@@ -1818,17 +1717,28 @@
 /* === TASK DETAIL PAGE === */
 .task-detail-page { display: flex; flex-direction: column; gap: var(--sp-4); }
 .task-meta-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* Two shared rows — labels on one, values on the other. Each item spans both and
+   takes its row tracks from the parent via subgrid, so a pill-valued item and a
+   bare-text item can no longer centre themselves independently. `auto-fit` keeps
+   the wrapping the previous flex row had; `baseline` is what a flex row could not
+   give, because there each item was its own cross-axis box. */
 .task-meta-grid {
-  display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, max-content));
+  gap: var(--sp-1) var(--sp-4);
+  align-items: baseline;
 }
 .task-meta-item {
-  display: flex; flex-direction: column; gap: var(--sp-1);
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+  align-items: baseline;
 }
 .task-meta-label {
-  font-size: var(--text-xs); color: var(--fg-overlay);
+  font-size: var(--text-xs); color: var(--fg-sub0);
   text-transform: uppercase; letter-spacing: var(--tracking-caps);
 }
-.task-meta-description { font-size: var(--text-sm); color: var(--fg-sub0); }
+.task-meta-description { font-size: var(--text-base); color: var(--fg-sub0); }
 .task-meta-description p { margin: var(--sp-1) 0 0; white-space: pre-wrap; }
 .task-meta-warning {
   padding: var(--sp-3);
@@ -1846,12 +1756,24 @@
   min-width: 0;
 }
 .task-chat-column h3, .task-artifact-column h3 {
-  font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
+  color: var(--fg);
   margin: 0;
 }
 .task-chat-embed {
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius);
   padding: var(--sp-3); max-height: 500px; overflow-y: auto;
+}
+/* Canon `.card:hover` is an affordance signal, and neither of these is one: the
+   chat embed is a scroll container the operator hovers to read, and the review
+   bar is pinned. Lifting and glowing them on every pointer entry reports a
+   clickability that is not there. Canon ships no flat variant, so the two
+   non-affordance cards on this surface opt out locally. */
+.task-chat-embed:hover,
+.task-review-bar:hover {
+  border: var(--border);
+  border-top-color: var(--border-highlight);
+  box-shadow: var(--shadow-sm);
+  background: var(--bg-card);
+  translate: none;
 }
 .task-chat-embed .messages { display: flex; flex-direction: column; gap: var(--sp-3); }
 .turn-status-panel {
@@ -1868,8 +1790,14 @@
   font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-overlay);
 }
 .turn-status-times span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-status-time { display: flex; flex-direction: column; }
+.turn-status-time-label { color: var(--fg-sub0); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+.turn-status-time-value { color: var(--fg-sub1); }
+/* An unset time leaves its value span empty; hiding the whole slot keeps the
+   grid free of labelled blanks. Keyed off :empty rather than a server-side
+   omission so the live turn-status poll can reveal a slot it later fills. */
+.turn-status-time:has(> .turn-status-time-value:empty) { display: none; }
 .task-no-session {
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius);
   padding: var(--sp-4);
 }
 .task-artifact-item {
@@ -1880,11 +1808,11 @@
   display: flex; align-items: center; gap: var(--sp-2);
 }
 .task-artifact-name {
-  font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg);
+  font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .task-artifact-content {
-  font-size: var(--text-sm); color: var(--fg-sub0);
+  font-size: var(--text-base); color: var(--fg-sub0);
   max-height: 300px; overflow-y: auto;
   white-space: pre-wrap; word-wrap: break-word;
 }
@@ -1894,18 +1822,18 @@
   padding: var(--sp-2); max-height: 200px; overflow: auto;
   white-space: pre-wrap; color: var(--fg-sub0);
 }
-.task-artifact-empty { font-size: var(--text-sm); color: var(--fg-overlay); padding: var(--sp-2) 0; }
+/* No `color` here: unclassed context lines must read at the body colour so the
+   tinted `.diff-line--add` / `--del` / `--hunk` lines stand apart from them. */
 .diff-view {
   font-family: var(--font-mono); font-size: var(--text-xs);
   background: var(--bg-crust); border: var(--border); border-radius: var(--radius);
   padding: var(--sp-3); max-height: 400px; overflow: auto;
-  white-space: pre; color: var(--fg-sub0);
+  white-space: pre;
 }
 .task-review-bar {
-  position: sticky; bottom: 0; z-index: 10;
+  position: sticky; bottom: 0; z-index: var(--z-sticky);
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius);
 }
 .btn-accept {
   background: color-mix(in srgb, var(--success) 15%, var(--bg-base));
@@ -1936,45 +1864,21 @@
 .task-goal-text {
   margin-top: var(--sp-1);
   font-size: var(--text-xs);
-  color: var(--fg-overlay);
+  color: var(--fg-sub0);
 }
 
-/* New Task Dialog */
-.task-dialog {
-  max-width: 680px; width: min(92vw, 680px);
-  border-radius: var(--radius-lg); color: var(--fg);
-  padding: 0;
-  margin: auto;
-}
-.task-dialog::backdrop {
-  background: color-mix(in srgb, var(--bg-pit) 64%, transparent);
-  backdrop-filter: blur(4px);
-}
 .terminal-frame-body .diff-view {
   background: transparent;
   border: none;
   box-shadow: none;
   padding: 0;
 }
-.task-dialog-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: var(--sp-4) var(--sp-5);
-  border-bottom: var(--border);
-}
-.task-dialog-header h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
 .btn-close {
   background: none; border: none; color: var(--fg-overlay);
   font-size: var(--text-xl); cursor: pointer; padding: var(--sp-1);
   line-height: 1;
 }
 .btn-close:hover { color: var(--fg); }
-
-/* Keep icon-only controls centered when they use `data-icon` with the shared icon system. */
-.banner .dismiss[data-icon]::before,
-.toast-dismiss[data-icon]::before,
-.btn-close[data-icon]::before {
-  margin-right: 0;
-}
 
 .banner-restart {
   background: color-mix(in srgb, var(--warning) 15%, var(--bg-base));
@@ -2005,7 +1909,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: var(--z-overlay);
 }
 
 .restart-overlay-content {
@@ -2013,12 +1917,9 @@
   color: var(--fg);
 }
 
-.task-dialog-body {
-  display: flex; flex-direction: column; gap: var(--sp-5);
-  padding: var(--sp-5) var(--sp-5);
-  max-height: min(72vh, 44rem); overflow-y: auto;
-}
-.task-dialog-body .tab-panel.active {
+/* Canon ships no panel primitive, so the bare `.tab-panel.active { display: block }`
+   would collapse the dialog's field stack. */
+#new-task-dialog .dialog-body .tab-panel.active {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
@@ -2026,7 +1927,7 @@
 .task-advanced-section {
   border: var(--border); border-radius: var(--radius);
   padding: var(--sp-3) var(--sp-4);
-  background: color-mix(in srgb, var(--bg-base) 35%, var(--bg-mantle));
+  background: var(--bg-base);
 }
 .task-advanced-section summary {
   cursor: pointer; user-select: none;
@@ -2041,22 +1942,12 @@
   border-radius: var(--radius);
   background: var(--bg-surface0);
 }
-.task-type-guidance .empty-state-text {
+.task-type-guidance .text-muted {
   line-height: 1.5;
-}
-.task-dialog-footer {
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  padding: var(--sp-4) var(--sp-5) var(--sp-5);
-  border-top: var(--border);
-  background: color-mix(in srgb, var(--bg-base) 18%, var(--bg-mantle));
-}
-.task-dialog-actions {
-  display: flex; justify-content: flex-end; gap: var(--sp-2);
 }
 @media (max-width: 768px) {
   .task-detail-columns { grid-template-columns: 1fr; }
   .task-review-bar { position: fixed; bottom: 0; left: 0; right: 0; border-radius: 0; }
-  .task-dialog { width: 95vw; }
 }
 
 /* === AGENT OVERVIEW === */
@@ -2066,97 +1957,48 @@
   border-top: var(--border);
 }
 .agent-overview h3 {
-  font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
+  color: var(--fg);
   margin: 0 0 var(--sp-3);
 }
-.agent-pool-bar {
-  display: flex;
-  height: 24px;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--bg-surface0);
+/* Tile geometry only — the card surface, padding and radius come from canon
+   `.card`, and the run-card anatomy from canon's orchestration family. */
+.agent-pool-runners {
+  display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-3);
 }
-.bar-segment { transition: width 300ms ease; }
-.bar-active { background: var(--success); }
-.bar-idle { background: var(--bg-surface1); }
-.agent-pool-label {
-  font-size: var(--text-xs); color: var(--fg-sub0);
-  margin-top: var(--sp-1); margin-bottom: var(--sp-3);
+.agent-pool-runners > .card {
+  min-width: 180px; max-width: 220px; flex: 1;
 }
-.agent-runner-cards {
-  display: flex; flex-wrap: wrap; gap: var(--sp-3);
+.run-card-metrics {
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  font-size: var(--text-xs);
 }
-.agent-runner-card {
-  background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg);
-  padding: var(--sp-4); min-width: 180px; max-width: 220px; flex: 1;
-  display: flex; flex-direction: column; gap: var(--sp-2);
-}
+.run-card-metrics a { color: var(--accent); text-decoration: none; }
+.run-card-metrics a:hover { text-decoration: underline; }
 .runner-label {
-  font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--fg);
-}
-.runner-metric {
-  font-size: var(--text-xs); color: var(--fg-sub0);
-}
-.runner-metric a { color: var(--accent); text-decoration: none; }
-.runner-metric a:hover { text-decoration: underline; }
-.runner-metric-error { color: var(--error); }
-.agent-state-idle {
-  display: inline-block; font-size: var(--text-xs); font-weight: var(--weight-medium);
-  padding: 1px var(--sp-2); border-radius: var(--radius);
-  background: var(--bg-surface0); color: var(--fg-overlay);
-}
-.agent-state-busy {
-  display: inline-block; font-size: var(--text-xs); font-weight: var(--weight-medium);
-  padding: 1px var(--sp-2); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--success) 15%, var(--bg-base)); color: var(--success);
-}
-.agent-state-stopped {
-  display: inline-block; font-size: var(--text-xs); font-weight: var(--weight-medium);
-  padding: 1px var(--sp-2); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warning) 15%, var(--bg-base)); color: var(--warning);
-}
-.agent-state-crashed {
-  display: inline-block; font-size: var(--text-xs); font-weight: var(--weight-medium);
-  padding: 1px var(--sp-2); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--error) 15%, var(--bg-base)); color: var(--error);
+  font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
 }
 @media (max-width: 768px) {
-  .agent-runner-cards { flex-direction: column; }
-  .agent-runner-card { max-width: none; }
+  .agent-pool-runners { flex-direction: column; }
+  .agent-pool-runners > .card { max-width: none; }
 }
 
 /* === TASK TIMELINE === */
 
+/* Surface, radius and padding come from canon `.card` on the fragment root. */
 .task-timeline {
-  background: var(--bg-sub-base);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--sp-4);
+  /* Containing block for the card's own overlaid .poll-skeleton – without it
+     the indicator escapes to the page scroller and reports at the wrong edge. */
+  position: relative;
   margin-bottom: var(--sp-4);
 }
 
+/* Layout and gap come from canon `.chip-row`; this rule only keeps the rule-off
+   that separates the filters from the event list. */
 .tl-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1);
   margin-bottom: var(--sp-3);
   padding-bottom: var(--sp-3);
   border-bottom: 1px solid var(--border);
 }
-
-.tl-filter-link {
-  display: inline-block;
-  padding: 2px var(--sp-2);
-  border-radius: var(--radius);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  color: var(--fg-sub0);
-  text-decoration: none;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-}
-.tl-filter-link:hover { color: var(--fg); background: var(--bg-surface0); }
-.tl-filter-link.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 .tl-event-list {
   display: flex;
@@ -2190,6 +2032,8 @@
 .tl-event-pushback .tl-event-icon { color: var(--warning); }
 .tl-event-token .tl-event-icon { color: var(--fg-overlay); }
 .tl-event-error .tl-event-icon { color: var(--error); }
+.tl-event-warning .tl-event-icon { color: var(--warning); }
+.tl-event-compaction .tl-event-icon { color: var(--fg-sub1); }
 
 .tl-event-body {
   flex: 1;
@@ -2200,7 +2044,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg);
   flex-wrap: wrap;
 }
@@ -2219,17 +2063,11 @@
 
 .tl-event-timestamp {
   font-size: var(--text-xs);
-  color: var(--fg-overlay);
+  color: var(--fg-sub0);
   white-space: nowrap;
   flex-shrink: 0;
   margin-top: 3px;
 }
-
-.tl-empty-state {
-  padding: var(--sp-6) var(--sp-4);
-  text-align: center;
-}
-
 @media (max-width: 768px) {
   .tl-event-list { max-height: 300px; }
 }
@@ -2256,21 +2094,23 @@
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  font-size: 11px;
-  color: var(--fg-overlay);
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
 }
 
 .task-event-icon {
-  font-size: 10px;
+  font-size: var(--text-xs);
   flex-shrink: 0;
 }
 
-.task-event-icon-tool     { color: var(--fg-sub1); }
-.task-event-icon-status   { color: var(--accent); }
-.task-event-icon-token    { color: var(--fg-overlay); }
-.task-event-icon-artifact { color: var(--info); }
-.task-event-icon-pushback { color: var(--warning); }
-.task-event-icon-error    { color: var(--error); }
+.task-event-icon-tool       { color: var(--fg-sub1); }
+.task-event-icon-status     { color: var(--accent); }
+.task-event-icon-token      { color: var(--fg-overlay); }
+.task-event-icon-artifact   { color: var(--info); }
+.task-event-icon-pushback   { color: var(--warning); }
+.task-event-icon-error      { color: var(--error); }
+.task-event-icon-warning    { color: var(--warning); }
+.task-event-icon-compaction { color: var(--fg-sub1); }
 
 .task-agent-badge {
   font-size: var(--text-xs);
@@ -2281,54 +2121,48 @@
 
 /* === WORKFLOW PICKER (in New Task dialog) === */
 
-.task-dialog-tabs { padding: 0 var(--sp-5); border-bottom: none; }
-.task-dialog-tabs .tab-bar { margin-bottom: 0; }
-.task-dialog-tabs .tab-btn {
+/* Dialog-local sizing and spacing, keyed on the preserved dialog ids rather than
+   on a canon class head. */
+
+#new-task-dialog .tab {
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-3);
 }
 
-.task-dialog .form-group {
+#new-task-dialog .form-field,
+#add-project-dialog .form-field {
   gap: var(--sp-2);
 }
 
-.task-dialog .form-label {
+#new-task-dialog .form-label,
+#add-project-dialog .form-label {
   margin-bottom: var(--sp-1);
 }
 
-.task-dialog .form-input,
-.task-dialog .form-select,
-.task-dialog .custom-select-trigger {
+#new-task-dialog .form-input,
+#new-task-dialog .form-select,
+#new-task-dialog .custom-select-trigger,
+#add-project-dialog .form-input,
+#add-project-dialog .form-select {
   min-height: 44px;
 }
 
-.task-dialog textarea.form-input {
+#new-task-dialog .form-textarea {
   min-height: 5.5rem;
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-3);
 }
 
-.task-dialog .form-group-checkbox {
-  align-items: center;
-  gap: var(--sp-2);
+#new-task-dialog .form-field--checkbox,
+#add-project-dialog .form-field--checkbox {
   padding-top: var(--sp-2);
-}
-
-.task-dialog .form-group-checkbox label {
-  font-size: var(--text-sm);
-  color: var(--fg-sub0);
-}
-
-.task-dialog .form-group-checkbox input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
 }
 
 .workflow-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .workflow-list-loading {
   display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2);
   padding: var(--sp-4); color: var(--fg-overlay);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 .workflow-list-loading .skeleton { width: 100%; min-height: 4rem; }
 
@@ -2343,7 +2177,7 @@
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: var(--sp-1);
 }
-.workflow-card-name { font-weight: var(--weight-medium); font-size: var(--text-sm); color: var(--fg); }
+.workflow-card-name { font-weight: var(--weight-medium); font-size: var(--text-base); color: var(--fg); }
 .workflow-card-steps { font-size: var(--text-xs); color: var(--fg-overlay); }
 .workflow-card-desc {
   font-size: var(--text-xs);
@@ -2421,7 +2255,7 @@
   justify-content: space-between;
   align-items: center;
   margin-top: var(--sp-1);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-overlay);
 }
 
@@ -2513,7 +2347,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: var(--text-base);
   flex-shrink: 0;
   background: var(--bg-surface0);
   color: var(--fg-overlay);
@@ -2564,12 +2398,12 @@
 }
 
 .workflow-step-type {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--fg-overlay);
 }
 
 .workflow-step-task-link a {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--accent);
 }
 
@@ -2588,9 +2422,9 @@
   min-height: 1.5rem;
   padding: var(--sp-1) var(--sp-3);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--info) 15%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--info) 10%, var(--bg-base));
   color: var(--info);
-  border: 1px solid color-mix(in srgb, var(--info) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info) 22%, var(--bg-surface1));
 }
 
 /* Step detail panel */
@@ -2600,9 +2434,11 @@
 }
 
 .workflow-step-detail-content h4 {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--fg-overlay);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--fg);
   margin: var(--sp-2) 0 var(--sp-1);
 }
 
@@ -2624,37 +2460,37 @@
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-1) 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .workflow-artifact-badge {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  padding: 2px 8px;
+  padding: 1px 8px;
   border-radius: 999px;
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
 }
 .workflow-artifact-badge--diff {
-  background: color-mix(in srgb, var(--info) 12%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--info) 10%, var(--bg-base));
   color: var(--info);
-  border: 1px solid color-mix(in srgb, var(--info) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info) 22%, var(--bg-surface1));
 }
 .workflow-artifact-badge--document {
-  background: color-mix(in srgb, var(--fg-overlay) 10%, var(--bg-surface0));
-  color: var(--fg-sub0);
-  border: 1px solid color-mix(in srgb, var(--fg-overlay) 15%, transparent);
+  background: color-mix(in srgb, var(--fg-sub0) 5%, var(--bg-base));
+  color: var(--fg-sub1);
+  border: 1px solid color-mix(in srgb, var(--fg-sub0) 20%, var(--bg-surface1));
 }
 .workflow-artifact-badge--data {
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-base));
   color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--bg-surface1));
 }
 .workflow-artifact-badge--pr {
-  background: color-mix(in srgb, var(--success) 12%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--success) 10%, var(--bg-base));
   color: var(--success);
-  border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--bg-surface1));
 }
 
 .workflow-step-context-io {
@@ -2715,7 +2551,7 @@
 
 .workflow-context-key {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--weight-medium);
   color: var(--fg-overlay);
   white-space: nowrap;
@@ -2723,7 +2559,7 @@
 }
 
 .workflow-context-value {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   word-break: break-word;
 }
 
@@ -2804,7 +2640,7 @@
   align-items: center;
   gap: var(--sp-3);
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .workflow-run-progress,
@@ -2846,12 +2682,12 @@
 
 .workflow-definition-step-count {
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .workflow-definition-desc {
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   margin: 0 0 var(--sp-2);
   line-height: 1.4;
 }
@@ -2890,7 +2726,7 @@
   display: flex;
   align-items: center;
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   border-left: 2px solid transparent;
   transition: background var(--transition), color var(--transition);
 }
@@ -2934,6 +2770,17 @@
   font-family: var(--font-mono);
 }
 
+/* type="search" is the canonical markup (searchbox role + Escape-to-clear), but
+   WebKit/Blink paint a native cancel glyph inside the branded control once it
+   holds text and takes focus. Reset the UA affordance rather than downgrade the
+   input to type="text", which would cost the role and the Escape behaviour.
+   App-side because canon was frozen when this was found — hoist candidate, see
+   DESIGN.md § List toolbar and pager. */
+input.form-input--search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* Source attribution */
 .kg-timeline-page {
   max-width: var(--container-max);
@@ -2946,14 +2793,7 @@
 .page-subtitle {
   margin: var(--sp-1) 0 0;
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
-}
-
-.knowledge-tabs {
-  display: flex;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-  overflow-x: auto;
+  font-size: var(--text-base);
 }
 
 .attribution-statement {
@@ -3003,150 +2843,64 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .citation-marker {
     min-width: 44px;
     min-height: 44px;
   }
 }
 
+/* The four layers take the chart ramp by fixed index (chart-1/-2 are aliased
+   onto --accent/--info, the selection and state hues these variants exist to
+   escape). The hue carries the tint and border only: DESIGN.md § Extended
+   palette scopes mauve/teal/pink/sky to decorative and data-viz use, and as
+   caption-size text --pink and --sky measure 1.98:1 and 2.06:1 on their own
+   light-theme tint. Text stays --fg, which clears AA on every variant in both
+   themes (light 5.62-6.00:1, dark 8.93-9.31:1). */
 .layer-badge {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--bg-surface2);
   border-radius: var(--radius);
   background: var(--bg-surface0);
-  color: var(--fg-sub1);
+  color: var(--fg);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   line-height: 1.2;
   padding: 2px var(--sp-2);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
 }
 
 .layer-badge--wiki {
-  color: var(--info);
-  border-color: color-mix(in srgb, var(--info) 45%, transparent);
-  background: color-mix(in srgb, var(--info) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--chart-3) 45%, transparent);
+  background: color-mix(in srgb, var(--chart-3) 10%, var(--bg-base));
 }
 
 .layer-badge--kg {
-  color: var(--teal);
-  border-color: color-mix(in srgb, var(--teal) 45%, transparent);
-  background: color-mix(in srgb, var(--teal) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--chart-4) 45%, transparent);
+  background: color-mix(in srgb, var(--chart-4) 10%, var(--bg-base));
 }
 
 .layer-badge--memory {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--chart-5) 45%, transparent);
+  background: color-mix(in srgb, var(--chart-5) 10%, var(--bg-base));
 }
 
 .layer-badge--inbox {
-  color: var(--warning);
-  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
-  background: color-mix(in srgb, var(--warning) 10%, var(--bg-base));
-}
-
-.read-only-marker {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-base));
-  color: var(--accent);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  line-height: 1.2;
-  padding: var(--sp-1) var(--sp-2);
-}
-
-.knowledge-search-strip {
-  display: grid;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
-}
-
-.knowledge-search-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--sp-2);
-}
-
-.knowledge-search-form input[type="search"] {
-  min-width: 0;
-}
-
-.filter-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-}
-
-.filter-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  border: 1px solid var(--bg-surface2);
-  border-radius: var(--radius);
-  background: var(--bg-base);
-  color: var(--fg-sub1);
-  padding: 0 var(--sp-3);
-  text-decoration: none;
-}
-
-.filter-chip--active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--chart-6) 45%, transparent);
+  background: color-mix(in srgb, var(--chart-6) 10%, var(--bg-base));
 }
 
 .knowledge-summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-}
-
-.knowledge-summary-item {
-  display: grid;
-  gap: var(--sp-1);
-  border: 1px solid var(--bg-surface1);
-  border-radius: var(--radius);
-  background: var(--bg-mantle);
-  padding: var(--sp-3);
-}
-
-.knowledge-summary-count {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
-}
-
-.knowledge-summary-label {
-  color: var(--fg-sub0);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-}
-
-.knowledge-partial-notice {
-  margin-bottom: var(--sp-4);
 }
 
 .knowledge-results {
   display: grid;
   gap: var(--sp-3);
-}
-
-.knowledge-result-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--sp-3);
-  align-items: start;
-  border: 1px solid var(--bg-surface1);
-  border-radius: var(--radius-lg);
-  background: var(--bg-mantle);
-  padding: var(--sp-4);
 }
 
 .knowledge-result-body {
@@ -3155,15 +2909,30 @@
   gap: var(--sp-2);
 }
 
+.knowledge-result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
 .knowledge-result-title {
   margin: 0;
+  min-width: 0;
   font-size: var(--text-lg);
   line-height: var(--leading-tight);
 }
 
+/* Snippets arrive as a fixed-length substring cut mid-word upstream, so the
+   clamp is what supplies the trailing ellipsis. */
 .knowledge-result-snippet {
   margin: 0;
   color: var(--fg-sub1);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .knowledge-result-meta {
@@ -3172,39 +2941,8 @@
   align-items: center;
   gap: var(--sp-2);
 }
-
-.knowledge-empty-state {
-  border: 1px dashed var(--bg-surface2);
-  border-radius: var(--radius);
-  color: var(--fg-sub0);
-  padding: var(--sp-4);
-}
-
-.pager {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--sp-3);
-  margin-top: var(--sp-4);
-}
-
-.pager-link {
-  border: 1px solid var(--bg-surface2);
-  border-radius: var(--radius);
-  color: var(--fg);
-  padding: var(--sp-2) var(--sp-3);
-  text-decoration: none;
-}
-
-.pager-label {
-  color: var(--fg-sub0);
-  font-size: var(--text-sm);
-}
-
-@media (max-width: 767px) {
-  .knowledge-search-form,
-  .knowledge-summary-strip,
-  .knowledge-result-row {
+@media (max-width: 768px) {
+  .knowledge-summary-strip {
     grid-template-columns: 1fr;
   }
 }
@@ -3221,11 +2959,12 @@
   line-height: 1.2;
   padding: 2px var(--sp-2);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
 }
 
 .attribution-popover {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-dropdown);
   top: calc(100% + var(--sp-2));
   left: 0;
   display: grid;
@@ -3249,7 +2988,7 @@
 
 .source-excerpt {
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .source-link,
@@ -3268,7 +3007,6 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: var(--sp-3);
   align-items: end;
-  margin-bottom: var(--sp-4);
 }
 
 .kg-timeline-controls .field {
@@ -3281,6 +3019,7 @@
   color: var(--fg-sub0);
   font-size: var(--text-xs);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
 }
 
 .kg-timeline-controls .input {
@@ -3390,7 +3129,7 @@
   font-weight: var(--weight-medium);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .kg-timeline-controls {
     grid-template-columns: 1fr;
   }
@@ -3477,7 +3216,7 @@
   width: 40px;
   height: 40px;
   border-radius: var(--radius);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -3582,7 +3321,7 @@
 .provider-detail-item .detail-value {
   color: var(--fg);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .provider-detail-item .detail-value-ok {
@@ -3650,7 +3389,7 @@
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   border-top: var(--border);
-  background: color-mix(in srgb, var(--error) 5%, var(--bg-mantle));
+  background: color-mix(in srgb, var(--error) 5%, var(--bg-card));
 }
 
 .provider-error-banner .error-icon {
@@ -3661,7 +3400,7 @@
 
 .provider-error-banner .error-text {
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .provider-error-banner .error-text strong {
@@ -3669,12 +3408,6 @@
   margin-bottom: 2px;
   color: var(--fg);
 }
-
-.provider-empty-state {
-  padding: var(--sp-4);
-  color: var(--fg-sub0);
-}
-
 .provider-section-note {
   margin: 0;
 }
@@ -3686,7 +3419,6 @@
   margin-bottom: var(--sp-4);
 }
 
-.guard-editor-tabs,
 .guard-editor-actions,
 .guard-editor-form-row,
 .guard-tester-row {
@@ -3695,42 +3427,10 @@
   flex-wrap: wrap;
 }
 
-.guard-editor-tab {
-  border: var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface0);
-  color: var(--fg-sub0);
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: var(--sp-1) var(--sp-3);
-}
-
-.guard-editor-tab.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
-}
-
-.guard-editor-table {
-  width: 100%;
-  min-width: 560px;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-
-.guard-editor-table th,
-.guard-editor-table td {
-  border: var(--border);
-  padding: var(--sp-2);
-  text-align: left;
-}
-
-.guard-editor-table th {
-  color: var(--fg-sub1);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-}
+/* Everything else — width, collapse, header band, cell rhythm — comes from
+   design-system.css#.data-table. The floor is the only local part: four
+   columns of patterns and controls become unreadable below it. */
+.guard-editor-table { min-width: 560px; }
 
 .guard-editor-value {
   font-family: var(--font-mono);
@@ -3740,7 +3440,7 @@
 
 .guard-editor-message {
   color: var(--fg-sub0);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .guard-editor-error {
@@ -3753,16 +3453,17 @@
 }
 
 @media (max-width: 768px) {
+  /* Height only: a min-width floor here stretches narrow inline chips that
+     happen to be buttons into 48px slabs. Controls that need a square target
+     set their own width below. */
   button,
   summary,
   [role="button"] {
-    min-width: 48px;
     min-height: 48px;
   }
 
   .topbar .menu-toggle,
-  .theme-toggle,
-  .btn-icon-sm {
+  .theme-toggle {
     width: 48px;
     height: 48px;
     min-width: 48px;
@@ -3773,8 +3474,12 @@
     min-height: 48px;
   }
 
-  .settings-tab,
-  .topbar-back {
+  /* Anchor-based controls. An <a> gets no touch floor from the bare `button`
+     rule above, so every anchor that behaves as a control is named here.
+     Read this as intent — "anchors acting as controls" — not as an inventory:
+     the previous three class-name lists each missed the tab and pager anchors,
+     which is how those shipped at 28px. */
+  :is(.topbar-back, .card-link, .guard-audit-link, .tabs a.tab, .pager a) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3782,46 +3487,26 @@
     min-height: 48px;
   }
 
-  .card-link,
-  .guard-audit-link {
-    display: inline-flex;
-    align-items: center;
-    min-width: 48px;
-    min-height: 48px;
-  }
-
-  .toggle-switch {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    min-height: 48px;
-  }
-
-  .toggle-switch .toggle-slider {
-    width: 36px;
-    height: 20px;
-    inset: 50% auto auto 50%;
-    transform: translate(-50%, -50%);
-  }
-
   .login-input,
   .login-checkbox {
     min-height: 48px;
   }
 
-  .form-input,
-  .form-select,
   .custom-select-trigger,
   .pairing-input,
-  .well-content .form-row input[type="text"],
-  .well-content .form-row textarea,
-  .well-content .form-row select {
+  .well-content .form-input,
+  .well-content .form-textarea,
+  .well-content .form-select {
     font-size: 16px;
   }
 
-  .task-dialog .form-input,
-  .task-dialog .form-select,
-  .task-dialog .custom-select-trigger {
+  /* Textareas are deliberately absent: their own 5.5rem floor is taller, and at
+     equal specificity a later rule here would lower it rather than raise it. */
+  #new-task-dialog .form-input,
+  #new-task-dialog .form-select,
+  #new-task-dialog .custom-select-trigger,
+  #add-project-dialog .form-input,
+  #add-project-dialog .form-select {
     min-height: 48px;
   }
 }

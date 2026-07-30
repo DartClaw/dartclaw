@@ -25,7 +25,7 @@ String workflowDetailPageTemplate({
   required List<Map<String, dynamic>> steps,
   required List<Map<String, dynamic>> contextEntries,
   required List<Map<String, dynamic>> loopInfo,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
@@ -34,6 +34,7 @@ String workflowDetailPageTemplate({
     title: 'Workflow: $definitionName',
     backHref: '/workflows',
     backLabel: 'Back to Workflows',
+    restartBannerHtml: restartBannerHtml,
   );
   final statusName = run['status']?.toString() ?? 'pending';
 
@@ -128,13 +129,13 @@ String workflowDetailPageTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('workflow_detail'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
     'runId': run['id'],
     'definitionName': definitionName,
     'status': statusName,
     'statusLabel': workflowStatusLabel(runStatus),
     'statusBadgeClass': workflowStatusBadgeClass(runStatus),
     'startedAtDisplay': _formatTimeAgo(run['startedAt']),
+    'startedAtIso': isoTitle(run['startedAt']?.toString()),
     'updatedAtDisplay': _formatTimeAgo(run['updatedAt']),
     'hasCompletedAt': run['completedAt'] != null,
     'completedAtDisplay': run['completedAt'] != null ? _formatTimeAgo(run['completedAt']) : null,
@@ -201,7 +202,8 @@ String workflowStepDetailFragment({
       'hasMetrics': hasTokens || hasDuration,
       'tokenCount': tokenCount != null ? formatNumber(tokenCount) : '0',
       'hasDuration': hasDuration,
-      'durationDisplay': durationDisplay ?? '--',
+      'durationDisplay': durationDisplay,
+      'durationAbsent': absentValue(durationDisplay).isAbsent,
     },
   );
 }
@@ -257,8 +259,8 @@ String _formatTimeAgo(Object? value) {
   }
 }
 
-String _formatDuration(Object? startedAt, Object? completedAt) {
-  if (startedAt == null) return '--';
+String? _formatDuration(Object? startedAt, Object? completedAt) {
+  if (startedAt == null) return null;
   try {
     final start = startedAt is DateTime ? startedAt : DateTime.parse(startedAt.toString());
     final end = completedAt != null
@@ -266,6 +268,6 @@ String _formatDuration(Object? startedAt, Object? completedAt) {
         : null;
     return humanizeSpan(start, end, true);
   } catch (_) {
-    return '--'; // Unparseable timestamp or null end time — fall back to placeholder.
+    return null; // Unparseable timestamp or null end time — renders as absent.
   }
 }

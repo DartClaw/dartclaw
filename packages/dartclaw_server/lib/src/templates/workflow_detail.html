@@ -1,12 +1,11 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
     <div class="content-inner workflow-detail-page" data-controller="dc-workflows"
          data-action="htmx:responseError->dc-workflows#showStepDetailError htmx:sendError->dc-workflows#showStepDetailError"
          tl:attr="data-run-id=${runId},data-run-status=${status}">
-
-      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
       <!-- Workflow metadata card grid -->
       <div class="workflow-metrics-grid">
@@ -15,7 +14,7 @@
           <div class="metric-label">Status</div>
         </div>
         <div class="metric-card">
-          <div class="metric-value" tl:text="${startedAtDisplay}">2h ago</div>
+          <div class="metric-value" tl:attr="title=${startedAtIso}" tl:text="${startedAtDisplay}">2h ago</div>
           <div class="metric-label">Started</div>
         </div>
         <div class="metric-card">
@@ -23,7 +22,8 @@
           <div class="metric-label">Tokens</div>
         </div>
         <div class="metric-card">
-          <div class="metric-value" tl:text="${durationDisplay}">1h 42m</div>
+          <div class="metric-value" tl:classappend="${durationAbsent} ? 'value-absent' : ''"
+               tl:text="${durationDisplay}">1h 42m</div>
           <div class="metric-label">Duration</div>
         </div>
       </div>
@@ -130,14 +130,14 @@
                 <div class="banner banner-error" data-step-detail-error="" hidden>
                   <span class="icon icon-triangle-alert" aria-hidden="true"></span>
                   <span>Step details could not be loaded.</span>
-                  <button class="btn btn-secondary btn-sm" type="button"
+                  <button class="btn btn-ghost btn-sm" type="button"
                           data-action="dc-workflows#retryStepDetail">Retry</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <div tl:unless="${hasSteps}" class="empty-state-text">No steps defined.</div>
+        <div tl:unless="${hasSteps}" class="text-muted">No steps defined.</div>
       </div>
 
       <!-- Shared context viewer -->
@@ -157,4 +157,5 @@
 
     </div>
   </main>
+  </div>
 </div>

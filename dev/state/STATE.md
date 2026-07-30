@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-07-25 12:02 CEST
+Last Updated: 2026-07-29 20:24 CEST
 
 ### Implemented Features (through 0.22)
 
@@ -25,7 +25,7 @@ Last Updated: 2026-07-25 12:02 CEST
 
 ## Current Phase
 
-**Phase 1: Canon revision** — 0.22.1 Design-System Refinement & Web UI Polish. Plan bundle in the private repo (`docs/specs/0.22.1/`): 14 stories across 4 phases.
+**Phase 3: Adoption & glitch sweep** — 0.22.1 Design-System Refinement & Web UI Polish. Plan bundle in the private repo (`docs/specs/0.22.1/`): 14 stories across 4 phases.
 
 **Status**: On Track
 

@@ -134,6 +134,7 @@ class WorkflowsPage extends DashboardPage {
         'totalSteps': totalSteps,
         'progressPercent': progressPercent,
         'startedAtDisplay': _formatRelative(run.startedAt),
+        'startedAtIso': run.startedAt.toIso8601String(),
         'totalTokens': formatNumber(run.totalTokens),
         'href': '/workflows/${run.id}',
       });
@@ -190,7 +191,7 @@ class WorkflowsPage extends DashboardPage {
         for (final project in projects) {'value': project.id, 'label': project.name},
       ],
       filters: filters,
-      bannerHtml: bannerHtml,
+      restartBannerHtml: bannerHtml,
       appName: context.appDisplay.name,
     );
 
@@ -298,7 +299,7 @@ class WorkflowsPage extends DashboardPage {
       steps: steps,
       contextEntries: contextEntries,
       loopInfo: loopInfo,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
     );
 

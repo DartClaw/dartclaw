@@ -8,7 +8,7 @@
   <div class="topbar-actions">
     <a tl:attr="href=${infoHref},hx-get=${infoHref}" class="btn btn-icon btn-ghost" aria-label="Session info"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#sidebar" data-icon="info"></a>
+      hx-select-oob="#topbar,#restart-banner-slot,#sidebar" data-icon="info"></a>
     <button tl:if="${showResume}" class="btn btn-ghost btn-sm" data-session-resume="true"
       tl:attr="data-session-id=${sessionId}">Resume</button>
     <button tl:if="${showReset}" class="btn btn-ghost btn-sm btn-reset"
@@ -23,7 +23,7 @@
 <header tl:fragment="plainTopbar" class="topbar" id="topbar">
   <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
     aria-expanded="false" data-icon="menu"></button>
-  <span class="session-title" tl:text="${appName}">DartClaw</span>
+  <h1 class="session-title t-page-title" tl:text="${appName}">DartClaw</h1>
   <div class="topbar-actions">
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>
@@ -34,8 +34,8 @@
     aria-expanded="false" data-icon="menu"></button>
   <a tl:if="${backHref}" tl:attr="href=${backHref},hx-get=${backHref}" class="topbar-back"
     hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-    hx-select-oob="#topbar,#sidebar"><span class="icon icon-arrow-left" aria-hidden="true"></span> <span tl:text="${backLabel}">Back</span></a>
-  <span class="session-title-static" tl:text="${title}">Page Title</span>
+    hx-select-oob="#topbar,#restart-banner-slot,#sidebar"><span class="icon icon-arrow-left" aria-hidden="true"></span> <span tl:text="${backLabel}">Back</span></a>
+  <h1 class="session-title-static t-page-title" tl:text="${title}">Page Title</h1>
   <div class="topbar-actions">
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>

@@ -1,18 +1,21 @@
-<aside tl:fragment="sidebar" class="sidebar" id="sidebar" tl:attr="data-tasks-enabled=${tasksEnabledAttr}">
+<aside tl:fragment="sidebar" class="sidebar" id="sidebar"
+  tl:attr="data-tasks-enabled=${tasksEnabledAttr},data-provider-badges=${providerBadgeAttr}">
   <div class="sidebar-header">
-    <span class="logo" tl:text="'❯ ' + ${appName}">❯ DartClaw</span>
+    <span class="claw-mark" aria-hidden="true"></span>
+    <span class="logo" tl:text="${appName}">DartClaw</span>
     <button class="btn btn-icon btn-ghost sidebar-close" type="button" aria-label="Close sidebar"
       data-icon="x"></button>
   </div>
 
+  <div class="session-list">
   <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
   <div tl:if="${mainSession}" class="session-item session-item-main"
     tl:classappend="${mainActive} ? 'active' : ''">
     <a tl:attr="href=${mainHref},hx-get=${mainHref},data-icon=${'terminal'}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#sidebar">
+      hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
       <span class="session-item-title">Agent</span>
-      <span tl:if="${mainProvider}" class="provider-badge"
+      <span tl:if="${mainShowProvider}" class="provider-badge"
         tl:classappend="'provider-badge-' + ${mainProvider}"
         tl:text="${mainProviderLabel}">Claude</span></a>
   </div>
@@ -21,17 +24,17 @@
     <hr class="sidebar-divider">
 
     <div class="sidebar-section-label">Channels</div>
-    <div tl:if="${noChannels}" class="sidebar-placeholder">No active channels</div>
+    <div tl:if="${noChannels}" class="sidebar-placeholder text-muted t-caption">No active channels</div>
 
     <div tl:if="${showDmLabel}" class="sidebar-subsection-label">DMs</div>
     <div tl:each="ch : ${dmChannels}" class="session-item session-item-channel"
       tl:classappend="${ch.active} ? 'active' : ''">
       <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-        hx-select-oob="#topbar,#sidebar">
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
         <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${ch.id},data-identicon-initials=${ch.title}"></span>
         <span class="session-item-title" tl:text="${ch.title}">Channel</span>
-        <span tl:if="${ch.provider}" class="provider-badge"
+        <span tl:if="${ch.showProvider}" class="provider-badge"
           tl:classappend="'provider-badge-' + ${ch.provider}"
           tl:text="${ch.providerLabel}">Claude</span></a>
     </div>
@@ -41,10 +44,10 @@
       tl:classappend="${ch.active} ? 'active' : ''">
       <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-        hx-select-oob="#topbar,#sidebar">
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
         <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${ch.id},data-identicon-initials=${ch.title}"></span>
         <span class="session-item-title" tl:text="${ch.title}">Channel</span>
-        <span tl:if="${ch.provider}" class="provider-badge"
+        <span tl:if="${ch.showProvider}" class="provider-badge"
           tl:classappend="'provider-badge-' + ${ch.provider}"
           tl:text="${ch.providerLabel}">Claude</span></a>
     </div>
@@ -57,14 +60,14 @@
     <div tl:each="task : ${activeTasks}" class="session-item sidebar-running-item">
       <a tl:attr="href=${task.href},hx-get=${task.href}" class="session-item-link"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-        hx-select-oob="#topbar,#sidebar">
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
         <span tl:if="${task.isReview}" class="status-dot status-dot--warning" aria-hidden="true"></span>
         <span tl:unless="${task.isReview}" class="status-dot status-dot--live" aria-hidden="true"></span>
         <span class="session-item-title" tl:text="${task.title}">Task</span>
         <span tl:if="${task.isReview}" class="running-review-label">review</span>
         <span tl:unless="${task.isReview}" class="task-elapsed running-elapsed"
           tl:attr="data-started-at=${task.startedAt}">--:--</span>
-        <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+        <span tl:if="${task.showProvider}" class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
           tl:text="${task.providerLabel}">Claude</span>
       </a>
     </div>
@@ -76,7 +79,7 @@
     <div tl:each="workflow : ${activeWorkflows}" class="session-item sidebar-workflow-item">
       <a tl:attr="href=${workflow.href},hx-get=${workflow.href}" class="session-item-link"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-        hx-select-oob="#topbar,#sidebar">
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
         <span tl:if="${workflow.isPaused}" class="status-dot status-dot--warning" aria-hidden="true"></span>
         <span tl:unless="${workflow.isPaused}" class="status-dot status-dot--live" aria-hidden="true"></span>
         <span class="session-item-title" tl:text="${workflow.title}">Workflow</span>
@@ -87,17 +90,17 @@
   </div>
 
   <div class="sidebar-section-label">Chats</div>
-  <button class="btn btn-ghost btn-new-session" data-session-create="true" data-icon="new-session">New Chat</button>
-  <div tl:if="${noActiveEntries}" class="sidebar-placeholder">No chats yet</div>
+  <button class="btn btn-new-session" data-session-create="true" data-icon="new-session">New Chat</button>
+  <div tl:if="${noActiveEntries}" class="sidebar-placeholder text-muted t-caption">No chats yet</div>
 
   <div tl:each="entry : ${activeEntries}" class="session-item"
     tl:classappend="${entry.extraClass}">
     <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#sidebar">
+      hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
       <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
       <span class="session-item-title" tl:text="${entry.title}">Session</span>
-      <span tl:if="${entry.provider}" class="provider-badge"
+      <span tl:if="${entry.showProvider}" class="provider-badge"
         tl:classappend="'provider-badge-' + ${entry.provider}"
         tl:text="${entry.providerLabel}">Claude</span></a>
     <button class="session-action session-archive" data-session-archive="true"
@@ -116,16 +119,17 @@
         tl:classappend="${entry.extraClass}">
         <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
           hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-          hx-select-oob="#topbar,#sidebar">
+          hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
           <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
           <span class="session-item-title" tl:text="${entry.title}">Archived session</span>
-          <span tl:if="${entry.provider}" class="provider-badge"
+          <span tl:if="${entry.showProvider}" class="provider-badge"
             tl:classappend="'provider-badge-' + ${entry.provider}"
             tl:text="${entry.providerLabel}">Claude</span></a>
         <button class="delete-btn session-delete" data-session-delete="true"
-          tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Delete session"></button>
+          tl:attr="data-session-id=${entry.id},data-session-title=${entry.title},data-icon=${'x'}" aria-label="Delete session"></button>
       </div>
     </div>
+  </div>
   </div>
 
   <nav tl:if="${hasNav}" class="sidebar-section" aria-label="Dashboard navigation">
@@ -134,14 +138,14 @@
       tl:classappend="${nav.active} ? 'active' : ''"
       tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent},data-icon=${nav.icon}"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#sidebar"
+      hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
       tl:utext="${nav.label}">Link</a>
     <div tl:if="${showExtensionNav}" class="sidebar-section-label">Extensions</div>
     <a tl:each="nav : ${extensionNavItems}" class="sidebar-nav-item"
       tl:classappend="${nav.active} ? 'active' : ''"
       tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent},data-icon=${nav.icon}"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#sidebar"
+      hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
       tl:text="${nav.label}">Link</a>
   </nav>
 </aside>

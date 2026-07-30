@@ -554,6 +554,39 @@ Previously fixed issues. Flag immediately if any regress.
 | R-10 | Sidebar new-chat button mislabelled | Button reads `New Chat`, not legacy `+ New Session` |
 | R-11 | Workspace section missing | Main session always rendered under Workspace, not buried in Chats |
 | R-12 | Workflow step expansion full-page reload | Step row expansion is HTMX-driven, no full reload |
+| R-13 | External runtime dependency returns | Embedded fallback serves fully offline — run § R-13 protocol below |
+
+### R-13 protocol
+
+Every runtime dependency (htmx, marked, JetBrains Mono) is vendored and served same-origin. A re-introduced CDN
+reference degrades silently — the UI still renders, just in system monospace — so this check runs against the release
+binary's embedded fallback with the network cut, not against a dev server.
+
+1. `bash dev/tools/build.sh`, then resolve `BIN="$PWD/build/bin/dartclaw"` as an absolute path.
+2. Create a temporary directory outside the checkout and copy the visual seed into it:
+   `R13_DATA="$(mktemp -d)" && cp -R dev/testing/profiles/visual/data/. "$R13_DATA"`.
+3. Launch `(cd "$R13_DATA" && "$BIN" --config "$R13_DATA/dartclaw.yaml" serve --data-dir "$R13_DATA" --port 3338)`.
+   The launched process arguments must contain `--port 3338` and must contain neither `--dev` nor `--source-dir`, so
+   source-tree assets cannot satisfy the check. Confirm with `ps -o args= -p <pid>`.
+4. Start the browser with every non-`localhost` origin unreachable, e.g. Chromium with
+   `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost"`. Block uniformly rather than per-domain, so a future
+   CDN host nobody predicted is blocked too.
+5. Load `/`, navigate to `/tasks` through an `hx-get` interaction, and open the seeded chat session.
+6. For each weight 400, 500 and 600, evaluate `document.fonts.load('<weight> 16px "JetBrains Mono"', 'DartClaw 0123')`
+   and the same call with latin-ext text `'Pchnąć w tę łódź jeża'`. Each must resolve to a **non-empty** array whose
+   matching `FontFace` entries report `status === 'loaded'`, `family === 'JetBrains Mono'` and the requested weight.
+   `document.fonts.check(...)` may supplement this but cannot replace it — it returns `true` for a system fallback.
+7. Confirm the network log records same-origin `200` loads for `htmx.min.js`, `marked.min.js` and both `font/woff2`
+   subsets, that the `hx-get` swapped `#main-content` without a full page load, that the seeded assistant message
+   rendered as HTML rather than literal `**markdown**`, that **zero** requests went to a non-`localhost` origin, and
+   that the console recorded no `error`-level entries.
+8. Confirm the preloaded font is actually consumed: `jetbrains-mono-latin.woff2` appears **once** in the network log,
+   and no "preloaded using link preload but not used" warning is logged. A preload missing its `crossorigin`
+   attribute fetches the font twice and only warns, so neither a `200` nor a clean error log would catch it.
+9. Confirm the weight axis really renders. The subsets are variable fonts, so all three weights come from one file
+   and a broken axis would still report three loaded `FontFace`s at the right descriptors. Draw the same glyphs to a
+   canvas at weight 400 and at 600 and require materially more ink at 600 (~1.2x opaque pixels); equal ink means the
+   weights collapsed. Monospace advance width is weight-invariant, so width comparison cannot substitute.
 
 ---
 

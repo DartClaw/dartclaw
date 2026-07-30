@@ -8,25 +8,37 @@ final class _ResolvedSourceAttribution {
   final bool attributed;
   final int marker;
   final String? excerpt;
+  final bool showLayerBadge;
 
   const _ResolvedSourceAttribution({
     required this.sourceRef,
     required this.attributed,
     required this.marker,
     this.excerpt,
+    this.showLayerBadge = true,
   });
 }
 
 /// Resolves and renders a single source reference through the shared attribution fragment.
+///
+/// Set [showLayerBadge] to false when the host row already renders the layer
+/// badge; the popover keeps its own copy either way.
 Future<String> sourceAttributionFragment({
   required SourceRef? sourceRef,
   required int marker,
   required CitationSourceResolver resolver,
   String? excerpt,
+  bool showLayerBadge = true,
 }) async {
   final attributed = sourceRef != null && await resolver.resolves(sourceRef);
   return _renderSourceAttribution(
-    _ResolvedSourceAttribution(sourceRef: sourceRef, attributed: attributed, marker: marker, excerpt: excerpt),
+    _ResolvedSourceAttribution(
+      sourceRef: sourceRef,
+      attributed: attributed,
+      marker: marker,
+      excerpt: excerpt,
+      showLayerBadge: showLayerBadge,
+    ),
   );
 }
 
@@ -108,6 +120,7 @@ String _renderSourceAttribution(_ResolvedSourceAttribution attribution) {
     fragment: 'sourceAttribution',
     context: {
       'attributed': attributed,
+      'inlineBadge': attributed && attribution.showLayerBadge,
       'stateClass': attributed ? 'source-attribution--attributed' : 'source-attribution--unattributed',
       'controllerName': attributed ? 'dc-attribution' : null,
       'marker': '${attribution.marker}',

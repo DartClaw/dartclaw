@@ -1,29 +1,28 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
     <div class="content-inner workflow-list-page" data-controller="dc-workflows">
-
-      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
       <!-- Filters -->
       <div class="workflow-filters card">
         <div class="workflow-filter-row">
           <div class="workflow-filter-group">
-            <label class="form-label">Status</label>
+            <label class="form-label t-label">Status</label>
             <div class="workflow-status-filters">
               <a tl:each="opt : ${statusOptions}"
                  tl:classappend="${opt.active} ? 'btn-active' : ''"
                  class="btn btn-ghost btn-sm"
                  tl:attr="href=${opt.href},hx-get=${opt.href}"
                  hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
-                 hx-push-url="true" hx-select-oob="#topbar,#sidebar"
+                 hx-push-url="true" hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
                  tl:text="${opt.label}">All</a>
             </div>
           </div>
           <div class="workflow-filter-group">
-            <label class="form-label" for="workflow-definition-filter">Workflow</label>
-            <select class="form-input form-input-sm" id="workflow-definition-filter">
+            <label class="form-label t-label" for="workflow-definition-filter">Workflow</label>
+            <select class="form-select form-input-sm" id="workflow-definition-filter">
               <option value="">All workflows</option>
               <option tl:each="def : ${definitionOptions}"
                       tl:attr="value=${def.value},selected=${def.selected} ? 'selected' : null"
@@ -39,7 +38,7 @@
           <div tl:each="run : ${runs}" class="workflow-run-card card print-in">
             <a tl:attr="href=${run.href},hx-get=${run.href}" class="workflow-run-link"
                hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
-               hx-push-url="true" hx-select-oob="#topbar,#sidebar">
+               hx-push-url="true" hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
               <div class="workflow-run-header">
                 <span class="workflow-run-name" tl:text="${run.definitionName}">spec-and-implement</span>
                 <span tl:classappend="${run.statusBadgeClass}" class="status-badge"
@@ -53,14 +52,15 @@
                   <div class="meter-fill"
                        tl:attr="style='width: ' + ${run.progressPercent} + '%'"></div>
                 </div>
-                <span class="workflow-run-time" tl:text="${run.startedAtDisplay}">2h ago</span>
+                <span class="workflow-run-time" tl:attr="title=${run.startedAtIso}"
+                      tl:text="${run.startedAtDisplay}">2h ago</span>
                 <span class="workflow-run-tokens" tl:text="${run.totalTokens} + ' tokens'">12.4K tokens</span>
               </div>
             </a>
           </div>
         </div>
         <div tl:unless="${hasRuns}" class="empty-state">
-          <span class="empty-state-text">No workflow runs found.</span>
+          <span class="text-muted">No workflow runs found.</span>
         </div>
       </div>
 
@@ -88,21 +88,21 @@
                     tl:attr="hx-target='#' + ${def.errorId}"
                     hx-swap="innerHTML">
                 <input type="hidden" name="definition" tl:attr="value=${def.name}">
-                <div tl:each="field : ${def.variableInputs}" class="form-group">
-                  <label class="form-label" tl:attr="for=${field.id}" tl:text="${field.label}">Variable</label>
+                <div tl:each="field : ${def.variableInputs}" class="form-field">
+                  <label class="form-label t-label" tl:attr="for=${field.id}" tl:text="${field.label}">Variable</label>
                   <input class="form-input" type="text"
                          tl:attr="id=${field.id},name=${field.inputName},placeholder=${field.placeholder},value=${field.defaultValue},required=${field.required} ? 'required' : null">
                 </div>
-                <div tl:if="${hasProjects}" class="form-group">
-                  <label class="form-label" tl:attr="for=${def.projectSelectId}">Project</label>
-                  <select class="form-input" tl:attr="id=${def.projectSelectId},name='project'">
+                <div tl:if="${hasProjects}" class="form-field">
+                  <label class="form-label t-label" tl:attr="for=${def.projectSelectId}">Project</label>
+                  <select class="form-select" tl:attr="id=${def.projectSelectId},name='project'">
                     <option value="">Default project</option>
                     <option tl:each="project : ${projectOptions}"
                             tl:attr="value=${project.value}"
                             tl:text="${project.label}">project</option>
                   </select>
                 </div>
-                <div class="form-error workflow-launch-error" tl:attr="id=${def.errorId}"></div>
+                <div class="form-error t-caption workflow-launch-error" tl:attr="id=${def.errorId}"></div>
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary btn-sm">Launch</button>
                   <button type="button" class="btn btn-ghost btn-sm"
@@ -116,4 +116,5 @@
 
     </div>
   </main>
+  </div>
 </div>

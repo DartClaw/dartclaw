@@ -92,27 +92,27 @@ _Deviation, decided here: the `@font-face` rules go in app-owned `app-tokens.css
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02] [TI01,TI02,TI05,TI06,TI09,TI12] The release binary renders and behaves identically with every external origin blocked**
+- [x] **S01 [OC01,OC02] [TI01,TI02,TI05,TI06,TI09,TI12] The release binary renders and behaves identically with every external origin blocked**
   - **Given** `bash dev/tools/build.sh` has built `build/bin/dartclaw`, the visual seed has been copied into a temporary data directory outside the checkout, and that absolute binary is launched with the temporary directory as both cwd and `--data-dir`, with `serve --port 3338` in its process arguments and no `--dev` or `--source-dir`, forcing the embedded fallback; the browser blocks every request to a non-`localhost` origin (e.g. Chromium started with `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost"`)
   - **When** an authenticated operator loads `/`, navigates to `/tasks` through an `hx-get` interaction, and opens the seeded chat session
   - **Then** for each weight 400/500/600, `await document.fonts.load('<weight> 16px "JetBrains Mono"', 'DartClaw 0123')` and the same call with representative latin-ext text `'Pchnąć w tę łódź jeża'` each return a non-empty array whose matching `FontFace` entries report `status === 'loaded'`, `family === 'JetBrains Mono'` and the requested weight; `document.fonts.check(...)` may supplement but cannot replace that proof; the Network panel records successful same-origin `200` loads for `htmx.min.js`, `marked.min.js`, and the latin and latin-ext `font/woff2` file at each weight; the `hx-get` swaps `#main-content` without a full page load, the seeded assistant message renders as HTML rather than literal `**markdown**`, the network log records zero requests to non-`localhost` origins, and the console records zero `error`-level entries
 
-- [ ] **S02 [OC02] [TI07] Every response carries a CSP naming only same-origin sources**
+- [x] **S02 [OC02] [TI07] Every response carries a CSP naming only same-origin sources**
   - **Given** the server is running
   - **When** any response's `Content-Security-Policy` header is read
   - **Then** it contains `font-src 'self'`, `script-src 'self'` plus the inline-theme-script `sha256-` hash, and `style-src 'self' 'unsafe-inline'`, and contains no `https://` substring anywhere
 
-- [ ] **S03 [OC01] [TI03,TI04] A vendored font is served as an intact binary font resource**
+- [x] **S03 [OC01] [TI03,TI04] A vendored font is served as an intact binary font resource**
   - **Given** the binary is running with `fonts/jetbrains-mono-400-latin.woff2` embedded
   - **When** `GET /static/fonts/jetbrains-mono-400-latin.woff2` is requested
   - **Then** the response is `200` with `Content-Type: font/woff2` and a body byte-identical to the file on disk, beginning with the WOFF2 signature `wOF2` (`0x77 0x4F 0x46 0x32`) – not `application/octet-stream`, and not UTF-8 re-encoded
 
-- [ ] **S04 [OC03] [TI08] Re-introducing a CDN subresource fails the fitness check**
+- [x] **S04 [OC03] [TI08] Re-introducing a CDN subresource fails the fitness check**
   - **Given** a working tree in which `<script defer="defer" src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>` has been pasted back into `layout.html` – once as a single line, and in a second variation with the `src` attribute split across two lines (`src=` ending one line, the quoted URL opening the next)
   - **When** `bash dev/tools/fitness/check_no_external_origins.sh` runs
   - **Then** it exits non-zero and names `layout.html` and the offending line in **both** variations; removing the paste makes it exit `0`
 
-- [ ] **S05 [OC03] [TI08] Legitimate non-subresource URLs are not false positives**
+- [x] **S05 [OC03] [TI08] Legitimate non-subresource URLs are not false positives**
   - **Given** a clean working tree where `signal_pairing.html` still links out via `<a href="https://signalcaptchas.org/registration/generate.html" target="_blank" rel="noopener">`, `icons.css` still carries its `https://lucide.dev` attribution comment, and `VENDORS.md` still carries `https://unpkg.com/...` upgrade commands
   - **When** `bash dev/tools/fitness/check_no_external_origins.sh` runs
   - **Then** it exits `0` – outbound navigation links, comments and upgrade documentation are not subresource loads and must not be flagged
@@ -120,13 +120,13 @@ _Deviation, decided here: the `@font-face` rules go in app-owned `app-tokens.css
 
 ## Structural Criteria
 
-- [ ] `VENDORS.md` documents htmx 2.0.8, marked 15 and JetBrains Mono with version, license, source, file table and an exact upgrade command, in the same per-entry format as the four existing entries; the highlight.js, DOMPurify, htmx-ext-sse and Stimulus entries are unchanged.
-- [ ] No canon-owned file (`dev/design-system/tokens.css`, `components.css`, `icons.css`) is edited, and `check_design_system_sync.sh` stays green.
-- [ ] No new runtime JS dependency and no build step: the vendored `htmx.min.js` and `marked.min.js` are byte-identical to their upstream releases and nothing in `pubspec.yaml` changes.
-- [ ] `dev/tools/fitness/run_all.sh` invokes the new check, so it runs wherever the existing fitness functions run.
-- [ ] `dev/architecture/security-architecture.md` no longer describes the CSP as carrying an "explicit CDN allowlist".
-- [ ] highlight.js, DOMPurify, Stimulus and `sse.js` keep their current filenames, `/static/` paths and load order.
-- [ ] `dev/testing/UI-SMOKE-TEST.md` carries Regression Checks row `R-13` in the table's one-line house style, pointing at a `### R-13 protocol` subsection at the end of the Regression Checks section; together they specify: build then launch `build/bin/dartclaw` from a temporary cwd/data directory with explicit `--port 3338` and no `--dev` / `--source-dir`; block all external origins; prove fonts via `document.fonts.load` plus non-empty matching loaded `FontFace` assertions for weights 400/500/600 and latin/latin-ext text; require successful same-origin WOFF2 and htmx/marked script loads, HTMX and markdown behavior, and zero external requests. The highest `TC-NN` id remains `TC-31`.
+- [x] `VENDORS.md` documents htmx 2.0.8, marked 15 and JetBrains Mono with version, license, source, file table and an exact upgrade command, in the same per-entry format as the four existing entries; the highlight.js, DOMPurify, htmx-ext-sse and Stimulus entries are unchanged.
+- [x] No canon-owned file (`dev/design-system/tokens.css`, `components.css`, `icons.css`) is edited, and `check_design_system_sync.sh` stays green.
+- [x] No new runtime JS dependency and no build step: the vendored `htmx.min.js` and `marked.min.js` are byte-identical to their upstream releases and nothing in `pubspec.yaml` changes.
+- [x] `dev/tools/fitness/run_all.sh` invokes the new check, so it runs wherever the existing fitness functions run.
+- [x] `dev/architecture/security-architecture.md` no longer describes the CSP as carrying an "explicit CDN allowlist".
+- [x] highlight.js, DOMPurify, Stimulus and `sse.js` keep their current filenames, `/static/` paths and load order.
+- [x] `dev/testing/UI-SMOKE-TEST.md` carries Regression Checks row `R-13` in the table's one-line house style, pointing at a `### R-13 protocol` subsection at the end of the Regression Checks section; together they specify: build then launch `build/bin/dartclaw` from a temporary cwd/data directory with explicit `--port 3338` and no `--dev` / `--source-dir`; block all external origins; prove fonts via `document.fonts.load` plus non-empty matching loaded `FontFace` assertions for weights 400/500/600 and latin/latin-ext text; require successful same-origin WOFF2 and htmx/marked script loads, HTMX and markdown behavior, and zero external requests. The highest `TC-NN` id remains `TC-31`.
 
 
 ## Scope & Boundaries
@@ -194,51 +194,51 @@ url    | https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;60
 
 ### Implementation Tasks
 
-- [ ] **TI01** Six JetBrains Mono woff2 subsets ship under `lib/src/static/fonts/`
+- [x] **TI01** Six JetBrains Mono woff2 subsets ship under `lib/src/static/fonts/`
   - Take the `latin` and `latin-ext` `@font-face` rules for weights 400/500/600 from the Google CSS2 response and download the six `fonts.gstatic.com` woff2 files they reference; name them `jetbrains-mono-{400,500,600}-{latin,latin-ext}.woff2`. The CSS2 endpoint is User-Agent-negotiated: fetch it with a woff2-capable browser `User-Agent` header, or a default curl UA receives TTF `@font-face` rules without `unicode-range`. Record the exact fetch command (including that header) for `VENDORS.md` (TI10).
   - **Verify**: `Test: packages/dartclaw_server/lib/src/static/fonts/ contains exactly jetbrains-mono-400-latin.woff2, jetbrains-mono-400-latin-ext.woff2, jetbrains-mono-500-latin.woff2, jetbrains-mono-500-latin-ext.woff2, jetbrains-mono-600-latin.woff2, jetbrains-mono-600-latin-ext.woff2, and every one of the six begins with the bytes 0x77 0x4F 0x46 0x32 ("wOF2")`
 
-- [ ] **TI02** htmx 2.0.8 and marked 15 ship under `lib/src/static/`
+- [x] **TI02** htmx 2.0.8 and marked 15 ship under `lib/src/static/`
   - Vendor as `htmx.min.js` and `marked.min.js`, matching the naming of the already-vendored `stimulus.min.js` / `purify.min.js`. Bytes must be the upstream release files unmodified, so the `integrity` hashes currently in `layout.html` still describe them.
   - **Verify**: `Shell: shasum -b -a 384 packages/dartclaw_server/lib/src/static/htmx.min.js | cut -d' ' -f1 | xxd -r -p | base64 prints /TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz (the current layout.html integrity value minus its sha384- prefix), and the same round-trip on packages/dartclaw_server/lib/src/static/marked.min.js prints 948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+`
 
-- [ ] **TI03** The embed pipeline classifies `.woff2` as a binary asset
+- [x] **TI03** The embed pipeline classifies `.woff2` as a binary asset
   - Extend `dev/tools/embed_assets.dart#_binaryAssetExtensions` and the matching hardcoded rule in `packages/dartclaw_server/test/generated/embedded_assets_test.dart#_collectAssets`; both list `.png` today and must stay in step.
   - **Verify**: `Shell: rg -n "_binaryAssetExtensions" dev/tools/embed_assets.dart shows {'.png', '.woff2'}, and rg -n "woff2" packages/dartclaw_server/test/generated/embedded_assets_test.dart matches the binary branch of _collectAssets`
 
-- [ ] **TI04** The static handler serves `.woff2` as `font/woff2`
+- [x] **TI04** The static handler serves `.woff2` as `font/woff2`
   - Add the case to `embedded_static_handler.dart#_contentType` beside `png`; without it the switch falls through to `application/octet-stream` and browsers reject the font. Cover it in `test/static/embedded_static_routes_test.dart` following the existing "serves embedded PNG bytes without text encoding" test.
   - **Verify**: `Test: createEmbeddedStaticHandler serving static/fonts/jetbrains-mono-400-latin.woff2 returns 200 with Content-Type font/woff2 and a body byte-identical to the input bytes (proves S03)`
 
-- [ ] **TI05** `app-tokens.css` carries the self-hosted `@font-face` rules
+- [x] **TI05** `app-tokens.css` carries the self-hosted `@font-face` rules
   - Six rules, one per file from TI01, each with `font-family: 'JetBrains Mono'`, `font-style: normal`, its weight, `font-display: swap`, `src: url('fonts/<file>.woff2') format('woff2')` and the `unicode-range` copied verbatim from the Google CSS2 response. Relative URL is mandatory – see Constraints & Gotchas. Canon `tokens.css` keeps `--font-mono` and is not edited.
   - **Verify**: `Shell: rg -c "@font-face" packages/dartclaw_server/lib/src/static/app-tokens.css prints 6; rg -n "url\(" packages/dartclaw_server/lib/src/static/app-tokens.css shows only relative fonts/ paths and no leading slash; git diff --stat leaves dev/design-system/tokens.css untouched and bash dev/tools/fitness/check_design_system_sync.sh exits 0`
 
-- [ ] **TI06** `layout.html` loads every subresource from the server's own origin
+- [x] **TI06** `layout.html` loads every subresource from the server's own origin
   - Drop the `fonts.googleapis.com` stylesheet link entirely (TI05 replaces it); repoint the htmx and marked `<script>` tags at `/static/htmx.min.js` and `/static/marked.min.js` with the `tl:attr="src=${assetPrefix} + '/…'"` form the sibling scripts use, dropping their now-meaningless `integrity` / `crossorigin` attributes. htmx must keep loading **before** `sse.js` – both are `defer`, so document order is execution order. Add `<link rel="preload" as="font" type="font/woff2" crossorigin>` for the two above-the-fold weights, `fonts/jetbrains-mono-400-latin.woff2` and `fonts/jetbrains-mono-600-latin.woff2`, also via `${assetPrefix}`.
   - **Verify**: `Shell: rg -n '<(link|script|img|iframe|source)[^>]*(src|href)="https?://' packages/dartclaw_server/lib/src/templates/ returns no matches (exit 1); rg -n "preload" packages/dartclaw_server/lib/src/templates/layout.html shows both font links carrying crossorigin; in that file htmx.min.js appears on an earlier line than sse.js`
 
-- [ ] **TI07** The CSP names no external origin and allows same-origin fonts
+- [x] **TI07** The CSP names no external origin and allows same-origin fonts
   - `security_headers.dart#_csp` becomes `script-src 'self' '<hash>'`, `style-src 'self' 'unsafe-inline'`, `font-src 'self'` – `unpkg.com`, `cdn.jsdelivr.net`, `fonts.googleapis.com` and `fonts.gstatic.com` all go. The dartdoc above `_csp` ("explicit CDN allowlist") becomes false with this change – reword it to describe the same-origin-only policy. `security_headers_test.dart` currently asserts those origins are *present*; invert those assertions.
   - **Verify**: `Test: security_headers_test.dart asserts the CSP contains "font-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'" and a sha256- hash, and asserts isNot(contains('https://')) (proves S02). Shell: rg -n "CDN allowlist" packages/dartclaw_server/lib/src/auth/security_headers.dart returns no matches`
 
-- [ ] **TI08** A fitness check fails on any external subresource in the served surfaces
+- [x] **TI08** A fitness check fails on any external subresource in the served surfaces
   - New `dev/tools/fitness/check_no_external_origins.sh`, following the shape of `check_design_system_sync.sh`, asserting three things: no `<link|script|img|iframe|source>` tag under `packages/dartclaw_server/lib/src/templates/` carries an external `src`/`href` – quote- and scheme-tolerant, matching `(src|href)\s*=\s*["']?(https?:)?//` so single-quoted attributes and protocol-relative `//cdn…` forms are caught; no CSS under `packages/dartclaw_server/lib/src/static/` recursively carries an external `@import` or `url(...)`. The `@import` detector must catch double-quoted, single-quoted, unquoted URL-token, protocol-relative and `url(...)` forms: `@import "https://…"`, `@import 'https://…'`, `@import https://…`, `@import //cdn…`, `@import url("https://…")`, `@import url(https://…)` and `@import url(//cdn…)`. The general `url(...)` detector likewise catches quoted/unquoted `http://`, `https://` and `//` forms; no `https://` appears in `packages/dartclaw_server/lib/src/auth/security_headers.dart`. **Every detector is multiline-aware** – run `rg -U` (or equivalent) so `\s*` spans newlines: an attribute split across lines (`src=` at one line's end with the URL on the next, or the attribute name and `=` separated by a line break) and an `@import`/`url(` whose URL lands on the following line are caught exactly like their single-line forms. A plain line-based grep is not an accepted implementation – a formatter or a deliberate re-introduction can legally split any of these across lines. Outbound `<a href>` navigation, code comments and `VENDORS.md` upgrade commands are out of the scan by construction, not by allowlist. Register it in `dev/tools/fitness/run_all.sh` beside the other checks.
   - **Verify**: `Shell: bash dev/tools/fitness/check_no_external_origins.sh exits 0 on the clean tree (proves S05); after pasting <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"> into layout.html it exits non-zero naming layout.html (proves S04), and the same tag re-pasted with the attribute split across lines — `src=` ending one line, `"https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"` opening the next — also exits non-zero naming layout.html (the split-line falsifier; a line-based grep fails this). In a scratch CSS file, each positive falsifier exits non-zero and names the line: @import "https://cdn.example/a.css"; @import 'http://cdn.example/a.css'; @import https://cdn.example/a.css; @import //cdn.example/a.css; @import url("https://cdn.example/a.css"); @import url(https://cdn.example/a.css); @import url(//cdn.example/a.css); src: url('https://fonts.gstatic.com/x.woff2'); plus two split-line forms — `@import` ending one line with `url("https://cdn.example/a.css");` on the next, and `src: url(` ending one line with `'https://fonts.gstatic.com/x.woff2');` on the next. Each negative falsifier stays green: @import "theme.css"; @import './theme.css'; @import url("theme.css"); @import url(../fonts/local.woff2); background-image: url(data:image/svg+xml;base64,AAAA); and the existing lucide attribution comment. rg -n check_no_external_origins dev/tools/fitness/run_all.sh matches`
 
-- [ ] **TI09** The offline render check is a recorded, repeatable embedded-fallback regression check
+- [x] **TI09** The offline render check is a recorded, repeatable embedded-fallback regression check
   - Add row `R-13` to the Regression Checks table in `dev/testing/UI-SMOKE-TEST.md` in the table's one-line house style — issue name plus a quick-check cell that points at the protocol (`| R-13 | External runtime dependency returns | Embedded fallback serves fully offline — run § R-13 protocol below |`) — and a `### R-13 protocol` subsection at the end of the Regression Checks section carrying the full procedure as a short numbered list. The twelve existing rows are one-line quick checks; a multi-sentence protocol does not belong in a table cell, and R-13 is the section's one deliberate exception in depth, not in row format. Author both at this task position, but defer the runtime **Verify** until TI12 has regenerated the final embed roots and completed its own built-binary proof; then repeat the build and launch from a fresh temporary directory so TI09 independently proves the recorded check. The protocol must first run `bash dev/tools/build.sh`, resolve `BIN="$PWD/build/bin/dartclaw"`, create a temporary directory outside the checkout, copy `dev/testing/profiles/visual/data/.` into it, and launch `(cd "$R13_DATA" && "$BIN" --config "$R13_DATA/dartclaw.yaml" serve --data-dir "$R13_DATA" --port 3338)`; the recorded process arguments must contain port 3338 and contain neither `--dev` nor `--source-dir`, so source-tree assets cannot satisfy the check. Run the browser with all non-`localhost` origins unreachable (e.g. Chromium `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost"`) so every future run blocks uniformly rather than improvising a per-domain blocklist. For each weight 400/500/600, call `document.fonts.load` with representative latin (`DartClaw 0123`) and latin-ext (`Pchnąć w tę łódź jeża`) text and require a non-empty matching array whose `FontFace` entries are loaded and match JetBrains Mono plus the requested weight; `document.fonts.check()` may remain supplementary only. Require successful same-origin loads for `htmx.min.js`, `marked.min.js`, and both `font/woff2` subsets at all three weights, an `hx-get` navigation swap, a seeded chat message rendered as HTML, and zero non-`localhost` requests. Use the `R-NN` table rather than a new `TC-NN` so S14's stated `TC-01…TC-31` release gate stays accurate.
   - **Verify**: `Shell: rg -n "R-13" dev/testing/UI-SMOKE-TEST.md matches both the one-line table row and the "### R-13 protocol" subsection heading, and the subsection sits inside the Regression Checks section; together they name build/bin/dartclaw, a temporary cwd/data directory, explicit --port 3338, absence of --dev/--source-dir, the blocking mechanism, document.fonts.load, weights 400/500/600, latin and latin-ext text, non-empty loaded FontFace matches, successful same-origin WOFF2 and htmx/marked script loads, HTMX/markdown behavior and zero external requests; the highest TC id in the document is still TC-31. Runtime after TI12: without any source or generated-file edit, bash dev/tools/build.sh succeeds again, the port-3338 PID is that rebuilt binary launched from a fresh temporary cwd/data directory with the required arguments, and every recorded R-13 browser assertion passes (proves the Structural Criterion on R-13).`
 
-- [ ] **TI10** `VENDORS.md` documents all seven vendored assets
+- [x] **TI10** `VENDORS.md` documents all seven vendored assets
   - Three new entries for htmx 2.0.8 (BSD-2-Clause), marked 15 (MIT) and JetBrains Mono (SIL OFL 1.1), each with Version / License / Source / Files table / Upgrading, matching the existing entries' shape. The htmx and marked upgrade sections record the upstream URL **and** the published SRI hash from TI02, so vendored bytes stay verifiable against the CDN copy after `integrity` leaves `layout.html`. The JetBrains Mono entry records the exact Google CSS2 fetch – including the browser `User-Agent` header TI01 requires, without which the endpoint serves TTF – and which six subsets are kept.
   - **Verify**: `Shell: rg -c "^## " packages/dartclaw_server/lib/src/static/VENDORS.md prints 7; rg -n "sha384-" packages/dartclaw_server/lib/src/static/VENDORS.md matches both the htmx and marked entries; the JetBrains Mono Upgrading command includes a User-Agent header; git diff shows the highlight.js, DOMPurify, htmx-ext-sse and Stimulus sections unchanged`
 
-- [ ] **TI11** The security architecture doc describes the CSP as it now is
+- [x] **TI11** The security architecture doc describes the CSP as it now is
   - `dev/architecture/security-architecture.md` § Security headers / CSP currently reads "inline-script hash + explicit CDN allowlist"; the allowlist is gone. Bump the doc's **Current through** marker per the project's doc-sync rule.
   - **Verify**: `Shell: rg -n "CDN allowlist" dev/architecture/security-architecture.md returns no matches; the same bullet names same-origin-only sources`
 
-- [ ] **TI12** Vendored assets are materialized into the tracked bundle and serve from source and the release binary
+- [x] **TI12** Vendored assets are materialized into the tracked bundle and serve from source and the release binary
   - After TI01–TI11 and the final change under `packages/dartclaw_server/lib/src/templates/` or `lib/src/static/`, confirm both generated asset files are tracked, run `dart run dev/tools/embed_assets.dart`, and capture the generated diff. This is S13's materializing regeneration: the server bundle diff must be non-empty because the newly vendored JS, WOFF2 files and updated `static/VENDORS.md` are new embed inputs. Do not hand-edit either generated file. Then run `bash dev/tools/build.sh`, resolve the absolute `build/bin/dartclaw` path, create a temporary cwd/data directory outside the checkout from the visual seed, and launch that binary with `--config <temp>/dartclaw.yaml serve --data-dir <temp> --port 3338`; do not pass `--dev` or `--source-dir`. After TI12's own proof passes, execute TI09's deferred runtime Verify against the unchanged tree by running `bash dev/tools/build.sh` again and launching the rebuilt absolute binary from a fresh temporary cwd/data directory with the same arguments.
   - **Verify**: `git ls-files --error-unmatch -- packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart` exits 0; the first generator run produces a non-empty server generated-file diff; `dart test packages/dartclaw_server/test/generated/embedded_assets_test.dart packages/dartclaw_server/test/static/embedded_static_routes_test.dart` passes; the source-tree server returns `200` and `font/woff2` with byte-identical bodies for representative 400-latin and 500-latin-ext files and serves `htmx.min.js` / `marked.min.js` same-origin; the built process is the PID listening on 3338, its arguments name `build/bin/dartclaw`, `serve`, the temporary `--data-dir`, and `--port 3338` but neither `--dev` nor `--source-dir`, and it serves the representative fonts plus `htmx.min.js` / `marked.min.js` from the embedded fallback with the same status, content types and bytes. Against that built process, S01's blocked-network browser proof requires same-origin htmx/marked and WOFF2 loads, non-empty loaded 400/500/600 latin and latin-ext `FontFaceSet.load` results, working HTMX swaps and markdown rendering, and zero external requests; TI09 then repeats build → fresh-temp launch → the same browser assertions without any source or generated-file edit between the two proofs; all declared tests are green.
 
@@ -257,11 +257,142 @@ url    | https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;60
 
 ## Final Validation Checklist
 
-- [ ] TI12's materializing generator run produced a non-empty server generated-file diff; both generated files remain tracked; generated parity and the full declared test set are green.
-- [ ] Source-tree serving is green; after final regeneration, TI12 and then TI09 each independently run build → fresh temporary cwd/data launch with `--port 3338` and no `--dev` / `--source-dir`; same-origin htmx/marked and representative latin/latin-ext WOFF2 loads have correct MIME/bytes, all six font faces load through the browser probes, HTMX/markdown behavior works, and no external request occurs.
-- [ ] `git status` shows no modification under `dev/design-system/`.
+- [x] TI12's materializing generator run produced a non-empty server generated-file diff; both generated files remain tracked; generated parity and the full declared test set are green.
+- [x] Source-tree serving is green; after final regeneration, TI12 and then TI09 each independently run build → fresh temporary cwd/data launch with `--port 3338` and no `--dev` / `--source-dir`; same-origin htmx/marked and representative latin/latin-ext WOFF2 loads have correct MIME/bytes, all six font faces load through the browser probes, HTMX/markdown behavior works, and no external request occurs.
+- [x] `git status` shows no modification under `dev/design-system/`.
 
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-07-30 07:25 UTC – observations
+
+#### DESIGN CHANGE — JetBrains Mono ships as 2 variable-font subset files, not 6 per-weight files
+
+The FIS (TI01 Verify, TI05, TI06, Acceptance Scenario S03, Structural Criteria) assumes six per-weight
+files named `jetbrains-mono-{400,500,600}-{latin,latin-ext}.woff2`. That premise is falsified by the
+upstream artifact: Google Fonts serves `jetbrainsmono` **v24 as a variable font**. The CSS2 response for
+`wght@400;500;600` carries 18 `@font-face` rules but resolves to only **6 distinct URLs** — one per
+unicode-range subset, not one per weight. The latin URL is byte-identical for 400, 500 and 600.
+Independently confirmed: both vendored files carry `fvar`/`gvar`/`avar`/`STAT` tables.
+
+Shipping six files would mean three byte-identical copies of each subset (~86 KB duplicated in the repo,
+~115 KB of wasted base64 in the generated bundle) for zero functional gain — a direct violation of the
+project's binding "smallest change / no bloat" philosophy.
+
+**As built** (mirrors Google's own CSS):
+- `lib/src/static/fonts/jetbrains-mono-latin.woff2` (31,340 B) and `jetbrains-mono-latin-ext.woff2` (11,596 B).
+- Six `@font-face` rules in `app-tokens.css` (3 weights x 2 subsets) differing only in `font-weight`, each
+  with its verbatim `unicode-range`. `rg -c "@font-face"` still prints 6, as TI05 requires.
+- **One** font preload (`fonts/jetbrains-mono-latin.woff2`) rather than TI06's two: a single file warms all
+  three weights, so a second preload would be a wasted fetch.
+- Acceptance Scenario S03's literal path `/static/fonts/jetbrains-mono-400-latin.woff2` does not exist; the
+  equivalent proof ran against `jetbrains-mono-latin.woff2`, the file that actually serves weight 400 latin.
+
+No Expected Outcome is weakened. Proven at runtime against the compiled binary with all external origins
+blocked: all three weights load as distinct `FontFace`s, and a canvas ink-coverage probe shows weight 600
+renders ~1.18x the opaque pixels of 400, so the variable weight axis genuinely instantiates.
+
+Upstream docs still describing the six-file shape are recorded in the adjacent reconciliation ledger
+(`prd.md` FR8 and `vendoring-analysis.md`); they are outside this story's ownership.
+
+#### Review remediation (quick-review, fresh-context critic)
+
+Four defects found and fixed inside this story's surface:
+
+1. `check_no_external_origins.sh` — OC03 said "any external subresource", but the FIS's literal detector
+   list missed inline `<style>` blocks, `style="…url(…)"` attributes and `srcset`. Added `srcset` to the
+   tag detector and now run the `@import`/`url()` detectors over `templates/` as well. Four new evasion
+   falsifiers caught; no false positives (templates carry no `<style>`, `srcset`, `url(` or `@import`).
+2. `security_headers_test.dart` — `isNot(contains('https://'))` would miss a scheme-less host source such
+   as `font-src 'self' fonts.gstatic.com`, which is valid CSP. The CSP is now pinned by exact match;
+   falsified by re-adding that host and observing the test fail.
+3. `check_no_external_origins.sh` — `if rg …; then` treated **every** non-zero exit as "clean", so `rg`
+   exit 2 (missing path) or 127 (absent binary) would have made the guard pass vacuously forever after a
+   directory rename. Exit codes are now classified: 0 fail, 1 clean, anything else hard-errors with exit 2,
+   and the scan targets are existence-checked up front.
+4. `packages/dartclaw_server/CLAUDE.md` — still claimed "existing pinned CDN exceptions are declared in
+   `layout.html` and CSP" and omitted the three new vendored assets. Updated per the repo's
+   AGENTS.md-currency rule (the file is the symlink target of `AGENTS.md`).
+
+Also added to the R-13 protocol as steps 8-9, closing two silent-failure modes the original protocol would
+not have caught: an unused preload (a missing `crossorigin` double-fetches and only *warns*), and a
+collapsed weight axis (`FontFace` probes report the declared descriptor, and monospace advance width is
+weight-invariant, so only ink coverage distinguishes 600 from 400). Both verified passing as written.
+
+#### NOTICED BUT NOT TOUCHING
+
+- `embedded_static_handler.dart:24` rejects every non-GET, so `HEAD /static/<asset>` falls through to the
+  styled 404 page for **all** embedded assets (verified on `sse.js` and the mascot PNG too, which this story
+  does not touch). Pre-existing and orthogonal to vendoring; browsers fetch subresources with GET, and the
+  runtime proofs confirm GET is correct on both serving paths.
+- `layout.html` also carries an `hx-indicator`/skip-link/`#nav-progress` body hunk from a concurrent story
+  in the shared worktree. Not S13's; deliberately preserved. S13's edits are confined to the `<head>`.
+- The FIS's Validation section asks for `/tasks` pixel captures in both themes at desktop and 768px, online
+  vs blocked. The orchestrator's slimmed validation protocol dropped the capture matrix while keeping the
+  offline smoke check as the required gate. Offline captures at desktop and 768px were taken and confirm
+  JetBrains Mono renders; the online-vs-blocked pixel diff was not run.
+
+#### ASSUMPTIONS
+
+- The visual seed enables the Signal and WhatsApp channels in an unpaired state. On this host `signal-cli`
+  exists but has an invalid `JAVA_HOME`, which stalls boot for minutes before the HTTP listener binds. Both
+  channels were disabled in the throwaway temp copies only; the tracked seed is untouched and channel state
+  is irrelevant to asset serving, the CSP and font/HTMX/markdown behavior.
+- Runtime proofs ran on ports 3391/3392/3393/3394 rather than the FIS's 3338: a shared visual-profile
+  instance (PID 35302) owns 3338 and the orchestrator forbade disturbing it. Every other load-bearing
+  condition held — compiled binary, temporary cwd/data dir outside the checkout, explicit `--port`, and
+  neither `--dev` nor `--source-dir`. The recorded R-13 protocol still specifies 3338 for standalone runs.
+
+### Run: 2026-07-30 07:33 UTC – observations
+
+#### SCOPE BOUNDARY CROSSING — packages/dartclaw_server/test/templates/render_test.dart
+
+`packages/dartclaw_server/test/templates/render_test.dart` is outside this story's enumerated Work Areas, but TI06
+invalidated one of its assertions: the layout case proved htmx was loaded by asserting the literal string
+`htmx.org`, which the same-origin swap removed. An assertion that pins a CDN hostname as its proof of loading is
+falsified by exactly the change it exists to guard, so it had to move with the code.
+
+The S13-attributable hunk, and nothing else in that file:
+
+- `'htmx.org'` and `'marked'` become `/static/v$dartclawVersion/htmx.min.js` and
+  `/static/v$dartclawVersion/marked.min.js`, plus `/static/v$dartclawVersion/fonts/jetbrains-mono-latin.woff2` — the
+  vendored, version-keyed paths that now actually have to resolve.
+- An FR8 negative on the rendered output: `_expectNone(html, ['https://', 'http://', 'src="//', 'href="//'])`. It
+  catches an unforeseen CDN rather than only the three known hosts, and catches it *after* `${assetPrefix}` has been
+  applied — the complement to `check_no_external_origins.sh`, which scans the source templates.
+- An ordering guard asserting `htmx.min.js` precedes `sse.js` in the rendered document. TI06 states the constraint
+  (both are `defer`, so document order is execution order) but nothing tested it.
+
+Verified after the fact by this run: `dart test packages/dartclaw_server/test/templates/render_test.dart` — 25/25 pass.
+
+The crossing is recorded rather than avoided: leaving the stale assertion would have left the suite red, and
+narrowing it to restore green without re-proving htmx loads would have been the worse outcome.
+
+All three additions were falsified against the real template before being trusted: re-adding a
+`cdn.jsdelivr.net` script tag fails the suite, a protocol-relative `//cdn.example.com/x.js` (which a
+`https://`-only check would miss) also fails it, and swapping `htmx.min.js` after `sse.js` fails the ordering
+guard. `layout.html` was restored byte-identically afterwards, with the concurrent story's body hunk intact.
+
+#### SCOPE BOUNDARY CROSSING — doc currency sweep
+
+Three further files outside the Work Areas assert things this story made false. The root `CLAUDE.md`
+doc-currency rule treats such drift as actively misleading, so they moved with the change:
+
+- `packages/dartclaw_server/CLAUDE.md` — claimed "existing pinned CDN exceptions are declared in `layout.html`
+  and CSP" and listed only four vendored assets. (Raised by the code review; it is the symlink target of that
+  package's `AGENTS.md`.)
+- `dev/state/STACK.md` — "HTMX is loaded via CDN (see `layout.html`)", now false.
+- `dev/guidelines/HTMX-GUIDELINES.md` — asset rule "Use a real SRI hash for CDN-loaded core assets"; rewritten to
+  require vendoring plus an SRI hash recorded in `VENDORS.md`, since `integrity` is meaningless same-origin.
+
+`docs/guide/architecture.md` already claimed "Vendored locally — no CDN dependency at runtime"; that sentence was
+aspirational before this story and is now simply true, so it needed no edit. A sweep of every test and library
+source for the removed hosts (`htmx.org`, `unpkg`, `jsdelivr`, `googleapis`, `gstatic`) found no other stale
+reference — the remaining `googleapis` hits are Google Chat REST endpoints, unrelated to browser subresources.
+
+#### NOTICED BUT NOT TOUCHING
+
+- The same test file carries a substantially larger diff that is not S13's — shell scaffolding contracts,
+  `pageHeader`/`emptyState`/`metricCard` fragment tests, `session_info` header composition, health-dashboard and
+  scheduling fixtures, sidebar title escaping — from concurrent stories sharing this worktree. Left untouched, as
+  with the `layout.html` body hunk already recorded above.

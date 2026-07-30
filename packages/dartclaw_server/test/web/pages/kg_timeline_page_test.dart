@@ -132,7 +132,10 @@ void main() {
 
     expect(html, contains('active-as-of'));
     expect(html, contains('not-yet-valid'));
-    expect(html, contains('href="/knowledge/timeline">↺ now</a>'));
+    expect(
+      html,
+      contains('href="/knowledge/timeline"><span class="icon icon-x" aria-hidden="true"></span> Reset filters</a>'),
+    );
   });
 
   test('date-only as-of uses the KG UTC parser for active classification', () async {
@@ -240,7 +243,8 @@ void main() {
       path: '/knowledge/timeline?category=Architecture%20Decisions',
     );
 
-    expect(html, contains('No facts recorded in this category yet.'));
+    expect(html, contains('class="empty-state-title t-label">No facts in this category<'));
+    expect(html, contains('Reset the filters or try another category.'));
     expect(html, isNot(contains('alpha')));
   });
 

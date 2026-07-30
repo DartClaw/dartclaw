@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 
 import 'package:dartclaw_server/src/templates/chat.dart';
 import 'package:dartclaw_server/src/templates/channel_detail.dart';
+import 'package:dartclaw_server/src/web/channel_status.dart';
 
 import '../test_utils.dart';
 
@@ -34,8 +35,7 @@ void main() {
       final html = channelDetailTemplate(
         channelType: 'whatsapp',
         channelLabel: 'WhatsApp',
-        statusLabel: 'Connected',
-        statusClass: 'status-badge-success',
+        status: ChannelStatus.connected,
         phone: '15551234567@s.whatsapp.net',
         dmAccessMode: 'pairing',
         dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
@@ -71,8 +71,7 @@ void main() {
       String render(String channelType, String channelLabel) => channelDetailTemplate(
         channelType: channelType,
         channelLabel: channelLabel,
-        statusLabel: 'Connected',
-        statusClass: 'status-badge-success',
+        status: ChannelStatus.connected,
         dmAccessMode: 'open',
         dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
         dmAllowlist: const [],
@@ -94,13 +93,14 @@ void main() {
       }
     });
 
-    test('renders pairing queue only when mode is pairing', () {
-      final html = channelDetailTemplate(
+    // The pairing queue now always renders and is revealed by clearing `hidden`,
+    // so the controller can toggle it on a mode change without a reload.
+    test('reveals the pairing queue only when mode is pairing', () {
+      String renderWithDmMode(String dmAccessMode) => channelDetailTemplate(
         channelType: 'signal',
         channelLabel: 'Signal',
-        statusLabel: 'Pairing needed',
-        statusClass: 'status-badge-warning',
-        dmAccessMode: 'pairing',
+        status: ChannelStatus.pairingNeeded,
+        dmAccessMode: dmAccessMode,
         dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
         dmAllowlist: const [],
         groupAccessMode: 'disabled',
@@ -116,17 +116,23 @@ void main() {
         ],
       );
 
-      expect(html, contains('Pending Pairing Requests'));
-      expect(html, contains('Known DM Allowlist'));
-      expect(html, contains('Only meaningful when group access is enabled.'));
+      final pairingHtml = renderWithDmMode('pairing');
+      expect(pairingHtml, contains('Pending Pairing Requests'));
+      expect(pairingHtml, contains('data-section="pairing"'));
+      expect(_pairingSectionTag(pairingHtml), isNot(contains('hidden')));
+      expect(pairingHtml, contains('Known DM Allowlist'));
+      expect(pairingHtml, contains('Only meaningful when group access is enabled.'));
+
+      final openHtml = renderWithDmMode('open');
+      expect(openHtml, contains('data-section="pairing"'));
+      expect(_pairingSectionTag(openHtml), contains('hidden'));
     });
 
     test('binds labels and names for channel form controls', () {
       final html = channelDetailTemplate(
         channelType: 'signal',
         channelLabel: 'Signal',
-        statusLabel: 'Connected',
-        statusClass: 'status-badge-success',
+        status: ChannelStatus.connected,
         dmAccessMode: 'open',
         dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
         dmAllowlist: const [],
@@ -158,8 +164,7 @@ void main() {
       final html = channelDetailTemplate(
         channelType: 'google_chat',
         channelLabel: 'Google Chat',
-        statusLabel: 'Connected',
-        statusClass: 'status-badge-success',
+        status: ChannelStatus.connected,
         dmAccessMode: 'allowlist',
         dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
         dmAllowlist: const [],
@@ -188,8 +193,7 @@ void main() {
       final html = channelDetailTemplate(
         channelType: 'google_chat',
         channelLabel: 'Google Chat',
-        statusLabel: 'Connected',
-        statusClass: 'status-badge-success',
+        status: ChannelStatus.connected,
         dmAccessMode: 'allowlist',
         dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
         dmAllowlist: const [],
@@ -248,4 +252,12 @@ void main() {
       expect(m.detail, isNull);
     });
   });
+}
+
+/// Returns the opening tag of the pairing sub-card, so `hidden` is read off
+/// that element rather than found anywhere in the page.
+String _pairingSectionTag(String html) {
+  final start = html.indexOf('<div class="well well-content channel-sub-card channel-pairing-card"');
+  expect(start, isNot(-1), reason: 'pairing sub-card not rendered');
+  return html.substring(start, html.indexOf('>', start) + 1);
 }

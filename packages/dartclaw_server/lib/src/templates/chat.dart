@@ -92,7 +92,13 @@ ClassifiedMessage classifyMessage({
 ///
 /// Each message should already be classified via [classifyMessage].
 String messagesHtmlFragment(List<ClassifiedMessage> messages) {
-  if (messages.isEmpty) return emptyStateTemplate();
+  if (messages.isEmpty) {
+    return emptyStateTemplate(
+      title: 'No messages yet',
+      body: 'Send a message to start the conversation.',
+      useMascot: true,
+    );
+  }
 
   final src = templateLoader.source('chat');
   final trellis = templateLoader.trellis;
@@ -165,13 +171,15 @@ Object? _tryDecodeJson(String value) {
 }
 
 /// Renders the full chat area, including the messages list and input form.
-/// [bannerHtml] is optional pre-rendered banner HTML placed before the messages.
+/// [chatNoticeHtml] is optional pre-rendered one-shot session-notice HTML
+/// (worker crash, turn recovery) placed before the messages. Restart state is
+/// shell chrome and is rendered into the topbar's restart slot, not here.
 String chatAreaTemplate({
   required String sessionId,
   required String messagesHtml,
   bool isStreaming = false,
   bool hasTitle = false,
-  String bannerHtml = '',
+  String chatNoticeHtml = '',
   bool readOnly = false,
   int? earliestCursor,
   bool hasEarlierMessages = false,
@@ -190,7 +198,7 @@ String chatAreaTemplate({
       'hasTitle': hasTitle ? 'true' : 'false',
       'earliestCursor': earliestCursor?.toString(),
       'loadEarlierHidden': hasEarlierMessages ? null : true,
-      'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+      'chatNoticeHtml': chatNoticeHtml.isNotEmpty ? chatNoticeHtml : null,
       'messagesHtml': messagesHtml,
       'turnStatus': turnStatusView,
       'hasTurnStatus': turnStatusView != null,

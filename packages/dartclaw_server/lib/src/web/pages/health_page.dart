@@ -36,28 +36,32 @@ class HealthDashboardPage extends DashboardPage {
     final params = request.url.queryParameters;
     final verdictFilter = params['verdict'];
     final guardFilter = params['guard'];
+    // /health-dashboard/audit renders this page inline for a direct
+    // navigation, so the requested audit page has to survive the hand-off.
+    final auditPageNumber = int.tryParse(params['page'] ?? '') ?? 1;
     final allSessions = await context.sessions.listSessions();
     final sidebarData = await context.sidebar.build();
     final status = await getStatus(healthService, workerStateGetter, allSessions.length);
     final totalArtifactDiskBytes = await _totalArtifactDiskBytes(context.appDisplay.dataDir);
     final auditPage =
-        await auditReader?.read(verdictFilter: verdictFilter, guardFilter: guardFilter) ?? AuditPage.empty;
+        await auditReader?.read(page: auditPageNumber, verdictFilter: verdictFilter, guardFilter: guardFilter) ??
+        AuditPage.empty;
     final pubsubHealth = pubsubHealthGetter?.call();
 
     final page = healthDashboardTemplate(
       status: status['status'] as String? ?? 'healthy',
       uptimeSeconds: status['uptime_s'] as int? ?? 0,
-      workerState: status['worker_state'] as String? ?? 'unknown',
+      workerState: status['worker_state'] as String? ?? '',
       sessionCount: status['session_count'] as int? ?? 0,
       dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
       totalArtifactDiskBytes: totalArtifactDiskBytes,
-      version: status['version'] as String? ?? 'unknown',
+      version: status['version'] as String? ?? '',
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
       auditPage: auditPage,
       verdictFilter: verdictFilter,
       guardFilter: guardFilter,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
       pubsubHealth: pubsubHealth,
     );

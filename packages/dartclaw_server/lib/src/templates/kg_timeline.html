@@ -1,19 +1,18 @@
 <div tl:fragment="kgTimeline" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
-  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="page-inner kg-timeline-page">
       <div class="pagehead">
         <div>
-          <h1 class="page-title">KG Timeline</h1>
           <p class="page-subtitle">Temporal facts grouped by category and validity window.</p>
         </div>
       </div>
 
-      <nav class="knowledge-tabs" aria-label="Knowledge views">
-        <a class="tab-btn" href="/knowledge">Hub</a>
-        <a class="tab-btn active" href="/knowledge/timeline" aria-current="page">Timeline</a>
+      <nav class="tabs" aria-label="Knowledge views">
+        <a class="tab t-label" href="/knowledge">Hub</a>
+        <a class="tab t-label active" href="/knowledge/timeline" aria-current="page">Timeline</a>
       </nav>
 
       <form class="kg-timeline-controls" method="get" action="/knowledge/timeline">
@@ -27,19 +26,17 @@
         </label>
         <div class="kg-timeline-actions">
           <button class="btn btn-primary" type="submit">Apply</button>
-          <a class="btn btn-ghost" href="/knowledge/timeline">↺ now</a>
+          <a class="btn btn-ghost" href="/knowledge/timeline"><span class="icon icon-x" aria-hidden="true"></span> Reset filters</a>
         </div>
       </form>
 
-      <div tl:if="${hasError}" class="banner banner-warning kg-timeline-error" role="alert">
+      <div tl:if="${hasError}" class="banner banner-warning" role="alert">
         <span class="card-badge badge-error" tl:text="${statusCode}">400</span>
         <span tl:text="${errorMessage}">invalid as-of timestamp</span>
       </div>
 
       <div tl:unless="${hasError}">
-        <div tl:unless="${hasCategories}" class="card kg-timeline-empty">
-          <p class="card-detail card-detail-muted" tl:text="${emptyMessage}">No facts recorded in this category yet.</p>
-        </div>
+        <tl:block tl:unless="${hasCategories}" tl:utext="${emptyStateHtml}"><!-- empty state --></tl:block>
 
         <section tl:each="category : ${categories}" class="kg-category-group">
           <div class="kg-category-heading">
@@ -68,4 +65,5 @@
       </div>
     </div>
   </main>
+  </div>
 </div>

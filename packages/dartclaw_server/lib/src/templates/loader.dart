@@ -25,6 +25,7 @@ const expectedTemplates = [
   'knowledge_hub',
   'source_attribution',
   'kg_timeline',
+  'wiki_document',
   'restart_banner',
   'channel_detail',
   'tasks',

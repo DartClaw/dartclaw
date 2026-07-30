@@ -30,12 +30,14 @@ import '../memory/memory_status_service.dart';
 import '../templates/session_info.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
+import '../templates/wiki_document.dart';
 import '../runtime_config.dart';
 import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../turn_manager.dart' show TurnManager;
+import 'channel_status.dart';
 import 'dashboard_page.dart';
 import 'page_registry.dart';
 import 'page_support.dart';
@@ -227,9 +229,9 @@ Router webRoutes(
 
     final sidebarData = await pageContext.sidebar.build();
     final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appDisplay.name);
-    final topbar = topbarTemplate(appName: appDisplay.name);
+    final topbar = topbarTemplate(appName: appDisplay.name, restartBannerHtml: restartBannerHtml(appDisplay.dataDir));
     final main = emptyAppStateTemplate(appName: appDisplay.name);
-    final bodyHtml = '<div class="shell">$sidebar$topbar$main</div>';
+    final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$main</div></div>';
     final page = layoutTemplate(
       title: appDisplay.name,
       body: bodyHtml,
@@ -262,18 +264,21 @@ Router webRoutes(
         sessionId: id,
         sessionType: session.type,
         appName: appDisplay.name,
+        restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
       );
       final msgsHtml = messagesHtmlFragment(messageList);
-      final bannerHtml = StringBuffer(restartBannerHtml(appDisplay.dataDir));
+      // Restart state is persistent shell chrome and lives in the topbar slot;
+      // these two are one-shot, session-scoped notices and stay page-local.
+      final chatNoticeHtml = StringBuffer();
       if (workerStateGetter?.call() == WorkerState.crashed) {
-        bannerHtml.write(
+        chatNoticeHtml.write(
           '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. '
           'Retry your message.'
           '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button></div>',
         );
       }
       if (turns?.consumeRecoveryNotice(id) ?? false) {
-        bannerHtml.write(
+        chatNoticeHtml.write(
           '<div class="banner banner-warning">This session recovered from an interrupted turn. '
           'Your conversation is intact.'
           '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button></div>',
@@ -284,7 +289,7 @@ Router webRoutes(
         sessionId: id,
         messagesHtml: msgsHtml,
         hasTitle: session.title != null && session.title!.trim().isNotEmpty,
-        bannerHtml: bannerHtml.toString(),
+        chatNoticeHtml: chatNoticeHtml.toString(),
         readOnly: isArchive,
         earliestCursor: earliestCursor,
         hasEarlierMessages: hasEarlierMessages,
@@ -295,7 +300,7 @@ Router webRoutes(
         return htmlFragment('$chat$topbar$sidebar');
       }
 
-      final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
+      final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
         title: session.title ?? 'New Chat',
         body: bodyHtml,
@@ -382,7 +387,7 @@ Router webRoutes(
         effectiveTokens: usage.effectiveTokens,
         estimatedCostUsd: usage.estimatedCostUsd,
         cachedInputTokens: usage.cachedInputTokens,
-        bannerHtml: restartBannerHtml(appDisplay.dataDir),
+        restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
         recentTurns: recentTurns,
         turnStatus: turns?.turnStatus(id).toJson(),
         appName: appDisplay.name,
@@ -394,9 +399,17 @@ Router webRoutes(
     }
   });
 
-  // GET /health-dashboard/audit — HTMX fragment for audit table polling.
+  // GET /health-dashboard/audit — HTMX fragment for audit table polling, and
+  // the full health page for a direct navigation. Rendered inline rather than
+  // redirected: a redirect to /health-dashboard would drop page/verdict/guard.
   router.get('/health-dashboard/audit', (Request request) async {
     try {
+      if (!wantsFragment(request)) {
+        final healthPage = registry.resolve('/health-dashboard');
+        if (healthPage == null) return _htmlNotFound('Health page not registered');
+        return await healthPage.handler(request, pageContext);
+      }
+
       final params = request.url.queryParameters;
       final page = int.tryParse(params['page'] ?? '') ?? 1;
       final verdict = params['verdict'];
@@ -424,12 +437,11 @@ Router webRoutes(
 
       if (type == 'whatsapp') {
         final channel = whatsAppChannel;
-        final status = channel != null ? await whatsAppChannelStatus(channel) : null;
+        final status = channel != null ? await whatsAppChannelStatus(channel) : ChannelStatus.disabled;
         final page = channelDetailTemplate(
           channelType: 'whatsapp',
           channelLabel: 'WhatsApp',
-          statusLabel: status?.label ?? 'Not configured',
-          statusClass: status?.badgeClass ?? 'warn',
+          status: status,
           phone: channel != null ? jidToPhone(channel.gowa.pairedJid) : null,
           dmAccessMode: channel?.dmAccess.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
@@ -447,18 +459,17 @@ Router webRoutes(
           sidebarData: sidebarData,
           navItems: registry.navItems(activePage: 'Settings'),
           pendingPairings: channel != null ? pendingPairingsData(channel.dmAccess) : const [],
-          bannerHtml: restartBannerHtml(appDisplay.dataDir),
+          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       } else if (type == 'signal') {
         final channel = signalChannel;
-        final status = channel != null ? await signalChannelStatus(channel) : null;
+        final status = channel != null ? await signalChannelStatus(channel) : ChannelStatus.disabled;
         final page = channelDetailTemplate(
           channelType: 'signal',
           channelLabel: 'Signal',
-          statusLabel: status?.label ?? 'Not configured',
-          statusClass: status?.badgeClass ?? 'warn',
+          status: status,
           phone: channel?.sidecar.registeredPhone,
           dmAccessMode: channel?.dmAccess.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
@@ -476,7 +487,7 @@ Router webRoutes(
           sidebarData: sidebarData,
           navItems: registry.navItems(activePage: 'Settings'),
           pendingPairings: channel != null ? pendingPairingsData(channel.dmAccess) : const [],
-          bannerHtml: restartBannerHtml(appDisplay.dataDir),
+          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
@@ -489,8 +500,7 @@ Router webRoutes(
         final page = channelDetailTemplate(
           channelType: 'google_chat',
           channelLabel: 'Google Chat',
-          statusLabel: status.label,
-          statusClass: status.badgeClass,
+          status: status,
           dmAccessMode: dmAccess?.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
           dmAllowlist: dmAccess?.allowlist.toList() ?? const [],
@@ -507,7 +517,7 @@ Router webRoutes(
           sidebarData: sidebarData,
           navItems: registry.navItems(activePage: 'Settings'),
           pendingPairings: dmAccess != null ? pendingPairingsData(dmAccess) : const [],
-          bannerHtml: restartBannerHtml(appDisplay.dataDir),
+          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
@@ -531,31 +541,42 @@ Router webRoutes(
     }
   });
 
-  router.get('/knowledge/wiki/<sourcePath|.*>', (Request request, String sourcePath) {
+  // Every rejection returns one indistinguishable 404 so the route cannot be
+  // used to probe the workspace for existence, type, or reachability.
+  router.get('/knowledge/wiki/<sourcePath|.*>', (Request request, String sourcePath) async {
     final workspaceDir = workspaceDisplay.path;
-    if (workspaceDir == null) return _htmlNotFound('Wiki source not found');
+    if (workspaceDir == null) return _wikiNotFound();
     final decoded = sourcePath.split('/').map(Uri.decodeComponent).join('/');
-    if (!decoded.startsWith('wiki/') || !decoded.endsWith('.md')) {
-      return _htmlNotFound('Wiki source not found');
-    }
+    if (!decoded.startsWith('wiki/') || !decoded.endsWith('.md')) return _wikiNotFound();
     final wikiRoot = p.normalize(p.absolute(p.join(workspaceDir, 'wiki')));
     final relativePath = decoded.substring('wiki/'.length);
     final filePath = p.normalize(p.absolute(p.join(wikiRoot, relativePath)));
-    if (!p.isWithin(wikiRoot, filePath)) {
-      return _htmlNotFound('Wiki source not found');
-    }
+    if (!p.isWithin(wikiRoot, filePath)) return _wikiNotFound();
     final file = File(filePath);
-    if (!file.existsSync()) return _htmlNotFound('Wiki source not found');
+    if (!file.existsSync()) return _wikiNotFound();
+
+    final String markdown;
     try {
       final canonicalWikiRoot = p.normalize(Directory(wikiRoot).resolveSymbolicLinksSync());
       final canonicalFilePath = p.normalize(file.resolveSymbolicLinksSync());
-      if (!p.isWithin(canonicalWikiRoot, canonicalFilePath)) {
-        return _htmlNotFound('Wiki source not found');
-      }
+      if (!p.isWithin(canonicalWikiRoot, canonicalFilePath)) return _wikiNotFound();
+      // Read the path that was verified, not the one that was requested: the
+      // workspace is agent-writable, so re-resolving through `file` would let a
+      // symlink swapped in after the check serve content from outside the root.
+      markdown = File(canonicalFilePath).readAsStringSync();
     } on FileSystemException {
-      return _htmlNotFound('Wiki source not found');
+      return _wikiNotFound();
     }
-    return Response.ok(file.readAsStringSync(), headers: {...htmlHeaders, 'content-type': 'text/plain; charset=utf-8'});
+
+    final page = wikiDocumentTemplate(
+      title: p.basename(relativePath),
+      markdown: markdown,
+      sidebarData: await pageContext.sidebar.build(),
+      navItems: registry.navItems(activePage: 'Knowledge'),
+      restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
+      appName: appDisplay.name,
+    );
+    return Response.ok(page, headers: htmlHeaders);
   });
 
   for (final page in registry.pages) {
@@ -629,6 +650,13 @@ Response _redirect(Request request, String path, {Map<String, String>? extraHead
 
 Response _htmlNotFound(String message) =>
     Response.notFound(errorPageTemplate(404, 'Page Not Found', message), headers: htmlHeaders);
+
+/// The single opaque rejection for `/knowledge/wiki/<path>`.
+///
+/// Every guard shares it so status, content type and body stay byte-identical
+/// across missing workspace, bad locator, traversal, symlink escape and I/O
+/// failure — no branch is distinguishable from the response.
+Response _wikiNotFound() => _htmlNotFound('Wiki source not found');
 
 Response _htmlError(String message) =>
     Response.internalServerError(body: errorPageTemplate(500, 'Internal Server Error', message), headers: htmlHeaders);

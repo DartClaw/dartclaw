@@ -11,12 +11,26 @@ void main() {
     final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
     final csp = response.headers['content-security-policy']!;
 
+    // Pinned in full: every runtime dependency is vendored, so any added source
+    // is a regression. A substring check would miss a scheme-less host source
+    // like `font-src 'self' fonts.gstatic.com`, which is valid CSP.
+    expect(
+      csp,
+      "default-src 'none'; "
+      "script-src 'self' 'sha256-Nv1JReIKyK52u/L2sOlX5XEwoodaiEphFAlIFGeX9A8='; "
+      "style-src 'self' 'unsafe-inline'; "
+      "font-src 'self'; "
+      "img-src 'self' data:; "
+      "connect-src 'self'; "
+      "base-uri 'self'; "
+      "form-action 'self'; "
+      "frame-ancestors 'none'",
+    );
     expect(csp, contains("default-src 'none'"));
     expect(csp, contains("script-src 'self'"));
-    expect(csp, contains('https://unpkg.com'));
-    expect(csp, contains('https://cdn.jsdelivr.net'));
-    expect(csp, contains('https://fonts.googleapis.com'));
-    expect(csp, contains('https://fonts.gstatic.com'));
+    expect(csp, contains("style-src 'self' 'unsafe-inline'"));
+    expect(csp, contains("font-src 'self'"));
+    expect(csp, isNot(contains('https://')));
     expect(csp, contains("frame-ancestors 'none'"));
     // No frame-src: it inherits default-src 'none', so the app embeds no frames.
     expect(csp, isNot(contains('frame-src')));

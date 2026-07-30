@@ -20,7 +20,7 @@ changes by construction.
 
 ### 0.23 — Pluggable Database Backend & Multi-Language Search
 
-ADR-045 (Accepted 2026-07-24): `DatabaseBackend` abstraction + versioned in-house migration runner (SQLite-only refactor first), then the opt-in `PostgresBackend` with core-PG `tsvector` language-aware FTS (Swedish/multi-language — the milestone's driving requirement), credential-reference `DATABASE_URL`, and a dual-backend contract-test suite. `pgvector` deferred pending an embedding-source decision. Backend track, parallel to the UI track.
+ADR-045 (Accepted 2026-07-24; schema strategy amended 2026-07-30): `DatabaseBackend` abstraction + current-schema bootstrap/compatibility gate (SQLite-only refactor first; no versioned migration runner during pre-alpha), then the opt-in `PostgresBackend` with core-PG `tsvector` language-aware FTS (Swedish/multi-language — the milestone's driving requirement), credential-reference `DATABASE_URL`, and a dual-backend contract-test suite. Native hybrid search including `pgvector` follows in Phase B under ADR-050. Backend track, parallel to the UI track.
 
 ### 0.24 — Chat & Session Experience
 

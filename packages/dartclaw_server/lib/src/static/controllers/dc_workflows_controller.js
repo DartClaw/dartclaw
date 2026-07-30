@@ -384,7 +384,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   function _connectedStepsDiffer(steps) {
     if (!Array.isArray(steps)) return false;
     return steps.some((step) => {
-      const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + step.index + '"]');
+      const stepCard = document.querySelector('.pipeline-step[data-step-index="' + step.index + '"]');
       return !stepCard || stepCard.getAttribute('data-step-status') !== step.status;
     });
   }
@@ -403,7 +403,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   }
 
   function updateStepCompleted(data) {
-    const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + data.stepIndex + '"]');
+    const stepCard = document.querySelector('.pipeline-step[data-step-index="' + data.stepIndex + '"]');
     if (!stepCard) return;
 
     const status = _mapStepCompletionStatus(data);
@@ -412,7 +412,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
   function updateStepTaskStatus(data) {
     if (data.stepIndex == null) return;
-    const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + data.stepIndex + '"]');
+    const stepCard = document.querySelector('.pipeline-step[data-step-index="' + data.stepIndex + '"]');
     if (!stepCard) return;
 
     const displayStatus = _mapTaskStatusToStepStatus(data.newStatus);
@@ -421,7 +421,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
   function updateLoopIteration(data) {
     document.querySelectorAll('.workflow-loop-badge').forEach((badge) => {
-      const stepCard = badge.closest('.workflow-step-card');
+      const stepCard = badge.closest('.pipeline-step');
       if (stepCard && badge.getAttribute('data-loop-id') === data.loopId) {
         badge.textContent = 'Iteration ' + data.iteration + '/' + data.maxIterations;
       }
@@ -432,7 +432,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     if (data.failureCount > 0) return;
 
     (data.stepIds || []).forEach((stepId) => {
-      const stepCard = document.querySelector('.workflow-step-card[data-step-id="' + stepId + '"]');
+      const stepCard = document.querySelector('.pipeline-step[data-step-id="' + stepId + '"]');
       if (!stepCard) return;
 
       _updateWorkflowStepVisual(stepCard, 'completed');
@@ -440,44 +440,50 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   }
 
   function _updateWorkflowStepVisual(stepCard, status) {
-    const icon = stepCard.querySelector('.workflow-step-icon');
-    if (icon) {
-      for (const className of [...icon.classList]) {
-        if (className.startsWith('workflow-step-icon--')) icon.classList.remove(className);
-      }
-      icon.classList.add('workflow-step-icon--' + status);
-      icon.textContent = _workflowStepIcon(status);
+    const presentation = _workflowStepPresentation(status);
+    for (const className of [...stepCard.classList]) {
+      if (className.startsWith('pipeline-step--')) stepCard.classList.remove(className);
     }
-    stepCard.classList.toggle('workflow-step-active', status === 'running');
+    stepCard.classList.add(presentation.className);
+    const node = stepCard.querySelector('.pipeline-node');
+    if (node) node.textContent = presentation.icon;
+    const label = stepCard.querySelector('[data-step-status-label]');
+    if (label) label.textContent = presentation.label;
     stepCard.setAttribute('data-step-status', status);
   }
 
-  function _workflowStepIcon(status) {
+  function _workflowStepPresentation(status) {
     switch (status) {
       case 'completed':
-        return '✓';
+      case 'skipped':
+        return { className: 'pipeline-step--done', label: 'Done', icon: '✓' };
       case 'running':
-        return '•';
-      case 'interrupted':
-        return '!';
+        return { className: 'pipeline-step--running', label: 'Running', icon: '•' };
+      case 'awaiting_approval':
+      case 'review':
+        return { className: 'pipeline-step--blocked', label: 'Blocked', icon: '!' };
+      case 'queued':
+      case 'pending':
+        return { className: 'pipeline-step--pending', label: 'Pending', icon: '○' };
       case 'failed':
       case 'rejected':
-        return '✗';
-      case 'awaiting_approval':
-        return '●';
+      case 'interrupted':
+      case 'cancelled':
+      case 'timed_out':
+        return { className: 'pipeline-step--failed', label: 'Failed', icon: '✗' };
       default:
-        return '○';
+        return { className: 'pipeline-step--failed', label: 'Unknown status', icon: '!' };
     }
   }
 
   function updateProgressBar(data) {
-    const section = document.querySelector('.workflow-progress-section');
+    const section = document.querySelector('[data-workflow-progress]');
     const fill = section?.querySelector('.meter-fill');
-    const label = section?.querySelector('.workflow-progress-label');
+    const label = section?.querySelector('[data-workflow-progress-label]');
     const percentage = section?.querySelector('.workflow-progress-pct');
     if (!fill || !data.totalSteps) return;
 
-    const completed = document.querySelectorAll('.workflow-step-card[data-step-status="completed"]').length;
+    const completed = document.querySelectorAll('.pipeline-step[data-step-status="completed"]').length;
     const percent = Math.round((completed / data.totalSteps) * 100);
     fill.style.width = percent + '%';
     if (label) {
@@ -551,12 +557,12 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     document.addEventListener('click', (event) => {
       const stepToggle = event.target.closest('[data-step-toggle]');
       if (stepToggle) {
-        const stepCard = stepToggle.closest('.workflow-step-card');
+        const stepCard = stepToggle.closest('.pipeline-step');
         const detail = stepCard && stepCard.querySelector('.workflow-step-detail');
         if (!detail) return;
         const isHidden = detail.hidden;
         detail.hidden = !isHidden;
-        const icon = stepToggle.querySelector('.workflow-step-expand-icon');
+        const icon = stepToggle.querySelector('.icon');
         if (icon) {
           icon.classList.toggle('icon-chevron-up', isHidden);
           icon.classList.toggle('icon-chevron-down', !isHidden);

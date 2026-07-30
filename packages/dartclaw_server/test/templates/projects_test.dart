@@ -32,8 +32,9 @@ void main() {
   group('projectsPageTemplate', () {
     test('empty state shown when no projects', () {
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: []);
-      expect(html, contains('<div class="pagehead">'));
-      expect(html, contains('<h1 class="page-title">Projects</h1>'));
+      expect(html, contains('<header class="pagehead">'));
+      expect(RegExp(r'<h1\b').allMatches(html), hasLength(1));
+      expect(html, isNot(contains('class="page-title"')));
       expect(html, contains('No projects registered'));
       expect(html, contains('Add a project to run tasks against external repositories'));
       expect(html, contains('class="claw-mark"'));
@@ -67,6 +68,8 @@ void main() {
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: projects);
       expect(html, contains('status-badge-error'));
       expect(html, contains('auth denied'));
+      expect(html, contains('banner banner-error'));
+      expect(html, contains('icon-triangle-alert'));
     });
 
     test('stale status badge class applied', () {
@@ -127,10 +130,10 @@ void main() {
       expect(html, contains('\u2026')); // ellipsis character
     });
 
-    test('last fetch "Never" shown when lastFetchAt is null', () {
+    test('last fetch uses the absent-value treatment when null', () {
       final projects = [makeProject(id: 'p1', name: 'P1')];
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: projects);
-      expect(html, contains('Never'));
+      expect(html, contains('Fetched: <span class="value-absent"></span>'));
     });
 
     test('PR strategy label shown', () {
@@ -161,6 +164,21 @@ void main() {
       final projects = [makeProject(id: 'my-repo', name: 'My Repo')];
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: projects);
       expect(html, contains('data-project-id="my-repo"'));
+    });
+
+    test('S05 project card composes canon and preserves mutation hooks', () {
+      final html = projectsPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: navItems,
+        projects: [makeProject(id: 'p1', name: 'P1', configDefined: false)],
+      );
+      expect(html, contains('class="card" data-project-id="p1"'));
+      expect(html, contains('class="card-header"'));
+      expect(html, contains('class="card-header-actions"'));
+      expect(html, contains('class="card-footer t-caption"'));
+      for (final hook in ['fetch', 'edit', 'name', 'url', 'branch', 'creds', 'strategy', 'draft', 'labels', 'remove']) {
+        expect(html, contains('data-project-$hook='), reason: hook);
+      }
     });
   });
 

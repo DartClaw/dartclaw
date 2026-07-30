@@ -378,7 +378,7 @@ Terminal-aesthetic design language for a developer-focused AI agent runtime. Cat
 - `showcase.html` — interactive component reference
 - `assets/` — local copies of the brand logos so the folder is self-contained (canonical originals: repo-root `assets/`)
 
-**Source-of-truth scope** – these files are the normative design-system spec, not byte mirrors of the served copies under `packages/dartclaw_server/lib/src/static/`. The served files may deliberately extend the spec with live-only implementation details (compatibility aliases in `tokens.css`, page-specific rules in `components.css`); such extensions are not drift. `icons.css` is the exception: its icon inventory is kept in strict sync – every icon the served file defines must exist here and in the vocabulary table below (enforced by `packages/dartclaw_server/test/static/design_system_icons_sync_test.dart`).
+**Source-of-truth scope** – `tokens.css`, `components.css`, and `icons.css` are canonical. Their served counterparts under `packages/dartclaw_server/lib/src/static/` are byte-identical beneath a two-line SHA-256 provenance header; live-only extensions in those three served files are drift. `DESIGN.md` and `showcase.html` are prose and demo artifacts that are never synced. The icon-inventory test in `packages/dartclaw_server/test/static/design_system_icons_sync_test.dart` is an additional completeness check, not a different sync policy.
 
 ## Overview
 
@@ -520,7 +520,7 @@ The shell is a **CSS Grid two-column layout**: a 260px sidebar and a flexible ma
 | `container-wide` | 1280px | Opt-in width for data-dense surfaces |
 | `measure` | 72ch | Reading measure for running prose inside the 900px tier |
 
-Two container tiers, applied through modifiers: `.content-inner--wide` (canonical) and its app-local mirror `.page-inner--wide` both raise the column to `container-wide`.
+Two container tiers, applied through modifiers: `.content-inner--wide` (canonical) and its app-local mirror, page-inner--wide, both raise the column to `container-wide`.
 
 **Which surfaces take which tier.** Wide: tasks, task detail, health (dashboard + audit), memory, scheduling, the workflow list and workflow detail. The 900px measure stays for chat, session info, knowledge results, settings forms, and projects. The modifier is **opt-in, never the default** — a surface not on the wide list keeps 900px unless the sweep documents a deviation.
 
@@ -545,7 +545,7 @@ The scroll container is whichever of `.content-area` / `.page-content` the page 
 The consequence for page bodies: a surface template must not carry its own in-page `<h1>`. Where it needs a visible heading above the content, that is the `pageHeader` fragment's `<h2 class="t-page-title">`, which matches the topbar tier visually without competing for the document's single top-level heading.
 
 **A page with a parent renders back-navigation before the title.** `pageTopbar`
-places `.topbar-back` ahead of the `<h1>`, so it is the first thing reached after
+places the app-owned topbar-back control ahead of the `<h1>`, so it is the first thing reached after
 `.menu-toggle` and before the heading — a reader who wants out does not tab
 through the page's actions to find the way. The label is destination-specific
 ("Back to Chat", "Back to Tasks"), never a bare "Back": the control is read out
@@ -975,7 +975,7 @@ for `components.css`.
 
 **Native `alert()`, `confirm()` and `prompt()` are banned.** They cannot be themed or brand-styled, they block the event loop, and they are threadbare on their own terms — one line of text, OS-chrome buttons, and for `prompt()` a single unvalidated field. Every row above names a class backed by CSS in `components.css`; reach for one of those instead. Same rule, same reason as the § Native selects limitation: where the platform control cannot be made to belong, replace it rather than over-style it.
 
-**Danger is a markup choice, not a second frame.** `.dialog--confirm` serves both destructive and non-destructive confirmations — there is no `.dialog--danger`. The severity lives entirely in what the markup puts inside the frame:
+**Danger is a markup choice, not a second frame.** `.dialog--confirm` serves both destructive and non-destructive confirmations — there is no dialog-danger variant. The severity lives entirely in what the markup puts inside the frame:
 
 | | Destructive (`danger: true`) | Non-destructive (`danger: false`) |
 |---|---|---|
@@ -1092,7 +1092,6 @@ Resolved variants drop the pulse and actions for a single `.approval-card-resolu
 
 `.chip` is a neutral reference/content token for the composer and metadata rows — like identicons, it answers "what is attached or referenced", **never "did it work"**. That is the whole rule: chips stay neutral-surface with an icon hint and carry no semantic tint (state belongs to badges and pills). They are rectangular (`rounded.sm`) so they read engineered, not pill-like, and cap at 240px with the name ellipsized (`.chip-name`).
 
-- `.chip--file` — an attachment: `.icon-paperclip`, a name, an optional `.chip-meta` size, and a `.chip-remove` button (10px `×` glyph, hit area padded to 24px via negative margins, hover → `error`).
 - `.chip--ref` — an actionable context reference (interactive `button`/`a`): its icon may take a dim accent hint (`accent-dim`), matching the accent's "active selection" usage; the body text stays neutral. Interactive chips hover to `bg-surface1` and take a focus ring — no lift (chips are too small; lifts are for cards and buttons).
 - `.chip-row` — a wrapping flex container for composer attachment rows.
 - **Toggle chips (filters)** — a `button.chip` with `aria-pressed="true"` takes an accent tint (14% mix on the fill, 40% on the border). This marks active *selection* — the sanctioned accent family — not outcome state: a pressed "Failed" filter chip is accent-tinted, never error-tinted.

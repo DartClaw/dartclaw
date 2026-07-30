@@ -2,6 +2,27 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## 0.22.1 release-close decision debt
+
+| Ledger | Deferred cleanup | Reason |
+|---|---|---|
+| D02 | Resolve seven remaining app-owned CSS shadows | Seven app-owned shadows remain; deleting them needs a page-by-page ownership decision so live-only behavior is not lost. |
+| D04 | Define an orphan/unstyled-class scanner contract | An orphan/unstyled-class scanner needs an exemption contract for JS hooks, state classes and third-party markup. |
+| D13 | Define link-style selected-chip behavior | Link-style selected-chip behavior needs a canonical interaction decision. |
+| D14 | Decide whether canon needs a muted status dot | A muted status-dot variant is not defined in canon; disabled currently maps to idle. |
+| D15 | Stabilize knowledge total-page semantics | Stable total-page semantics need a product decision and service-query correction. |
+| D16 | Define legal effort/provider metadata values | Legal effort/provider value sets require product decisions and `FieldMeta.allowedValues` changes. |
+| D17 | Define an effective-default metadata contract | `FieldMeta` has no effective-default surface, so settings cannot truthfully display defaults without a metadata contract change. |
+| D29 | Retire ignored task SSE icon fields | Removing `iconChar` and `compactEventIconChar` needs an API-compatibility ownership decision; all UI consumers already ignore them. |
+| C01 | Repair the light foreground ladder | `.delivery-badge` is 3.62:1 and existing 10–12px badge/code pairings remain below AA; repairing them requires coordinated foreground-ladder re-spacing rather than isolated retunes. |
+| C02 | Retone the fifth identicon gradient | `.identicon--5`'s second `--sky` stop measures 2.31:1 against its initials; the gradient needs a coordinated design retone. |
+| C05 | Inject deterministic time into relative-date tests | The same-year test can go vacuous early each year; a deterministic fix needs an injected `now` contract across shared callers. |
+| C06 | Define repeated-poll outage feedback | Repeating polls can stack one toast per cycle; deduplication versus poll suppression needs a product feedback decision. |
+| C08 | Reconcile the dialog-tab selector contract | Canon's descendant `.dialog .tabs` rule is gate-pinned while the intended direct-child contract needs a specification amendment. |
+| C09 | Define keyboard disclosure for workflow steps | The clickable `div` needs a keyboard/ARIA disclosure and styling decision under the closed-canon constraint. |
+| C10 | Unify live-task timestamp formatting ownership | Live task polling still writes raw ISO values; changing it needs one owner for server/local formatting across the update path. |
+| C11 | Define the restart-required dispatch contract | A listener exists but no producer dispatches `restart-required`; defining the trigger is a product/runtime contract decision. |
+
 ## TD-114 – Mixed finalizer + `outputMode: prompt` outputs on one agent step drop the opt-out output's main-prompt contract
 
 **Status**: Closed 2026-07-05 — resolved by `dev/bundle/docs/specs/0.20/per-key-main-prompt-output-contract-filtering.md` (approach (a): per-key main-prompt output-contract filtering in `PromptAugmenter`; `spec_source` / `outputMode: prompt` opt-outs stay instructed, host-ownership boundary intact).
@@ -118,22 +139,22 @@ Last reviewed: 2026-05-31
 
 ## TD-110 – KG MCP write tools sit outside the guard pipeline with no audit trail; `kg_invalidate` id is unscoped
 
-**Severity**: Medium (security / auditability – decision needed)
+**Severity**: Medium (security / auditability – decision made, implementation pending)
 **Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (claude review S-1)
 **Affects**: `packages/dartclaw_server/lib/src/mcp/kg_tools.dart`; `service_wiring_mcp_tools.dart`
-**Target**: 0.18
+**Target**: 0.25 (Knowledge Interop & Steward, Phase A – retargeted 2026-07-29 from stale 0.18)
 
 **Context**: `kg_add`/`kg_invalidate` are registered with no `contentGuard` and no audit logging, and MCP `tools/call` dispatch does not traverse `GuardChain`; `kg_invalidate` accepts an arbitrary integer id with no session/ownership check. The PRD claims KG writes are logged via existing audit infrastructure, which is not wired.
 
-**Decision required**: whether MCP write tools should traverse `GuardChain` and which audit sink KG writes/invalidations should use is an architecture decision, not a local defect fix.
+**Decision**: made (operator, 2026-07-29): dispatch-level enforcement – bring MCP `tools/call` dispatch under `GuardChain` at one seam (all write-capable tools, not just KG), wire KG writes/invalidations into the existing audit sink, add an ownership/scope check on `kg_invalidate` ids. ADR to be authored in the 0.25 milestone. Note: the affected wiring files may move under the 0.23 storage refactor – re-verify paths at 0.25 planning.
 
-**Fix**: Decide guard scope for MCP write tools; at minimum wire audit logging for KG writes/invalidations and an ownership/scope check for `kg_invalidate`.
+**Fix**: Implement the dispatch-level guard traversal + audit wiring + `kg_invalidate` ownership check per the decision above.
 
-**Trigger**: MCP tool dispatch is brought under the guard pipeline, or a multi-operator deployment needs auditable KG mutations.
+**Trigger**: scheduled – 0.25 Phase A (this is the enforcement point for the 0.25 steward workflow's human-acceptance invariant).
 
 **References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-claude-2026-05-30-9.md` (S-1, MEDIUM).
 
-Last reviewed: 2026-05-31
+Last reviewed: 2026-07-29
 
 ---
 

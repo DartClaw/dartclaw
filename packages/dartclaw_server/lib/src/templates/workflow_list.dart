@@ -1,3 +1,4 @@
+import 'components.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -59,6 +60,11 @@ String workflowListPageTemplate({
     'filters': filters,
     'statusOptions': statusOptions,
     'definitionOptions': definitionOptions,
+    'emptyRunsHtml': emptyStateTemplate(
+      title: 'No workflow runs found',
+      body: 'Adjust the filters or launch an available workflow.',
+      actionHtml: '<a class="btn btn-primary" href="/workflows">Clear filters</a>',
+    ),
   });
 
   return layoutTemplate(title: 'Workflows', body: body, scripts: standardShellScripts());

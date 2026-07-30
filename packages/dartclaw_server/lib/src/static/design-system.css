@@ -1,5 +1,5 @@
 /* Synced from dev/design-system/components.css on 2026-07-30.
-   sha256: 4d1b86a7e777c2e40b4e72bb33185492524cd543ebdccae6983390cd4ea1095c */
+   sha256: c5da6c8d254415ceab0fbc591bc8b511665a0a3e976edf4b7cee0f156e8fa799 */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -19,7 +19,7 @@
    11. Status Indicators (dots, badges, pills, scanning bar, meters, skeletons)
    12. Gradient Dividers
    13. Banners, Toasts, Empty State
-   14. Data Tables
+   14. Data Tables, Content Areas, Section Labels
    15. Theme Toggle, Scrollbar, Utilities (pixel-art, text-gradient, kbd)
    16. Identity & Signature Elements (pixel claw mark/loader, identicons, print-in)
    17. Tool Calls (disclosure-enabled tool-invocation cards)
@@ -914,6 +914,7 @@ a:hover { text-decoration: underline; }
    ================================================================ */
 
 .card {
+  display: block;
   background: var(--bg-card);
   border: var(--border);
   border-top-color: var(--border-highlight);
@@ -3075,10 +3076,10 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
   overflow: hidden;  /* The body owns the scroll; this also clips the footer fill to .card's radius. */
 }
 
-/* Qualified on [open] deliberately. The UA hides a closed <dialog> with
-   `dialog:not([open]) { display: none }`, and any author display declaration
-   beats a UA one at every specificity — an unqualified `display: flex` here
-   would render every closed dialog on the page. */
+/* .card's author-level display overrides the UA's closed-dialog rule, so the
+   closed state must be restored at the same origin before [open] becomes flex. */
+.dialog:not([open]) { display: none; }
+
 .dialog[open] {
   display: flex;
   flex-direction: column;

@@ -156,6 +156,10 @@ void main() {
       expect(source, contains('data-project-remove'));
       expect(source, contains('data-project-edit'));
       expect(source, contains("fetch('/api/projects'"));
+      expect(source, isNot(contains('window.location.reload()')));
+      expect(source, contains("target: '#projects-content'"));
+      expect(source, contains("select: '#projects-content'"));
+      expect(RegExp(r"refreshProjects\('Project (added|updated|fetched|removed)'\)").allMatches(source), hasLength(4));
     });
 
     test('tasks controller does not duplicate project action handlers', () {
@@ -296,7 +300,7 @@ void main() {
       // `.shell[data-connection="lost"]` descendant rule is a state gate over
       // canon's animation, not a second definition of it.
       expect(RegExp(r'^\.status-dot--live::before', multiLine: true).hasMatch(appCss), isFalse);
-      expect(appCss, contains('.workflow-step-icon--interrupted {'));
+      expect(designSystemCss, contains('.pipeline-step--failed .pipeline-node'));
       expect(appCss, contains('.well-content .form-select {\n    font-size: 16px;'));
       // The dialogs' 48px control floor survives the canon swap keyed on the
       // preserved dialog ids — canon floors no control, so nothing else owns it.
@@ -653,6 +657,35 @@ void main() {
       expect(appCss, isNot(contains('#audit-table-container .table-scroll th, ')));
       // Canon's .data-table th owns the header treatment outright.
       expect(appCss, isNot(contains('#audit-table-container .table-scroll th {')));
+    });
+
+    test('task tables fit the shell throughout its constrained desktop range', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+
+      expect(
+        appCss,
+        contains(
+          '@media (max-width: 1156px) {\n'
+          '  .task-status-group .data-table { min-width: 100%; }\n'
+          '  .task-status-group .task-col-created-by,\n'
+          '  .task-status-group .task-col-created,\n'
+          '  .task-status-group .task-col-status,\n'
+          '  .task-status-group .task-col-tokens {\n'
+          '    min-width: 0;\n'
+          '  }\n'
+          '}',
+        ),
+      );
+      expect(appCss, isNot(contains('.task-status-group .task-col-tokens { display: none; }')));
+      expect(
+        appCss,
+        contains(
+          '@media (min-width: 769px) and (max-width: 1156px) {\n'
+          '  .task-status-group .data-table :is(th, td) { padding-inline: var(--sp-2); }\n'
+          '}',
+        ),
+      );
+      expect(appCss, contains('table-layout: fixed;\n    min-width: 0;'));
     });
   });
 

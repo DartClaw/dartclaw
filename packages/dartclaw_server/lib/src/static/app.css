@@ -568,13 +568,6 @@
 .metrics-grid-4 { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 1280px) { .metrics-grid-4 { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .metrics-grid-4 { grid-template-columns: 1fr; } }
-.metric-card {
-  background: var(--bg-card); border: var(--border); border-radius: var(--radius-lg);
-  padding: var(--sp-3) var(--sp-4); text-align: center;
-}
-.metric-card .metric-value { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); line-height: var(--leading-tight); }
-.metric-card .metric-label { font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: var(--tracking-caps); margin-top: var(--sp-1); }
-
 /* === SCHEDULING === */
 /* `position: relative` is load-bearing, not decoration: a scroll container only
    clips absolutely-positioned descendants for which it is the containing block.
@@ -1515,6 +1508,22 @@
   max-width: 100%;
 }
 
+/* The 840px table floor clears the desktop shell only above this width.
+   Release the metadata floors so every column remains visible and can fit. */
+@media (max-width: 1156px) {
+  .task-status-group .data-table { min-width: 100%; }
+  .task-status-group .task-col-created-by,
+  .task-status-group .task-col-created,
+  .task-status-group .task-col-status,
+  .task-status-group .task-col-tokens {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1156px) {
+  .task-status-group .data-table :is(th, td) { padding-inline: var(--sp-2); }
+}
+
 @media (max-width: 768px) {
   /* Only three columns survive here, so fixed layout is what makes two
      consecutive status groups line up instead of each sizing to its own rows.
@@ -1619,6 +1628,13 @@
                           border-color: color-mix(in oklab, var(--bg-surface1) 50%, transparent); }
 .status-badge-failed    { color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
                           border-color: color-mix(in srgb, var(--error) 22%, var(--bg-surface1)); }
+.status-badge-pending   { color: var(--fg-overlay); background: var(--bg-surface0);
+                          border-color: color-mix(in oklab, var(--bg-surface1) 50%, transparent); }
+.status-badge-paused,
+.status-badge-awaiting-approval { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--bg-base));
+                          border-color: color-mix(in srgb, var(--warning) 22%, var(--bg-surface1)); }
+.status-badge-completed { color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--bg-base));
+                          border-color: color-mix(in srgb, var(--success) 22%, var(--bg-surface1)); }
 /* No margin: a badge that carries its own outer spacing cannot left-align with
    anything, which is why it sat 8px off the runner card's other rows. Call sites
    space it — via their own gap, or the sidebar rule below. */
@@ -2206,25 +2222,11 @@
 
 .form-required { color: var(--error); }
 
-/* === REDUCED MOTION === */
-@media (prefers-reduced-motion: reduce) {
-  .workflow-step-active::before { animation: none; }
-}
-
 /* === Workflow Detail Page === */
 
 .workflow-detail-page {
-  max-width: 900px;
   margin: 0 auto;
 }
-
-.workflow-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
-}
-@media (max-width: 900px) { .workflow-metrics-grid { grid-template-columns: repeat(2, 1fr); } }
 
 .workflow-error-message {
   margin-top: var(--sp-3);
@@ -2245,11 +2247,6 @@
   border-radius: var(--radius);
 }
 
-/* Progress bar */
-.workflow-progress-section {
-  margin-bottom: var(--sp-4);
-}
-
 .workflow-progress-text {
   display: flex;
   justify-content: space-between;
@@ -2268,147 +2265,6 @@
 .workflow-actions {
   display: flex;
   gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-}
-
-/* Vertical pipeline */
-.workflow-pipeline {
-  position: relative;
-  padding-left: var(--sp-4);
-}
-
-.workflow-step-wrapper {
-  position: relative;
-}
-
-.workflow-step-connector {
-  position: absolute;
-  left: calc(var(--sp-4) + 11px);
-  top: 0;
-  width: 2px;
-  height: var(--sp-3);
-  background: var(--border);
-  transform: translateX(-50%);
-}
-
-.workflow-step-card {
-  margin-bottom: 0;
-  border-left: 3px solid var(--border);
-  transition: border-color 0.3s ease;
-}
-
-.workflow-step-card[data-step-status="completed"] {
-  border-left-color: var(--success);
-}
-
-.workflow-step-card[data-step-status="running"] {
-  border-left-color: var(--success);
-}
-
-.workflow-step-card[data-step-status="failed"] {
-  border-left-color: var(--error);
-}
-
-.workflow-step-card[data-step-status="review"] {
-  border-left-color: var(--info);
-}
-
-.workflow-step-card[data-step-status="queued"] {
-  border-left-color: var(--info);
-}
-
-/* Active step pulse */
-.workflow-step-active {
-  border-left-color: var(--success);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 20%, transparent);
-}
-
-.workflow-step-active::before {
-  content: '';
-  position: absolute;
-  left: -3px;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--success);
-  animation: workflow-pulse 2s ease-in-out infinite;
-}
-
-@keyframes workflow-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-/* Step icons */
-.workflow-step-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--text-base);
-  flex-shrink: 0;
-  background: var(--bg-surface0);
-  color: var(--fg-overlay);
-}
-.workflow-step-icon--completed {
-  background: color-mix(in srgb, var(--success) 14%, var(--bg-surface0));
-  color: var(--success);
-}
-.workflow-step-icon--running {
-  background: color-mix(in srgb, var(--info) 14%, var(--bg-surface0));
-  color: var(--info);
-}
-.workflow-step-icon--failed,
-.workflow-step-icon--rejected {
-  background: color-mix(in srgb, var(--error) 14%, var(--bg-surface0));
-  color: var(--error);
-}
-.workflow-step-icon--awaiting_approval {
-  background: color-mix(in srgb, var(--warning) 14%, var(--bg-surface0));
-  color: var(--warning);
-}
-.workflow-step-icon--queued {
-  background: color-mix(in srgb, var(--info) 14%, var(--bg-surface0));
-  color: var(--info);
-}
-.workflow-step-icon--interrupted {
-  background: color-mix(in srgb, var(--warning) 14%, var(--bg-surface0));
-  color: var(--warning);
-}
-
-/* Step header */
-.workflow-step-header {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3);
-  cursor: pointer;
-  user-select: none;
-}
-
-.workflow-step-header:hover {
-  background: var(--bg-surface0);
-}
-
-.workflow-step-name {
-  font-weight: var(--weight-medium);
-  flex: 1;
-}
-
-.workflow-step-type {
-  font-size: var(--text-base);
-  color: var(--fg-overlay);
-}
-
-.workflow-step-task-link a {
-  font-size: var(--text-base);
-  color: var(--accent);
-}
-
-.workflow-step-expand-icon {
-  transition: transform 0.2s ease;
 }
 
 /* Loop and parallel badges */
@@ -2571,12 +2427,10 @@
 /* === Workflow Management Page === */
 
 .workflow-list-page {
-  max-width: 900px;
   margin: 0 auto;
 }
 
 .workflow-filters {
-  margin-bottom: var(--sp-4);
   padding: var(--sp-3);
 }
 
@@ -2592,64 +2446,6 @@
   flex-direction: column;
   gap: var(--sp-1);
 }
-
-.workflow-status-filters {
-  display: flex;
-  gap: var(--sp-1);
-  flex-wrap: wrap;
-}
-
-.workflow-status-filters .btn-active {
-  background: var(--bg-surface1);
-  color: var(--fg);
-}
-
-.workflow-run-card {
-  margin-bottom: var(--sp-2);
-  transition: background var(--transition);
-}
-
-.workflow-run-card:hover {
-  background: var(--bg-surface0);
-}
-
-.workflow-run-link {
-  display: block;
-  padding: var(--sp-3);
-  color: inherit;
-  text-decoration: none;
-}
-
-.workflow-run-link:hover {
-  text-decoration: none;
-}
-
-.workflow-run-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--sp-2);
-}
-
-.workflow-run-name {
-  font-weight: var(--weight-medium);
-}
-
-.workflow-run-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  color: var(--fg-sub0);
-  font-size: var(--text-base);
-}
-
-.workflow-run-progress,
-.workflow-run-tokens {
-  font-variant-numeric: tabular-nums;
-}
-
-.workflow-run-meter { width: 60px; height: 4px; }
-
 
 /* Workflow definitions browser */
 
@@ -3467,10 +3263,6 @@ input.form-input--search::-webkit-search-cancel-button {
     width: 48px;
     height: 48px;
     min-width: 48px;
-    min-height: 48px;
-  }
-
-  .workflow-step-header {
     min-height: 48px;
   }
 

@@ -42,9 +42,11 @@ class WorkflowHarnessClassList {
 }
 
 function makeStep(index, id, status = 'pending') {
-  const icon = {
-    classList: new WorkflowHarnessClassList('workflow-step-icon', 'workflow-step-icon--' + status),
+  const node = {
     textContent: '○',
+  };
+  const label = {
+    textContent: 'Pending',
   };
   const attributes = new Map([
     ['data-step-index', String(index)],
@@ -52,9 +54,14 @@ function makeStep(index, id, status = 'pending') {
     ['data-step-status', status],
   ]);
   return {
-    icon,
-    classList: new WorkflowHarnessClassList(),
-    querySelector(selector) { return selector === '.workflow-step-icon' ? icon : null; },
+    node,
+    classList: new WorkflowHarnessClassList('pipeline-step', 'pipeline-step--pending'),
+    label,
+    querySelector(selector) {
+      if (selector === '.pipeline-node') return node;
+      if (selector === '[data-step-status-label]') return label;
+      return null;
+    },
     getAttribute(name) { return attributes.get(name); },
     setAttribute(name, value) { attributes.set(name, String(value)); },
     scrollIntoView() {},
@@ -68,8 +75,8 @@ function assert(condition, message) {
 const steps = [makeStep(0, 'first'), makeStep(1, 'second')];
 const bySelector = new Map();
 function register(step, index, id) {
-  bySelector.set('.workflow-step-card[data-step-index="' + index + '"]', step);
-  bySelector.set('.workflow-step-card[data-step-id="' + id + '"]', step);
+  bySelector.set('.pipeline-step[data-step-index="' + index + '"]', step);
+  bySelector.set('.pipeline-step[data-step-id="' + id + '"]', step);
 }
 register(steps[0], 0, 'first');
 register(steps[1], 1, 'second');
@@ -87,7 +94,7 @@ const percentage = { textContent: '' };
 const progress = {
   querySelector(selector) {
     if (selector === '.meter-fill') return fill;
-    if (selector === '.workflow-progress-label') return label;
+    if (selector === '[data-workflow-progress-label]') return label;
     if (selector === '.workflow-progress-pct') return percentage;
     return null;
   },
@@ -103,11 +110,11 @@ globalThis.document = {
   getElementById() { return null; },
   querySelector(selector) {
     if (selector === '.workflow-detail-page') return detailPage;
-    if (selector === '.workflow-progress-section') return progress;
+    if (selector === '[data-workflow-progress]') return progress;
     return bySelector.get(selector) || null;
   },
   querySelectorAll(selector) {
-    if (selector === '.workflow-step-card[data-step-status="completed"]') {
+    if (selector === '.pipeline-step[data-step-status="completed"]') {
       return steps.filter((step) => step.getAttribute('data-step-status') === 'completed');
     }
     return [];
@@ -140,22 +147,24 @@ function emit(data) {
 
 emit({ type: 'workflow_step_completed', stepIndex: 0, outcome: 'succeeded', success: true, totalSteps: 2 });
 assert(steps[0].getAttribute('data-step-status') === 'completed', 'completed status was not applied');
-assert(steps[0].icon.textContent === '✓', 'completed glyph was not applied');
-assert(steps[0].icon.classList.contains('workflow-step-icon--completed'), 'completed class was not applied');
+assert(steps[0].node.textContent === '✓', 'completed glyph was not applied');
+assert(steps[0].classList.contains('pipeline-step--done'), 'completed class was not applied');
+assert(steps[0].label.textContent === 'Done', 'completed label was not applied');
 assert(steps[1].getAttribute('data-step-status') === 'pending', 'completion guessed the next step state');
 
-for (const [taskStatus, displayStatus, glyph] of [
-  ['queued', 'queued', '○'],
-  ['running', 'running', '•'],
-  ['interrupted', 'interrupted', '!'],
-  ['review', 'review', '○'],
-  ['accepted', 'completed', '✓'],
-  ['cancelled', 'cancelled', '○'],
-  ['rejected', 'failed', '✗'],
+for (const [taskStatus, displayStatus, label, glyph] of [
+  ['queued', 'queued', 'Pending', '○'],
+  ['running', 'running', 'Running', '•'],
+  ['interrupted', 'interrupted', 'Failed', '✗'],
+  ['review', 'review', 'Blocked', '!'],
+  ['accepted', 'completed', 'Done', '✓'],
+  ['cancelled', 'cancelled', 'Failed', '✗'],
+  ['rejected', 'failed', 'Failed', '✗'],
 ]) {
   emit({ type: 'task_status_changed', stepIndex: 1, newStatus: taskStatus });
   assert(steps[1].getAttribute('data-step-status') === displayStatus, taskStatus + ' status was not mapped');
-  assert(steps[1].icon.textContent === glyph, taskStatus + ' glyph was not mapped');
+  assert(steps[1].label.textContent === label, taskStatus + ' label was not mapped');
+  assert(steps[1].node.textContent === glyph, taskStatus + ' glyph was not mapped');
 }
 
 steps.push(makeStep(2, 'parallel-a', 'running'), makeStep(3, 'parallel-b', 'running'));
@@ -176,9 +185,10 @@ emit({
   failureCount: 1,
 });
 assert(steps[2].getAttribute('data-step-status') === 'interrupted', 'partial failure overwrote member truth');
-assert(steps[2].icon.textContent === '!', 'partial failure overwrote the interrupted glyph');
+assert(steps[2].node.textContent === '✗', 'partial failure overwrote the interrupted glyph');
+assert(steps[2].label.textContent === 'Failed', 'partial failure overwrote the interrupted label');
 assert(steps[3].getAttribute('data-step-status') === 'completed', 'successful parallel member was not completed');
-assert(steps[3].icon.textContent === '✓', 'successful parallel glyph was not applied');
+assert(steps[3].node.textContent === '✓', 'successful parallel glyph was not applied');
 
 const loading = { hidden: false };
 const error = { hidden: true };

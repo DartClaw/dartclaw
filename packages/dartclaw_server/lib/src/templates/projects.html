@@ -5,17 +5,14 @@
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
     <div class="page-inner" id="projects-content" data-controller="dc-projects">
 
-      <div class="pagehead">
-        <h1 class="page-title">Projects</h1>
-        <button class="btn btn-primary" type="button" data-project-dialog-open>Add Project</button>
-      </div>
+      <tl:block tl:utext="${pageHeaderHtml}"></tl:block>
 
       <div tl:if="${hasProjects}">
-        <div tl:each="project : ${projects}" class="card project-card"
+        <div tl:each="project : ${projects}" class="card"
              tl:attr="data-project-id=${project.id}">
-          <div class="project-card-header">
-            <div class="project-card-title-row">
-              <strong tl:text="${project.name}">Project Name</strong>
+          <div class="card-header">
+            <div>
+              <strong class="t-heading" tl:text="${project.name}">Project Name</strong>
               <span class="status-badge" tl:classappend="${project.statusBadgeClass}"
                     tl:text="${project.statusLabel}">Ready</span>
               <span tl:if="${project.isLocal}" class="type-badge">Local</span>
@@ -23,8 +20,8 @@
                     tl:text="${project.configDefinedLabel}">Runtime</span>
               <span tl:if="${project.isDefault}" class="type-badge">Default</span>
             </div>
-            <div class="project-card-actions">
-              <button class="btn btn-ghost btn-sm" type="button"
+            <div class="card-header-actions">
+              <button class="btn btn-sm" type="button"
                       tl:attr="data-project-fetch=${project.id}">Fetch</button>
               <button tl:if="${project.isEditable}" class="btn btn-ghost btn-sm" type="button"
                       tl:attr="data-project-edit=${project.id},data-project-name=${project.name},data-project-url=${project.remoteUrl},data-project-branch=${project.defaultBranch},data-project-creds=${project.credentialsRef},data-project-strategy=${project.prStrategy},data-project-draft=${project.prDraft},data-project-labels=${project.prLabels}">Edit</button>
@@ -33,16 +30,17 @@
             </div>
           </div>
 
-          <div tl:unless="${project.isLocal}" class="project-card-meta">
-            <span class="project-url text-muted" tl:text="${project.displayUrl}">https://github.com/user/repo</span>
+          <div tl:unless="${project.isLocal}" class="card-footer t-caption">
+            <span class="text-muted" tl:text="${project.displayUrl}">https://github.com/user/repo</span>
             <span class="type-badge" tl:text="${project.defaultBranch}">main</span>
             <span class="text-muted">
-              Fetched: <span tl:attr="title=${project.lastFetchIso}" tl:text="${project.lastFetchDisplay}">Never</span>
+              Fetched: <span tl:if="${project.lastFetchAbsent}" class="value-absent"></span><span tl:unless="${project.lastFetchAbsent}" tl:attr="title=${project.lastFetchIso}" tl:text="${project.lastFetchDisplay}">2026-01-01 10:00</span>
             </span>
             <span class="type-badge" tl:text="${project.prStrategyLabel}">Branch Only</span>
           </div>
 
-          <div tl:if="${project.hasError}" class="project-error-banner">
+          <div tl:if="${project.hasError}" class="banner banner-error" data-project-error="">
+            <span class="icon icon-triangle-alert" aria-hidden="true"></span>
             <span tl:text="${project.errorMessage}">Clone failed</span>
           </div>
         </div>

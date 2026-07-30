@@ -1,5 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show PrStrategy, Project, ProjectStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime;
 
+import 'components.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -20,12 +22,18 @@ String projectsPageTemplate({
   final topbar = pageTopbarTemplate(title: 'Projects', restartBannerHtml: restartBannerHtml);
 
   final projectMaps = projects.map((p) => _projectToMap(p, defaultProject: defaultProject)).toList();
+  final pageHeaderHtml = pageHeaderTemplate(
+    subtitle: 'Repositories available to tasks and workflows.',
+    actionsHtml:
+        '<button class="btn btn-primary" type="button" data-icon="plus" data-project-dialog-open>Add Project</button>',
+  );
 
   final body = templateLoader.trellis.render(templateLoader.source('projects'), {
     'sidebar': sidebar,
     'topbar': topbar,
     'hasProjects': projects.isNotEmpty,
     'projects': projectMaps,
+    'pageHeaderHtml': pageHeaderHtml,
     'addProjectDialogHtml': addProjectDialogHtml(),
   });
 
@@ -46,7 +54,10 @@ Map<String, dynamic> _projectToMap(Project project, {Project? defaultProject}) {
     'credentialsRef': project.credentialsRef ?? '',
     'statusLabel': titleCase(project.status.name),
     'statusBadgeClass': _statusBadgeClass(project.status),
-    'lastFetchDisplay': project.lastFetchAt != null ? formatRelativeTime(project.lastFetchAt!) : 'Never',
+    'lastFetchDisplay': absentValue(
+      formatLocalDateTime(project.lastFetchAt?.toIso8601String(), seconds: false, emptyPlaceholder: ''),
+    ).value,
+    'lastFetchAbsent': project.lastFetchAt == null,
     'lastFetchIso': project.lastFetchAt?.toIso8601String(),
     'isLocal': isLocal,
     'isConfigDefined': project.configDefined,

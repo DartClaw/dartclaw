@@ -614,3 +614,9 @@ dividers, planes, sidebar tiers).
 **Sync scope.** Only `components.css` changed, so only served `design-system.css` was re-synced with a fresh
 `sha256`. `tokens.css` is byte-unchanged this round and keeps its existing header. Drift green, embedded assets
 regenerated, generated-parity test green.
+
+#### HOIST from S15 – element-agnostic card layout (2026-07-30)
+
+An anchor consumer exposed that `.card` inherited the browser's inline display and fragmented its block children.
+Canon now sets `display: block` while an author-level closed-dialog rule preserves composed `.dialog.card` frames;
+focused canonical/served assertions, sync and embedded parity checks, and computed styles verified both contracts.

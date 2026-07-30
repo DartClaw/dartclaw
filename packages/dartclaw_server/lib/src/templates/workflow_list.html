@@ -3,17 +3,17 @@
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
-    <div class="content-inner workflow-list-page" data-controller="dc-workflows">
+    <div class="content-inner content-inner--wide workflow-list-page" data-controller="dc-workflows">
 
       <!-- Filters -->
       <div class="workflow-filters card">
         <div class="workflow-filter-row">
           <div class="workflow-filter-group">
             <label class="form-label t-label">Status</label>
-            <div class="workflow-status-filters">
+            <div class="tabs">
               <a tl:each="opt : ${statusOptions}"
-                 tl:classappend="${opt.active} ? 'btn-active' : ''"
-                 class="btn btn-ghost btn-sm"
+                 tl:classappend="${opt.active} ? 'active' : ''"
+                 class="tab t-label"
                  tl:attr="href=${opt.href},hx-get=${opt.href}"
                  hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
                  hx-push-url="true" hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
@@ -22,7 +22,7 @@
           </div>
           <div class="workflow-filter-group">
             <label class="form-label t-label" for="workflow-definition-filter">Workflow</label>
-            <select class="form-select form-input-sm" id="workflow-definition-filter">
+            <select class="form-select" id="workflow-definition-filter">
               <option value="">All workflows</option>
               <option tl:each="def : ${definitionOptions}"
                       tl:attr="value=${def.value},selected=${def.selected} ? 'selected' : null"
@@ -33,49 +33,51 @@
       </div>
 
       <!-- Runs list -->
-      <div class="workflow-runs-list" id="workflow-runs-list">
+      <div id="workflow-runs-list">
+        <div class="section-label t-caption tracking-caps">Workflow Runs</div>
         <div tl:if="${hasRuns}">
-          <div tl:each="run : ${runs}" class="workflow-run-card card print-in">
-            <a tl:attr="href=${run.href},hx-get=${run.href}" class="workflow-run-link"
+          <a tl:each="run : ${runs}" tl:attr="href=${run.href},hx-get=${run.href}"
+               class="card run-card print-in" tl:classappend="${run.attention} ? 'run-card--attention' : ''"
                hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
                hx-push-url="true" hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
-              <div class="workflow-run-header">
-                <span class="workflow-run-name" tl:text="${run.definitionName}">spec-and-implement</span>
+              <div class="card-header">
+                <span class="status-dot" tl:classappend="${run.dotClass}" aria-hidden="true"></span>
+                <span class="t-heading" tl:text="${run.definitionName}">spec-and-implement</span>
+                <span class="run-card-step t-caption">
+                  <tl:block tl:if="${run.hasStepCount}"><span tl:text="${run.completedSteps}">3</span>/<span tl:text="${run.totalSteps}">6</span> steps</tl:block>
+                  <span tl:unless="${run.hasStepCount}" class="value-absent"></span>
+                </span>
                 <span tl:classappend="${run.statusBadgeClass}" class="status-badge"
                       tl:text="${run.statusLabel}">running</span>
               </div>
-              <div class="workflow-run-meta">
-                <span class="workflow-run-progress">
-                  <span tl:text="${run.completedSteps}">3</span>/<span tl:text="${run.totalSteps}">6</span> steps
-                </span>
-                <div class="meter workflow-run-meter">
-                  <div class="meter-fill"
+              <div tl:if="${run.hasStepCount}" class="card-body">
+                <div class="meter">
+                  <div class="meter-fill" tl:classappend="${run.meterFillClass}"
                        tl:attr="style='width: ' + ${run.progressPercent} + '%'"></div>
                 </div>
-                <span class="workflow-run-time" tl:attr="title=${run.startedAtIso}"
-                      tl:text="${run.startedAtDisplay}">2h ago</span>
-                <span class="workflow-run-tokens" tl:text="${run.totalTokens} + ' tokens'">12.4K tokens</span>
               </div>
-            </a>
-          </div>
+              <div class="card-footer t-caption">
+                <span tl:attr="title=${run.startedAtIso}"
+                      tl:text="${run.startedAtDisplay}">2h ago</span>
+                <span tl:text="${run.totalTokens} + ' tokens'">12.4K tokens</span>
+              </div>
+          </a>
         </div>
-        <div tl:unless="${hasRuns}" class="empty-state">
-          <span class="text-muted">No workflow runs found.</span>
-        </div>
+        <tl:block tl:unless="${hasRuns}" tl:utext="${emptyRunsHtml}"></tl:block>
       </div>
 
       <!-- Definition browser -->
       <div tl:if="${hasDefinitions}" class="workflow-definitions-section">
-        <div class="sidebar-section-label">Available Workflows</div>
+        <div class="section-label t-caption tracking-caps">Available Workflows</div>
         <div class="workflow-definitions-grid">
           <div tl:each="def : ${definitions}" class="workflow-definition-card card">
             <div class="workflow-definition-header">
-              <span class="workflow-definition-name" tl:text="${def.name}">spec-and-implement</span>
-              <span class="workflow-definition-step-count"
+              <span class="workflow-definition-name t-heading" tl:text="${def.name}">spec-and-implement</span>
+              <span class="workflow-definition-step-count t-caption"
                     tl:text="${def.stepCount} + ' steps'">6 steps</span>
               <span tl:if="${def.hasLoops}" class="workflow-loop-badge">Loop</span>
             </div>
-            <p class="workflow-definition-desc" tl:text="${def.description}">Description</p>
+            <p class="workflow-definition-desc t-caption" tl:text="${def.description}">Description</p>
             <div class="workflow-definition-vars">
               <span tl:each="v : ${def.variableHints}" class="workflow-var-chip"
                     tl:attr="title=${v.description}"
@@ -83,7 +85,7 @@
             </div>
             <details class="workflow-launch-panel">
               <summary class="btn btn-ghost btn-sm">Run</summary>
-              <form class="workflow-launch-form"
+              <form data-workflow-launch-form=""
                     hx-post="/api/workflows/run-form"
                     tl:attr="hx-target='#' + ${def.errorId}"
                     hx-swap="innerHTML">
@@ -102,7 +104,7 @@
                             tl:text="${project.label}">project</option>
                   </select>
                 </div>
-                <div class="form-error t-caption workflow-launch-error" tl:attr="id=${def.errorId}"></div>
+                <div class="form-error t-caption" tl:attr="id=${def.errorId}"></div>
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary btn-sm">Launch</button>
                   <button type="button" class="btn btn-ghost btn-sm"

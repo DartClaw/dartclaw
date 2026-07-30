@@ -3,48 +3,31 @@
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
-    <div class="content-inner workflow-detail-page" data-controller="dc-workflows"
+    <div class="content-inner content-inner--wide workflow-detail-page" data-controller="dc-workflows"
          data-action="htmx:responseError->dc-workflows#showStepDetailError htmx:sendError->dc-workflows#showStepDetailError"
          tl:attr="data-run-id=${runId},data-run-status=${status}">
 
       <!-- Workflow metadata card grid -->
-      <div class="workflow-metrics-grid">
-        <div class="metric-card">
-          <div class="metric-value"><span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">running</span></div>
-          <div class="metric-label">Status</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-value" tl:attr="title=${startedAtIso}" tl:text="${startedAtDisplay}">2h ago</div>
-          <div class="metric-label">Started</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-value" tl:text="${totalTokens}">15,000</div>
-          <div class="metric-label">Tokens</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-value" tl:classappend="${durationAbsent} ? 'value-absent' : ''"
-               tl:text="${durationDisplay}">1h 42m</div>
-          <div class="metric-label">Duration</div>
-        </div>
-      </div>
+      <div class="metrics-grid metrics-grid-4" tl:utext="${metricsHtml}"></div>
       <div tl:if="${hasError}" class="workflow-error-message">
         <span class="icon icon-triangle-alert" aria-hidden="true"></span>
         <span tl:text="${errorMessage}">Error message</span>
       </div>
 
       <!-- Progress bar -->
-      <div class="workflow-progress-section">
+      <div tl:if="${hasStepCount}" data-workflow-progress="">
         <div class="meter">
-          <div class="meter-fill meter-fill--info" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>
+          <div class="meter-fill" tl:classappend="${meterFillClass}" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>
         </div>
         <div class="workflow-progress-text">
-          <span class="workflow-progress-label"><span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps complete</span>
-          <span class="workflow-progress-pct" tl:text="${progressPercent} + '%'">50%</span>
+          <span data-workflow-progress-label=""><span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps complete</span>
+          <span class="workflow-progress-pct" tl:classappend="${percentageClass}" tl:text="${progressPercent} + '%'">50%</span>
         </div>
       </div>
+      <div tl:unless="${hasStepCount}" data-workflow-progress=""><span class="value-absent"></span></div>
 
       <!-- Action buttons -->
-      <div class="workflow-actions">
+      <div tl:if="${hasActions}" class="workflow-actions">
         <button tl:if="${canPause}" type="button" class="btn btn-ghost"
                 tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/pause'"
                 hx-swap="none">
@@ -88,37 +71,31 @@
       </div>
 
       <!-- Vertical pipeline -->
-      <div class="workflow-pipeline">
-        <div tl:each="step : ${steps}" class="workflow-step-wrapper">
-          <div class="workflow-step-connector" tl:unless="${stepStat.first}"></div>
-          <div tl:classappend="${step.isActiveStep} ? 'workflow-step-active' : ''"
-               class="workflow-step-card card"
+      <ol tl:if="${hasSteps}" class="pipeline">
+          <li tl:each="step : ${steps}" class="pipeline-step" tl:classappend="${step.pipelineClass}"
                tl:attr="data-step-index=${step.index},data-step-status=${step.status},data-step-id=${step.id}">
-            <div class="workflow-step-header" data-step-toggle="">
-              <span tl:classappend="'workflow-step-icon--' + ${step.status}" class="workflow-step-icon"
-                    tl:utext="${step.statusIcon}">&#x25CB;</span>
-              <span class="workflow-step-name" tl:text="${step.name}">Research</span>
-              <span tl:if="${step.isLoopStep}" class="workflow-loop-badge"
+            <span class="pipeline-node" tl:text="${step.statusIcon}" aria-hidden="true"></span>
+            <div class="pipeline-step-body">
+              <div class="pipeline-step-name t-heading" data-step-toggle="">
+                <span tl:text="${step.name}">Research</span>
+                <span class="icon icon-chevron-down" aria-hidden="true"></span>
+              </div>
+              <div class="pipeline-step-meta t-caption">
+                <span data-step-status-label="" tl:text="${step.statusLabel}">Running</span>
+                <span tl:if="${step.isLoopStep}" class="workflow-loop-badge"
                     tl:attr="data-loop-id=${step.loopId}"
                     tl:text="'Iteration ' + ${step.loopIteration} + '/' + ${step.loopMaxIterations}">Iteration 1/3</span>
-              <span tl:if="${step.isParallel}" class="workflow-parallel-badge">Parallel</span>
-              <span class="workflow-step-type" tl:text="${step.typeLabel}">research</span>
-              <span tl:if="${step.taskId}" class="workflow-step-task-link">
-                <a tl:attr="href='/tasks/' + ${step.taskId}">View task</a>
-              </span>
-              <span class="workflow-step-expand-icon icon icon-chevron-down" aria-hidden="true"></span>
-            </div>
+                <span tl:if="${step.isParallel}" class="workflow-parallel-badge">Parallel</span>
+                <span tl:text="${step.typeLabel}">research</span>
+                <a tl:if="${step.taskId}" tl:attr="href='/tasks/' + ${step.taskId}">View task</a>
+              </div>
             <div class="workflow-step-detail" tl:attr="id='step-detail-' + ${step.index}" hidden>
               <!-- Approval step: show message and no task link -->
-              <div tl:if="${step.isApprovalStep}" class="workflow-approval-detail">
-                <div tl:if="${step.hasApproval}" class="workflow-approval-message">
-                  <span class="workflow-approval-message-label">Approval request:</span>
-                  <span tl:text="${step.approvalMessage}">Approve?</span>
-                </div>
-                <div tl:if="${step.hasApprovalFeedback}" class="workflow-approval-feedback">
-                  <span class="workflow-approval-feedback-label">Feedback:</span>
-                  <span tl:text="${step.approvalFeedback}">Not ready</span>
-                </div>
+              <div tl:if="${step.isApprovalStep}" class="card approval-card" tl:classappend="${step.approvalClass}">
+                <div class="t-label" tl:text="${step.approvalStatusLabel}">Waiting for approval</div>
+                <div tl:if="${step.hasApproval}" class="approval-card-plan" tl:text="${step.approvalMessage}">Approve?</div>
+                <div tl:unless="${step.approvalResolved}" class="approval-card-actions"><span class="t-caption">Use the run controls above to decide.</span></div>
+                <div tl:if="${step.approvalResolved}" class="approval-card-resolution" tl:text="${step.approvalFeedback}">Resolved</div>
               </div>
               <!-- Standard task-backed step -->
               <div tl:unless="${step.isApprovalStep}" class="workflow-step-detail-loading"
@@ -135,10 +112,10 @@
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-        <div tl:unless="${hasSteps}" class="text-muted">No steps defined.</div>
-      </div>
+            </div>
+          </li>
+      </ol>
+      <tl:block tl:unless="${hasSteps}" tl:utext="${emptyStepsHtml}"></tl:block>
 
       <!-- Shared context viewer -->
       <div tl:if="${hasContext}" class="workflow-context-viewer card">

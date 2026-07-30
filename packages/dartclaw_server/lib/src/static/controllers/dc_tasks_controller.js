@@ -851,7 +851,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       badge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
     }
 
-    const errorBanner = card.querySelector('.project-error-banner');
+    const errorBanner = card.querySelector('[data-project-error]');
     if (newStatus === 'ready' && errorBanner) {
       errorBanner.style.display = 'none';
     } else if (newStatus !== 'ready' && newStatus !== 'cloning' && errorBanner) {

@@ -192,6 +192,7 @@ void main() {
       expect(html, contains('name="credentialsRef"'));
       expect(html, contains('name="prStrategy"'));
       expect(html, contains('name="draft"'));
+      expect(html, contains('<label class="form-field form-field--checkbox">'));
       expect(html, contains('name="labels"'));
     });
 

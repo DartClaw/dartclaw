@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'components.dart';
 import 'loader.dart';
-import 'session_info.dart' show sessionTurnStatusView;
+import 'session_info.dart' show sessionTurnStatusMountView;
 
 // Patterns for special assistant messages stored by TurnManager.
 final _guardBlockPattern = RegExp(r'^\[(?:Response )?[Bb]locked by guard: (.+)\]$', dotAll: true);
@@ -184,11 +184,13 @@ String chatAreaTemplate({
   bool readOnly = false,
   int? earliestCursor,
   bool hasEarlierMessages = false,
+  bool autofocus = false,
+  bool isNewChatDraft = false,
   Map<String, dynamic>? turnStatus,
 }) {
   final placeholder = isStreaming ? 'Agent is responding...' : 'Type a message...';
   final inputDisabled = isStreaming || readOnly;
-  final turnStatusView = sessionTurnStatusView(turnStatus, fallbackSessionId: sessionId);
+  final turnStatusView = sessionTurnStatusMountView(turnStatus, fallbackSessionId: sessionId);
 
   // Trellis auto-escapes attribute values set via tl:attr, so pass raw sessionId.
   return templateLoader.trellis.renderFragment(
@@ -197,16 +199,18 @@ String chatAreaTemplate({
     context: {
       'sessionId': sessionId,
       'hasTitle': hasTitle ? 'true' : 'false',
+      'newChatDraft': isNewChatDraft ? 'true' : null,
       'earliestCursor': earliestCursor?.toString(),
       'loadEarlierHidden': hasEarlierMessages ? null : true,
       'chatNoticeHtml': chatNoticeHtml.isNotEmpty ? chatNoticeHtml : null,
       'messagesHtml': messagesHtml,
       'turnStatus': turnStatusView,
-      'hasTurnStatus': turnStatusView != null,
+      'hasTurnStatus': true,
       'readOnly': readOnly,
       'sendUrl': '/api/sessions/$sessionId/send',
       'placeholder': placeholder,
       'inputDisabled': inputDisabled ? true : null,
+      'autofocus': autofocus && !inputDisabled ? true : null,
     },
   );
 }

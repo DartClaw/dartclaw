@@ -23,7 +23,109 @@ void main() {
 
     expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
   });
+
+  test('workflow dialog keeps its action hierarchy in sync through close', () async {
+    ProcessResult result;
+    try {
+      result = await Process.run('node', [
+        '--input-type=module',
+        '--eval',
+        _workflowDialogHarness,
+        controller.absolute.uri.toString(),
+      ]);
+    } on ProcessException {
+      markTestSkipped('Node is unavailable');
+      return;
+    }
+
+    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+  });
 }
+
+const _workflowDialogHarness = r'''
+import { readFile } from 'node:fs/promises';
+
+class ClassList {
+  constructor(...names) { this.names = new Set(names); }
+  add(...names) { names.forEach((name) => this.names.add(name)); }
+  remove(...names) { names.forEach((name) => this.names.delete(name)); }
+  contains(name) { return this.names.has(name); }
+  toggle(name, force) {
+    const enabled = force === undefined ? !this.names.has(name) : force;
+    if (enabled) this.names.add(name); else this.names.delete(name);
+    return enabled;
+  }
+}
+
+function eventTarget(dataset = {}, classes = []) {
+  const listeners = new Map();
+  return {
+    dataset,
+    classList: new ClassList(...classes),
+    addEventListener(name, listener) { listeners.set(name, listener); },
+    emit(name) { listeners.get(name)?.(); },
+  };
+}
+
+function assertAction(button, text, primary, secondary) {
+  if (button.textContent !== text) throw new Error('unexpected action text: ' + button.textContent);
+  if (button.classList.contains('btn-primary') !== primary) throw new Error('unexpected primary state');
+  if (button.classList.contains('btn-secondary') !== secondary) throw new Error('unexpected secondary state');
+}
+
+const singleTab = eventTarget({ taskTab: 'single' }, ['active']);
+const workflowTab = eventTarget({ taskTab: 'workflow' });
+const singlePanel = eventTarget({ taskPanel: 'single' }, ['active']);
+const workflowPanel = eventTarget({ taskPanel: 'workflow' });
+const submit = { textContent: 'Create Task', classList: new ClassList('btn', 'btn-primary') };
+const dialog = eventTarget({});
+
+globalThis.window = {
+  location: { pathname: '/tasks', href: 'http://localhost/tasks' },
+  dartclaw: { ui: { escapeHtml: (value) => String(value) } },
+};
+globalThis.document = {
+  body: { dataset: {}, addEventListener() {} },
+  addEventListener() {},
+  getElementById(id) {
+    if (id === 'task-dialog-submit') return submit;
+    if (id === 'new-task-dialog') return dialog;
+    return null;
+  },
+  querySelector() { return null; },
+  querySelectorAll(selector) {
+    if (selector === '[data-task-tab]') return [singleTab, workflowTab];
+    if (selector === '[data-task-panel]') return [singlePanel, workflowPanel];
+    return [];
+  },
+};
+globalThis.Stimulus = { Controller: class {} };
+globalThis.htmx = {};
+
+let source = await readFile(new URL(process.argv[1]), 'utf8');
+source = source.replace(
+  "import { updateRunningWorkflowsSection } from './sidebar_sections.js';",
+  'const updateRunningWorkflowsSection = (items) => items;',
+);
+await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+window.dartclaw.workflowsControllerApi.onLoad(null);
+workflowTab.emit('click');
+assertAction(submit, 'Run Workflow', false, true);
+singleTab.emit('click');
+assertAction(submit, 'Create Task', true, false);
+workflowTab.emit('click');
+assertAction(submit, 'Run Workflow', false, true);
+
+dialog.emit('close');
+assertAction(submit, 'Create Task', true, false);
+if (!singleTab.classList.contains('active') || workflowTab.classList.contains('active')) {
+  throw new Error('close did not restore the single-task tab');
+}
+
+window.dartclaw.workflowsControllerApi.onLoad(null);
+assertAction(submit, 'Create Task', true, false);
+''';
 
 const _workflowControllerHarness = r'''
 import { readFile } from 'node:fs/promises';

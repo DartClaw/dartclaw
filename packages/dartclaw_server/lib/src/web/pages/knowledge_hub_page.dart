@@ -12,6 +12,8 @@ import '../web_utils.dart';
 
 /// Renders the read-only cross-layer knowledge hub.
 class KnowledgeHubPage extends DashboardPage {
+  static const navigationTitle = 'Knowledge';
+
   KnowledgeHubPage({KnowledgeHubService? Function()? hubGetter, CitationSourceResolver? resolver})
     : _hubGetter = hubGetter,
       _resolver = resolver;
@@ -23,7 +25,7 @@ class KnowledgeHubPage extends DashboardPage {
   String get route => '/knowledge';
 
   @override
-  String get title => 'Knowledge';
+  String get title => navigationTitle;
 
   @override
   String? get icon => 'database';

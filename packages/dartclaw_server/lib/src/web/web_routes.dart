@@ -21,6 +21,7 @@ import '../templates/channel_detail.dart';
 import '../templates/chat.dart';
 import '../templates/components.dart';
 import '../templates/error_page.dart';
+import '../templates/helpers.dart';
 import '../audit/audit_log_reader.dart';
 import '../templates/audit_table.dart';
 import '../templates/layout.dart';
@@ -281,15 +282,24 @@ Router webRoutes(
         );
       }
       final isArchive = session.type == SessionType.archive;
+      final turnStatus = turns?.turnStatus(id);
       final chat = chatAreaTemplate(
         sessionId: id,
         messagesHtml: msgsHtml,
         hasTitle: session.title != null && session.title!.trim().isNotEmpty,
         chatNoticeHtml: chatNoticeHtml.toString(),
         readOnly: isArchive,
+        autofocus: messageList.isEmpty && !isArchive,
+        isNewChatDraft:
+            session.type == SessionType.user &&
+            session.channelKey == null &&
+            (session.provider == null || session.provider!.trim().isEmpty) &&
+            (session.title == null || session.title!.trim().isEmpty) &&
+            messageList.isEmpty &&
+            !isActiveTurnStatusState(turnStatus?.state.name ?? 'idle'),
         earliestCursor: earliestCursor,
         hasEarlierMessages: hasEarlierMessages,
-        turnStatus: turns?.turnStatus(id).toJson(),
+        turnStatus: turnStatus?.toJson(),
       );
 
       if (wantsFragment(request)) {
@@ -298,7 +308,7 @@ Router webRoutes(
 
       final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
-        title: session.title ?? 'New Chat',
+        title: displayChatTitle(session.title),
         body: bodyHtml,
         appName: appDisplay.name,
         scripts: standardShellScripts(),

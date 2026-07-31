@@ -39,6 +39,23 @@ Router sessionRoutes(
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
 }) {
   final router = Router();
+  Future<({Session session, bool created})>? openNewChatPromise;
+
+  Future<({Session session, bool created})> openNewChat() {
+    final pending = openNewChatPromise;
+    if (pending != null) return pending;
+
+    late final Future<({Session session, bool created})> operation;
+    operation = () async {
+      try {
+        return await _openNewChat(sessions, messages, turns);
+      } finally {
+        if (identical(openNewChatPromise, operation)) openNewChatPromise = null;
+      }
+    }();
+    openNewChatPromise = operation;
+    return operation;
+  }
 
   // GET /api/sessions
   router.get('/api/sessions', (Request request) async {
@@ -83,6 +100,17 @@ Router sessionRoutes(
     } catch (e) {
       _log.warning('Failed to create session: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to create session');
+    }
+  });
+
+  // POST /api/sessions/open — open the single reusable blank default chat.
+  router.post('/api/sessions/open', (Request request) async {
+    try {
+      final result = await openNewChat();
+      return jsonResponse(result.created ? 201 : 200, result.session.toJson());
+    } catch (e) {
+      _log.warning('Failed to open a new chat: $e', e);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to open a new chat');
     }
   });
 
@@ -159,6 +187,30 @@ Response? _validateTitle(String? title) {
   }
   return null;
 }
+
+Future<({Session session, bool created})> _openNewChat(
+  SessionService sessions,
+  MessageService messages,
+  TurnManager turns,
+) async {
+  final candidates = await sessions.listSessions(type: SessionType.user);
+  for (final session in candidates) {
+    if (!_isReusableNewChatMetadata(session)) continue;
+    if ((await messages.getMessagesTail(session.id, count: 1)).isNotEmpty) continue;
+
+    final current = await sessions.getSession(session.id);
+    if (current == null || !_isReusableNewChatMetadata(current)) continue;
+    // Web sends reserve before persisting. Keep this check last, with no await
+    // before return, so a send cannot interleave after eligibility is settled.
+    if (!turns.isActive(current.id)) return (session: current, created: false);
+  }
+  return (session: await sessions.createSession(), created: true);
+}
+
+bool _isReusableNewChatMetadata(Session session) =>
+    session.channelKey == null &&
+    !(session.provider?.trim().isNotEmpty ?? false) &&
+    (session.title == null || session.title!.trim().isEmpty);
 
 Response? _validateSessionProvider(String? provider, HarnessPool pool) {
   if (provider == null) {

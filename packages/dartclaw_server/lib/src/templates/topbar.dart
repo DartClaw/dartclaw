@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'helpers.dart';
 import 'loader.dart';
 import 'restart_banner.dart';
 
@@ -31,7 +32,7 @@ String topbarTemplate({
     );
   }
 
-  final displayTitle = (title == null || title.trim().isEmpty) ? 'New Chat' : title;
+  final displayTitle = displayChatTitle(title);
   final isArchive = sessionType == SessionType.archive;
 
   return _withRestartSlot(

@@ -85,6 +85,7 @@ void main() {
       expect(html, contains('name="acceptanceCriteria"'));
       expect(html, contains('name="goalId"'));
       expect(html, contains('name="autoStart"'));
+      expect(html, contains('<label class="form-field form-field--checkbox">'));
       expect(html, contains('name="model"'));
       expect(html, contains('name="tokenBudget"'));
       expect(html, contains('task-type-guidance'));

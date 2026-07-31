@@ -7,6 +7,7 @@
       data-icon="x"></button>
   </div>
 
+  <div class="sidebar-body">
   <div class="session-list">
   <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
   <div tl:if="${mainSession}" class="session-item session-item-main"
@@ -33,7 +34,7 @@
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
         hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
         <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${ch.id},data-identicon-initials=${ch.title}"></span>
-        <span class="session-item-title" tl:text="${ch.title}">Channel</span>
+        <span class="session-item-title" tl:attr="data-session-title-id=${ch.id}" tl:text="${ch.title}">Channel</span>
         <span tl:if="${ch.showProvider}" class="provider-badge"
           tl:classappend="'provider-badge-' + ${ch.provider}"
           tl:text="${ch.providerLabel}">Claude</span></a>
@@ -46,7 +47,7 @@
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
         hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
         <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${ch.id},data-identicon-initials=${ch.title}"></span>
-        <span class="session-item-title" tl:text="${ch.title}">Channel</span>
+        <span class="session-item-title" tl:attr="data-session-title-id=${ch.id}" tl:text="${ch.title}">Channel</span>
         <span tl:if="${ch.showProvider}" class="provider-badge"
           tl:classappend="'provider-badge-' + ${ch.provider}"
           tl:text="${ch.providerLabel}">Claude</span></a>
@@ -89,8 +90,13 @@
     <hr class="sidebar-divider sidebar-workflows-divider">
   </div>
 
-  <div class="sidebar-section-label">Chats</div>
-  <button class="btn btn-new-session" data-session-create="true" data-icon="new-session">New Chat</button>
+  <section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">
+  <div class="sidebar-section-label" id="sidebar-chats-label">Chats</div>
+  <button type="button" class="btn-new-session" data-session-create="true">
+    <span class="btn-new-session-icon" data-icon="new-session" aria-hidden="true"></span>
+    <span class="btn-new-session-label">New Chat</span>
+  </button>
+  <hr class="sidebar-chat-divider">
   <div tl:if="${noActiveEntries}" class="sidebar-placeholder text-muted t-caption">No chats yet</div>
 
   <div tl:each="entry : ${activeEntries}" class="session-item"
@@ -99,7 +105,7 @@
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
       <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
-      <span class="session-item-title" tl:text="${entry.title}">Session</span>
+      <span class="session-item-title" tl:attr="data-session-title-id=${entry.id}" tl:text="${entry.title}">Session</span>
       <span tl:if="${entry.showProvider}" class="provider-badge"
         tl:classappend="'provider-badge-' + ${entry.provider}"
         tl:text="${entry.providerLabel}">Claude</span></a>
@@ -121,7 +127,8 @@
           hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
           hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
           <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
-          <span class="session-item-title" tl:text="${entry.title}">Archived session</span>
+          <span class="session-item-title" tl:attr="data-session-title-id=${entry.id}"
+            tl:text="${entry.title}">Archived session</span>
           <span tl:if="${entry.showProvider}" class="provider-badge"
             tl:classappend="'provider-badge-' + ${entry.provider}"
             tl:text="${entry.providerLabel}">Claude</span></a>
@@ -130,23 +137,36 @@
       </div>
     </div>
   </div>
+  </section>
   </div>
 
-  <nav tl:if="${hasNav}" class="sidebar-section" aria-label="Dashboard navigation">
-    <div tl:if="${showSystemNav}" class="sidebar-section-label">System</div>
-    <a tl:each="nav : ${systemNavItems}" class="sidebar-nav-item"
-      tl:classappend="${nav.active} ? 'active' : ''"
-      tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent},data-icon=${nav.icon}"
-      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
-      tl:utext="${nav.label}">Link</a>
-    <div tl:if="${showExtensionNav}" class="sidebar-section-label">Extensions</div>
-    <a tl:each="nav : ${extensionNavItems}" class="sidebar-nav-item"
-      tl:classappend="${nav.active} ? 'active' : ''"
-      tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent},data-icon=${nav.icon}"
-      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
-      tl:text="${nav.label}">Link</a>
-  </nav>
+  <div tl:if="${hasNav}" class="sidebar-footer">
+    <nav tl:if="${showExtensionNav}" class="sidebar-section sidebar-extension-nav"
+      aria-label="Extension navigation">
+      <div class="sidebar-section-label">Extensions</div>
+      <a tl:each="nav : ${extensionNavItems}" class="sidebar-nav-item"
+        tl:classappend="${nav.active} ? 'active' : ''"
+        tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent},data-icon=${nav.icon}"
+        hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
+        tl:text="${nav.label}">Link</a>
+    </nav>
+    <details tl:if="${showSystemNav}" class="sidebar-system-menu">
+      <summary class="sidebar-system-trigger">
+        <span class="sidebar-system-trigger-label" data-icon="server"
+          tl:text="${systemMenuLabel}">System</span>
+        <span class="sidebar-system-chevron" data-icon="chevron-up" aria-hidden="true"></span>
+      </summary>
+      <nav class="sidebar-system-panel" aria-label="System navigation">
+        <a tl:each="nav : ${systemNavItems}" class="sidebar-nav-item"
+          tl:classappend="${nav.active} ? 'active' : ''"
+          tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent},data-icon=${nav.icon}"
+          hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+          hx-select-oob="#topbar,#restart-banner-slot,#sidebar"
+          tl:utext="${nav.label}">Link</a>
+      </nav>
+    </details>
+  </div>
+  </div>
 </aside>
 <button class="sidebar-scrim" type="button" aria-label="Close sidebar" aria-hidden="true" tabindex="-1"></button>

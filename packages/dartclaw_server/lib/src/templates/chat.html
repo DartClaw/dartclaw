@@ -26,7 +26,7 @@
 </div>
 
 <main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area print-in" data-controller="dc-chat dc-tasks"
-  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-earliest-cursor=${earliestCursor}">
+  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor}">
   <div tl:if="${chatNoticeHtml}" tl:utext="${chatNoticeHtml}">session notice</div>
   <div class="chat-load-earlier">
     <button id="load-earlier-btn" type="button" class="btn btn-ghost" data-load-earlier=""
@@ -36,7 +36,7 @@
   </div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
   <div tl:if="${hasTurnStatus}" class="turn-status-panel"
-       tl:attr="data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
+       tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
     <div class="turn-status-row">
       <span class="meta-label">Turn</span>
       <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
@@ -50,7 +50,7 @@
       <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
     </div>
     <button type="button" class="btn btn-ghost" data-turn-cancel
-            tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},disabled=${turnStatus.cancelDisabled}">
+            tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},hidden=${turnStatus.cancelHidden},disabled=${turnStatus.cancelDisabled}">
       Cancel Turn
     </button>
   </div>
@@ -71,7 +71,7 @@
       </div>
       <label class="sr-only" for="message-input">Message</label>
       <textarea id="message-input" name="message" rows="1"
-                tl:attr="placeholder=${placeholder},disabled=${inputDisabled}"></textarea>
+                tl:attr="placeholder=${placeholder},disabled=${inputDisabled},autofocus=${autofocus}"></textarea>
       <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
       <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
       <div class="composer-toolbar">

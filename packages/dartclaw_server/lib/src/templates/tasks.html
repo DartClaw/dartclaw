@@ -26,12 +26,13 @@
 
       <div tl:if="${agentOverviewHtml}" tl:utext="${agentOverviewHtml}">agent overview</div>
 
-      <div tl:if="${hasTasks}">
-        <div tl:each="group : ${statusGroups}" class="task-status-group">
-          <h3 class="t-heading">
+      <div tl:if="${hasTasks}" class="task-status-groups">
+        <section tl:each="group : ${statusGroups}" class="task-status-group"
+          tl:attr="aria-labelledby='task-status-' + ${group.status}">
+          <h2 class="t-heading" tl:attr="id='task-status-' + ${group.status}">
             <span tl:text="${group.statusLabel}">Status</span>
             <span class="task-group-count" tl:text="${group.count}">0</span>
-          </h3>
+          </h2>
 
           <div tl:if="${group.isRunning}" class="task-running-cards">
             <div tl:each="task : ${group.tasks}" class="card task-card-running print-in" tl:classappend="${task.cardTintClass}">
@@ -105,7 +106,7 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
       <tl:block tl:unless="${hasTasks}" tl:utext="${emptyStateHtml}">empty state</tl:block>

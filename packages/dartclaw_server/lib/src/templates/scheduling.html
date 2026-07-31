@@ -53,11 +53,11 @@
             <textarea class="form-textarea" id="job-prompt" rows="3" placeholder="Describe the task for the agent..."></textarea>
           </div>
           <div class="form-field">
-            <span class="form-label t-caption tracking-caps">Delivery</span>
-            <div class="radio-group">
-              <label><input type="radio" name="delivery" value="announce" checked> announce</label>
-              <label><input type="radio" name="delivery" value="webhook"> webhook</label>
-              <label><input type="radio" name="delivery" value="none"> none</label>
+            <span class="form-label t-caption tracking-caps" id="job-delivery-label">Delivery</span>
+            <div class="radio-group" role="radiogroup" aria-labelledby="job-delivery-label">
+              <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="delivery" value="announce" checked> announce</label>
+              <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="delivery" value="webhook"> webhook</label>
+              <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="delivery" value="none"> none</label>
             </div>
           </div>
           <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
@@ -154,10 +154,10 @@
             <label class="form-label t-caption tracking-caps" for="task-acceptance">Acceptance Criteria</label>
             <textarea class="form-textarea" id="task-acceptance" rows="2" placeholder="Optional acceptance criteria..."></textarea>
           </div>
-          <div class="form-field form-field--checkbox">
-            <input type="checkbox" id="task-enabled" checked>
-            <label class="form-label t-caption tracking-caps" for="task-enabled">Enabled</label>
-          </div>
+          <label class="form-field form-field--checkbox">
+            <input type="checkbox" class="form-checkbox" id="task-enabled" checked>
+            <span class="form-label t-caption tracking-caps">Enabled</span>
+          </label>
           <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
           <div class="form-actions">
             <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#submitTaskForm">Save Task</button>

@@ -47,7 +47,6 @@ dev/tools/dartclaw-workflows/.data/
 # Workflows test profile runtime data (materialized skills, markers, workspace
 # output). Curated seed files already tracked under this dir stay tracked.
 dev/testing/profiles/workflows/data/
-dev/state/STATE.local.md
 storages
 statics
 

@@ -17,6 +17,7 @@ colors:
   # because dark and light map the planes to different rungs (see § Surface ladder).
   bg-chrome: "#11111b"
   bg-card: "#2c2c3e"
+  glass-bg: "rgba(24, 24, 37, 0.60)"
   # Foreground
   fg: "#cdd6f4"
   fg-sub1: "#bac2de"
@@ -59,10 +60,11 @@ colors:
   bg-surface2-light: "#acb0be"
   bg-chrome-light: "#eceff5"
   bg-card-light: "#ffffff"
-  fg-light: "#4c4f69"
-  fg-sub1-light: "#5c5f77"
-  fg-sub0-light: "#62677d"
-  fg-overlay-light: "#585d6f"
+  glass-bg-light: "rgba(255, 255, 255, 0.66)"
+  fg-light: "#464a63"
+  fg-sub1-light: "#4f546a"
+  fg-sub0-light: "#565b71"
+  fg-overlay-light: "#50556b"
   accent-light: "#24661c"
   accent-dim-light: "#3d7d36"
   success-light: "#24661c"
@@ -290,7 +292,7 @@ components:
     rounded: "{rounded.sm}"
     padding: 0 8px
   card-glass:
-    backgroundColor: "{colors.bg-mantle}"  # at 60% alpha + 14px backdrop blur
+    backgroundColor: "{colors.glass-bg}"  # theme override + 14px backdrop blur
     textColor: "{colors.fg}"
     rounded: "{rounded.lg}"
     padding: "{spacing.sp-4}"
@@ -298,7 +300,7 @@ components:
     # The frame composes card + card-glass, so surface and material come from
     # there; this family owns the width contract and the header/body/footer
     # split only. Padding is 0 on the frame — the sub-elements carry their own.
-    backgroundColor: "{colors.bg-mantle}"  # via card-glass
+    backgroundColor: "{colors.glass-bg}"  # via card-glass
     textColor: "{colors.fg}"
     rounded: "{rounded.lg}"
     padding: 0
@@ -475,6 +477,7 @@ The entire system is set in **JetBrains Mono** (with `Fira Code` and system mono
 - **Line height** — `1.6` for body and code; `1.3` for headings and tight UI like the input textarea; tighter still (≤1.2) at display sizes.
 - **Tracking** — monospace gets airy at large sizes and cramped at tiny uppercase sizes, so both ends are corrected: `-0.02em` (`tracking-tight`) on heading, display and metric text, `+0.08em` (`tracking-caps`) on uppercase micro-labels (section labels, role labels, table headers).
 - **Reading measure** — running prose constrains to `measure` (72ch). Top-level code blocks, tables and other non-prose blocks do **not**: they keep their container's full width and scroll horizontally when they need to. The exemption is top-level only — a code block nested inside a list item or blockquote sits within that prose block's measure and is bounded by it.
+- **Sidebar rail** — the compact chrome uses `body-md` for every actionable row and `caption` only for section labels and metadata. The wordmark is also `body-md`, at bold weight. Density comes from the tight line height and row padding, never from introducing an untracked 13px tier or shrinking essential navigation to caption size.
 
 Every tier has exactly one backing composite class that binds all four typographic properties together. Apply the class; do not re-derive a tier from separate `font-size` + `font-weight` + `line-height` + `letter-spacing` declarations. Raw `--text-*` tokens remain for one-offs only.
 
@@ -529,15 +532,18 @@ Two container tiers, applied through modifiers: `.content-inner--wide` (canonica
 
 ### Shell scrolling contract
 
-A long page scrolls **inside** the shell; the shell itself is exactly `100dvh` and never grows. That takes three cooperating rules, and removing any one of them lets the content push the sidebar, topbar and ground gradient past the viewport bottom:
+A long page scrolls **inside** the shell; the shell itself is exactly `100dvh` and never grows or exposes entry-motion overflow. The shared containment chain and each surface's explicit scroll owner cooperate to keep that contract:
 
-| Rule | Owner | Declaration | Why |
+| Layer | Owner | Declaration | Why |
 |---|---|---|---|
 | `.shell` | canon | `grid-template-rows: var(--topbar-h) minmax(0, 1fr)` | A bare `1fr` grid track has an automatic minimum size of its content, so a tall child grows the track rather than overflowing it. `minmax(0, 1fr)` lets the row shrink below its content. |
-| `.content-area` | canon | `min-height: 0` | Same automatic-minimum rule one level down, for the scroll container itself. |
-| `.page-content` | app | `min-height: 0` | The app-local mirror of `.content-area` (see the migration note above) needs the identical release. |
+| `.shell` | canon | `overflow: hidden` | The incoming page's `.print-in` transition starts 6px below its resting position. Shell containment keeps that deliberate motion from creating a transient browser scrollbar and horizontal layout jump. |
+| `.shell > .shell-main` | app | `min-height: 0` | Releases the shell's right-column flex stack so it can stay inside the fixed grid row. |
+| `.shell-main > #main-content` | app | `flex: 1 1 auto; min-height: 0` | Makes every swapped surface fill the remaining column without its content imposing a taller automatic minimum. |
+| Dashboard and pairing surfaces | canon + app | `.content-area` / `.page-content`: `min-height: 0; overflow-y: auto`; `.pairing-main`: `overflow-y: auto` | The main surface owns long-page scrolling. The shared `#main-content` release supplies the pairing surface's zero minimum. |
+| Chat | canon | `.chat-area`: `min-height: 0; overflow: hidden`; `.messages`: `overflow-y: auto` | The chat frame stays fixed while only the message history scrolls; the composer remains reachable. |
 
-The scroll container is whichever of `.content-area` / `.page-content` the page uses — both carry `overflow-y: auto`, and both need the `min-height: 0` release to actually clip. `.chat-area` already follows the same pattern.
+Removing any layer either leaks motion beyond the viewport, lets content impose the wrong size, or makes long content inaccessible behind the clipped shell.
 
 ### Page title and skip link
 
@@ -565,12 +571,12 @@ The system carries forward-compatibility tokens for a future webview desktop she
 The ground is the **aurora** — the afterglow rendered as northern lights, and the page's single largest carrier of atmosphere. It must *read as coloured light at arm's length*, not merely measure as non-flat:
 
 1. **Deep band** – a fixed 3-stop `linear-gradient(170deg, …)` that dives toward `--bg-ground-edge` (below the crust in dark). The deep band is what buys the washes their luminance headroom: cards keep their contrast floor because the ground drops, not because the colour mutes. It **never terminates on the card tone**.
-2. **Aurora washes** – four radial gradients centred *inside* the viewport (pushed off-canvas, only their tails landed and the ground read flat). Tokens: `--ambient-a/-b/-c/-d` — **visible alpha washes at 10–16%** (the ui-polish-audit's prescribed strength), cool-led: blue (`a`, top-right), mauve (`b`, centre), teal (`c`, bottom-right), and the green kicker (`d`) in the brand corner. Do not re-architect these into near-ground opaque tints: that is precisely the 0.22.1 regression this section replaces — a mechanism that protected a card-contrast floor by deleting the atmosphere. In light every Latte hue is darker than the ground, so light carries the same geometry as hue-at-matched-lightness tints.
+2. **Aurora washes** – four radial gradients centred *inside* the viewport (pushed off-canvas, only their tails landed and the ground read flat). Tokens: `--ambient-a/-b/-c/-d` — **visible alpha washes at 10–16%** (the ui-polish-audit's prescribed strength), cool-led: blue (`a`, top-right), mauve (`b`, centre), teal (`c`, bottom-right), and the green kicker (`d`) in the brand corner. Do not re-architect these into near-ground opaque tints: that is precisely the 0.22.1 regression this section replaces — a mechanism that protected a card-contrast floor by deleting the atmosphere. Light uses the same alpha-wash mechanism at theme-specific strengths coupled to its foreground ladder.
 3. **Film grain** — an SVG-turbulence noise overlay (`--noise`, `--noise-opacity`) on a fixed `body::before`, painted above the gradient but below all content. Its job is killing gradient banding on large monitors; it should be felt, not seen.
 
-Corner-to-corner the ground varies by a **target of 0.10–0.15 ΔE(oklab) in dark** (hue-led, ~0.02–0.04 in light) – these are *design targets*, not detection floors. A value that merely clears a just-noticeable-difference floor is a defect here: JND is where flatness stops being measurable, not where atmosphere starts. **No change to this section's tokens or recipe ships on numeric gates alone — a rendered screenshot is reviewed against the Phosphor Aurora reference before it lands.**
+Corner-to-corner the ground varies by a **target of 0.10–0.15 ΔE(oklab) in dark**; each light wash reaches roughly 0.04–0.07 at its centre before fading. These are *design targets*, not detection floors. A value that merely clears a just-noticeable-difference floor is a defect here: JND is where flatness stops being measurable, not where atmosphere starts. **No change to this section's tokens or recipe ships on numeric gates alone — a rendered screenshot is reviewed against the Phosphor Aurora reference before it lands.**
 
-The two thresholds differ because the themes have very different room to move. Dark can spend real luminance: the ground runs between the chrome plane below it and the card plane above it. Light is boxed in from both sides – `fg-sub0` helper text needs the *darkest* ground to stay above its 4.5:1 floor, and a semantically tinted white card needs the *lightest* ground to stay 1.15:1 below it, which leaves under 0.005 of oklab L between them. Light therefore carries its variation as **hue at matched lightness** rather than as luminance, and 0.02 is what that yields. Do not "restore" light to 0.04 by widening the luminance band: it lands directly on either the text-contrast floor or the card-contrast floor.
+The themes have different room to move. Dark can spend real luminance because the ground runs between the chrome plane below it and the card plane above it. Every Latte wash darkens the light ground, so its centre strength and foreground ladder are a coupled choice: `fg-sub0` stays ≥ 4.5:1 at the darkest wash centre while semantically tinted white cards stay ≥ 1.15:1 above the ground. Raising a wash independently is an accessibility regression even when the screenshot looks richer.
 
 ### Mobile sidebar contract
 
@@ -580,6 +586,25 @@ The two thresholds differ because the themes have very different room to move. D
     <div class="sidebar-header">
       ...
       <button class="sidebar-close" type="button" aria-label="Close sidebar"></button>
+    </div>
+    <div class="sidebar-body">
+      <div class="session-list">
+        ...
+        <section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">
+          <div class="sidebar-section-label" id="sidebar-chats-label">Chats</div>
+          <button class="btn-new-session" type="button">
+            <span class="btn-new-session-icon" data-icon="new-session" aria-hidden="true"></span>
+            <span class="btn-new-session-label">New Chat</span>
+          </button>
+          ...
+        </section>
+      </div>
+      <div class="sidebar-footer">
+        <details class="sidebar-system-menu">
+          <summary class="sidebar-system-trigger">System</summary>
+          <nav class="sidebar-system-panel" aria-label="System navigation">...</nav>
+        </details>
+      </div>
     </div>
   </aside>
   <button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>
@@ -621,6 +646,8 @@ re-asserts the current state does not pull focus to a control nobody touched.
 
 A banner's own dormant or dismissed `inert` state is independent of this and
 survives the drawer closing.
+
+The System destinations are progressive disclosure in both layouts. A fixed footer trigger opens their panel upward over the scrollable chat list, so a large system inventory never displaces chats or makes the footer unreachable. Native `<details>` supplies keyboard activation and expanded state without a second controller. The active destination remains marked inside the panel and is named in the closed trigger (`System · Workflows`) alongside its active left edge; selecting a destination replaces the sidebar through the normal HTMX out-of-band swap, closing the panel. Extension navigation remains a separate labelled region above the trigger, and the popup anchors above the entire footer so it never covers that region.
 
 ### Controller template attributes
 
@@ -838,6 +865,8 @@ Card sub-elements:
 
 **Ghost buttons keep a resting boundary.** A ghost button with no border at rest reads as prose until it is hovered — unusable without a pointer, and invisible in a screenshot review. The rest-state border holds **≥3:1** (WCAG 1.4.11 non-text minimum) against both planes a ghost button actually sits on, the card and the page ground, in both themes. The mix fraction is pinned by the worst of those four combinations; lowering it drops the light-theme-on-ground case below the minimum.
 
+**New Chat is a sidebar command, not a selected destination.** `.btn-new-session` is one full-width, transparent command row directly below the Chats label. Its bordered 28px square-pen well keeps the resting affordance visible without filling the row like an active session; hover adds `bg-surface0`, active adds `bg-surface1`, and keyboard focus uses the standard 2px accent outline. A subtle divider separates the command from the chat collection. Untitled draft rows render as **Untitled draft**, so the noun phrase **New Chat** belongs only to creation commands. The row is 40px on desktop and 48px at the mobile drawer breakpoint; the adjacent Archived disclosure shares the 48px mobile floor. Keep the explicit label visible: DartClaw has no collapsed-sidebar mode. Do not display `Ctrl/⌘+N` – browsers own that shortcut. The command owns one reusable untouched draft: activating it from that draft focuses the composer, and activating it elsewhere reopens the same draft. A draft stops being reusable as soon as it is named, provider-specific, keyed, or contains a message; only then may the next activation create another chat. Never remove older blank sessions automatically – cleanup is an explicit user action.
+
 ### Keycaps
 
 `kbd` / `.kbd` — keyboard shortcuts in help text, tooltips, and command hints. Surface chip with a 2px bottom border for keycap depth. Element selector styles bare `<kbd>` in rendered markdown for free.
@@ -888,7 +917,7 @@ Native elements under canonical classes. Any DartClaw form — settings, task, s
 |---|---|
 | `.form-field` | One label + control + message, stacked. The unit a form is built from. |
 | `.form-field--inline` | Label left, control trailing. Toggle rows and other control-follows-label cases. **Compose onto `.form-field`.** |
-| `.form-field--checkbox` | Control first, label after, `sp-2` gap. **Compose onto `.form-field`.** |
+| `.form-field--checkbox` | Control first, label text after, `sp-2` gap. **Compose onto a `.form-field` label** so its full 48px mobile row activates the control. |
 | `.form-row` | Multi-field horizontal group; fields share the row and stack when they run out of width. |
 | `.form-label` | Field label in the **eyebrow voice**: the rule uppercases; markup composes `.t-caption.tracking-caps` for size and tracking. The eyebrow rhythm is what keeps a resting form from reading as a gray stack. Flex row so an icon or badge can sit beside the text. |
 | `.form-input` | Text input. Recessed well (a step below `bg-base` toward the crust) + `inset-sm` depth + accent caret. Focus adds the phosphor ring — a soft accent glow on top of the recess; the `:focus-visible` outline stays the guaranteed a11y cue. |
@@ -1208,13 +1237,13 @@ Every code-bearing surface takes the theme — an unhighlighted code block is a 
 | `search` | `search` | `--icon-search` | Research nav |
 | `clock` | `clock` | `--icon-clock` | Timeline nav |
 | `terminal` | `terminal` | `--icon-terminal` | Workspace/Agent |
-| `new-session` | `square-pen` | `--icon-square-pen` | New Session button |
+| `new-session` | `square-pen` | `--icon-square-pen` | New Chat sidebar command |
 | — | `message-circle` | `--icon-message-circle` | Active session |
 | — | `archive` | `--icon-archive` | Archived sessions |
 | — | `radio-tower` | `--icon-radio-tower` | Channels section |
 | — | `at-sign` | `--icon-at-sign` | DMs subsection |
 | — | `users` | `--icon-users` | Groups subsection |
-| — | `server` | `--icon-server` | System section |
+| `server` | `server` | `--icon-server` | System section |
 | — | `messages-square` | `--icon-messages-square` | Sessions section |
 | `menu` | `menu` | `--icon-menu` | Hamburger toggle |
 | `x` | `x` | `--icon-x` | Close/delete/dismiss |
@@ -1225,7 +1254,7 @@ Every code-bearing surface takes the theme — an unhighlighted code block is a 
 | `arrow-up` | `arrow-up` | `--icon-arrow-up` | Upward actions |
 | `chevron-down` | `chevron-down` | `--icon-chevron-down` | Collapse toggle |
 | `chevron-right` | `chevron-right` | `--icon-chevron-right` | Expand toggle |
-| — | `chevron-up` | `--icon-chevron-up` | Expand toggle (expanded state) |
+| `chevron-up` | `chevron-up` | `--icon-chevron-up` | Expand toggle (expanded state) |
 | `pencil` | `pencil` | `--icon-pencil` | Edit button |
 | `plus` | `plus` | `--icon-plus` | Add actions |
 | `square` | `square` | `--icon-square` | Stop button |
@@ -1358,7 +1387,7 @@ Server-side: read theme from cookie, set `data-theme` in HTML template.
 - All interactive elements expose a visible focus treatment; the system uses accent outlines or accent glow rings. Every **persistent** focus cue – including the composer's container border, which is deliberately ring-less – clears the WCAG 1.4.11 non-text minimum of 3:1 against the surface behind it, in both themes.
 - Non-text contrast also binds **enabled** controls that render in a dimmed rest state: dim the fill, never the whole element, so the glyph stays at full strength. Genuinely disabled controls are exempt.
 - Representative pairings were tuned to pass WCAG AA in both themes: primary text, card/footer metadata, active nav text, `btn-primary`, status badges, and status pills.
-- `fg-overlay` is intentionally low-emphasis; use it for placeholders/disabled/helper text, never for essential metadata or table labels. It is **guaranteed ≥ 4.5:1 against exactly three surfaces in both themes – the card plane (`bg-card`), the page-ground plane (`bg-base`) and `bg-crust`.** Those three are the contract; a fourth surface is not covered and must be measured before `fg-overlay` is used on it.
+- `fg-overlay` is intentionally low-emphasis; use it for placeholders/disabled/helper text, never for essential metadata or table labels. It is **guaranteed ≥ 4.5:1 against the card plane (`bg-card`), `bg-crust`, and the page ground including the strongest ambient-wash centre.** A different surface is not covered and must be measured before `fg-overlay` is used on it.
 - The sidebar rail carries **three distinct text tiers** – section labels (`fg-sub0`), nav items (`fg-sub1`), session titles (`fg`) – pairwise ≥ 0.02 ΔE(oklab) apart and each ≥ 4.5:1 against the chrome plane. It is chrome on 100% of views; one flat colour there is a system-wide legibility defect, not a page-level one.
 - `.sr-only` utility for screen-reader-only text.
 - One `<h1>` per page, emitted by the topbar, and a skip link only where `#main-content` exists — see § Layout → Page title and skip link.

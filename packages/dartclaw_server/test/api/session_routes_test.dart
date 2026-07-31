@@ -106,6 +106,119 @@ void main() {
       expect(body.containsKey('createdAt'), isTrue);
       expect(body.containsKey('updatedAt'), isTrue);
     });
+
+    test('keeps generic creation unconditional', () async {
+      final first = await api.expectJsonObject('POST', '/api/sessions', status: 201);
+      final second = await api.expectJsonObject('POST', '/api/sessions', status: 201);
+
+      expect(second['id'], isNot(first['id']));
+    });
+  });
+
+  group('POST /api/sessions/open', () {
+    test('reuses the newest blank default chat across sequential requests', () async {
+      final first = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+      final second = await api.expectJsonObject('POST', '/api/sessions/open');
+
+      expect(second['id'], first['id']);
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(1));
+    });
+
+    test('coalesces concurrent requests into one blank chat', () async {
+      final responses = await Future.wait(List.generate(4, (_) => api.request('POST', '/api/sessions/open')));
+      final ids = <String>{};
+      for (final response in responses) {
+        expect(response.statusCode, anyOf(200, 201));
+        ids.add((jsonDecode(await response.readAsString()) as Map<String, dynamic>)['id'] as String);
+      }
+
+      expect(ids, hasLength(1));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(1));
+    });
+
+    test('reuses the newest duplicate blank without deleting older drafts', () async {
+      final older = await sessions.createSession();
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      final newer = await sessions.createSession();
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open');
+
+      expect(opened['id'], newer.id);
+      expect(opened['id'], isNot(older.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('does not reuse an empty chat with an active turn', () async {
+      final active = await sessions.createSession();
+      await turns.reserveTurn(active.id);
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+
+      expect(opened['id'], isNot(active.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('does not reuse an untitled chat that already has messages', () async {
+      final existing = await sessions.createSession();
+      await messages.insertMessage(sessionId: existing.id, role: 'user', content: 'Hello');
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+
+      expect(opened['id'], isNot(existing.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('does not reuse titled, keyed, or provider-specific empty chats', () async {
+      final titled = await sessions.createSession();
+      await sessions.updateTitle(titled.id, 'Saved draft');
+      await sessions.createSession(type: SessionType.user, channelKey: 'custom:key');
+      await sessions.createSession(provider: 'codex');
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+
+      expect(opened['id'], isNot(titled.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(4));
+    });
+
+    test('revalidates a draft that is titled while eligibility is loading', () async {
+      final existing = await sessions.createSession();
+      final pausingMessages = PausingTailMessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(pausingMessages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(sessions, pausingMessages, localTurns, worker).call),
+      );
+
+      final request = localApi.request('POST', '/api/sessions/open');
+      await pausingMessages.firstTailReadStarted.future;
+      await sessions.updateTitle(existing.id, 'Established while opening');
+      pausingMessages.resumeFirstTailRead.complete();
+      final response = await request;
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(response.statusCode, 201);
+      expect(body['id'], isNot(existing.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('revalidates a draft whose turn is reserved while eligibility is loading', () async {
+      final existing = await sessions.createSession();
+      final pausingMessages = PausingTailMessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(pausingMessages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(sessions, pausingMessages, localTurns, worker).call),
+      );
+
+      final request = localApi.request('POST', '/api/sessions/open');
+      await pausingMessages.firstTailReadStarted.future;
+      await localTurns.reserveTurn(existing.id);
+      pausingMessages.resumeFirstTailRead.complete();
+      final response = await request;
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(response.statusCode, 201);
+      expect(body['id'], isNot(existing.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
   });
 
   group('PATCH /api/sessions/<id>', () {
@@ -1500,4 +1613,22 @@ void main() {
       expect(res.headers['content-type'], contains('text/event-stream'));
     });
   });
+}
+
+final class PausingTailMessageService extends MessageService {
+  PausingTailMessageService({required super.baseDir});
+
+  final firstTailReadStarted = Completer<void>();
+  final resumeFirstTailRead = Completer<void>();
+  var _tailReadCount = 0;
+
+  @override
+  Future<List<Message>> getMessagesTail(String sessionId, {int count = 200}) async {
+    _tailReadCount += 1;
+    if (_tailReadCount == 1) {
+      firstTailReadStarted.complete();
+      await resumeFirstTailRead.future;
+    }
+    return super.getMessagesTail(sessionId, count: count);
+  }
 }

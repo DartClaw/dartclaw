@@ -667,7 +667,7 @@ function openGuardEntryDialog(options) {
   var valueField = document.createElement('div');
   valueField.className = 'form-field';
   var valueLabel = document.createElement('label');
-  valueLabel.className = 'form-label t-label';
+  valueLabel.className = 'form-label t-caption tracking-caps';
   valueLabel.htmlFor = 'guard-entry-value';
   valueLabel.textContent = options.valueLabel;
   var valueInput = document.createElement('input');
@@ -685,7 +685,7 @@ function openGuardEntryDialog(options) {
     var levelField = document.createElement('div');
     levelField.className = 'form-field';
     var levelLabel = document.createElement('label');
-    levelLabel.className = 'form-label t-label';
+    levelLabel.className = 'form-label t-caption tracking-caps';
     levelLabel.htmlFor = 'guard-entry-level';
     levelLabel.textContent = 'File access level';
     levelSelect = document.createElement('select');

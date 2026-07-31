@@ -4,6 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/web/pages/kg_timeline_page.dart';
+import 'package:dartclaw_server/src/web/system_pages.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -297,9 +298,38 @@ void main() {
     expect(html, isNot(contains('method="post"')));
     expect(html, isNot(contains('Delete')));
   });
+
+  test('keeps Knowledge active in top-level navigation', () async {
+    final registry = PageRegistry();
+    registerSystemDashboardPages(
+      registry,
+      showHealth: false,
+      showMemory: false,
+      showScheduling: false,
+      showTasks: false,
+    );
+
+    final response = await _render(KgTimelinePage(kgGetter: () => kg), sessions, buildNavItems: registry.navItems);
+    final html = await response.readAsString();
+    final navStart = html.indexOf('<nav class="sidebar-system-panel"');
+    final navEnd = html.indexOf('</nav>', navStart);
+    final sidebarNav = html.substring(navStart, navEnd);
+
+    expect(response.statusCode, 200);
+    expect(
+      sidebarNav,
+      matches(RegExp(r'class="sidebar-nav-item active"[^>]*href="/knowledge"[^>]*aria-current="page"')),
+    );
+    expect(sidebarNav, isNot(contains('href="/knowledge/timeline"')));
+  });
 }
 
-Future<Response> _render(KgTimelinePage page, SessionService sessions, {String path = '/knowledge/timeline'}) {
+Future<Response> _render(
+  KgTimelinePage page,
+  SessionService sessions, {
+  String path = '/knowledge/timeline',
+  List<NavItem> Function({required String activePage})? buildNavItems,
+}) {
   return page.handler(
     Request('GET', Uri.parse('http://localhost$path')),
     PageContext(
@@ -307,7 +337,7 @@ Future<Response> _render(KgTimelinePage page, SessionService sessions, {String p
       appDisplay: const AppDisplayParams(),
       sidebarData: () async => _emptySidebarData,
       restartBannerHtml: () => '',
-      buildNavItems: ({required String activePage}) => const [],
+      buildNavItems: buildNavItems ?? ({required String activePage}) => const [],
     ),
   );
 }

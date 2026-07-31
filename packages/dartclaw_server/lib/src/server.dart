@@ -136,7 +136,9 @@ class DartclawServer {
   /// response and are dispatched via `tools/call`.
   void registerTool(McpTool tool) => _mcpHandler.registerTool(tool);
 
-  /// Register a dashboard page that will appear in the sidebar nav.
+  /// Register a routable dashboard page.
+  ///
+  /// Pages appear in sidebar navigation unless they implement [DashboardNavigationExclusion].
   ///
   /// Must be called before the server starts handling requests.
   void registerDashboardPage(DashboardPage page) {

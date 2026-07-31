@@ -6,7 +6,7 @@
     <div id="memory-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
       <div class="scan-bar"></div>
     </div>
-    <div class="page-inner page-inner--wide">
+    <div class="page-inner page-inner--wide memory-dashboard-page">
 
       <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
 
@@ -15,10 +15,11 @@
            hx-indicator="#memory-loading"
            hx-swap="innerHTML" hx-select="#memory-inner">
 
-        <div id="memory-inner">
+        <div id="memory-inner" class="memory-dashboard-stack">
 
         <!-- Section 1: Overview -->
-        <h2 class="section-title">Overview</h2>
+        <section class="memory-dashboard-section" aria-labelledby="memory-overview-title">
+        <h2 id="memory-overview-title" class="section-title">Overview</h2>
         <div class="metrics-grid metrics-grid-5">
 
           <div class="card card-metric" tl:classappend="${memorySizeCardClass}">
@@ -76,9 +77,11 @@
           </div>
 
         </div>
+        </section>
 
         <!-- Section 2: Pruning -->
-        <h2 class="section-title">Memory Pruning</h2>
+        <section class="memory-dashboard-section" aria-labelledby="memory-pruning-title">
+        <h2 id="memory-pruning-title" class="section-title">Memory Pruning</h2>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Pruner</span>
@@ -136,9 +139,11 @@
             <button class="btn btn-danger" data-action="click->dc-memory#confirmPrune">Prune Now</button>
           </div>
         </div>
+        </section>
 
         <!-- Section 3: Search & Index -->
-        <h2 class="section-title">Search &amp; Index</h2>
+        <section class="memory-dashboard-section" aria-labelledby="memory-search-title">
+        <h2 id="memory-search-title" class="section-title">Search &amp; Index</h2>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Search Backend</span>
@@ -164,6 +169,7 @@
             </div>
           </div>
         </div>
+        </section>
 
         </div>
       </div>
@@ -171,10 +177,11 @@
       <!-- Outside the 30s poll on purpose: the swap would discard the reader's
            active tab, the preview it loaded and that preview's scroll position.
            Nothing below refreshes faster than a page load anyway. -->
-      <div>
+      <div class="memory-dashboard-static">
 
         <!-- Section 4: Memory Files -->
-        <h2 class="section-title">Memory Files</h2>
+        <section class="memory-dashboard-section" aria-labelledby="memory-files-title">
+        <h2 id="memory-files-title" class="section-title">Memory Files</h2>
         <div class="card" id="memory-files-card">
           <div class="tabs" role="tablist">
             <button class="tab t-label active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
@@ -265,9 +272,11 @@
             <pre class="memory-preview" data-file="archive">Click to load content...</pre>
           </div>
         </div>
+        </section>
 
         <!-- Section 5: Daily Logs -->
-        <h2 class="section-title">Daily Logs</h2>
+        <section class="memory-dashboard-section" aria-labelledby="memory-daily-logs-title">
+        <h2 id="memory-daily-logs-title" class="section-title">Daily Logs</h2>
         <div class="card">
           <div class="card-header">
             <span class="card-title">Log Files</span>
@@ -296,6 +305,7 @@
           </div>
           <p tl:unless="${hasDailyLogs}" class="card-detail card-detail-muted">No daily log files found</p>
         </div>
+        </section>
 
         <!-- Info footer -->
         <div class="info-footer">

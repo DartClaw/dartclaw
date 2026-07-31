@@ -106,14 +106,13 @@ String sidebarTemplate({
 
   // Build active entries list (user sessions only — all get delete button).
   final activeList = resolvedActiveEntries.map((entry) {
-    final trimmed = entry.title.trim();
     final isActive = entry.id == resolvedActiveSessionId;
     return {
       'id': entry.id,
       'href': '/sessions/${entry.id}',
       'active': isActive,
       'extraClass': isActive ? 'active' : '',
-      'title': trimmed.isEmpty ? 'New Chat' : trimmed,
+      'title': displayChatTitle(entry.title),
       'provider': entry.provider,
       'providerLabel': ProviderIdentity.displayName(entry.provider),
       'showProvider': showProvider(entry.provider),
@@ -161,6 +160,8 @@ String sidebarTemplate({
         },
       )
       .toList();
+  final activeSystemItem = systemNavItems.where((item) => item.active).firstOrNull;
+  final systemMenuLabel = activeSystemItem == null ? 'System' : 'System · ${activeSystemItem.label}';
 
   final aside = templateLoader.trellis.renderFragment(
     templateLoader.source('sidebar'),
@@ -197,6 +198,7 @@ String sidebarTemplate({
       'hasNav': navItems.isNotEmpty,
       'showSystemNav': systemNavItems.isNotEmpty,
       'showExtensionNav': extensionNavItems.isNotEmpty,
+      'systemMenuLabel': systemMenuLabel,
       'systemNavItems': systemNavItems.map((item) {
         final labelHtml = item.label == 'Tasks'
             ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" hidden></span>'

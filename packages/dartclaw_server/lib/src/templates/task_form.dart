@@ -139,10 +139,10 @@ $goalSelectMarkup
           </div>
         </details>
 
-        <div class="form-field form-field--checkbox">
+        <label class="form-field form-field--checkbox">
           <input type="checkbox" class="form-checkbox" id="auto-start-checkbox" name="autoStart">
-          <label for="auto-start-checkbox">Start immediately</label>
-        </div>
+          <span>Start immediately</span>
+        </label>
       </div>
 
       <div class="tab-panel" data-task-panel="workflow">

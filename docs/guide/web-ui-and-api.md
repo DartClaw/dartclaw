@@ -25,12 +25,13 @@ The interface has three main areas:
 ### Features
 
 **Session Management**
-- **Create**: Click "+ New Session" in the sidebar
+- **Create**: Click **New Chat** in the sidebar. If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**, keeping **New Chat** exclusive to the command. Activating New Chat from that draft simply returns focus to its composer.
 - **Switch**: Click any session in the sidebar to load its messages
 - **Rename**: Click the title in the topbar to enter edit mode, type a new name, click "Save"
 - **Delete**: Click the × button on a sidebar item, or the delete button in the topbar
 - **Auto-title**: After the first assistant response, the session is titled with the first ~50 characters of your message
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage.
+- **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow chat commands**: Web chat supports `/workflow list` and `/workflow run <name> VAR=value` without creating a normal agent turn
 
 **Chat**
@@ -74,7 +75,7 @@ The interface has three main areas:
 - **Read-only**: Ingestion and invalidation remain MCP/tool or job operations
 
 **Temporal KG Timeline**
-- **Open**: Use `/knowledge/timeline` for the category-first temporal-KG timeline
+- **Open**: Select **Timeline** within **Knowledge**, or open `/knowledge/timeline` directly
 - **As-of view**: Add `as_of=<ISO-8601 timestamp>` to inspect the graph at a point in time, for example `/knowledge/timeline?as_of=2026-01-01T00:00:00Z`
 - **Validity windows**: Facts render with valid-from/valid-until windows where present
 - **Contradictions and supersession**: Superseded or contradictory facts stay visible as timeline evidence
@@ -135,6 +136,14 @@ No body required. Returns the new session.
   "updated_at": "2026-02-23T12:00:00Z"
 }
 ```
+
+#### Open a New Chat draft
+
+```
+POST /api/sessions/open
+```
+
+Used by the web UI's **New Chat** command. Returns the newest untitled, message-free default user session with `200`, or creates one and returns it with `201`. Concurrent requests are coalesced. Generic `POST /api/sessions` remains unconditional.
 
 #### Rename session
 
@@ -214,6 +223,8 @@ Returns the operator-visible active turn snapshot. `state` is one of `idle`, `ru
 - `unknown` - the provider turn is still active but no more specific wait source is known.
 
 `can_cancel` is the authoritative cancel affordance. Provider-turn and unknown waits can be cancelled once surfaced as `waiting` or `stuck`; ordinary session-lock waits can be cancelled once surfaced unless the active turn is blocked on a non-stale tool approval. Tool approvals remain non-cancellable until the approval wait becomes stale or stuck under the approval timeout policy. Idle snapshots use null turn fields.
+
+The endpoint can briefly return a cached terminal snapshot (`completed`, `cancelled`, or `failed`) so status and cancel clients can resolve consistently. The web UI's operator panel renders only active states (`running`, `waiting`, `stuck`, and `cancelling`), and shows **Cancel Turn** only while `can_cancel` is true.
 
 ```json
 {

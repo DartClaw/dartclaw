@@ -1,9 +1,11 @@
 import {
   apiQs,
   applyIdenticons,
+  beginSessionDraftMutation,
   closeAllCustomSelects,
   confirmDialog,
   dismissRestartBanner as dismissRestartBannerState,
+  endSessionDraftMutation,
   getApiToken,
   initCustomSelects,
   isAtBottom,
@@ -13,6 +15,7 @@ import {
   renderMarkdown,
   scrollToBottom,
   showToast,
+  syncSidebarSessionTitle,
   syncRestartBannerAfterSwap,
   TOAST_QUEUE_KEY,
 } from './shared.js';
@@ -400,6 +403,7 @@ export default class DcShellController extends Stimulus.Controller {
       return;
     }
 
+    beginSessionDraftMutation(sessionId);
     fetch('/api/sessions/' + encodeURIComponent(sessionId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -409,30 +413,81 @@ export default class DcShellController extends Stimulus.Controller {
         if (!response.ok) throw new Error('Failed to rename session');
         input.dataset.originalTitle = newTitle;
         const chatArea = document.querySelector('.chat-area');
-        if (chatArea) chatArea.dataset.hasTitle = 'true';
-        const sidebarItem = document.querySelector(
-          '.session-item-link[href*="' + CSS.escape(sessionId) + '"] .session-item-title',
-        );
-        if (sidebarItem) sidebarItem.textContent = newTitle;
+        if (chatArea) {
+          chatArea.dataset.hasTitle = 'true';
+          delete chatArea.dataset.newChatDraft;
+        }
+        syncSidebarSessionTitle(sessionId, newTitle);
         document.title = newTitle + ' - ' + (document.body.dataset.appName || 'DartClaw');
         showToast('success', 'Session renamed');
       })
       .catch((error) => {
         input.value = original;
         showToast('error', error.message || 'Failed to rename session');
-      });
+      })
+      .finally(() => endSessionDraftMutation(sessionId));
   }
 
   createSession() {
-    fetch('/api/sessions', { method: 'POST' })
-      .then((response) => {
-        if (!response.ok) throw new Error('Failed to create session');
-        return response.json();
+    if (this.sessionCreatePromise) return this.sessionCreatePromise;
+
+    const createButtons = Array.from(document.querySelectorAll('[data-session-create]'));
+    for (const button of createButtons) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+    }
+
+    this.sessionCreatePromise = this.openNewChatAfterPendingMutation()
+      .catch((error) => {
+        showToast('error', error.message || 'Failed to create session');
       })
-      .then((data) => {
-        window.location.href = '/sessions/' + data.id;
-      })
-      .catch((error) => showToast('error', error.message || 'Failed to create session'));
+      .finally(() => {
+        this.sessionCreatePromise = null;
+        for (const button of createButtons) {
+          button.disabled = false;
+          button.removeAttribute('aria-busy');
+        }
+      });
+    return this.sessionCreatePromise;
+  }
+
+  async openNewChatAfterPendingMutation() {
+    await this.waitForSessionDraftMutation();
+    if (this.focusCurrentNewChatDraft()) return;
+
+    const response = await fetch('/api/sessions/open', { method: 'POST' });
+    if (!response.ok) throw new Error('Failed to create session');
+    const data = await response.json();
+    if (data.id === this.currentSessionPathId() && this.focusCurrentNewChatDraft()) return;
+    window.location.href = '/sessions/' + data.id;
+  }
+
+  waitForSessionDraftMutation() {
+    const mutationPending = () => {
+      const chatArea = document.querySelector('.chat-area');
+      return chatArea?.dataset.sessionId === this.currentSessionPathId() &&
+        Number.parseInt(chatArea.dataset.sessionMutationPending || '0', 10) > 0;
+    };
+    if (!mutationPending()) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      const handleComplete = () => {
+        if (mutationPending()) return;
+        document.removeEventListener('dartclaw:session-draft-mutation-complete', handleComplete);
+        resolve();
+      };
+      document.addEventListener('dartclaw:session-draft-mutation-complete', handleComplete);
+      handleComplete();
+    });
+  }
+
+  focusCurrentNewChatDraft() {
+    const chatArea = document.querySelector('.chat-area[data-new-chat-draft="true"]');
+    if (!chatArea || chatArea.dataset.sessionId !== this.currentSessionPathId()) return false;
+    if (chatArea.querySelector('#messages .msg')) return false;
+    this.setSidebarOpen(false);
+    chatArea.querySelector('#message-input')?.focus();
+    return true;
   }
 
   archiveSession(button) {

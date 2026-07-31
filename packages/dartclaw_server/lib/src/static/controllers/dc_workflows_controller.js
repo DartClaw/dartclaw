@@ -156,8 +156,9 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       if (!variableNames.length) {
         varsEl.innerHTML = '<p class="text-muted">This workflow has no input variables.</p>';
       } else {
-        varsEl.innerHTML = variableNames.map((variableName) => {
+        varsEl.innerHTML = variableNames.map((variableName, index) => {
           const variable = variables[variableName] || {};
+          const controlId = 'workflow-var-' + index;
           const isRequired = variable.required !== false;
           const label = formatVariableName(variableName);
           const placeholder = ui.escapeHtml(variable.description || '');
@@ -166,15 +167,16 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
           const requiredMark = isRequired ? ' <span class="form-required">*</span>' : '';
           const isLongForm = ['FEATURE', 'BUG_DESCRIPTION', 'QUESTION', 'TARGET'].includes(variableName);
           const inputHtml = isLongForm
-            ? '<textarea class="form-textarea" name="wf-var-' + ui.escapeHtml(variableName) +
+            ? '<textarea class="form-textarea" id="' + controlId + '" name="wf-var-' + ui.escapeHtml(variableName) +
               '" rows="3" placeholder="' + placeholder + '"' + requiredAttr + '>' +
               defaultVal + '</textarea>'
-            : '<input type="text" class="form-input" name="wf-var-' + ui.escapeHtml(variableName) +
+            : '<input type="text" class="form-input" id="' + controlId + '" name="wf-var-' + ui.escapeHtml(variableName) +
               '" value="' + defaultVal + '" placeholder="' + placeholder + '"' +
               requiredAttr + '>';
           return (
             '<div class="form-field">' +
-              '<label class="form-label t-label">' + label + requiredMark + '</label>' +
+              '<label class="form-label t-caption tracking-caps" for="' + controlId + '">' +
+                label + requiredMark + '</label>' +
               inputHtml +
             '</div>'
           );
@@ -276,6 +278,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         tabPanels.forEach((panel) => panel.classList.toggle('active', panel.dataset.taskPanel === target));
         if (submitBtn) {
           submitBtn.textContent = target === 'workflow' ? 'Run Workflow' : 'Create Task';
+          submitBtn.classList.toggle('btn-secondary', target === 'workflow');
+          submitBtn.classList.toggle('btn-primary', target !== 'workflow');
         }
         if (target === 'workflow' && !workflowsFetched) {
           workflowsFetched = true;
@@ -296,7 +300,11 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.taskTab === 'single'));
       tabPanels.forEach((panel) => panel.classList.toggle('active', panel.dataset.taskPanel === 'single'));
 
-      if (submitBtn) submitBtn.textContent = 'Create Task';
+      if (submitBtn) {
+        submitBtn.textContent = 'Create Task';
+        submitBtn.classList.remove('btn-secondary');
+        submitBtn.classList.add('btn-primary');
+      }
 
       const listCards = document.querySelector('.workflow-list-cards');
       if (listCards) listCards.innerHTML = '';

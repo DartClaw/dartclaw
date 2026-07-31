@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-07-30.
-   sha256: e8d6cf02106abc7f4dfadb0ba1d6d5d37dc0f77062bbf94bfb586f1e97997722 */
+/* Synced from dev/design-system/components.css on 2026-07-31.
+   sha256: 69e441321c020f5050d6a39869d9e173ab63aae6efeb77ab5016a631fd16cf07 */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -129,6 +129,7 @@ a:hover { text-decoration: underline; }
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   height: 100dvh;
+  overflow: hidden;
 }
 
 /* --- Sidebar --- */
@@ -193,7 +194,7 @@ a:hover { text-decoration: underline; }
 
 /* Animated gradient logo — first and last stops match so the slide loops seamlessly */
 .sidebar-header .logo {
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: var(--weight-bold);
   background: linear-gradient(90deg, var(--accent), var(--teal), var(--info), var(--mauve), var(--accent));
   background-size: 200% auto;
@@ -222,12 +223,25 @@ a:hover { text-decoration: underline; }
   padding: var(--sp-2) 0;
 }
 
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 768px) {
+  .sidebar-body { overflow: hidden; }
+  .sidebar-body .session-list { flex: 1; min-height: 0; overflow-y: auto; }
+}
+
 .session-item {
   display: flex;
   align-items: center;
   padding: var(--sp-2) var(--sp-4);
   color: var(--fg);
   font-size: var(--text-base);
+  line-height: var(--leading-tight);
   cursor: pointer;
   border-left: 2px solid transparent;
   transition: background var(--transition), color var(--transition),
@@ -303,12 +317,64 @@ a:hover { text-decoration: underline; }
   padding: var(--sp-2) var(--sp-4) var(--sp-1);
 }
 
+.btn-new-session {
+  display: flex;
+  align-items: center;
+  width: calc(100% - (2 * var(--sp-2)));
+  min-height: 40px;
+  margin: var(--sp-1) var(--sp-2) var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.btn-new-session:hover { background: var(--bg-surface0); }
+.btn-new-session:active { background: var(--bg-surface1); }
+.btn-new-session:disabled { cursor: wait; opacity: 0.6; }
+.btn-new-session:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-new-session-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--fg-overlay) 78%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+}
+
+.btn-new-session-label { min-width: 0; }
+
+.sidebar-chat-divider {
+  margin: 0 var(--sp-4) var(--sp-1);
+  border-top-color: color-mix(in srgb, var(--bg-surface1) 52%, transparent);
+}
+
+@media (max-width: 768px) {
+  .btn-new-session { min-height: 48px; }
+}
+
 .sidebar-nav-item {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-4);
   font-size: var(--text-base);
+  line-height: var(--leading-tight);
   color: var(--fg-sub1);
   cursor: pointer;
   border-left: 2px solid transparent;
@@ -326,6 +392,104 @@ a:hover { text-decoration: underline; }
   background: var(--bg-surface0);
   color: var(--accent);
   border-left-color: var(--accent);
+}
+
+.sidebar-footer {
+  position: relative;
+  flex: 0 0 auto;
+  background: var(--bg-chrome);
+}
+
+.sidebar-extension-nav {
+  max-height: min(32dvh, 280px);
+  overflow-y: auto;
+}
+
+.sidebar-system-menu {
+  border-top: var(--border);
+}
+
+.sidebar-system-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: var(--sp-2) var(--sp-4);
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-sub1);
+  cursor: pointer;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  list-style: none;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.sidebar-system-trigger::-webkit-details-marker { display: none; }
+.sidebar-system-trigger:hover { background: var(--bg-surface0); color: var(--fg); }
+.sidebar-system-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.sidebar-system-menu:has(.sidebar-nav-item.active) > .sidebar-system-trigger {
+  border-left-color: var(--accent);
+  background: var(--bg-surface0);
+  color: var(--accent);
+}
+
+.sidebar-system-trigger-label,
+.sidebar-system-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sidebar-system-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: var(--sp-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sidebar-system-trigger-label[data-icon]::before,
+.sidebar-system-chevron[data-icon]::before { margin-right: 0; }
+
+.sidebar-system-chevron {
+  flex: 0 0 auto;
+  color: var(--fg-sub0);
+  transition: transform var(--transition);
+}
+
+.sidebar-system-menu[open] .sidebar-system-chevron { transform: rotate(180deg); }
+
+.sidebar-system-panel {
+  position: absolute;
+  right: var(--sp-2);
+  bottom: calc(100% + var(--sp-2));
+  left: var(--sp-2);
+  z-index: var(--z-dropdown);
+  max-height: min(60dvh, 420px);
+  overflow-y: auto;
+  padding: var(--sp-2) 0;
+  border: var(--border);
+  border-top-color: var(--border-highlight);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--bg-card) 92%, var(--bg-chrome));
+  box-shadow: var(--shadow-lg);
+}
+
+.sidebar-system-panel .sidebar-nav-item {
+  margin: 0 var(--sp-1);
+  padding-inline: var(--sp-3);
+  border-radius: var(--radius);
+}
+
+@media (max-width: 768px) {
+  .sidebar-system-trigger { min-height: 48px; }
+  .sidebar-system-panel { max-height: calc(100dvh - var(--topbar-h) - 72px); }
+  .sidebar-system-panel .sidebar-nav-item { min-height: 48px; }
 }
 
 /* --- Topbar --- */
@@ -495,7 +659,6 @@ a:hover { text-decoration: underline; }
 .btn-sm { padding: var(--sp-1) var(--sp-3); min-height: 28px; }
 .btn-icon-sm { padding: 0; min-width: 28px; min-height: 28px; }
 .btn-full { width: 100%; justify-content: center; }
-.btn-new-session { margin: var(--sp-2) var(--sp-3); }
 
 
 /* ================================================================
@@ -2684,6 +2847,10 @@ button.chip[aria-pressed="true"] {
 .form-field--inline { flex-direction: row; align-items: center; justify-content: space-between; }
 .form-field--checkbox { flex-direction: row; align-items: center; gap: var(--sp-2); }
 
+@media (max-width: 768px) {
+  label.form-field--checkbox { min-height: 48px; }
+}
+
 /* Multi-field horizontal group; fields share the row and stack when they run
    out of width. */
 .form-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
@@ -3078,12 +3245,12 @@ select.form-select {
   right: 0;
   flex: 0 0 auto;
   align-self: stretch;
-  width: var(--sp-8);
-  margin-left: calc(-1 * var(--sp-8));
+  width: var(--sp-5);
+  margin-left: calc(-1 * var(--sp-5));
   pointer-events: none;
   opacity: 0;
   background: linear-gradient(to right, transparent,
-    color-mix(in srgb, var(--fg) 45%, transparent));
+    color-mix(in srgb, var(--fg) 24%, transparent));
   animation: tabs-overflow-cue linear both;
   /* `nearest`, not `self`: the animation runs on the pseudo-element, and a
      pseudo-element is not a scroll container, so `self` resolves to an inactive

@@ -43,7 +43,11 @@ Map<String, dynamic> _sidebarContext(Map<String, dynamic> overrides) => {
   'archivedCount': 0,
   'archiveContainsActive': false,
   'hasNav': false,
-  'navItems': <Map<String, dynamic>>[],
+  'showSystemNav': false,
+  'showExtensionNav': false,
+  'systemMenuLabel': 'System',
+  'systemNavItems': <Map<String, dynamic>>[],
+  'extensionNavItems': <Map<String, dynamic>>[],
   ...overrides,
 };
 
@@ -416,7 +420,7 @@ void main() {
         'data-identicon-id="s1"',
         'data-identicon-id="s2"',
         'data-icon="new-session"',
-        '>New Chat</button>',
+        'class="btn-new-session-label">New Chat</span>',
         'data-icon="x"',
         'data-icon="archive"',
         'data-icon="chevron-down"',
@@ -467,6 +471,7 @@ void main() {
           'hasNav': true,
           'showSystemNav': true,
           'showExtensionNav': true,
+          'systemMenuLabel': 'System · Health',
           'systemNavItems': [
             {'label': 'Health', 'href': '/health-dashboard', 'active': true, 'ariaCurrent': 'page', 'icon': 'health'},
             {'label': 'Settings', 'href': '/settings', 'active': false, 'ariaCurrent': null, 'icon': 'settings'},
@@ -477,6 +482,9 @@ void main() {
         }),
       );
       _expectAll(nav, [
+        'sidebar-system-menu',
+        'System · Health',
+        'aria-label="System navigation"',
         'Health',
         'Settings',
         'Optional',

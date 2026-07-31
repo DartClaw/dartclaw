@@ -147,6 +147,17 @@ void main() {
       expect(html, contains('href="/knowledge/timeline"><span class="icon icon-x"'));
     });
 
+    test('timeline filters compose canonical form controls', () {
+      final html = renderTimeline();
+
+      expect(RegExp(r'class="form-field"').allMatches(html), hasLength(2));
+      expect(RegExp(r'class="form-label t-caption tracking-caps"').allMatches(html), hasLength(2));
+      expect(RegExp(r'class="form-input"').allMatches(html), hasLength(2));
+      expect(html, isNot(contains('class="field"')));
+      expect(html, isNot(contains('class="field-label"')));
+      expect(html, isNot(contains('class="input"')));
+    });
+
     test('both knowledge surfaces share one tab component', () {
       expect(renderTimeline(), contains('<nav class="tabs" aria-label="Knowledge views">'));
       expect(renderHub(), contains('<nav class="tabs" aria-label="Knowledge views">'));

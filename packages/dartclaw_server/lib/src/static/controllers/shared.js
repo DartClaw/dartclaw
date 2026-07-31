@@ -49,6 +49,32 @@ export function applyIdenticons(root = document) {
   });
 }
 
+export function syncSidebarSessionTitle(sessionId, title) {
+  const titleElement = Array.from(document.querySelectorAll('[data-session-title-id]'))
+    .find((element) => element.dataset.sessionTitleId === sessionId);
+  if (titleElement) titleElement.textContent = title;
+}
+
+export function beginSessionDraftMutation(sessionId) {
+  const chatArea = document.querySelector('.chat-area');
+  if (!chatArea || chatArea.dataset.sessionId !== sessionId) return;
+  const pending = Number.parseInt(chatArea.dataset.sessionMutationPending || '0', 10);
+  chatArea.dataset.sessionMutationPending = String(Number.isFinite(pending) ? pending + 1 : 1);
+  delete chatArea.dataset.newChatDraft;
+}
+
+export function endSessionDraftMutation(sessionId) {
+  const chatArea = document.querySelector('.chat-area');
+  if (!chatArea || chatArea.dataset.sessionId !== sessionId) return;
+  const pending = Number.parseInt(chatArea.dataset.sessionMutationPending || '1', 10) - 1;
+  if (pending > 0) {
+    chatArea.dataset.sessionMutationPending = String(pending);
+    return;
+  }
+  delete chatArea.dataset.sessionMutationPending;
+  document.dispatchEvent(new CustomEvent('dartclaw:session-draft-mutation-complete'));
+}
+
 function toastContainer() {
   let container = document.getElementById('toast-container');
   if (!container) {

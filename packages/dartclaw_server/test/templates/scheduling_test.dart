@@ -99,6 +99,19 @@ void main() {
       expect(html, isNot(contains('metric-value')));
       expect(html, contains('status-badge-muted'));
       expect(html, contains('Disabled'));
+      expect(RegExp(r'type="radio"[^>]*class="form-radio"').allMatches(html), hasLength(3));
+      expect(html, contains('role="radiogroup" aria-labelledby="job-delivery-label"'));
+      expect(
+        RegExp(r'<label class="form-field form-field--checkbox"><input type="radio"').allMatches(html),
+        hasLength(3),
+      );
+      expect(
+        html,
+        contains(
+          '<label class="form-field form-field--checkbox">\n'
+          '            <input type="checkbox" class="form-checkbox" id="task-enabled"',
+        ),
+      );
     });
 
     test('active heartbeat renders one numeric metric and one status badge', () {

@@ -459,6 +459,20 @@ void main() {
       expect(body, anyOf(contains('msg-user'), contains('msg-assistant')));
     });
 
+    test('blank chats emit autofocus while established chats do not', () async {
+      final blank = await sessions.createSession();
+      final blankResponse = await handler(Request('GET', Uri.parse('http://localhost/sessions/${blank.id}')));
+      final blankBody = await blankResponse.readAsString();
+      final blankTextarea = RegExp(r'<textarea id="message-input"[^>]*>').firstMatch(blankBody)!.group(0)!;
+      expect(blankTextarea, contains('autofocus'));
+
+      await messages.insertMessage(sessionId: blank.id, role: 'user', content: 'Existing thread');
+      final establishedResponse = await handler(Request('GET', Uri.parse('http://localhost/sessions/${blank.id}')));
+      final establishedBody = await establishedResponse.readAsString();
+      final establishedTextarea = RegExp(r'<textarea id="message-input"[^>]*>').firstMatch(establishedBody)!.group(0)!;
+      expect(establishedTextarea, isNot(contains('autofocus')));
+    });
+
     test('response contains data-session-id attribute', () async {
       final session = await sessions.createSession();
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
@@ -519,6 +533,33 @@ void main() {
       expect(body, contains('data-turn-status-turn-id="turn-456"'));
       expect(body, contains('data-turn-cancel'));
       expect(body, contains('session lock'));
+    });
+
+    test('main chat surface keeps cached terminal status inert for live updates', () async {
+      final session = await sessions.createSession();
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        turns: _StatusTurns(
+          TurnStatusSnapshot(
+            sessionId: session.id,
+            turnId: 'turn-completed',
+            provider: 'codex',
+            state: TurnWaitState.completed,
+            canCancel: false,
+          ),
+        ),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('class="turn-status-panel" hidden=""'));
+      expect(body, contains('data-turn-status-session-id="${session.id}"'));
+      expect(body, contains('data-turn-cancel'));
+      expect(body, contains('disabled="disabled"'));
     });
 
     test('initial session page renders tail-window pagination state', () async {

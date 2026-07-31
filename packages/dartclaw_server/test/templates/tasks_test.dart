@@ -77,6 +77,8 @@ void main() {
       expect(html, contains('status-dot--warning'));
       expect(html, contains('value="interrupted"'));
       expect(html, contains('selected'));
+      expect(html, contains('<section class="task-status-group" aria-labelledby="task-status-interrupted">'));
+      expect(html, contains('<h2 class="t-heading" id="task-status-interrupted">'));
     });
 
     test('links task title to detail page', () {

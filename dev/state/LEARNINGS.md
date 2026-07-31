@@ -232,3 +232,4 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Verify a measure change by the rendered width of NON-prose siblings.** Per-element checks pass while the outcome inverts — a table rendered 605px inside an 866px chat bubble.
 - **`ch` units resolve against the element's own font-size.** `72ch` on an h1 is ~864px, not the ~605px the same value gives body prose — put reading measures on the text element.
 - **Re-check served CSS with cache bypass after a token edit.** Assets come from a versioned `/static/v<version>/` path, so a concurrent canon change renders stale until a hard reload.
+- **Contain entry transforms at the fixed shell.** A translated full-height page creates root overflow; clip `.shell` while descendants own scrolling.

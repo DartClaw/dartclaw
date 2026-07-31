@@ -132,8 +132,17 @@ void main() {
       expect(html, contains('No workflow runs found'));
     });
 
+    test('workflow launch actions use the orchestration button tier', () {
+      final html = _render(definitions: [_makeDefinition()]);
+
+      expect(html, contains('<summary class="btn btn-secondary btn-sm btn-full">Run</summary>'));
+      expect(html, contains('<button type="submit" class="btn btn-secondary btn-sm">Launch</button>'));
+      expect(html, isNot(contains('onclick=')));
+    });
+
     test('renders run cards when runs present', () {
       final html = _render(runs: [_makeRun()]);
+      expect(html, contains('class="workflow-runs-stack"'));
       expect(html, contains('card run-card print-in'));
       expect(html, contains('spec-and-implement'));
     });
@@ -187,7 +196,9 @@ void main() {
 
     test('active filter gets canonical active tab marker', () {
       final html = _render(filters: _makeFilters(activeStatus: 'running'));
+      expect(html, contains('<nav class="tabs" aria-labelledby="workflow-status-filter-label">'));
       expect(html, contains('class="tab t-label active"'));
+      expect(html, contains('aria-current="page"'));
     });
 
     test('definition browser not shown when no definitions', () {
@@ -198,6 +209,9 @@ void main() {
     test('definition browser shown when definitions present', () {
       final html = _render(definitions: [_makeDefinition()]);
       expect(html, contains('workflow-definitions-section'));
+      expect(html, contains('class="workflow-definition-card card"'));
+      expect(html, contains('data-icon="workflow"'));
+      expect(html, contains('<h3 class="workflow-definition-name t-heading">spec-and-implement</h3>'));
       expect(html, contains('spec-and-implement'));
     });
 
@@ -206,7 +220,7 @@ void main() {
       expect(html, contains('data-workflow-launch-form'));
       expect(html, contains('Run'));
       expect(html, contains('var_FEATURE'));
-      expect(html, contains('Cancel'));
+      expect(html, isNot(contains('onclick=')));
     });
 
     test('renders definition description', () {
@@ -241,6 +255,7 @@ void main() {
         ],
       );
       expect(html, contains('workflow-var-chip'));
+      expect(html, contains('class="chip workflow-var-chip"'));
       expect(html, contains('FEATURE'));
       expect(html, contains('PROJECT'));
     });

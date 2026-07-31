@@ -233,13 +233,13 @@
   --bg-card:     #ffffff;
   --bg-ground-edge: color-mix(in oklab, var(--bg-base) 98%, var(--bg-crust));
 
-  --fg:          #4c4f69;
-  --fg-sub1:     #5c5f77;
-  --fg-sub0:     #62677d;
-  /* Pinned to the AA floor on card / page ground / crust. In light that lands it
-     at fg-sub1's depth rather than above fg-sub0 – de-emphasis here comes from
-     size and weight, not from a lighter grey. */
-  --fg-overlay:  #585d6f;
+  --fg:          #464a63;
+  --fg-sub1:     #4f546a;
+  --fg-sub0:     #565b71;
+  /* Pinned to the AA floor on card / crust / the strongest ground wash. In
+     light that lands it at fg-sub1's depth rather than above fg-sub0 –
+     de-emphasis here comes from size and weight, not from a lighter grey. */
+  --fg-overlay:  #50556b;
 
   --accent:      #24661c;
   --accent-dim:  #3d7d36;
@@ -261,17 +261,15 @@
   --pink:        #ea76cb;
   --lavender:    #7287fd;
 
-  /* Ambient glows – the light ground carries its variation as HUE at matched
-     lightness, not as luminance. It is boxed in from both sides: helper text at
-     --fg-sub0 needs the darkest ground to stay above its AA floor, and a
-     semantically tinted white card needs the lightest ground to stay 1.15:1
-     below it. That leaves almost no room to move vertically, so each glow is a
-     hue mixed into the chrome plane at a fraction that lands back on the
-     ground's own lightness – the tint reads, the luminance does not move. */
-  --ambient-a: color-mix(in oklab, var(--bg-mantle) 94.2%, #1e66f5);
-  --ambient-b: color-mix(in oklab, var(--bg-mantle) 94.2%, var(--mauve));
-  --ambient-c: color-mix(in oklab, var(--bg-mantle) 94.5%, #179299);
-  --ambient-d: color-mix(in oklab, var(--bg-mantle) 92.5%, #40a02b);
+  /* Light needs real alpha washes too, but its darker Latte hues spend more
+     luminance than the dark equivalents. The foreground ladder is paired with
+     these centre strengths so muted text stays at or above 4.5:1. */
+  --ambient-a: color-mix(in srgb, #1e66f5 14%, transparent);
+  --ambient-b: color-mix(in srgb, var(--mauve) 13%, transparent);
+  --ambient-c: color-mix(in srgb, #179299 12%, transparent);
+  --ambient-d: color-mix(in srgb, #40a02b 10%, transparent);
+
+  --glass-bg: color-mix(in srgb, #ffffff 66%, transparent);
 
   --noise-opacity: 0.008;
 

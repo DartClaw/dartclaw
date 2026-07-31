@@ -1,4 +1,6 @@
 import {
+  beginSessionDraftMutation,
+  endSessionDraftMutation,
   escapeHtml,
   isAtBottom,
   readHtmxErrorMessage,
@@ -6,6 +8,7 @@ import {
   scrollToBottom,
   showBanner,
   showToast,
+  syncSidebarSessionTitle,
 } from './shared.js';
 
 export default class DcChatController extends Stimulus.Controller {
@@ -198,12 +201,14 @@ export default class DcChatController extends Stimulus.Controller {
         return;
       }
       this.hideRecovery();
+      beginSessionDraftMutation(this.sessionId);
       this.disableInput();
     }
   }
 
   handleAfterRequest(event) {
     if (this.isChatFormRequest(event)) {
+      endSessionDraftMutation(this.sessionId);
       if (!event.detail.successful) {
         this.enableInput();
         showBanner('error', readHtmxErrorMessage(event.detail.xhr));
@@ -415,8 +420,7 @@ export default class DcChatController extends Stimulus.Controller {
           titleInput.value = title;
           titleInput.dataset.originalTitle = title;
         }
-        const sidebarItem = document.querySelector('.session-item.active .session-item-title');
-        if (sidebarItem) sidebarItem.textContent = title;
+        syncSidebarSessionTitle(this.sessionId, title);
       })
       .catch(() => {});
   }

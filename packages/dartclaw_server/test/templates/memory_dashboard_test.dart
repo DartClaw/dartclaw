@@ -354,13 +354,14 @@ void main() {
 
       expect(html, contains('<header class="pagehead">'));
       expect(html, contains('class="page-subtitle t-body"'));
-      expect(html, contains('class="page-inner page-inner--wide"'));
+      expect(html, contains('class="page-inner page-inner--wide memory-dashboard-page"'));
       // The topbar stays the page's only <h1>.
       expect(RegExp('<h1').allMatches(html), hasLength(1));
 
       for (final section in ['Overview', 'Memory Pruning', 'Search &amp; Index', 'Memory Files', 'Daily Logs']) {
-        expect(html, contains('<h2 class="section-title">$section</h2>'));
+        expect(html, contains('class="section-title">$section</h2>'));
       }
+      expect(RegExp('class="memory-dashboard-section"').allMatches(html), hasLength(5));
       // .section-label survives only on in-card subsections.
       expect(html, isNot(contains('<h2 class="section-label">')));
       final withSubsections = memoryDashboardTemplate(
@@ -382,7 +383,7 @@ void main() {
 
     test('the files card sits outside the polled region', () {
       final html = render();
-      final innerStart = html.indexOf('<div id="memory-inner">');
+      final innerStart = html.indexOf('<div id="memory-inner" class="memory-dashboard-stack">');
       final innerEnd = html.indexOf('<!-- Outside the 30s poll', innerStart);
       final filesCard = html.indexOf('id="memory-files-card"');
 

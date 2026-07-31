@@ -95,13 +95,13 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 4. **Workflows** (only if a workflow run is live) — run rows with `N/M` step progress
 5. **Chats** (always) — `New Chat` button, then chat rows; "No chats yet" placeholder when empty
 6. **Archived** (collapsible — only if any archived chats exist)
-7. **SYSTEM** nav (always — see TC-17 for full enumeration)
+7. **System** disclosure (always — fixed at the rail bottom; see TC-17 for full enumeration)
 
 **Fail:** sections render in wrong order; `New Chat` button labeled `+ New Session` (legacy);
-`Workspace` section missing when a main session exists; SYSTEM nav absent
+`Workspace` section missing when a main session exists; System disclosure absent or permanently expanded
 
 **Note:** The sidebar's exact content depends on configuration — Channels needs an enabled channel;
-Workspace needs a main session. The plain profile shows: Workspace + Chats + SYSTEM.
+Workspace needs a main session. The plain profile shows: Workspace + Chats + System.
 
 ---
 
@@ -302,36 +302,54 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 
 ### TC-16: New Chat
 **Steps:**
-1. Click the **`New Chat`** button in the sidebar Chats section
+1. From an established chat, activate **`New Chat`** and note the new chat ID and Chats count
+2. After navigation settles, activate **`New Chat`** again
+3. Return to the established chat, activate **`New Chat`**, and confirm the noted draft reopens
+4. Send a message in that draft; after it becomes an established chat, activate **`New Chat`** again
+5. Confirm the new draft composer has focus without clicking it; established-chat composers do not autofocus
 
 **Pass:**
-- New session created; navigates to `/sessions/<new-id>`
+- The first activation creates one draft and navigates to `/sessions/<new-id>`
+- Sequential activation on that draft does not navigate, reload, or increase the Chats count
+- Activation elsewhere reuses the same untouched draft, including across rapid or concurrent activation
+- Once the draft contains a message, the next activation creates exactly one fresh draft
 - New session at top of `Chats` list
-- Empty chat state in main area; topbar input shows "New Chat"
+- Empty chat state in main area; topbar input and chat row show "Untitled draft"
+- New-chat composer receives focus; established-chat composer does not
 - ℹ button present in topbar
 
-**Fail:** No navigation; session missing from sidebar; ℹ button missing on a new session
+**Fail:** Blank chats accumulate; current draft reloads; wrong draft reopens; session missing from sidebar; focus behavior wrong; ℹ button missing on a new session
 
 ---
 
 ### TC-17: System Navigation (Cross-Page)
 **Steps:**
-1. From any page, walk through every SYSTEM nav link in order
-2. Confirm each lands on the correct page and the correct nav item is highlighted
+1. From any page, activate the bottom-left **System** disclosure
+2. Walk through every System nav link in order, reopening the disclosure after each navigation
+3. Confirm each lands on the correct page, its nav item is highlighted, and the collapsed trigger names it
+4. Include a chat → dashboard → chat round trip and watch the browser's right edge during each entry transition
 
 **Pass — full SYSTEM nav (registration order, conditional items in italic):**
-Health → Settings → Memory → Knowledge → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
+Health → Settings → *Memory* → Knowledge → *Scheduling* → *Tasks* → *Projects* → *Workflows*
 
-The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge` and
-Timeline → `/knowledge/timeline` — two separate nav items, not one.
+Timeline is nested under Knowledge: Knowledge → `/knowledge`, then its Timeline tab → `/knowledge/timeline`.
+It does not render as a separate SYSTEM nav item.
 
 Conditional items appear when:
+- Memory — a workspace and an operational feature are configured
+- Scheduling — heartbeat, a job, or a scheduled task is configured
+- Tasks — a container, scheduled task, or channel task trigger is configured
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
-Plain profile typically shows all 9.
+Plain profile typically shows all 8. The closed trigger reads `System` on chat pages and `System · <active page>` on a
+System page. The popup opens above the footer and does not cover Extensions when that region exists.
 
-**Fail:** Any link missing when its service is configured; wrong page loads; active state not updated
+The browser root stays exactly viewport-sized throughout the transition: no transient root scrollbar or horizontal
+layout jump. Long dashboards continue to scroll inside `#main-content`.
+
+**Fail:** Any link missing when its service is configured; wrong page loads; active state not updated; root scrollbar or
+layout-width jump appears during navigation; dashboard content no longer scrolls internally
 
 ---
 

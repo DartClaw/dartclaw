@@ -463,7 +463,7 @@ Stimulus controllers live under `static/controllers/` and use `dc-*` controller 
 
 SSE streaming flow: POST `/api/sessions/:id/send` → server returns HTMX SSE-connected HTML fragment → server pushes `delta`, `tool_use`, `tool_result`, `done` events as HTML fragments → HTMX handles DOM insertion.
 
-Pages registered via `PageRegistry`: Health Dashboard, Settings, Memory, Scheduling, Tasks. SDK consumers can add pages via `server.registerDashboardPage()`.
+`PageRegistry` can include Health Dashboard, Settings, Memory, Knowledge, Scheduling, Tasks, Projects, and Workflows. Settings and Knowledge are always registered; the other pages depend on active services or configuration. The Knowledge timeline is a registered nested route but not a top-level navigation item. SDK consumers can add pages via `server.registerDashboardPage()`.
 
 **Package**: `dartclaw_server`
 

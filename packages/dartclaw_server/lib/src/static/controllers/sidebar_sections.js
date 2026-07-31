@@ -4,14 +4,16 @@ function insertSidebarSection(container, afterRunning = false) {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
   const runningSection = document.getElementById('sidebar-running');
-  const chatsLabel = Array.from(sidebar.querySelectorAll('.sidebar-section-label'))
-    .find((element) => element.textContent.trim() === 'Chats');
-  if (!chatsLabel || !chatsLabel.parentNode) return;
-  const insertBefore = afterRunning && runningSection ? runningSection.nextElementSibling : chatsLabel;
+  const workflowSection = document.getElementById('sidebar-workflows');
+  const chatsSection = sidebar.querySelector('.sidebar-chat-section');
+  if (!chatsSection || !chatsSection.parentNode) return;
+  const insertBefore = afterRunning
+    ? runningSection?.nextElementSibling || chatsSection
+    : workflowSection || chatsSection;
   if (insertBefore && insertBefore.parentNode) {
     insertBefore.parentNode.insertBefore(container, insertBefore);
   } else {
-    chatsLabel.parentNode.insertBefore(container, chatsLabel);
+    chatsSection.parentNode.insertBefore(container, chatsSection);
   }
 }
 

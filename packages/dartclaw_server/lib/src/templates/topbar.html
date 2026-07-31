@@ -1,7 +1,7 @@
 <header tl:fragment="sessionTopbar" class="topbar" id="topbar">
   <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
     aria-expanded="false" data-icon="menu"></button>
-  <span tl:if="${isArchive}" class="session-title" tl:text="${displayTitle}">New Chat</span>
+  <span tl:if="${isArchive}" class="session-title" tl:text="${displayTitle}">Untitled draft</span>
   <input tl:unless="${isArchive}" id="session-title" class="session-title" type="text"
     tl:attr="value=${displayTitle},data-session-id=${sessionId},data-original-title=${displayTitle}"
     maxlength="100" aria-label="Session title">
@@ -11,7 +11,7 @@
       hx-select-oob="#topbar,#restart-banner-slot,#sidebar" data-icon="info"></a>
     <button tl:if="${showResume}" class="btn btn-ghost btn-sm" data-session-resume="true"
       tl:attr="data-session-id=${sessionId}">Resume</button>
-    <button tl:if="${showReset}" class="btn btn-ghost btn-sm btn-reset"
+    <button tl:if="${showReset}" class="btn btn-danger btn-sm btn-reset"
       tl:attr="hx-post=${resetHref}"
       hx-confirm="Reset this session? Conversation will be archived."
       hx-on::after-request="location.reload()"

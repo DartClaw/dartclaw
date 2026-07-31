@@ -27,7 +27,7 @@ String sessionInfoTemplate({
   Map<String, dynamic>? turnStatus,
   String appName = 'DartClaw',
 }) {
-  final displayTitle = sessionTitle.trim().isEmpty ? 'New Chat' : sessionTitle;
+  final displayTitle = displayChatTitle(sessionTitle);
   final totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
   final normalizedDefaultProvider = ProviderIdentity.normalize(defaultProvider);
   final normalizedProvider = ProviderIdentity.normalize(provider, fallback: normalizedDefaultProvider);
@@ -46,7 +46,7 @@ String sessionInfoTemplate({
       : null;
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final turnStatusView = sessionTurnStatusView(turnStatus, fallbackSessionId: sessionId);
+  final turnStatusView = sessionTurnStatusMountView(turnStatus, fallbackSessionId: sessionId);
 
   final topbar = pageTopbarTemplate(
     title: 'Session Info',
@@ -97,7 +97,7 @@ String sessionInfoTemplate({
     'hasRecentTurns': recentTurns.isNotEmpty,
     'recentTurns': recentTurns,
     'turnStatus': turnStatusView,
-    'hasTurnStatus': turnStatusView != null,
+    'hasTurnStatus': true,
   });
 
   return layoutTemplate(title: 'Session Info', body: body, appName: appName, scripts: standardShellScripts());
@@ -106,7 +106,7 @@ String sessionInfoTemplate({
 Map<String, dynamic>? sessionTurnStatusView(Map<String, dynamic>? status, {required String fallbackSessionId}) {
   if (status == null) return null;
   final state = status['state']?.toString() ?? 'idle';
-  if (state == 'idle') return null;
+  if (!isActiveTurnStatusState(state)) return null;
   final reason = status['wait_reason']?.toString();
   final canCancel = status['can_cancel'] == true;
   return {
@@ -122,9 +122,31 @@ Map<String, dynamic>? sessionTurnStatusView(Map<String, dynamic>? status, {requi
     'stuckSince': formatRelativeTimeIso(status['stuck_since']?.toString()),
     'globalTimeoutAt': formatRemainingTimeIso(status['global_timeout_at']?.toString()),
     'canCancel': canCancel,
+    'hidden': null,
+    'cancelHidden': canCancel ? null : true,
     'cancelDisabled': canCancel ? null : 'disabled',
   };
 }
+
+Map<String, dynamic> sessionTurnStatusMountView(Map<String, dynamic>? status, {required String fallbackSessionId}) {
+  return sessionTurnStatusView(status, fallbackSessionId: fallbackSessionId) ??
+      {
+        'sessionId': status?['session_id']?.toString() ?? fallbackSessionId,
+        'turnId': '',
+        'stateLabel': '',
+        'reasonLabel': '',
+        'reasonAbsent': true,
+        'waitingSince': '',
+        'stuckSince': '',
+        'globalTimeoutAt': '',
+        'canCancel': false,
+        'hidden': true,
+        'cancelHidden': true,
+        'cancelDisabled': 'disabled',
+      };
+}
+
+bool isActiveTurnStatusState(String state) => const {'running', 'waiting', 'stuck', 'cancelling'}.contains(state);
 
 String _formatNumber(int n) {
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';

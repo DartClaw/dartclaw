@@ -45,10 +45,10 @@ String addProjectDialogHtml() {
         </select>
       </div>
 
-      <div class="form-field form-field--checkbox">
+      <label class="form-field form-field--checkbox">
         <input type="checkbox" class="form-checkbox" id="project-pr-draft" name="draft" checked>
-        <label for="project-pr-draft">Create PRs as draft</label>
-      </div>
+        <span>Create PRs as draft</span>
+      </label>
 
       <div class="form-field">
         <label class="form-label t-caption tracking-caps" for="project-labels">Labels</label>

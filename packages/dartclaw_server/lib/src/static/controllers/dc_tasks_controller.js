@@ -10,6 +10,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
   let cachedActiveTasks = [];
   let taskElapsedTimer = null;
   let taskDetailRefreshTimer = null;
+  const activeTurnStates = new Set(['running', 'waiting', 'stuck', 'cancelling']);
 
   // Mirror of templates/task_event_display.dart#eventIconClass, keyed by the
   // `kind` the task_event SSE payload already carries. Canonical keys are the
@@ -163,7 +164,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     const panel = displayedTurnPanel();
     if (!panel || panel.getAttribute('data-turn-status-session-id') !== data.session_id) return;
     const state = data.state || 'idle';
-    const hasActiveTurn = state !== 'idle' && Boolean(data.turn_id);
+    const hasActiveTurn = activeTurnStates.has(state) && Boolean(data.turn_id);
     panel.hidden = !hasActiveTurn;
     if (!hasActiveTurn) {
       panel.removeAttribute('data-turn-status-turn-id');
@@ -181,12 +182,12 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       reasonEl.textContent = reason;
       reasonEl.classList.toggle('value-absent', reason === '');
     }
-    setPanelText(panel, '[data-turn-status-waiting]', data.waiting_since || '');
-    setPanelText(panel, '[data-turn-status-stuck]', data.stuck_since || '');
-    setPanelText(panel, '[data-turn-status-timeout]', data.global_timeout_at || '');
+    setPanelText(panel, '[data-turn-status-waiting]', formatElapsedTimeIso(data.waiting_since));
+    setPanelText(panel, '[data-turn-status-stuck]', formatElapsedTimeIso(data.stuck_since));
+    setPanelText(panel, '[data-turn-status-timeout]', formatRemainingTimeIso(data.global_timeout_at));
     const button = panel.querySelector('[data-turn-cancel]');
     if (button) {
-      button.hidden = !hasActiveTurn;
+      button.hidden = !hasActiveTurn || data.can_cancel !== true;
       button.disabled = !hasActiveTurn || data.can_cancel !== true;
       if (hasActiveTurn) {
         button.setAttribute('data-turn-id', data.turn_id);
@@ -199,6 +200,39 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
   function setPanelText(panel, selector, value) {
     const el = panel.querySelector(selector);
     if (el) el.textContent = value;
+  }
+
+  function formatElapsedTimeIso(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const elapsedMs = Date.now() - parsed.getTime();
+    const days = Math.trunc(elapsedMs / 86400000);
+    if (days > 30) {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const date = parsed.getDate() + ' ' + months[parsed.getMonth()];
+      return parsed.getFullYear() === new Date().getFullYear() ? date : date + ' ' + parsed.getFullYear();
+    }
+    if (days > 0) return days + 'd ago';
+    const hours = Math.trunc(elapsedMs / 3600000);
+    if (hours > 0) return hours + 'h ago';
+    const minutes = Math.trunc(elapsedMs / 60000);
+    if (minutes > 0) return minutes + 'm ago';
+    return 'just now';
+  }
+
+  function formatRemainingTimeIso(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const remainingMs = parsed.getTime() - Date.now();
+    if (remainingMs < 0) return '';
+    const days = Math.trunc(remainingMs / 86400000);
+    if (days > 0) return 'in ' + days + 'd';
+    const hours = Math.trunc(remainingMs / 3600000);
+    if (hours > 0) return 'in ' + hours + 'h';
+    const minutes = Math.trunc(remainingMs / 60000);
+    return minutes > 0 ? 'in ' + minutes + 'm' : 'in under a minute';
   }
 
   function initTurnCancelActions() {

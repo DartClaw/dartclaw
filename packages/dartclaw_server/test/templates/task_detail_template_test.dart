@@ -532,7 +532,7 @@ void main() {
     expect(html, contains('Cancel Turn'));
   });
 
-  test('does not render idle turn cancel affordance', () {
+  test('keeps an inert turn-status mount for idle sessions', () {
     final html = taskDetailPageTemplate(
       sidebarData: emptySidebar,
       navItems: navItems,
@@ -550,6 +550,38 @@ void main() {
       turnStatus: const {'session_id': 'session-123', 'state': 'idle', 'can_cancel': false},
     );
 
-    expect(html, isNot(contains('data-turn-cancel')));
+    expect(html, contains('class="turn-status-panel" hidden=""'));
+    expect(html, contains('data-turn-status-session-id="session-123"'));
+    expect(html, contains('data-turn-cancel'));
+    expect(html, contains('disabled="disabled"'));
+  });
+
+  test('does not render cached terminal turn status as an active panel', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Done task',
+        'type': 'coding',
+        'status': 'accepted',
+        'description': 'Do work',
+        'sessionId': 'session-123',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+      messagesHtml: '<div>message</div>',
+      turnStatus: const {
+        'session_id': 'session-123',
+        'turn_id': 'turn-completed',
+        'state': 'completed',
+        'can_cancel': false,
+      },
+    );
+
+    expect(html, contains('class="turn-status-panel" hidden=""'));
+    expect(html, contains('data-turn-status-session-id="session-123"'));
+    expect(html, contains('data-turn-cancel'));
+    expect(html, contains('disabled="disabled"'));
   });
 }

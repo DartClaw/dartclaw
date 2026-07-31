@@ -6,6 +6,7 @@ import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
+import 'session_info.dart' show isActiveTurnStatusState;
 import 'task_status_display.dart';
 import 'topbar.dart';
 
@@ -221,24 +222,42 @@ String taskDetailPageTemplate({
 }
 
 Map<String, dynamic>? _turnStatusView(Map<String, dynamic>? status, {String? fallbackSessionId}) {
-  if (status == null) return null;
-  final state = status['state']?.toString() ?? 'idle';
-  final sessionId = status['session_id']?.toString() ?? fallbackSessionId;
-  if (sessionId == null || sessionId.isEmpty || state == 'idle') return null;
-  final reason = status['wait_reason']?.toString();
-  final canCancel = status['can_cancel'] == true;
+  final state = status?['state']?.toString() ?? 'idle';
+  final sessionId = status?['session_id']?.toString() ?? fallbackSessionId;
+  if (sessionId == null || sessionId.isEmpty) return null;
+  if (!isActiveTurnStatusState(state)) {
+    return {
+      'sessionId': sessionId,
+      'turnId': '',
+      'stateLabel': '',
+      'reasonLabel': '',
+      'reasonAbsent': true,
+      'waitingSince': '',
+      'stuckSince': '',
+      'globalTimeoutAt': '',
+      'canCancel': false,
+      'hidden': true,
+      'cancelHidden': true,
+      'cancelDisabled': 'disabled',
+    };
+  }
+  final activeStatus = status!;
+  final reason = activeStatus['wait_reason']?.toString();
+  final canCancel = activeStatus['can_cancel'] == true;
   return {
     'sessionId': sessionId,
-    'turnId': status['turn_id']?.toString() ?? '',
+    'turnId': activeStatus['turn_id']?.toString() ?? '',
     'state': state,
     'stateLabel': titleCase(state),
     'reason': reason ?? '',
     'reasonLabel': reason?.replaceAll('_', ' '),
     'reasonAbsent': absentValue(reason).isAbsent,
-    'waitingSince': status['waiting_since']?.toString() ?? '',
-    'stuckSince': status['stuck_since']?.toString() ?? '',
-    'globalTimeoutAt': status['global_timeout_at']?.toString() ?? '',
+    'waitingSince': activeStatus['waiting_since']?.toString() ?? '',
+    'stuckSince': activeStatus['stuck_since']?.toString() ?? '',
+    'globalTimeoutAt': activeStatus['global_timeout_at']?.toString() ?? '',
     'canCancel': canCancel,
+    'hidden': null,
+    'cancelHidden': canCancel ? null : true,
     'cancelDisabled': canCancel ? null : 'disabled',
   };
 }

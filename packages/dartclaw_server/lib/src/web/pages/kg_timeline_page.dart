@@ -7,9 +7,10 @@ import '../../templates/kg_timeline.dart';
 import '../../templates/source_attribution.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
+import 'knowledge_hub_page.dart';
 
 /// Renders the read-only temporal KG timeline.
-class KgTimelinePage extends DashboardPage {
+class KgTimelinePage extends DashboardPage implements DashboardNavigationExclusion {
   KgTimelinePage({TemporalKnowledgeGraphService? Function()? kgGetter, CitationSourceResolver? resolver})
     : _kgGetter = kgGetter,
       _resolver = resolver;
@@ -59,7 +60,7 @@ class KgTimelinePage extends DashboardPage {
       final page = kgTimelineTemplate(
         categories: groups,
         sidebarData: sidebarData,
-        navItems: context.navItems(activePage: title),
+        navItems: context.navItems(activePage: KnowledgeHubPage.navigationTitle),
         selectedCategory: selectedCategory,
         asOf: asOf,
         restartBannerHtml: context.restartBannerHtml(),
@@ -70,7 +71,7 @@ class KgTimelinePage extends DashboardPage {
       final page = kgTimelineTemplate(
         categories: const [],
         sidebarData: sidebarData,
-        navItems: context.navItems(activePage: title),
+        navItems: context.navItems(activePage: KnowledgeHubPage.navigationTitle),
         selectedCategory: selectedCategory,
         asOf: asOf,
         errorMessage: 'invalid as-of timestamp',
@@ -83,7 +84,7 @@ class KgTimelinePage extends DashboardPage {
       final page = kgTimelineTemplate(
         categories: const [],
         sidebarData: sidebarData,
-        navItems: context.navItems(activePage: title),
+        navItems: context.navItems(activePage: KnowledgeHubPage.navigationTitle),
         selectedCategory: selectedCategory,
         asOf: asOf,
         errorMessage: 'Temporal KG query failed.',

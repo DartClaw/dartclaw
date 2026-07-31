@@ -91,7 +91,7 @@
           <h3 class="t-heading">Session</h3>
           <div tl:if="${hasSession}" class="card task-chat-embed">
             <div tl:if="${hasTurnStatus}" class="turn-status-panel"
-                 tl:attr="data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
+                 tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
               <div class="turn-status-row">
                 <span class="task-meta-label">Turn</span>
                 <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">Waiting</span>
@@ -105,7 +105,7 @@
                 <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
               </div>
               <button type="button" class="btn btn-ghost" data-turn-cancel
-                      tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},disabled=${turnStatus.cancelDisabled}">
+                      tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},hidden=${turnStatus.cancelHidden},disabled=${turnStatus.cancelDisabled}">
                 Cancel Turn
               </button>
             </div>

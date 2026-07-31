@@ -815,7 +815,9 @@ done.<span class="streaming"></span></code></pre>
       <div class="card card-glass" style="padding:var(--sp-2)">
         <div style="display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border-highlight);margin-bottom:var(--sp-2)">
           <span class="icon icon-search" style="color:var(--fg-overlay)" aria-hidden="true"></span>
-          <input id="palette-input" name="palette-input" placeholder="Search sessions, workflows, commands…" style="flex:1;background:transparent;border:none;outline:none;color:var(--fg);font:inherit;font-size:var(--text-base)">
+          <input type="search" class="form-input" id="palette-input" name="palette-input"
+                 aria-label="Search commands" placeholder="Search sessions, workflows, commands…"
+                 style="flex:1;min-width:0">
         </div>
         <div class="palette-section">Sessions</div>
         <button type="button" class="palette-item palette-item--active">
@@ -1042,15 +1044,15 @@ done.<span class="streaming"></span></code></pre>
       <div class="grid-3">
         <div>
           <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Checkbox</div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-on" checked><label class="form-label t-caption tracking-caps" for="cb-on">Checked</label></div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-off"><label class="form-label t-caption tracking-caps" for="cb-off">Unchecked</label></div>
-          <div class="form-field form-field--checkbox"><input type="checkbox" class="form-checkbox" id="cb-dis" disabled><label class="form-label t-caption tracking-caps" for="cb-dis">Disabled</label></div>
+          <label class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-on" checked><span class="form-label t-caption tracking-caps">Checked</span></label>
+          <label class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="checkbox" class="form-checkbox" id="cb-off"><span class="form-label t-caption tracking-caps">Unchecked</span></label>
+          <label class="form-field form-field--checkbox"><input type="checkbox" class="form-checkbox" id="cb-dis" disabled><span class="form-label t-caption tracking-caps">Disabled</span></label>
         </div>
         <div>
           <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Radio</div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-on" checked><label class="form-label t-caption tracking-caps" for="rb-on">Selected</label></div>
-          <div class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-off"><label class="form-label t-caption tracking-caps" for="rb-off">Unselected</label></div>
-          <div class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="demo-r2" id="rb-dis" disabled><label class="form-label t-caption tracking-caps" for="rb-dis">Disabled</label></div>
+          <label class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-on" checked><span class="form-label t-caption tracking-caps">Selected</span></label>
+          <label class="form-field form-field--checkbox" style="margin-bottom:var(--sp-2)"><input type="radio" class="form-radio" name="demo-r" id="rb-off"><span class="form-label t-caption tracking-caps">Unselected</span></label>
+          <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="demo-r2" id="rb-dis" disabled><span class="form-label t-caption tracking-caps">Disabled</span></label>
         </div>
         <div>
           <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Toggle (<code>.form-field--inline</code>)</div>
@@ -1235,10 +1237,10 @@ done.<span class="streaming"></span></code></pre>
             <label class="form-label t-caption tracking-caps" for="demo-dialog-brief">Implementation brief</label>
             <textarea class="form-textarea" id="demo-dialog-brief" placeholder="What should change in the codebase?"></textarea>
           </div>
-          <div class="form-field form-field--checkbox">
+          <label class="form-field form-field--checkbox">
             <input type="checkbox" class="form-checkbox" id="demo-dialog-auto" checked>
-            <label class="form-label t-caption tracking-caps" for="demo-dialog-auto">Auto-accept the diff</label>
-          </div>
+            <span class="form-label t-caption tracking-caps">Auto-accept the diff</span>
+          </label>
           <div class="form-field">
             <label class="form-label t-caption tracking-caps" for="demo-dialog-dod">Definition of done</label>
             <textarea class="form-textarea" id="demo-dialog-dod" placeholder="How do we know it is finished?"></textarea>
@@ -1513,11 +1515,13 @@ done.<span class="streaming"></span></code></pre>
       <a class="skip-link" href="#skip-target">Skip to content</a>
       <div class="sidebar">
         <div class="sidebar-header"><span class="logo">DartClaw</span></div>
+        <div class="sidebar-body">
         <div class="sidebar-section">
           <div class="sidebar-section-label">Workspace</div>
           <a class="sidebar-nav-item" data-icon="health">Health</a>
           <hr class="sidebar-divider">
           <a class="sidebar-nav-item" data-icon="settings">Settings</a>
+        </div>
         </div>
       </div>
       <div class="topbar"><div class="session-title-static">Long page</div></div>
@@ -1536,11 +1540,34 @@ done.<span class="streaming"></span></code></pre>
     <div class="shell demo-shell">
       <div class="sidebar" id="demo-sidebar">
         <div class="sidebar-header"><span class="claw-mark" style="font-size:var(--text-base)"></span><span class="logo">DartClaw</span></div>
-        <button type="button" class="btn btn-ghost btn-new-session" style="width:calc(100% - var(--sp-6))">+ New Session</button>
+        <div class="sidebar-body">
         <div class="session-list">
+          <section class="sidebar-chat-section" aria-labelledby="demo-chats-label">
+          <div class="sidebar-section-label" id="demo-chats-label">Chats</div>
+          <button type="button" class="btn-new-session">
+            <span class="btn-new-session-icon" data-icon="new-session" aria-hidden="true"></span>
+            <span class="btn-new-session-label">New Chat</span>
+          </button>
+          <hr class="sidebar-chat-divider">
           <div class="session-item active">Refactor auth module <button type="button" class="delete-btn" aria-label="Delete session">&times;</button></div>
+          <div class="session-item">Untitled draft</div>
           <div class="session-item">Debug API endpoints</div>
           <div class="session-item">Setup scaffold</div>
+          </section>
+        </div>
+        <div class="sidebar-footer">
+          <details class="sidebar-system-menu">
+            <summary class="sidebar-system-trigger">
+              <span class="sidebar-system-trigger-label" data-icon="server">System</span>
+              <span class="sidebar-system-chevron" data-icon="chevron-up" aria-hidden="true"></span>
+            </summary>
+            <nav class="sidebar-system-panel" aria-label="System navigation">
+              <a class="sidebar-nav-item" data-icon="tasks">Tasks</a>
+              <a class="sidebar-nav-item" data-icon="health">Health</a>
+              <a class="sidebar-nav-item" data-icon="settings">Settings</a>
+            </nav>
+          </details>
+        </div>
         </div>
       </div>
       <button type="button" class="sidebar-scrim" id="demo-sidebar-scrim" aria-label="Close sidebar"></button>
@@ -1583,10 +1610,20 @@ done.<span class="streaming"></span></code></pre>
     <div class="shell demo-shell demo-shell--short">
       <div class="sidebar" id="demo-page-sidebar">
         <div class="sidebar-header"><span class="claw-mark" style="font-size:var(--text-base)"></span><span class="logo">DartClaw</span></div>
-        <div class="session-list">
-          <div class="sidebar-section-label">System</div>
-          <div class="sidebar-nav-item active">Tasks</div>
-          <div class="sidebar-nav-item">Health</div>
+        <div class="sidebar-body">
+        <div class="session-list"></div>
+        <div class="sidebar-footer">
+          <details class="sidebar-system-menu">
+            <summary class="sidebar-system-trigger">
+              <span class="sidebar-system-trigger-label" data-icon="server">System &middot; Tasks</span>
+              <span class="sidebar-system-chevron" data-icon="chevron-up" aria-hidden="true"></span>
+            </summary>
+            <nav class="sidebar-system-panel" aria-label="System navigation">
+              <a class="sidebar-nav-item active" aria-current="page" data-icon="tasks">Tasks</a>
+              <a class="sidebar-nav-item" data-icon="health">Health</a>
+            </nav>
+          </details>
+        </div>
         </div>
       </div>
       <button type="button" class="sidebar-scrim" aria-label="Close sidebar"></button>
@@ -1610,7 +1647,7 @@ done.<span class="streaming"></span></code></pre>
   </div>
 
   <script>
-    const demoSidebar = document.querySelector('.demo-shell .sidebar');
+    const demoSidebar = document.getElementById('demo-sidebar');
     const demoMenuToggle = document.getElementById('demo-menu-toggle');
     const demoSidebarScrim = document.getElementById('demo-sidebar-scrim');
 

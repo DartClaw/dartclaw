@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:test/test.dart';
 
@@ -9,6 +10,7 @@ void main() {
 
   final componentsCssPath = '$baseDir/app.css';
   final designSystemCssPath = '$baseDir/design-system.css';
+  final tokensCssPath = '$baseDir/tokens.css';
 
   group('legacy static asset removal', () {
     test('streaming cursor retains the canonical block glyph', () {
@@ -190,6 +192,8 @@ void main() {
       expect(source, contains("JSON.stringify({ reason: 'operator_cancel' })"));
       expect(source, contains('[data-turn-cancel]'));
       expect(source, contains('panel.hidden = !hasActiveTurn'));
+      expect(source, contains('activeTurnStates.has(state)'));
+      expect(source, contains('button.hidden = !hasActiveTurn || data.can_cancel !== true'));
       expect(source, contains("button.removeAttribute('data-turn-id')"));
     });
 
@@ -199,6 +203,17 @@ void main() {
       expect(source, contains("sessionPath + '/turns/' + encodeURIComponent(status.turn_id) + '/cancel'"));
       expect(source, contains("JSON.stringify({ reason: 'operator_cancel' })"));
       expect(source, isNot(contains("fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/turn/stop'")));
+    });
+
+    test('chat title and send mutations synchronously retire draft reuse', () {
+      final shellSource = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
+      final chatSource = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
+
+      expect(shellSource, contains('beginSessionDraftMutation(sessionId)'));
+      expect(shellSource, contains('endSessionDraftMutation(sessionId)'));
+      expect(chatSource, contains('beginSessionDraftMutation(this.sessionId)'));
+      expect(chatSource, contains('endSessionDraftMutation(this.sessionId)'));
+      expect(shellSource, contains("'dartclaw:session-draft-mutation-complete'"));
     });
 
     test('feedback controllers use canonical loaders and progress primitives', () {
@@ -249,6 +264,109 @@ void main() {
       expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 min(6rem, 30%); }'));
     });
 
+    test('dynamic forms compose canonical labels and workflow action hierarchy', () {
+      final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
+      final workflowSource = File('$baseDir/controllers/dc_workflows_controller.js').readAsStringSync();
+
+      expect(settingsSource, isNot(contains("className = 'form-label t-label'")));
+      expect(settingsSource, contains("className = 'form-label t-caption tracking-caps'"));
+      expect(workflowSource, isNot(contains('class="form-label t-label"')));
+      expect(workflowSource, contains('class="form-label t-caption tracking-caps"'));
+      expect(workflowSource, contains("const controlId = 'workflow-var-' + index"));
+      expect(workflowSource, contains('id="\' + controlId + \'" name="wf-var-'));
+      expect(workflowSource, contains('for="\' + controlId + \'">'));
+      expect(workflowSource, contains("submitBtn.classList.toggle('btn-secondary', target === 'workflow')"));
+      expect(workflowSource, contains("submitBtn.classList.toggle('btn-primary', target !== 'workflow')"));
+      expect(workflowSource, contains("submitBtn.classList.remove('btn-secondary')"));
+      expect(workflowSource, contains("submitBtn.classList.add('btn-primary')"));
+    });
+
+    test('sidebar creation action is a quiet full-width command below Chats', () {
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+      final iconsCss = File('$baseDir/icons.css').readAsStringSync();
+      final sidebarTemplatePath = baseDir.startsWith('lib/')
+          ? 'lib/src/templates/sidebar.html'
+          : 'packages/dartclaw_server/lib/src/templates/sidebar.html';
+      final sidebarSource = File(sidebarTemplatePath).readAsStringSync();
+      final sidebarSectionsSource = File('$baseDir/controllers/sidebar_sections.js').readAsStringSync();
+
+      expect(sidebarSource, contains('class="sidebar-body"'));
+      expect(sidebarSource, contains('class="sidebar-chat-section"'));
+      expect(sidebarSource, contains('type="button" class="btn-new-session"'));
+      expect(sidebarSource, contains('class="btn-new-session-icon" data-icon="new-session"'));
+      expect(sidebarSource, contains('class="sidebar-chat-divider"'));
+      expect(sidebarSource, isNot(contains('sidebar-section-heading')));
+      expect(
+        RegExp(
+          r'\.btn-new-session\s*\{[^}]*width:\s*calc\(100% - \(2 \* var\(--sp-2\)\)\);[^}]*min-height:\s*40px;'
+          r'[^}]*border:\s*1px solid transparent;[^}]*background:\s*transparent;',
+        ).hasMatch(designSystemCss),
+        isTrue,
+      );
+      expect(designSystemCss, contains('.btn-new-session:hover { background: var(--bg-surface0); }'));
+      expect(designSystemCss, contains('.btn-new-session:disabled { cursor: wait; opacity: 0.6; }'));
+      expect(designSystemCss, contains('.btn-new-session:focus-visible {'));
+      expect(designSystemCss, contains('.btn-new-session { min-height: 48px; }'));
+      expect(designSystemCss, contains('.sidebar-body { overflow: hidden; }'));
+      expect(designSystemCss, contains('.sidebar-body .session-list { flex: 1; min-height: 0; overflow-y: auto; }'));
+      expect(sidebarSectionsSource, contains("sidebar.querySelector('.sidebar-chat-section')"));
+      expect(sidebarSectionsSource, contains('workflowSection || chatsSection'));
+      expect(iconsCss, contains('[data-icon="server"]::before'));
+      expect(iconsCss, contains('[data-icon="chevron-up"]::before'));
+    });
+
+    test('mobile sidebar disclosures share the 48px touch floor', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+
+      expect(appCss, contains('@media (max-width: 768px) {\n  .sidebar-archive-toggle { min-height: 48px; }'));
+    });
+
+    test('light theme uses visible Aurora washes without sacrificing muted-text contrast', () {
+      final tokensCss = File(tokensCssPath).readAsStringSync();
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+      final lightTheme = tokensCss.substring(tokensCss.indexOf('[data-theme="light"]'));
+
+      expect(lightTheme, contains('--ambient-a: color-mix(in srgb, #1e66f5 14%, transparent);'));
+      expect(lightTheme, contains('--ambient-b: color-mix(in srgb, var(--mauve) 13%, transparent);'));
+      expect(lightTheme, contains('--ambient-c: color-mix(in srgb, #179299 12%, transparent);'));
+      expect(lightTheme, contains('--ambient-d: color-mix(in srgb, #40a02b 10%, transparent);'));
+      expect(lightTheme, contains('--glass-bg: color-mix(in srgb, #ffffff 66%, transparent);'));
+      expect(lightTheme, contains('--bg-base:     #e4e7ef;'));
+      expect(lightTheme, contains('--bg-ground-edge: color-mix(in oklab, var(--bg-base) 98%, var(--bg-crust));'));
+      expect(lightTheme, contains('--fg-sub0:     #565b71;'));
+      expect(lightTheme, contains('--fg-overlay:  #50556b;'));
+      expect(lightTheme, isNot(contains('--ambient-a: color-mix(in oklab, var(--bg-mantle)')));
+
+      // The coloured portions are spatially disjoint. Pinning their geometry
+      // keeps per-wash contrast checks representative of the rendered ground.
+      expect(
+        designSystemCss,
+        contains('radial-gradient(ellipse 70% 58% at 85% -6%, var(--ambient-a), transparent 74%)'),
+      );
+      expect(
+        designSystemCss,
+        contains('radial-gradient(ellipse 62% 50% at 42% 40%, var(--ambient-b), transparent 74%)'),
+      );
+      expect(
+        designSystemCss,
+        contains('radial-gradient(ellipse 60% 50% at 92% 98%, var(--ambient-c), transparent 74%)'),
+      );
+      expect(
+        designSystemCss,
+        contains('radial-gradient(ellipse 44% 38% at 3% -4%, var(--ambient-d), transparent 72%)'),
+      );
+
+      // One channel below the rounded 98/2 ground-edge mix is a conservative
+      // bound for its unrounded darkest endpoint beneath every wash.
+      const ground = '#e3e6ee';
+      const mutedTexts = ['#565b71', '#50556b'];
+      for (final wash in const [('#1e66f5', 0.14), ('#8839ef', 0.13), ('#179299', 0.12), ('#40a02b', 0.10)]) {
+        for (final mutedText in mutedTexts) {
+          expect(_contrastRatio(_mixHex(wash.$1, ground, wash.$2), mutedText), greaterThanOrEqualTo(4.5));
+        }
+      }
+    });
+
     test('app CSS does not shadow canonical message treatments', () {
       final appCss = File(componentsCssPath).readAsStringSync();
       final designSystemCss = File(designSystemCssPath).readAsStringSync();
@@ -268,6 +386,7 @@ void main() {
       expect(designSystemCss, contains('.input-area .btn-send { min-height: 48px; }'));
       expect(designSystemCss, contains('.btn { min-width: 48px; min-height: 48px; }'));
       expect(designSystemCss, contains('.sidebar-nav-item { min-height: 48px; }'));
+      expect(designSystemCss, contains('label.form-field--checkbox { min-height: 48px; }'));
       // Height only on the bare rule: a min-width floor stretches narrow inline
       // chips that happen to be buttons. Square targets set their own width.
       expect(appCss, contains('button,\n  summary,\n  [role="button"] {\n    min-height: 48px;\n  }'));
@@ -335,6 +454,12 @@ void main() {
       expect(designSystemCss, contains('scrollbar-color: var(--fg-sub0) transparent;'));
       expect(
         RegExp(r'\.tabs::\-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(--fg-sub0\);').hasMatch(designSystemCss),
+        isTrue,
+      );
+      expect(
+        RegExp(
+          r'\.tabs::after\s*\{[^}]*width:\s*var\(--sp-5\);[^}]*color-mix\(in srgb, var\(--fg\) 24%, transparent\)',
+        ).hasMatch(designSystemCss),
         isTrue,
       );
       expect(RegExp(r'^\.settings-tabs?\b', multiLine: true).hasMatch(appCss), isFalse);
@@ -570,10 +695,44 @@ void main() {
       expect(designSystemCss, contains('.status-dot--live::after'));
     });
 
-    test('shell uses shrinkable content tracks on desktop and mobile', () {
-      final css = File(designSystemCssPath).readAsStringSync();
-      expect(css, contains('grid-template-columns: var(--sidebar-w) minmax(0, 1fr);'));
-      expect(css, contains('.shell { grid-template-columns: minmax(0, 1fr); }'));
+    test('shell contains entry motion while page surfaces retain scroll ownership', () {
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+      final appCss = File(componentsCssPath).readAsStringSync();
+
+      expect(designSystemCss, contains('grid-template-columns: var(--sidebar-w) minmax(0, 1fr);'));
+      expect(designSystemCss, contains('grid-template-rows: var(--topbar-h) minmax(0, 1fr);'));
+      expect(designSystemCss, contains('height: 100dvh;\n  overflow: hidden;'));
+      expect(designSystemCss, contains('.shell { grid-template-columns: minmax(0, 1fr); }'));
+      expect(designSystemCss, contains('.content-area {\n  min-height: 0;\n  overflow-y: auto;'));
+      expect(
+        designSystemCss,
+        contains('.chat-area {\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  min-height: 0;'),
+      );
+      expect(
+        designSystemCss,
+        contains('.messages {\n  flex: 1;\n  display: flex;\n  flex-direction: column;\n  overflow-y: auto;'),
+      );
+      expect(designSystemCss, contains('@starting-style {\n  .print-in {\n    opacity: 0;\n    translate: 0 6px;'));
+      expect(appCss, contains('.page-content { position: relative; min-height: 0; overflow-y: auto;'));
+      expect(
+        appCss,
+        contains(
+          '.shell > .shell-main {\n  grid-row: 1 / -1;\n  display: flex;\n  flex-direction: column;\n  min-height: 0;',
+        ),
+      );
+      expect(appCss, contains('.shell-main > #main-content { flex: 1 1 auto; min-height: 0; }'));
+      expect(appCss, contains('.pairing-main { overflow-y: auto;'));
+
+      final appShellDeclarations = RegExp(
+        r'^\s*\.shell\s*\{([^}]*)\}',
+        multiLine: true,
+        dotAll: true,
+      ).allMatches(appCss).map((match) => match.group(1)!).join('\n');
+      expect(
+        appShellDeclarations,
+        isNot(contains(RegExp(r'overflow(?:-[xy])?\s*:'))),
+        reason: 'app.css loads after canon and must not override shell containment',
+      );
     });
   });
 
@@ -857,6 +1016,30 @@ void main() {
       expect(request.indexOf('if (leaving.length === 0) {'), lessThan(gate));
     });
   });
+}
+
+String _mixHex(String foreground, String background, double alpha) {
+  final mixed = List<int>.generate(3, (index) {
+    final offset = 1 + index * 2;
+    final foregroundChannel = int.parse(foreground.substring(offset, offset + 2), radix: 16);
+    final backgroundChannel = int.parse(background.substring(offset, offset + 2), radix: 16);
+    return (foregroundChannel * alpha + backgroundChannel * (1 - alpha)).round();
+  });
+  return '#${mixed.map((channel) => channel.toRadixString(16).padLeft(2, '0')).join()}';
+}
+
+double _contrastRatio(String first, String second) {
+  final luminances = [_relativeLuminance(first), _relativeLuminance(second)]..sort();
+  return (luminances.last + 0.05) / (luminances.first + 0.05);
+}
+
+double _relativeLuminance(String color) {
+  final channels = List<double>.generate(3, (index) {
+    final offset = 1 + index * 2;
+    final value = int.parse(color.substring(offset, offset + 2), radix: 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
 }
 
 /// The body of a named JS function, so an assertion about one call site cannot

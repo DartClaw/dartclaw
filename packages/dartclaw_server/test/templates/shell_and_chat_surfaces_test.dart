@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_server/src/templates/chat.dart';
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/session_info.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
@@ -61,10 +62,81 @@ void main() {
     test('put the rail rows in canon\'s scroll region so overflow stays reachable', () {
       final html = sidebarTemplate(mainSession: _session('main', 'claude'), navItems: const []);
 
-      // .sidebar is overflow:hidden; without this wrapper an expanded archive
-      // clips the SYSTEM nav away with no scrollbar.
+      // .sidebar is overflow:hidden; without this wrapper a long chat list
+      // clips rows away instead of scrolling above the fixed footer.
+      expect(html, contains('<div class="sidebar-body">'));
       expect(html, contains('<div class="session-list">'));
     });
+
+    test('places a quiet full-width creation command beneath the Chats label', () {
+      final html = sidebarTemplate(
+        mainSession: _session('main', 'claude'),
+        activeEntries: [_session('s1', 'codex')],
+        navItems: const [],
+      );
+
+      expect(html, contains('<section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">'));
+      expect(html, contains('<div class="sidebar-section-label" id="sidebar-chats-label">Chats</div>'));
+      expect(html, contains('<button type="button" class="btn-new-session" data-session-create="true">'));
+      expect(html, contains('<span class="btn-new-session-icon" data-icon="new-session" aria-hidden="true"></span>'));
+      expect(html, contains('<span class="btn-new-session-label">New Chat</span>'));
+      expect(html, contains('<hr class="sidebar-chat-divider">'));
+      expect(html, isNot(contains('sidebar-section-heading')));
+      expect(html, isNot(contains('class="btn btn-ghost btn-sm btn-new-session"')));
+
+      final section = html.substring(
+        html.indexOf('<section class="sidebar-chat-section"'),
+        html.indexOf('</section>', html.indexOf('<section class="sidebar-chat-section"')),
+      );
+      expect(
+        section.indexOf('id="sidebar-chats-label">Chats</div>'),
+        lessThan(section.indexOf('class="btn-new-session"')),
+      );
+      expect(section.indexOf('class="btn-new-session"'), lessThan(section.indexOf('sidebar-chat-divider')));
+      expect(section.indexOf('sidebar-chat-divider'), lessThan(section.indexOf('class="session-item"')));
+    });
+
+    test('distinguishes an untitled draft from the creation command and collapses system navigation', () {
+      final html = sidebarTemplate(
+        activeEntries: const [(id: 'draft', title: '', type: SessionType.user, provider: 'claude')],
+        activeSessionId: 'draft',
+        navItems: const [
+          (label: 'Health', href: '/health-dashboard', active: true, navGroup: 'system', icon: 'health'),
+          (label: 'Settings', href: '/settings', active: false, navGroup: 'system', icon: 'settings'),
+        ],
+      );
+
+      expect(RegExp('New Chat').allMatches(html), hasLength(1));
+      expect(html, contains('Untitled draft'));
+      expect(html, contains('<details class="sidebar-system-menu">'));
+      expect(html, contains('System · Health'));
+      expect(html, contains('<nav class="sidebar-system-panel" aria-label="System navigation">'));
+      expect(html, contains('aria-current="page"'));
+    });
+
+    test('keeps the workspace Agent identity outside mutable chat title sync', () {
+      final html = sidebarTemplate(
+        mainSession: (id: 'main', title: 'What is 42?', type: SessionType.main, provider: 'claude'),
+        activeEntries: [_session('chat-1', 'claude')],
+      );
+
+      expect(html, contains('<span class="session-item-title">Agent</span>'));
+      expect(html, isNot(contains('data-session-title-id="main"')));
+      expect(html, contains('data-session-title-id="chat-1"'));
+    });
+  });
+
+  test('session reset uses the destructive entry-point treatment', () {
+    final html = topbarTemplate(title: 'Chat', sessionId: 'session-1', sessionType: SessionType.user);
+
+    expect(html, contains('class="btn btn-danger btn-sm btn-reset"'));
+  });
+
+  test('uses the draft label for a blank session title', () {
+    final html = topbarTemplate(title: '', sessionId: 'session-1', sessionType: SessionType.user);
+
+    expect(html, contains('value="Untitled draft"'));
+    expect(html, isNot(contains('value="New Chat"')));
   });
 
   group('turn-status panel', () {
@@ -147,6 +219,40 @@ void main() {
       );
 
       expect(view!['globalTimeoutAt'], isEmpty);
+    });
+
+    test('renders only active turn states', () {
+      for (final state in ['idle', 'completed', 'cancelled', 'failed']) {
+        expect(sessionTurnStatusView(statusWith({'state': state}), fallbackSessionId: 'sess-1'), isNull);
+      }
+      for (final state in ['running', 'waiting', 'stuck', 'cancelling']) {
+        expect(sessionTurnStatusView(statusWith({'state': state}), fallbackSessionId: 'sess-1'), isNotNull);
+      }
+    });
+
+    test('hides an unavailable cancel action without removing its live-update target', () {
+      final html = chatAreaTemplate(
+        sessionId: 'sess-1',
+        messagesHtml: '',
+        turnStatus: statusWith({'state': 'running', 'can_cancel': false}),
+      );
+
+      expect(html, contains('data-turn-cancel'));
+      expect(html, contains('hidden=""'));
+      expect(html, contains('disabled="disabled"'));
+    });
+
+    test('keeps an inert live-update mount when no turn is active', () {
+      final html = chatAreaTemplate(
+        sessionId: 'sess-1',
+        messagesHtml: '',
+        turnStatus: const {'session_id': 'sess-1', 'state': 'completed', 'can_cancel': false},
+      );
+
+      expect(html, contains('class="turn-status-panel" hidden=""'));
+      expect(html, contains('data-turn-status-session-id="sess-1"'));
+      expect(html, contains('data-turn-cancel'));
+      expect(html, contains('disabled="disabled"'));
     });
   });
 

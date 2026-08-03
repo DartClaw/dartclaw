@@ -118,7 +118,8 @@ as a firehose for unrelated material.
 `dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Web chat receives the onboarding instructions until the agent
 calls `onboarding_complete`, the user defers, or the sentinel expires. Non-web task, cron, channel, advisor, and
 evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
-write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes.
+write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes. Ordinary init also uses draft mode when
+either `USER.md` or `SOUL.md` already exists; direct writes are allowed only when init created both fresh stubs.
 
 ### HEARTBEAT.md -- Periodic Checklist
 Human-maintained. Processed by the heartbeat scheduler at configured intervals (default: 30 minutes).

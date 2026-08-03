@@ -1,5 +1,11 @@
 All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_cli`.
 
+## Unreleased
+
+### Fixed
+- macOS LaunchAgents preserve the installer shell's absolute PATH entries and refresh loaded definitions on reinstall
+- Init protects pre-existing behavior files with draft onboarding and upgrades exact legacy generated instructions
+
 ## 0.9.0
 
 ### Added

@@ -12,6 +12,7 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 - `Task.toJson()` / `Task.fromJson()` now use nested `agentExecution` and `workflowStepExecution` objects instead of re-emitting provider/session/budget/workflow fields at the top level
 - `Task.toJson()` emits `workflowStepExecution` only when a real hydrated `WorkflowStepExecution` is present. The legacy synthesis that fabricated a stand-in nested object from bare `workflowRunId`/`stepIndex` flat fields (producing `stepId: 'legacy-step-<n>'` and `agentExecutionId: 'legacy-ae:<id>'` placeholders) has been removed — the public task payload must reflect actual persistence state, not back-compat reconstruction
 - `SessionService.getOrCreateByKey` now uses `RepoLock` for deterministic concurrent session-key creation
+- Channel lifecycle logs say started rather than implying transport-specific readiness
 
 ## 0.9.0
 

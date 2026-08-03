@@ -136,6 +136,9 @@ void main() {
         final def = _load(file);
         expect(def.name, isNotEmpty, reason: '$file must declare a name');
         expect(def.steps, isNotEmpty, reason: '$file must declare at least one step');
+        final report = WorkflowDefinitionValidator().validate(def);
+        expect(report.errors, isEmpty, reason: '$file must load without validation errors');
+        expect(report.warnings, isEmpty, reason: '$file must load without validation warnings');
       }
     });
 
@@ -213,6 +216,18 @@ void main() {
     test('spec-and-implement and code-review begin with their respective guard/work step', () {
       expect(_load('spec-and-implement.yaml').steps.first.id, 'detect-spec-input');
       expect(_load('code-review.yaml').steps.first.id, 'review-code');
+    });
+
+    test('spec_path producers share a lifecycle-safe description', () {
+      const description =
+          'Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.';
+      final def = _load('spec-and-implement.yaml');
+      final producers = def.steps.where((step) => step.outputs?.containsKey('spec_path') ?? false);
+
+      expect(producers, hasLength(2));
+      for (final producer in producers) {
+        expect(_effectiveDescription(producer.outputs!['spec_path']), description, reason: producer.id);
+      }
     });
 
     test('plan-and-implement runs implement → simplify-code → review → nested loop per story', () {
@@ -941,7 +956,7 @@ void main() {
         final output = detect.outputs!['spec_path']!;
         expect(output.format, OutputFormat.path, reason: '$file → detect-spec-input.spec_path');
         expect(output.presetName, isNull, reason: '$file → detect-spec-input uses inline output shape');
-        expect(_effectiveDescription(output), contains('empty when input requires spec synthesis'), reason: file);
+        expect(_effectiveDescription(output), contains('empty'), reason: file);
       }
     });
 

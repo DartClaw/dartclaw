@@ -45,6 +45,10 @@ class FakeSignalCliManager extends SignalCliManager {
   Future<bool> isAccountRegistered() async => fakeRegistered;
 
   @override
+  Future<SignalRegistrationState> registrationState() async =>
+      fakeRegistered ? SignalRegistrationState.registered : SignalRegistrationState.unregistered;
+
+  @override
   Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async => fakeLinkUri;
 
   @override

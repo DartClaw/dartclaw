@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannelManager;
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +16,8 @@ class FakeSignalCliManager extends SignalCliManager {
   bool wasReset = false;
   final List<(String, String)> sentMessages = [];
   bool fakeHealthy = true;
+  SignalRegistrationState fakeRegistrationState = SignalRegistrationState.registered;
+  int registrationChecks = 0;
 
   final StreamController<Map<String, dynamic>> _fakeEvents = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -47,6 +50,12 @@ class FakeSignalCliManager extends SignalCliManager {
   @override
   Future<void> reset() async {
     wasReset = true;
+  }
+
+  @override
+  Future<SignalRegistrationState> registrationState() async {
+    registrationChecks++;
+    return fakeRegistrationState;
   }
 
   @override
@@ -137,6 +146,45 @@ void main() {
     test('connect starts sidecar and subscribes to events', () async {
       await channel.connect();
       expect(sidecar.started, isTrue);
+      expect(sidecar.registrationChecks, 1);
+    });
+
+    test('connect warns instead of claiming readiness without a registered account', () async {
+      sidecar.fakeRegistrationState = SignalRegistrationState.unregistered;
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      await channel.connect();
+
+      expect(records.where((record) => record.message == 'Signal channel connected'), isEmpty);
+      expect(
+        records,
+        contains(
+          isA<LogRecord>()
+              .having((record) => record.level, 'level', Level.WARNING)
+              .having((record) => record.message, 'message', contains('no account is registered')),
+        ),
+      );
+    });
+
+    test('connect reports an indeterminate registration check without claiming no account', () async {
+      sidecar.fakeRegistrationState = SignalRegistrationState.unknown;
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      await channel.connect();
+
+      expect(records.where((record) => record.message.contains('no account is registered')), isEmpty);
+      expect(
+        records,
+        contains(
+          isA<LogRecord>()
+              .having((record) => record.level, 'level', Level.WARNING)
+              .having((record) => record.message, 'message', contains('could not be confirmed')),
+        ),
+      );
     });
 
     test('disconnect resets sidecar for re-pairing', () async {

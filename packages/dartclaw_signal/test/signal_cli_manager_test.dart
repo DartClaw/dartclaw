@@ -49,7 +49,7 @@ void main() {
       }
 
       expect(capturedExe, '/usr/local/bin/signal-cli');
-      expect(capturedArgs, ['daemon', '--http', '0.0.0.0:9090']);
+      expect(capturedArgs, ['daemon', '--http', '0.0.0.0:9090', '--receive-mode', 'on-connection']);
     });
 
     test('start throws when already stopped', () async {
@@ -266,6 +266,145 @@ void main() {
         await sub.cancel();
         await server.close(force: true);
       }
+    });
+
+    test('verifySmsCode activates registration and reconnects the receive stream', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path == '/api/v1/events') {
+            sseConnections++;
+            request.response.headers.contentType = ContentType('text', 'event-stream');
+            request.response.write(': connected\n\n');
+            await request.response.flush();
+            return;
+          }
+
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
+          await request.response.close();
+        }());
+      });
+
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        delay: (_) async {},
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.verifySmsCode('123-456');
+      await pumpEventQueue(times: 10);
+
+      expect(mgr.wasPaired, isTrue);
+      expect(mgr.registeredPhone, '+12125550100');
+      expect(sseConnections, 1);
+    });
+
+    test('finishLink refreshes receiving and selects the linked account for sending', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final firstSse = Completer<HttpResponse>();
+      final secondSse = Completer<HttpResponse>();
+      final thirdSse = Completer<void>();
+      final rpcMethods = <String>[];
+      String? sendAccount;
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path == '/api/v1/events') {
+            sseConnections++;
+            request.response.headers.contentType = ContentType('text', 'event-stream');
+            switch (sseConnections) {
+              case 1:
+                request.response.write(': connected\n\n');
+                await request.response.flush();
+                firstSse.complete(request.response);
+                return;
+              case 2:
+                secondSse.complete(request.response);
+                return;
+              case 3:
+                request.response.write(
+                  'data: ${jsonEncode({
+                    'params': {
+                      'envelope': {'sourceNumber': '+12125550101'},
+                    },
+                  })}\n\n',
+                );
+                await request.response.close();
+                thirdSse.complete();
+                return;
+              default:
+                request.response.write(': connected\n\n');
+                await request.response.flush();
+                return;
+            }
+          }
+
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          final method = payload['method'] as String;
+          rpcMethods.add(method);
+          if (method == 'send') {
+            sendAccount = (payload['params'] as Map<String, dynamic>)['account'] as String?;
+          }
+          final result = switch (method) {
+            'startLink' => {'deviceLinkUri': 'sgnl://linkdevice?uuid=test'},
+            'finishLink' => {'number': '+12125550100'},
+            _ => null,
+          };
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': result}));
+          await request.response.close();
+        }());
+      });
+
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+19999999999',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final firstResponse = await firstSse.future.timeout(const Duration(seconds: 2));
+      final event = mgr.events.first;
+      await firstResponse.close();
+      final delayedResponse = await secondSse.future.timeout(const Duration(seconds: 2));
+
+      expect(await mgr.getLinkDeviceUri(), 'sgnl://linkdevice?uuid=test');
+      for (var i = 0; i < 20 && !mgr.wasPaired; i++) {
+        await pumpEventQueue(times: 1);
+      }
+      expect(mgr.wasPaired, isTrue);
+
+      delayedResponse.write(': connected\n\n');
+      await delayedResponse.flush();
+      await thirdSse.future.timeout(const Duration(seconds: 2));
+      await mgr.sendMessage('+12125550102', 'reply');
+
+      expect(sseConnections, greaterThanOrEqualTo(3));
+      expect(rpcMethods, ['startLink', 'finishLink', 'send']);
+      expect(sendAccount, '+12125550100');
+      expect(await event.timeout(const Duration(seconds: 2)), {
+        'envelope': {'sourceNumber': '+12125550101'},
+      });
     });
 
     test('events stream is broadcast', () {

@@ -1078,7 +1078,7 @@ abstract class _InitImpl extends Command<void> {
     final lines = <String>[
       if (state.whatsappEnabled) 'WhatsApp pairing: start the server, then scan the QR code shown in the logs.',
       if (state.signalEnabled)
-        'Signal linking: run `signal-cli link --name dartclaw` after the server is up, then restart DartClaw.',
+        'Signal linking: open http://localhost:${state.port}/signal/pairing after the server is up and scan the QR code.',
       if (state.googleChatEnabled)
         'Google Chat: register the webhook after startup at http://host:${state.port}/integrations/googlechat.',
     ];

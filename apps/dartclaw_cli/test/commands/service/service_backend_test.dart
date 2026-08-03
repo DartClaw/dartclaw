@@ -37,7 +37,11 @@ void main() {
   group('MacOSLaunchAgentBackend', () {
     test('install writes an instance-scoped plist and start uses the same instance', () async {
       final runner = _FakeRunner({'id': _ok('501'), 'launchctl': _ok()});
-      final backend = MacOSLaunchAgentBackend(run: runner.call, home: home);
+      final backend = MacOSLaunchAgentBackend(
+        run: runner.call,
+        home: home,
+        environment: {'PATH': '/opt/homebrew/bin::relative:/Users/test/a&b'},
+      );
 
       final install = await backend.install(
         binPath: '/usr/local/bin/dartclaw',
@@ -50,7 +54,53 @@ void main() {
 
       expect(install.success, isTrue);
       expect(start.success, isTrue);
-      expect(Directory('$home/Library/LaunchAgents').listSync().single.path, contains('com.dartclaw.agent.'));
+      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      expect(plist.path, contains('com.dartclaw.agent.'));
+      final content = plist.readAsStringSync();
+      expect(content, contains('<key>EnvironmentVariables</key>'));
+      expect(content, contains('<key>PATH</key>'));
+      expect(content, contains('<string>/opt/homebrew/bin:/Users/test/a&amp;b</string>'));
+      expect(content, isNot(contains('relative')));
+    });
+
+    test('reinstall refreshes the loaded definition', () async {
+      final runner = _FakeRunner({'id': _ok('501'), 'launchctl': _ok()});
+      final backend = MacOSLaunchAgentBackend(run: runner.call, home: home, environment: {'PATH': '/opt/homebrew/bin'});
+
+      for (var i = 0; i < 2; i++) {
+        expect(
+          (await backend.install(
+            binPath: '/usr/local/bin/dartclaw',
+            configPath: '$instanceDir/dartclaw.yaml',
+            port: 3333,
+            instanceDir: instanceDir,
+          )).success,
+          isTrue,
+        );
+      }
+
+      final launchctlCalls = runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first).toList();
+      expect(launchctlCalls, ['bootstrap', 'bootout', 'bootstrap']);
+    });
+
+    test('install falls back to the system PATH when no absolute entries exist', () async {
+      final runner = _FakeRunner({'id': _ok('501'), 'launchctl': _ok()});
+      final backend = MacOSLaunchAgentBackend(
+        run: runner.call,
+        home: home,
+        environment: {'PATH': 'relative::.', 'DARTCLAW_SECRET': 'must-not-be-written'},
+      );
+
+      await backend.install(
+        binPath: '/usr/local/bin/dartclaw',
+        configPath: '$instanceDir/dartclaw.yaml',
+        port: 3333,
+        instanceDir: instanceDir,
+      );
+
+      final content = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single.readAsStringSync();
+      expect(content, contains('<string>/usr/bin:/bin:/usr/sbin:/sbin</string>'));
+      expect(content, isNot(contains('must-not-be-written')));
     });
   });
 

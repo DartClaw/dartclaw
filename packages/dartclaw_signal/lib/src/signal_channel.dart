@@ -46,7 +46,16 @@ class SignalChannel extends Channel {
     }
     await sidecar.start();
     _eventSub = sidecar.events.listen(_handleEvent);
-    _log.info('Signal channel connected');
+    switch (await sidecar.registrationState()) {
+      case SignalRegistrationState.registered:
+        _log.info('Signal channel started with a registered account');
+      case SignalRegistrationState.unregistered:
+        _log.warning(
+          'Signal channel started, but no account is registered; inbound messages are unavailable until pairing completes',
+        );
+      case SignalRegistrationState.unknown:
+        _log.warning('Signal channel started, but account registration could not be confirmed');
+    }
   }
 
   @override

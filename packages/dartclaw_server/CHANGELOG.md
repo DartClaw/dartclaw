@@ -2,6 +2,9 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 
 ## Unreleased
 
+### Fixed
+- The default SOUL scaffold defers to active onboarding's direct-or-draft mutation policy
+
 ### Added
 - `WorkflowGitPortProcess`, the production adapter for workflow-layer git operations using DartClaw's sanitized git subprocess path
 

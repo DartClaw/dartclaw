@@ -8,6 +8,9 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show DelayFactory, HealthProbe, ProcessFactory, ProcessTerminationResult, SequentialLock, killWithEscalation;
 import 'package:logging/logging.dart';
 
+/// Result of querying signal-cli for a registered account.
+enum SignalRegistrationState { registered, unregistered, unknown }
+
 /// Manages signal-cli as a subprocess in daemon HTTP mode.
 ///
 /// Mirrors [GowaManager] for WhatsApp: spawn, health check, crash recovery
@@ -51,6 +54,7 @@ class SignalCliManager with SequentialLock {
   StreamSubscription<String>? _sseSub;
   HttpClient? _sseClient;
   bool _reconnecting = false;
+  bool _reconnectPending = false;
   int _rpcId = 0;
 
   SignalCliManager({
@@ -98,7 +102,7 @@ class SignalCliManager with SequentialLock {
     final gen = ++_generation;
     _log.info('Starting signal-cli (gen $gen): $executable on $host:$port');
 
-    final args = ['daemon', '--http', '$host:$port'];
+    final args = ['daemon', '--http', '$host:$port', '--receive-mode', 'on-connection'];
 
     try {
       _process = await _processFactory(executable, args);
@@ -143,9 +147,6 @@ class SignalCliManager with SequentialLock {
 
     _restartCount = 0;
     _log.info('signal-cli started successfully (gen $gen)');
-
-    // Restore registered account state (phone number may differ from config placeholder).
-    unawaited(isAccountRegistered());
 
     // Connect SSE stream — relays inbound message events from signal-cli daemon.
     unawaited(_connectSse());
@@ -230,6 +231,7 @@ class SignalCliManager with SequentialLock {
     _registeredPhone = null;
     _restartCount = 0;
     _reconnecting = false;
+    _reconnectPending = false;
   }
 
   // ---- JSON-RPC client methods ----
@@ -237,7 +239,7 @@ class SignalCliManager with SequentialLock {
   /// Send a text message via signal-cli JSON-RPC.
   Future<void> sendMessage(String recipient, String text) async {
     await _rpc('send', {
-      'account': phoneNumber,
+      'account': _registeredPhone ?? phoneNumber,
       'recipient': [recipient],
       'message': text,
     });
@@ -251,8 +253,11 @@ class SignalCliManager with SequentialLock {
   ///
   /// Also caches the registered phone number in [_registeredPhone] — this
   /// handles the case where [phoneNumber] is a config placeholder.
-  Future<bool> isAccountRegistered() async {
-    if (_wasPaired) return true;
+  Future<bool> isAccountRegistered() async => await registrationState() == SignalRegistrationState.registered;
+
+  /// Queries registration while preserving an indeterminate RPC result.
+  Future<SignalRegistrationState> registrationState() async {
+    if (_wasPaired) return SignalRegistrationState.registered;
     try {
       final result = await _rpc('listAccounts', {});
       if (result is List && result.isNotEmpty) {
@@ -266,13 +271,13 @@ class SignalCliManager with SequentialLock {
         if (_registeredPhone != null) {
           _wasPaired = true;
           _notifyRegistered(_registeredPhone!);
-          return true;
+          return SignalRegistrationState.registered;
         }
       }
-      return false;
+      return SignalRegistrationState.unregistered;
     } catch (e) {
       _log.fine('isAccountRegistered check failed: $e');
-      return false;
+      return SignalRegistrationState.unknown;
     }
   }
 
@@ -310,14 +315,11 @@ class SignalCliManager with SequentialLock {
         _rpc('finishLink', {'deviceLinkUri': uri, 'deviceName': deviceName}, timeout: _linkTimeout)
             .then((result) {
               _pendingLinkUri = null;
-              _wasPaired = true; // Account is now registered — unblock isAccountRegistered()
               if (result is Map) {
                 _registeredPhone = result['number'] as String? ?? result['account'] as String?;
               }
               _log.info('finishLink completed: $result');
-              if (_registeredPhone != null) _notifyRegistered(_registeredPhone!);
-              // Reconnect SSE so signal-cli routes events for the newly linked account.
-              unawaited(_reconnectSse());
+              _activateRegistration(_registeredPhone);
             })
             .catchError((Object e) {
               // Connection close is expected when user disconnects or
@@ -358,7 +360,18 @@ class SignalCliManager with SequentialLock {
 
   /// Verifies [code] received via SMS and completes registration.
   Future<void> verifySmsCode(String code, {String? phone}) async {
-    await _rpc('verify', {'account': phone ?? phoneNumber, 'verificationCode': code});
+    final account = phone ?? phoneNumber;
+    await _rpc('verify', {'account': account, 'verificationCode': code});
+    _activateRegistration(account);
+  }
+
+  void _activateRegistration(String? phone) {
+    _wasPaired = true;
+    if (phone != null && phone.isNotEmpty) {
+      _registeredPhone = phone;
+      _notifyRegistered(phone);
+    }
+    unawaited(_reconnectSse(queueIfActive: true));
   }
 
   // ---- Health check ----
@@ -447,16 +460,22 @@ class SignalCliManager with SequentialLock {
     }
   }
 
-  Future<void> _reconnectSse() async {
-    if (_reconnecting) return; // Single-flight guard (P1)
+  Future<void> _reconnectSse({bool queueIfActive = false}) async {
+    if (_reconnecting) {
+      if (queueIfActive) _reconnectPending = true;
+      return;
+    }
     _reconnecting = true;
     try {
-      await _sseSub?.cancel();
-      _sseSub = null;
-      _sseClient?.close(force: true);
-      _sseClient = null;
-      await _delay(const Duration(seconds: 2));
-      if (!_stopped) await _connectSse();
+      do {
+        _reconnectPending = false;
+        await _sseSub?.cancel();
+        _sseSub = null;
+        _sseClient?.close(force: true);
+        _sseClient = null;
+        await _delay(const Duration(seconds: 2));
+        if (!_stopped) await _connectSse();
+      } while (_reconnectPending && !_stopped);
     } finally {
       _reconnecting = false;
     }

@@ -70,7 +70,7 @@ Some channel features require the server to be running before they can complete.
 | Channel | Deferred step |
 |---------|---------------|
 | WhatsApp | QR-code pairing (scan shown in logs after `dartclaw serve`) |
-| Signal | Device link (`signal-cli link --name dartclaw`, then restart) |
+| Signal | Open `/signal/pairing` after startup and scan the device-link QR code |
 | Google Chat | Register webhook URL in Google Cloud Console using the configured audience type/value |
 
 #### Security defaults

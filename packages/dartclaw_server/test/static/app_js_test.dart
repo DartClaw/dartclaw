@@ -261,7 +261,21 @@ void main() {
       expect(workflowSource, contains('projectEl.hidden = !hasProjectVar'));
       expect(appCss, contains('[hidden] { display: none !important; }'));
       expect(appCss, contains('.workflow-list-loading .skeleton { width: 100%; min-height: 4rem; }'));
-      expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 min(6rem, 30%); }'));
+      expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 auto; width: min(6rem, 30%); }'));
+    });
+
+    test('pairing progress bars are independently centered', () {
+      final appCss = File(componentsCssPath).readAsStringSync();
+
+      expect(
+        appCss,
+        contains(
+          '.pairing-status-row {\n'
+          '  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); text-align: center;\n'
+          '}',
+        ),
+      );
+      expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 auto; width: min(6rem, 30%); }'));
     });
 
     test('dynamic forms compose canonical labels and workflow action hierarchy', () {

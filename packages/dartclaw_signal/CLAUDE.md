@@ -21,10 +21,11 @@
 ## Gotchas
 - Sealed-sender: an inbound envelope may have only `sourceUuid`, only `sourceNumber`, or both. The DM allowlist may hold either form. `SignalChannel._handleEvent` falls back to `metadata['sourceUuid']` against `dmAccess` and, on hit, **adds the senderJid to the allowlist** for future fast-path lookups — preserve this normalization.
 - `ownsJid()` accepts E.164 (`+...`) **or** lowercase UUIDv4. Any string containing `@` is rejected (that's WhatsApp). Do not loosen this — `ChannelManager` routes on it.
-- SSE reconnect uses a single-flight `_reconnecting` guard; never call `_connectSse` directly from new code paths — go through the manager's reconnect path.
+- SSE reconnect uses a single-flight `_reconnecting` guard; registration queues one trailing reconnect when the guard is active. Never call `_connectSse` directly from new code paths – use the manager's reconnect path.
+- The daemon must use `--receive-mode on-connection`. Registration can complete after daemon startup, so every successful registration path must reconnect SSE to activate receiving for the new account.
 - `SignalSenderMap._persist` chains writes through `_pendingWrite` to serialize concurrent updates; do not bypass with direct `File.writeAsString`.
 - `finishLink` long-polls up to 5 minutes (`_linkTimeout`) — never reuse `_apiTimeout` (10s) for it. Device-linking calls keep the request open until the user scans the QR.
-- Phone number passed to the constructor may be a placeholder; `registeredPhone` is only valid after `isAccountRegistered()` resolves — call sites must null-check.
+- Phone number passed to the constructor may be a placeholder; `registeredPhone` is only valid after `registrationState()` reports registered – call sites must null-check.
 
 ## Testing
 - `test/signal_cli_manager_test.dart` for sidecar lifecycle; `test/signal_channel_test.dart` for envelope→`ChannelMessage` normalization including UUID/phone fallback paths.

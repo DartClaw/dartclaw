@@ -179,7 +179,7 @@ and context-specific remediation text.
 │                                                                          │
 │  Sidecar binaries (outpost pattern):                                     │
 │    ├── GOWA (Go) — WhatsApp Web protocol                                │
-│    └── signal-cli (Java) — Signal protocol                              │
+│    └── signal-cli — Signal protocol                                     │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -245,7 +245,7 @@ Channels connect DartClaw to external messaging platforms. All follow the **outp
 | Channel | Sidecar | Protocol | Session Keying |
 |---------|---------|----------|----------------|
 | **WhatsApp** | GOWA (Go/whatsmeow) | REST + webhooks | `dmPerChannelContact()` / `groupShared()` |
-| **Signal** | signal-cli (Java) | REST + SSE events | `dmPerChannelContact()` / `groupShared()` |
+| **Signal** | signal-cli | REST + SSE events | `dmPerChannelContact()` / `groupShared()` |
 | **Google Chat** | None (pure REST) | Inbound webhook + REST API | `dmPerChannelContact()` / `groupShared()` |
 
 Common infrastructure:
@@ -881,7 +881,7 @@ Host OS
   │     └── network:none, cap-drop=ALL, read-only rootfs
   │
   ├── GOWA sidecar (optional, Go binary)
-  └── signal-cli sidecar (optional, Java)
+  └── signal-cli sidecar (optional)
 ```
 
 Credential flow: API keys live on the host. The `CredentialProxy` listens on a Unix socket, injecting credentials into API requests. Containers mount the socket directory and use `ANTHROPIC_BASE_URL=http+unix:///var/run/proxy.sock` to route API calls through the proxy. Credentials never exist inside Claude container environments.

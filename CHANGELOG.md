@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Signal pairing becomes receive-ready without a service restart** – signal-cli now receives on SSE connection, registration refreshes the receive stream, and startup distinguishes a registered account from a daemon that is merely reachable.
+- **macOS services preserve executable discovery** – LaunchAgents snapshot the installer shell's absolute PATH entries and refresh loaded definitions, so provider and channel binaries verified by `init` remain resolvable under launchd.
+- **Existing behavior files are protected during onboarding** – init selects draft-review mode whenever USER.md or SOUL.md already exists, upgrades exact legacy generated instructions, and keeps fresh SOUL/ONBOARDING policy consistent.
+- **Built-in workflow startup is warning-free** – both `spec_path` producers now publish the same context description.
+
 ## [0.22.0] - 2026-07-24
 
 ### Added

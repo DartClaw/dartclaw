@@ -20,7 +20,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         RetryPolicy,
         TaskTriggerConfig;
 export 'src/signal_channel.dart' show SignalChannel;
-export 'src/signal_cli_manager.dart' show SignalCliManager;
+export 'src/signal_cli_manager.dart' show SignalCliManager, SignalRegistrationState;
 export 'src/signal_config.dart' show SignalConfig;
 export 'src/signal_dm_access.dart' show SignalGroupAccessMode, SignalMentionGating;
 export 'src/signal_sender_map.dart' show SignalSenderMap;

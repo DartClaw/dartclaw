@@ -13,7 +13,7 @@ DartClaw supports four messaging channels as entry points for human-to-agent int
 | Channel | Transport | Sidecar / Integration | Package |
 |---------|-----------|----------------------|---------|
 | **WhatsApp** | GOWA webhook | Go binary (`gowa`) | `dartclaw_whatsapp` |
-| **Signal** | signal-cli SSE | Java binary (`signal-cli`) | `dartclaw_signal` |
+| **Signal** | signal-cli SSE | External binary (`signal-cli`) | `dartclaw_signal` |
 | **Google Chat** | REST API + Pub/Sub | Direct HTTP (no sidecar) | `dartclaw_google_chat` |
 | **Web UI** | Direct HTTP / SSE | Built into `dartclaw_server` | `dartclaw_server` |
 
@@ -21,7 +21,7 @@ Three principles govern channel design:
 
 1. **Normalize early** -- Every channel adapter converts platform-specific payloads into a single `ChannelMessage` model as close to the ingress point as possible. Downstream pipeline stages never see WhatsApp JIDs, Google Chat space names, or Signal envelopes directly.
 
-2. **Outpost pattern** -- WhatsApp and Signal use external binaries (GOWA in Go, signal-cli in Java) managed as subprocesses. No shared runtime, no dependency contamination. The Dart host communicates with these sidecars via their native REST/RPC APIs.
+2. **Outpost pattern** -- WhatsApp and Signal use external binaries (GOWA and signal-cli) managed as subprocesses. No shared runtime, no dependency contamination. The Dart host communicates with these sidecars via their native REST/RPC APIs.
 
 3. **Core abstractions, platform packages** -- The abstract `Channel` base class, `ChannelManager`, `MessageQueue`, thread binding, and the `ChannelTaskBridge` live in `dartclaw_core`. Per-platform adapters (`WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`) live in dedicated packages that depend on core. The Web channel is served directly by `dartclaw_server`.
 
@@ -608,7 +608,7 @@ Webhook payload parsing (GOWA v8 format):
 
 ### 9.1 signal-cli Sidecar
 
-Signal uses signal-cli, a Java application running in HTTP daemon mode:
+Signal uses signal-cli running in HTTP daemon mode:
 
 ```
 // packages/dartclaw_signal/lib/src/signal_cli_manager.dart
@@ -617,7 +617,7 @@ class SignalCliManager {
   Future<void> stop();
   Future<void> sendMessage(String recipient, String text);
   Future<String?> getLinkDeviceUri({String deviceName});  // QR linking
-  Future<bool> isAccountRegistered();
+  Future<SignalRegistrationState> registrationState();
   Stream<Map<String, dynamic>> get events;  // SSE event stream
 }
 ```
@@ -626,6 +626,7 @@ Key behaviors:
 - **SSE event stream** -- Connects to `/api/v1/events` for real-time inbound message notification
 - **JSON-RPC** -- All commands sent via JSON-RPC 2.0 to `/api/v1/rpc`
 - **Device linking** -- `getLinkDeviceUri()` starts a link session, caches the URI, and long-polls `finishLink` (5-minute timeout) until the user confirms on their phone
+- **Post-start registration** -- The daemon uses `--receive-mode on-connection`; successful registration reconnects SSE so accounts added after daemon startup immediately begin receiving
 - **Crash recovery** -- Same exponential backoff pattern as GOWA (max 5 attempts, 30s cap)
 - **SSE reconnection** -- Single-flight guard prevents concurrent reconnect attempts
 

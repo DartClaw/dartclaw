@@ -680,8 +680,10 @@
 }
 .pairing-qr-placeholder:not([hidden]) { display: flex; }
 .pairing-hint { font-size: var(--text-base); color: var(--fg-sub0); text-align: center; }
-.pairing-status-row { display: flex; align-items: center; gap: var(--sp-2); }
-.pairing-status-row .scan-bar { flex: 0 0 min(6rem, 30%); }
+.pairing-status-row {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); text-align: center;
+}
+.pairing-status-row .scan-bar { flex: 0 0 auto; width: min(6rem, 30%); }
 .pairing-connected-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
 .pairing-or-divider {
   display: flex; align-items: center; gap: var(--sp-3);

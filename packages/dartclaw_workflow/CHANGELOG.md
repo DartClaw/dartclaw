@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- The built-in spec-and-implement workflow no longer emits a duplicate-output description warning
+
 ### Added
 - `WorkflowGitPort` as the single mockable git boundary for workflow-layer git operations, including branch-state reads for `HEAD:<path>` artifact checks
 - Artefact commit redesign option notes covering copy-not-commit and artefact-branch-split follow-ups

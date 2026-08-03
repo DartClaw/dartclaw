@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-07-31.
-   sha256: 69e441321c020f5050d6a39869d9e173ab63aae6efeb77ab5016a631fd16cf07 */
+/* Synced from dev/design-system/components.css on 2026-08-01.
+   sha256: b8ce10f541e3885376d5d6a4986a73e44abde900fc1adb3f27fddd3c91eff15d */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -410,6 +410,7 @@ a:hover { text-decoration: underline; }
 }
 
 .sidebar-system-trigger {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -434,9 +435,20 @@ a:hover { text-decoration: underline; }
 }
 
 .sidebar-system-menu:has(.sidebar-nav-item.active) > .sidebar-system-trigger {
-  border-left-color: var(--accent);
   background: var(--bg-surface0);
   color: var(--accent);
+}
+
+.sidebar-system-menu:has(.sidebar-nav-item.active) > .sidebar-system-trigger::before {
+  content: '';
+  position: absolute;
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  left: var(--sp-2);
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .sidebar-system-trigger-label,

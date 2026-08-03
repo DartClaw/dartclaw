@@ -329,6 +329,27 @@ void main() {
       expect(iconsCss, contains('[data-icon="chevron-up"]::before'));
     });
 
+    test('system active indicator clears rounded window corners', () {
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+
+      expect(RegExp(r'\.sidebar-system-trigger\s*\{[^}]*position:\s*relative;').hasMatch(designSystemCss), isTrue);
+      expect(
+        RegExp(
+          r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger\s*\{'
+          r'[^}]*border-left-color:',
+        ).hasMatch(designSystemCss),
+        isFalse,
+      );
+      expect(
+        RegExp(
+          r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger::before\s*\{'
+          r'[^}]*top:\s*var\(--sp-2\);[^}]*bottom:\s*var\(--sp-2\);[^}]*left:\s*var\(--sp-2\);'
+          r'[^}]*width:\s*2px;[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
+        ).hasMatch(designSystemCss),
+        isTrue,
+      );
+    });
+
     test('mobile sidebar disclosures share the 48px touch floor', () {
       final appCss = File(componentsCssPath).readAsStringSync();
 

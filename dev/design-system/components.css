@@ -408,6 +408,7 @@ a:hover { text-decoration: underline; }
 }
 
 .sidebar-system-trigger {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -432,9 +433,20 @@ a:hover { text-decoration: underline; }
 }
 
 .sidebar-system-menu:has(.sidebar-nav-item.active) > .sidebar-system-trigger {
-  border-left-color: var(--accent);
   background: var(--bg-surface0);
   color: var(--accent);
+}
+
+.sidebar-system-menu:has(.sidebar-nav-item.active) > .sidebar-system-trigger::before {
+  content: '';
+  position: absolute;
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  left: var(--sp-2);
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .sidebar-system-trigger-label,

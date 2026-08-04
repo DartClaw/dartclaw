@@ -487,7 +487,7 @@ the underlying integration exposes native typing/presence support.
 - [x] Signal and WhatsApp direct/group transport contracts and disconnect ordering are covered by deterministic tests.
 - [x] User guides document typing behavior and paired-device DM/group checks.
 
-**Commit**: Pending – complete in the current 0.22.1 working tree as of 2026-08-04.
+**Commit**: `7992cd29`.
 
 **Verification note**: Focused core/Signal/WhatsApp/server coverage passed 149 tests; the full CI-equivalent workspace gate,
 architecture checks, and fitness checks passed afterward. Live paired Signal/WhatsApp verification remains a manual
@@ -511,10 +511,10 @@ response body stalls must not occupy the sidecar operation indefinitely.
 - [x] A daemon that sends headers or a partial body and then stalls times out within the operation bound.
 - [x] SMS verification proves an already-running receiver is replaced after registration; device-link tests synchronize on observable registration/SSE transitions rather than event-loop timing guesses.
 
-**Commit**: Pending – complete in the current 0.22.1 working tree as of 2026-08-04.
+**Commit**: `7992cd29`.
 
 ## Release-Close Checks
 
 - [ ] Capture durable visual evidence after the `83a28ece`, `54495b54`, and `3630dc3e` refinements.
 - [ ] Run the documented paired-device Signal and WhatsApp DM/group typing checks.
-- [ ] Replace the pending AI10/AI11 commit markers after committing the current work, then rerun the release gate on that exact tree.
+- [x] Replace the pending AI10/AI11 commit markers after committing the current work, then rerun the release gate on that exact tree.

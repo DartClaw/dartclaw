@@ -464,6 +464,18 @@ class SetupApply {
         'SOUL.md.draft and wait for the user to apply them.',
   );
 
+  static const _draftModeInstruction =
+      '- Draft mode: write USER.md.draft and SOUL.md.draft instead of overwriting curated files';
+  static const _draftStepSixInstruction =
+      '6. Read existing USER.md and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.';
+  static const _legacyDirectStepSixInstructions = [
+    '6. On first run, write USER.md and SOUL.md directly. On reruns, read existing USER.md\n'
+        '   and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
+    '6. If Draft mode is enabled, read USER.md and SOUL.md first, then write USER.md.draft\n'
+        '   and SOUL.md.draft for review. Otherwise, write USER.md and SOUL.md directly.',
+    '6. Write USER.md and SOUL.md directly.',
+  ];
+
   static String _upgradeGeneratedDirectOnboarding(String onboarding) {
     if (!onboarding.startsWith('# DartClaw Onboarding\n<!--') ||
         !onboarding.contains("This file is a sentinel for DartClaw's conversational bootstrapping")) {
@@ -477,26 +489,12 @@ class SetupApply {
     final generated = onboarding.substring(0, customContentStart);
     final custom = onboarding.substring(customContentStart);
 
-    final upgraded = generated
+    var upgraded = generated
         .replaceFirst('- Rerun: false', '- Rerun: true')
-        .replaceFirst(
-          '- Draft mode: first-run files may be updated directly',
-          '- Draft mode: write USER.md.draft and SOUL.md.draft instead of overwriting curated files',
-        )
-        .replaceFirst(
-          '6. On first run, write USER.md and SOUL.md directly. On reruns, read existing USER.md\n'
-              '   and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
-          '6. Read existing USER.md and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
-        )
-        .replaceFirst(
-          '6. If Draft mode is enabled, read USER.md and SOUL.md first, then write USER.md.draft\n'
-              '   and SOUL.md.draft for review. Otherwise, write USER.md and SOUL.md directly.',
-          '6. Read existing USER.md and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
-        )
-        .replaceFirst(
-          '6. Write USER.md and SOUL.md directly.',
-          '6. Read existing USER.md and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
-        );
+        .replaceFirst('- Draft mode: first-run files may be updated directly', _draftModeInstruction);
+    for (final legacyInstruction in _legacyDirectStepSixInstructions) {
+      upgraded = upgraded.replaceFirst(legacyInstruction, _draftStepSixInstruction);
+    }
     return '$upgraded$custom';
   }
 
@@ -517,7 +515,7 @@ class SetupApply {
     buffer.writeln('- Port: ${state.port}');
     if (draftMode) {
       buffer.writeln('- Rerun: true');
-      buffer.writeln('- Draft mode: write USER.md.draft and SOUL.md.draft instead of overwriting curated files');
+      buffer.writeln(_draftModeInstruction);
     } else {
       buffer.writeln('- Rerun: false');
       buffer.writeln('- Draft mode: first-run files may be updated directly');
@@ -535,9 +533,7 @@ class SetupApply {
     buffer.writeln('   Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant.');
     buffer.writeln('5. Collaboratively decide on durable behavior and proactivity guidance for SOUL.md.');
     if (draftMode) {
-      buffer.writeln(
-        '6. Read existing USER.md and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
-      );
+      buffer.writeln(_draftStepSixInstruction);
     } else {
       buffer.writeln('6. Write USER.md and SOUL.md directly.');
     }

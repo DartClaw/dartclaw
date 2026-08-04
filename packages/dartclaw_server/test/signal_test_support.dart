@@ -16,14 +16,12 @@ import 'package:dartclaw_signal/dartclaw_signal.dart';
 class FakeSignalCliManager extends SignalCliManager {
   FakeSignalCliManager({
     this.fakeHealthy = true,
-    this.fakeRegistered = false,
-    this.fakeRegistrationState,
+    this.fakeRegistrationState = SignalRegistrationState.unregistered,
     this.fakeLinkUri,
   }) : super(executable: 'signal-cli', phoneNumber: '+15551234567');
 
   bool fakeHealthy;
-  bool fakeRegistered;
-  SignalRegistrationState? fakeRegistrationState;
+  SignalRegistrationState fakeRegistrationState;
   String? fakeLinkUri;
   int linkUriRequests = 0;
   bool smsRequested = false;
@@ -48,12 +46,10 @@ class FakeSignalCliManager extends SignalCliManager {
   }
 
   @override
-  Future<bool> isAccountRegistered() async => fakeRegistered;
+  Future<bool> isAccountRegistered() async => fakeRegistrationState == SignalRegistrationState.registered;
 
   @override
-  Future<SignalRegistrationState> registrationState() async =>
-      fakeRegistrationState ??
-      (fakeRegistered ? SignalRegistrationState.registered : SignalRegistrationState.unregistered);
+  Future<SignalRegistrationState> registrationState() async => fakeRegistrationState;
 
   @override
   Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async {

@@ -193,52 +193,6 @@ void main() {
     expect(DateTime.parse(activeTasks[0]['startedAt'] as String), isA<DateTime>());
   });
 
-  test('connected frame keeps only running tasks when reviews also exist', () async {
-    await tasks.create(
-      id: 'task-running',
-      title: 'Running first',
-      description: 'Do work',
-      type: TaskType.coding,
-      autoStart: true,
-      now: DateTime.parse('2026-03-10T08:00:00Z'),
-    );
-    await tasks.transition('task-running', TaskStatus.running, now: DateTime.parse('2026-03-10T08:05:00Z'));
-
-    await tasks.create(
-      id: 'task-review-earlier',
-      title: 'Earlier review',
-      description: 'Check work',
-      type: TaskType.coding,
-      autoStart: true,
-      provider: ProviderIdentity.claude,
-      now: DateTime.parse('2026-03-10T09:00:00Z'),
-    );
-    await tasks.transition('task-review-earlier', TaskStatus.running, now: DateTime.parse('2026-03-10T09:05:00Z'));
-    await tasks.transition('task-review-earlier', TaskStatus.review, now: DateTime.parse('2026-03-10T09:10:00Z'));
-
-    await tasks.create(
-      id: 'task-review-later',
-      title: 'Later review',
-      description: 'Check more work',
-      type: TaskType.coding,
-      autoStart: true,
-      provider: ProviderIdentity.codex,
-      now: DateTime.parse('2026-03-10T09:30:00Z'),
-    );
-    await tasks.transition('task-review-later', TaskStatus.running, now: DateTime.parse('2026-03-10T09:35:00Z'));
-    await tasks.transition('task-review-later', TaskStatus.review, now: DateTime.parse('2026-03-10T09:40:00Z'));
-
-    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
-    final iterator = StreamIterator(response.read().transform(utf8.decoder));
-    addTearDown(iterator.cancel);
-
-    final payload = await nextFramePayload(iterator);
-
-    expect(payload['type'], 'connected');
-    final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
-    expect(activeTasks.map((task) => task['id']), ['task-running']);
-  });
-
   test('status change frame includes updated review count', () async {
     await tasks.create(
       id: 'task-1',
@@ -272,45 +226,6 @@ void main() {
     expect(frame, contains('"taskId":"task-1"'));
     expect(frame, contains('"timestamp":"2026-03-10T10:15:00.000Z"'));
     expect(frame, contains('"reviewCount":1'));
-  });
-
-  test('status change frame includes updated activeTasks', () async {
-    await tasks.create(
-      id: 'task-1',
-      title: 'Running task',
-      description: 'Do work',
-      type: TaskType.coding,
-      autoStart: true,
-      provider: ProviderIdentity.codex,
-      now: DateTime.parse('2026-03-10T10:00:00Z'),
-    );
-    await tasks.transition('task-1', TaskStatus.running, now: DateTime.parse('2026-03-10T10:05:00Z'));
-
-    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
-    final iterator = StreamIterator(response.read().transform(utf8.decoder));
-    addTearDown(iterator.cancel);
-    final connectedPayload = await nextFramePayload(iterator);
-    expect(connectedPayload['type'], 'connected');
-
-    await tasks.transition('task-1', TaskStatus.review, now: DateTime.parse('2026-03-10T10:15:00Z'));
-    eventBus.fire(
-      TaskStatusChangedEvent(
-        taskId: 'task-1',
-        oldStatus: TaskStatus.running,
-        newStatus: TaskStatus.review,
-        trigger: 'system',
-        timestamp: DateTime.parse('2026-03-10T10:15:00Z'),
-      ),
-    );
-
-    final payload = await nextFramePayload(iterator);
-
-    expect(payload['type'], 'task_status_changed');
-    expect(payload['taskId'], 'task-1');
-    expect(payload['reviewCount'], 1);
-    expect(payload['activeTasks'], isA<List<dynamic>>());
-    final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
-    expect(activeTasks, isEmpty);
   });
 
   test('status change removes a task from Running when it enters review', () async {

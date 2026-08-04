@@ -502,28 +502,7 @@ class SignalCliManager with SequentialLock {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-            (line) {
-              if (!line.startsWith('data:')) return;
-              final json = line.substring(5).trim();
-              if (json.isEmpty) return;
-              try {
-                final parsed = jsonDecode(json);
-                if (parsed is Map<String, dynamic>) {
-                  // Extract envelope from JSON-RPC notification params
-                  final params = parsed['params'] as Map<String, dynamic>?;
-                  final envelope = params?['envelope'] as Map<String, dynamic>?;
-                  if (envelope != null) {
-                    _log.fine('SSE envelope received, dispatching to channel');
-                    _eventController.add({'envelope': envelope});
-                  } else {
-                    // Pass through as-is if no envelope wrapper
-                    _eventController.add(parsed);
-                  }
-                }
-              } catch (e) {
-                _log.fine('Failed to parse SSE event: $e');
-              }
-            },
+            (line) => _handleSseLine(line, _eventController, _log),
             onError: (Object e) {
               _log.warning('SSE stream error', e);
               if (_isCurrentSseGeneration(generation)) {
@@ -687,5 +666,26 @@ class SignalCliManager with SequentialLock {
     } finally {
       client.close();
     }
+  }
+}
+
+void _handleSseLine(String line, StreamController<Map<String, dynamic>> eventController, Logger log) {
+  if (!line.startsWith('data:')) return;
+  final json = line.substring(5).trim();
+  if (json.isEmpty) return;
+  try {
+    final parsed = jsonDecode(json);
+    if (parsed is Map<String, dynamic>) {
+      final params = parsed['params'] as Map<String, dynamic>?;
+      final envelope = params?['envelope'] as Map<String, dynamic>?;
+      if (envelope != null) {
+        log.fine('SSE envelope received, dispatching to channel');
+        eventController.add({'envelope': envelope});
+      } else {
+        eventController.add(parsed);
+      }
+    }
+  } catch (e) {
+    log.fine('Failed to parse SSE event: $e');
   }
 }

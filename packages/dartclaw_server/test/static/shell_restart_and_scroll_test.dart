@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
+
+import 'controller_test_support.dart';
 
 /// Two shared seams that several surfaces depend on and that are easy to break
 /// silently.
@@ -18,25 +18,8 @@ import 'package:test/test.dart';
 /// content has already moved the bottom, so a reader who scrolled up is yanked
 /// back down on every streamed frame.
 void main() {
-  File resolve(String name) {
-    final packageRelative = File('packages/dartclaw_server/lib/src/static/controllers/$name');
-    return packageRelative.existsSync() ? packageRelative : File('lib/src/static/controllers/$name');
-  }
-
-  Future<void> runHarness(String harness, List<String> scripts) async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        harness,
-        ...scripts.map((s) => resolve(s).absolute.uri.toString()),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
-  }
+  Future<void> runHarness(String harness, List<String> scripts) =>
+      expectNodeHarness(harness, scripts.map((name) => controllerAsset(name).absolute.uri.toString()).toList());
 
   test('restart banner state survives dismissal, replacement and clearing', () async {
     await runHarness(_restartStateHarness, ['shared.js']);

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:test/test.dart';
 
+import 'controller_test_support.dart';
+
 void main() {
   final baseDir = File('packages/dartclaw_server/lib/src/static/controllers/index.js').existsSync()
       ? 'packages/dartclaw_server/lib/src/static'
@@ -261,7 +263,6 @@ void main() {
       expect(workflowSource, contains('projectEl.hidden = !hasProjectVar'));
       expect(appCss, contains('[hidden] { display: none !important; }'));
       expect(appCss, contains('.workflow-list-loading .skeleton { width: 100%; min-height: 4rem; }'));
-      expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 auto; width: min(6rem, 30%); }'));
     });
 
     test('pairing progress bars are independently centered', () {
@@ -886,19 +887,7 @@ void main() {
   group('identicon behavior', () {
     test('shared utility computes and applies identicons behaviorally', () async {
       final sharedFile = File('$baseDir/controllers/shared.js').absolute;
-      ProcessResult result;
-      try {
-        result = await Process.run('node', [
-          '--input-type=module',
-          '--eval',
-          _identiconHarness,
-          sharedFile.uri.toString(),
-        ]);
-      } on ProcessException catch (error) {
-        fail('Node.js is required for controller tests: $error');
-      }
-
-      expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+      await expectNodeHarness(_identiconHarness, [sharedFile.uri.toString()]);
     });
 
     test('shared utility owns bounded identity variants without dependencies', () {

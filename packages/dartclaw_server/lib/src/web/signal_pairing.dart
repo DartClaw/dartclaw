@@ -52,13 +52,9 @@ String signalPairingTemplate({
 
   final topbar = pageTopbarTemplate(title: 'Signal Channel', backHref: '/settings#channels', backLabel: 'Settings');
 
-  final showLinkDevice =
-      !isConnected &&
-      !showReconnecting &&
-      !showStatusUnavailable &&
-      !verificationPending &&
-      !captchaPending &&
-      linkDeviceUri != null;
+  final showPairingChoice =
+      !isConnected && !showReconnecting && !showStatusUnavailable && !verificationPending && !captchaPending;
+  final showLinkDevice = showPairingChoice && linkDeviceUri != null;
 
   final body = templateLoader.trellis.renderFragment(
     templateLoader.source('signal_pairing'),
@@ -78,13 +74,7 @@ String signalPairingTemplate({
       'showLinkDevice': showLinkDevice,
       'linkDeviceUri': linkDeviceUri ?? '',
       'smsPhoneDisplay': configuredPhone != null && configuredPhone.isNotEmpty ? configuredPhone : '',
-      'showSetup':
-          !isConnected &&
-          !showReconnecting &&
-          !showStatusUnavailable &&
-          !verificationPending &&
-          !captchaPending &&
-          linkDeviceUri == null,
+      'showSetup': showPairingChoice && linkDeviceUri == null,
       'restartAttempt': showReconnecting ? '$restartAttempt of $maxRestartAttempts' : null,
     },
   );

@@ -25,11 +25,7 @@ void main() {
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_signal_route_test_');
     sessions = SessionService(baseDir: tempDir.path);
-    fakeSidecar = FakeSignalCliManager(
-      fakeHealthy: true,
-      fakeRegistered: false,
-      fakeLinkUri: 'sgnl://linkdevice?uuid=test-uuid',
-    );
+    fakeSidecar = FakeSignalCliManager(fakeHealthy: true, fakeLinkUri: 'sgnl://linkdevice?uuid=test-uuid');
     signalChannel = SignalChannel(
       sidecar: fakeSidecar,
       config: const SignalConfig(enabled: true, phoneNumber: '+15551234567'),
@@ -47,7 +43,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('GET /pairing', () {
     test('sidecar healthy + registered shows "Signal Connected"', () async {
-      fakeSidecar.fakeRegistered = true;
+      fakeSidecar.fakeRegistrationState = SignalRegistrationState.registered;
       final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
       expect(res.statusCode, 200);
       final body = await res.readAsString();

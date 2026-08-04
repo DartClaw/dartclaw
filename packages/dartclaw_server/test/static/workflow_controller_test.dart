@@ -1,42 +1,16 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
 
+import 'controller_test_support.dart';
+
 void main() {
-  final controller = File('packages/dartclaw_server/lib/src/static/controllers/dc_workflows_controller.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/dc_workflows_controller.js')
-      : File('lib/src/static/controllers/dc_workflows_controller.js');
+  final controller = controllerAsset('dc_workflows_controller.js');
 
   test('workflow controller reconciles detail errors and live step state', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _workflowControllerHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_workflowControllerHarness, [controller.absolute.uri.toString()]);
   });
 
   test('workflow dialog keeps its action hierarchy in sync through close', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _workflowDialogHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_workflowDialogHarness, [controller.absolute.uri.toString()]);
   });
 }
 

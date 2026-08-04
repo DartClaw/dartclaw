@@ -1,30 +1,16 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
+
+import 'controller_test_support.dart';
 
 /// "Prune Now" archives and de-duplicates the agent's memory, so every state it
 /// passes through has to stay readable without colour. The states are asserted
 /// behaviourally – a source grep for `style.color` cannot tell a class swap that
 /// works from one that names a variant nothing paints.
 void main() {
-  final controller = File('packages/dartclaw_server/lib/src/static/controllers/dc_memory_controller.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/dc_memory_controller.js')
-      : File('lib/src/static/controllers/dc_memory_controller.js');
+  final controller = controllerAsset('dc_memory_controller.js');
 
   test('prune states swap button variants and never paint inline colour', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _pruneHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_pruneHarness, [controller.absolute.uri.toString()]);
   });
 }
 

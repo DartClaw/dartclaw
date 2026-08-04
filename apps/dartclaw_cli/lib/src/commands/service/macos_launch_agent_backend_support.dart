@@ -14,12 +14,7 @@ extension on MacOSLaunchAgentBackend {
 
     final bootoutError = await _bootoutLoaded(label: label, uid: uid);
     if (bootoutError != null) {
-      String? cleanupError;
-      try {
-        if (staged.existsSync()) _deleteFile(staged.path);
-      } on FileSystemException catch (error) {
-        cleanupError = error.message;
-      }
+      final cleanupError = _tryDelete(staged);
       return ServiceResult(
         success: false,
         message:
@@ -31,20 +26,8 @@ extension on MacOSLaunchAgentBackend {
       _renameFile(current.path, backup.path);
       _renameFile(staged.path, plistPath);
     } on FileSystemException catch (error) {
-      String? restoreError;
-      try {
-        if (backup.existsSync() && !current.existsSync()) {
-          _renameFile(backup.path, plistPath);
-        }
-      } on FileSystemException catch (restoreFailure) {
-        restoreError = restoreFailure.message;
-      }
-      String? cleanupError;
-      try {
-        if (staged.existsSync()) _deleteFile(staged.path);
-      } on FileSystemException catch (cleanupFailure) {
-        cleanupError = cleanupFailure.message;
-      }
+      final restoreError = _tryRestore(source: backup, target: current);
+      final cleanupError = _tryDelete(staged);
       if (!current.existsSync()) {
         return ServiceResult(
           success: false,
@@ -72,15 +55,14 @@ extension on MacOSLaunchAgentBackend {
 
     final replacement = await _run('launchctl', ['bootstrap', 'gui/$uid', plistPath]);
     if (replacement.exitCode == 0) {
-      try {
-        if (backup.existsSync()) _deleteFile(backup.path);
+      final cleanupError = _tryDelete(backup);
+      if (cleanupError == null) {
         return const ServiceResult(success: true, message: 'LaunchAgent definition refreshed and loaded.');
-      } on FileSystemException catch (error) {
-        return ServiceResult(
-          success: true,
-          message: 'LaunchAgent definition refreshed and loaded; previous definition cleanup failed: ${error.message}',
-        );
       }
+      return ServiceResult(
+        success: true,
+        message: 'LaunchAgent definition refreshed and loaded; previous definition cleanup failed: $cleanupError',
+      );
     }
 
     final rejected = File('$plistPath.rejected_$suffix');
@@ -98,14 +80,7 @@ extension on MacOSLaunchAgentBackend {
     try {
       _renameFile(backup.path, plistPath);
     } on FileSystemException catch (error) {
-      String? replacementRestoreError;
-      try {
-        if (rejected.existsSync() && !current.existsSync()) {
-          _renameFile(rejected.path, plistPath);
-        }
-      } on FileSystemException catch (restoreFailure) {
-        replacementRestoreError = restoreFailure.message;
-      }
+      final replacementRestoreError = _tryRestore(source: rejected, target: current);
       return ServiceResult(
         success: false,
         message:
@@ -116,12 +91,7 @@ extension on MacOSLaunchAgentBackend {
     }
 
     final rollback = await _run('launchctl', ['bootstrap', 'gui/$uid', plistPath]);
-    String? cleanupError;
-    try {
-      if (rejected.existsSync()) _deleteFile(rejected.path);
-    } on FileSystemException catch (error) {
-      cleanupError = error.message;
-    }
+    final cleanupError = _tryDelete(rejected);
     final replacementError = _quotedStderr(replacement);
     if (rollback.exitCode == 0) {
       return ServiceResult(
@@ -138,6 +108,26 @@ extension on MacOSLaunchAgentBackend {
           '${_quotedStderr(rollback)}'
           '${cleanupError == null ? '' : '; rejected definition cleanup failed: $cleanupError'}',
     );
+  }
+
+  String? _tryDelete(File file) {
+    try {
+      if (file.existsSync()) _deleteFile(file.path);
+      return null;
+    } on FileSystemException catch (error) {
+      return error.message;
+    }
+  }
+
+  String? _tryRestore({required File source, required File target}) {
+    try {
+      if (source.existsSync() && !target.existsSync()) {
+        _renameFile(source.path, target.path);
+      }
+      return null;
+    } on FileSystemException catch (error) {
+      return error.message;
+    }
   }
 
   Future<String> _uid() async {

@@ -1,26 +1,12 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
 
+import 'controller_test_support.dart';
+
 void main() {
-  final controller = File('packages/dartclaw_server/lib/src/static/controllers/sidebar_sections.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/sidebar_sections.js')
-      : File('lib/src/static/controllers/sidebar_sections.js');
+  final controller = controllerAsset('sidebar_sections.js');
 
   test('dynamic sidebar sections keep Running, Workflows, Chats order', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _sidebarSectionsHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_sidebarSectionsHarness, [controller.absolute.uri.toString()]);
   });
 }
 

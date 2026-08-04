@@ -1,26 +1,12 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
 
+import 'controller_test_support.dart';
+
 void main() {
-  final shared = File('packages/dartclaw_server/lib/src/static/controllers/shared.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/shared.js')
-      : File('lib/src/static/controllers/shared.js');
+  final shared = controllerAsset('shared.js');
 
   test('overlapping draft mutations complete only after the final mutation', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _draftMutationHarness,
-        shared.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_draftMutationHarness, [shared.absolute.uri.toString()]);
   });
 }
 

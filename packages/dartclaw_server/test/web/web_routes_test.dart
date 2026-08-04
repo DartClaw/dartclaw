@@ -839,7 +839,7 @@ void main() {
         sessions,
         messages,
         signalChannel: SignalChannel(
-          sidecar: FakeSignalCliManager(fakeHealthy: true, fakeRegistered: false),
+          sidecar: FakeSignalCliManager(fakeHealthy: true),
           config: const SignalConfig(enabled: true),
           dmAccess: DmAccessController(mode: DmAccessMode.open),
           mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: const [], ownNumber: ''),

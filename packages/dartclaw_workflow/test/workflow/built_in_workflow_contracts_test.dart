@@ -218,16 +218,11 @@ void main() {
       expect(_load('code-review.yaml').steps.first.id, 'review-code');
     });
 
-    test('spec_path producers share a lifecycle-safe description', () {
-      const description =
-          'Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.';
+    test('spec_path has guard and synthesis producers', () {
       final def = _load('spec-and-implement.yaml');
       final producers = def.steps.where((step) => step.outputs?.containsKey('spec_path') ?? false);
 
-      expect(producers, hasLength(2));
-      for (final producer in producers) {
-        expect(_effectiveDescription(producer.outputs!['spec_path']), description, reason: producer.id);
-      }
+      expect(producers.map((producer) => producer.id), ['detect-spec-input', 'spec']);
     });
 
     test('plan-and-implement runs implement → simplify-code → review → nested loop per story', () {

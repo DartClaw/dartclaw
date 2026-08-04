@@ -18,7 +18,7 @@ final class SessionMutationCoordinator {
   final Map<String, Future<void>> _tails = {};
 
   Future<T> run<T>(String sessionId, Future<T> Function() operation) {
-    final previous = (_tails[sessionId] ?? Future<void>.value()).catchError((Object _) {});
+    final previous = _tails[sessionId] ?? Future<void>.value();
     final release = Completer<void>();
     final tail = previous.then((_) => release.future);
     _tails[sessionId] = tail;

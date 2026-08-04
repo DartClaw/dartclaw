@@ -1,30 +1,16 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
+
+import 'controller_test_support.dart';
 
 /// The guard audit refreshes every 30s by replacing its whole container, so the
 /// reader's expanded row only survives if the controller re-finds it by the
 /// server's presentation key. Driven by synthetic `htmx:beforeSwap` /
 /// `htmx:afterSwap` payloads – no clock, no network, no htmx.
 void main() {
-  final controller = File('packages/dartclaw_server/lib/src/static/controllers/dc_shell_controller.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/dc_shell_controller.js')
-      : File('lib/src/static/controllers/dc_shell_controller.js');
+  final controller = controllerAsset('dc_shell_controller.js');
 
   test('audit disclosure survives a poll, and only for the same row identity', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _auditDisclosureHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_auditDisclosureHarness, [controller.absolute.uri.toString()]);
   });
 }
 

@@ -1,31 +1,16 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
+
+import 'controller_test_support.dart';
 
 /// The citation popover opens on hover, so it needs a close path that survives
 /// the gap between the marker and the popover, and a teardown that does not
 /// outlive an HTMX swap. Driven by synthetic pointer and key events against a
 /// minimal DOM stub — no browser, no htmx.
 void main() {
-  final controller =
-      File('packages/dartclaw_server/lib/src/static/controllers/dc_attribution_controller.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/dc_attribution_controller.js')
-      : File('lib/src/static/controllers/dc_attribution_controller.js');
+  final controller = controllerAsset('dc_attribution_controller.js');
 
   test('hover dismissal, Escape, click pinning and teardown all hold', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _attributionHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_attributionHarness, [controller.absolute.uri.toString()]);
   });
 }
 

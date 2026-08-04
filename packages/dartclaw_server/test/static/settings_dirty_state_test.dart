@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
+
+import 'controller_test_support.dart';
 
 /// Settings is the one surface that could lose operator work: it computed a
 /// dirty flag and threw it away, so a tab switch discarded unsaved edits in
@@ -12,24 +12,10 @@ import 'package:test/test.dart';
 /// Source-level assertions on the call-site wiring are a second layer, in
 /// `app_js_test.dart`.
 void main() {
-  final controller = File('packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js').existsSync()
-      ? File('packages/dartclaw_server/lib/src/static/controllers/dc_settings_controller.js')
-      : File('lib/src/static/controllers/dc_settings_controller.js');
+  final controller = controllerAsset('dc_settings_controller.js');
 
   test('unsaved edits reach the form and Save, and a tab switch can see them', () async {
-    ProcessResult result;
-    try {
-      result = await Process.run('node', [
-        '--input-type=module',
-        '--eval',
-        _dirtyStateHarness,
-        controller.absolute.uri.toString(),
-      ]);
-    } on ProcessException catch (error) {
-      fail('Node.js is required for controller tests: $error');
-    }
-
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+    await expectNodeHarness(_dirtyStateHarness, [controller.absolute.uri.toString()]);
   });
 }
 

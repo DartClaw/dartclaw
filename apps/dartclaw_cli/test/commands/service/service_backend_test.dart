@@ -22,6 +22,27 @@ class _FakeRunner {
 
 ProcessResult _ok([String stdout = '']) => ProcessResult(0, 0, stdout, '');
 
+Future<File> _installOldDefinition(MacOSLaunchAgentBackend backend, String home, String instanceDir) async {
+  final result = await backend.install(
+    binPath: '/old/dartclaw',
+    configPath: '$instanceDir/old.yaml',
+    port: 3333,
+    instanceDir: instanceDir,
+  );
+  expect(result.success, isTrue);
+  return Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+}
+
+Future<ServiceResult> _refreshDefinition(MacOSLaunchAgentBackend backend, String instanceDir) => backend.install(
+  binPath: '/new/dartclaw',
+  configPath: '$instanceDir/new.yaml',
+  port: 3333,
+  instanceDir: instanceDir,
+);
+
+List<String> _launchctlVerbs(_FakeRunner runner) =>
+    runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first).toList(growable: false);
+
 void main() {
   late Directory tempDir;
   late String home;
@@ -90,8 +111,7 @@ void main() {
         );
       }
 
-      final launchctlCalls = runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first).toList();
-      expect(launchctlCalls, ['bootstrap', 'bootout', 'bootstrap']);
+      expect(_launchctlVerbs(runner), ['bootstrap', 'bootout', 'bootstrap']);
     });
 
     test('failed backup cleanup reports a warning without failing a loaded replacement', () async {
@@ -101,20 +121,9 @@ void main() {
         home: home,
         deleteFile: (path) => throw FileSystemException('backup cleanup rejected', path),
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isTrue);
       expect(refresh.message, contains('previous definition cleanup failed'));
@@ -153,28 +162,14 @@ void main() {
         launchctlResponses: [_ok(), ProcessResult(0, 1, '', 'permission denied')],
       );
       final backend = MacOSLaunchAgentBackend(run: runner.call, home: home);
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
       final previous = plist.readAsStringSync();
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(plist.readAsStringSync(), previous);
-      expect(runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first), [
-        'bootstrap',
-        'bootout',
-      ]);
+      expect(_launchctlVerbs(runner), ['bootstrap', 'bootout']);
     });
 
     test('failed staged cleanup cannot mask a bootout failure', () async {
@@ -187,21 +182,10 @@ void main() {
         home: home,
         deleteFile: (path) => throw FileSystemException('cleanup rejected', path),
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
       final previous = plist.readAsStringSync();
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('launchctl bootout failed'));
@@ -215,31 +199,15 @@ void main() {
         launchctlResponses: [_ok(), _ok(), ProcessResult(0, 1, '', 'replacement rejected'), _ok()],
       );
       final backend = MacOSLaunchAgentBackend(run: runner.call, home: home);
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
       final previous = plist.readAsStringSync();
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('previous LaunchAgent restored'));
       expect(plist.readAsStringSync(), previous);
-      expect(runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first), [
-        'bootstrap',
-        'bootout',
-        'bootstrap',
-        'bootstrap',
-      ]);
+      expect(_launchctlVerbs(runner), ['bootstrap', 'bootout', 'bootstrap', 'bootstrap']);
     });
 
     test('failed replacement move leaves both definitions recoverable', () async {
@@ -257,20 +225,9 @@ void main() {
           File(source).renameSync(target);
         },
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('previous definition remains'));
@@ -298,20 +255,9 @@ void main() {
           File(source).renameSync(target);
         },
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('previous definition remains'));
@@ -337,21 +283,10 @@ void main() {
           File(path).deleteSync();
         },
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
       final previous = plist.readAsStringSync();
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('previous LaunchAgent restored'));
@@ -371,30 +306,15 @@ void main() {
           File(source).renameSync(target);
         },
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
       final previous = plist.readAsStringSync();
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('previous LaunchAgent restored'));
       expect(plist.readAsStringSync(), previous);
-      expect(runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first), [
-        'bootstrap',
-        'bootout',
-        'bootstrap',
-      ]);
+      expect(_launchctlVerbs(runner), ['bootstrap', 'bootout', 'bootstrap']);
     });
 
     test('failed staged cleanup cannot prevent reloading the previous definition', () async {
@@ -410,31 +330,16 @@ void main() {
         },
         deleteFile: (path) => throw FileSystemException('cleanup rejected', path),
       );
-      await backend.install(
-        binPath: '/old/dartclaw',
-        configPath: '$instanceDir/old.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
-      final plist = Directory('$home/Library/LaunchAgents').listSync().whereType<File>().single;
+      final plist = await _installOldDefinition(backend, home, instanceDir);
       final previous = plist.readAsStringSync();
 
-      final refresh = await backend.install(
-        binPath: '/new/dartclaw',
-        configPath: '$instanceDir/new.yaml',
-        port: 3333,
-        instanceDir: instanceDir,
-      );
+      final refresh = await _refreshDefinition(backend, instanceDir);
 
       expect(refresh.success, isFalse);
       expect(refresh.message, contains('previous LaunchAgent restored'));
       expect(refresh.message, contains('staged cleanup failed'));
       expect(plist.readAsStringSync(), previous);
-      expect(runner.calls.where((call) => call.$1 == 'launchctl').map((call) => call.$2.first), [
-        'bootstrap',
-        'bootout',
-        'bootstrap',
-      ]);
+      expect(_launchctlVerbs(runner), ['bootstrap', 'bootout', 'bootstrap']);
     });
   });
 

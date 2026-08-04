@@ -10,6 +10,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
   let cachedActiveTasks = [];
   let taskElapsedTimer = null;
   let taskDetailRefreshTimer = null;
+  let turnStatusRefreshGeneration = 0;
   const activeTurnStates = new Set(['running', 'waiting', 'stuck', 'cancelling']);
 
   // Mirror of templates/task_event_display.dart#eventIconClass, keyed by the
@@ -152,10 +153,18 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     if (!panel) return;
     const sessionId = panel.getAttribute('data-turn-status-session-id');
     if (!sessionId) return;
+    const generation = ++turnStatusRefreshGeneration;
     fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
       .then((response) => response.ok ? response.json() : null)
       .then((payload) => {
-        if (payload) applyTurnWaitState(payload);
+        const currentPanel = displayedTurnPanel();
+        if (
+          payload &&
+          generation === turnStatusRefreshGeneration &&
+          currentPanel?.getAttribute('data-turn-status-session-id') === sessionId
+        ) {
+          applyTurnWaitState(payload);
+        }
       })
       .catch(() => {});
   }

@@ -41,17 +41,20 @@ Router signalPairingRoutes({
     String? templateError = error;
 
     var showReconnecting = false;
+    var showStatusUnavailable = false;
 
     try {
       final reachable = await signalChannel.sidecar.healthCheck();
       if (reachable) {
-        final registered = await signalChannel.sidecar.isAccountRegistered();
-        if (registered) {
-          isConnected = true;
-          connectedPhone = signalChannel.sidecar.registeredPhone ?? phone;
-          templateError = null;
-        } else {
-          linkDeviceUri = await signalChannel.sidecar.getLinkDeviceUri();
+        switch (await signalChannel.sidecar.registrationState()) {
+          case SignalRegistrationState.registered:
+            isConnected = true;
+            connectedPhone = signalChannel.sidecar.registeredPhone ?? phone;
+            templateError = null;
+          case SignalRegistrationState.unregistered:
+            linkDeviceUri = await signalChannel.sidecar.getLinkDeviceUri();
+          case SignalRegistrationState.unknown:
+            showStatusUnavailable = true;
         }
       } else if (signalChannel.sidecar.wasPaired && signalChannel.sidecar.restartCount > 0) {
         showReconnecting = true;
@@ -67,6 +70,7 @@ Router signalPairingRoutes({
     final html = signalPairingTemplate(
       isConnected: isConnected,
       showReconnecting: showReconnecting,
+      showStatusUnavailable: showStatusUnavailable,
       connectedPhone: connectedPhone,
       linkDeviceUri: linkDeviceUri,
       error: templateError,
@@ -87,7 +91,7 @@ Router signalPairingRoutes({
   router.get('/pairing/poll', (Request request) async {
     try {
       final reachable = await signalChannel.sidecar.healthCheck();
-      if (!reachable || !await signalChannel.sidecar.isAccountRegistered()) {
+      if (!reachable || await signalChannel.sidecar.registrationState() != SignalRegistrationState.registered) {
         return Response(204);
       }
     } catch (e) {

@@ -24,6 +24,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.recoveryActive = false;
     this.canCancel = false;
     this.turnStatusTimer = null;
+    this.turnStatusPollGeneration = 0;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
     this.handleAfterRequest = this.handleAfterRequest.bind(this);
     this.captureSseStickyIntent = this.captureSseStickyIntent.bind(this);
@@ -275,12 +276,19 @@ export default class DcChatController extends Stimulus.Controller {
     this.canCancel = false;
     this.updateSendState();
     if (!this.sessionId) return;
+    const generation = this.turnStatusPollGeneration;
+    const sessionId = this.sessionId;
+    let nextRequest = 0;
+    let lastAppliedRequest = 0;
     const poll = () => {
-      if (!this.streaming || !this.sessionId) return;
-      fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/turn-status')
+      if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
+      const request = ++nextRequest;
+      fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
         .then((response) => (response.ok ? response.json() : null))
         .then((status) => {
-          if (!this.streaming) return;
+          if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
+          if (request < lastAppliedRequest) return;
+          lastAppliedRequest = request;
           const next = Boolean(status && status.can_cancel === true);
           if (next !== this.canCancel) {
             this.canCancel = next;
@@ -294,6 +302,7 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   _stopTurnStatusPolling() {
+    this.turnStatusPollGeneration += 1;
     if (this.turnStatusTimer !== null) {
       clearInterval(this.turnStatusTimer);
       this.turnStatusTimer = null;

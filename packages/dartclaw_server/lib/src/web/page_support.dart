@@ -51,10 +51,13 @@ Future<ChannelStatus> signalChannelStatus(SignalChannel? channel) async {
     return sidecar.wasPaired ? ChannelStatus.connectionError : ChannelStatus.notRunning;
   }
   try {
-    final registered = await sidecar.isAccountRegistered();
-    return registered ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
+    return switch (await sidecar.registrationState()) {
+      SignalRegistrationState.registered => ChannelStatus.connected,
+      SignalRegistrationState.unregistered => ChannelStatus.pairingNeeded,
+      SignalRegistrationState.unknown => ChannelStatus.connectionError,
+    };
   } catch (e) {
-    return ChannelStatus.pairingNeeded;
+    return ChannelStatus.connectionError;
   }
 }
 

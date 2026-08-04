@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.21
+**Current through**: 0.22.1 (Unreleased)
 
 ---
 
@@ -98,7 +98,7 @@ abstract class Channel {
 
 `ownsJid()` is the JID-routing predicate -- each channel implementation recognizes its own identifier format:
 - **WhatsApp**: ends with `@s.whatsapp.net` or `@g.us`
-- **Signal**: starts with `+` (E.164) or matches UUID v4 pattern
+- **Signal**: strict E.164 or case-insensitive UUIDv4 identifiers are direct recipients; every other outbound identifier is a group ID
 - **Google Chat**: starts with `spaces/`
 
 ### 2.5 ChannelManager

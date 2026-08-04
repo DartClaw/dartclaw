@@ -161,7 +161,7 @@ class SignalChannel extends Channel {
       timer.cancel();
     }
     _typingRefreshTimers.clear();
-    final activeRecipients = _typingLeases.keys.toList();
+    final activeRecipients = {..._typingLeases.keys, ..._typingActive};
     _typingLeases.clear();
     if (sidecar.isRunning) {
       await Future.wait(

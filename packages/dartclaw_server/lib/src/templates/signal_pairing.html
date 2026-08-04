@@ -49,6 +49,22 @@
           </div>
         </div>
 
+        <div tl:if="${showStatusUnavailable}" class="well pairing-section">
+          <div class="well-content">
+          <div class="pairing-connected-header">
+            <span class="icon icon-triangle-alert pairing-step-icon text-warning" aria-hidden="true"></span>
+            Registration Status Unavailable
+          </div>
+          <p class="text-muted text-sm">
+            signal-cli is reachable, but DartClaw could not confirm whether this account is paired.
+            Refresh to retry; no new linking session has been started.
+          </p>
+          <div class="pairing-connected-actions">
+            <a href="/signal/pairing" class="btn btn-sm">Retry status check</a>
+          </div>
+          </div>
+        </div>
+
         <!-- Captcha required state (hidden — TD-035: SMS registration not working yet) -->
         <div tl:if="${captchaPending}" class="well pairing-section">
           <div class="well-content">
@@ -143,7 +159,7 @@
             The signal-cli daemon is not running or not reachable.
             Ensure signal-cli is installed and configured in <code>dartclaw.yaml</code>:
           </p>
-          <pre class="well-deep">channels:
+          <pre class="well-deep pairing-config-block">channels:
   signal:
     enabled: true
     phone_number: "+1234567890"

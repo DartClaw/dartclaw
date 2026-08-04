@@ -409,6 +409,308 @@ void main() {
       await replacementSse.future.timeout(const Duration(seconds: 2));
     });
 
+    test('a failed SSE replacement keeps retrying until connected', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path != '/api/v1/events') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          sseConnections++;
+          if (sseConnections == 2) {
+            request.response.statusCode = HttpStatus.serviceUnavailable;
+            await request.response.close();
+            return;
+          }
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          request.response.write(': connected\n\n');
+          await request.response.flush();
+          if (sseConnections == 1) {
+            initialSse.complete(request.response);
+          } else {
+            recoveredSse.complete(request.response);
+          }
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+      expect(sseConnections, 3);
+    });
+
+    test('an immediately closed SSE replacement queues another reconnect', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path != '/api/v1/events') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          sseConnections++;
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          if (sseConnections == 2) {
+            await request.response.close();
+            return;
+          }
+          request.response.write(': connected\n\n');
+          await request.response.flush();
+          if (sseConnections == 1) {
+            initialSse.complete(request.response);
+          } else {
+            recoveredSse.complete(request.response);
+          }
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+      expect(sseConnections, 3);
+    });
+
+    test('a stalled SSE handshake times out and retries', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final stalledRequest = Completer<void>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        if (request.uri.path != '/api/v1/events') {
+          request.response.statusCode = HttpStatus.notFound;
+          unawaited(request.response.close());
+          return;
+        }
+        sseConnections++;
+        if (sseConnections == 1) {
+          stalledRequest.complete();
+          return;
+        }
+        unawaited(() async {
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          request.response.write(': connected\n\n');
+          await request.response.flush();
+          recoveredSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+        sseHandshakeTimeout: const Duration(milliseconds: 20),
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      await stalledRequest.future.timeout(const Duration(seconds: 2));
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+
+      expect(sseConnections, 2);
+    });
+
+    test('an SSE error with a stalled body is closed and retried', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final errorHeadersSent = Completer<void>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        if (request.uri.path != '/api/v1/events') {
+          request.response.statusCode = HttpStatus.notFound;
+          unawaited(request.response.close());
+          return;
+        }
+        sseConnections++;
+        unawaited(() async {
+          if (sseConnections == 1) {
+            request.response.statusCode = HttpStatus.serviceUnavailable;
+            request.response.write('partial error');
+            await request.response.flush();
+            errorHeadersSent.complete();
+            return;
+          }
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          request.response.write(': connected\n\n');
+          await request.response.flush();
+          recoveredSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      await errorHeadersSent.future.timeout(const Duration(seconds: 2));
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+
+      expect(sseConnections, 2);
+    });
+
+    test('reset settles a reconnect stalled during the SSE handshake', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final stalledReconnect = Completer<void>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        if (request.uri.path != '/api/v1/events') {
+          request.response.statusCode = HttpStatus.notFound;
+          unawaited(request.response.close());
+          return;
+        }
+        sseConnections++;
+        if (sseConnections > 1) {
+          stalledReconnect.complete();
+          return;
+        }
+        unawaited(() async {
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          request.response.write(': connected\n\n');
+          await request.response.flush();
+          initialSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+        sseHandshakeTimeout: const Duration(seconds: 30),
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+      await stalledReconnect.future.timeout(const Duration(seconds: 2));
+
+      await mgr.reset().timeout(const Duration(seconds: 2));
+      await pumpEventQueue();
+
+      expect(sseConnections, 2);
+    });
+
+    test('reset invalidates a reconnect waiting on backoff', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final reconnectDelayStarted = Completer<void>();
+      final reconnectDelay = Completer<void>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path != '/api/v1/events') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          sseConnections++;
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          request.response.write(': connected\n\n');
+          await request.response.flush();
+          if (!initialSse.isCompleted) initialSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (duration) {
+          if (!reconnectDelayStarted.isCompleted) reconnectDelayStarted.complete();
+          return reconnectDelay.future;
+        },
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        if (!reconnectDelay.isCompleted) reconnectDelay.complete();
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+      await reconnectDelayStarted.future.timeout(const Duration(seconds: 2));
+
+      await mgr.reset();
+      reconnectDelay.complete();
+      await pumpEventQueue();
+
+      expect(sseConnections, 1);
+    });
+
     test('finishLink refreshes receiving and selects the linked account for sending', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final firstSse = Completer<HttpResponse>();
@@ -507,6 +809,100 @@ void main() {
       expect(await event.timeout(const Duration(seconds: 2)), {
         'envelope': {'sourceNumber': '+12125550101'},
       });
+    });
+
+    test('coalesces concurrent device-link requests before startLink completes', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final startLinkReceived = Completer<void>();
+      final releaseStartLink = Completer<void>();
+      var startLinkCalls = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          final method = payload['method'] as String;
+          if (method == 'startLink') {
+            startLinkCalls++;
+            if (!startLinkReceived.isCompleted) startLinkReceived.complete();
+            await releaseStartLink.future;
+          }
+          final result = method == 'startLink' ? {'deviceLinkUri': 'sgnl://linkdevice?uuid=single'} : null;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': result}));
+          await request.response.close();
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      final first = mgr.getLinkDeviceUri();
+      await startLinkReceived.future.timeout(const Duration(seconds: 2));
+      final second = mgr.getLinkDeviceUri();
+      await pumpEventQueue();
+      expect(startLinkCalls, 1);
+
+      releaseStartLink.complete();
+      expect(await Future.wait([first, second]), everyElement('sgnl://linkdevice?uuid=single'));
+      expect(startLinkCalls, 1);
+    });
+
+    test('ignores finishLink completion from a reset generation', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final finishLinkReceived = Completer<void>();
+      final releaseFinishLink = Completer<void>();
+      final finishLinkResponded = Completer<void>();
+      final registrations = <String>[];
+      final sub = server.listen((request) {
+        unawaited(() async {
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          final method = payload['method'] as String;
+          if (method == 'finishLink') {
+            finishLinkReceived.complete();
+            await releaseFinishLink.future;
+          }
+          final result = switch (method) {
+            'startLink' => {'deviceLinkUri': 'sgnl://linkdevice?uuid=stale'},
+            'finishLink' => {'number': '+12125550199'},
+            _ => null,
+          };
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': result}));
+          await request.response.close();
+          if (method == 'finishLink') finishLinkResponded.complete();
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        onRegistered: registrations.add,
+      );
+      addTearDown(() async {
+        if (!releaseFinishLink.isCompleted) releaseFinishLink.complete();
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      expect(await mgr.getLinkDeviceUri(), 'sgnl://linkdevice?uuid=stale');
+      await finishLinkReceived.future.timeout(const Duration(seconds: 2));
+      await mgr.reset();
+      releaseFinishLink.complete();
+      await finishLinkResponded.future.timeout(const Duration(seconds: 2));
+      await pumpEventQueue();
+
+      expect(mgr.wasPaired, isFalse);
+      expect(mgr.registeredPhone, isNull);
+      expect(registrations, isEmpty);
     });
 
     test('events stream is broadcast', () {

@@ -35,7 +35,7 @@ The sha256-collision rationale reaches only the three synced files. `DESIGN.md` 
 | `icon-chevron-up` — consumed by `dc_workflows_controller.js:561,576`, genuinely absent from canon `icons.css` | S08 TI05 dry-run | **S02** | Icon inventory; `icons.css` is strict-sync enforced |
 | Icon tokens + `[data-icon]` mappings for task-event icons | S08 TI05 | **S02** | Same |
 | `.tabs--sticky` material correction | S11 TI04 | **S03** | Tab component family |
-| **Tab overflow affordance** — at 768px a ten-tab bar clips, leaving "Security" off-screen behind an overlay scrollbar with no indication more tabs exist. This is the other half of S11 TI04 and is equally a canon `.tabs` change | S11 TI04 | **S03** | Tab component family. **S03 must actually ship this** — S11 now consumes and reports rather than absorbing, so if S03 omits it the audit finding closes nowhere | 
+| **Tab overflow affordance** — at 768px a ten-tab bar clips, leaving "Security" off-screen behind an overlay scrollbar with no indication more tabs exist. This is the other half of S11 TI04 and is equally a canon `.tabs` change | S11 TI04 | **S03** | Tab component family. **S03 must actually ship this** — S11 now consumes and reports rather than absorbing, so if S03 omits it the audit finding closes nowhere |
 | Field-width scale (the audit's `--num` / `--short` suggestion, originally declined by S03) | S11 TI06 | **S03** | Belongs with the Forms section |
 | `.card-header-actions` | S15 TI09 | **S03** | Component family |
 | Canonical invalid-state hook — `input.form-input[aria-invalid="true"]` / `:user-invalid`; S05 Scenario S03 consumes it today and S03 never ships it | Cross-cutting M5 | **S03** | Forms family; the bespoke app family already has this shape |

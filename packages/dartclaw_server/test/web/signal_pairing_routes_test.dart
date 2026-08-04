@@ -64,6 +64,19 @@ void main() {
       expect(body, contains('class="pairing-qr-frame"'));
       expect(body, isNot(contains('style="')));
       expect(body, isNot(contains('wa-')));
+      expect(fakeSidecar.linkUriRequests, 1);
+    });
+
+    test('indeterminate registration does not start linking', () async {
+      fakeSidecar.fakeRegistrationState = SignalRegistrationState.unknown;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, contains('Registration Status Unavailable'));
+      expect(body, isNot(contains('Connect Signal')));
+      expect(fakeSidecar.linkUriRequests, 0);
     });
 
     test('sidecar not reachable shows setup instructions', () async {
@@ -72,7 +85,7 @@ void main() {
       expect(res.statusCode, 200);
       final body = await res.readAsString();
       expect(body, contains('signal-cli Not Reachable'));
-      expect(body, contains('class="well-deep"'));
+      expect(body, contains('class="well-deep pairing-config-block"'));
       expect(body, isNot(contains('style="')));
       expect(body, isNot(contains('wa-')));
     });

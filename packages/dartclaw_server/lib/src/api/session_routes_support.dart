@@ -14,6 +14,24 @@ import 'api_helpers.dart';
 
 const maxSendBodyBytes = 256 * 1024;
 
+final class SessionMutationCoordinator {
+  final Map<String, Future<void>> _tails = {};
+
+  Future<T> run<T>(String sessionId, Future<T> Function() operation) {
+    final previous = (_tails[sessionId] ?? Future<void>.value()).catchError((Object _) {});
+    final release = Completer<void>();
+    final tail = previous.then((_) => release.future);
+    _tails[sessionId] = tail;
+
+    return previous.then((_) => operation()).whenComplete(() {
+      release.complete();
+      if (identical(_tails[sessionId], tail)) {
+        _tails.remove(sessionId);
+      }
+    });
+  }
+}
+
 String? trimmedOrNull(String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {

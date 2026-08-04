@@ -246,6 +246,17 @@ void main() {
       expect(gowa.lifecycleEvents, ['typing:start:group@g.us', 'typing:stop:group@g.us', 'reset']);
     });
 
+    test('disconnect retries a failed final typing STOP', () async {
+      await channel.startTyping('group@g.us');
+      gowa.failNextPresence = true;
+
+      await expectLater(channel.stopTyping('group@g.us'), throwsStateError);
+      await channel.disconnect();
+
+      expect(gowa.chatPresenceCalls, [('group@g.us', true), ('group@g.us', false), ('group@g.us', false)]);
+      expect(gowa.lifecycleEvents, ['typing:start:group@g.us', 'typing:stop:group@g.us', 'reset']);
+    });
+
     // ---- v8 webhook parsing ----
 
     test('handleWebhook routes DM message (v8 envelope)', () {

@@ -21,6 +21,7 @@ class FakeSignalCliManager extends SignalCliManager {
   final List<(String, bool, bool)> typingUpdates = [];
   final List<String> lifecycleEvents = [];
   Completer<void>? nextTypingGate;
+  bool failNextTyping = false;
   bool fakeHealthy = true;
   SignalRegistrationState fakeRegistrationState = SignalRegistrationState.registered;
   int registrationChecks = 0;
@@ -76,7 +77,10 @@ class FakeSignalCliManager extends SignalCliManager {
     typingCalls.add((recipient, isGroup, isTyping));
     final gate = nextTypingGate;
     nextTypingGate = null;
+    final shouldFail = failNextTyping;
+    failNextTyping = false;
     await gate?.future;
+    if (shouldFail) throw StateError('typing failed');
     typingUpdates.add((recipient, isGroup, isTyping));
     lifecycleEvents.add('typing:${isTyping ? 'start' : 'stop'}:$recipient');
   }
@@ -311,6 +315,21 @@ void main() {
       await channel.startTyping('+1234567890');
 
       expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+      expect(sidecar.lifecycleEvents, ['typing:start:+1234567890', 'typing:stop:+1234567890', 'reset']);
+    });
+
+    test('disconnect retries a failed final typing STOP', () async {
+      await channel.startTyping('+1234567890');
+      sidecar.failNextTyping = true;
+
+      await expectLater(channel.stopTyping('+1234567890'), throwsStateError);
+      await channel.disconnect();
+
+      expect(sidecar.typingCalls, [
+        ('+1234567890', false, true),
+        ('+1234567890', false, false),
+        ('+1234567890', false, false),
+      ]);
       expect(sidecar.lifecycleEvents, ['typing:start:+1234567890', 'typing:stop:+1234567890', 'reset']);
     });
 

@@ -143,7 +143,7 @@ class WhatsAppChannel extends Channel {
   @override
   Future<void> disconnect() async {
     _disconnecting = true;
-    final activeRecipients = _typingLeases.keys.toList();
+    final activeRecipients = {..._typingLeases.keys, ..._typingActive};
     _typingLeases.clear();
     if (!_disabled) {
       await Future.wait(

@@ -54,6 +54,7 @@ final _reservedRoutePatterns = <({String label, _RouteMatcher matches})>[
     matches: (route) => _matchesReservedPath(route, '/settings/channels/google_chat'),
   ),
   (label: '/memory/content', matches: (route) => _matchesReservedPath(route, '/memory/content')),
+  (label: '/knowledge/wiki', matches: (route) => _matchesReservedPath(route, '/knowledge/wiki')),
   (label: '/health', matches: (route) => route == '/health'),
   (label: '/static/', matches: (route) => _matchesReservedPrefixOnly(route, '/static/')),
   (label: '/whatsapp/', matches: (route) => _matchesReservedPrefixOnly(route, '/whatsapp/')),

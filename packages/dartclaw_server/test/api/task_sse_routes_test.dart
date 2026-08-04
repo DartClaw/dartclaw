@@ -151,7 +151,7 @@ void main() {
     expect(activeTasks.single['status'], 'running');
   });
 
-  test('connected frame includes activeTasks with running and review tasks', () async {
+  test('connected frame excludes review tasks from Running', () async {
     await tasks.create(
       id: 'task-running',
       title: 'Running task',
@@ -184,23 +184,16 @@ void main() {
     expect(payload['type'], 'connected');
     expect(payload['activeTasks'], isA<List<dynamic>>());
     final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
-    expect(activeTasks, hasLength(2));
+    expect(activeTasks, hasLength(1));
     expect(activeTasks[0]['id'], 'task-running');
     expect(activeTasks[0]['status'], 'running');
     expect(activeTasks[0]['startedAt'], isA<String>());
     expect(activeTasks[0]['provider'], ProviderIdentity.codex);
     expect(activeTasks[0]['providerLabel'], 'Codex');
     expect(DateTime.parse(activeTasks[0]['startedAt'] as String), isA<DateTime>());
-
-    expect(activeTasks[1]['id'], 'task-review');
-    expect(activeTasks[1]['status'], 'review');
-    expect(activeTasks[1]['startedAt'], isA<String>());
-    expect(activeTasks[1]['provider'], ProviderIdentity.claude);
-    expect(activeTasks[1]['providerLabel'], 'Claude');
-    expect(DateTime.parse(activeTasks[1]['startedAt'] as String), isA<DateTime>());
   });
 
-  test('connected frame orders review tasks by startedAt after running tasks', () async {
+  test('connected frame keeps only running tasks when reviews also exist', () async {
     await tasks.create(
       id: 'task-running',
       title: 'Running first',
@@ -243,7 +236,7 @@ void main() {
 
     expect(payload['type'], 'connected');
     final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
-    expect(activeTasks.map((task) => task['id']), ['task-running', 'task-review-earlier', 'task-review-later']);
+    expect(activeTasks.map((task) => task['id']), ['task-running']);
   });
 
   test('status change frame includes updated review count', () async {
@@ -317,16 +310,10 @@ void main() {
     expect(payload['reviewCount'], 1);
     expect(payload['activeTasks'], isA<List<dynamic>>());
     final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
-    expect(activeTasks, hasLength(1));
-    expect(activeTasks.single['id'], 'task-1');
-    expect(activeTasks.single['status'], 'review');
-    expect(activeTasks.single['startedAt'], isA<String>());
-    expect(activeTasks.single['provider'], ProviderIdentity.codex);
-    expect(activeTasks.single['providerLabel'], 'Codex');
-    expect(DateTime.parse(activeTasks.single['startedAt'] as String), isA<DateTime>());
+    expect(activeTasks, isEmpty);
   });
 
-  test('status change frame preserves running-first then review startedAt ordering', () async {
+  test('status change removes a task from Running when it enters review', () async {
     await tasks.create(
       id: 'task-running-earliest',
       title: 'Running first',
@@ -379,13 +366,7 @@ void main() {
 
     expect(payload['type'], 'task_status_changed');
     final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
-    expect(activeTasks.map((task) => task['id']), [
-      'task-running-earliest',
-      'task-review-existing',
-      'task-running-later',
-    ]);
-    expect(activeTasks[1]['status'], 'review');
-    expect(activeTasks[2]['status'], 'review');
+    expect(activeTasks.map((task) => task['id']), ['task-running-earliest']);
   });
 
   test('connected frame returns empty activeTasks when all tasks are terminal', () async {

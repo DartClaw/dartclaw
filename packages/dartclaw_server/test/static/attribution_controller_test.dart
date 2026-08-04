@@ -21,9 +21,8 @@ void main() {
         _attributionHarness,
         controller.absolute.uri.toString(),
       ]);
-    } on ProcessException {
-      markTestSkipped('Node is unavailable');
-      return;
+    } on ProcessException catch (error) {
+      fail('Node.js is required for controller tests: $error');
     }
 
     expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');

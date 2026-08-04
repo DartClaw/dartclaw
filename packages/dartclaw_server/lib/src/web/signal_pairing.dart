@@ -11,6 +11,7 @@ import '../templates/topbar.dart';
 ///
 /// States (checked in order via template conditionals):
 /// - [isConnected] — account registered and sidecar healthy
+/// - [showStatusUnavailable] — sidecar healthy but registration probe indeterminate
 /// - [captchaPending] — Signal requires captcha before SMS registration
 /// - [verificationPending] — SMS code sent, waiting for user to enter it
 /// - [linkDeviceUri] set — sidecar reachable, show link-device + SMS options
@@ -21,6 +22,7 @@ import '../templates/topbar.dart';
 String signalPairingTemplate({
   bool isConnected = false,
   bool showReconnecting = false,
+  bool showStatusUnavailable = false,
   String? connectedPhone,
   String? linkDeviceUri,
   bool verificationPending = false,
@@ -51,7 +53,12 @@ String signalPairingTemplate({
   final topbar = pageTopbarTemplate(title: 'Signal Channel', backHref: '/settings#channels', backLabel: 'Settings');
 
   final showLinkDevice =
-      !isConnected && !showReconnecting && !verificationPending && !captchaPending && linkDeviceUri != null;
+      !isConnected &&
+      !showReconnecting &&
+      !showStatusUnavailable &&
+      !verificationPending &&
+      !captchaPending &&
+      linkDeviceUri != null;
 
   final body = templateLoader.trellis.renderFragment(
     templateLoader.source('signal_pairing'),
@@ -63,6 +70,7 @@ String signalPairingTemplate({
       'isConnected': isConnected,
       'phoneDisplay': connectedPhone ?? 'Connected',
       'showReconnecting': showReconnecting,
+      'showStatusUnavailable': showStatusUnavailable,
       'captchaPending': !isConnected && !showReconnecting && captchaPending,
       'captchaPhone': captchaPhone ?? '',
       'verificationPending': !isConnected && !showReconnecting && !captchaPending && verificationPending,
@@ -71,7 +79,12 @@ String signalPairingTemplate({
       'linkDeviceUri': linkDeviceUri ?? '',
       'smsPhoneDisplay': configuredPhone != null && configuredPhone.isNotEmpty ? configuredPhone : '',
       'showSetup':
-          !isConnected && !showReconnecting && !verificationPending && !captchaPending && linkDeviceUri == null,
+          !isConnected &&
+          !showReconnecting &&
+          !showStatusUnavailable &&
+          !verificationPending &&
+          !captchaPending &&
+          linkDeviceUri == null,
       'restartAttempt': showReconnecting ? '$restartAttempt of $maxRestartAttempts' : null,
     },
   );

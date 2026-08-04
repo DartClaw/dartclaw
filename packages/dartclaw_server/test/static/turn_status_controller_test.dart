@@ -6,6 +6,9 @@ void main() {
   final controller = File('packages/dartclaw_server/lib/src/static/controllers/dc_tasks_controller.js').existsSync()
       ? File('packages/dartclaw_server/lib/src/static/controllers/dc_tasks_controller.js')
       : File('lib/src/static/controllers/dc_tasks_controller.js');
+  final chatController = File('packages/dartclaw_server/lib/src/static/controllers/dc_chat_controller.js').existsSync()
+      ? File('packages/dartclaw_server/lib/src/static/controllers/dc_chat_controller.js')
+      : File('lib/src/static/controllers/dc_chat_controller.js');
 
   test('inactive turn mount activates and returns to inert state', () async {
     ProcessResult result;
@@ -15,10 +18,10 @@ void main() {
         '--eval',
         _turnStatusHarness,
         controller.absolute.uri.toString(),
+        chatController.absolute.uri.toString(),
       ]);
-    } on ProcessException {
-      markTestSkipped('Node is unavailable');
-      return;
+    } on ProcessException catch (error) {
+      fail('Node.js is required for controller tests: $error');
     }
 
     expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
@@ -43,6 +46,19 @@ function extractFunction(source, name) {
     if (depth === 0) return source.slice(start, index + 1);
   }
   throw new Error('unterminated function ' + name);
+}
+
+function extractMethod(source, name) {
+  const start = source.indexOf('  ' + name + '(');
+  if (start < 0) throw new Error('missing method ' + name);
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return source.slice(start + 2, index + 1);
+  }
+  throw new Error('unterminated method ' + name);
 }
 
 const stateElement = { textContent: '' };
@@ -131,4 +147,59 @@ assert(panel.hidden === true, 'terminal update left the status panel visible');
 assert(!panelAttributes.has('data-turn-status-turn-id'), 'terminal update left a stale turn id');
 assert(button.hidden === true && button.disabled === true, 'terminal update left cancel actionable');
 assert(!buttonAttributes.has('data-turn-id'), 'terminal update left a stale cancel turn id');
+
+let turnStatusRefreshGeneration = 0;
+const taskResponses = [];
+globalThis.fetch = () => new Promise((resolve) => taskResponses.push(resolve));
+const refreshDisplayedTurnStatus = eval('(' + extractFunction(source, 'refreshDisplayedTurnStatus') + ')');
+
+refreshDisplayedTurnStatus();
+refreshDisplayedTurnStatus();
+taskResponses[1]({
+  ok: true,
+  json: async () => ({ session_id: 'session-1', turn_id: 'turn-new', state: 'waiting', can_cancel: true }),
+});
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(panelAttributes.get('data-turn-status-turn-id') === 'turn-new', 'new task snapshot was not applied');
+taskResponses[0]({
+  ok: true,
+  json: async () => ({ session_id: 'session-1', turn_id: 'turn-old', state: 'completed', can_cancel: false }),
+});
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(panelAttributes.get('data-turn-status-turn-id') === 'turn-new', 'older task snapshot overwrote newer state');
+
+const chatSource = await readFile(new URL(process.argv[2]), 'utf8');
+const chatMethods = eval('({' +
+  extractMethod(chatSource, '_startTurnStatusPolling') + ',' +
+  extractMethod(chatSource, '_stopTurnStatusPolling') +
+'})');
+const chatResponses = [];
+let scheduledPoll = null;
+globalThis.fetch = () => new Promise((resolve) => chatResponses.push(resolve));
+globalThis.setInterval = (callback) => { scheduledPoll = callback; return 1; };
+globalThis.clearInterval = () => {};
+const chat = {
+  ...chatMethods,
+  streaming: true,
+  canCancel: false,
+  sessionId: 'chat-1',
+  turnStatusTimer: null,
+  turnStatusPollGeneration: 0,
+  updateSendState() {},
+};
+
+chat._startTurnStatusPolling();
+scheduledPoll();
+chatResponses[1]({ ok: true, json: async () => ({ can_cancel: true }) });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(chat.canCancel === true, 'new chat snapshot was not applied');
+chatResponses[0]({ ok: true, json: async () => ({ can_cancel: false }) });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(chat.canCancel === true, 'older chat snapshot overwrote newer state');
+
+chat._startTurnStatusPolling();
+chat._stopTurnStatusPolling();
+chatResponses[2]({ ok: true, json: async () => ({ can_cancel: true }) });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(chat.canCancel === false, 'retired chat poll generation changed cancel state');
 ''';

@@ -6,17 +6,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'task/task_service.dart';
 import 'templates/sidebar.dart' show SidebarActiveTask, SidebarActiveWorkflow;
 
-/// Builds the running and review-pending [SidebarActiveTask]s for the sidebar.
+/// Builds the running [SidebarActiveTask]s for the sidebar.
 Future<List<SidebarActiveTask>> buildActiveSidebarTasks(TaskService tasks) async {
   final runningTasks = await tasks.list(status: TaskStatus.running);
-  final reviewTasks = (await tasks.list(
-    status: TaskStatus.review,
-  )).where((task) => !task.isWorkflowOwnedGitTask).toList();
-
   runningTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
-  reviewTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
-
-  return [...runningTasks.map(_activeTaskPayload), ...reviewTasks.map(_activeTaskPayload)];
+  return runningTasks.map(_activeTaskPayload).toList();
 }
 
 /// Builds the active [SidebarActiveWorkflow]s, including step progress, for the sidebar.

@@ -122,16 +122,22 @@ void main() {
       QueueStrategy queueStrategy = QueueStrategy.fifo,
       bool Function(String senderId)? isAdmin,
       bool Function()? shouldFail,
+      Duration retryDelay = const Duration(milliseconds: 10),
+      String response = 'response',
+      TurnObserver? turnObserver,
+      MessageRedactor? redactor,
     }) {
       return MessageQueue(
         debounceWindow: debounce,
         maxConcurrentTurns: maxConcurrent,
         maxQueueDepth: maxDepth,
         maxQueued: maxQueued,
-        defaultRetryPolicy: RetryPolicy(maxAttempts: maxRetries, baseDelay: const Duration(milliseconds: 10)),
+        defaultRetryPolicy: RetryPolicy(maxAttempts: maxRetries, baseDelay: retryDelay),
         queueStrategy: queueStrategy,
         random: Random(42), // deterministic
         isAdmin: isAdmin,
+        turnObserver: turnObserver,
+        redactor: redactor,
         dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
             dispatchStarted!.complete();
@@ -140,7 +146,7 @@ void main() {
           if (shouldFail != null && shouldFail()) throw Exception('dispatch failed');
           dispatched.add((sessionKey, message));
           dispatchedSenders.add(senderJid);
-          return 'response';
+          return response;
         },
       );
     }
@@ -487,6 +493,64 @@ void main() {
 
       expect(channel.sent.single.$2.text, 'response');
       expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
+    });
+
+    test('stops typing before an observer suppresses the normal send', () async {
+      String? observedResponse;
+      final queue = makeQueue(
+        debounce: Duration.zero,
+        turnObserver: (sessionKey, message, sourceChannel, recipientJid, responseFuture) async {
+          observedResponse = await responseFuture;
+          return true;
+        },
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(observedResponse, 'response');
+      expect(channel.sent, isEmpty);
+      expect(channel.typingEvents, ['start:user@test', 'stop:user@test']);
+    });
+
+    test('stops typing before sending a redacted response', () async {
+      final queue = makeQueue(
+        debounce: Duration.zero,
+        response: 'SECRET-VALUE',
+        redactor: MessageRedactor(extraPatterns: [r'SECRET-[A-Z]+']),
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(channel.sent.single.$2.text, 'SECRET***');
+      expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
+    });
+
+    test('each retry attempt brackets dispatch with typing cleanup', () async {
+      var attempts = 0;
+      final queue = makeQueue(
+        debounce: Duration.zero,
+        maxRetries: 2,
+        retryDelay: Duration.zero,
+        shouldFail: () => attempts++ == 0,
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(attempts, 2);
+      expect(channel.sent.single.$2.text, 'response');
+      expect(channel.typingEvents, [
+        'start:user@test',
+        'stop:user@test',
+        'start:user@test',
+        'stop:user@test',
+        'send:user@test',
+      ]);
     });
 
     test('a stalled typing start cannot block dispatch', () {

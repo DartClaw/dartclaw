@@ -11,9 +11,8 @@ void main() {
     ProcessResult result;
     try {
       result = await Process.run('node', ['--input-type=module', '--eval', _titleSyncHarness, '$baseDir/shared.js']);
-    } on ProcessException {
-      markTestSkipped('Node is unavailable');
-      return;
+    } on ProcessException catch (error) {
+      fail('Node.js is required for controller tests: $error');
     }
 
     expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');

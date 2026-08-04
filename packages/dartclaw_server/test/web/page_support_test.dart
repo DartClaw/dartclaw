@@ -1,6 +1,10 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/src/web/page_support.dart';
+import 'package:dartclaw_server/src/web/channel_status.dart';
 import 'package:test/test.dart';
+
+import '../signal_test_support.dart';
 
 void main() {
   group('getStatus without HealthService', () {
@@ -21,5 +25,18 @@ void main() {
         expect(status['session_count'], 3);
       });
     }
+  });
+
+  test('indeterminate Signal registration is a connection error', () async {
+    final sidecar = FakeSignalCliManager(fakeRegistrationState: SignalRegistrationState.unknown);
+    final channel = SignalChannel(
+      sidecar: sidecar,
+      config: const SignalConfig(enabled: true, phoneNumber: '+15551234567'),
+      dmAccess: DmAccessController(mode: DmAccessMode.open),
+      mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: '+15551234567'),
+    );
+
+    expect(await signalChannelStatus(channel), ChannelStatus.connectionError);
+    expect(sidecar.linkUriRequests, 0);
   });
 }

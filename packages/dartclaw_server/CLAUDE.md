@@ -34,6 +34,7 @@
 - Auth resolution and base-URL handling belong in middleware/`auth/`, never inline in routes. Use `AllowlistValidator` for outbound URL gating.
 - Turn lifecycle: callers go through `TurnManager.reserve` → `TurnRunner.execute` → outcome. `BusyTurnException` is the public busy signal. Don't construct `TurnRunner` directly in routes — go through `TurnManager`.
 - Session reset lifecycle: clear provider-side continuity through `TurnManager.resetSessionContinuity(sessionId)` before persisted messages/attachments are reset. If continuity reset reports busy, return the same `BusyTurnException`/409 path rather than clearing visible state first.
+- Session send, title, lifecycle, and reusable-New-Chat decisions share the factory-owned `SessionMutationCoordinator`. Re-read mutable session eligibility inside its per-session critical section before acting; an earlier request snapshot is not authoritative.
 
 ## Gotchas
 - SQLite is bundled by default — no committed `hooks.user_defines.sqlite3.source: system` block. Release binaries build with `dart build cli` (`dev/tools/build.sh`), which emits a bundled `libsqlite3` from the sqlite3 hooks; committing a `source: system` block would make them depend on the host SQLite (Windows' `winsqlite3.dll` lacks FTS5). The only sanctioned escape hatch is an *uncommitted* `source: system` edit for macOS codesign-blocked local iteration — see `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md`.
@@ -71,7 +72,7 @@
 - `lib/src/web/page_registry.dart` + `lib/src/web/pages/` — dashboard page registration.
 - `lib/src/templates/loader.dart` (`expectedTemplates`) + `lib/src/templates/*.{html,dart}` — Trellis templates.
 - `lib/src/static/controllers/` — Stimulus bootstrap + controller contract (`index.js`, `CONVENTIONS.md`, `dc_*_controller.js`).
-- `lib/src/api/*_routes.dart` + `api_helpers.dart` + `sse_broadcast.dart` — HTTP/SSE surface. `session_routes.dart` is the session CRUD factory + composition root; cohesive groups live in sibling `session_{message,attachment,lifecycle,turn_status}_routes.dart` (each exposes a `register*Routes(Router, {...})` called from the factory), with shared body-parsing/util helpers in `session_routes_support.dart`.
+- `lib/src/api/*_routes.dart` + `api_helpers.dart` + `sse_broadcast.dart` — HTTP/SSE surface. `session_routes.dart` is the session CRUD factory + composition root; cohesive groups live in sibling `session_{message,attachment,lifecycle,turn_status}_routes.dart` (each exposes a `register*Routes(Router, {...})` called from the factory), with the shared mutation coordinator and request helpers in `session_routes_support.dart`.
 - `lib/src/turn_manager.dart` + `turn_runner.dart` (+ `turn_runner_cancellation.dart` part: wait-state/early-cancel/recovery state machine as a same-library extension) + `turn_wait_status.dart` + `turn_governance_enforcer.dart` + `harness_pool.dart` — turn lifecycle, status, and early cancel.
 - `lib/src/task/task_executor.dart` + `task_service.dart` + `worktree_manager.dart` + `merge_executor.dart` — task runtime + git ops.
 - `lib/src/container/container_manager.dart` + `security_profile.dart` + `credential_proxy.dart` — container orchestration.

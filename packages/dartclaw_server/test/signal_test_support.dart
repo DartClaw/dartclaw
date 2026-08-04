@@ -14,12 +14,18 @@ import 'package:dartclaw_signal/dartclaw_signal.dart';
 /// ([smsRequested]/[voiceRequested]/[lastVerifyCode]) and can be made to throw
 /// via the `*Throws` flags.
 class FakeSignalCliManager extends SignalCliManager {
-  FakeSignalCliManager({this.fakeHealthy = true, this.fakeRegistered = false, this.fakeLinkUri})
-    : super(executable: 'signal-cli', phoneNumber: '+15551234567');
+  FakeSignalCliManager({
+    this.fakeHealthy = true,
+    this.fakeRegistered = false,
+    this.fakeRegistrationState,
+    this.fakeLinkUri,
+  }) : super(executable: 'signal-cli', phoneNumber: '+15551234567');
 
   bool fakeHealthy;
   bool fakeRegistered;
+  SignalRegistrationState? fakeRegistrationState;
   String? fakeLinkUri;
+  int linkUriRequests = 0;
   bool smsRequested = false;
   bool voiceRequested = false;
   String? lastVerifyCode;
@@ -46,10 +52,14 @@ class FakeSignalCliManager extends SignalCliManager {
 
   @override
   Future<SignalRegistrationState> registrationState() async =>
-      fakeRegistered ? SignalRegistrationState.registered : SignalRegistrationState.unregistered;
+      fakeRegistrationState ??
+      (fakeRegistered ? SignalRegistrationState.registered : SignalRegistrationState.unregistered);
 
   @override
-  Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async => fakeLinkUri;
+  Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async {
+    linkUriRequests++;
+    return fakeLinkUri;
+  }
 
   @override
   Future<void> requestSmsVerification({String? phone, String? captcha}) async {

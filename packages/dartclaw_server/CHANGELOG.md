@@ -4,11 +4,16 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 
 ### Fixed
 - The default SOUL scaffold defers to active onboarding's direct-or-draft mutation policy
+- Signal pairing preserves indeterminate registration state instead of starting a competing link flow
+- Responsive memory, channel, composer-palette, and pairing surfaces contain long values without page-wide overflow
 
 ### Added
 - `WorkflowGitPortProcess`, the production adapter for workflow-layer git operations using DartClaw's sanitized git subprocess path
+- Refined Web UI canon adoption with reusable form, tab, and dialog primitives plus locally served browser dependencies
+- Persistent New Chat and System navigation with authoritative session turn-status controls
 
 ### Changed
+- Session draft eligibility is serialized with rename/send mutations, and the Running sidebar now lists only executing tasks
 - `TaskExecutor` collapses the 14 workflow-context branch points onto a single `_isWorkflowOrchestrated(Task)` helper that reads hydrated `task.workflowStepExecution`; removes the `_skipAutoAcceptForWorkflowTask` and `_isCodingReviewStep` special cases
 - `TaskService.create` now creates an `AgentExecution` row atomically alongside the Task and links it via `agent_execution_id`; non-workflow tasks no longer persist `provider` / `model` / `sessionId` / `maxTokens` on the Task row or in `configJson`
 - Task REST/CLI/SSE consumers now treat execution metadata as nested `agentExecution` / `workflowStepExecution` payloads, while `task_status_changed` remains stable and `/api/agent-executions/events` exposes execution-lifecycle SSE separately

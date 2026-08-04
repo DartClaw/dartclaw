@@ -76,6 +76,8 @@ void main() {
         '/settings/channels/whatsapp',
         '/settings/channels/signal',
         '/memory/content',
+        '/knowledge/wiki',
+        '/knowledge/wiki/custom',
         '/health',
         '/static/app.css',
         '/whatsapp/pairing',
@@ -95,6 +97,8 @@ void main() {
           reason: route,
         );
       }
+
+      expect(() => registry.register(_StubDashboardPage('/knowledge/wikimedia', 'Allowed')), returnsNormally);
     });
 
     test('register rejects duplicate routes', () {

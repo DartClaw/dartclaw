@@ -39,6 +39,7 @@ Router sessionRoutes(
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
 }) {
   final router = Router();
+  final sessionMutations = SessionMutationCoordinator();
   Future<({Session session, bool created})>? openNewChatPromise;
 
   Future<({Session session, bool created})> openNewChat() {
@@ -48,7 +49,7 @@ Router sessionRoutes(
     late final Future<({Session session, bool created})> operation;
     operation = () async {
       try {
-        return await _openNewChat(sessions, messages, turns);
+        return await _openNewChat(sessions, messages, turns, sessionMutations);
       } finally {
         if (identical(openNewChatPromise, operation)) openNewChatPromise = null;
       }
@@ -117,11 +118,6 @@ Router sessionRoutes(
   // PATCH /api/sessions/<id>
   router.patch('/api/sessions/<id>', (Request request, String id) async {
     try {
-      final session = await sessions.getSession(id);
-      if (session == null) {
-        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
-      }
-
       final parsed = await parseBodyField(request, 'title');
       if (parsed.error != null) return parsed.error!;
       final title = parsed.value;
@@ -130,12 +126,18 @@ Router sessionRoutes(
       if (titleValidation != null) return titleValidation;
 
       final trimmed = title!.trim();
-      await sessions.updateTitle(id, trimmed);
-      final updated = await sessions.getSession(id);
-      if (updated == null) {
-        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
-      }
-      return jsonResponse(200, updated.toJson());
+      return sessionMutations.run(id, () async {
+        final session = await sessions.getSession(id);
+        if (session == null) {
+          return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        }
+        await sessions.updateTitle(id, trimmed);
+        final updated = await sessions.getSession(id);
+        if (updated == null) {
+          return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        }
+        return jsonResponse(200, updated.toJson());
+      });
     } catch (e) {
       _log.warning('Failed to update session $id: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session');
@@ -152,6 +154,7 @@ Router sessionRoutes(
     redactor: redactor,
     chatCommandHandler: chatCommandHandler,
     projectService: projectService,
+    sessionMutations: sessionMutations,
   );
 
   // Attachment upload + reference autocomplete.
@@ -165,6 +168,7 @@ Router sessionRoutes(
     router,
     sessions: sessions,
     turns: turns,
+    sessionMutations: sessionMutations,
     resetService: resetService,
     sidebarData: sidebarData,
     buildSidebarHtml: buildSidebarHtml,
@@ -192,22 +196,25 @@ Future<({Session session, bool created})> _openNewChat(
   SessionService sessions,
   MessageService messages,
   TurnManager turns,
+  SessionMutationCoordinator sessionMutations,
 ) async {
   final candidates = await sessions.listSessions(type: SessionType.user);
   for (final session in candidates) {
     if (!_isReusableNewChatMetadata(session)) continue;
-    if ((await messages.getMessagesTail(session.id, count: 1)).isNotEmpty) continue;
-
-    final current = await sessions.getSession(session.id);
-    if (current == null || !_isReusableNewChatMetadata(current)) continue;
-    // Web sends reserve before persisting. Keep this check last, with no await
-    // before return, so a send cannot interleave after eligibility is settled.
-    if (!turns.isActive(current.id)) return (session: current, created: false);
+    if (turns.isActive(session.id)) continue;
+    final reusable = await sessionMutations.run(session.id, () async {
+      if ((await messages.getMessagesTail(session.id, count: 1)).isNotEmpty) return null;
+      final current = await sessions.getSession(session.id);
+      if (current == null || !_isReusableNewChatMetadata(current) || turns.isActive(current.id)) return null;
+      return current;
+    });
+    if (reusable != null) return (session: reusable, created: false);
   }
   return (session: await sessions.createSession(), created: true);
 }
 
 bool _isReusableNewChatMetadata(Session session) =>
+    session.type == SessionType.user &&
     session.channelKey == null &&
     !(session.provider?.trim().isNotEmpty ?? false) &&
     (session.title == null || session.title!.trim().isEmpty);

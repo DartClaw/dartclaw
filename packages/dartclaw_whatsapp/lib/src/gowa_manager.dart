@@ -37,7 +37,7 @@ class GowaManager with SequentialLock {
   final PlatformCapabilities _platformCapabilities;
   final Duration _terminationGracePeriod;
 
-  /// Timeout for standard API calls (sendText, status, loginQr, requestPairingCode).
+  /// Timeout for standard API calls (sendText, chat presence, status, loginQr, requestPairingCode).
   static const _apiTimeout = Duration(seconds: 10);
 
   /// Timeout for media uploads (sendMedia / multipart).
@@ -247,6 +247,14 @@ class GowaManager with SequentialLock {
   /// Send a text message via GOWA.
   Future<void> sendText(String jid, String text) async {
     await _post('/send/message', {'phone': jid, 'message': text});
+  }
+
+  /// Starts or stops chat presence for a direct recipient or group.
+  Future<void> sendChatPresence(String jid, {required bool isTyping}) async {
+    await _post('/send/chat-presence', {
+      'phone': jid,
+      'action': isTyping ? 'start' : 'stop',
+    }, timeout: const Duration(seconds: 1));
   }
 
   /// Send a media file via GOWA.
@@ -540,20 +548,32 @@ class GowaManager with SequentialLock {
   }
 
   /// POST request that unwraps GOWA v8 response envelope, returning `results`.
-  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> payload, {
+    Duration timeout = _apiTimeout,
+  }) async {
     final client = HttpClient();
     try {
-      final request = await client.postUrl(Uri.parse('$baseUrl$path'));
-      _addDeviceHeader(request);
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(payload));
-      final response = await request.close().timeout(_apiTimeout);
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode >= 400) {
-        throw HttpException('GOWA $path returned ${response.statusCode}: $body');
-      }
-      if (body.isEmpty) return {};
-      return _unwrapEnvelope(jsonDecode(body) as Map<String, dynamic>);
+      return await (() async {
+        final request = await client.postUrl(Uri.parse('$baseUrl$path'));
+        _addDeviceHeader(request);
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode(payload));
+        final response = await request.close();
+        final body = await response.transform(utf8.decoder).join();
+        if (response.statusCode >= 400) {
+          throw HttpException('GOWA $path returned ${response.statusCode}: $body');
+        }
+        if (body.isEmpty) return <String, dynamic>{};
+        return _unwrapEnvelope(jsonDecode(body) as Map<String, dynamic>);
+      }()).timeout(
+        timeout,
+        onTimeout: () {
+          client.close(force: true);
+          throw TimeoutException('GOWA $path timed out', timeout);
+        },
+      );
     } finally {
       client.close();
     }

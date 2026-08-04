@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannelManager;
+import 'package:fake_async/fake_async.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -15,6 +16,11 @@ class FakeSignalCliManager extends SignalCliManager {
   bool stopped = false;
   bool wasReset = false;
   final List<(String, String)> sentMessages = [];
+  final List<bool> sentMessageGroups = [];
+  final List<(String, bool, bool)> typingCalls = [];
+  final List<(String, bool, bool)> typingUpdates = [];
+  final List<String> lifecycleEvents = [];
+  Completer<void>? nextTypingGate;
   bool fakeHealthy = true;
   SignalRegistrationState fakeRegistrationState = SignalRegistrationState.registered;
   int registrationChecks = 0;
@@ -50,6 +56,7 @@ class FakeSignalCliManager extends SignalCliManager {
   @override
   Future<void> reset() async {
     wasReset = true;
+    lifecycleEvents.add('reset');
   }
 
   @override
@@ -59,8 +66,19 @@ class FakeSignalCliManager extends SignalCliManager {
   }
 
   @override
-  Future<void> sendMessage(String recipient, String text) async {
+  Future<void> sendMessage(String recipient, String text, {required bool isGroup}) async {
     sentMessages.add((recipient, text));
+    sentMessageGroups.add(isGroup);
+  }
+
+  @override
+  Future<void> sendTyping(String recipient, {required bool isGroup, required bool isTyping}) async {
+    typingCalls.add((recipient, isGroup, isTyping));
+    final gate = nextTypingGate;
+    nextTypingGate = null;
+    await gate?.future;
+    typingUpdates.add((recipient, isGroup, isTyping));
+    lifecycleEvents.add('typing:${isTyping ? 'start' : 'stop'}:$recipient');
   }
 
   /// Simulate an inbound SSE event.
@@ -138,9 +156,11 @@ void main() {
     test('ownsJid matches E.164 phone numbers', () {
       expect(channel.ownsJid('+1234567890'), isTrue);
       expect(channel.ownsJid('+44771234567'), isTrue);
+      expect(channel.ownsJid('12BFCD5A-1234-5678-9ABC-1234567890AB'), isTrue);
       expect(channel.ownsJid('1234567890'), isFalse); // no + prefix
       expect(channel.ownsJid('user@s.whatsapp.net'), isFalse);
       expect(channel.ownsJid('+123@something'), isFalse); // has @
+      expect(channel.ownsJid('+2lnbmFsLWdyb3Vw=='), isFalse); // base64 group ID can start with +
     });
 
     test('connect starts sidecar and subscribes to events', () async {
@@ -196,6 +216,102 @@ void main() {
     test('sendMessage sends text via sidecar', () async {
       await channel.sendMessage('+1234567890', const ChannelResponse(text: 'Hello'));
       expect(sidecar.sentMessages, [('+1234567890', 'Hello')]);
+      expect(sidecar.sentMessageGroups, [false]);
+    });
+
+    test('sendMessage routes group IDs through the group RPC parameter', () async {
+      await channel.sendMessage('+2lnbmFsLWdyb3Vw==', const ChannelResponse(text: 'Hello group'));
+
+      expect(sidecar.sentMessages, [('+2lnbmFsLWdyb3Vw==', 'Hello group')]);
+      expect(sidecar.sentMessageGroups, [true]);
+    });
+
+    test('sendMessage treats mixed-case Signal UUIDs as direct recipients', () async {
+      await channel.sendMessage(
+        '12BFCD5A-1234-5678-9ABC-1234567890AB',
+        const ChannelResponse(text: 'Hello sealed sender'),
+      );
+
+      expect(sidecar.sentMessageGroups, [false]);
+    });
+
+    test('startTyping and stopTyping use direct recipient semantics', () async {
+      await channel.startTyping('+1234567890');
+      await channel.stopTyping('+1234567890');
+
+      expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+    });
+
+    test('startTyping and stopTyping use group semantics for group IDs', () async {
+      await channel.startTyping('+2lnbmFsLWdyb3Vw==');
+      await channel.stopTyping('+2lnbmFsLWdyb3Vw==');
+
+      expect(sidecar.typingUpdates, [('+2lnbmFsLWdyb3Vw==', true, true), ('+2lnbmFsLWdyb3Vw==', true, false)]);
+    });
+
+    test('serializes an in-flight refresh before STOP and prevents later refreshes', () {
+      fakeAsync((async) {
+        unawaited(channel.startTyping('+1234567890'));
+        async.flushMicrotasks();
+
+        final refreshGate = Completer<void>();
+        sidecar.nextTypingGate = refreshGate;
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+
+        expect(sidecar.typingCalls, [('+1234567890', false, true), ('+1234567890', false, true)]);
+        expect(sidecar.typingUpdates, [('+1234567890', false, true)]);
+
+        unawaited(channel.stopTyping('+1234567890'));
+        async.flushMicrotasks();
+
+        expect(sidecar.typingCalls, [('+1234567890', false, true), ('+1234567890', false, true)]);
+
+        refreshGate.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 20));
+        async.flushMicrotasks();
+
+        expect(sidecar.typingUpdates, [
+          ('+1234567890', false, true),
+          ('+1234567890', false, true),
+          ('+1234567890', false, false),
+        ]);
+      });
+    });
+
+    test('keeps shared recipient typing active until every turn settles', () async {
+      final startGate = Completer<void>();
+      sidecar.nextTypingGate = startGate;
+
+      final starts = [
+        channel.startTyping('+1234567890'),
+        channel.startTyping('+1234567890'),
+        channel.startTyping('+1234567890'),
+      ];
+      await pumpEventQueue();
+
+      expect(sidecar.typingCalls, [('+1234567890', false, true)]);
+
+      startGate.complete();
+      await Future.wait(starts);
+      await channel.stopTyping('+1234567890');
+      await channel.stopTyping('+1234567890');
+
+      expect(sidecar.typingUpdates, [('+1234567890', false, true)]);
+
+      await channel.stopTyping('+1234567890');
+      expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+    });
+
+    test('disconnect stops active typing before reset and rejects later starts', () async {
+      await channel.startTyping('+1234567890');
+
+      await channel.disconnect();
+      await channel.startTyping('+1234567890');
+
+      expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+      expect(sidecar.lifecycleEvents, ['typing:start:+1234567890', 'typing:stop:+1234567890', 'reset']);
     });
 
     test('sendMessage skips empty text', () async {

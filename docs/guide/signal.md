@@ -113,6 +113,7 @@ See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration
 
 ## Message Handling
 
+- **Typing indication**: DMs and groups show typing while the agent turn runs. DartClaw refreshes the Signal typing state every 10 seconds and makes a bounded, best-effort STOP request before delivering the response.
 - **Text chunking**: Long responses split at ~4000 chars with smart break points (paragraph > sentence > word)
 - **Response prefix**: Messages include agent identity prefix
 
@@ -164,14 +165,14 @@ These tests verify the full Signal integration. Tests requiring a phone/number a
 
 1. Send a Signal DM to the registered number
 2. Verify: SSE event received (check DartClaw logs)
-3. Verify: agent processes the message (turn starts)
-4. Verify: response received in Signal
+3. Verify: Signal shows the typing indicator while the agent processes the message
+4. Verify: the typing indicator clears and the response arrives
 
 ### T04: Group Mention Gating (requires phone)
 
 1. Add bot to Signal group, set `group_access: open` and `require_mention: true`
 2. Send group message without mentioning bot -- verify: no response
-3. Send group message with `@DartClaw` -- verify: bot responds
+3. Send group message with `@DartClaw` -- verify: group typing appears, clears, and the bot responds
 4. Set `require_mention: false` -- verify: bot responds to all messages
 
 ### T05: DM Access Control (requires phone)

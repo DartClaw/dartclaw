@@ -4,6 +4,12 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 
+final _e164Pattern = RegExp(r'^\+[1-9]\d{1,14}$');
+final _uuidPattern = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false);
+
+bool isValidSignalE164(String value) => _e164Pattern.hasMatch(value);
+bool isValidSignalUuid(String value) => _uuidPattern.hasMatch(value);
+
 /// Bidirectional UUID <-> phone mapping for Signal sender normalization.
 ///
 /// Signal's sealed-sender protocol means unknown senders appear as ACI UUID
@@ -12,12 +18,6 @@ import 'package:logging/logging.dart';
 /// to the stable phone number for consistent session key derivation.
 class SignalSenderMap {
   static final _log = Logger('SignalSenderMap');
-
-  static final _e164Pattern = RegExp(r'^\+[1-9]\d{1,14}$');
-  static final _uuidPattern = RegExp(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-    caseSensitive: false,
-  );
 
   final String filePath;
   final Map<String, String> _uuidToPhone = {};
@@ -50,7 +50,7 @@ class SignalSenderMap {
       for (final entry in mappings.entries) {
         final uuid = entry.key;
         final phone = entry.value as String;
-        if (_isValidUuid(uuid) && _isValidE164(phone)) {
+        if (isValidSignalUuid(uuid) && isValidSignalE164(phone)) {
           _uuidToPhone[uuid.toLowerCase()] = phone;
           _phoneToUuid[phone] = uuid.toLowerCase();
         }
@@ -72,8 +72,8 @@ class SignalSenderMap {
     final hasUuid = sourceUuid != null && sourceUuid.isNotEmpty;
 
     if (hasPhone && hasUuid) {
-      final validPhone = _isValidE164(sourceNumber);
-      final validUuid = _isValidUuid(sourceUuid);
+      final validPhone = isValidSignalE164(sourceNumber);
+      final validUuid = isValidSignalUuid(sourceUuid);
       if (validPhone && validUuid) {
         _storeMapping(sourceUuid.toLowerCase(), sourceNumber);
       }
@@ -117,7 +117,4 @@ class SignalSenderMap {
     });
     return _pendingWrite;
   }
-
-  static bool _isValidE164(String value) => _e164Pattern.hasMatch(value);
-  static bool _isValidUuid(String value) => _uuidPattern.hasMatch(value);
 }

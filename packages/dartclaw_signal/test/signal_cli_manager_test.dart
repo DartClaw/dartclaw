@@ -7,6 +7,34 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:test/test.dart';
 
+Future<Map<String, dynamic>> _captureRpc(Future<void> Function(SignalCliManager manager) invoke) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  final captured = Completer<Map<String, dynamic>>();
+  final subscription = server.listen((request) {
+    unawaited(() async {
+      final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+      captured.complete({'path': request.uri.path, ...payload});
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
+      await request.response.close();
+    }());
+  });
+
+  try {
+    final manager = SignalCliManager(
+      executable: 'signal-cli',
+      host: InternetAddress.loopbackIPv4.address,
+      port: server.port,
+      phoneNumber: '+12125550100',
+    );
+    await invoke(manager);
+    return await captured.future;
+  } finally {
+    await subscription.cancel();
+    await server.close(force: true);
+  }
+}
+
 void main() {
   group('SignalCliManager', () {
     test('baseUrl constructed from host and port', () {
@@ -23,6 +51,67 @@ void main() {
       final mgr = SignalCliManager(executable: 'signal-cli', phoneNumber: '+1');
       expect(mgr.isRunning, isFalse);
     });
+
+    for (final scenario in [
+      (name: 'starts direct typing', recipient: '+12125550101', isGroup: false, isTyping: true),
+      (name: 'stops direct typing', recipient: '+12125550101', isGroup: false, isTyping: false),
+      (name: 'starts group typing', recipient: 'c2lnbmFsLWdyb3Vw', isGroup: true, isTyping: true),
+      (name: 'stops group typing', recipient: 'c2lnbmFsLWdyb3Vw', isGroup: true, isTyping: false),
+    ]) {
+      test('${scenario.name} with the signal-cli JSON-RPC contract', () async {
+        final payload = await _captureRpc(
+          (manager) => manager.sendTyping(scenario.recipient, isGroup: scenario.isGroup, isTyping: scenario.isTyping),
+        );
+
+        expect(payload['path'], '/api/v1/rpc');
+        expect(payload['method'], 'sendTyping');
+        expect(payload['params'], {
+          'account': '+12125550100',
+          if (scenario.isGroup) 'groupId': scenario.recipient else 'recipient': scenario.recipient,
+          if (!scenario.isTyping) 'stop': true,
+        });
+      });
+    }
+
+    test('sends group replies with groupId instead of recipient', () async {
+      final payload = await _captureRpc(
+        (manager) => manager.sendMessage('c2lnbmFsLWdyb3Vw', 'Hello group', isGroup: true),
+      );
+
+      expect(payload['method'], 'send');
+      expect(payload['params'], {'account': '+12125550100', 'groupId': 'c2lnbmFsLWdyb3Vw', 'message': 'Hello group'});
+    });
+
+    test(
+      'typing RPC times out when the daemon never completes its response body',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final subscription = server.listen((request) {
+          unawaited(() async {
+            await utf8.decoder.bind(request).join();
+            request.response.headers.contentType = ContentType.json;
+            request.response.write('{"jsonrpc":"2.0","id":"1","result":');
+            await request.response.flush();
+          }());
+        });
+        final manager = SignalCliManager(
+          executable: 'signal-cli',
+          host: InternetAddress.loopbackIPv4.address,
+          port: server.port,
+          phoneNumber: '+12125550100',
+        );
+        addTearDown(() async {
+          await subscription.cancel();
+          await server.close(force: true);
+        });
+
+        await expectLater(
+          manager.sendTyping('+12125550101', isGroup: false, isTyping: true),
+          throwsA(isA<TimeoutException>()),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 5)),
+    );
 
     test('start spawns process with correct args', () async {
       late String capturedExe;
@@ -270,6 +359,8 @@ void main() {
 
     test('verifySmsCode activates registration and reconnects the receive stream', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final replacementSse = Completer<HttpResponse>();
       var sseConnections = 0;
       final sub = server.listen((request) {
         unawaited(() async {
@@ -278,6 +369,11 @@ void main() {
             request.response.headers.contentType = ContentType('text', 'event-stream');
             request.response.write(': connected\n\n');
             await request.response.flush();
+            if (sseConnections == 1) {
+              initialSse.complete(request.response);
+            } else if (sseConnections == 2) {
+              replacementSse.complete(request.response);
+            }
             return;
           }
 
@@ -293,7 +389,10 @@ void main() {
         host: InternetAddress.loopbackIPv4.address,
         port: server.port,
         phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
         delay: (_) async {},
+        healthProbe: () async => true,
       );
       addTearDown(() async {
         await mgr.stop();
@@ -301,12 +400,13 @@ void main() {
         await server.close(force: true);
       });
 
+      await mgr.start();
+      await initialSse.future.timeout(const Duration(seconds: 2));
       await mgr.verifySmsCode('123-456');
-      await pumpEventQueue(times: 10);
 
       expect(mgr.wasPaired, isTrue);
       expect(mgr.registeredPhone, '+12125550100');
-      expect(sseConnections, 1);
+      await replacementSse.future.timeout(const Duration(seconds: 2));
     });
 
     test('finishLink refreshes receiving and selects the linked account for sending', () async {
@@ -314,6 +414,7 @@ void main() {
       final firstSse = Completer<HttpResponse>();
       final secondSse = Completer<HttpResponse>();
       final thirdSse = Completer<void>();
+      final registrationActivated = Completer<String>();
       final rpcMethods = <String>[];
       String? sendAccount;
       var sseConnections = 0;
@@ -375,6 +476,9 @@ void main() {
             FakeProcess(completeExitOnKill: true),
         delay: (_) async {},
         healthProbe: () async => true,
+        onRegistered: (phone) {
+          if (!registrationActivated.isCompleted) registrationActivated.complete(phone);
+        },
       );
       addTearDown(() async {
         await mgr.stop();
@@ -389,15 +493,13 @@ void main() {
       final delayedResponse = await secondSse.future.timeout(const Duration(seconds: 2));
 
       expect(await mgr.getLinkDeviceUri(), 'sgnl://linkdevice?uuid=test');
-      for (var i = 0; i < 20 && !mgr.wasPaired; i++) {
-        await pumpEventQueue(times: 1);
-      }
+      expect(await registrationActivated.future.timeout(const Duration(seconds: 2)), '+12125550100');
       expect(mgr.wasPaired, isTrue);
 
       delayedResponse.write(': connected\n\n');
       await delayedResponse.flush();
       await thirdSse.future.timeout(const Duration(seconds: 2));
-      await mgr.sendMessage('+12125550102', 'reply');
+      await mgr.sendMessage('+12125550102', 'reply', isGroup: false);
 
       expect(sseConnections, greaterThanOrEqualTo(3));
       expect(rpcMethods, ['startLink', 'finishLink', 'send']);

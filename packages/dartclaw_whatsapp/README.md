@@ -4,7 +4,8 @@ WhatsApp channel integration for DartClaw via GOWA sidecar.
 
 `dartclaw_whatsapp` implements the DartClaw channel interface for WhatsApp.
 It handles channel configuration, response formatting, media extraction, and
-the subprocess integration needed to talk to a GOWA sidecar.
+the subprocess integration needed to talk to a GOWA sidecar, including native
+typing indication while queued turns run.
 
 > **Status: Pre-1.0**. The channel package is usable, but operational details
 > and API surface may still change before 1.0.

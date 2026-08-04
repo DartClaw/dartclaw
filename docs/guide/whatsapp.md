@@ -96,6 +96,7 @@ In groups, the agent only responds when mentioned (default `mention` mode). Conf
 
 ## Message Handling
 
+- **Typing indication**: DMs and groups show composing presence while the agent turn runs. DartClaw makes a bounded, best-effort clear request before sending the response; presence failures are logged and never prevent delivery
 - **Text chunking**: Long responses split at ~4000 chars with `(n/total)` prefixes
 - **Media**: Agent can send images/files via `MEDIA:<path>` directives in responses
 - **Response prefix**: Messages prefixed with model name and agent identity
@@ -150,14 +151,14 @@ These tests verify the full WhatsApp integration. Tests requiring a phone are ma
 
 1. Send a WhatsApp DM to the paired number: "Hello"
 2. Verify: GOWA webhook fires (logs: `POST /webhook/whatsapp`)
-3. Verify: agent processes the message (turn starts)
-4. Verify: response received in WhatsApp with prefix `*Claude* -- _DartClaw_`
+3. Verify: WhatsApp shows typing while the agent processes the message
+4. Verify: typing clears and the response arrives with prefix `*Claude* -- _DartClaw_`
 
 ### T04: Group Mention Gating (requires phone)
 
 1. Add bot to a group, set `group_access: open` in config
 2. Send message **without** mentioning bot — verify: no response
-3. Send message @mentioning bot — verify: bot responds
+3. Send message @mentioning bot — verify: group typing appears, clears, and the bot responds
 4. Reply to bot message — verify: bot responds
 
 ### T05: DM Access Control (requires phone)

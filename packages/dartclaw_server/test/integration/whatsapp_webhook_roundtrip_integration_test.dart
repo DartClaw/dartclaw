@@ -189,9 +189,12 @@ void main() {
     expect(response.statusCode, 200);
 
     await worker.turnInvoked;
+    expect(gowa.chatPresenceUpdates, [('123@s.whatsapp.net', true)]);
     worker.completeSuccessWithText('Here is your update summary.');
 
     await gowa.firstSent;
+    expect(gowa.chatPresenceUpdates, [('123@s.whatsapp.net', true), ('123@s.whatsapp.net', false)]);
+    expect(gowa.outboundEvents, ['start:123@s.whatsapp.net', 'stop:123@s.whatsapp.net', 'text:123@s.whatsapp.net']);
 
     // The dispatcher returns 'OK' on turn completion; actual agent text ('Here is your update
     // summary.') is collected by TurnManager and checked via persisted messages below.

@@ -1,8 +1,8 @@
-# 0.22.1 — Design-System Refinement & Web UI Polish (point release)
+# 0.22.1 – Design-System Refinement & Web UI Polish (point release)
 
-Refinement pass on the canonical design system and the Web UI built on it. 0.22 made the app *compliant* with Afterglow; this makes it *good*. Surface/depth revision, type-scale rationalization + a composite type layer, a wide-container tier, the form/tab/dialog primitives canon never shipped, eradication of native `alert`/`confirm`/`prompt`, a 64-issue glitch sweep, and optional local vendoring of the three remaining CDN runtime dependencies. ~13 stories.
+Refinement pass on the canonical design system and the Web UI built on it. 0.22 made the app *compliant* with Afterglow; this makes it *good*. Surface/depth revision, type-scale rationalization + a composite type layer, a wide-container tier, the form/tab/dialog primitives canon never shipped, eradication of native `alert`/`confirm`/`prompt`, a 64-issue glitch sweep, and local vendoring of the three remaining CDN runtime dependencies. The original plan resolved to 16 stories.
 
-**Status**: **draft PRD** ([prd.md](prd.md)), not yet planned. Opened 2026-07-25 after a post-release audit of `v0.22.0` found 232 verified defects. **Next step: the implementation plan** (`/andthen:plan` on this dir) — clean session recommended.
+**Status**: Implemented; final release validation is pending. [prd.md](prd.md) is the complete and only 0.22.1 scope, delivery, decision, and release-close record. This index intentionally does not duplicate the post-plan delivery history.
 
 > **Why a point release and not part of 0.24 or Cross-Surface UX.** The Cross-Surface UX backlog contains only two items relevant to these defects (QW-10 confirm-modal, OH-10 memory polling) and **no item at all** for type scale, visual hierarchy, surface depth, or density — this is new work with no existing home. 0.24 is already over its 10–14-story budget; adding it would force cutting Phase C. See the Decisions Log in [prd.md](prd.md).
 
@@ -25,7 +25,7 @@ vendoring-analysis.md              ← FR8 decision record: sizes, CSP, embed me
 
 ## Related
 
-- What 0.22 delivered and explicitly deferred: [`../0.22/prd.md`](../0.22/prd.md) (note its "Keep `window.confirm`" decision — FR5 here is the reversal)
-- The milestone this unblocks: [`../0.24/prd-brief.md`](../0.24/prd-brief.md)
-- The canonical design system being revised: `../../../../dartclaw-public/dev/design-system/DESIGN.md`
-- Sibling milestone (unchanged by this release): [`../0.next-ui-ux-improvements/`](../0.next-ui-ux-improvements/) — Cross-Surface UX
+- Complete scope and delivery record: [prd.md](prd.md)
+- Original audit evidence: [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md)
+- Vendoring decision record: [vendoring-analysis.md](vendoring-analysis.md)
+- Canonical design system: [`DESIGN.md`](../../../../design-system/DESIGN.md)

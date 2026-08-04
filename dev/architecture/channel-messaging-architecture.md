@@ -88,6 +88,8 @@ abstract class Channel {
   ChannelType get type;
   Future<void> connect();
   Future<void> sendMessage(String recipientJid, ChannelResponse response);
+  Future<void> startTyping(String recipientJid); // default no-op
+  Future<void> stopTyping(String recipientJid);  // default no-op
   bool ownsJid(String jid);
   Future<void> disconnect();
   List<ChannelResponse> formatResponse(String text);
@@ -296,6 +298,8 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
 
 ### 5.1 Response Flow
 
+`MessageQueue` starts channel typing immediately before dispatching an accepted queued turn and attempts to clear it in guaranteed, bounded cleanup before final delivery, including failures and retries. Transport failures are logged but never prevent the turn or response. Unsupported channels inherit no-op hooks. Google Chat keeps its existing placeholder/reaction flow at ingress because the API has no native typing state.
+
 ```
   Agent turn completes
          |
@@ -314,8 +318,8 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
          |
          v
   Channel.sendMessage(recipientJid, ChannelResponse)
-    - WhatsApp: GOWA REST API (sendText, sendMedia)
-    - Signal: signal-cli JSON-RPC (send)
+    - WhatsApp: GOWA REST API (sendText, sendMedia, chat presence)
+    - Signal: signal-cli JSON-RPC (send, sendTyping)
     - Google Chat: REST API (sendMessage, sendCard, editMessage)
     - Web: SSE event stream
 ```
@@ -349,9 +353,9 @@ List<String> chunkText(String text, {int maxSize = 4000})
 
 **Google Chat** -- `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators via placeholder messages or emoji reactions. Native quote-reply support in Spaces.
 
-**WhatsApp** -- `ResponseFormatter` prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API.
+**WhatsApp** -- `ResponseFormatter` prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
 
-**Signal** -- Plain text chunked to configured max size. Sent via signal-cli JSON-RPC `send` method.
+**Signal** -- Plain text is chunked to the configured max size. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
 
 
 ---
@@ -563,6 +567,7 @@ class GowaManager {
   Future<void> stop();          // Platform-capability termination + bounded reap
   Future<void> sendText(String jid, String text);
   Future<void> sendMedia(String jid, String filePath, {String? caption});
+  Future<void> sendChatPresence(String jid, {required bool isTyping});
   Future<GowaStatus> getStatus();
   Future<GowaLoginQr> getLoginQr();
   Future<Map<String, dynamic>> requestPairingCode(String phone);
@@ -615,7 +620,8 @@ Signal uses signal-cli running in HTTP daemon mode:
 class SignalCliManager {
   Future<void> start();    // Spawn + health check + SSE connect
   Future<void> stop();
-  Future<void> sendMessage(String recipient, String text);
+  Future<void> sendMessage(String recipient, String text, {required bool isGroup});
+  Future<void> sendTyping(String recipient, {required bool isGroup, required bool isTyping});
   Future<String?> getLinkDeviceUri({String deviceName});  // QR linking
   Future<SignalRegistrationState> registrationState();
   Stream<Map<String, dynamic>> get events;  // SSE event stream
@@ -787,7 +793,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 
 **Retry and dead-letter** -- Failed turns retry with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`). After `maxAttempts` (default 3), the message is dead-lettered and the sender receives an error notification.
 
-**Channel feedback** -- `ChannelFeedbackStrategy` interface enables per-channel progress feedback during turn execution. Google Chat uses this for typing indicator management. `NoFeedbackStrategy` is the default no-op.
+**Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping`; the queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
 
 
 ---

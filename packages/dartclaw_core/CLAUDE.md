@@ -13,7 +13,7 @@
 
 ## Shape
 - **Harness**: `HarnessFactory.create` → `start()` (spawns provider binary) → `runTurn(...)` (writes stdin, reads stdout via `ProtocolAdapter`) → `resetSessionContinuity(sessionId)` when a DartClaw session reset must drop provider-side conversation state → `stop()`. All mutating ops serialized via `_withLock()`; spawn-generation counter discards stale exit handlers.
-- **Inbound channel**: `Channel.handleWebhook(payload)` → `ChannelManager` (`ownsJid` ownership check) → `ChannelTaskBridge` (binding → rate limit → review → trigger → fall-through) → task or session.
+- **Inbound channel**: `Channel.handleWebhook(payload)` → `ChannelManager` (`ownsJid` ownership check) → `ChannelTaskBridge` (binding → rate limit → review → trigger → fall-through) → `MessageQueue`, which brackets dispatched turns with three-second best-effort channel typing lifecycle hooks.
 - **Events**: producers fire on `EventBus`; `BridgeEvent` carries protocol-stream signals, `DartclawEvent` carries app semantics — both broadcast, fire-and-forget.
 
 ## Boundaries

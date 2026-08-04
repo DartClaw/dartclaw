@@ -9,8 +9,9 @@ import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 /// than in the testing barrel.
 ///
 /// Lifecycle methods ([start], [stop], [reset]) are no-ops. Outbound messages
-/// are recorded in [sentTexts]/[sentMedia]; [firstSent] completes on the first
-/// [sendText]/[sendMedia]. Status and running/paired state are configurable so
+/// are recorded in [sentTexts]/[sentMedia], chat presence in
+/// [chatPresenceUpdates], and delivery order in [outboundEvents]. [firstSent]
+/// completes on the first [sendText]/[sendMedia]. Status and running/paired state are configurable so
 /// each call site can reproduce its own permutation.
 class FakeGowaManager extends GowaManager {
   FakeGowaManager({
@@ -31,6 +32,8 @@ class FakeGowaManager extends GowaManager {
 
   final List<(String, String)> sentTexts = [];
   final List<(String, String)> sentMedia = [];
+  final List<(String, bool)> chatPresenceUpdates = [];
+  final List<String> outboundEvents = [];
   final _firstSentCompleter = Completer<void>();
 
   /// Completes when the first outbound message is sent.
@@ -54,12 +57,19 @@ class FakeGowaManager extends GowaManager {
   @override
   Future<void> sendText(String jid, String text) async {
     sentTexts.add((jid, text));
+    outboundEvents.add('text:$jid');
     if (!_firstSentCompleter.isCompleted) _firstSentCompleter.complete();
   }
 
   @override
   Future<void> sendMedia(String jid, String filePath, {String? caption}) async {
     sentMedia.add((jid, filePath));
+  }
+
+  @override
+  Future<void> sendChatPresence(String jid, {required bool isTyping}) async {
+    chatPresenceUpdates.add((jid, isTyping));
+    outboundEvents.add('${isTyping ? 'start' : 'stop'}:$jid');
   }
 
   @override

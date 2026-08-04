@@ -15,6 +15,11 @@ class FakeGowaManager extends GowaManager {
   bool wasReset = false;
   final List<(String, String)> sentTexts = [];
   final List<(String, String)> sentMedia = [];
+  final List<(String, bool)> chatPresenceCalls = [];
+  final List<(String, bool)> chatPresenceUpdates = [];
+  final List<String> lifecycleEvents = [];
+  Completer<void>? nextPresenceGate;
+  bool failNextPresence = false;
   GowaStatus statusResult = (isConnected: false, isLoggedIn: false, deviceId: null);
   GowaLoginQr loginQrResult = (url: null, durationSeconds: 60);
 
@@ -39,6 +44,7 @@ class FakeGowaManager extends GowaManager {
   @override
   Future<void> reset() async {
     wasReset = true;
+    lifecycleEvents.add('reset');
   }
 
   @override
@@ -49,6 +55,19 @@ class FakeGowaManager extends GowaManager {
   @override
   Future<void> sendMedia(String jid, String filePath, {String? caption}) async {
     sentMedia.add((jid, filePath));
+  }
+
+  @override
+  Future<void> sendChatPresence(String jid, {required bool isTyping}) async {
+    chatPresenceCalls.add((jid, isTyping));
+    final gate = nextPresenceGate;
+    nextPresenceGate = null;
+    final shouldFail = failNextPresence;
+    failNextPresence = false;
+    await gate?.future;
+    if (shouldFail) throw StateError('presence failed');
+    chatPresenceUpdates.add((jid, isTyping));
+    lifecycleEvents.add('typing:${isTyping ? 'start' : 'stop'}:$jid');
   }
 
   @override
@@ -136,6 +155,95 @@ void main() {
       await channel.sendMessage('123@s.whatsapp.net', ChannelResponse(text: '', mediaAttachments: ['/tmp/photo.jpg']));
       expect(gowa.sentMedia, hasLength(1));
       expect(gowa.sentTexts, isEmpty);
+    });
+
+    test('startTyping and stopTyping delegate chat presence for DMs and groups', () async {
+      await channel.startTyping('123@s.whatsapp.net');
+      await channel.stopTyping('123@s.whatsapp.net');
+      await channel.startTyping('group@g.us');
+      await channel.stopTyping('group@g.us');
+
+      expect(gowa.chatPresenceUpdates, [
+        ('123@s.whatsapp.net', true),
+        ('123@s.whatsapp.net', false),
+        ('group@g.us', true),
+        ('group@g.us', false),
+      ]);
+    });
+
+    test('keeps shared recipient typing active until every turn settles', () async {
+      final startGate = Completer<void>();
+      gowa.nextPresenceGate = startGate;
+
+      final starts = [
+        channel.startTyping('group@g.us'),
+        channel.startTyping('group@g.us'),
+        channel.startTyping('group@g.us'),
+      ];
+      await pumpEventQueue();
+
+      expect(gowa.chatPresenceCalls, [('group@g.us', true)]);
+
+      startGate.complete();
+      await Future.wait(starts);
+      await channel.stopTyping('group@g.us');
+      await channel.stopTyping('group@g.us');
+
+      expect(gowa.chatPresenceUpdates, [('group@g.us', true)]);
+
+      await channel.stopTyping('group@g.us');
+      expect(gowa.chatPresenceUpdates, [('group@g.us', true), ('group@g.us', false)]);
+    });
+
+    test('an overlapping start retries after the first presence request fails', () async {
+      final firstGate = Completer<void>();
+      gowa
+        ..nextPresenceGate = firstGate
+        ..failNextPresence = true;
+
+      final firstStart = channel.startTyping('group@g.us');
+      await pumpEventQueue();
+      final secondStart = channel.startTyping('group@g.us');
+
+      firstGate.complete();
+      await expectLater(firstStart, throwsStateError);
+      await secondStart;
+
+      expect(gowa.chatPresenceCalls, [('group@g.us', true), ('group@g.us', true)]);
+      expect(gowa.chatPresenceUpdates, [('group@g.us', true)]);
+
+      await channel.stopTyping('group@g.us');
+      await channel.stopTyping('group@g.us');
+      expect(gowa.chatPresenceUpdates.last, ('group@g.us', false));
+    });
+
+    test('a new start waits behind an in-flight last STOP', () async {
+      await channel.startTyping('group@g.us');
+      final stopGate = Completer<void>();
+      gowa.nextPresenceGate = stopGate;
+
+      final stopping = channel.stopTyping('group@g.us');
+      await pumpEventQueue();
+      final starting = channel.startTyping('group@g.us');
+      await pumpEventQueue();
+
+      expect(gowa.chatPresenceCalls, [('group@g.us', true), ('group@g.us', false)]);
+
+      stopGate.complete();
+      await stopping;
+      await starting;
+
+      expect(gowa.chatPresenceUpdates, [('group@g.us', true), ('group@g.us', false), ('group@g.us', true)]);
+    });
+
+    test('disconnect stops active typing before reset and rejects later starts', () async {
+      await channel.startTyping('group@g.us');
+
+      await channel.disconnect();
+      await channel.startTyping('group@g.us');
+
+      expect(gowa.chatPresenceUpdates, [('group@g.us', true), ('group@g.us', false)]);
+      expect(gowa.lifecycleEvents, ['typing:start:group@g.us', 'typing:stop:group@g.us', 'reset']);
     });
 
     // ---- v8 webhook parsing ----

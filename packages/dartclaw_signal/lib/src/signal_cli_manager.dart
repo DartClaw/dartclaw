@@ -237,12 +237,21 @@ class SignalCliManager with SequentialLock {
   // ---- JSON-RPC client methods ----
 
   /// Send a text message via signal-cli JSON-RPC.
-  Future<void> sendMessage(String recipient, String text) async {
+  Future<void> sendMessage(String recipient, String text, {required bool isGroup}) async {
     await _rpc('send', {
       'account': _registeredPhone ?? phoneNumber,
-      'recipient': [recipient],
+      if (isGroup) 'groupId': recipient else 'recipient': [recipient],
       'message': text,
     });
+  }
+
+  /// Starts or stops a typing indicator for a direct recipient or group.
+  Future<void> sendTyping(String recipient, {required bool isGroup, required bool isTyping}) async {
+    await _rpc('sendTyping', {
+      'account': _registeredPhone ?? phoneNumber,
+      if (isGroup) 'groupId': recipient else 'recipient': recipient,
+      if (!isTyping) 'stop': true,
+    }, timeout: const Duration(seconds: 1));
   }
 
   /// Returns true if any Signal account is registered in signal-cli.
@@ -539,22 +548,31 @@ class SignalCliManager with SequentialLock {
   /// [timeout] overrides [_apiTimeout] for long-poll calls like `finishLink`.
   Future<dynamic> _rpc(String method, Map<String, dynamic> params, {Duration? timeout}) async {
     final client = HttpClient();
+    final requestTimeout = timeout ?? _apiTimeout;
     try {
-      final request = await client.postUrl(Uri.parse('$baseUrl/api/v1/rpc'));
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({'jsonrpc': '2.0', 'id': (++_rpcId).toString(), 'method': method, 'params': params}));
-      final response = await request.close().timeout(timeout ?? _apiTimeout);
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode >= 400) {
-        throw HttpException('signal-cli RPC $method returned ${response.statusCode}: $body');
-      }
-      if (body.isEmpty) return <String, dynamic>{};
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      if (decoded.containsKey('error')) {
-        final error = decoded['error'];
-        throw HttpException('signal-cli RPC $method error: ${error is Map ? error['message'] : error}');
-      }
-      return decoded['result'];
+      return await (() async {
+        final request = await client.postUrl(Uri.parse('$baseUrl/api/v1/rpc'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'jsonrpc': '2.0', 'id': (++_rpcId).toString(), 'method': method, 'params': params}));
+        final response = await request.close();
+        final body = await response.transform(utf8.decoder).join();
+        if (response.statusCode >= 400) {
+          throw HttpException('signal-cli RPC $method returned ${response.statusCode}: $body');
+        }
+        if (body.isEmpty) return <String, dynamic>{};
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        if (decoded.containsKey('error')) {
+          final error = decoded['error'];
+          throw HttpException('signal-cli RPC $method error: ${error is Map ? error['message'] : error}');
+        }
+        return decoded['result'];
+      }()).timeout(
+        requestTimeout,
+        onTimeout: () {
+          client.close(force: true);
+          throw TimeoutException('signal-cli RPC $method timed out', requestTimeout);
+        },
+      );
     } finally {
       client.close();
     }

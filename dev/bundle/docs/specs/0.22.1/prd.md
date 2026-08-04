@@ -1,13 +1,16 @@
-# Product Requirements Document: Design-System Refinement & Web UI Polish
+# Product Requirements Document and Delivery Record: 0.22.1
 
-> **Context**: ROADMAP entry "0.22.1 — Design-System Refinement & Web UI Polish". Date: 2026-07-25. Status: Draft — not yet planned.
-> **Related Assets** (durable): canonical design system `../../../../dartclaw-public/dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `showcase.html`) · [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md) (232 verified findings — the evidence base) · [vendoring-analysis.md](vendoring-analysis.md) (FR8 decision record) · [0.22 PRD](../0.22/prd.md) (what the overhaul did and deliberately deferred) · [0.24 PRD brief](../0.24/prd-brief.md) (the milestone this unblocks).
+> **Context**: ROADMAP entry "0.22.1 – Design-System Refinement & Web UI Polish". Opened: 2026-07-25. Status: Implemented – original 16-story plan completed 2026-07-30; post-plan delivery record reconciled through 2026-08-04; final release validation pending; release not yet tagged.
+> **Implementation references**: canonical design system [`DESIGN.md`](../../../../design-system/DESIGN.md) (+ `tokens.css`, `components.css`, `showcase.html`) · [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md) (232 verified findings – the evidence base) · [vendoring-analysis.md](vendoring-analysis.md) (FR8 decision record). The canonical private 0.22 PRD and 0.24 brief were authoring inputs; their release-relevant decisions are preserved here.
+>
+> **Authority**: This document is the complete release-scope and delivery record for 0.22.1. FR1–FR9 preserve the original planned intent. `Delivery Record` preserves what completed, while `Adjacent & Interlude Work` records every post-plan addition without pretending it was part of the original scope.
 
 ## Executive Summary
 
 - **Problem**: 0.22 made the Web UI *compliant* with the Afterglow design system. It did not make it *good*. A post-release audit of all 23 web surfaces — 92 screenshots across both themes and two viewports, cross-read against the templates, CSS and canon — produced **232 verified defects**. The root causes are in the canon itself: `.sidebar`, `.topbar`, `.card` and the terminal stop of the body ground gradient are **all `--bg-mantle`**, giving a measured card-vs-ground contrast of **1.07:1** (below just-noticeable-difference); all card colour is `:hover`-gated so **0.50–1.45% of resting content pixels carry any chroma**; three of seven type tiers sit inside a 2px band and absorb ~90% of declarations; and canon ships **no form, tab, or dialog primitives at all** while actively sanctioning `window.confirm()`. The product reads as flat, gray and unfinished — and no amount of page-level adoption can fix a page whose layers are the same colour.
 - **Vision**: The design system gains real depth, a usable type hierarchy, and the primitives the app has been forced to invent privately. The Web UI is re-synced onto it, the 64 distinct glitches are closed, and native OS dialogs are gone. DartClaw stops looking like an admin panel and starts looking like the product its positioning claims.
 - **Target Users**: (1) **Operators** — get a legible, layered, finished surface; (2) **DartClaw developers** — get canonical form/tab/dialog primitives instead of re-inventing them per page, and a type layer that binds size + weight + leading + tracking so hierarchy stops being hand-derived; (3) **0.24 and every later UI milestone** — build on a refined substrate rather than reworking a shipped one.
+- **Delivery Status**: FR1–FR9 and all 16 implementation stories are complete. Subsequent 0.22.1 work refined the visual direction and session navigation, corrected deployment/onboarding/Signal behavior, and added native typing indication for Signal and WhatsApp. Automated gates are green; fresh post-interlude visual evidence and live paired-channel checks remain release-close work. The detailed delivery and verification record is canonical below.
 - **Success Metrics**:
   1. Card-vs-ground contrast ≥ 1.15:1 in **both** themes, with chrome, page ground and cards on three distinct planes; no page band equals the card fill.
   2. Zero `--text-sm` usages remain; every named DESIGN.md type tier has a backing composite class, demonstrated in `showcase.html`.
@@ -28,14 +31,15 @@
 
 ### Scope Highlights
 - **In scope**: canon revision (surfaces, type, layout tier, form/tab/dialog primitives, feedback table); re-sync + adoption; the glitch sweep; native dialog removal; optional vendoring; doc sync.
-- **Out of scope**: anything requiring backend work; chat/session *features* (0.24); workflow surfaces (0.25/0.26); CLI and channel parity (Cross-Surface UX); task IA overhaul (OH-9).
-- **MVP boundary**: FR1–FR7. FR8 (vendoring) splits cleanly into its own release if needed.
+- **Original-plan exclusions**: backend work; chat/session features; workflow surfaces; CLI/channel parity; task IA overhaul. Post-plan additions are recorded separately and do not retroactively alter FR1–FR9.
+- **Delivered post-plan additions**: Phosphor Aurora refinement; reusable New Chat/session lifecycle; System navigation and turn-status refinement; runtime/deployment/onboarding/Signal corrections; native Signal/WhatsApp typing.
+- **Original MVP boundary**: FR1–FR7. FR8 could split independently but ultimately shipped in 0.22.1; FR9 followed every documented surface.
 
 ### Key Constraints, Assumptions & Dependencies
 - *Constraint:* **canon-first is mandatory.** The 0.22 drift check requires `design-system.css` byte-identical to `dev/design-system/components.css`. Any app-side edit to a canon-owned rule fails CI.
 - *Constraint:* zero-npm / server-first; no build step; no new runtime JS dependencies (FR8 *removes* runtime dependencies, it does not add any).
 - *Dependency:* **0.24's Phase 0 components already live in canon** (`.composer`, `.tool-call`, `.approval-card`, `.notif-item`, `.palette-item`, `.chip`). FR1/FR2 change them by construction. Running this release **before** 0.24 planning avoids reworking shipped chat components.
-- *Assumption:* ~13 stories. Every story is CSS/template/controller work with zero backend surface.
+- *Original-plan assumption:* CSS/template/controller work with zero backend surface. Planning resolved to 16 stories. Later user-authorized interludes deliberately expanded the release boundary and are recorded separately below.
 
 ## Problem Definition
 
@@ -57,7 +61,7 @@ From [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md) — 232 find
 
 ## Scope
 
-### In Scope
+### Original Planned Scope
 1. **Canon revision** in `dartclaw-public/dev/design-system/` — surface ladder, colour rest-states, type scale + composite type layer, wide-container tier, form/tab/dialog primitives, feedback decision table, showcase demonstrations.
 2. **Re-sync** of `design-system.css` / `tokens.css` into `packages/dartclaw_server/lib/src/static/` with the drift check green, plus purge of the app-local duplicates the new primitives obsolete.
 3. **Adoption sweep** across the 118 adoption findings — metric/meter adoption, wide-container application, type-tier migration, empty/loading/error state coverage.
@@ -66,14 +70,18 @@ From [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md) — 232 find
 6. **Local vendoring** (FR8) — htmx, marked, JetBrains Mono.
 7. **Documentation sync** — DESIGN.md, showcase.html, `VENDORS.md`, affected user guides, wireframe `deviations.md`.
 
-### Out of Scope
+### Original Plan Out of Scope
+
+These boundaries governed FR1–FR9 and the 16-story plan. The user-authorized additions under `Adjacent & Interlude Work`
+expanded the delivered release after plan completion; they preserve rather than erase this original decision history.
+
 - Anything with a backend dependency. Two audit findings were classified `feature` for exactly this reason and are excluded.
 - Chat and session *features* — thinking indicator content, tool-call cards, streaming semantics, sidebar inbox, Cmd+K, notification centre. All 0.24.
 - Workflow authoring/run surfaces (0.25/0.26); CLI and channel surfaces, task IA overhaul, run replay, guard-verdict timeline, cost dashboard (Cross-Surface UX).
-- New UX capabilities of any kind. This release adds no features; it refines what exists.
+- New UX capabilities of any kind. The original plan adds no features; user-authorized post-plan capabilities are recorded under `Adjacent & Interlude Work`.
 
 ### MVP Boundary
-**FR1–FR7.** FR8 (vendoring) is independently shippable and splits into a follow-up point release if the milestone runs long. FR9 rides whichever stories touch the documented surface.
+**Original boundary: FR1–FR7.** FR8 was independently shippable but ultimately delivered in 0.22.1. FR9 rode every story that changed a documented surface. Later additions are governed by their adjacent/interlude entries rather than this original MVP boundary.
 
 ## Functional Requirements
 
@@ -109,10 +117,10 @@ Proposed dark remap (exact values to be settled by visual validation; the *struc
 Light theme: card `#ffffff` on a tinted `--bg-base` #eff1f5 ground, chrome `--bg-mantle` #e6e9ef; raise `--shadow-sm` from `0 1px 2px rgba(0,0,0,.06)` to a perceptible elevation.
 
 **Acceptance Criteria**:
-- [ ] Card-vs-ground contrast ≥ 1.15:1 in both themes; no gradient stop equals the card fill.
-- [ ] `.sidebar` / `.topbar` resolve to a token distinct from `.card` in both themes.
-- [ ] `.card-metric--*` and `.card-tint-*` carry visible hue at rest; hover amplifies rather than introduces.
-- [ ] All 23 surfaces pass visual validation in both themes at desktop + 768px.
+- [x] Card-vs-ground contrast ≥ 1.15:1 in both themes; no gradient stop equals the card fill.
+- [x] `.sidebar` / `.topbar` resolve to a token distinct from `.card` in both themes.
+- [x] `.card-metric--*` and `.card-tint-*` carry visible hue at rest; hover amplifies rather than introduces.
+- [x] All 23 surfaces pass visual validation in both themes at desktop + 768px.
 
 **Priority**: Must / P0
 
@@ -120,9 +128,9 @@ Light theme: card `#ffffff` on a tinted `--bg-base` #eff1f5 ground, chrome `--bg
 **Description**: Retire `--text-sm` as a distinct tier (alias to `--text-base` during migration, then remove). Move `--text-lg` from 16px to 18px so section headings separate from body. Keep 12 / 20 / 24 / 32. Add one composite class per named DESIGN.md tier — `.t-caption`, `.t-body`, `.t-label`, `.t-heading`, `.t-page-title`, `.t-display`, `.t-metric` — each binding font-size + weight + line-height + letter-spacing together, demonstrated in `showcase.html`. Raw `--text-*` tokens remain for one-offs only.
 
 **Acceptance Criteria**:
-- [ ] Zero `--text-sm` usages in `app.css` and `design-system.css`.
-- [ ] Every tier in the DESIGN.md § Typography table has a backing composite class and a showcase panel.
-- [ ] The DESIGN.md table is updated so `body-sm` is no longer a legitimate choice.
+- [x] Zero `--text-sm` usages in `app.css` and `design-system.css`.
+- [x] Every tier in the DESIGN.md § Typography table has a backing composite class and a showcase panel.
+- [x] The DESIGN.md table is updated so `body-sm` is no longer a legitimate choice.
 
 **Priority**: Must / P0
 
@@ -130,8 +138,8 @@ Light theme: card `#ffffff` on a tinted `--bg-base` #eff1f5 ground, chrome `--bg
 **Description**: Add `--container-wide: 1280px` and a `.content-inner--wide` / `.page-inner--wide` modifier; document beside `container-max` in DESIGN.md § Layout. Apply to tasks, health, memory, scheduling, workflows, audit. Keep 900px for chat, session-info, knowledge results and settings forms. Add `white-space: nowrap` to `.data-table th`.
 
 **Acceptance Criteria**:
-- [ ] No table header wraps mid-word at any viewport ≥ 1024px.
-- [ ] Prose surfaces retain the 900px measure.
+- [x] No table header wraps mid-word at any viewport ≥ 1024px.
+- [x] Prose surfaces retain the 900px measure.
 
 **Priority**: Must / P0
 
@@ -139,8 +147,8 @@ Light theme: card `#ffffff` on a tinted `--bg-base` #eff1f5 ground, chrome `--bg
 **Description**: Add a Forms section to `components.css` (`.form-field` / `-label` / `-input` / `-select` / `-textarea` / `-error`, checkbox, toggle), back the already-documented § Native selects with real CSS, add one `.tabs` / `.tab` component, and add `.dialog` (frame, `::backdrop` scrim, `-header` / `-body` / `-footer` / `-actions`, `--sm|--md` width ladder, `.dialog--confirm` variant). Promote the app's proven private `.task-dialog` recipe rather than inventing a new one. Document all three families in DESIGN.md and showcase.html; then delete the app-local duplicates and fold `.settings-tabs` / `.tab-bar` onto the canonical component.
 
 **Acceptance Criteria**:
-- [ ] `.form-*`, `.tabs`/`.tab`, `.dialog` exist in canon, documented and demonstrated.
-- [ ] No app-local re-implementation of any of the three remains; only one tab bar ships.
+- [x] `.form-*`, `.tabs`/`.tab`, `.dialog` exist in canon, documented and demonstrated.
+- [x] No app-local re-implementation of any of the three remains; only one tab bar ships.
 
 **Priority**: Must / P0
 
@@ -150,10 +158,10 @@ Light theme: card `#ffffff` on a tinted `--bg-base` #eff1f5 ground, chrome `--bg
 Call sites: `dc_shell_controller.js:369` (delete chat), `:477` (restart), `:488,489,491` (`alert()` on failure); `dc_scheduling_controller.js:403` (delete scheduled task — passes the **id**, not the title); `dc_projects_controller.js:192` (remove project); `dc_settings_controller.js:569,573` (`window.prompt()` for guard extension value and file-access level).
 
 **Acceptance Criteria**:
-- [ ] Zero `window.alert` / `window.confirm` / `window.prompt` / bare `alert(` / `confirm(` / `prompt(` in `lib/src/static/controllers/`.
-- [ ] The two `prompt()` config editors are real forms in a `.dialog`, not modal-ised prompts.
-- [ ] The `alert()` failure paths surface through the toast component.
-- [ ] Destructive confirmations name the object (title, not id).
+- [x] Zero `window.alert` / `window.confirm` / `window.prompt` / bare `alert(` / `confirm(` / `prompt(` in `lib/src/static/controllers/`.
+- [x] The two `prompt()` config editors are real forms in a `.dialog`, not modal-ised prompts.
+- [x] The `alert()` failure paths surface through the toast component.
+- [x] Destructive confirmations name the object (title, not id).
 
 **Priority**: Must / P0
 
@@ -161,9 +169,9 @@ Call sites: `dc_shell_controller.js:369` (delete chat), `:477` (restart), `:488,
 **Description**: Re-sync canon into the served CSS with the drift check green, purge app-local duplicates obsoleted by FR4, then work the 118 adoption findings. Priority clusters: health/memory/session-info metric + meter adoption; wide-container application; type-tier migration; empty/loading/error state coverage (31 findings — em-dash placeholders where an absent-value treatment belongs, undesigned empty states, no skeleton/`.scan-bar` loading treatment).
 
 **Acceptance Criteria**:
-- [ ] Drift check green; `design-system.css` byte-identical to canon.
-- [ ] `health_dashboard.html` uses `.metric-value` and `.meter`.
-- [ ] Every page has a designed empty state; no bare em-dash stands in for an absent value.
+- [x] Drift check green; `design-system.css` byte-identical to canon.
+- [x] `health_dashboard.html` uses `.metric-value` and `.meter`.
+- [x] Every page has a designed empty state; no bare em-dash stands in for an absent value.
 
 **Priority**: Must / P0
 
@@ -171,10 +179,10 @@ Call sites: `dc_shell_controller.js:369` (delete chat), `:477` (restart), `:488,
 **Description**: Close the 64 distinct defects catalogued in the audit. No design decisions required. Includes a global data-formatting pass — timestamps currently appear in three unrelated formats, never roll over past days, and one page prints raw ISO-8601 with milliseconds.
 
 **Acceptance Criteria**:
-- [ ] All 23 high-severity glitches closed.
-- [ ] Remaining glitches closed or explicitly deferred with a recorded reason.
-- [ ] Every deferral is carried into a durable backlog – with its reason, and without a target milestone – so a later milestone finds it without reading this release's own closing records. Recording a reason inside a milestone-scoped artifact does not satisfy this: that artifact is closed along with the milestone.
-- [ ] UI smoke test (TC-01…TC-31) green.
+- [x] All 23 high-severity glitches closed.
+- [x] Remaining glitches closed or explicitly deferred with a recorded reason.
+- [x] Every deferral is carried into a durable backlog – with its reason, and without a target milestone – so a later milestone finds it without reading this release's own closing records. Recording a reason inside a milestone-scoped artifact does not satisfy this: that artifact is closed along with the milestone.
+- [x] UI smoke test (TC-01…TC-31) green.
 
 **Priority**: Must / P0
 
@@ -182,10 +190,10 @@ Call sites: `dc_shell_controller.js:369` (delete chat), `:477` (restart), `:488,
 **Description**: Self-host htmx 2.0.8 (50.0 KB), marked 15 (39.0 KB) and JetBrains Mono 400/500/600 latin + latin-ext woff2 (~30.6 KB each). See [vendoring-analysis.md](vendoring-analysis.md) for the full rationale, cost and mechanics.
 
 **Acceptance Criteria**:
-- [ ] No external origin appears in `layout.html` or the CSP; `font-src 'self'`.
-- [ ] `dev/tools/embed_assets.dart` handles `.woff2` as binary; `embedded_static_handler.dart` serves `font/woff2`.
-- [ ] `VENDORS.md` documents all three with upgrade instructions.
-- [ ] The UI renders identically with all external origins blocked — proven by a new offline smoke check.
+- [x] No external origin appears in `layout.html` or the CSP; `font-src 'self'`.
+- [x] `dev/tools/embed_assets.dart` handles `.woff2` as binary; `embedded_static_handler.dart` serves `font/woff2`.
+- [x] `VENDORS.md` documents all three with upgrade instructions.
+- [x] The UI renders identically with all external origins blocked – proven by a new offline smoke check.
 
 **Priority**: Should / P1 *(splits cleanly into its own point release)*
 
@@ -193,8 +201,8 @@ Call sites: `dc_shell_controller.js:369` (delete chat), `:477` (restart), `:488,
 **Description**: Update DESIGN.md (typography table, surface ladder, layout tiers, three new component families, rewritten feedback table), `showcase.html` (type tiers, forms, tabs, dialog), `VENDORS.md`, the wireframe `deviations.md`, and any user guide whose screenshots or documented behaviour the change invalidates.
 
 **Acceptance Criteria**:
-- [ ] No documented behaviour in DESIGN.md lacks backing CSS (closes the § Native selects gap).
-- [ ] `deviations.md` records any intentional divergence.
+- [x] No documented behaviour in DESIGN.md lacks backing CSS (closes the § Native selects gap).
+- [x] `deviations.md` records any intentional divergence.
 
 **Priority**: Must / P0
 
@@ -233,11 +241,11 @@ Canonical reference: `dartclaw-public/dev/design-system/showcase.html` + `DESIGN
 ### Constraints
 - **Canon-first.** Drift check forbids app-side edits to canon-owned rules; every visual fix starts in `dev/design-system/`.
 - **Zero-npm / server-first**; no build step; no new runtime JS dependencies.
-- **No backend work.** Any finding needing a service, schema or API change is out of scope by definition.
+- **Original FR1–FR9 boundary: no backend work.** Post-plan API/runtime changes are explicitly governed by the adjacent/interlude delivery entries below.
 - **Scarcity doctrine and existing DESIGN.md doctrine remain in force** except where this PRD explicitly revises them (feedback table, type tiers, surface ladder).
 
 ### Assumptions
-- ~13 stories; FR1–FR5 are canon-side and small, FR6 is the hinge, FR7–FR8 parallelise.
+- Planning resolved to 16 stories. FR1–FR5 are canon-side, FR6 is the hinge, and the adoption/release stories parallelise after it.
 - The 232 audit findings are the complete defect set for the current build; new findings during implementation are folded in, not re-audited.
 - Exact colour values are a visual-validation outcome, not a PRD decision; the *structure* (three planes, ground ≠ card) is fixed here.
 
@@ -261,3 +269,252 @@ Canonical reference: `dartclaw-public/dev/design-system/showcase.html` + `DESIGN
 | Delete the `confirm()` sanction from DESIGN.md | It was the explicit blocker 0.22 recorded for deferring this work; nothing else unblocks the nine call sites | Keep the sanction and modal-ise only the worst cases (leaves the inconsistency and the `prompt()` config editors) |
 | Vendoring (FR8) rides this release but splits cleanly | It is a self-contained correctness/privacy fix with an offline test gate; bundling it avoids a second release, but nothing else depends on it | Separate point release (fine); leave as-is (contradicts ADR-047's stated no-network-dependency promise) |
 | Exact surface/colour values deferred to visual validation | Perceptual outcomes cannot be settled in a document; the structural rule (three planes, ground ≠ card, ≥1.15:1) is what needs fixing in the PRD | Specify exact hex in the PRD (over-specification; would be re-tuned anyway) |
+| Preserve FR1–FR9 as the original plan and record later work as adjacent/interlude delivery | The release expanded after its plan completed. Rewriting the original scope would destroy the decision trail and make later additions look pre-planned | Silently broaden the original scope; rely on changelog bullets alone |
+| Reuse one untouched default New Chat draft | Repeated creation accumulated blank sessions and made the command indistinguishable from a destination. Reuse is safe only while the draft has no title, messages, channel key, provider override, or active turn | Always create; delete older blanks automatically |
+| Put system destinations behind one persistent disclosure | Runtime/admin destinations should remain reachable without displacing or visually competing with the primary chat list | Keep every system page as a top-level sidebar row; hide system pages based on incidental service wiring |
+| Treat typing as bounded, best-effort channel feedback | Typing increases confidence that a turn is active but must never block agent execution or response delivery when a sidecar or network call fails | Make typing mandatory; implement channel-specific queue branches; emit placeholder messages on native-capable channels |
+| Refresh Signal receiving after post-start registration | A reachable daemon is not proof that an account is registered or receiving. Linking or verification must make the new account receive-ready without restarting DartClaw | Require a service restart; open a second competing SSE observer |
+| Snapshot absolute installer PATH entries into macOS LaunchAgents | launchd does not inherit the interactive shell environment, so binaries verified during setup otherwise disappear at service start | Copy the whole shell environment; require absolute executable paths everywhere; use a fixed Homebrew path |
+
+## Delivery Record
+
+This section is authoritative for what 0.22.1 delivered. The planned requirements above retain their original wording;
+post-plan work is recorded separately so the release history remains complete without rewriting intent after the fact.
+
+### Planned Scope Completion
+
+| Evidence | Delivered result |
+|---|---|
+| Plan | 16/16 stories completed on 2026-07-30 |
+| Proof surfaces | 113/113 acceptance scenarios, 132/132 structural criteria, and 72/72 final-validation items completed |
+| Glitch ledger | 64/64 catalogued glitches dispositioned; all 23 high-severity glitches closed |
+| Visual validation | 112/112 planned captures passed across both themes and required viewports; all ten 1024px table records fit |
+| Smoke validation | TC-01–TC-29, TC-07A, TC-31, R-01–R-12, and the external-cwd/offline R-13 check passed |
+| Release gates | Canon/served-design parity, generated-asset parity, formatting, analysis, workspace tests, architecture checks, fitness checks, and whitespace checks passed at plan close |
+| Primary delivery commits | `eddc4f76` (canon, hinge, and surface implementation) and `b08941af` (0.22.1 completion) |
+
+#### Delivered Story Inventory
+
+| Story | Delivered outcome | State |
+|---|---|---|
+| S01 | Canon surface ladder, depth, and colour rest states | Done |
+| S02 | Canon type scale, composite type layer, and container tiers | Done |
+| S03 | Canon form, control, tab, and state primitives | Done |
+| S04 | Canon dialog primitive and feedback decision table | Done |
+| S05 | Canon-to-served sync hinge and removal of app-local duplicates | Done |
+| S06 | Native dialog eradication and one confirmation API | Done |
+| S07 | Global type-tier, cross-cutting adoption, and data-formatting sweep | Done |
+| S08 | Tasks, task-detail, and scheduling surface sweep | Done |
+| S09 | Health, memory, and session-info surface sweep | Done |
+| S10 | Knowledge and channel surface sweep | Done |
+| S11 | Settings surface sweep | Done |
+| S12 | Shell and chat surface sweep | Done |
+| S13 | Local vendoring of runtime dependencies | Done |
+| S14 | Documentation sync, glitch ledger, and release validation | Done |
+| S15 | Workflow and project surface sweep | Done |
+| S16 | Global shell behavior, states, and formatting sweep | Done |
+
+### Adjacent & Interlude Work
+
+#### AI01: Phosphor Aurora visual refinement
+
+**Intent**: The first completed plan met structural contrast and component-adoption requirements but remained too muted.
+The final direction needed visible atmosphere and a stronger product identity without sacrificing accessibility or the
+surface ladder.
+
+**What shipped**:
+- Visible four-wash aurora grounds, deeper ground edges, prismatic card hairlines, phosphor-beam meters, deep-well form controls with eyebrow labels, a secondary orchestration-action tier, and prompt-hero landing states.
+- Light-theme and glass contrast refinements, clearer dense-page hierarchy, and responsive form/navigation treatments.
+- One prompt hero/brand moment per view; semantic status remains independently encoded. Reduced-motion behavior and the 48px mobile control floor remain binding.
+- Long surfaces scroll inside the fixed shell so entry motion cannot create root-scroll layout shifts.
+
+**Acceptance and evidence**:
+- [x] Canon, showcase, served CSS, and embedded assets remain synchronized.
+- [x] HTML/CSS contract tests, template tests, and the expanded UI smoke cases cover the new primitives and responsive behavior.
+- [x] Chrome, ground, and card planes remain distinct in both themes; essential foreground and tinted-card contrast floors remain binding.
+
+**Commits**: `83a28ece`, `54495b54`.
+
+**Verification note**: The original 112-capture matrix predates part of this refinement. No separate durable post-interlude
+screenshot/baseline report was found; release close must not represent one as completed without fresh evidence.
+
+#### AI02: Health remains discoverable without optional telemetry
+
+**Intent**: Health is a core operational destination, not an optional navigation item whose existence depends on extra
+telemetry wiring.
+
+**What shipped**:
+- Health remains present in system navigation and `/health-dashboard` renders when `HealthService` is absent.
+- Fallback state is honest: idle/busy is healthy, stopped is unhealthy, crashed/unknown is degraded, and unavailable runtime details remain unknown/zero rather than fabricated.
+
+**Acceptance and evidence**:
+- [x] Navigation tests cover development, personal-assistant, and production configurations.
+- [x] Dashboard route tests cover degraded fallback and missing-service behavior.
+
+**Commit**: `83a28ece`.
+
+#### AI03: Reusable New Chat draft lifecycle
+
+**Intent**: `New Chat` is a command, not a selected destination, and repeated activation must not accumulate empty
+conversations.
+
+**What shipped**:
+- `New Chat` reopens the newest eligible untouched default draft; activating it from that draft focuses the composer without a reload.
+- Blank destinations are labelled `Untitled draft`, keeping `New Chat` exclusive to the command.
+- A draft stops being reusable when it gains a title, message, channel key, provider override, or active turn. Older duplicates are never deleted implicitly.
+- Concurrent open requests coalesce. Eligibility is revalidated across rename/send/turn races; failed creation releases busy state and permits retry. Generic session creation remains unconditional.
+
+**Acceptance and evidence**:
+- [x] Sequential and concurrent open requests resolve to one eligible draft.
+- [x] Titled, keyed, provider-specific, messaged, and active-turn sessions are never reused.
+- [x] Rename/send races, overlapping mutations, retry, autofocus, and title synchronization have deterministic tests.
+
+**Commit**: `54495b54`.
+
+#### AI04: Progressive System navigation and truthful turn status
+
+**Intent**: Primary chat navigation must stay legible as operational surfaces grow, and stale terminal state must never
+present an action that is no longer valid.
+
+**What shipped**:
+- Runtime/admin pages live in a fixed bottom `System` disclosure; its closed label names the active destination and its menu opens without displacing the chat list.
+- Timeline remains directly routable but is nested under Knowledge rather than duplicated at the top level. Extension navigation stays separate; dynamic Running, Workflows, and Chats sections preserve their order.
+- Only running, waiting, stuck, and cancelling turns render as active. Cached completed/cancelled/failed snapshots remain inert, and `Cancel Turn` appears only when authoritative `can_cancel` is true.
+- Workflow, task, memory, knowledge, scheduling, and session surfaces received consistent semantic sections, controls, responsive layouts, and safe title synchronization that never renames the fixed Workspace Agent identity.
+
+**Acceptance and evidence**:
+- [x] Sidebar, page-registry, active-state, ordering, touch-target, and navigation tests cover desktop and mobile contracts.
+- [x] Turn-status controller/template/route tests cover active, terminal, invalid, expired, and non-cancellable states.
+- [x] Workflow and operational surfaces retain labelled controls and the canonical action hierarchy.
+
+**Commit**: `54495b54`.
+
+#### AI05: Signal pairing becomes receive-ready without restart
+
+**Intent**: Successful pairing or verification must make Signal usable immediately. Daemon reachability alone must not be
+reported as account readiness.
+
+**What shipped**:
+- signal-cli receives on SSE connection. Successful device linking or SMS verification activates registration, refreshes the receive stream, and selects the registered account for replies without restarting DartClaw.
+- A registration-triggered reconnect is queued when another reconnect is active rather than being dropped.
+- Startup distinguishes registered, unregistered, and indeterminate account states. Indeterminate checks warn without falsely showing an unpaired account as ready or forcing destructive relinking.
+- The pairing UI supports linked-device QR pairing. SMS/voice registration is not exposed there, although the manager-level verification path remains supported and tested.
+- Signal installation guidance now prefers native builds, distinguishes their no-JVM runtime from the JVM distribution, and documents the current JRE requirement for that alternative.
+- User guidance identifies a second SSE subscriber as a competing consumer, not a passive observer.
+
+**Acceptance and evidence**:
+- [x] Linked-device and SMS verification paths activate registration and establish a replacement receive stream.
+- [x] Linking during an active reconnect still establishes a fresh stream and uses the linked account for replies.
+- [x] Startup tests cover registered, unregistered, and indeterminate states.
+
+**Commit**: `a6bab986`.
+
+#### AI06: macOS services preserve executable discovery
+
+**Intent**: Provider and channel binaries verified during installation must remain resolvable when launchd starts the
+service outside the interactive shell.
+
+**What shipped**:
+- LaunchAgents snapshot absolute entries from the installer shell's `PATH`; relative and empty entries are discarded.
+- A safe system PATH is used when no absolute entries remain. Unrelated shell environment variables are not copied.
+- Labels, paths, and program arguments are XML-escaped before writing the LaunchAgent plist.
+- Reinstall refreshes the loaded definition, while reload/bootstrap failures remain explicit.
+
+**Acceptance and evidence**:
+- [x] Service tests cover PATH filtering, fallback, plist output, refresh, and failures.
+- [x] Deployment and CLI documentation explain reinstall-based refresh.
+
+**Commit**: `a6bab986`.
+
+#### AI07: Onboarding protects existing behavior files
+
+**Intent**: Running initialization in an established workspace must not overwrite user-authored behavior.
+
+**What shipped**:
+- Init selects draft-review mode when either `USER.md` or `SOUL.md` already exists; direct mutation is reserved for a workspace where both stubs were freshly created.
+- Exact legacy generated instructions are upgraded while surrounding custom content remains intact.
+- Personalization reruns remain draft-only, and fresh SOUL/ONBOARDING policy is internally consistent.
+
+**Acceptance and evidence**:
+- [x] Setup tests cover fresh, partial-existing, existing, legacy-upgrade, and rerun cases.
+- [x] ADR-018 and workspace/CLI documentation describe the mutation boundary.
+
+**Commit**: `a6bab986`.
+
+#### AI08: Built-in workflow startup is warning-free
+
+**Intent**: Shipped workflow definitions must load cleanly; duplicated producer descriptions must not create benign but
+misleading startup warnings.
+
+**What shipped**:
+- Both `spec_path` producers publish one lifecycle-consistent output description.
+- Built-in contract validation requires zero load errors and zero warnings.
+
+**Acceptance and evidence**:
+- [x] Built-in workflow contract tests load all shipped definitions without errors or warnings.
+
+**Commit**: `a6bab986`.
+
+#### AI09: Rounded-window System indicator correction
+
+**Intent**: The active System destination must remain visible in native windows with rounded lower corners.
+
+**What shipped**:
+- The active accent indicator is inset from the trigger edges instead of using a border that can be clipped by the window corner.
+
+**Acceptance and evidence**:
+- [x] Canon/served CSS parity is preserved and a focused contract test proves the inset indicator geometry.
+
+**Commit**: `3630dc3e`.
+
+#### AI10: Native typing indication for Signal and WhatsApp
+
+**Intent**: A user waiting on a phone channel must be able to see that an accepted agent turn is still active whenever
+the underlying integration exposes native typing/presence support.
+
+**What shipped**:
+- The channel contract exposes start/stop typing hooks. Integrations without native support inherit bounded no-op behavior; Google Chat retains its existing richer feedback strategy.
+- The queue starts typing immediately before dispatching an accepted turn and attempts to stop it in guaranteed cleanup before response delivery, including failures, retries, observer-suppressed sends, and redaction paths.
+- Typing failures and timeouts are logged but never prevent the agent turn or response. Queue-level calls are bounded to three seconds; Signal/WhatsApp presence transactions use a one-second transport bound.
+- Signal and WhatsApp support DMs and groups. Per-recipient leases coalesce overlapping turns, serialize transitions, permit one recovery start after a failed first start, and stop only after the final lease releases.
+- Disconnect rejects new typing leases, drains/settles in-flight updates, makes a best-effort STOP for active recipients, and prevents late refresh/start activity after teardown.
+- Signal refreshes START every ten seconds before Signal's roughly 15-second typing expiry. WhatsApp uses GOWA chat presence `start`/`stop` actions and preserves the selected device header.
+
+**Acceptance and evidence**:
+- [x] Start precedes dispatch and STOP precedes response delivery on success, failure, retry, and skip-send paths.
+- [x] A stalled or failed typing integration cannot stall the turn or response.
+- [x] Overlapping turns emit one active typing interval per recipient and one final STOP; failed initial starts can recover once.
+- [x] Signal and WhatsApp direct/group transport contracts and disconnect ordering are covered by deterministic tests.
+- [x] User guides document typing behavior and paired-device DM/group checks.
+
+**Commit**: Pending – complete in the current 0.22.1 working tree as of 2026-08-04.
+
+**Verification note**: Focused core/Signal/WhatsApp/server coverage passed 149 tests; the full CI-equivalent workspace gate,
+architecture checks, and fitness checks passed afterward. Live paired Signal/WhatsApp verification remains a manual
+release check because it requires external accounts.
+
+#### AI11: Signal direct/group routing and bounded RPC completion
+
+**Intent**: Direct recipients and group identifiers must use signal-cli's distinct JSON-RPC contracts, and an RPC whose
+response body stalls must not occupy the sidecar operation indefinitely.
+
+**What shipped**:
+- Direct ownership is limited to valid E.164 numbers and case-insensitive Signal UUIDs. Other outbound Signal identifiers are groups, including base64 group IDs that begin with `+`.
+- Direct messages use `recipient`; group replies and group typing use `groupId`.
+- The RPC timeout covers connection, headers, and the complete response body. On timeout the client is force-closed before a `TimeoutException` is surfaced.
+- Signal's shared E.164/UUID validators are the single classification source used by sender normalization, ownership, sending, and typing.
+- Follow-up investigation of `verifySmsCode` found that the production registration activation from AI05 was correct, but its regression test did not start the manager and therefore proved only that verification opened a first SSE connection – not that it replaced an existing receive stream. The test now starts signal-cli, observes the initial SSE connection, verifies the code, and awaits a distinct replacement connection. Device-link coverage likewise waits for the registration callback and subsequent SSE connection instead of polling mutable state or pumping the event queue.
+
+**Acceptance and evidence**:
+- [x] E.164 and mixed-case UUID recipients use the direct contract.
+- [x] Base64 group IDs, including `+`-prefixed IDs, use `groupId` for replies and typing.
+- [x] A daemon that sends headers or a partial body and then stalls times out within the operation bound.
+- [x] SMS verification proves an already-running receiver is replaced after registration; device-link tests synchronize on observable registration/SSE transitions rather than event-loop timing guesses.
+
+**Commit**: Pending – complete in the current 0.22.1 working tree as of 2026-08-04.
+
+## Release-Close Checks
+
+- [ ] Capture durable visual evidence after the `83a28ece`, `54495b54`, and `3630dc3e` refinements.
+- [ ] Run the documented paired-device Signal and WhatsApp DM/group typing checks.
+- [ ] Replace the pending AI10/AI11 commit markers after committing the current work, then rerun the release gate on that exact tree.

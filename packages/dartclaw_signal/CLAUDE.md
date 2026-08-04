@@ -3,7 +3,7 @@
 **Role**: Signal channel adapter — drives `signal-cli` in HTTP daemon mode (JSON-RPC + SSE) and implements the `Channel` contract. Entry point: `SignalChannel`; sidecar driver: `SignalCliManager`; sealed-sender normalization: `SignalSenderMap`.
 
 ## Shape
-- **Outbound**: agent reply → `SignalChannel.sendMessage` → `SignalCliManager` JSON-RPC `send` → signal-cli daemon → Signal network.
+- **Outbound**: queued turn → `SignalChannel.startTyping` / 10-second refresh / `stopTyping` → agent reply → `SignalChannel.sendMessage` → `SignalCliManager` JSON-RPC → signal-cli daemon → Signal network.
 - **Inbound (push)**: Signal → signal-cli daemon → SSE on `/api/v1/events` → `SignalCliManager` events stream → `SignalChannel._handleEvent` → sealed-sender normalization via `SignalSenderMap.resolve` → `ChannelMessage` → `ChannelManager` (in core) → `ChannelTaskBridge`.
 - **Subprocess lifecycle**: `SignalCliManager.start()` spawns the daemon; `_connectSse` opens the long-lived event stream with a single-flight `_reconnecting` guard.
 
@@ -20,12 +20,14 @@
 
 ## Gotchas
 - Sealed-sender: an inbound envelope may have only `sourceUuid`, only `sourceNumber`, or both. The DM allowlist may hold either form. `SignalChannel._handleEvent` falls back to `metadata['sourceUuid']` against `dmAccess` and, on hit, **adds the senderJid to the allowlist** for future fast-path lookups — preserve this normalization.
-- `ownsJid()` accepts E.164 (`+...`) **or** lowercase UUIDv4. Any string containing `@` is rejected (that's WhatsApp). Do not loosen this — `ChannelManager` routes on it.
+- `ownsJid()` accepts E.164 (`+...`) **or** case-insensitive UUIDv4. Any string containing `@` is rejected (that's WhatsApp). Do not loosen this — `ChannelManager` routes on it.
 - SSE reconnect uses a single-flight `_reconnecting` guard; registration queues one trailing reconnect when the guard is active. Never call `_connectSse` directly from new code paths – use the manager's reconnect path.
 - The daemon must use `--receive-mode on-connection`. Registration can complete after daemon startup, so every successful registration path must reconnect SSE to activate receiving for the new account.
 - `SignalSenderMap._persist` chains writes through `_pendingWrite` to serialize concurrent updates; do not bypass with direct `File.writeAsString`.
 - `finishLink` long-polls up to 5 minutes (`_linkTimeout`) — never reuse `_apiTimeout` (10s) for it. Device-linking calls keep the request open until the user scans the QR.
 - Phone number passed to the constructor may be a placeholder; `registeredPhone` is only valid after `registrationState()` reports registered – call sites must null-check.
+- signal-cli typing expires after 15 seconds unless refreshed or explicitly stopped. `SignalChannel` refreshes every 10 seconds, serializes per-recipient transitions so a late refresh cannot follow STOP, and sends best-effort STOP before disconnect resets the sidecar.
+- Direct JSON-RPC sends use `recipient`; group sends use `groupId`. Classify direct recipients with strict E.164/case-insensitive UUID validation because a base64 group ID can begin with `+`.
 
 ## Testing
 - `test/signal_cli_manager_test.dart` for sidecar lifecycle; `test/signal_channel_test.dart` for envelope→`ChannelMessage` normalization including UUID/phone fallback paths.

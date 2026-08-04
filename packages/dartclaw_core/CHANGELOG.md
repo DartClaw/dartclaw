@@ -3,6 +3,7 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 ## Unreleased
 
 ### Added
+- Channel typing lifecycle hooks, driven around queued turns with bounded best-effort failure handling. Adapters that `implements Channel` must add the two methods; adapters that `extends Channel` inherit the no-op defaults
 - `AgentExecution` and `AgentExecutionRepository` as task-agnostic execution primitives
 - `AgentExecutionStatusChangedEvent` for future execution lifecycle wiring
 - `Task.agentExecution` / `Task.workflowStepExecution` hydration with lazy accessors that resolve runtime fields through the shared execution tables

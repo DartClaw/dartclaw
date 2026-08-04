@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Native typing indicators for Signal and WhatsApp** – queued agent turns now show typing state in DMs and groups and attempt to clear it before delivery. Signal refreshes the indicator before its 15-second expiry, and bounded typing failures never prevent the turn or response.
+
 ### Fixed
 
+- **Signal group replies use the group JSON-RPC contract** – base64 group IDs, including IDs beginning with `+`, now route through `groupId` instead of being mistaken for phone-number recipients.
 - **Signal pairing becomes receive-ready without a service restart** – signal-cli now receives on SSE connection, registration refreshes the receive stream, and startup distinguishes a registered account from a daemon that is merely reachable.
 - **macOS services preserve executable discovery** – LaunchAgents snapshot the installer shell's absolute PATH entries and refresh loaded definitions, so provider and channel binaries verified by `init` remain resolvable under launchd.
 - **Existing behavior files are protected during onboarding** – init selects draft-review mode whenever USER.md or SOUL.md already exists, upgrades exact legacy generated instructions, and keeps fresh SOUL/ONBOARDING policy consistent.

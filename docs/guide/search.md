@@ -63,6 +63,8 @@ Content is truncated to 50KB before classification.
 
 ## Memory Search
 
+Memory search reads the FTS5 index over `MEMORY.md` plus synthesized `wiki/` pages. For when those stores actually get written -- and why a fresh instance returns no results -- see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
+
 ### FTS5 (Default)
 
 Built-in full-text search using SQLite FTS5 with BM25 ranking. Zero external dependencies. Handles indexing automatically via database triggers.

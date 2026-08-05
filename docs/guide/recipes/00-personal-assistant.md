@@ -263,7 +263,15 @@ You are a personal AI assistant and knowledge companion.
 
 ### AGENTS.md
 
+The retrieval-precedence rule is what makes the memory-first lookup in the 8:30 AM scenario actually happen -- without it, agents tend to answer personal-context questions with web search.
+
 ```markdown
+## Retrieval Precedence
+**Memory before web.** Anything about the user, their projects, notes, decisions, or past
+conversations: look in memory and the workspace first -- `memory_search`, read the file if you
+know it, `Grep` the workspace if you don't. Use web search only when the question is genuinely
+about the outside world, or memory came up empty -- and say which it was.
+
 ## Search Agent Behavior
 - Prefer authoritative sources (official docs, academic papers, established media)
 - Do not follow links to file downloads or executable content

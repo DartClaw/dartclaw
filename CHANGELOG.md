@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Refined Phosphor Aurora Web UI** – the design canon now provides clearer depth and typography, reusable form/tab/dialog primitives, responsive containment, and locally served browser dependencies across the complete UI.
 - **Persistent session navigation** – New Chat reuses only a truly empty draft, while a stable System section keeps runtime and administration destinations reachable without displacing conversations.
 - **Native typing indicators for Signal and WhatsApp** – queued agent turns now show typing state in DMs and groups and attempt to clear it before delivery. Signal refreshes the indicator before its 15-second expiry, and bounded typing failures never prevent the turn or response.
+- **Knowledge-layer documentation from field feedback** – the workspace guide documents each store's single write path (`memory_save`, inbox → wiki/KG, daily turn logs) and how to recognize an empty knowledge layer, and the personal-assistant recipe adds a memory-before-web retrieval-precedence rule to its `AGENTS.md`.
 
 ### Changed
 

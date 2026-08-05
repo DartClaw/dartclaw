@@ -130,6 +130,21 @@ Human-maintained. Processed by the heartbeat scheduler at configured intervals (
 - [ ] Summarize any new GitHub issues
 ```
 
+## How the Knowledge Layer Fills
+
+Each knowledge store has exactly one write path, and none of them fill from conversations automatically:
+
+| Store | Written by | When |
+|-------|-----------|------|
+| `MEMORY.md` | Agent, via the `memory_save` tool | Only when a turn calls it -- e.g. a scheduled journaling job ([Daily Memory Journal](recipes/02-daily-memory-journal.md)) or an explicit request. Never automatic. |
+| MEMORY.md consolidation | Agent consolidation turn | Heartbeat, when `MEMORY.md` exceeds `memory.max_bytes` (default 32KB) |
+| MEMORY.md pruning | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving entries older than `memory.pruning.archive_after_days` |
+| `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` -- see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
+| Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` -- see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
+| `memory/YYYY-MM-DD.md` | DartClaw, automatically after tool-using turns | Daily turn logs -- an activity record, not part of `MEMORY.md` or the search index |
+
+A fresh instance looks healthy while its knowledge layer is still empty: the inbox job logs successful runs over an empty `inbox/`, and `memory_search` (which covers `MEMORY.md` and `wiki/`) returns nothing without error. To see what has actually accumulated, open the Knowledge Hub (`/knowledge`) or the Memory dashboard (`/memory`). `dartclaw rebuild-index` reporting `No MEMORY.md found` means nothing has called `memory_save` yet.
+
 ## System Prompt Assembly Order
 
 The system prompt is assembled in this order:

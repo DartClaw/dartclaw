@@ -17,6 +17,7 @@
 - Server and workflow assets are embedded in generated Dart maps. Source checkouts still win for dev/live-edit paths; compiled binaries use embedded content and materialize workflows/skills to the data dir where harnesses require files.
 
 ## Gotchas
+- **Per-runner guard chains are layered.** `wiring/harness_wiring.dart` gives the primary harness and every task runner a `GuardChain.layered` chain: the shared `SecurityWiring` base chain plus that runner's own `TaskToolFilterGuard` (per-task/per-turn `allowedTools` + read-only enforcement, e.g. the knowledge-inbox no-tools turn policy). Never hand `_security.guardChain` directly to a harness — the runner's filter would be inert. A guards.* hot-reload swaps only the base list and reaches all runner chains live.
 - `serve` registers SIGINT, SIGTERM (skipped on Windows), and SIGUSR1 (`ReloadTriggerService`). New long-running work must wire into the `shutdown()` path in `serve_command.dart` and time out within 10 s, or `serve` will force-exit.
 - After `shutdown()` the command calls `_exitFn(0)` outside the `finally` to force VM exit despite pending IO futures — preserve this pattern when editing.
 - `WebFetch` and (conditionally) `WebSearch` are suppressed via `mcpDisallowedTools` in `serve_command.dart` when MCP is active. Mirror any new built-in tool overlap there.

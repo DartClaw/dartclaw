@@ -121,7 +121,19 @@ void main() {
     expect(harnessWiring!.pool.size, 2);
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
-    expect(recordedConfigs.first.guardChain, same(security!.guardChain));
+
+    // Primary and task harnesses each get a layered chain: all base security
+    // guards plus their own per-runner TaskToolFilterGuard.
+    final primaryChain = recordedConfigs.first.guardChain!;
+    final taskChain = recordedConfigs.last.guardChain!;
+    expect(primaryChain, isNot(same(security!.guardChain)));
+    expect(primaryChain.guards.map((g) => g.name), containsAll(security!.guardChain!.guards.map((g) => g.name)));
+    expect(primaryChain.guards.whereType<TaskToolFilterGuard>(), hasLength(1));
+    expect(taskChain.guards.whereType<TaskToolFilterGuard>(), hasLength(1));
+    expect(
+      primaryChain.guards.whereType<TaskToolFilterGuard>().single,
+      isNot(same(taskChain.guards.whereType<TaskToolFilterGuard>().single)),
+    );
     expect(recordedConfigs.first.acpPermissionDecision, isNotNull);
     expect(recordedConfigs.first.acpReverseCallAudit, isNotNull);
 
@@ -144,6 +156,71 @@ void main() {
     expect(taskPrompt, isNot(contains('## Recent error')));
     expect(taskPrompt, isNot(contains('## Recent learning')));
     expect(taskPrompt.length, lessThan(primaryPrompt.length));
+  });
+
+  test('knowledge-inbox no-tools turn policy blocks tool calls on the primary harness chain', () async {
+    await wireStorageAndSecurity();
+
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final primaryChain = recordedConfigs.single.guardChain!;
+    final session = await storage!.sessions.createSession();
+    final turnId = await harnessWiring!.pool.primary.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'extract facts'},
+      ],
+      allowedTools: const ['__knowledge_inbox_no_tools__'],
+      readOnly: true,
+    );
+    final harness = createdHarnesses.single;
+    await harness.turnInvoked;
+
+    // The harness consults its guard chain for every tool call mid-turn; the
+    // turn's session-keyed no-tools policy must block.
+    final midTurn = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
+    expect(midTurn.isBlock, isTrue);
+    expect(midTurn.message, contains('__knowledge_inbox_no_tools__'));
+
+    // Other sessions on the same chain are unaffected.
+    final otherSession = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'other');
+    expect(otherSession.isBlock, isFalse);
+
+    harness.completeSuccess();
+    await harnessWiring!.pool.primary.waitForOutcome(session.id, turnId);
+
+    // The policy is cleared once the turn settles.
+    final postTurn = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
+    expect(postTurn.isBlock, isFalse);
+  });
+
+  test('guards hot-reload keeps the primary tool filter and picks up rebuilt base guards', () async {
+    await wireStorageAndSecurity();
+
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final primaryChain = recordedConfigs.single.guardChain!;
+    final filterBefore = primaryChain.guards.whereType<TaskToolFilterGuard>().single;
+    final sanitizerBefore = primaryChain.guards.whereType<InputSanitizer>().single;
+
+    security!.reconfigure(
+      ConfigDelta(
+        previous: config,
+        current: const DartclawConfig(security: SecurityConfig(guards: GuardConfig(enabled: true, failOpen: false))),
+        changedKeys: const {'security.*'},
+      ),
+    );
+
+    // Base guards were rebuilt (new instances) and reach the primary chain
+    // live; the per-runner filter survives the rebuild as the same instance.
+    expect(primaryChain.guards.whereType<InputSanitizer>().single, isNot(same(sanitizerBefore)));
+    expect(primaryChain.guards.whereType<TaskToolFilterGuard>().single, same(filterBefore));
+
+    filterBefore.setSessionToolFilter('session-1', const ['__knowledge_inbox_no_tools__']);
+    final verdict = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'session-1');
+    expect(verdict.isBlock, isTrue);
   });
 
   test('provider-specific lazy spawn consumes the requested provider entry', () async {

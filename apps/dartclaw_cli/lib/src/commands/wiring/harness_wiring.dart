@@ -59,6 +59,7 @@ class HarnessWiring {
   static final _log = Logger('HarnessWiring');
 
   late AgentHarness _harness;
+  late GuardChain _primaryGuardChain;
   late HarnessPool _pool;
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
@@ -186,6 +187,10 @@ class HarnessWiring {
       }
       _harnessFactory.registerAcpAgent(entry.key, entry.value);
     }
+    // Each runner gets its own TaskToolFilterGuard so per-task/per-turn
+    // allowedTools enforcement is isolated across concurrent runners.
+    final primaryFilter = TaskToolFilterGuard();
+    _primaryGuardChain = _buildRunnerGuardChain(_security.guardChain, primaryFilter);
     try {
       final validationProviders = ProvidersConfig(
         entries: _effectiveValidationProviderEntries(config, acpValidationResults),
@@ -218,7 +223,7 @@ class HarnessWiring {
           historyConfig: config.agent.history,
           providerOptions: _providerOptions(config, defaultProviderId),
           containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
-          guardChain: _security.guardChain,
+          guardChain: _primaryGuardChain,
           acpPermissionDecision: _acpPermissionDecision,
           acpReverseCallAudit: _auditAcpReverseCall,
           environment: _providerEnvironment(
@@ -394,9 +399,6 @@ class HarnessWiring {
     final globalTimeout = Duration(seconds: config.server.workerTimeout);
 
     // Build primary TurnRunner and pool (task runners spawned lazily).
-    // Each runner gets its own TaskToolFilterGuard so per-task allowedTools
-    // enforcement is isolated across concurrent runners.
-    final primaryFilter = TaskToolFilterGuard();
     final primaryRunner = TurnRunner(
       harness: _harness,
       messages: _storage.messages,
@@ -405,7 +407,7 @@ class HarnessWiring {
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
       kv: _storage.kvService,
-      guardChain: _security.guardChain,
+      guardChain: _primaryGuardChain,
       taskToolFilterGuard: primaryFilter,
       lockManager: _lockManager,
       resetService: _resetService,
@@ -457,7 +459,7 @@ class HarnessWiring {
               // Each task runner gets its own TaskToolFilterGuard so per-task
               // allowedTools enforcement is isolated across concurrent runners.
               final taskFilter = TaskToolFilterGuard();
-              final taskGuardChain = _buildTaskGuardChain(_security.guardChain, taskFilter);
+              final taskGuardChain = _buildRunnerGuardChain(_security.guardChain, taskFilter);
               final taskPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
               final taskHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: taskPrompt);
               final taskHarness = _harnessFactory.create(
@@ -526,12 +528,11 @@ class HarnessWiring {
   }
 
   Future<AcpPermissionResult> _acpPermissionDecision(AcpPermissionRequest request) async {
-    final guardChain = _security.guardChain;
-    if (guardChain == null) {
+    if (_security.guardChain == null) {
       return const AcpPermissionResult(granted: false, reason: 'Guard chain unavailable');
     }
     try {
-      final verdict = await guardChain.evaluateBeforeToolCall(
+      final verdict = await _primaryGuardChain.evaluateBeforeToolCall(
         request.operation,
         request.params,
         rawProviderToolName: 'session/request_permission',
@@ -574,16 +575,16 @@ class HarnessWiring {
 
 const _taskRunnerSubagentEnvironment = <String, String>{'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet'};
 
-/// Creates a per-harness [GuardChain] that includes all guards from [base]
-/// plus the per-runner [filter].
+/// Creates a per-runner [GuardChain] layering the runner's [filter] after all
+/// guards of [base].
 ///
-/// Each task runner requires its own guard chain instance so that mutating
-/// [filter.allowedTools] for one runner does not affect others.
+/// Each runner (primary and task) requires its own chain so that mutating
+/// [filter] policies for one runner does not affect others. The base guard
+/// list is tracked live: a guards.* hot-reload ([GuardChain.replaceGuards] on
+/// [base]) reaches every runner chain while the filter survives the rebuild.
 /// When [base] is null, returns a chain with only the filter guard.
-GuardChain _buildTaskGuardChain(GuardChain? base, TaskToolFilterGuard filter) {
-  final guards = <Guard>[...?base?.guards, filter];
-  return GuardChain(guards: guards, onVerdict: base?.onVerdict, failOpen: base?.failOpen ?? false);
-}
+GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter) =>
+    GuardChain.layered(base: base, guards: [filter]);
 
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
   final environment = SafeProcess.sanitize(

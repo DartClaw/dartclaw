@@ -86,11 +86,14 @@ class GuardChain {
   static final _log = Logger('GuardChain');
 
   List<Guard> _guards;
+  final GuardChain? _base;
 
   /// Guards evaluated in declaration order for every check.
   ///
-  /// Returns an unmodifiable view; use [replaceGuards] to swap the list.
-  List<Guard> get guards => List.unmodifiable(_guards);
+  /// For a [GuardChain.layered] chain this includes the base chain's current
+  /// guards followed by this chain's own. Returns an unmodifiable view; use
+  /// [replaceGuards] to swap the list.
+  List<Guard> get guards => List.unmodifiable([...?_base?._guards, ..._guards]);
 
   /// Optional callback invoked for non-pass verdicts.
   final GuardVerdictCallback? onVerdict;
@@ -99,7 +102,22 @@ class GuardChain {
   final bool failOpen;
 
   /// Creates a guard chain with optional verdict reporting.
-  GuardChain({required List<Guard> guards, this.onVerdict, this.failOpen = false}) : _guards = List.of(guards);
+  GuardChain({required List<Guard> guards, this.onVerdict, this.failOpen = false})
+    : _guards = List.of(guards),
+      _base = null;
+
+  /// Creates a chain that evaluates all of [base]'s guards followed by [guards].
+  ///
+  /// The base guard list is read live on every evaluation, so a later
+  /// [replaceGuards] on [base] (guard hot-reload) is picked up here while this
+  /// chain's own [guards] survive the rebuild. [onVerdict] and [failOpen] are
+  /// inherited from [base]; with a null [base] only [guards] are evaluated,
+  /// fail-closed and without verdict reporting.
+  GuardChain.layered({required GuardChain? base, required List<Guard> guards})
+    : _guards = List.of(guards),
+      _base = base,
+      onVerdict = base?.onVerdict,
+      failOpen = base?.failOpen ?? false;
 
   /// Atomically replaces the guard list.
   ///
@@ -164,9 +182,10 @@ class GuardChain {
   /// Evaluates all guards against a fully-populated [GuardContext].
   Future<GuardVerdict> _evaluate(GuardContext context) async {
     GuardVerdict result = GuardVerdict.pass();
-    // Capture the current list reference so a concurrent replaceGuards() call
+    // Capture the current list references so a concurrent replaceGuards() call
     // does not affect an in-progress evaluation.
-    final currentGuards = _guards;
+    final baseGuards = _base?._guards;
+    final currentGuards = baseGuards == null ? _guards : [...baseGuards, ..._guards];
 
     for (final guard in currentGuards) {
       GuardVerdict verdict;

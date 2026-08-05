@@ -24,7 +24,8 @@
 
 ## Gotchas
 - Guards evaluate the **canonical** tool name (`shell`, `file_write`, etc.); the provider-native string is preserved on `GuardContext.rawProviderToolName` for audit only. Don't write policy against raw names.
-- `GuardChain.replaceGuards` is the hot-reload entry point — it captures the list reference per-evaluation so concurrent reloads don't corrupt in-flight evaluations. Don't replace the internal list in-place.
+- `GuardChain.replaceGuards` is the hot-reload entry point — it captures the list reference(s) per-evaluation so concurrent reloads don't corrupt in-flight evaluations. Don't replace the internal list in-place.
+- `GuardChain.layered` composes a per-runner chain on a base chain: the base guard list is read live (a base `replaceGuards` propagates to every layered chain), while the layer's own guards survive the rebuild. `onVerdict`/`failOpen` are inherited from the base.
 - First **block** wins and short-circuits; warns accumulate as the worst non-block verdict. Guard order matters — cheap/decisive guards first.
 - `CommandGuard` strips single-quoted strings before scanning to defeat `'rm' '-rf'` bypass, but `$(...)` subshells are intentionally not blocked (their inner command is rescanned). Don't add subshell blocking — container isolation handles the variable-expansion class.
 - `FileGuard` resolves symlinks (e.g. `/var` → `/private/var` on macOS); rules use globs against the **resolved** path. Use `FileGuardConfig.withSelfProtection(configPath)` so the agent cannot rewrite its own `dartclaw.yaml`.

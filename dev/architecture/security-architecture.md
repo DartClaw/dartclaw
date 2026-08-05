@@ -138,6 +138,8 @@ GuardChain._evaluate(context):
 
 **Package attribution**: `dartclaw_security` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_server`.
 
+**Per-runner chain composition**: serve wiring builds one shared base chain from `guards.*` config, and each runner — the primary interactive harness and every task runner — evaluates a layered chain (`GuardChain.layered`): the base chain plus that runner's own `TaskToolFilterGuard`. The base guard list is read live, so a `guards.*` hot-reload (`replaceGuards`) reaches every runner chain while the per-runner filter survives the rebuild. Turn-scoped tool policies (per-task `allowedTools`, per-turn session policies such as the knowledge-inbox no-tools turn) are enforced by that per-runner filter.
+
 Guards evaluate canonical tool names, not provider-native strings. Provider adapters map raw tool names to the canonical taxonomy before `GuardChain.evaluateBeforeToolCall()` runs. The raw provider name is still retained in `GuardContext` for audit logging and incident forensics.
 
 ### Guard Summary

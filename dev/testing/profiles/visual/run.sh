@@ -43,12 +43,12 @@ if [ "${DARTCLAW_TEST_USE_SNAPSHOT:-0}" = "1" ]; then
   if [ ! -f "${SNAPSHOT}" ]; then
     SNAPSHOT="$(ls -1t "${REPO_ROOT}/.dart_tool/pub/bin/dartclaw_cli/dartclaw.dart-"*.snapshot 2>/dev/null | head -n 1 || true)"
   fi
-  if [ -n "${SNAPSHOT}" ] && [ -f "${SNAPSHOT}" ]; then
-    exec dart "${SNAPSHOT}" --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@"
+  if [ -n "${SNAPSHOT}" ] && [ -f "${SNAPSHOT}" ] && dart "${SNAPSHOT}" serve --no-connect-channels --help >/dev/null 2>&1; then
+    exec dart "${SNAPSHOT}" --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@" --no-connect-channels
   fi
 fi
 
 exec dart \
   --packages="${REPO_ROOT}/.dart_tool/package_config.json" \
   "${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart" \
-  --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@"
+  --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@" --no-connect-channels

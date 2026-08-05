@@ -1,32 +1,13 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
-
-/// Fake GOWA sidecar whose [status] throws as if the sidecar is unreachable
-/// (connection refused), reproducing the "sidecar not running" pairing state.
-class _UnreachableGowaManager extends GowaManager {
-  _UnreachableGowaManager() : super(executable: '', host: '', port: 0, webhookUrl: '', osName: '');
-
-  @override
-  bool get isRunning => false;
-
-  @override
-  Future<GowaStatus> status() async => throw const SocketException(
-    'Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 58402',
-  );
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> reset() async {}
-}
+import '../whatsapp_test_support.dart';
 
 void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
@@ -34,14 +15,14 @@ void main() {
 
   late Directory tempDir;
   late SessionService sessions;
+  late FakeGowaManager fakeGowa;
   late WhatsAppChannel channel;
   late Handler handler;
 
-  setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_wa_route_test_');
-    sessions = SessionService(baseDir: tempDir.path);
+  void buildHandler(FakeGowaManager gowa) {
+    fakeGowa = gowa;
     channel = WhatsAppChannel(
-      gowa: _UnreachableGowaManager(),
+      gowa: fakeGowa,
       config: const WhatsAppConfig(enabled: true),
       dmAccess: DmAccessController(mode: DmAccessMode.pairing),
       mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
@@ -49,6 +30,12 @@ void main() {
     );
     final router = whatsappPairingRoutes(whatsAppChannel: channel, sessions: sessions, pageRegistry: PageRegistry());
     handler = const Pipeline().addHandler(router.call);
+  }
+
+  setUp(() {
+    tempDir = Directory.systemTemp.createTempSync('dartclaw_wa_route_test_');
+    sessions = SessionService(baseDir: tempDir.path);
+    buildHandler(FakeGowaManager(running: false));
   });
 
   tearDown(() {
@@ -65,11 +52,14 @@ void main() {
       expect(body, contains('class="well-deep"'));
       expect(body, isNot(contains('style="')));
       expect(body, isNot(contains('wa-')));
+      expect(fakeGowa.statusRequests, 0);
     });
 
     test('does not leak the raw exception into the UI', () async {
+      buildHandler(FakeGowaManager(running: true, statusThrows: true));
       final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
       final body = await res.readAsString();
+      expect(fakeGowa.statusRequests, 1);
       expect(body, isNot(contains('Failed to check GOWA status')));
       expect(body, isNot(contains('SocketException')));
       expect(body, isNot(contains('errno')));

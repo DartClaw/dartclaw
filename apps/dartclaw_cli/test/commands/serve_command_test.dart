@@ -310,6 +310,111 @@ void main() {
       expect(sigtermWatchCalls, 0);
     });
 
+    test('channel startup can be skipped while channels remain configured', () async {
+      ensureDartclawWhatsappRegistered();
+      final worker = _FakeWorkerService();
+      late String pairingBody;
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_channels_skipped_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        gateway: const GatewayConfig(authMode: 'none'),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          templatesDir: _templatesDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+        channels: const ChannelConfig(
+          channelConfigs: {
+            'whatsapp': {'enabled': true, 'gowa_executable': _missingBinary},
+          },
+        ),
+      );
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(worker),
+        serveFn: (handler, address, port) async {
+          pairingBody = await (await handler(
+            Request('GET', Uri.parse('http://localhost/whatsapp/pairing')),
+          )).readAsString();
+          return HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        },
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
+        sigintWatch: () => Stream.value(ProcessSignal.sigint),
+        sigtermWatch: () => const Stream.empty(),
+        runWorkflowSkillsBootstrap: false,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve', '--no-connect-channels']),
+          throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 0)),
+        ),
+      );
+
+      expect(pairingBody, contains('Not Connected'));
+      expect(worker.started, isTrue);
+      expect(worker.stopped, isTrue);
+    });
+
+    test('channels connect by default', () async {
+      ensureDartclawWhatsappRegistered();
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_channels_default_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          templatesDir: _templatesDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+        channels: const ChannelConfig(
+          channelConfigs: {
+            'whatsapp': {'enabled': true, 'gowa_executable': _missingBinary},
+          },
+        ),
+      );
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(worker),
+        serveFn: (handler, address, port) => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
+        sigintWatch: () => Stream.value(ProcessSignal.sigint),
+        sigtermWatch: () => const Stream.empty(),
+        runWorkflowSkillsBootstrap: false,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      final logs = await _captureExpectedServeLogs(
+        () async => await expectLater(
+          localRunner.run(['serve']),
+          throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 0)),
+        ),
+        expectedSevereSubstrings: const ['Failed to spawn GOWA process', 'Failed to connect channel whatsapp'],
+      );
+
+      expect(logs.map((record) => record.message), contains('Failed to spawn GOWA process'));
+      expect(logs.map((record) => record.message), contains('Failed to connect channel whatsapp'));
+      expect(worker.started, isTrue);
+      expect(worker.stopped, isTrue);
+    });
+
     test('channel config warnings are printed before server startup', () async {
       final stderrLines = <String>[];
       final worker = _FakeWorkerService();

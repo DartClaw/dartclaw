@@ -90,6 +90,7 @@ class ServeCommand extends Command<void> {
         defaultsTo: 'INFO',
         help: 'Minimum log level',
       )
+      ..addFlag('connect-channels', defaultsTo: true, hide: true)
       ..addFlag('dev', negatable: false, help: 'Enable dev mode (template hot-reload)');
   }
 
@@ -336,7 +337,7 @@ class ServeCommand extends Command<void> {
       result.resetService.start();
 
       // Connect channels
-      if (result.channelManager != null) {
+      if (result.channelManager != null && (argResults!['connect-channels'] as bool)) {
         await result.channelManager!.connectAll();
       }
 

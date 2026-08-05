@@ -81,7 +81,7 @@ This sub-scenario checks a denser system page with tabbed content and mixed cont
 
 ## S4: Verify Channel Settings Are Reachable On Mobile
 
-This sub-scenario checks that the channel UI surfaces remain navigable and readable at mobile width when channels are enabled but unpaired. The `visual` profile enables WhatsApp, Signal, and Google Chat with placeholder backends so this exercise focuses on responsive layout rather than connected-channel behavior - hardware-driven pairing belongs to the `channels` profile.
+This sub-scenario checks that the channel UI surfaces remain navigable and readable at mobile width when channels are enabled but unpaired. The `visual` profile keeps WhatsApp, Signal, and Google Chat configured for UI rendering while its runner disables automatic channel startup, so this exercise focuses on responsive layout rather than connected-channel behavior – hardware-driven pairing belongs to the `channels` profile.
 
 ### Steps
 

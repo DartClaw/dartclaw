@@ -36,7 +36,7 @@ The profile inherits the stable seeded data from `plain` and adds just enough co
 - scheduled prompt jobs plus one scheduled task template so `Health`, `Memory`, and `Tasks` remain visible
 - one config-defined project (`visual-demo`) so `/projects` renders meaningful content
 - workflow management enabled so `/workflows` shows the built-in workflow definitions
-- WhatsApp, Signal, and Google Chat enabled in config with placeholder/unavailable backends so the sidebar channels entry, `/settings` channel cards, `/settings/channels/<type>` detail pages, and the `/whatsapp/pairing` + `/signal/pairing` routes all render their disconnected/unpaired UI. Channel construction succeeds; `connect()` fails under `ChannelManager.connectAll()`'s try/catch and the channels stay disconnected.
+- WhatsApp, Signal, and Google Chat enabled in config so the sidebar channels entry, `/settings` channel cards, `/settings/channels/<type>` detail pages, and the `/whatsapp/pairing` + `/signal/pairing` routes all render their disconnected/unpaired UI. The runner disables automatic channel startup, so no sidecar process is launched when the server starts.
 
 ## Scope Boundary
 

@@ -76,7 +76,7 @@ void main() {
     });
 
     test('sidecar not reachable shows setup instructions', () async {
-      fakeSidecar.fakeHealthy = false;
+      fakeSidecar.fakeRunning = false;
       final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
       expect(res.statusCode, 200);
       final body = await res.readAsString();
@@ -84,6 +84,23 @@ void main() {
       expect(body, contains('class="well-deep pairing-config-block"'));
       expect(body, isNot(contains('style="')));
       expect(body, isNot(contains('wa-')));
+      expect(fakeSidecar.healthCheckRequests, 0);
+    });
+
+    test('sidecar restart backoff shows reconnecting state without probing', () async {
+      fakeSidecar
+        ..fakeRunning = false
+        ..fakeWasPaired = true
+        ..fakeRestartCount = 2;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, contains('Reconnecting'));
+      expect(body, contains('Attempt'));
+      expect(body, contains('2 of 5'));
+      expect(fakeSidecar.healthCheckRequests, 0);
     });
 
     test('status probe failure shows clean setup card without leaking the exception', () async {

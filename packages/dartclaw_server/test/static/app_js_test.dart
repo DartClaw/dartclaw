@@ -344,8 +344,27 @@ void main() {
       expect(
         RegExp(
           r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger::before\s*\{'
-          r'[^}]*top:\s*var\(--sp-2\);[^}]*bottom:\s*var\(--sp-2\);[^}]*left:\s*var\(--sp-2\);'
-          r'[^}]*width:\s*2px;[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
+          r'[^}]*top:\s*50%;[^}]*left:\s*var\(--sp-2\);'
+          r'[^}]*width:\s*3px;[^}]*height:\s*16px;[^}]*transform:\s*translateY\(-50%\);'
+          r'[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
+        ).hasMatch(designSystemCss),
+        isTrue,
+      );
+    });
+
+    test('system panel active item uses the notch, not the flush edge', () {
+      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+
+      expect(
+        designSystemCss,
+        contains('.sidebar-system-panel .sidebar-nav-item.active { border-left-color: transparent; }'),
+      );
+      expect(
+        RegExp(
+          r'\.sidebar-system-panel \.sidebar-nav-item\.active::after\s*\{'
+          r'[^}]*top:\s*50%;[^}]*left:\s*var\(--sp-1\);'
+          r'[^}]*width:\s*3px;[^}]*height:\s*16px;[^}]*transform:\s*translateY\(-50%\);'
+          r'[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
         ).hasMatch(designSystemCss),
         isTrue,
       );

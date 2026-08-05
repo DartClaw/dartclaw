@@ -440,10 +440,11 @@ a:hover { text-decoration: underline; }
 .sidebar-system-menu:has(.sidebar-nav-item.active) > .sidebar-system-trigger::before {
   content: '';
   position: absolute;
-  top: var(--sp-2);
-  bottom: var(--sp-2);
+  top: 50%;
   left: var(--sp-2);
-  width: 2px;
+  width: 3px;
+  height: 16px;
+  transform: translateY(-50%);
   border-radius: 999px;
   background: var(--accent);
   pointer-events: none;
@@ -491,9 +492,26 @@ a:hover { text-decoration: underline; }
 }
 
 .sidebar-system-panel .sidebar-nav-item {
+  position: relative;
   margin: 0 var(--sp-1);
   padding-inline: var(--sp-3);
   border-radius: var(--radius);
+}
+
+.sidebar-system-panel .sidebar-nav-item.active { border-left-color: transparent; }
+
+/* ::after – ::before is the data-icon slot. */
+.sidebar-system-panel .sidebar-nav-item.active::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: var(--sp-1);
+  width: 3px;
+  height: 16px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 @media (max-width: 768px) {

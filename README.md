@@ -6,18 +6,34 @@
 
 _Agentic powers. No dependency black holes. Secure by design._
 
+**DartClaw turns coding agents into a persistent, security-conscious personal AI.** A single AOT-compiled Dart binary hosts Claude Code, Codex, and any ACP-compliant agent behind one runtime – with long-term memory and knowledge, chat access from your phone, scheduled jobs, background tasks, and multi-step workflows, all with real OS-level security boundaries. No Node.js, no npm, no sprawling dependency tree: the web UI, templates, skills, and workflow definitions are compiled into the binary, with a bundled SQLite as its only companion.
+
 > [!NOTE]
-> Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
+> DartClaw is **experimental** (soft-published, pre-alpha) – breaking changes are expected while the core matures.
 >
-> _Status_: 0.22.0 – the Afterglow design-system overhaul: canonical drift-checked CSS, full Web UI adoption, responsive feedback primitives, identicons, and DartClaw brand assets. See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.22.0 – the Afterglow design-system overhaul. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
-  <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
+  <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI – Task Dashboard" width="720">
 </p>
+
+## Why DartClaw?
+
+- **One self-contained binary** – AOT-compiled Dart, zero Node.js/npm. Web UI, templates, skills, and workflow definitions ship *inside* the binary; a bare install serves everything with no asset downloads and no network access at startup.
+- **Any agent, one runtime** – Claude Code (JSONL) and Codex (JSON-RPC) are first-class harnesses, and any ACP-compliant agent (Goose, Mistral Vibe, …) plugs in through configuration alone. One canonical tool policy applies across all providers.
+- **Secure by design, not by prompt** – defense-in-depth with container isolation (`network:none`), a fail-closed guard chain, a credential proxy that keeps API keys out of the container, audit logging, and content classification. Boundaries live in the OS and the host, not in the system prompt.
+- **Your AI, on your phone** – WhatsApp, Signal, and Google Chat channels with DM/group access control, mention gating, and thread-bound task sessions. **Crowd coding**: a group chat collaboratively steers a shared agent session.
+- **It remembers** – the Context Engine maintains an LLM-curated wiki, a temporal knowledge graph, and long-term memory, synthesized into compact citation-backed packets served to agents over MCP (`context_research`) – browsable in the web UI's read-only Knowledge Hub with a point-in-time timeline. Hybrid FTS5/QMD search across all of it.
+- **Workflows that ship code** – built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows, plus custom workflows triggered from chat, web forms, or GitHub PR webhooks. Run server-backed or fully server-less, with approval gates, live CLI progress, and per-step token accounting.
+- **Task orchestration** – background tasks with review queues, task types, goals, git worktrees, and per-task provider overrides; heterogeneous worker pools run mixed providers in parallel.
+- **Scheduled autonomy** – heartbeat and cron jobs with configurable delivery: morning briefings, nightly reflection, a knowledge inbox – see the [recipes](docs/guide/recipes/README.md).
+- **Runtime governance** – admin senders, per-sender rate limits, daily token budgets, loop detection, and `/stop` / `/pause` / `/resume` emergency controls.
+- **Delegation & outbound MCP** – agents delegate to allowlisted subagents (`delegate_to_agent`), and DartClaw consumes external MCP servers through a guard-mediated, audited egress boundary.
+- **Operable from anywhere** – full web UI (HTMX, SSE streaming), REST API, and a CLI covering serve, sessions, tasks, agents, workflow, jobs, projects, service, and more ([CLI reference](docs/guide/cli-reference.md)).
 
 ## Installation
 
-### Homebrew (macOS & Linux) — recommended
+### Homebrew (macOS & Linux) – recommended
 
 Homebrew installs the self-contained prebuilt `dartclaw` binary, with no Dart toolchain required. Prebuilt binaries are published for **macOS** (Apple Silicon and Intel) and **Linux** (x64 and arm64):
 
@@ -36,9 +52,19 @@ dartclaw serve
 # Open http://127.0.0.1:3333
 ```
 
-You also need at least one agent CLI (`claude` or `codex`) installed — see [Prerequisites](#prerequisites). For full setup and provider auth, see [Getting Started](docs/guide/getting-started.md).
+You also need at least one agent CLI (`claude` or `codex`) installed – see [Prerequisites](#prerequisites). For full setup and provider auth, see [Getting Started](docs/guide/getting-started.md).
 
-### PowerShell (Windows x64)
+### Windows x64 – Scoop or PowerShell
+
+Via [Scoop](https://scoop.sh):
+
+```powershell
+scoop bucket add dartclaw https://github.com/DartClaw/scoop-dartclaw
+scoop install dartclaw/dartclaw
+```
+
+Or via the checksum-verifying PowerShell installer, which installs under `%LOCALAPPDATA%\Programs\DartClaw` and adds
+its `bin` directory to your user `PATH` (re-run it to upgrade):
 
 ```powershell
 irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
@@ -46,15 +72,12 @@ irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
 dartclaw --version
 ```
 
-The installer verifies and installs `dartclaw-v<version>-windows-x64.zip` under
-`%LOCALAPPDATA%\Programs\DartClaw`, then persists its `bin` directory on your user `PATH`. The public Scoop bucket
-exists but has no installable manifest yet; use the PowerShell installer for the qualified path.
 See the [Windows guide](docs/guide/windows.md) for upgrade commands, provider setup, smoke validation, and the explicit
 limits around container isolation, Bash steps, channel sidecars, and provider sandboxes.
 
 ### From source (any platform)
 
-On a platform without a prebuilt binary, or for development and `--dev` hot-reload workflows, build the standalone binary from a checkout (requires the Dart SDK — see [Prerequisites](#prerequisites)):
+On a platform without a prebuilt binary, or for development and `--dev` hot-reload workflows, build the standalone binary from a checkout (requires the Dart SDK – see [Prerequisites](#prerequisites)):
 
 ```bash
 git clone <repo-url> && cd dartclaw
@@ -66,11 +89,20 @@ bash dev/tools/build.sh
 
 The build produces `build/bin/dartclaw` next to a `build/lib/` holding the bundled SQLite library; keep the two directories together when relocating. The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
 
-## What is DartClaw?
+### Prerequisites
 
-DartClaw is a security-conscious AI agent runtime built as an AOT-compiled Dart binary (shipping alongside a bundled SQLite library in a sibling `lib/`) with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex — plus any ACP-compliant agent (Goose, Mistral Vibe, …) added through configuration alone, with zero code changes.
+- **Agent CLI** – at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
+- **API key** – `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI – primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
+- **Docker** – optional, for container isolation
+- **Dart SDK** >= 3.12.0 – source builds only; the prebuilt binaries need no Dart toolchain
+- **SQLite** – bundled with the prebuilt binaries and source builds
 
-The host talks to agent runtimes through the `AgentHarness` abstract interface. `HarnessFactory` selects the provider-specific implementation, `HarnessPool` manages mixed workers, and the guard chain applies the same canonical tool policy across providers.
+## How it works
+
+Two layers with a hard trust boundary between them:
+
+- **Dart host** – state (file-based + SQLite), HTTP API, web UI, security policy, scheduling, channels, task orchestration, runtime governance
+- **Agent runtime** – reasoning, tool execution, bash commands (in per-type Docker containers or as a host process)
 
 ```
                                                           ┌─── claude binary (JSONL over stdio)
@@ -83,62 +115,21 @@ User ─→ HTTP / WhatsApp / Signal / Google Chat ─→ Dart Host ─→ Guard
                                            Loop Detector
 ```
 
-Two layers with clear trust boundaries:
-- **Dart host** -- state (file-based + SQLite), HTTP API, web UI, security policy, scheduling, channels, task orchestration, runtime governance
-- **Agent runtime** -- reasoning, tool execution, bash commands (in per-type Docker containers or host process)
+The host drives every provider through one `AgentHarness` interface, so guards, tool policy, and orchestration behave identically whether the worker underneath is Claude Code, Codex, or an ACP agent. See [Architecture](docs/guide/architecture.md) for the full picture.
 
-## Key Highlights
+## Security Model
 
-- **Universal agent harness** -- Claude Code (JSONL) and Codex (JSON-RPC) are first-class, and any ACP-compliant agent (Goose, Mistral Vibe, …) is added through config alone; provider selection stays behind `AgentHarness`.
-- **Context Engine** -- an LLM-maintained wiki, temporal knowledge graph, and memory synthesized into compact, citation-backed packets served to agents over MCP (`context_research`), with a read-only Knowledge UI.
-- **Defense-in-depth** -- POSIX container isolation, guard chain, credential proxy, HTTP auth, and fail-closed policy; native Windows exposes the guards but not container-isolation parity.
-- **Agent delegation & outbound MCP** -- Claude can delegate to allowlisted agents (`delegate_to_agent`), and DartClaw consumes external MCP servers through a guard-mediated, audited egress boundary.
-- **Workflows** -- built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows, runnable server-backed or in a zero-server standalone mode.
-- **Crowd coding** -- WhatsApp, Signal, and Google Chat groups collaboratively steer a shared agent session.
-- **Task orchestration** -- background tasks, review queue, task types, goals, and provider overrides.
-- **Runtime governance** -- rate limits, token budgets, loop detection, and emergency controls.
-- **Channels** -- DM/group access control, configurable scoping, mention gating, and thread-bound task sessions.
-- **Parallel execution** -- heterogeneous workers with per-provider pools and session serialization.
-- **AOT compilation** -- a native binary plus a bundled SQLite library, zero Node.js/npm, minimal attack surface.
+Defense-in-depth with multiple independent layers:
 
-## Prerequisites
+1. **Container isolation** – Docker `network:none`, `--cap-drop ALL`, read-only root, mount allowlist; unavailable on native Windows, where enabling it fails closed with POSIX/WSL remediation
+2. **Credential isolation** – multi-provider credentials via `CredentialRegistry`; API keys on Unix socket, never in container env
+3. **Guard chain** – command, file, network, content guards operating on canonical tool names (provider-agnostic, fail-closed)
+4. **Content-guard** – LLM classification at agent boundaries
+5. **Runtime governance** – per-sender rate limiting, token budgets, loop detection; `/stop` emergency kill
+6. **HTTP auth** – token-based + session cookies
+7. **System prompt safety rules** – injected every turn, not overridable
 
-- **Dart SDK** >= 3.12.0 -- source builds only; the Homebrew binary needs no Dart toolchain
-- **Agent CLI** -- at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
-- **SQLite** -- system library (bundled on macOS/most Linux)
-- **Docker** -- optional, for container isolation
-- **API key** -- `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI — primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
-
-### AOT Binary
-
-```bash
-bash dev/tools/build.sh
-./build/bin/dartclaw serve
-```
-
-## Project Structure
-
-```
-apps/
-  dartclaw_cli/                 AOT-compilable CLI app (serve, status, deploy, token commands)
-packages/
-  dartclaw/                     Published umbrella — re-exports core + models + storage
-  dartclaw_core/                Harness, protocol adapters, guards, channels, agents, scheduling, governance (sqlite3-free)
-  dartclaw_models/              Pure data classes: Session, Message, SessionKey (zero deps)
-  dartclaw_storage/             SQLite3-backed: MemoryService, SearchDb, FTS5/QMD, pruner
-  dartclaw_server/              HTTP API (Shelf), web UI (HTMX/Trellis), SSE, tasks, turns
-  dartclaw_config/              Config parsing, typed sections, extension registration
-  dartclaw_security/            Guard implementations, input sanitizer, content classifier
-  dartclaw_workflow/            Workflow definitions, registry, parser/validator, and execution support
-  dartclaw_whatsapp/            WhatsApp channel (GOWA sidecar)
-  dartclaw_signal/              Signal channel (signal-cli sidecar)
-  dartclaw_google_chat/         Google Chat channel (Workspace Events + Pub/Sub)
-  dartclaw_testing/             Shared test fakes and utilities
-docs/                           User guide and SDK guide
-dev/                            Contributor / agent docs, dev tools, testing profiles
-```
-
-Dart pub workspace — all packages share dependencies and resolve locally.
+Without Docker, guards serve as the primary boundary (pragmatic mode for development).
 
 ## Configuration
 
@@ -159,78 +150,90 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 ## Documentation
 
 ### User Guide ([full index](docs/guide/README.md))
-- **[Getting Started](docs/guide/getting-started.md)** -- installation, first run, overview
-- **[Windows](docs/guide/windows.md)** -- native Windows x64 installation, validation, and capability limits
-- **[Configuration](docs/guide/configuration.md)** -- `dartclaw.yaml` reference, typed config sections, environment variables
-- **[Workspace](docs/guide/workspace.md)** -- behavior files, memory, prompt assembly
-- **[Security](docs/guide/security.md)** -- guards, containers, credential proxy, canonical tool taxonomy
-- **[Tasks](docs/guide/tasks.md)** -- task orchestration, review workflow, coding tasks, provider overrides
-- **[Workflows](docs/guide/workflows.md)** -- built-in YAML workflows, server-backed and zero-server standalone runs
-- **[Agents](docs/guide/agents.md)** -- subagent delegation, ACP agent registration, model selection, provider-aware pool
-- **[Channels](docs/guide/whatsapp.md)** -- [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) setup and access control
-- **[Scheduling](docs/guide/scheduling.md)** -- heartbeat, cron jobs
-- **[Search & Memory](docs/guide/search.md)** -- search agent, FTS5/QMD hybrid search
-- **[Projects & Git](docs/guide/projects-and-git.md)** -- project directory, worktrees, branch management
-- **[Deployment](docs/guide/deployment.md)** -- LaunchDaemon, systemd, egress firewall
-- **[Customization](docs/guide/customization.md)** -- L1-L5 customization ladder
+- **[Getting Started](docs/guide/getting-started.md)** – installation, first run, overview
+- **[Windows](docs/guide/windows.md)** – native Windows x64 installation, validation, and capability limits
+- **[Configuration](docs/guide/configuration.md)** – `dartclaw.yaml` reference, typed config sections, environment variables
+- **[CLI Operations](docs/guide/cli-operations.md)** / **[CLI Reference](docs/guide/cli-reference.md)** – connected vs standalone mode, authentication, every command and flag
+- **[Workspace](docs/guide/workspace.md)** – behavior files, memory, prompt assembly
+- **[Security](docs/guide/security.md)** – guards, containers, credential proxy, canonical tool taxonomy
+- **[Governance](docs/guide/governance.md)** – admin senders, rate limits, token budgets, loop detection, emergency controls
+- **[Tasks](docs/guide/tasks.md)** – task orchestration, review workflow, coding tasks, provider overrides
+- **[Workflows](docs/guide/workflows.md)** – authoring guide, trigger surfaces, built-in workflows ([YAML reference](docs/guide/workflows-reference.md))
+- **[Agents](docs/guide/agents.md)** – subagent delegation, ACP agent registration, model selection, provider-aware pool
+- **[Channels](docs/guide/whatsapp.md)** – [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) setup and access control
+- **[Scheduling](docs/guide/scheduling.md)** – heartbeat, cron jobs
+- **[Search & Memory](docs/guide/search.md)** – search agent, FTS5/QMD hybrid search
+- **[Projects & Git](docs/guide/projects-and-git.md)** – project directory, worktrees, branch management
+- **[Deployment](docs/guide/deployment.md)** – LaunchDaemon, systemd, egress firewall
+- **[Customization](docs/guide/customization.md)** – L1-L5 customization ladder
 
 ### Recipes ([index](docs/guide/recipes/README.md))
-- **[Personal Assistant](docs/guide/recipes/00-personal-assistant.md)** -- turnkey setup: briefings + journaling + research + reflection
-- **[Crowd Coding](docs/guide/recipes/08-crowd-coding.md)** -- multi-user collaborative AI agent steering via chat
+- **[Personal Assistant](docs/guide/recipes/00-personal-assistant.md)** – turnkey setup: briefings + journaling + research + reflection
+- **[Crowd Coding](docs/guide/recipes/08-crowd-coding.md)** – multi-user collaborative AI agent steering via chat
 - [Morning Briefing](docs/guide/recipes/01-morning-briefing.md) / [Daily Journal](docs/guide/recipes/02-daily-memory-journal.md) / [Task Queue](docs/guide/recipes/03-scheduled-task-queue.md) / [Knowledge Inbox](docs/guide/recipes/04-knowledge-inbox.md) / [CRM Tracker](docs/guide/recipes/05-contact-crm-tracker.md) / [Research Assistant](docs/guide/recipes/06-research-assistant.md) / [Nightly Reflection](docs/guide/recipes/07-nightly-reflection.md)
 
 ### SDK Guide
-- **[Quick Start](docs/sdk/quick-start.md)** -- build your first agent in under 30 lines
-- **[Package Guide](docs/sdk/packages.md)** -- which package to depend on
-- **[Concepts](docs/sdk/concepts.md)** -- harnesses, turns, events, sessions, guards, storage, and channels
-- **[Architecture](docs/sdk/architecture.md)** -- the SDK-facing 2-layer model and extension seams
-- **[Security](docs/sdk/security.md)** -- guard chains, isolation expectations, credentials, and audit hooks
-- **[Examples](examples/sdk/)** -- runnable SDK example projects
+- **[Quick Start](docs/sdk/quick-start.md)** – build your first agent in under 30 lines
+- **[Package Guide](docs/sdk/packages.md)** – which package to depend on
+- **[Concepts](docs/sdk/concepts.md)** – harnesses, turns, events, sessions, guards, storage, and channels
+- **[Architecture](docs/sdk/architecture.md)** – the SDK-facing 2-layer model and extension seams
+- **[Security](docs/sdk/security.md)** – guard chains, isolation expectations, credentials, and audit hooks
+- **[Examples](examples/sdk/)** – runnable SDK example projects
 
 ### Architecture & Specs
-- **[Architecture](docs/guide/architecture.md)** -- 2-layer model, multi-provider, design decisions
-- **[Architecture Governance](dev/architecture/architecture-governance.md)** -- contributor-facing executable boundary checks via `dev/tools/arch_check.dart`
-- **[Web UI & API](docs/guide/web-ui-and-api.md)** -- interface features, REST endpoints, provider status API
+- **[Architecture](docs/guide/architecture.md)** – 2-layer model, multi-provider, design decisions
+- **[Architecture Governance](dev/architecture/architecture-governance.md)** – contributor-facing executable boundary checks via `dev/tools/arch_check.dart`
+- **[Web UI & API](docs/guide/web-ui-and-api.md)** – interface features, REST endpoints, provider status API
 
-## Security Model
+## Project Structure
 
-Defense-in-depth with multiple independent layers:
+```
+apps/
+  dartclaw_cli/                 AOT-compilable CLI app – serve, workflow, tasks, sessions, agents,
+                                jobs, projects, service, deploy, and more (see CLI reference)
+packages/
+  dartclaw/                     Published umbrella – re-exports core + models + storage
+  dartclaw_core/                Harness, protocol adapters, guards, channels, agents, scheduling, governance (sqlite3-free)
+  dartclaw_models/              Pure data classes: Session, Message, SessionKey (zero deps)
+  dartclaw_storage/             SQLite3-backed: MemoryService, SearchDb, FTS5/QMD, pruner
+  dartclaw_server/              HTTP API (Shelf), web UI (HTMX/Trellis), SSE, tasks, turns
+  dartclaw_config/              Config parsing, typed sections, extension registration
+  dartclaw_security/            Guard implementations, input sanitizer, content classifier
+  dartclaw_workflow/            Workflow definitions, registry, parser/validator, and execution support
+  dartclaw_whatsapp/            WhatsApp channel (GOWA sidecar)
+  dartclaw_signal/              Signal channel (signal-cli sidecar)
+  dartclaw_google_chat/         Google Chat channel (Workspace Events + Pub/Sub)
+  dartclaw_testing/             Shared test fakes and utilities
+docs/                           User guide and SDK guide
+dev/                            Contributor / agent docs, dev tools, testing profiles
+```
 
-1. **Container isolation** -- Docker `network:none`, `--cap-drop ALL`, read-only root, mount allowlist; unavailable on native Windows, where enabling it fails closed with POSIX/WSL remediation
-2. **Credential isolation** -- multi-provider credentials via `CredentialRegistry`; API keys on Unix socket, never in container env
-3. **Guard chain** -- command, file, network, content guards operating on canonical tool names (provider-agnostic, fail-closed)
-4. **Content-guard** -- LLM classification at agent boundaries
-5. **Runtime governance** -- per-sender rate limiting, token budgets, loop detection; `/stop` emergency kill
-6. **HTTP auth** -- token-based + session cookies
-7. **System prompt safety rules** -- injected every turn, not overridable
-
-Without Docker, guards serve as the primary boundary (pragmatic mode for development).
+Dart pub workspace – all packages share dependencies and resolve locally.
 
 ## Development
 
-Use the workspace root for package-wide server/CLI validation. On supported environments, `dart test packages/dartclaw_server`
-and `dart test apps/dartclaw_cli` should work without manual sqlite bootstrap tweaks. The integration-tagged
-`apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart` is a secondary proof surface and should be run
-intentionally with `dart test --run-skipped -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`
-when you want that additional signal. For this validation path, an unsupported host is specifically one that cannot
-load the bundled `sqlite3` native asset.
-
 ```bash
+dart pub get
+dart analyze
 dart test packages/dartclaw_core
 dart test packages/dartclaw_server
 dart test apps/dartclaw_cli
-dart format <file_or_dir>
-dart analyze
+dart format --line-length=120 .
 ```
+
+On hosts that can load the bundled `sqlite3` native asset, the server and CLI test suites run without manual SQLite
+setup. The integration-tagged e2e suite is opt-in:
+`dart test --run-skipped -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`.
+Contributor docs – architecture deep-dives, guidelines, testing profiles, and dev tooling – live under [`dev/`](dev/).
 
 ## Inspirations & influences
 
 Born from spending too much time wrangling AI agents and wondering why the tooling keeps making the same mistakes. These projects and people shaped how DartClaw thinks about the problem:
 
-- **[OpenClaw](https://github.com/OpenAgentsInc/openclaw)** and **[NanoClaw](https://github.com/cyanheads/nanoclaw)** -- two earlier agent runtimes whose architectures, trade-offs, and battle scars directly informed DartClaw's design
-- **Cole Medin** -- his work on building agentic systems and especially his case for building your own agent runtime rather than depending on ever-shifting frameworks. DartClaw exists partly because of that argument
-- **Daniel Miessler** -- creator of PAI and a relentless voice for treating AI security as real security, not vibes. The defense-in-depth model here owes a debt to that thinking
-- **[claude_agent_sdk](https://github.com/nshkrdotcom/claude_agent_sdk)** -- early exploration of driving the Claude Code binary directly via JSONL, which validated the approach DartClaw's harness is built on
+- **[OpenClaw](https://github.com/OpenAgentsInc/openclaw)** and **[NanoClaw](https://github.com/cyanheads/nanoclaw)** – two earlier agent runtimes whose architectures, trade-offs, and battle scars directly informed DartClaw's design
+- **Cole Medin** – his work on building agentic systems and especially his case for building your own agent runtime rather than depending on ever-shifting frameworks. DartClaw exists partly because of that argument
+- **Daniel Miessler** – creator of PAI and a relentless voice for treating AI security as real security, not vibes. The defense-in-depth model here owes a debt to that thinking
+- **[claude_agent_sdk](https://github.com/nshkrdotcom/claude_agent_sdk)** – early exploration of driving the Claude Code binary directly via JSONL, which validated the approach DartClaw's harness is built on
 
 ## License
 

@@ -1,14 +1,15 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-import 'helpers.dart';
+import '../session/session_display_title.dart';
 import 'loader.dart';
 import 'restart_banner.dart';
 
 /// Top navigation bar.
 ///
-/// When [sessionId] is non-null, renders an editable `<input>` for the title
-/// and action buttons. Behavior varies by [sessionType]:
-/// - main/channel: reset button, no delete
+/// When [sessionId] is non-null, renders the session title and action buttons.
+/// Behavior varies by [sessionType]:
+/// - main: fixed Agent workspace identity, reset button
+/// - channel: editable title, reset button
 /// - user: reset button (manual reset still allowed)
 /// - archive: resume button, read-only
 ///
@@ -32,7 +33,8 @@ String topbarTemplate({
     );
   }
 
-  final displayTitle = displayChatTitle(title);
+  final displayTitle = displaySessionTitle(title, sessionType);
+  final isWorkspace = sessionType == SessionType.main;
   final isArchive = sessionType == SessionType.archive;
 
   return _withRestartSlot(
@@ -42,7 +44,9 @@ String topbarTemplate({
       context: {
         'displayTitle': displayTitle,
         'sessionId': sessionId,
+        'isWorkspace': isWorkspace,
         'isArchive': isArchive,
+        'isEditable': !isWorkspace && !isArchive,
         'showResume': isArchive,
         'showReset': !isArchive,
         'infoHref': '/sessions/$sessionId/info',

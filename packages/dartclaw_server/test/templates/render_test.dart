@@ -270,7 +270,9 @@ void main() {
         context: {
           'displayTitle': 'My Chat',
           'sessionId': 'sess-1',
+          'isWorkspace': false,
           'isArchive': false,
+          'isEditable': true,
           'showResume': false,
           'showReset': true,
           'infoHref': '/sessions/sess-1/info',
@@ -285,7 +287,9 @@ void main() {
         context: {
           'displayTitle': 'Old Chat',
           'sessionId': 'a1',
+          'isWorkspace': false,
           'isArchive': true,
+          'isEditable': false,
           'showResume': true,
           'showReset': false,
           'infoHref': '/sessions/a1/info',
@@ -914,15 +918,17 @@ void main() {
       expect('<h1'.allMatches(plain).length, 1);
       expect(plain, contains('t-page-title'));
 
-      // sessionTopbar's title is an editable input (and its archive twin a
-      // read-only span), neither of which can be a heading.
+      // User/channel titles are editable inputs and archive titles are
+      // read-only spans. Neither treatment competes with a page heading.
       final session = await engine.renderFileFragment(
         'topbar',
         fragment: 'sessionTopbar',
         context: {
           'displayTitle': 'My Chat',
           'sessionId': 'sess-1',
+          'isWorkspace': false,
           'isArchive': false,
+          'isEditable': true,
           'showResume': false,
           'showReset': false,
           'infoHref': '/sessions/sess-1/info',

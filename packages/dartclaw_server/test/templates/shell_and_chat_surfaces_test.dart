@@ -139,6 +139,14 @@ void main() {
     expect(html, isNot(contains('value="New Chat"')));
   });
 
+  test('keeps the workspace Agent identity static regardless of its persisted session title', () {
+    final html = topbarTemplate(title: 'Renamed Session E2E', sessionId: 'session-1', sessionType: SessionType.main);
+
+    expect(html, contains('<h1 class="session-title-static t-page-title">Agent</h1>'));
+    expect(html, isNot(contains('id="session-title"')));
+    expect(html, isNot(contains('Renamed Session E2E')));
+  });
+
   group('turn-status panel', () {
     Map<String, dynamic> statusWith(Map<String, dynamic> overrides) => {
       'state': 'waiting',

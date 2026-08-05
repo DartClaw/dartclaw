@@ -487,8 +487,17 @@ void main() {
     test('design tokens resolve to their declared type and spacing scale', () {
       final appCss = File(componentsCssPath).readAsStringSync();
       final designSystemCss = File(designSystemCssPath).readAsStringSync();
+      final tokensCss = File(tokensCssPath).readAsStringSync();
 
-      expect(designSystemCss, contains('html {\n  font-family: var(--font-mono);\n  font-size: 16px;'));
+      expect(tokensCss, contains('--font-sans: system-ui, -apple-system, BlinkMacSystemFont'));
+      expect(tokensCss, contains('--text-lg:   1rem;        /* 16px — section headings */'));
+      expect(tokensCss, contains('--text-xl:   1.125rem;    /* 18px — page title */'));
+      expect(tokensCss, contains('--text-2xl:  1.25rem;     /* 20px — hero/page-level display */'));
+      expect(tokensCss, contains('--text-3xl:  1.5rem;      /* 24px — metric values, big numbers */'));
+      expect(tokensCss, contains('--leading:       1.5;'));
+      expect(tokensCss, contains('--measure:        65ch;'));
+      expect(designSystemCss, contains('html {\n  font-family: var(--font-sans);\n  font-size: 16px;'));
+      expect(designSystemCss, contains('code, pre, kbd, samp { font-family: var(--font-mono); }'));
       expect(designSystemCss, contains('font-size: var(--text-base);\n  min-height: 100dvh;'));
       expect(designSystemCss, contains('.card-title { font: inherit; }'));
       expect(appCss, contains('grid-template-columns: minmax(0, 1fr);'));

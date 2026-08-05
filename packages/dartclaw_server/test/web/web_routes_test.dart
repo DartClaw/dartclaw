@@ -438,6 +438,39 @@ void main() {
       expect(body, anyOf(contains('class="shell"'), contains('class="sidebar"'), contains('class="chat-area"')));
     });
 
+    test('main workspace renders the fixed Agent identity instead of its persisted title', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.updateTitle(session.id, 'Renamed Session E2E');
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('<title>Agent - DartClaw</title>'));
+      expect(body, contains('<h1 class="session-title-static t-page-title">Agent</h1>'));
+      expect(body, isNot(contains('id="session-title"')));
+
+      final infoRes = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final infoBody = await infoRes.readAsString();
+      expect(infoBody, contains('<h2 class="t-page-title">Agent</h2>'));
+      expect(infoBody, isNot(contains('Renamed Session E2E')));
+
+      final fragmentRes = await handler(
+        Request('GET', Uri.parse('http://localhost/sessions/${session.id}'), headers: {'HX-Request': 'true'}),
+      );
+      final fragmentBody = await fragmentRes.readAsString();
+      expect(fragmentBody, contains('<title>Agent - DartClaw</title>'));
+      expect(fragmentBody, isNot(contains('<!DOCTYPE html>')));
+    });
+
+    test('main workspace opts out of automatic chat-title mutation', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('data-session-id="${session.id}" data-has-title="true"'));
+    });
+
     test('response body escapes XSS in session title', () async {
       final session = await sessions.createSession();
       await sessions.updateTitle(session.id, '<script>alert(1)</script>');
@@ -1009,12 +1042,14 @@ void main() {
 
     test('HX-Request: true returns fragment without DOCTYPE', () async {
       final session = await sessions.createSession();
+      await sessions.updateTitle(session.id, 'Editable conversation');
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/sessions/${session.id}'), headers: {'HX-Request': 'true'}),
       );
       expect(res.statusCode, equals(200));
       final body = await res.readAsString();
       expect(body, isNot(contains('<!DOCTYPE html>')));
+      expect(body, contains('<title>Editable conversation - DartClaw</title>'));
       expect(body, contains('id="main-content"'));
     });
   });

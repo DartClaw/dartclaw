@@ -9,6 +9,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/request_auth_context.dart';
+import '../session/session_display_title.dart';
 import '../templates/chat.dart' show richInputHtmlFromMetadataMap;
 import '../templates/loader.dart';
 import '../turn_manager.dart' show TurnManager;
@@ -473,7 +474,7 @@ Future<({Map<String, dynamic>? reference, Response? error})> _resolveReference({
     if (session == null) {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
-    final label = session.title?.trim().isNotEmpty ?? false ? session.title!.trim() : session.id;
+    final label = displaySessionTitle(session.title, session.type, emptyTitle: session.id);
     return (reference: {'type': 'session', 'id': session.id, 'label': label}, error: null);
   }
   if (type == 'project') {

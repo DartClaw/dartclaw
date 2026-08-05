@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: DartClaw
-description: "Afterglow — DartClaw's terminal-aesthetic design language. Catppuccin Mocha (dark) / Latte (light) palette, monospace typography, terminal-green accent, phosphor glows, 8-bit crab-mascot brand (assets/logo-*-8bit.png) with a pixel claw-mark signature."
+description: "Afterglow — DartClaw's terminal-aesthetic design language. Catppuccin Mocha (dark) / Latte (light) palette, compact system typography with technical monospace accents, terminal-green accent, phosphor glows, 8-bit crab-mascot brand (assets/logo-*-8bit.png) with a pixel claw-mark signature."
 colors:
   # Surface ladder — dark theme (default). 7 levels darkest → brightest.
   # bg-pit and bg-sub-base are derived at runtime via color-mix(); resolved hex below.
@@ -82,43 +82,48 @@ colors:
   syntax-type-light: "#df8e1d"
 typography:
   metric-value:
-    fontFamily: JetBrains Mono
-    fontSize: 32px
-    fontWeight: 600
-    lineHeight: 1.15
-    letterSpacing: -0.02em
-  display:
-    fontFamily: JetBrains Mono
+    fontFamily: System UI
     fontSize: 24px
     fontWeight: 600
-    lineHeight: 1.2
-    letterSpacing: -0.02em
-  page-title:
-    fontFamily: JetBrains Mono
+    lineHeight: 1.15
+    letterSpacing: -0.015em
+  display:
+    fontFamily: System UI
     fontSize: 20px
     fontWeight: 600
-    lineHeight: 1.3
-  heading-md:
-    fontFamily: JetBrains Mono
+    lineHeight: 1.2
+    letterSpacing: -0.015em
+  page-title:
+    fontFamily: System UI
     fontSize: 18px
     fontWeight: 600
     lineHeight: 1.3
-    letterSpacing: -0.02em
+  heading-md:
+    fontFamily: System UI
+    fontSize: 16px
+    fontWeight: 600
+    lineHeight: 1.3
+    letterSpacing: -0.015em
   body-md:
-    fontFamily: JetBrains Mono
+    fontFamily: System UI
     fontSize: 14px
     fontWeight: 400
-    lineHeight: 1.6
+    lineHeight: 1.5
   label-md:
-    fontFamily: JetBrains Mono
+    fontFamily: System UI
     fontSize: 14px
     fontWeight: 500
     lineHeight: 1.3
   caption:
-    fontFamily: JetBrains Mono
+    fontFamily: System UI
     fontSize: 12px
     fontWeight: 400
-    lineHeight: 1.6
+    lineHeight: 1.5
+  code:
+    fontFamily: JetBrains Mono
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.5
 spacing:
   base: 4px
   sp-1: 4px
@@ -135,7 +140,7 @@ spacing:
   input-h: 80px
   container-max: 900px
   container-wide: 1280px
-  measure: 72ch
+  measure: 65ch
 rounded:
   sm: 4px
   lg: 6px
@@ -370,7 +375,7 @@ components:
 
 # DartClaw Design System — "Afterglow"
 
-Terminal-aesthetic design language for a developer-focused AI agent runtime. Catppuccin Mocha/Latte palette, monospace typography, terminal-green accent, phosphor glows, claw-scratch signature.
+Terminal-aesthetic design language for a developer-focused AI agent runtime. Catppuccin Mocha/Latte palette, compact system typography, focused monospace accents, terminal-green accent, phosphor glows, claw-scratch signature.
 
 **Companion files** (same directory):
 
@@ -387,7 +392,7 @@ Terminal-aesthetic design language for a developer-focused AI agent runtime. Cat
 DartClaw is an AI agent runtime aimed at developers and operators. The UI should feel like a high-quality terminal application: dense but readable, instrumented but calm, with deliberate use of color to communicate state rather than to decorate.
 
 - **Tone** — terminal-native, instrumented, restrained. Not "consumer SaaS". Not "skeuomorphic IDE". Aim for the polish of a top-tier developer dashboard (Linear, Vercel, Raycast) rendered through a Catppuccin-mocha lens.
-- **Aesthetic primitives** — monospace type throughout, a layered surface ladder for depth, hue-aware shadows that match the palette's blue-violet tint, a single terminal-green accent, semantic colors only for state (success/error/warning/info), and an extended decorative palette (mauve/teal/sky/pink/lavender) reserved for gradients, ambient glows, and data-viz.
+- **Aesthetic primitives** — a compact system UI face for interface hierarchy, monospace reserved for technical content and brand accents, a layered surface ladder for depth, hue-aware shadows that match the palette's blue-violet tint, a single terminal-green accent, semantic colors only for state (success/error/warning/info), and an extended decorative palette (mauve/teal/sky/pink/lavender) reserved for gradients, ambient glows, and data-viz.
 - **Density** — information-dense by default; whitespace is earned, not assumed. The reading rhythm is set by tight, rectangular cards on an atmospheric ground: a base gradient with faint off-axis color glows and film-grain noise, so empty regions never read as dead flat panels.
 - **Modes** — first-class dark and light themes via `data-theme="light"` on `<html>`. Dark is default and the reference theme; light values are tuned for contrast, not just inverted.
 
@@ -468,28 +473,27 @@ Downstream pages consume these tokens; they never re-tone a card, chrome or grou
 
 ## Typography
 
-The entire system is set in **JetBrains Mono** (with `Fira Code` and system monospace as fallbacks). Monospace throughout is deliberate: it reinforces the terminal aesthetic, gives consistent column alignment in dense tables and tool indicators, and reduces font loading to a single family.
+The interface uses the native **system UI sans stack**. It matches desktop platform conventions, keeps compact navigation calm, and makes hierarchy depend on size and weight instead of the visual bulk of a monospaced face. **JetBrains Mono** remains the technical voice for code, tool calls, paths, IDs, terminal frames, and the DartClaw wordmark.
 
-**Mono-only, decided.** There is no second family and no `--font-sans` token. Hierarchy comes from the widened size scale below, not from a face change: a sans/mono split would have to be applied consistently across every surface to read as a system, and the scale does the same work without that cost.
-
-- **Base size** — 14px (`body-md`). The root stays at 16px so `rem` tokens resolve to their declared sizes; `body` applies `body-md`. Larger sizes are reserved for section headings (18px), page title (20px), display moments (24px), and metric values (32px). Below body, 12px (`caption`) carries metadata and pill text — it is the only smaller size.
+- **Base size** — 14px (`body-md`). The root stays at 16px so `rem` tokens resolve to their declared sizes; `body` applies `body-md`. Larger sizes are deliberately shallow: section headings (16px), page title (18px), display moments (20px), and metric values (24px). Below body, 12px (`caption`) carries metadata and pill text.
 - **Weights** — three only: `400` (normal body), `500` (medium — UI labels), `600` (bold — headings, role labels).
-- **Line height** — `1.6` for body and code; `1.3` for headings and tight UI like the input textarea; tighter still (≤1.2) at display sizes.
-- **Tracking** — monospace gets airy at large sizes and cramped at tiny uppercase sizes, so both ends are corrected: `-0.02em` (`tracking-tight`) on heading, display and metric text, `+0.08em` (`tracking-caps`) on uppercase micro-labels (section labels, role labels, table headers).
-- **Reading measure** — running prose constrains to `measure` (72ch). Top-level code blocks, tables and other non-prose blocks do **not**: they keep their container's full width and scroll horizontally when they need to. The exemption is top-level only — a code block nested inside a list item or blockquote sits within that prose block's measure and is bounded by it.
-- **Sidebar rail** — the compact chrome uses `body-md` for every actionable row and `caption` only for section labels and metadata. The wordmark is also `body-md`, at bold weight. Density comes from the tight line height and row padding, never from introducing an untracked 13px tier or shrinking essential navigation to caption size.
+- **Line height** — `1.5` for body and code; `1.3` for headings and tight UI like the input textarea; tighter still (≤1.2) at display sizes.
+- **Tracking** — `-0.015em` (`tracking-tight`) on heading, display and metric text; `+0.04em` (`tracking-caps`) on uppercase micro-labels. System sans needs less correction than monospace.
+- **Reading measure** — running prose constrains to `measure` (65ch). Top-level code blocks, tables and other non-prose blocks do **not**: they keep their container's full width and scroll horizontally when they need to. The exemption is top-level only — a code block nested inside a list item or blockquote sits within that prose block's measure and is bounded by it.
+- **Sidebar rail** — the compact chrome uses `body-md` for every actionable row and `caption` only for section labels and metadata. The wordmark keeps JetBrains Mono as a scarce brand accent. Density comes from the sans face, tight line height, and row padding; essential navigation never drops to caption size.
 
 Every tier has exactly one backing composite class that binds all four typographic properties together. Apply the class; do not re-derive a tier from separate `font-size` + `font-weight` + `line-height` + `letter-spacing` declarations. Raw `--text-*` tokens remain for one-offs only.
 
 | Token | Class | Size | Usage |
 |---|---|---|---|
 | `caption` | `.t-caption` | 12px | Timestamps, metadata, hints, micro-labels, field labels (as `.t-caption.tracking-caps` — the eyebrow voice) |
-| `body-md` | `.t-body` | 14px | Running copy, code, messages, card bodies |
+| `body-md` | `.t-body` | 14px | Running copy, messages, card bodies |
 | `label-md` | `.t-label` | 14px / 500 | Tabs, compact named values |
-| `heading-md` | `.t-heading` | 18px / 600, tight tracking | Section titles, card headers, dialog titles |
-| `page-title` | `.t-page-title` | 20px / 600 | Topbar and shared page headers |
-| `display` | `.t-display` | 24px / 600, tight tracking | The once-per-view display/error-code moment |
-| `metric-value` | `.t-metric` | 32px / 600, tight tracking | Metric values from the shared `metricCard` fragment |
+| `heading-md` | `.t-heading` | 16px / 600, tight tracking | Section titles, card headers, dialog titles |
+| `page-title` | `.t-page-title` | 18px / 600 | Topbar and shared page headers |
+| `display` | `.t-display` | 20px / 600, tight tracking | The once-per-view display/error-code moment |
+| `metric-value` | `.t-metric` | 24px / 600, tight tracking | Metric values from the shared `metricCard` fragment |
+| `code` | Native `code`, `pre`, `kbd`, `samp` + technical components | 14px / 400 | Code, tool calls, paths, IDs, terminal output |
 
 Uppercase micro-labels — role labels, pill text, table headers — compose caps tracking on top of `.t-caption` rather than getting their own tier. The composition is a class, not a bare token: apply **`.tracking-caps`** alongside `.t-caption`.
 
@@ -499,7 +503,7 @@ Uppercase micro-labels — role labels, pill text, table headers — compose cap
 
 This is required, not stylistic. Every tier declares `letter-spacing`, so `.t-caption` alone resets an uppercase label to `normal` — and a component rule of equal specificity declared earlier (`.section-label`, `.msg-role`, `.sidebar-section-label`, `.tool-call-io-label`, `.notif-group`, `.palette-section`) loses its own tracking the moment `.t-caption` is applied beside it. `.tracking-caps` restores it order-independently. Rules that already out-specify the tier (`.data-table th`, `.card-metric .metric-label`) keep their tracking without it.
 
-There is no 13px tier. The size that once sat between `caption` and `body-md` was indistinguishable from the body tier, so it was collapsed into it; `body-md` is the floor for running text and `caption` the floor for metadata.
+There is no 13px tier. `body-md` is the readable floor for interface and running text; `caption` is the metadata tier. Compactness comes from the system face and shallow heading scale, not sub-body navigation text.
 
 ## Layout
 
@@ -522,7 +526,7 @@ The shell is a **CSS Grid two-column layout**: a 260px sidebar and a flexible ma
 | `topbar-h` | 48px | Top bar height |
 | `container-max` | 900px | Default content / message width |
 | `container-wide` | 1280px | Opt-in width for data-dense surfaces |
-| `measure` | 72ch | Reading measure for running prose inside the 900px tier |
+| `measure` | 65ch | Reading measure for running prose inside the 900px tier |
 
 Two container tiers, applied through modifiers: `.content-inner--wide` (canonical) and its app-local mirror, page-inner--wide, both raise the column to `container-wide`.
 
@@ -943,7 +947,7 @@ Status is never carried by colour alone, so **an invalid control always renders 
 | `.form-input--num` | `12ch` | The value is a number or short token — port, timeout, count, percentage. |
 | `.form-input--short` | `32ch` | The value is short text — host, identifier, key name. |
 
-Anything longer (paths, prompts, URLs) takes the unmodified full-width control. `ch` is exact here because the control family is `--font-mono`.
+Anything longer (paths, prompts, URLs) takes the unmodified full-width control. `ch` keeps these caps relative to the active UI face rather than hard-coding pixels.
 
 At `≤768px` the canonical `input.form-input`, `select.form-select` and `textarea.form-textarea` all hold a `16px` floor — below it iOS zooms the viewport on focus. The textarea was held out until the same native case was evidenced on a real control; it since was, so all three text-entry controls now share the floor.
 
@@ -1184,8 +1188,8 @@ Every code-bearing surface takes the theme — an unhighlighted code block is a 
 - **Don't** hand-pick chart colors — assign `--chart-1`…`--chart-6` by series index so charts look related across views.
 - **Do** theme code with the `--syntax-*` tokens only — syntax hues are categorical (chart-ramp family), and diffs' added/removed wash is the sole place code color means anything.
 - **Don't** read state into syntax colors or restyle hljs classes ad hoc — a green string is not a success, and a second syntax theme is a second design system.
-- **Do** keep monospace throughout. The terminal feel depends on it.
-- **Don't** introduce a second typeface "for headings" or "for body". One family, three weights, one shared size scale.
+- **Do** use the system UI face for interface and prose, and reserve JetBrains Mono for code, terminal content, machine identifiers, paths, and the wordmark.
+- **Don't** use monospace as the default UI face or add decorative typefaces. The system/technical split is the complete family vocabulary.
 - **Do** keep radius minimal: `rounded.sm` (4px) and `rounded.lg` (6px) cover almost everything; `rounded.full` is for badges/pills only.
 - **Don't** mix soft and sharp corners on the same surface or layer different radii within a single component family.
 - **Do** reserve pulsing for `--live` and `--attention` only — a pulse always means "working" or "needs you". Every other state is static.

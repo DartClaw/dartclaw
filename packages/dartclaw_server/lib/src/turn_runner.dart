@@ -958,6 +958,8 @@ class TurnRunner implements core.TurnRunner {
       _ => null,
     };
     if (title != null) {
+      final session = await sessions.getSession(sessionId);
+      if (session?.type == SessionType.main) return;
       await sessions.updateTitle(sessionId, title);
     }
   }

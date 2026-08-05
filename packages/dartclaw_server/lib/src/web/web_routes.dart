@@ -21,13 +21,13 @@ import '../templates/channel_detail.dart';
 import '../templates/chat.dart';
 import '../templates/components.dart';
 import '../templates/error_page.dart';
-import '../templates/helpers.dart';
 import '../audit/audit_log_reader.dart';
 import '../templates/audit_table.dart';
 import '../templates/layout.dart';
 import '../templates/login.dart';
 import '../templates/memory_dashboard.dart';
 import '../memory/memory_status_service.dart';
+import '../session/session_display_title.dart';
 import '../templates/session_info.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
@@ -256,6 +256,7 @@ Router webRoutes(
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
 
       final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appDisplay.name);
+      final displayTitle = displaySessionTitle(session.title, session.type);
       final topbar = topbarTemplate(
         title: session.title,
         sessionId: id,
@@ -286,7 +287,7 @@ Router webRoutes(
       final chat = chatAreaTemplate(
         sessionId: id,
         messagesHtml: msgsHtml,
-        hasTitle: session.title != null && session.title!.trim().isNotEmpty,
+        hasTitle: session.type == SessionType.main || (session.title != null && session.title!.trim().isNotEmpty),
         chatNoticeHtml: chatNoticeHtml.toString(),
         readOnly: isArchive,
         autofocus: messageList.isEmpty && !isArchive,
@@ -303,12 +304,13 @@ Router webRoutes(
       );
 
       if (wantsFragment(request)) {
-        return htmlFragment('$chat$topbar$sidebar');
+        final documentTitle = documentTitleFragment(title: displayTitle, appName: appDisplay.name);
+        return htmlFragment('$documentTitle$chat$topbar$sidebar');
       }
 
       final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
-        title: displayChatTitle(session.title),
+        title: displayTitle,
         body: bodyHtml,
         appName: appDisplay.name,
         scripts: standardShellScripts(),
@@ -381,7 +383,7 @@ Router webRoutes(
       final usage = await readSessionUsage(kvService, id, defaultProvider: defaultProvider);
       final page = sessionInfoTemplate(
         sessionId: id,
-        sessionTitle: session.title ?? '',
+        sessionTitle: displaySessionTitle(session.title, session.type),
         messageCount: msgs.length,
         sidebarData: await pageContext.sidebar.build(),
         navItems: systemNav,

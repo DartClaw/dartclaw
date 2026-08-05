@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-08-04.
-   sha256: 8ab2aa227a1617007390c565bb98f35f2414edfd65d21f1bb35802161ce30a62 */
+/* Synced from dev/design-system/components.css on 2026-08-05.
+   sha256: 43089108275a3ef48a20d46977cad612516eac03b96bc959a782c68e080455ce */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -44,7 +44,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 16px;
   line-height: var(--leading);
   -webkit-font-smoothing: antialiased;
@@ -118,6 +118,7 @@ body::before {
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+code, pre, kbd, samp { font-family: var(--font-mono); }
 
 
 /* ================================================================
@@ -194,6 +195,7 @@ a:hover { text-decoration: underline; }
 
 /* Animated gradient logo — first and last stops match so the slide loops seamlessly */
 .sidebar-header .logo {
+  font-family: var(--font-mono);
   font-size: var(--text-base);
   font-weight: var(--weight-bold);
   background: linear-gradient(90deg, var(--accent), var(--teal), var(--info), var(--mauve), var(--accent));
@@ -315,6 +317,15 @@ a:hover { text-decoration: underline; }
   letter-spacing: var(--tracking-caps);
   color: var(--fg-sub0);
   padding: var(--sp-2) var(--sp-4) var(--sp-1);
+}
+
+.sidebar-subsection-label {
+  padding: var(--sp-1) var(--sp-4);
+  color: var(--fg-sub0);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
 }
 
 .btn-new-session {
@@ -541,6 +552,7 @@ a:hover { text-decoration: underline; }
   flex: 1;
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
   color: var(--fg);
   background: transparent;
   border: 1px solid transparent;
@@ -561,6 +573,7 @@ a:hover { text-decoration: underline; }
   flex: 1;
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
   color: var(--fg);
   border: none;
   cursor: default;
@@ -764,10 +777,8 @@ a:hover { text-decoration: underline; }
   overflow-wrap: break-word;
 }
 
-/* Markdown content inside messages. h1→h2 is a 2px step because no 16px token
-   survives --text-lg moving to 18px; the margin difference carries the rest of
-   the separation. h4–h6 are declared so no level falls through to the UA
-   default, which rendered h6 at ~9px. */
+/* Markdown headings stay on the shared compact scale. h4–h6 are declared so no
+   level falls through to the UA default, which rendered h6 at ~9px. */
 .msg-content h1 {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
@@ -3000,8 +3011,8 @@ textarea.form-textarea:user-invalid:focus-visible {
 
 /* --- Field width scale ---
    Caps, not widths: the controls keep width: 100%, so an unmodified field in
-   the same .form-row still fills its column. ch is exact here because the
-   control family is --font-mono. */
+   the same .form-row still fills its column. ch keeps the caps relative to the
+   current UI face rather than hard-coding pixels. */
 .form-input--num { max-width: 12ch; }
 .form-input--short { max-width: 32ch; }
 

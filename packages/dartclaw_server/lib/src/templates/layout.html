@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/mascot-favicon-16.png"
         tl:attr="href=${assetPrefix} + '/mascot-favicon-16.png'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title tl:text="${title} + ' - ' + ${appName}">DartClaw</title>
+  <title tl:fragment="documentTitle" tl:text="${title} + ' - ' + ${appName}">DartClaw</title>
   <script>(function(){var t=localStorage.getItem('dartclaw-theme');if(t==='light')document.documentElement.dataset.theme='light';})()</script>
   <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous"
         href="/static/fonts/jetbrains-mono-latin.woff2"

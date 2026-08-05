@@ -311,7 +311,12 @@
 }
 .login-header { text-align: center; }
 .login-mascot { width: 96px; height: 96px; margin-bottom: var(--sp-3); }
-.login-wordmark { font-size: var(--text-2xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); }
+.login-wordmark {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+}
 .login-subtitle {
   font-size: var(--text-base);
   color: var(--fg-overlay);

@@ -27,9 +27,9 @@ The interface has three main areas:
 **Session Management**
 - **Create**: Click **New Chat** in the sidebar. If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**, keeping **New Chat** exclusive to the command. Activating New Chat from that draft simply returns focus to its composer.
 - **Switch**: Click any session in the sidebar to load its messages
-- **Rename**: Click the title in the topbar to enter edit mode, type a new name, click "Save"
-- **Delete**: Click the × button on a sidebar item, or the delete button in the topbar
-- **Auto-title**: After the first assistant response, the session is titled with the first ~50 characters of your message
+- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
+- **Delete**: Click the × button on a sidebar item
+- **Auto-title**: After the first assistant response, a new non-workspace conversation is titled with the first ~50 characters of your message. The workspace **Agent** is never auto-titled.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow chat commands**: Web chat supports `/workflow list` and `/workflow run <name> VAR=value` without creating a normal agent turn
@@ -154,7 +154,8 @@ Content-Type: application/json
 {"title": "New title"}
 ```
 
-Title must be non-empty and ≤ 120 characters. Returns the updated session.
+Title must be non-empty and ≤ 120 characters. The main workspace session has the fixed UI identity **Agent** and
+cannot be renamed. Returns the updated session.
 
 #### Delete session
 

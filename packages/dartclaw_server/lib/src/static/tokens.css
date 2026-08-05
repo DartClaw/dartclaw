@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/tokens.css on 2026-07-30.
-   sha256: 8b71a40bee5ad68f2c3206974aa64b714d75194d591cda617f2bd29d1c98d9ad */
+/* Synced from dev/design-system/tokens.css on 2026-08-05.
+   sha256: c0de85cc006538b37b1ee32b090339393572e9a88700535f56ac0934d66e6bc5 */
 /* DartClaw Design Tokens
    Palette: Catppuccin Mocha (dark) / Latte (light) with terminal-green accent
    Toggle: data-theme="light" on <html>, default = dark
@@ -88,21 +88,24 @@
   --noise-opacity: 0.04;
 
   /* --- Typography --- */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
+               'Segoe UI Emoji';
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono',
                'Menlo', 'Consolas', monospace;
 
   --text-xs:   0.75rem;     /* 12px — timestamps, metadata */
   --text-base: 0.875rem;    /* 14px — body, messages */
-  --text-lg:   1.125rem;    /* 18px — section headings */
-  --text-xl:   1.25rem;     /* 20px — page title */
-  --text-2xl:  1.5rem;      /* 24px — hero/page-level display */
-  --text-3xl:  2rem;        /* 32px — metric values, big numbers */
+  --text-lg:   1rem;        /* 16px — section headings */
+  --text-xl:   1.125rem;    /* 18px — page title */
+  --text-2xl:  1.25rem;     /* 20px — hero/page-level display */
+  --text-3xl:  1.5rem;      /* 24px — metric values, big numbers */
 
-  --leading:       1.6;
+  --leading:       1.5;
   --leading-tight: 1.3;
 
-  --tracking-tight: -0.02em;  /* Heading, display, metric — page-title opts out */
-  --tracking-caps:  0.08em;   /* Tiny uppercase labels need extra air */
+  --tracking-tight: -0.015em;  /* Heading, display, metric — page-title opts out */
+  --tracking-caps:  0.04em;    /* Tiny uppercase labels need extra air */
 
   --weight-normal: 400;
   --weight-medium: 500;
@@ -127,9 +130,8 @@
   /* Second container tier for data-dense surfaces. Opt-in only — a surface that
      does not carry a --wide modifier keeps the 900px reading column. */
   --container-wide: 1280px;
-  /* Reading measure for running prose inside the 900px tier: 900px yields ~103
-     characters per line at the body size, ~40% over comfortable. */
-  --measure:        72ch;
+  /* Reading measure for running prose inside the 900px tier. */
+  --measure:        65ch;
 
   /* --- Breakpoints (reference only — used in media queries) --- */
   /* --bp-mobile:  640px;  */

@@ -335,6 +335,21 @@ void main() {
       expect(body['title'], equals('JSON Title'));
     });
 
+    test('returns 403 and preserves the fixed main workspace identity', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.updateTitle(session.id, 'Legacy title');
+
+      final code = await api.expectJsonErrorCode(
+        'PATCH',
+        '/api/sessions/${session.id}',
+        json: {'title': 'Renamed Session E2E'},
+        status: 403,
+      );
+
+      expect(code, equals('FORBIDDEN'));
+      expect((await sessions.getSession(session.id))?.title, equals('Legacy title'));
+    });
+
     test('returns 400 for empty title', () async {
       final session = await sessions.createSession();
       final code = await api.expectJsonErrorCode(
@@ -1351,6 +1366,47 @@ void main() {
       final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
       final refs = body['references'] as List<dynamic>;
       expect(refs, contains(predicate((ref) => (ref as Map<String, dynamic>)['label'] == 'Release planning')));
+    });
+
+    test('workspace references use the fixed Agent identity instead of persisted titles', () async {
+      final current = await sessions.createSession();
+      final workspace = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.updateTitle(workspace.id, 'Renamed Session E2E');
+
+      final suggestionsRes = await handler(
+        Request('GET', Uri.parse('http://localhost/api/sessions/${current.id}/references?q=agent')),
+      );
+      final suggestions =
+          (jsonDecode(await suggestionsRes.readAsString()) as Map<String, dynamic>)['references'] as List<dynamic>;
+
+      expect(suggestionsRes.statusCode, 200);
+      expect(
+        suggestions,
+        contains(
+          predicate(
+            (reference) => (reference as Map<String, dynamic>)['id'] == workspace.id && reference['label'] == 'Agent',
+          ),
+        ),
+      );
+
+      final sendRes = await handler(
+        apiRequest(
+          'POST',
+          '/api/sessions/${current.id}/send',
+          jsonBody: {
+            'message': 'Compare this',
+            'references': [
+              {'type': 'session', 'id': workspace.id, 'label': 'Renamed Session E2E', 'state': 'resolved'},
+            ],
+          },
+        ),
+      );
+      final metadata = jsonDecode((await messages.getMessages(current.id)).single.metadata!) as Map<String, dynamic>;
+
+      expect(sendRes.statusCode, 200);
+      expect((metadata['references'] as List<dynamic>).single, containsPair('label', 'Agent'));
+      expect(turns.lastExecuteMessages!.last['content'], contains('"label": "Agent"'));
+      expect(turns.lastExecuteMessages!.last['content'], isNot(contains('Renamed Session E2E')));
     });
 
     test('GET /references returns matching nested workspace files', () async {

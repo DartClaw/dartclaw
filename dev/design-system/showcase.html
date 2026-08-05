@@ -107,7 +107,7 @@
         <span class="text-sm text-muted" id="theme-label">dark</span>
       </div>
     </div>
-    <p class="subtitle">Terminal-aesthetic design system. Catppuccin Mocha/Latte, monospace typography, green accent. See <code>DESIGN.md</code> for full documentation.</p>
+    <p class="subtitle">Terminal-aesthetic design system. Catppuccin Mocha/Latte, compact system typography, focused monospace accents, green accent. See <code>DESIGN.md</code> for full documentation.</p>
 
     <!-- The showcase's own greeting: the prompt hero as shipped on the chat
          landing state (mascot-crowned, gradient title, blinking cursor). -->
@@ -257,10 +257,11 @@
       <div><span class="label">caption</span> <span class="t-caption">The quick brown fox jumps (12px / 400)</span></div>
       <div><span class="label">body-md</span> <span class="t-body">The quick brown fox jumps (14px / 400)</span></div>
       <div><span class="label">label-md</span> <span class="t-label">The quick brown fox jumps (14px / 500)</span></div>
-      <div><span class="label">heading-md</span> <span class="t-heading">The quick brown fox jumps (18px / 600)</span></div>
-      <div><span class="label">page-title</span> <span class="t-page-title">The quick brown fox (20px / 600)</span></div>
-      <div><span class="label">display</span> <span class="t-display">The quick brown fox (24px / 600)</span></div>
-      <div><span class="label">metric-value</span> <span class="t-metric">1,402 tokens (32px / 600)</span></div>
+      <div><span class="label">heading-md</span> <span class="t-heading">The quick brown fox jumps (16px / 600)</span></div>
+      <div><span class="label">page-title</span> <span class="t-page-title">The quick brown fox (18px / 600)</span></div>
+      <div><span class="label">display</span> <span class="t-display">The quick brown fox (20px / 600)</span></div>
+      <div><span class="label">metric-value</span> <span class="t-metric">1,402 tokens (24px / 600)</span></div>
+      <div><span class="label">code</span> <code>The quick brown fox jumps (14px / 400)</code></div>
     </div>
     <p class="use-case">Uppercase micro-labels compose <code>.tracking-caps</code> on top of <code>.t-caption</code> rather than getting their own tier. There is no 13px tier &mdash; it was indistinguishable from the body tier and collapsed into it.</p>
     <div class="type-scale">
@@ -274,10 +275,10 @@
       <div class="content-inner container-spec"><span><code>.content-inner</code> &mdash; max-width <strong>900px</strong> (<code>--container-max</code>, default reading column)</span></div>
       <div class="content-inner content-inner--wide container-spec container-spec--wide"><span><code>.content-inner--wide</code> &mdash; max-width <strong>1280px</strong> (<code>--container-wide</code>, opt-in; rendered clipped to the 1100px showcase wrap)</span></div>
     </div>
-    <p class="use-case">Inside the 900px tier, running prose constrains further to <code>--measure</code> (72ch, ~605px at the 14px body advance). Top-level code blocks and tables are excluded &mdash; they keep the full bubble width. Nested inside a list item or blockquote they sit within that block's measure.</p>
+    <p class="use-case">Inside the 900px tier, running prose constrains further to <code>--measure</code> (65ch). Top-level code blocks and tables are excluded &mdash; they keep the full bubble width. Nested inside a list item or blockquote they sit within that block's measure.</p>
     <div class="messages">
       <div class="msg msg-assistant"><div class="msg-role">Assistant</div><div class="msg-content">
-        <p>This paragraph is running prose, so it stops at the reading measure rather than filling the bubble &mdash; roughly 72 characters per line, which is where a monospace column stays comfortable to read across.</p>
+        <p>This paragraph is running prose, so it stops at the reading measure rather than filling the bubble &mdash; roughly 65 characters per line, a comfortable width for the system UI face.</p>
         <pre><code>// Code is excluded from the measure: full bubble width, horizontal scroll when needed.
 const wide = "................................................................................";</code></pre>
       </div></div>
@@ -1486,9 +1487,9 @@ done.<span class="streaming"></span></code></pre>
     <div class="btn-row" style="align-items:flex-end; gap:var(--sp-4)">
       <span style="font-size:var(--text-xs)"><span class="icon icon-settings"></span> 12px</span>
       <span style="font-size:var(--text-base)"><span class="icon icon-settings"></span> 14px</span>
-      <span style="font-size:var(--text-lg)"><span class="icon icon-settings"></span> 18px</span>
-      <span style="font-size:var(--text-xl)"><span class="icon icon-settings"></span> 20px</span>
-      <span style="font-size:24px"><span class="icon icon-settings"></span> 24px</span>
+      <span style="font-size:var(--text-lg)"><span class="icon icon-settings"></span> 16px</span>
+      <span style="font-size:var(--text-xl)"><span class="icon icon-settings"></span> 18px</span>
+      <span style="font-size:var(--text-2xl)"><span class="icon icon-settings"></span> 20px</span>
     </div>
 
     <h3>Sidebar Nav Example (<code>data-icon</code>)</h3>

@@ -131,6 +131,9 @@ Router sessionRoutes(
         if (session == null) {
           return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
         }
+        if (session.type == SessionType.main) {
+          return errorResponse(403, 'FORBIDDEN', 'Cannot rename main session');
+        }
         await sessions.updateTitle(id, trimmed);
         final updated = await sessions.getSession(id);
         if (updated == null) {

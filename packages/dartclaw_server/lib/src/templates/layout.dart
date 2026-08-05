@@ -14,6 +14,16 @@ List<String> standardShellScripts() {
   return <String>[..._defaultLayoutScripts];
 }
 
+/// Browser-title fragment for HTMX responses. Dynamic values are escaped by
+/// the same Trellis fragment used by the full document layout.
+String documentTitleFragment({required String title, String appName = 'DartClaw'}) {
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('layout'),
+    fragment: 'documentTitle',
+    context: {'title': title, 'appName': appName},
+  );
+}
+
 /// Full HTML document wrapper. [title] is auto-escaped by Trellis (`tl:text`);
 /// [body] is raw HTML inserted verbatim via `tl:utext`.
 ///

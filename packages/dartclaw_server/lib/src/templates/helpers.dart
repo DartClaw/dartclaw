@@ -1,11 +1,10 @@
 import 'dart:convert';
 
+import '../session/session_display_title.dart';
+
 export 'package:dartclaw_core/dartclaw_core.dart' show truncate;
 
-String displayChatTitle(String? title) {
-  final trimmed = title?.trim() ?? '';
-  return trimmed.isEmpty ? 'Untitled draft' : trimmed;
-}
+String displayChatTitle(String? title) => displaySessionTitle(title, null);
 
 /// Formats [seconds] into a human-readable uptime string like "3d 14h 22m".
 String formatUptime(int seconds) {

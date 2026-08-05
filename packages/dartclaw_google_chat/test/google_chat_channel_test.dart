@@ -41,6 +41,24 @@ void main() {
       expect(responses.length, greaterThan(1));
       expect(responses.first.text, startsWith('(1/'));
       expect(responses.last.text, startsWith('('));
+      expect(responses.every((response) => response.text.length <= 4000), isTrue);
+    });
+
+    test('formatResponse balances formatting across chunks', () {
+      final responses = channel.formatResponse('**${'A' * 9000}**');
+
+      expect(responses, hasLength(greaterThan(1)));
+      expect(responses.every((response) => response.text.length <= 4000), isTrue);
+      expect(responses.every((response) => '*'.allMatches(response.text).length.isEven), isTrue);
+    });
+
+    test('formatResponse keeps native links intact across chunk boundaries', () {
+      final label = List.filled(30, 'linked words').join(' ');
+      final responses = channel.formatResponse('${'A' * 3940} [$label](https://example.com)');
+
+      expect(responses, hasLength(greaterThan(1)));
+      expect(responses.where((response) => response.text.contains('<https://example.com|$label>')), hasLength(1));
+      expect(responses.every((response) => response.text.length <= 4000), isTrue);
     });
 
     test('formatResponse marks only the first chunk for attribution', () {

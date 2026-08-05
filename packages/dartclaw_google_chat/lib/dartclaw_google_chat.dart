@@ -20,7 +20,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
 export 'src/gcp_auth_service.dart' show GcpAuthService;
 export 'src/chat_card_builder.dart' show ChatCardBuilder, cardDescriptionMaxLength;
 export 'src/google_chat_channel.dart' show GoogleChatChannel;
-export 'src/markdown_converter.dart' show markdownToGoogleChat;
+export 'src/markdown_converter.dart' show markdownToGoogleChat, markdownToGoogleChatPlainText;
 export 'src/google_chat_config.dart'
     show
         GoogleChatFeedbackConfig,

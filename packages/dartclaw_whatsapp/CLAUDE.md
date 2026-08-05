@@ -3,7 +3,7 @@
 **Role**: WhatsApp channel adapter — manages the GOWA Go binary as a subprocess and implements the `Channel` contract from `dartclaw_core`. Entry point: `WhatsAppChannel`; sidecar driver: `GowaManager`; barrel re-exports + parser registration: `lib/dartclaw_whatsapp.dart`.
 
 ## Shape
-- **Outbound**: queued turn → `WhatsAppChannel.startTyping` / `stopTyping` → agent reply → `ResponseFormatter` (prefix + chunk + media interleave) → `WhatsAppChannel.sendMessage` → `GowaManager._post` (v8 envelope unwrap) → GOWA HTTP API → WhatsApp.
+- **Outbound**: queued turn → `WhatsAppChannel.startTyping` / `stopTyping` → agent reply → `ResponseFormatter` (Markdown conversion + prefix + chunk + media interleave) → `WhatsAppChannel.sendMessage` → `GowaManager._post` (v8 envelope unwrap) → GOWA HTTP API → WhatsApp.
 - **Inbound**: WhatsApp → GOWA → POST `/whatsapp/webhook` (route in `dartclaw_server`) → `WhatsAppChannel.handleWebhook(payload)` → parse (filters `is_from_me`, JID format check) → `ChannelMessage` → `ChannelManager` (in core) → `ChannelTaskBridge`.
 - **Subprocess lifecycle**: `GowaManager.start()` spawns the GOWA binary or attaches to an existing instance; `_ensureDevice()` provisions an `X-Device-Id`; pairing capture watches stderr for `LOGIN_SUCCESS`.
 
@@ -38,5 +38,6 @@
 - `lib/src/whatsapp_channel.dart` — `Channel` impl, webhook parsing, DM/group/mention gating, ban latch.
 - `lib/src/gowa_manager.dart` — subprocess lifecycle, REST client, device provisioning, JID capture.
 - `lib/src/whatsapp_config.dart` — typed config + `fromYaml`.
-- `lib/src/response_formatter.dart` — `*Model* — _Agent_` prefix + chunking + media interleave.
+- `lib/src/response_formatter.dart` — `*Model* — _Agent_` prefix + balanced native-markup chunking + media interleave.
+- `lib/src/markdown_converter.dart` — standard Markdown → WhatsApp-native chat markup.
 - `lib/src/media_extractor.dart` — `MEDIA:<path>` directives resolved against workspace dir.

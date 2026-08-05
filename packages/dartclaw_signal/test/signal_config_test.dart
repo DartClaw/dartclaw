@@ -59,6 +59,15 @@ void main() {
       expect(config2.port, 8080);
     });
 
+    test('fromYaml rejects non-positive max chunk sizes', () {
+      final warns = <String>[];
+
+      final config = SignalConfig.fromYaml({'max_chunk_size': 0}, warns);
+
+      expect(config.maxChunkSize, 4000);
+      expect(warns.single, contains('max_chunk_size'));
+    });
+
     test('fromYaml parses retry_policy', () {
       final warns = <String>[];
       final config = SignalConfig.fromYaml({

@@ -177,6 +177,8 @@ void main() {
       expect(provider, isA<ChannelConfigProvider>());
       expect(GroupAccessMode.open.name, 'open');
       expect(gating.shouldProcess(message), isFalse);
+      expect(chunkTextSlices('plain message').single, isA<TextChunkSlice>());
+      expect(chunkNativeChatMarkup('plain message'), ['plain message']);
     });
 
     test('task trigger symbols importable', () {

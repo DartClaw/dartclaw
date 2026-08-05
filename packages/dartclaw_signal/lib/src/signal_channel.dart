@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+import 'markdown_formatter.dart';
 import 'signal_config.dart';
 import 'signal_cli_manager.dart';
 import 'signal_dm_access.dart';
@@ -77,7 +78,16 @@ class SignalChannel extends Channel {
 
     if (response.text.isNotEmpty) {
       try {
-        await sidecar.sendMessage(recipientId, response.text, isGroup: !_isDirectRecipient(recipientId));
+        final textStyles = switch (response.metadata[signalTextStylesMetadataKey]) {
+          final List<dynamic> values => values.whereType<String>().toList(),
+          _ => const <String>[],
+        };
+        await sidecar.sendMessage(
+          recipientId,
+          response.text,
+          isGroup: !_isDirectRecipient(recipientId),
+          textStyles: textStyles,
+        );
       } catch (e) {
         _log.warning('Failed to send text to $recipientId', e);
         rethrow;
@@ -148,10 +158,7 @@ class SignalChannel extends Channel {
   }
 
   @override
-  List<ChannelResponse> formatResponse(String text) {
-    final chunks = chunkText(text, maxSize: config.maxChunkSize);
-    return [for (final chunk in chunks) ChannelResponse(text: chunk)];
-  }
+  List<ChannelResponse> formatResponse(String text) => formatSignalMarkdown(text, maxSize: config.maxChunkSize);
 
   @override
   Future<void> disconnect() async {

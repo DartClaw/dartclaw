@@ -114,8 +114,8 @@ See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration
 ## Message Handling
 
 - **Typing indication**: DMs and groups show typing while the agent turn runs. DartClaw refreshes the Signal typing state every 10 seconds and makes a bounded, best-effort STOP request before delivering the response.
+- **Formatting**: Standard Markdown headings, emphasis, strikethrough, code, links, lists, quotes, and tables are converted to readable Signal text with native bold, italic, strikethrough, and monospace styles.
 - **Text chunking**: Long responses split at ~4000 chars with smart break points (paragraph > sentence > word)
-- **Response prefix**: Messages include agent identity prefix
 
 ## Known Limitations
 
@@ -166,7 +166,8 @@ These tests verify the full Signal integration. Tests requiring a phone/number a
 1. Send a Signal DM to the registered number
 2. Verify: SSE event received (check DartClaw logs)
 3. Verify: Signal shows the typing indicator while the agent processes the message
-4. Verify: the typing indicator clears and the response arrives
+4. Ask for a response with a heading, bold text, a code span, and a table
+5. Verify: the typing indicator clears and the response arrives with native styles and no Markdown table separator row
 
 ### T04: Group Mention Gating (requires phone)
 

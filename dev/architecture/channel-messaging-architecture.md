@@ -311,10 +311,10 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
          |
          v
   Channel.formatResponse(text) -- channel-specific formatting
-    - WhatsApp: prefix with "*Claude* -- _DartClaw_", extract MEDIA: directives
-    - Signal: chunk text (max chunk size from config)
-    - Google Chat: markdown-to-Google-Chat conversion, chunk at 4000 chars
-    - Web: no special formatting (direct HTTP response)
+    - WhatsApp: Markdown-to-native conversion, attribution prefix, MEDIA: directives
+    - Signal: Markdown-to-text + native UTF-16 style ranges, style-aware chunking
+    - Google Chat: Markdown-to-Google-Chat conversion, table normalization, chunk at 4000 chars
+    - Web: Markdown rendered client-side with Marked and sanitized by DOMPurify
          |
          v
   Channel.sendMessage(recipientJid, ChannelResponse)
@@ -353,9 +353,11 @@ List<String> chunkText(String text, {int maxSize = 4000})
 
 **Google Chat** -- `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators via placeholder messages or emoji reactions. Native quote-reply support in Spaces.
 
-**WhatsApp** -- `ResponseFormatter` prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
+**WhatsApp** -- `ResponseFormatter` converts standard Markdown to WhatsApp-native markup, prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
 
-**Signal** -- Plain text is chunked to the configured max size. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
+**Signal** -- Standard Markdown is parsed into readable text plus signal-cli `textStyle` ranges (`BOLD`, `ITALIC`, `STRIKETHROUGH`, `MONOSPACE`). Style offsets use UTF-16 code units and are remapped when text is chunked. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
+
+Scheduled announcements and plain-text advisor replies also pass through `Channel.formatResponse`, so interactive and proactive model output use the same platform formatting and chunking rules. Google advisor replies retain their structured Cards v2 path; their card fields use readable plain text and their fallback uses Google Chat markup.
 
 
 ---

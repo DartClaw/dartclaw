@@ -254,12 +254,18 @@ class SignalCliManager with SequentialLock {
 
   // ---- JSON-RPC client methods ----
 
-  /// Send a text message via signal-cli JSON-RPC.
-  Future<void> sendMessage(String recipient, String text, {required bool isGroup}) async {
+  /// Sends text and optional signal-cli UTF-16 [textStyles] via JSON-RPC.
+  Future<void> sendMessage(
+    String recipient,
+    String text, {
+    required bool isGroup,
+    List<String> textStyles = const [],
+  }) async {
     await _rpc('send', {
       'account': _registeredPhone ?? phoneNumber,
       if (isGroup) 'groupId': recipient else 'recipient': [recipient],
       'message': text,
+      if (textStyles.isNotEmpty) 'textStyle': textStyles,
     });
   }
 

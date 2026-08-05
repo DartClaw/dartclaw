@@ -136,9 +136,11 @@ void main() {
       });
 
       test('header with bold inside', () {
-        // Inner **bold** is redundant since header is already bold.
-        // Result: nested bold markers — acceptable for this edge case.
-        expect(markdownToGoogleChat('## **Bold** Header'), equals('**Bold* Header*'));
+        expect(markdownToGoogleChat('## **Bold** Header'), equals('*Bold Header*'));
+      });
+
+      test('header preserves nested italic emphasis', () {
+        expect(markdownToGoogleChat('## ***Bold italic*** Header'), equals('*_Bold italic_ Header*'));
       });
 
       test('mid-text # not converted', () {
@@ -184,12 +186,37 @@ void main() {
       test('bold in list item', () {
         expect(markdownToGoogleChat('- **item one**\n- **item two**'), equals('- *item one*\n- *item two*'));
       });
+
+      test('indented asterisk bullets preserve nesting', () {
+        expect(markdownToGoogleChat('* parent\n  * child'), equals('- parent\n  - child'));
+      });
+    });
+
+    group('reference links', () {
+      test('converts full and collapsed references', () {
+        const input = '[docs][guide] and [home][]\n\n[guide]: https://docs.example.com\n[home]: https://example.com';
+
+        expect(
+          markdownToGoogleChat(input).trimRight(),
+          '<https://docs.example.com|docs> and <https://example.com|home>',
+        );
+      });
+    });
+
+    group('tables', () {
+      test('removes Markdown table framing and separator rows', () {
+        const input = '''| Item | State |
+| --- | --- |
+| Build | **Pass** |''';
+
+        expect(markdownToGoogleChat(input), equals('Item | State\nBuild | *Pass*'));
+      });
     });
 
     group('code protection', () {
-      test('fenced code block content untouched', () {
+      test('fenced code block content untouched and language hint removed', () {
         final input = '```python\ndef hello():\n    print("**bold**")\n```';
-        expect(markdownToGoogleChat(input), equals(input));
+        expect(markdownToGoogleChat(input), equals('```\ndef hello():\n    print("**bold**")\n```'));
       });
 
       test('inline code untouched', () {
@@ -202,7 +229,7 @@ void main() {
 
       test('code block with language hint', () {
         final input = '```dart\nfinal x = **y**;\n```';
-        expect(markdownToGoogleChat(input), equals(input));
+        expect(markdownToGoogleChat(input), equals('```\nfinal x = **y**;\n```'));
       });
 
       test('multiple code blocks', () {
@@ -267,7 +294,7 @@ Here is a *bold* statement and some _italic_ text.
 - *Second point*: Check <https://example.com|this link>
 - Third point with `inline code`
 
-```python
+```
 def hello():
     print("**not converted**")
 ```
@@ -276,6 +303,13 @@ For more info, see ~old docs~ <https://docs.example.com|new docs>.''';
 
         expect(markdownToGoogleChat(input), equals(expected));
       });
+    });
+
+    test('plain-text card conversion removes formatting markers and retains links', () {
+      expect(
+        markdownToGoogleChatPlainText('Use **bold**, `code`, and [docs](https://example.com).'),
+        'Use bold, code, and docs (https://example.com).',
+      );
     });
   });
 }

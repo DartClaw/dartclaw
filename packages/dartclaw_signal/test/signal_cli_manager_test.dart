@@ -82,6 +82,19 @@ void main() {
       expect(payload['params'], {'account': '+12125550100', 'groupId': 'c2lnbmFsLWdyb3Vw', 'message': 'Hello group'});
     });
 
+    test('sends native text styles with UTF-16 ranges', () async {
+      final payload = await _captureRpc(
+        (manager) => manager.sendMessage('+12125550101', 'Hello', isGroup: false, textStyles: const ['0:5:BOLD']),
+      );
+
+      expect(payload['params'], {
+        'account': '+12125550100',
+        'recipient': ['+12125550101'],
+        'message': 'Hello',
+        'textStyle': ['0:5:BOLD'],
+      });
+    });
+
     test(
       'typing RPC times out when the daemon never completes its response body',
       () async {

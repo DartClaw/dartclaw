@@ -3,12 +3,12 @@
 **Role**: Signal channel adapter — drives `signal-cli` in HTTP daemon mode (JSON-RPC + SSE) and implements the `Channel` contract. Entry point: `SignalChannel`; sidecar driver: `SignalCliManager`; sealed-sender normalization: `SignalSenderMap`.
 
 ## Shape
-- **Outbound**: queued turn → `SignalChannel.startTyping` / 10-second refresh / `stopTyping` → agent reply → `SignalChannel.sendMessage` → `SignalCliManager` JSON-RPC → signal-cli daemon → Signal network.
+- **Outbound**: queued turn → `SignalChannel.startTyping` / 10-second refresh / `stopTyping` → agent Markdown parsed into text + native style ranges → `SignalChannel.sendMessage` → `SignalCliManager` JSON-RPC → signal-cli daemon → Signal network.
 - **Inbound (push)**: Signal → signal-cli daemon → SSE on `/api/v1/events` → `SignalCliManager` events stream → `SignalChannel._handleEvent` → sealed-sender normalization via `SignalSenderMap.resolve` → `ChannelMessage` → `ChannelManager` (in core) → `ChannelTaskBridge`.
 - **Subprocess lifecycle**: `SignalCliManager.start()` spawns the daemon; generation-owned single-flight reconnect work opens and maintains the long-lived event stream.
 
 ## Boundaries
-- May depend on `dartclaw_core`, `dartclaw_config`, `logging`. Must not depend on `dartclaw_whatsapp`, `dartclaw_google_chat`, or `dartclaw_server`.
+- May depend on `dartclaw_core`, `dartclaw_config`, `logging`, `markdown`. Must not depend on `dartclaw_whatsapp`, `dartclaw_google_chat`, or `dartclaw_server`.
 - Inbound delivery is push-based: `SignalCliManager.events` is a broadcast stream from the signal-cli SSE endpoint. There is no webhook route — do not add one in `dartclaw_server` for Signal.
 - Follows the channel adapter pattern documented in `dartclaw_core`. Mirrors `GowaManager`'s lifecycle/restart shape; keep them aligned when changing one.
 
@@ -28,6 +28,7 @@
 - Phone number passed to the constructor may be a placeholder; `registeredPhone` is only valid after `registrationState()` reports registered – call sites must null-check.
 - signal-cli typing expires after 15 seconds unless refreshed or explicitly stopped. `SignalChannel` refreshes every 10 seconds, serializes per-recipient transitions so a late refresh cannot follow STOP, and sends best-effort STOP before disconnect resets the sidecar.
 - Direct JSON-RPC sends use `recipient`; group sends use `groupId`. Classify direct recipients with strict E.164/case-insensitive UUID validation because a base64 group ID can begin with `+`.
+- Native text-style ranges use signal-cli's UTF-16 offsets. Split formatted text with `chunkTextSlices` and remap every range per chunk; never chunk the ranges and text independently.
 
 ## Testing
 - `test/signal_cli_manager_test.dart` for sidecar lifecycle; `test/signal_channel_test.dart` for envelope→`ChannelMessage` normalization including UUID/phone fallback paths.
@@ -39,5 +40,6 @@
 - `lib/src/signal_channel.dart` — envelope parsing, DM/group/mention gating, sealed-sender allowlist normalization.
 - `lib/src/signal_cli_manager.dart` — subprocess + JSON-RPC + SSE event stream.
 - `lib/src/signal_sender_map.dart` — bidirectional UUID↔phone cache, atomic-ish chained writes.
+- `lib/src/markdown_formatter.dart` — Markdown → Signal text + native UTF-16 style ranges.
 - `lib/src/signal_dm_access.dart` — `SignalGroupAccessMode`, `SignalMentionGating` (regex + native mentions).
 - `lib/src/signal_config.dart` — typed config + `fromYaml`.

@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/src/advisor/advisor_subscriber.dart' as advisor;
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeChannel, FakeGoogleChatRestClient, InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 void main() {
@@ -71,7 +74,14 @@ void main() {
       sessions = SessionService(baseDir: tempDir.path);
       messages = MessageService(baseDir: tempDir.path);
       eventBus = EventBus();
-      channel = FakeChannel(type: ChannelType.whatsapp, ownedJids: {'group@g.us'});
+      channel = FakeChannel(
+        type: ChannelType.whatsapp,
+        ownedJids: {'group@g.us'},
+        responseFormatter: (text) => [
+          ChannelResponse(text: 'formatted:$text'),
+          const ChannelResponse(text: 'continued'),
+        ],
+      );
       channelManager = ChannelManager(
         queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => ''),
         config: const ChannelConfig.defaults(),
@@ -129,12 +139,74 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
 
-      expect(channel.sentMessages, hasLength(1));
-      expect(channel.sentMessages.single.$1, 'group@g.us');
-      expect(channel.sentMessages.single.$2.text, contains('[Advisor] Status: stuck'));
+      expect(channel.sentMessages, hasLength(2));
+      expect(channel.sentMessages.map((message) => message.$1), everyElement('group@g.us'));
+      expect(channel.sentMessages.first.$2.text, contains('formatted:[Advisor] Status: stuck'));
+      expect(channel.sentMessages.last.$2.text, 'continued');
       expect(insights, hasLength(1));
       expect(insights.single.status, 'stuck');
       expect(secondaryHarness.lastMaxTurns, 1);
+    });
+
+    test('Google advisor output keeps cards and formats Markdown fallback text', () async {
+      final googleChannel = _AdvisorGoogleChatChannel();
+      channelManager.registerChannel(googleChannel);
+      final router = advisor.AdvisorOutputRouter(
+        channelManager: channelManager,
+        eventBus: eventBus,
+        googleChatCardBuilder: const ChatCardBuilder(),
+      );
+
+      await router.route(
+        const advisor.AdvisorOutput(
+          status: advisor.AdvisorStatus.stuck,
+          observation: '**Blocked** on `build`.',
+          suggestion: 'Try **one** path.',
+        ),
+        const advisor.AdvisorTriggerContext(
+          type: advisor.AdvisorTriggerType.explicit,
+          reason: 'mention',
+          sessionKey: 'agent:main:group:googlechat:spaces/AAA',
+          channelType: 'googlechat',
+          recipientId: 'spaces/AAA',
+        ),
+        const [],
+      );
+
+      expect(googleChannel.sent, hasLength(1));
+      final response = googleChannel.sent.single.$2;
+      expect(response.text, contains('Observation: *Blocked* on `build`.'));
+      expect(response.structuredPayload, isNotNull);
+      expect(jsonEncode(response.structuredPayload), isNot(contains('**')));
+    });
+
+    test('Google advisor output preserves existing-thread card delivery', () async {
+      final googleChannel = _AdvisorGoogleChatChannel();
+      channelManager.registerChannel(googleChannel);
+      final router = advisor.AdvisorOutputRouter(
+        channelManager: channelManager,
+        eventBus: eventBus,
+        googleChatCardBuilder: const ChatCardBuilder(),
+      );
+
+      await router.route(
+        const advisor.AdvisorOutput(status: advisor.AdvisorStatus.onTrack, observation: 'Steady.'),
+        const advisor.AdvisorTriggerContext(
+          type: advisor.AdvisorTriggerType.explicit,
+          reason: 'mention',
+          sessionKey: 'agent:main:group:googlechat:spaces/AAA',
+          channelType: 'googlechat',
+          recipientId: 'spaces/AAA',
+          threadId: 'spaces/AAA/threads/BBB',
+        ),
+        const [],
+      );
+
+      expect(googleChannel.threaded, hasLength(1));
+      expect(googleChannel.threaded.single.$1, 'spaces/AAA');
+      expect(googleChannel.threaded.single.$3, 'spaces/AAA/threads/BBB');
+      expect(googleChannel.threaded.single.$2.structuredPayload, isNotNull);
+      expect(googleChannel.sent, isEmpty);
     });
   });
 }
@@ -222,5 +294,27 @@ class _AdvisorHarness implements AgentHarness {
   @override
   Future<void> dispose() async {
     await _events.close();
+  }
+}
+
+class _AdvisorGoogleChatChannel extends GoogleChatChannel {
+  _AdvisorGoogleChatChannel()
+    : super(config: const GoogleChatConfig(enabled: true), restClient: FakeGoogleChatRestClient());
+
+  final List<(String, ChannelResponse)> sent = [];
+  final List<(String, ChannelResponse, String)> threaded = [];
+
+  @override
+  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    sent.add((recipientJid, response));
+  }
+
+  @override
+  Future<void> sendMessageToThreadName(
+    String recipientJid,
+    ChannelResponse response, {
+    required String threadName,
+  }) async {
+    threaded.add((recipientJid, response, threadName));
   }
 }

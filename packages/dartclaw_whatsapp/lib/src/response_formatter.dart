@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'markdown_converter.dart';
 import 'media_extractor.dart';
 
 /// Format agent output into a list of ChannelResponses ready for sending.
@@ -14,12 +15,13 @@ List<ChannelResponse> formatResponse(
 }) {
   // Extract MEDIA:<path> directives
   final extraction = extractMediaDirectives(agentOutput, workspaceDir: workspaceDir);
+  final formattedText = markdownToWhatsApp(extraction.cleanedText);
 
   // Apply prefix to first chunk
   final prefix = '*$model* — _${agentName}_\n\n';
 
   // Chunk text (account for prefix in first chunk)
-  final textChunks = chunkText(extraction.cleanedText, maxSize: maxChunkSize - prefix.length);
+  final textChunks = chunkNativeChatMarkup(formattedText, maxSize: maxChunkSize - prefix.length);
   if (textChunks.isEmpty) return [];
 
   final responses = <ChannelResponse>[];

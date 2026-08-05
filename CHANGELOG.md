@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Agent response formatting is consistent across messaging channels** – Signal now sends native style ranges instead of literal Markdown markers, WhatsApp converts standard Markdown to its chat syntax, Google Chat normalizes Markdown and advisor-card text, and scheduled announcements and plain-text advisor replies use the same per-channel formatter as interactive turns.
 - **Signal group replies use the group JSON-RPC contract** – base64 group IDs, including IDs beginning with `+`, now route through `groupId` instead of being mistaken for phone-number recipients.
 - **Signal pairing becomes receive-ready without a service restart** – signal-cli now receives on SSE connection, registration refreshes the receive stream, and startup distinguishes a registered account from a daemon that is merely reachable.
 - **macOS services preserve executable discovery** – LaunchAgents snapshot the installer shell's absolute PATH entries and refresh loaded definitions, so provider and channel binaries verified by `init` remain resolvable under launchd.

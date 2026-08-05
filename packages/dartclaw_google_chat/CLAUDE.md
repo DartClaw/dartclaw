@@ -3,7 +3,7 @@
 **Role**: Google Chat channel adapter — REST client + Pub/Sub pull + Workspace Events subscription lifecycle. No sidecar binary. Entry point: `GoogleChatChannel`; outbound: `GoogleChatRestClient` + `ChatCardBuilder`; inbound (async): `PubSubClient` + `CloudEventAdapter`; subscription lifecycle: `WorkspaceEventsManager`.
 
 ## Shape
-- **Outbound**: agent reply → `markdownToGoogleChat()` → `chunkText(maxSize: 4000)` → `GoogleChatRestClient` per-space write queue → `chat.googleapis.com/v1` → Google Chat.
+- **Outbound**: agent reply → `markdownToGoogleChat()` → balanced native-markup chunking (max 4000) → `GoogleChatRestClient` per-space write queue → `chat.googleapis.com/v1` → Google Chat.
 - **Inbound** has two paths that converge: synchronous webhook (handled in `dartclaw_server.GoogleChatWebhookHandler` after JWT verification) OR async Pub/Sub (`PubSubClient` pull loop here → `CloudEventAdapter` → sealed `AdapterResult`) — both pass through `MessageDeduplicator` (in core) → `ChannelMessage` → `ChannelManager` → `ChannelTaskBridge`.
 - **Subscription lifecycle**: `WorkspaceEventsManager.reconcile()` creates/recovers expired Workspace Events subs at startup; renewal fires at 75 % of TTL; full-data subs require user-OAuth (not service-account).
 
@@ -14,7 +14,7 @@
 
 ## Conventions
 - Resource-name regexes (`_spaceNamePattern`, `messageNamePattern`, `_resourceNamePattern`, `_reactionNamePattern`) in `google_chat_rest_client.dart` are the validation source of truth. Use them; do not parse names ad-hoc.
-- Outbound text goes through `markdownToGoogleChat()` then `chunkText(maxSize: 4000)`. Google Chat uses `*bold*` (single-star), `_italic_`, `<url|text>`. The first chunk carries `metadata['isFirstChunk'] = true` — sender attribution is applied only there.
+- Outbound text goes through `markdownToGoogleChat()` then `chunkNativeChatMarkup(maxSize: 4000)`. Google Chat uses `*bold*` (single-star), `_italic_`, `<url|text>`. Formatting that crosses a chunk boundary is closed and reopened. The first chunk carries `metadata['isFirstChunk'] = true` — sender attribution is applied only there.
 - Per-space writes serialize through `_SpaceWriteQueue` in `GoogleChatRestClient` to preserve message ordering. Don't issue raw `http.post` against `chat.googleapis.com/v1` — go through the client.
 - Two auth paths coexist: `GcpAuthService` (service account, for Chat REST) and `UserOAuthAuthService` (user-delegated, required for Workspace Events subscriptions). Subscriptions don't work with service-account auth.
 - `CloudEventAdapter` returns a sealed `AdapterResult` (`MessageResult` / `Filtered` / `LogOnly` / `Acknowledged`). Always exhaustively switch — `Acknowledged` means "ack to stop redelivery" and is **not** an error.

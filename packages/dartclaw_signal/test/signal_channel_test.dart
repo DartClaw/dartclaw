@@ -17,6 +17,7 @@ class FakeSignalCliManager extends SignalCliManager {
   bool wasReset = false;
   final List<(String, String)> sentMessages = [];
   final List<bool> sentMessageGroups = [];
+  final List<List<String>> sentMessageStyles = [];
   final List<(String, bool, bool)> typingCalls = [];
   final List<(String, bool, bool)> typingUpdates = [];
   final List<String> lifecycleEvents = [];
@@ -67,9 +68,15 @@ class FakeSignalCliManager extends SignalCliManager {
   }
 
   @override
-  Future<void> sendMessage(String recipient, String text, {required bool isGroup}) async {
+  Future<void> sendMessage(
+    String recipient,
+    String text, {
+    required bool isGroup,
+    List<String> textStyles = const [],
+  }) async {
     sentMessages.add((recipient, text));
     sentMessageGroups.add(isGroup);
+    sentMessageStyles.add(textStyles);
   }
 
   @override
@@ -221,6 +228,22 @@ void main() {
       await channel.sendMessage('+1234567890', const ChannelResponse(text: 'Hello'));
       expect(sidecar.sentMessages, [('+1234567890', 'Hello')]);
       expect(sidecar.sentMessageGroups, [false]);
+    });
+
+    test('sendMessage forwards native Signal text styles', () async {
+      await channel.sendMessage(
+        '+1234567890',
+        const ChannelResponse(
+          text: 'Hello',
+          metadata: {
+            'textStyles': ['0:5:BOLD'],
+          },
+        ),
+      );
+
+      expect(sidecar.sentMessageStyles, [
+        ['0:5:BOLD'],
+      ]);
     });
 
     test('sendMessage routes group IDs through the group RPC parameter', () async {
@@ -454,6 +477,126 @@ void main() {
       final responses = channel.formatResponse('Hello from agent');
       expect(responses, hasLength(1));
       expect(responses.first.text, 'Hello from agent');
+    });
+
+    test('formatResponse converts Markdown to Signal text and native style ranges', () {
+      const markdown = '''## Summary
+
+Use **bold**, _italic_, ~~old~~, and `code`.
+
+| Item | State |
+| --- | --- |
+| Build | **Pass** |''';
+
+      final response = channel.formatResponse(markdown).single;
+
+      const expected = '''Summary
+
+Use bold, italic, old, and code.
+
+Item | State
+Build | Pass''';
+      expect(response.text, expected);
+      expect(response.metadata['textStyles'], [
+        '${expected.indexOf('Summary')}:7:BOLD',
+        '${expected.indexOf('bold')}:4:BOLD',
+        '${expected.indexOf('italic')}:6:ITALIC',
+        '${expected.indexOf(', old') + 2}:3:STRIKETHROUGH',
+        '${expected.indexOf('code')}:4:MONOSPACE',
+        '${expected.indexOf('Item')}:4:BOLD',
+        '${expected.indexOf('State')}:5:BOLD',
+        '${expected.indexOf('Pass')}:4:BOLD',
+      ]);
+    });
+
+    test('formatResponse measures Signal styles in UTF-16 code units', () {
+      final response = channel.formatResponse('**😀 bold**').single;
+
+      expect(response.text, '😀 bold');
+      expect(response.metadata['textStyles'], ['0:7:BOLD']);
+    });
+
+    test('formatResponse remaps styles across chunk prefixes', () {
+      final smallChunkChannel = _makeChannel(
+        sidecar: sidecar,
+        channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
+      );
+
+      final responses = smallChunkChannel.formatResponse('**${'A' * 120}**');
+
+      expect(responses.map((response) => response.text.length), [50, 50, 38]);
+      expect(responses.map((response) => response.metadata['textStyles']), [
+        ['6:44:BOLD'],
+        ['6:44:BOLD'],
+        ['6:32:BOLD'],
+      ]);
+    });
+
+    test('formatResponse keeps styled emoji intact at a hard chunk boundary', () {
+      final smallChunkChannel = _makeChannel(
+        sidecar: sidecar,
+        channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
+      );
+
+      final responses = smallChunkChannel.formatResponse('**${'a' * 43}😀${'b' * 20}**');
+
+      expect(responses, hasLength(2));
+      expect(responses.first.text, '(1/2) ${'a' * 43}');
+      expect(responses.last.text, '(2/2) 😀${'b' * 20}');
+      expect(responses.map((response) => response.metadata['textStyles']), [
+        ['6:43:BOLD'],
+        ['6:22:BOLD'],
+      ]);
+    });
+
+    test('formatResponse preserves indented code across chunk boundaries', () {
+      final smallChunkChannel = _makeChannel(
+        sidecar: sidecar,
+        channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
+      );
+      final codeLine = '  indented value';
+
+      final responses = smallChunkChannel.formatResponse('```\n${List.filled(8, codeLine).join('\n')}\n```');
+
+      expect(responses, hasLength(greaterThan(1)));
+      expect(responses.map((response) => response.text).join().split(codeLine).length - 1, 8);
+    });
+
+    test('formatResponse renders links, images, nested lists, tasks, quotes, and fenced code', () {
+      const markdown = '''[docs](https://example.com) and ![shot](https://example.com/shot.png)
+
+- parent
+  - child
+- [x] done
+
+> first
+>
+> second
+
+```dart
+final value = 1;
+```''';
+
+      final response = channel.formatResponse(markdown).single;
+
+      expect(response.text, contains('docs (https://example.com)'));
+      expect(response.text, contains('shot (https://example.com/shot.png)'));
+      expect(response.text, contains('• parent'));
+      expect(response.text, contains('  • child'));
+      expect(response.text, contains('[x] done'));
+      expect(response.text, contains('│ first\n\n│ second'));
+      expect(response.text, contains('final value = 1;'));
+      expect(response.metadata['textStyles'], contains(contains('MONOSPACE')));
+    });
+
+    test('formatResponse retains nested bold and italic styles', () {
+      final response = channel.formatResponse('***both***').single;
+
+      expect(response.text, 'both');
+      expect(response.metadata['textStyles'], ['0:4:BOLD', '0:4:ITALIC']);
     });
 
     test('formatResponse chunks long messages', () {

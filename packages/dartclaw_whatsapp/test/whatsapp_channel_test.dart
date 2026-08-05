@@ -394,6 +394,35 @@ void main() {
       expect(responses.first.text, contains('Claude'));
     });
 
+    test('formatResponse converts standard Markdown to WhatsApp markup', () {
+      const markdown = '''## Summary
+
+Use **bold**, _italic_, ~~old~~, and [docs](https://example.com).
+
+| Item | State |
+| --- | --- |
+| Build | **Pass** |''';
+
+      final response = channel.formatResponse(markdown).single;
+
+      expect(response.text, '''*Claude* — _DartClaw_
+
+*Summary*
+
+Use *bold*, _italic_, ~old~, and docs (https://example.com).
+
+Item | State
+Build | *Pass*''');
+    });
+
+    test('formatResponse balances formatting across bounded chunks', () {
+      final responses = channel.formatResponse('**${'A' * 9000}**');
+
+      expect(responses, hasLength(greaterThan(1)));
+      expect(responses.every((response) => response.text.length <= 4000), isTrue);
+      expect(responses.every((response) => '*'.allMatches(response.text).length.isEven), isTrue);
+    });
+
     test('connect sets ownJid from GOWA status deviceId', () async {
       gowa.statusResult = (isConnected: true, isLoggedIn: true, deviceId: '1234567890@s.whatsapp.net');
       final mg = MentionGating(requireMention: true, mentionPatterns: [], ownJid: '');

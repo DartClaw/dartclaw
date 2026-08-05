@@ -93,6 +93,7 @@
   the repeatable acceptance contract; run reports are ephemeral local or CI output. S09 remains the core runtime smoke
   path and does not absorb bash qualification. Owner decision, 2026-07-19.
 - **Design-system gap resolution**: When implementation discovers a gap in the canonical design system (a missing primitive, layout affordance, or token), close it upstream in `dev/design-system/` first and sync down — never with page-specific workarounds in app CSS; compose canonical primitives wherever they exist. Ratified during 0.22 preflight (owner, 2026-07-20): drove extending canonical `.content-inner` with the stack gap (rather than per-page spacing rules) and the canonical dot+badge status-hero treatment; the fallback for any canon-adoption visual regression is an upstream canon fix, not a local override.
+- **Built-in `search` agent keeps its name (no `web_search` rename)**: Field-feedback proposal to reduce web-search bias; declined – the observed misses were the main agent calling `WebSearch` directly, and recipe 00's memory-before-web rule (0.22.1) is the causal fix. A rename needs an agent-name alias/migration mechanism the codebase lacks, plus wide docs/tests churn – permanent cost, speculative benefit. If bias recurs, sharpen the built-in description/prompt first. Owner-delegated, 2026-08-05.
 
 ## Pending
 

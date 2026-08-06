@@ -63,6 +63,10 @@ final class _RegisteredWorktree {
 /// Hook invoked after a worktree is created and before it is returned.
 typedef WorktreeSkillMaterializer = Future<void> Function(String worktreePath);
 
+/// Source of the process working directory, injectable so tests never assign
+/// `Directory.current` (it is process-wide and leaks across parallel suites).
+typedef CurrentDirectoryProvider = String Function();
+
 /// Git worktree lifecycle manager for coding tasks.
 ///
 /// Worktrees are keyed by the caller-supplied `taskId`, which must be globally
@@ -96,6 +100,9 @@ class WorktreeManager {
   final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
   _runProcess;
 
+  /// Injectable working-directory source for testing.
+  final CurrentDirectoryProvider _currentDirectory;
+
   WorktreeManager({
     required String dataDir,
     String? projectDir,
@@ -107,7 +114,9 @@ class WorktreeManager {
     WorktreeSkillMaterializer? skillMaterializer,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
+    CurrentDirectoryProvider? currentDirectory,
   }) : _projectDir = projectDir,
+       _currentDirectory = currentDirectory ?? (() => Directory.current.path),
        _baseRef = baseRef,
        _staleTimeoutHours = staleTimeoutHours,
        _worktreesDir = worktreesDir ?? p.join(dataDir, 'worktrees'),
@@ -741,5 +750,5 @@ class WorktreeManager {
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
-  String get _defaultProjectDir => _projectDir ?? Directory.current.path;
+  String get _defaultProjectDir => _projectDir ?? _currentDirectory();
 }

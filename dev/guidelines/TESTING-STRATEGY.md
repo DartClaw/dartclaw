@@ -21,7 +21,7 @@
 - Security-critical code gets exhaustive coverage; plumbing code gets smoke coverage
 - False-positive tests (verifying we *don't* block legitimate input) are as valuable as true-positive tests
 - No real-time waits in tests — use `fake_async` for timer logic, `pumpEventQueue()` for microtask flushing
-- Test gates must encode their infrastructure assumptions — if a suite binds ports, starts processes, or relies on filesystem/static-asset fixtures, run it with explicit serialization or isolate those resources per test
+- Tests must isolate the process-level resources they touch — ephemeral ports, per-test temp dirs, injected working directory — so every suite stays safe to run in parallel
 - Tests are production code — same lint rules, same review standards
 
 **Delete-on-sight categories**:
@@ -95,7 +95,7 @@ group('SessionKey', () {
 - In-memory SQLite (`sqlite3.openInMemory()`) for search/task tests
 - Shared fakes from `dartclaw_testing` for external boundaries (harness, channels, processes)
 - Per-test isolation — `setUp` creates fresh state, `tearDown` cleans up
-- May require serialized execution when testing real local resources such as TCP ports, process wiring, current working directory behavior, or static-asset filesystem lookup. Prefer random ports and per-test temp directories; when that is not practical, the command must use `-j 1` and the reason must be documented.
+- When testing real local resources (TCP ports, process wiring, working-directory behavior, static-asset lookup), isolate them per test: bind port `0`, use per-test temp directories, and inject the working directory rather than assigning `Directory.current`. Serialization (`-j 1`) is a last resort — it costs 3–5× wall time across the package.
 - Keep filesystem assertions portable across Linux CI and local macOS. For POSIX file permission assertions, prefer
   `File.statSync().mode & 0x1ff` and compare the octal string; do not shell out to platform-specific `stat` flags
   (`stat -f` is BSD/macOS, `stat -c` is GNU/Linux).
@@ -499,19 +499,19 @@ dart test -t contract packages/dartclaw_storage
 
 ### Mixed Local Integration Gates
 
-Some package combinations include Layer 2/3 tests that exercise real local resources, especially CLI/server tests that bind ports, start service wiring, or probe filesystem/static-asset layout. Those suites are valid, but they are not guaranteed to be cross-package parallel-safe. Run them either as separate package commands or as a serialized aggregate:
+Layer 2/3 CLI/server tests exercise real local resources — binding ports, starting service wiring, probing static-asset layout. They run at default parallelism:
 
 ```bash
-dart test -j 1 --reporter=failures-only \
+dart test --reporter=failures-only \
   packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli
 ```
 
-Do not write FIS or release gates that rely on the default package-parallel aggregate form for this package set. If a new test needs a fixed port, global process state, cwd-sensitive lookup, or shared filesystem fixture, call that out in the test or guideline update and prefer random ports / per-test temp roots where possible.
+That holds only while every such test isolates what it touches. `dart test` runs suites as isolates inside **one OS process**, so ports, the filesystem, and the working directory are shared. A test that binds a fixed port, writes outside a temp dir, or assigns `Directory.current` will corrupt whichever suite happens to be running beside it — intermittently, and usually in a different file. Bind port `0`, use per-test temp roots, and inject the working directory (see `WorktreeManager.currentDirectory`) instead of reaching for `-j 1`.
 
 ### All Packages
 
 ```bash
-# Test all packages with the CI-equivalent package/test serialization policy
+# Test all packages exactly as CI does
 bash dev/tools/test_workspace.sh
 ```
 

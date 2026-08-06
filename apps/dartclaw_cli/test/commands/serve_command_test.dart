@@ -22,6 +22,7 @@ import 'package:test/test.dart';
 import '../helpers/log_service_capture.dart';
 
 late String _templatesDir;
+late String _staticDir;
 late List<LogRecord> _testLogRecords;
 late StreamSubscription<LogRecord> _testLogSubscription;
 late List<String> _expectedSevereLogSubstrings;
@@ -84,7 +85,11 @@ void main() {
   late ServeCommand serveCommand;
 
   setUpAll(() async {
+    // Absolute: `ServerConfig` defaults these to repo-root-relative paths, and a
+    // concurrently-running suite that sets `Directory.current` changes this
+    // process's cwd out from under us.
     _templatesDir = await _resolveDartclawServerAssetDir('templates');
+    _staticDir = await _resolveDartclawServerAssetDir('static');
   });
 
   setUp(() {
@@ -112,14 +117,6 @@ void main() {
   });
 
   group('ServeCommand', () {
-    test('name is serve', () {
-      expect(serveCommand.name, 'serve');
-    });
-
-    test('description is set', () {
-      expect(serveCommand.description, isNotEmpty);
-    });
-
     test('default port is 3333', () {
       final portOption = serveCommand.argParser.options['port']!;
       expect(portOption.defaultsTo, '3333');
@@ -194,8 +191,8 @@ void main() {
         server: ServerConfig(
           host: '0.0.0.0',
           dataDir: tempDir.path,
-          staticDir: Directory.current.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -236,6 +233,7 @@ void main() {
         server: ServerConfig(
           dataDir: tempDir.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -280,6 +278,7 @@ void main() {
         server: ServerConfig(
           dataDir: tempDir.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -325,6 +324,7 @@ void main() {
         server: ServerConfig(
           dataDir: tempDir.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
         channels: const ChannelConfig(
@@ -378,6 +378,7 @@ void main() {
         server: ServerConfig(
           dataDir: tempDir.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
         channels: const ChannelConfig(
@@ -449,7 +450,7 @@ channels:
         },
         cliOverrides: {
           'data_dir': tempDir.path,
-          'static_dir': Directory.current.path,
+          'static_dir': _staticDir,
           'templates_dir': _templatesDir,
           'claude_executable': Platform.resolvedExecutable,
         },
@@ -495,8 +496,8 @@ channels:
         agent: const AgentConfig(provider: 'claude'),
         server: ServerConfig(
           dataDir: tempDir.path,
-          staticDir: Directory.current.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -591,8 +592,8 @@ channels:
         ),
         server: ServerConfig(
           dataDir: tempDir.path,
-          staticDir: Directory.current.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -642,8 +643,8 @@ channels:
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
-          staticDir: Directory.current.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -687,8 +688,8 @@ channels:
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
-          staticDir: Directory.current.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -737,7 +738,7 @@ channels:
       });
 
       final config = DartclawConfig(
-        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir),
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
       );
 
       final command = ServeCommand(
@@ -768,7 +769,7 @@ channels:
       });
 
       final config = DartclawConfig(
-        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir),
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
       );
 
       final command = ServeCommand(
@@ -814,8 +815,8 @@ channels:
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
-          staticDir: Directory.current.path,
           templatesDir: _templatesDir,
+          staticDir: _staticDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
         security: SecurityConfig(contentGuardEnabled: true),

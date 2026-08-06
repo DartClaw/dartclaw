@@ -9,30 +9,17 @@ echo "==> Testing developer tools"
 bash dev/tools/parallels_windows_test.sh
 bash dev/tools/release_check_test.sh
 
-SERIAL_TEST_TARGETS=(
-  "packages/dartclaw_workflow"
-  "packages/dartclaw_server"
-  "apps/dartclaw_cli"
-)
-
-is_serial_target() {
-  local package_path="$1"
-  local target
-  for target in "${SERIAL_TEST_TARGETS[@]}"; do
-    if [[ "$package_path" == "$target" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
+# Every package runs at default parallelism. Suites share one OS process, so
+# cross-suite coupling can only come through process-level state: ports (all
+# binds use ephemeral port 0), the filesystem (all fixtures use temp dirs), and
+# the working directory (no test assigns `Directory.current` outside
+# dartclaw_config and dartclaw_cli, whose suites carry no cwd-dependent tests).
+# Keep it that way — reintroducing a cwd mutator alongside a cwd-dependent test
+# is what previously forced this script to serialize.
 while IFS= read -r package_path; do
   package_path="${package_path%/}"
   package_path="${package_path#./}"
   if [[ ! -d "${package_path}/test" ]]; then
-    continue
-  fi
-  if is_serial_target "$package_path"; then
     continue
   fi
 
@@ -42,20 +29,3 @@ while IFS= read -r package_path; do
     dart test --reporter=failures-only
   )
 done < <(dart pub workspace list | awk 'NR > 1 && $2 != "./" { print $2 }')
-
-serial_targets=()
-for target in "${SERIAL_TEST_TARGETS[@]}"; do
-  if [[ -d "${target}/test" ]]; then
-    serial_targets+=("$target")
-  fi
-done
-
-if [[ "${#serial_targets[@]}" -gt 0 ]]; then
-  echo "==> Testing serialized: ${serial_targets[*]}"
-  for target in "${serial_targets[@]}"; do
-    (
-      cd "${target}"
-      dart test -j 1 --reporter=failures-only
-    )
-  done
-fi

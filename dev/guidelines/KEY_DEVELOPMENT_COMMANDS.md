@@ -169,7 +169,7 @@ dart analyze
 >
 > **Reporter**: Use `--reporter=failures-only` for agent-driven test runs — it suppresses passing-test output and only shows failures, reducing noise. This is the default the Dart MCP `run_tests` tool uses internally.
 >
-> **Parallelism**: Do not use default package-parallel aggregate commands as release/FIS gates for suites that include CLI/server tests. Some of those tests intentionally exercise real local ports, process wiring, and filesystem/static-asset fixtures; the mixed-package gate must run with `-j 1` or as separate package commands.
+> **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager.currentDirectory`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
 
 Use the workspace root for package-wide server/CLI validation. On supported local/CI environments, the
 `dart test packages/dartclaw_server` and `dart test apps/dartclaw_cli` commands should run without manual sqlite
@@ -210,9 +210,7 @@ dart test --reporter=failures-only packages/dartclaw_workflow
 dart test --reporter=failures-only apps/dartclaw_cli
 
 # Mixed workflow/server/CLI gate.
-# This package set includes local integration tests that bind ports and use
-# filesystem/static-asset fixtures, so run it serially.
-dart test -j 1 --reporter=failures-only \
+dart test --reporter=failures-only \
   packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli
 
 # Fast local CLI iteration: skip real-build / real-process tests tagged slow.
@@ -221,7 +219,7 @@ dart test --reporter=failures-only -x slow apps/dartclaw_cli
 # Run only slow CLI tests when validating build/release behavior.
 dart test --reporter=failures-only --run-skipped -t slow apps/dartclaw_cli
 
-# Test all packages with the CI-equivalent package/test serialization policy
+# Test all packages exactly as CI does
 bash dev/tools/test_workspace.sh
 
 # Specific test directory

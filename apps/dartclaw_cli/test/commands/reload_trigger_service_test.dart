@@ -382,8 +382,7 @@ void main() {
         tempFile.writeAsStringSync('# updated\n');
         tempFile.renameSync(configFile.path);
 
-        // Wait beyond debounce period.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await _waitForCount(() => loaderCallCount, 1);
 
         expect(loaderCallCount, greaterThanOrEqualTo(1));
         expect(notifier.current.server.maxParallelTurns, 7);
@@ -424,8 +423,9 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
 
-        // Wait for debounce to settle.
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _waitForCount(() => loaderCallCount, 1);
+        // Settle past the debounce window to prove the 5 writes coalesced.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
 
         expect(loaderCallCount, 1);
         svc.dispose();
@@ -446,9 +446,12 @@ void main() {
         tempFile.writeAsStringSync('# renamed update\n');
         tempFile.renameSync(configFile.path);
 
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await _waitForCount(() => loaderCallCount, 1);
 
-        expect(loaderCallCount, 1);
+        // A rename can surface as more than one watch event; events spaced wider
+        // than the debounce window are meant to reload again. Coalescing within
+        // the window has its own test above.
+        expect(loaderCallCount, greaterThanOrEqualTo(1));
         svc.dispose();
       });
 
@@ -546,6 +549,19 @@ void main() {
       });
     });
   });
+}
+
+/// Waits until [count] reaches at least [min].
+///
+/// Filesystem-watch delivery and the debounce timer are both at the mercy of
+/// machine load, so a fixed wait sized just past the debounce races them. The
+/// cap is far longer than any debounce under test, so a genuine no-reload still
+/// fails the assertion that follows.
+Future<void> _waitForCount(int Function() count, int min) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (count() < min && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
 
 /// Test-only shim that isolates the debounce Timer pattern from real I/O,

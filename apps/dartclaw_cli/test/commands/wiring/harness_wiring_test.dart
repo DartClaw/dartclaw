@@ -15,6 +15,39 @@ Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
 }
 
+/// Deletes [dir], retrying briefly on failure.
+///
+/// `GuardAuditLogger` appends its NDJSON partition fire-and-forget, so a write
+/// queued before shutdown can recreate a file inside a recursive delete that is
+/// already walking the directory.
+Future<void> _deleteTempDir(Directory dir) async {
+  for (var attempt = 0; ; attempt++) {
+    try {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt >= 10) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+}
+
+/// Polls [read] until [isReady] holds, then returns that value.
+///
+/// The turn-monitor thresholds under test are milliseconds apart, so a fixed
+/// delay sized just past the threshold loses the race under parallel test load.
+/// The cap stays far below the 120 s default `stuckAfter`, so reaching the state
+/// still proves the configured threshold is the one in effect.
+Future<T> _pollFor<T>(T Function() read, bool Function(T) isReady) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  var value = read();
+  while (!isReady(value) && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    value = read();
+  }
+  return value;
+}
+
 void main() {
   late Directory tempDir;
   late Directory workspaceDir;
@@ -54,10 +87,9 @@ void main() {
 
   tearDown(() async {
     await harnessWiring?.pool.dispose();
+    await security?.dispose();
     await storage?.dispose();
-    if (tempDir.existsSync()) {
-      tempDir.deleteSync(recursive: true);
-    }
+    await _deleteTempDir(tempDir);
   });
 
   Future<void> wireStorageAndSecurity() async {
@@ -677,8 +709,10 @@ void main(List<String> args) async {
     });
     final queuedReserve = harnessWiring!.pool.primary.reserveTurn(session.id);
 
-    await Future<void>.delayed(const Duration(milliseconds: 35));
-    final primaryStatus = harnessWiring!.pool.primary.turnStatus(session.id);
+    final primaryStatus = await _pollFor(
+      () => harnessWiring!.pool.primary.turnStatus(session.id),
+      (status) => status.state.name == 'stuck',
+    );
     expect(primaryStatus.state.name, 'stuck');
     expect(primaryStatus.globalTimeoutAt, isNotNull);
 
@@ -710,8 +744,10 @@ void main(List<String> args) async {
     });
     final taskQueuedReserve = taskRunner.reserveTurn(taskSession.id);
 
-    await Future<void>.delayed(const Duration(milliseconds: 35));
-    final taskStatus = taskRunner.turnStatus(taskSession.id);
+    final taskStatus = await _pollFor(
+      () => taskRunner.turnStatus(taskSession.id),
+      (status) => status.state.name == 'stuck',
+    );
     expect(taskStatus.state.name, 'stuck');
     expect(taskStatus.globalTimeoutAt, isNotNull);
 

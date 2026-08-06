@@ -10,7 +10,7 @@
 - **Problem**: 0.22 made the Web UI *compliant* with the Afterglow design system. It did not make it *good*. A post-release audit of all 23 web surfaces — 92 screenshots across both themes and two viewports, cross-read against the templates, CSS and canon — produced **232 verified defects**. The root causes are in the canon itself: `.sidebar`, `.topbar`, `.card` and the terminal stop of the body ground gradient are **all `--bg-mantle`**, giving a measured card-vs-ground contrast of **1.07:1** (below just-noticeable-difference); all card colour is `:hover`-gated so **0.50–1.45% of resting content pixels carry any chroma**; three of seven type tiers sit inside a 2px band and absorb ~90% of declarations; and canon ships **no form, tab, or dialog primitives at all** while actively sanctioning `window.confirm()`. The product reads as flat, gray and unfinished — and no amount of page-level adoption can fix a page whose layers are the same colour.
 - **Vision**: The design system gains real depth, a usable type hierarchy, and the primitives the app has been forced to invent privately. The Web UI is re-synced onto it, the 64 distinct glitches are closed, and native OS dialogs are gone. DartClaw stops looking like an admin panel and starts looking like the product its positioning claims.
 - **Target Users**: (1) **Operators** — get a legible, layered, finished surface; (2) **DartClaw developers** — get canonical form/tab/dialog primitives instead of re-inventing them per page, and a type layer that binds size + weight + leading + tracking so hierarchy stops being hand-derived; (3) **0.24 and every later UI milestone** — build on a refined substrate rather than reworking a shipped one.
-- **Delivery Status**: FR1–FR9 and all 16 implementation stories are complete. Subsequent 0.22.1 work refined the visual direction and session navigation, corrected deployment/onboarding/Signal behavior, and added native typing indication for Signal and WhatsApp. Automated gates are green; fresh post-interlude visual evidence and live paired-channel checks remain release-close work. The detailed delivery and verification record is canonical below.
+- **Delivery Status**: FR1–FR9 and all 16 implementation stories are complete. Subsequent 0.22.1 work refined the visual direction and session navigation, corrected deployment/onboarding/Signal behavior, added native typing indication for Signal and WhatsApp, and made turn-scoped tool policies enforceable on every runner. Automated gates are green; fresh post-interlude visual evidence and live paired-channel checks remain release-close work. The detailed delivery and verification record is canonical below.
 - **Success Metrics**:
   1. Card-vs-ground contrast ≥ 1.15:1 in **both** themes, with chrome, page ground and cards on three distinct planes; no page band equals the card fill.
   2. Zero `--text-sm` usages remain; every named DESIGN.md type tier has a backing composite class, demonstrated in `showcase.html`.
@@ -32,7 +32,7 @@
 ### Scope Highlights
 - **In scope**: canon revision (surfaces, type, layout tier, form/tab/dialog primitives, feedback table); re-sync + adoption; the glitch sweep; native dialog removal; optional vendoring; doc sync.
 - **Original-plan exclusions**: backend work; chat/session features; workflow surfaces; CLI/channel parity; task IA overhaul. Post-plan additions are recorded separately and do not retroactively alter FR1–FR9.
-- **Delivered post-plan additions**: Phosphor Aurora refinement; reusable New Chat/session lifecycle; System navigation and turn-status refinement; runtime/deployment/onboarding/Signal corrections; native Signal/WhatsApp typing.
+- **Delivered post-plan additions**: Phosphor Aurora refinement; reusable New Chat/session lifecycle; System navigation and turn-status refinement; runtime/deployment/onboarding/Signal corrections; native Signal/WhatsApp typing; turn-scoped tool-policy enforcement.
 - **Original MVP boundary**: FR1–FR7. FR8 could split independently but ultimately shipped in 0.22.1; FR9 followed every documented surface.
 
 ### Key Constraints, Assumptions & Dependencies
@@ -516,8 +516,33 @@ response body stalls must not occupy the sidecar operation indefinitely.
 
 **Commit**: `7992cd29`.
 
+#### AI12: Turn-scoped tool policies reach the chain the harness evaluates
+
+**Intent**: Per-task `allowedTools`, per-turn read-only, and the knowledge-inbox no-tools turn are accepted and recorded
+by the turn layer, but enforcement happens inside the harness, against the guard chain that harness was constructed
+with. Three wiring paths held a `TaskToolFilterGuard` that no harness chain evaluated, so those policies were silently
+inert — the failure mode looks identical to a policy that passed.
+
+**What shipped**:
+- `GuardChain.layered` composes a per-runner chain over a live base chain: the base guard list is read on every evaluation, so a `guards.*` reload reaches every runner chain while that runner's own guards survive the rebuild. Verdict reporting and fail-open posture are inherited from the base.
+- The primary interactive harness receives a layered chain carrying its own filter. It previously received the shared base chain, leaving every session and turn tool policy on the interactive path unenforced.
+- Task runners moved from a snapshot copy of the base guards to the layered chain. The copy froze the guard list at spawn time, so a `guards.*` reload never reached an already-spawned task runner.
+- ACP permission decisions evaluate the primary layered chain, so a delegated permission request is judged by the same policy as an in-turn tool call.
+- The server builder no longer fabricates a filter on its non-pool path. It receives an already-constructed harness and cannot retrofit that harness's chain, so the filter is host-supplied, and the composition contract is documented on the field and in the security architecture reference.
+- `buildGuardsFromConfig` no longer accepts a tool filter (breaking, SDK). The list it returns is the base list a reload replaces wholesale, so a filter placed there was a trap in the same shape as the defects above.
+
+**Acceptance and evidence**:
+- [x] A no-tools turn policy on the primary harness blocks a mid-turn shell call, leaves other sessions on the same chain unaffected, and clears once the turn settles.
+- [x] A `guards.*` reload rebuilds base guards live on every runner chain while each runner keeps its own filter instance.
+- [x] The same policy holds on the SDK builder path when the host layers its filter into the harness chain, and no filter is invented when the host supplies none.
+- [x] Regression coverage lives with each seam: guard-chain layering, CLI runner wiring, and the builder path.
+- [x] Formatting, workspace analysis, the affected package suites, and architecture checks passed.
+
+**Commits**: `c0db221b` (runner chains: `GuardChain.layered`, primary + task-runner wiring, ACP decision path); builder-path commit pending — record after committing that work.
+
 ## Release-Close Checks
 
 - [ ] Capture durable visual evidence after the `83a28ece`, `54495b54`, and `3630dc3e` refinements.
 - [ ] Run the documented paired-device Signal and WhatsApp DM/group typing checks.
 - [x] Replace the pending AI10/AI11 commit markers after committing the current work, then rerun the release gate on that exact tree.
+- [ ] Replace the pending AI12 commit marker after committing the current work, then rerun the release gate on that exact tree.

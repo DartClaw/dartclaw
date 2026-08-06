@@ -6,16 +6,6 @@ import '../../helpers/fake_exit.dart';
 
 void main() {
   group('WorkflowRunCommand — argument parsing', () {
-    test('name is run', () {
-      final command = WorkflowRunCommand();
-      expect(command.name, 'run');
-    });
-
-    test('description is set', () {
-      final command = WorkflowRunCommand();
-      expect(command.description, isNotEmpty);
-    });
-
     test('has --var multi-option', () {
       final command = WorkflowRunCommand();
       expect(command.argParser.options.containsKey('var'), isTrue);

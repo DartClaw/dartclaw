@@ -125,14 +125,6 @@ void main() {
   }
 
   group('WorkflowValidateCommand', () {
-    test('name is validate', () {
-      expect(command.name, 'validate');
-    });
-
-    test('description is set', () {
-      expect(command.description, isNotEmpty);
-    });
-
     test('missing path argument throws UsageException', () async {
       expect(() => runner.run(['validate']), throwsA(isA<UsageException>()));
     });

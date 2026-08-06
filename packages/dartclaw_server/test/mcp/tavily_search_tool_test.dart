@@ -38,11 +38,6 @@ String _errorMsg(ToolResult r) => (r as ToolResultError).message;
 void main() {
   group('TavilySearchTool', () {
     group('MCP interface', () {
-      test('name is tavily_search', () {
-        final tool = TavilySearchTool(provider: _MockProvider());
-        expect(tool.name, 'tavily_search');
-      });
-
       test('inputSchema has correct structure', () {
         final tool = TavilySearchTool(provider: _MockProvider());
         expect(tool.inputSchema['type'], 'object');

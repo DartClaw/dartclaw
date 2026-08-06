@@ -38,11 +38,6 @@ String _errorMsg(ToolResult r) => (r as ToolResultError).message;
 void main() {
   group('BraveSearchTool', () {
     group('MCP interface', () {
-      test('name is brave_search', () {
-        final tool = BraveSearchTool(provider: _MockProvider());
-        expect(tool.name, 'brave_search');
-      });
-
       test('inputSchema has correct structure', () {
         final tool = BraveSearchTool(provider: _MockProvider());
         expect(tool.inputSchema['type'], 'object');

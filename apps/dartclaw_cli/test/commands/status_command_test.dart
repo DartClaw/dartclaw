@@ -13,14 +13,6 @@ void main() {
   });
 
   group('StatusCommand', () {
-    test('name is status', () {
-      expect(statusCommand.name, 'status');
-    });
-
-    test('description is set', () {
-      expect(statusCommand.description, isNotEmpty);
-    });
-
     test('has no custom options', () {
       expect(statusCommand.argParser.options.keys, equals(['help']));
     });

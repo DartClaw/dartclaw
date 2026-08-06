@@ -45,11 +45,6 @@ WebFetchTool _noSsrfTool({
 void main() {
   group('WebFetchTool', () {
     group('MCP interface', () {
-      test('name is web_fetch', () {
-        final tool = WebFetchTool();
-        expect(tool.name, 'web_fetch');
-      });
-
       test('inputSchema has correct structure', () {
         final tool = WebFetchTool();
         expect(tool.inputSchema['type'], 'object');

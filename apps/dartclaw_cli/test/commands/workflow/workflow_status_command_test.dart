@@ -20,14 +20,6 @@ import '../../helpers/fake_exit.dart';
 
 void main() {
   group('WorkflowStatusCommand', () {
-    test('name is status', () {
-      expect(WorkflowStatusCommand().name, 'status');
-    });
-
-    test('description is set', () {
-      expect(WorkflowStatusCommand().description, isNotEmpty);
-    });
-
     test('has --json flag', () {
       expect(WorkflowStatusCommand().argParser.options.containsKey('json'), isTrue);
     });

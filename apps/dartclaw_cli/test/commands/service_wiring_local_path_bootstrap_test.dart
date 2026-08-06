@@ -33,11 +33,29 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
   return factory;
 }
 
-void _runGit(String workingDirectory, List<String> args) {
-  final result = Process.runSync('git', args, workingDirectory: workingDirectory);
+/// Builds the two-branch fixture repository in one shell spawn and returns its HEAD commit.
+String _initGitFixture(String workingDirectory) {
+  const script = '''
+set -e
+{
+  git init -b main
+  git config user.name 'Workflow Test'
+  git config user.email 'workflow@test.local'
+  printf 'base\\n' > README.md
+  git add README.md workflows/bootstrap-localpath.yaml
+  git commit -m initial
+  git checkout -b feature/local
+  printf 'unpushed local commit\\n' > local.txt
+  git add local.txt
+  git commit -m 'local change'
+} >/dev/null
+git rev-parse HEAD
+''';
+  final result = Process.runSync('bash', ['-c', script], workingDirectory: workingDirectory);
   if (result.exitCode != 0) {
-    fail('git ${args.join(' ')} failed in $workingDirectory: ${result.stderr}');
+    fail('git fixture setup failed in $workingDirectory: ${result.stderr}');
   }
+  return (result.stdout as String).trim();
 }
 
 Future<void> _waitFor(bool Function() predicate, {Duration timeout = const Duration(seconds: 5)}) async {
@@ -131,19 +149,7 @@ steps:
     prompt: Approve bootstrap.
 ''');
 
-    _runGit(projectDir.path, ['init', '-b', 'main']);
-    _runGit(projectDir.path, ['config', 'user.name', 'Workflow Test']);
-    _runGit(projectDir.path, ['config', 'user.email', 'workflow@test.local']);
-    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('base\n');
-    _runGit(projectDir.path, ['add', 'README.md', 'workflows/bootstrap-localpath.yaml']);
-    _runGit(projectDir.path, ['commit', '-m', 'initial']);
-    _runGit(projectDir.path, ['checkout', '-b', 'feature/local']);
-    File(p.join(projectDir.path, 'local.txt')).writeAsStringSync('unpushed local commit\n');
-    _runGit(projectDir.path, ['add', 'local.txt']);
-    _runGit(projectDir.path, ['commit', '-m', 'local change']);
-
-    final headCommit =
-        (Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: projectDir.path).stdout as String).trim();
+    final headCommit = _initGitFixture(projectDir.path);
 
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),

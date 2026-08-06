@@ -1,7 +1,7 @@
 # Product Requirements Document and Delivery Record: 0.22.1
 
 > **Context**: ROADMAP entry "0.22.1 – Design-System Refinement & Web UI Polish". Opened: 2026-07-25. Status: Implemented – original 16-story plan completed 2026-07-30; post-plan delivery record reconciled through 2026-08-04; final release validation pending; release not yet tagged.
-> **Implementation references**: canonical design system [`DESIGN.md`](../../../../design-system/DESIGN.md) (+ `tokens.css`, `components.css`, `showcase.html`) · [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md) (232 verified findings – the evidence base) · [vendoring-analysis.md](vendoring-analysis.md) (FR8 decision record). The canonical private 0.22 PRD and 0.24 brief were authoring inputs; their release-relevant decisions are preserved here.
+> **Implementation reference**: canonical design system [`DESIGN.md`](../../../../design-system/DESIGN.md) (+ `tokens.css`, `components.css`, `showcase.html`). The audit evidence, vendoring rationale, canonical private 0.22 PRD, and 0.24 brief were authoring inputs; their release-relevant decisions are preserved here.
 >
 > **Authority**: This document is the complete release-scope and delivery record for 0.22.1. FR1–FR9 preserve the original planned intent. `Delivery Record` preserves what completed, while `Adjacent & Interlude Work` records every post-plan addition without pretending it was part of the original scope.
 
@@ -48,7 +48,7 @@
 
 ### Evidence & Context
 
-From [audit-ui-polish-2026-07-25.md](audit-ui-polish-2026-07-25.md) — 232 findings confirmed after an adversarial verification pass that killed 19:
+The source audit recorded 232 findings confirmed after an adversarial verification pass that killed 19:
 
 - **Four roles share one token.** `.sidebar` (components.css:96), `.topbar` (:283), `.card` (:783) all use `--bg-mantle`, and `body`'s ground gradient (:55) is `linear-gradient(170deg, crust 0%, base 50%, mantle 100%)` — terminating *on* the card fill. Through the upper half of every page the ground (`--bg-base` #1e1e2e) is **lighter** than the cards on it (`--bg-mantle` #181825). Measured contrast **1.07:1**.
 - **Colour is hover-gated.** `.card-metric--*` and `.card-tint-*` hold their entire treatment in `:hover`; **0.50%–1.45%** of resting content pixels carry chroma.
@@ -187,7 +187,9 @@ Call sites: `dc_shell_controller.js:369` (delete chat), `:477` (restart), `:488,
 **Priority**: Must / P0
 
 #### FR8: Local vendoring of runtime dependencies
-**Description**: Self-host htmx 2.0.8 (50.0 KB), marked 15 (39.0 KB) and JetBrains Mono 400/500/600 latin + latin-ext woff2 (~30.6 KB each). See [vendoring-analysis.md](vendoring-analysis.md) for the full rationale, cost and mechanics.
+**Description**: Self-host htmx 2.0.8 (50.0 KB), marked 15 (39.0 KB) and the JetBrains Mono latin + latin-ext woff2 subsets covering weights 400/500/600 (30.6 KB + 11.3 KB).
+
+> **Amended 2026-07-30 during implementation** – as-built correction. This description originally implied six per-weight font files. Google Fonts serves JetBrains Mono v24 as a variable font: the CSS2 response for `wght@400;500;600` carries 18 `@font-face` rules but resolves to six distinct URLs, one per Unicode range, and each range's URL is shared across all three weights. The two vendored subset files carry variable-font tables, so duplicating them per weight would waste 83.9 KB on disk and 111.8 KB in the generated bundle. The release ships two subset files backed by six `@font-face` rules and one preload; all three weights were proven to load and render distinctly with external origins blocked.
 
 **Acceptance Criteria**:
 - [x] No external origin appears in `layout.html` or the CSP; `font-src 'self'`.
@@ -288,6 +290,7 @@ post-plan work is recorded separately so the release history remains complete wi
 | Plan | 16/16 stories completed on 2026-07-30 |
 | Proof surfaces | 113/113 acceptance scenarios, 132/132 structural criteria, and 72/72 final-validation items completed |
 | Glitch ledger | 64/64 catalogued glitches dispositioned; all 23 high-severity glitches closed |
+| Durable deferrals | 37 survivors promoted with their reasons: 21 product-backlog capabilities and 16 architecture/decision items |
 | Visual validation | 112/112 planned captures passed across both themes and required viewports; all ten 1024px table records fit |
 | Smoke validation | TC-01–TC-29, TC-07A, TC-31, R-01–R-12, and the external-cwd/offline R-13 check passed |
 | Release gates | Canon/served-design parity, generated-asset parity, formatting, analysis, workspace tests, architecture checks, fitness checks, and whitespace checks passed at plan close |

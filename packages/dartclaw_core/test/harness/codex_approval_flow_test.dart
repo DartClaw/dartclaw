@@ -40,7 +40,7 @@ class _ThrowingGuard extends Guard {
 void main() {
   group('CodexHarness approval flow', () {
     test('routes approval requests through GuardChain and allows approved tools', () async {
-      final fake = FakeCodexProcess();
+      final fake = FakeCodexProcess(completeExitOnKill: true);
       final guard = RecordingGuard();
       final harness = _buildHarness(
         process: fake,
@@ -82,7 +82,7 @@ void main() {
     });
 
     test('routes approval requests through GuardChain and denies blocked tools', () async {
-      final fake = FakeCodexProcess();
+      final fake = FakeCodexProcess(completeExitOnKill: true);
       final guard = RecordingGuard(verdict: GuardVerdict.block('Blocked by test guard'));
       final harness = _buildHarness(
         process: fake,
@@ -119,7 +119,7 @@ void main() {
     });
 
     test('infers file_change kind before approval evaluation', () async {
-      final fake = FakeCodexProcess();
+      final fake = FakeCodexProcess(completeExitOnKill: true);
       final guard = RecordingGuard();
       final harness = _buildHarness(
         process: fake,
@@ -185,7 +185,7 @@ void main() {
     });
 
     test('warns and falls back to codex-prefixed tool names for unmapped approvals', () async {
-      final fake = FakeCodexProcess();
+      final fake = FakeCodexProcess(completeExitOnKill: true);
       final guard = RecordingGuard();
       final records = <LogRecord>[];
       final oldLevel = Logger.root.level;
@@ -244,7 +244,7 @@ void main() {
     });
 
     test('Codex file_change approvals hit FileGuard protected-path rules', () async {
-      final fake = FakeCodexProcess();
+      final fake = FakeCodexProcess(completeExitOnKill: true);
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(
@@ -296,7 +296,7 @@ void main() {
     });
 
     test('redacts env before guard evaluation and fails closed on approval-path errors', () async {
-      final fake = FakeCodexProcess();
+      final fake = FakeCodexProcess(completeExitOnKill: true);
       final redactingGuard = RecordingGuard();
       final records = <LogRecord>[];
       final oldLevel = Logger.root.level;
@@ -357,7 +357,7 @@ void main() {
         isTrue,
       );
 
-      final fakeAllow = FakeCodexProcess();
+      final fakeAllow = FakeCodexProcess(completeExitOnKill: true);
       final allowHarness = _buildHarness(
         process: fakeAllow,
         environment: const {'OPENAI_API_KEY': 'sk-test-key'},

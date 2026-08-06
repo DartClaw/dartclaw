@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 ProcessResult _result({int exitCode = 0, String stdout = ''}) => ProcessResult(0, exitCode, stdout, '');
 
 ClaudeCodeHarness _buildHarness({required void Function(List<String> args) onSpawn}) {
-  final process = FakeProcess();
+  final process = FakeProcess(completeExitOnKill: true);
 
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -65,7 +65,7 @@ void main() {
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
         processFactory: (executable, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          fake = CapturingFakeProcess();
+          fake = CapturingFakeProcess(completeExitOnKill: true);
           Future<void>.delayed(const Duration(milliseconds: 1), () {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });

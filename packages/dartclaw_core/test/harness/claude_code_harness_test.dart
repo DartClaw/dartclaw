@@ -1134,7 +1134,7 @@ void main() {
 
     group('SIGKILL escalation', () {
       test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
-        final fake = KillTrackingFakeProcess();
+        final fake = makeKillTrackingClaudeProcess();
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
@@ -1163,7 +1163,7 @@ void main() {
       });
 
       test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
-        final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+        final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
@@ -1183,7 +1183,7 @@ void main() {
       });
 
       test('stop() follows injected Windows hard-termination semantics on a POSIX host', () async {
-        final fake = KillTrackingFakeProcess();
+        final fake = makeKillTrackingClaudeProcess();
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           killGracePeriod: Duration.zero,
@@ -1202,7 +1202,7 @@ void main() {
       });
 
       test('turn timeout completes promptly and drives bounded process teardown', () async {
-        final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+        final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           turnTimeout: Duration.zero,
@@ -1231,8 +1231,8 @@ void main() {
       });
 
       test('turn timeout finishes teardown before an immediate next turn restarts', () async {
-        final timedOut = KillTrackingFakeProcess(completeExitOnKill: true);
-        final recovered = KillTrackingFakeProcess(completeExitOnKill: true);
+        final timedOut = makeKillTrackingClaudeProcess(completeExitOnKill: true);
+        final recovered = makeKillTrackingClaudeProcess(completeExitOnKill: true);
         final processes = [timedOut, recovered];
         var spawnIndex = 0;
         final h = ClaudeCodeHarness(
@@ -1278,7 +1278,8 @@ void main() {
           ],
           systemPrompt: '',
         );
-        expect(result['response'], 'ok');
+        expect(result['is_error'], isFalse);
+        expect(h.state, WorkerState.idle);
         expect(spawnIndex, 2);
       });
     });
@@ -1398,7 +1399,7 @@ void main() {
       });
 
       test('parameter-change restart retains an unconfirmed Windows child', () async {
-        final process = KillTrackingFakeProcess();
+        final process = makeKillTrackingClaudeProcess();
         var spawnCount = 0;
         final h = ClaudeCodeHarness(
           cwd: '/tmp',

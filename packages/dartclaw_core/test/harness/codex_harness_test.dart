@@ -30,7 +30,7 @@ class _PassGuard extends Guard {
 }
 
 class _FailingWriteCodexProcess extends FakeCodexProcess {
-  _FailingWriteCodexProcess() : super();
+  _FailingWriteCodexProcess() : super(completeExitOnKill: true);
 
   bool failWrites = false;
 
@@ -109,7 +109,7 @@ CodexHarness _buildHarness({
   Duration initializeTimeout = const Duration(seconds: 10),
   Duration turnTimeout = const Duration(seconds: 600),
 }) {
-  final fake = process ?? FakeCodexProcess();
+  final fake = process ?? FakeCodexProcess(completeExitOnKill: true);
   return CodexHarness(
     cwd: '/tmp',
     executable: 'codex',
@@ -151,7 +151,7 @@ void main() {
     group('start()', () {
       test('probes the configured Codex binary directly', () async {
         final calls = <({String executable, List<String> arguments})>[];
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(
           process: fake,
           platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
@@ -227,7 +227,7 @@ void main() {
         );
       });
       test('spawns codex app-server without --yolo', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         late List<String> spawnedArgs;
         final harness = _buildHarness(
           process: fake,
@@ -245,7 +245,7 @@ void main() {
       });
 
       test('completes initialize handshake and does not eagerly start a thread', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
@@ -294,7 +294,7 @@ void main() {
       });
 
       test('emits SystemInitEvent when initialize response reports a context window', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
@@ -311,7 +311,7 @@ void main() {
       });
 
       test('emits SystemInitEvent from v0.118.0 ClientResponse-wrapped initialize response', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
@@ -327,7 +327,7 @@ void main() {
       });
 
       test('v0.118.0 ClientResponse thread/start response completes turn correctly', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
@@ -354,7 +354,7 @@ void main() {
       });
 
       test('spawns with isolated CODEX_HOME env and cleans it up on stop', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         String? capturedWorkingDirectory;
         Map<String, String>? capturedEnvironment;
         final harness = _buildHarness(
@@ -396,7 +396,7 @@ void main() {
       test(
         'lazily creates a thread on first turn, streams events, auto-approves requests, and returns usage',
         () async {
-          final fake = FakeCodexProcess();
+          final fake = FakeCodexProcess(completeExitOnKill: true);
           final harness = _buildHarness(process: fake);
           addTearDown(() async => harness.dispose());
           await startHarness(harness, fake);
@@ -511,7 +511,7 @@ void main() {
       });
 
       test('reuses the same thread for repeated turns in the same session', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -551,7 +551,7 @@ void main() {
       });
 
       test('resetSessionContinuity starts a fresh thread for the session', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -592,7 +592,7 @@ void main() {
       });
 
       test('creates separate threads for different sessions', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -630,7 +630,7 @@ void main() {
       });
 
       test('derives previous_response_items from prior messages and uses provider settings', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(
           process: fake,
           providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
@@ -685,7 +685,7 @@ void main() {
       });
 
       test('falls back to harnessConfig.model when per-turn model is null', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(
           process: fake,
           harnessConfig: const HarnessConfig(model: 'gpt-5-default'),
@@ -719,7 +719,7 @@ void main() {
       });
 
       test('includes duration_ms and error details for turn/failed without cost fields', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -746,7 +746,7 @@ void main() {
       });
 
       test('failed completed turn preserves detail and does not poison the next turn', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -795,7 +795,7 @@ void main() {
       });
 
       test('rejects a concurrent first turn while lazy thread creation is in progress', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -884,7 +884,7 @@ void main() {
       });
 
       test('passes the turn sessionId into approval guard evaluation', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final guard = _PassGuard();
         final harness = _buildHarness(
           process: fake,
@@ -946,7 +946,7 @@ void main() {
       });
 
       test('dispose closes the events stream', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
 
         await startHarness(harness, fake);
@@ -1005,7 +1005,7 @@ void main() {
 
     group('compaction events', () {
       test('emits CompactionStartingBridgeEvent on contextCompaction item/started', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -1023,7 +1023,7 @@ void main() {
       });
 
       test('emits CompactionCompletedBridgeEvent on contextCompaction item/completed', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -1041,7 +1041,7 @@ void main() {
       });
 
       test('emits both compaction events for a full compaction cycle', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -1064,7 +1064,7 @@ void main() {
       });
 
       test('thread/compactedNotification produces no bridge event', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -1084,7 +1084,7 @@ void main() {
       });
 
       test('surfaces the project-trust warning once and still completes the turn', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -1118,7 +1118,7 @@ void main() {
       });
 
       test('logs failed MCP startup detail and ignores status noise', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
         final records = <LogRecord>[];
@@ -1166,7 +1166,7 @@ void main() {
 
     group('stderr logging (TD-061)', () {
       test('logs stderr lines at WARNING level', () async {
-        final fake = FakeCodexProcess();
+        final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 

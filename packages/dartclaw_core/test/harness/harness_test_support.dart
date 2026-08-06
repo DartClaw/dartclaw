@@ -38,30 +38,28 @@ class RecordingGuard extends Guard {
   }
 }
 
-FakeProcess makeClaudeFakeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
+/// `completeExitOnKill` keeps harness teardown from burning the full
+/// SIGTERM grace period plus the SIGKILL wait on every test; `closeStreamsOnExit`
+/// stays off because these fakes' spawn factories emit on delayed timers that can
+/// outlive the kill.
+FakeProcess makeClaudeFakeProcess() =>
+    FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true, closeStreamsOnExit: false);
 
-CapturingFakeProcess makeCapturingClaudeProcess() =>
-    CapturingFakeProcess(stdoutController: StreamController<List<int>>());
+CapturingFakeProcess makeCapturingClaudeProcess() => CapturingFakeProcess(
+  stdoutController: StreamController<List<int>>(),
+  completeExitOnKill: true,
+  closeStreamsOnExit: false,
+);
 
-class KillTrackingFakeProcess extends FakeProcess {
-  KillTrackingFakeProcess({bool completeExitOnKill = false, int killExitCode = 0})
-    : _completeExitOnKill = completeExitOnKill,
-      _killExitCode = killExitCode,
-      super(stdoutController: StreamController<List<int>>());
-
-  final bool _completeExitOnKill;
-  final int _killExitCode;
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    final accepted = super.kill(signal);
-    if (_completeExitOnKill) exit(_killExitCode);
-    return accepted;
-  }
-}
+FakeProcess makeKillTrackingClaudeProcess({bool completeExitOnKill = false, int killExitCode = 0}) => FakeProcess(
+  stdoutController: StreamController<List<int>>(),
+  completeExitOnKill: completeExitOnKill,
+  killExitCode: killExitCode,
+  closeStreamsOnExit: false,
+);
 
 class FailingWriteClaudeProcess extends CapturingFakeProcess {
-  FailingWriteClaudeProcess() : super(stdoutController: StreamController<List<int>>());
+  FailingWriteClaudeProcess() : super(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
 
   bool failWrites = false;
 
@@ -151,7 +149,7 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
-    final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+    final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });
@@ -244,7 +242,7 @@ ProcessFactory resultEmittingFactory({Map<String, dynamic>? result, void Functio
   };
   return (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
     onSpawn?.call((exe: exe, args: args, workingDirectory: workingDirectory, environment: environment));
-    final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+    final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });

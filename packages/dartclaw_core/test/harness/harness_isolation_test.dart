@@ -10,7 +10,10 @@ import 'package:test/test.dart';
 
 /// Creates a [FakeProcess] with a non-broadcast stdout controller so that
 /// [scheduleMicrotask] emission before subscription is still delivered.
-FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
+///
+/// `completeExitOnKill` lets harness teardown observe the exit immediately
+/// instead of waiting out the SIGTERM grace period and the SIGKILL follow-up.
+FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
 
 // ---------------------------------------------------------------------------
 // Helpers

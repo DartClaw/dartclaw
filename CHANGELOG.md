@@ -20,8 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Session and task state stays authoritative during concurrent updates** – draft creation is serialized with rename/send mutations, turn-status polling rejects stale responses, and the Running sidebar lists only executing tasks.
 
+### Removed
+
+- **`buildGuardsFromConfig(taskToolFilterGuard:)` (breaking, SDK)** – the optional parameter is gone; the function returns only the base guard list. A tool filter placed in that list was silently dropped by the next `guards.*` reload, since a reload replaces the base list wholesale. SDK hosts compose per-runner filters with `GuardChain.layered(base: …, guards: [filter])`, which survives reloads — see the security architecture reference.
+
 ### Fixed
 
+- **The health audit dashboard reads current guard logs again** – date-partitioned audit files and legacy `audit.ndjson` files are combined and ordered newest-first before filtering and pagination.
+- **Per-turn and per-task tool policies are enforced again** – tool allowlists and read-only turns are applied by the guard chain each harness actually consults. The interactive harness previously enforced none of them, and a `guards.*` reload never reached an already-running task runner. Reloads now propagate to every runner while each runner keeps its own tool filter.
 - **Agent response formatting is consistent across messaging channels** – Signal now sends native style ranges instead of literal Markdown markers, WhatsApp converts standard Markdown to its chat syntax, Google Chat normalizes Markdown and advisor-card text, and scheduled announcements and plain-text advisor replies use the same per-channel formatter as interactive turns.
 - **Signal group replies use the group JSON-RPC contract** – base64 group IDs, including IDs beginning with `+`, now route through `groupId` instead of being mistaken for phone-number recipients.
 - **Signal pairing becomes receive-ready without a service restart** – signal-cli now receives on SSE connection, registration refreshes the receive stream, and startup distinguishes a registered account from a daemon that is merely reachable.

@@ -359,7 +359,7 @@ void main() {
       expect(retainedFile.existsSync(), isTrue);
     });
 
-    test('cleanOldFiles ignores non-matching filenames', () async {
+    test('cleanOldFiles keeps recent legacy and ignores unrelated filenames', () async {
       final logger = GuardAuditLogger(dataDir: tmpDir.path);
       final today = _dateOnly(DateTime.now());
       final expiredFile = File(_auditFilePathForDate(tmpDir, today.subtract(const Duration(days: 10))));
@@ -381,7 +381,7 @@ void main() {
       expect(unrelatedFile.existsSync(), isTrue);
     });
 
-    test('migration redistributes legacy audit.ndjson by entry date and deletes the old file', () async {
+    test('legacy audit.ndjson remains readable alongside new date partitions', () async {
       final logger = GuardAuditLogger(dataDir: tmpDir.path);
       final firstDate = DateTime.utc(2026, 3, 4, 10, 0);
       final secondDate = DateTime.utc(2026, 3, 5, 11, 30);
@@ -405,14 +405,24 @@ void main() {
       await _flushAuditLogger(logger);
 
       final firstPartition = File(_auditFilePathForDate(tmpDir, firstDate));
-      final secondPartition = File(_auditFilePathForDate(tmpDir, secondDate));
 
-      expect(legacyFile.existsSync(), isFalse);
-      expect(_readAuditEntries(firstPartition).map((entry) => entry['guard']).toList(), ['legacy-a', 'new-entry']);
-      expect(_readAuditEntries(secondPartition).single['guard'], 'legacy-b');
+      expect(_readAuditEntries(legacyFile).map((entry) => entry['guard']).toList(), ['legacy-a', 'legacy-b']);
+      expect(_readAuditEntries(firstPartition).single['guard'], 'new-entry');
+      expect(File(_auditFilePathForDate(tmpDir, secondDate)).existsSync(), isFalse);
     });
 
-    test('migration is skipped when no legacy file exists', () async {
+    test('cleanOldFiles ages out a legacy audit file by modification date', () async {
+      final logger = GuardAuditLogger(dataDir: tmpDir.path);
+      final legacyFile = File('${tmpDir.path}/audit.ndjson')..writeAsStringSync('{"guard":"legacy"}\n');
+      legacyFile.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 10)));
+
+      final deletedCount = await logger.cleanOldFiles(7);
+
+      expect(deletedCount, 1);
+      expect(legacyFile.existsSync(), isFalse);
+    });
+
+    test('appends partition entries in order when no legacy file exists', () async {
       final logger = GuardAuditLogger(dataDir: tmpDir.path);
       final timestamp = DateTime.utc(2026, 4, 1, 9, 0);
 

@@ -135,7 +135,6 @@ class GuardAuditLogger {
   final int rotationCheckInterval;
 
   bool _dirChecked = false;
-  bool _migrationChecked = false;
   Future<void> _pendingWrite = Future.value();
 
   /// Creates an audit logger with optional file-backed persistence.
@@ -276,13 +275,14 @@ class GuardAuditLogger {
 
   Future<void> _appendEntryStrict(AuditEntry entry) async {
     await _ensureDataDirExists();
-    await _migrateLegacyAuditFileIfNeeded();
 
     final line = jsonEncode(entry.toJson());
     await File(_auditFilePathForDate(entry.timestamp)).writeAsString('$line\n', mode: FileMode.append);
   }
 
-  /// Deletes dated audit files older than [maxRetentionDays].
+  /// Deletes dated partitions older than [maxRetentionDays]. Legacy
+  /// `audit.ndjson` is deleted when its modification date crosses the same
+  /// threshold.
   ///
   /// Returns the number of deleted files. `0` disables cleanup.
   Future<int> cleanOldFiles(int maxRetentionDays) {
@@ -310,8 +310,10 @@ class GuardAuditLogger {
           continue;
         }
 
-        final date = _auditDateFromFileName(entity.uri.pathSegments.last);
-        if (date == null || !date.isBefore(cutoffDate)) {
+        final fileName = entity.uri.pathSegments.last;
+        final date = _auditDateFromFileName(fileName);
+        final legacyDate = fileName == 'audit.ndjson' ? _dateOnly(await entity.lastModified()) : null;
+        if (!(date?.isBefore(cutoffDate) ?? legacyDate?.isBefore(cutoffDate) ?? false)) {
           continue;
         }
 
@@ -328,8 +330,6 @@ class GuardAuditLogger {
 
   String _auditFilePathForDate(DateTime date) => '$dataDir/audit-${date.toIso8601String().substring(0, 10)}.ndjson';
 
-  String get _legacyAuditFilePath => '$dataDir/audit.ndjson';
-
   Future<void> _ensureDataDirExists() async {
     if (_dirChecked) {
       return;
@@ -340,42 +340,6 @@ class GuardAuditLogger {
       await dir.create(recursive: true);
     }
     _dirChecked = true;
-  }
-
-  Future<void> _migrateLegacyAuditFileIfNeeded() async {
-    if (_migrationChecked) {
-      return;
-    }
-
-    final legacyFile = File(_legacyAuditFilePath);
-    if (!legacyFile.existsSync()) {
-      _migrationChecked = true;
-      return;
-    }
-
-    final legacyLines = await legacyFile.readAsLines();
-    final partitions = <String, StringBuffer>{};
-
-    for (final line in legacyLines) {
-      if (line.trim().isEmpty) {
-        continue;
-      }
-
-      try {
-        final entry = AuditEntry.fromJson(Map<String, dynamic>.from(jsonDecode(line) as Map));
-        final buffer = partitions.putIfAbsent(_auditFilePathForDate(entry.timestamp), StringBuffer.new);
-        buffer.writeln(jsonEncode(entry.toJson()));
-      } catch (e) {
-        _log.warning('Skipping malformed legacy audit entry during migration: $e');
-      }
-    }
-
-    for (final MapEntry(key: filePath, value: buffer) in partitions.entries) {
-      await File(filePath).writeAsString(buffer.toString(), mode: FileMode.append);
-    }
-
-    await legacyFile.delete();
-    _migrationChecked = true;
   }
 
   static DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);

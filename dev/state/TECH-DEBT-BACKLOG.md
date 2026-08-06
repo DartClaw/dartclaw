@@ -22,6 +22,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C09 | Define keyboard disclosure for workflow steps | The clickable `div` needs a keyboard/ARIA disclosure and styling decision under the closed-canon constraint. |
 | C10 | Unify live-task timestamp formatting ownership | Live task polling still writes raw ISO values; changing it needs one owner for server/local formatting across the update path. |
 | C11 | Define the restart-required dispatch contract | A listener exists but no producer dispatches `restart-required`; defining the trigger is a product/runtime contract decision. |
+| RP01 | Bound audit-dashboard reads | The dashboard polls and fully scans every retained audit partition. A cap changes filter/pagination completeness, while caching or indexing adds state; define the supported event volume and whether the dashboard promises full retained-history queries before choosing the mechanism. |
 
 ## TD-114 – Mixed finalizer + `outputMode: prompt` outputs on one agent step drop the opt-out output's main-prompt contract
 

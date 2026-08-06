@@ -23,48 +23,51 @@ class AuditPage {
   static const empty = AuditPage(entries: [], totalEntries: 0, currentPage: 1, totalPages: 0, pageSize: 25);
 }
 
-/// Reads and parses `audit.ndjson` with filtering and pagination.
+/// Reads and parses date-partitioned audit logs with filtering and pagination.
 ///
-/// Each call reads the full file (no caching) — acceptable at 10K entries
-/// per PRD note. Returns newest entries first.
+/// Legacy `audit.ndjson` files remain readable until retention cleanup removes
+/// them. Each call reads all audit files without caching and returns newest
+/// entries first.
 class AuditLogReader {
   static final _log = Logger('AuditLogReader');
+  static final _auditFilePattern = RegExp(r'^audit-\d{4}-\d{2}-\d{2}\.ndjson$');
 
   final String dataDir;
 
   AuditLogReader({required this.dataDir});
-
-  String get _auditPath => '$dataDir/audit.ndjson';
 
   /// Read audit entries with optional filtering and pagination.
   ///
   /// [verdictFilter]: exact match on verdict ('pass', 'warn', 'block').
   /// [guardFilter]: case-insensitive substring match on guard name.
   /// Filters are AND-combined.
+  ///
+  /// Throws [FileSystemException] rather than returning a partial audit page
+  /// when a retained log cannot be read.
   Future<AuditPage> read({int page = 1, int pageSize = 25, String? verdictFilter, String? guardFilter}) async {
-    final file = File(_auditPath);
-    if (!file.existsSync()) return AuditPage.empty;
+    final files = await _auditFiles();
+    if (files.isEmpty) return AuditPage.empty;
 
-    final lines = await file.readAsLines();
-    if (lines.isEmpty) return AuditPage.empty;
-
-    // Parse all lines, skip malformed.
-    final allEntries = <AuditEntry>[];
-    for (final line in lines) {
-      if (line.trim().isEmpty) continue;
-      try {
-        final json = jsonDecode(line) as Map<String, dynamic>;
-        allEntries.add(AuditEntry.fromJson(json));
-      } catch (e) {
-        _log.warning('Skipping malformed audit line: $e');
+    final allEntries = <({AuditEntry entry, int sequence})>[];
+    for (final file in files) {
+      final lines = await file.readAsLines();
+      for (final line in lines) {
+        if (line.trim().isEmpty) continue;
+        try {
+          final json = jsonDecode(line) as Map<String, dynamic>;
+          allEntries.add((entry: AuditEntry.fromJson(json), sequence: allEntries.length));
+        } catch (e) {
+          _log.warning('Skipping malformed audit line: $e');
+        }
       }
     }
 
-    // Reverse for newest first.
-    final reversed = allEntries.reversed.toList();
+    allEntries.sort((a, b) {
+      final timestampOrder = b.entry.timestamp.compareTo(a.entry.timestamp);
+      return timestampOrder != 0 ? timestampOrder : b.sequence.compareTo(a.sequence);
+    });
 
-    // Apply filters.
-    final filtered = reversed.where((entry) {
+    final filtered = allEntries.map((item) => item.entry).where((entry) {
       if (verdictFilter != null && entry.verdict != verdictFilter) return false;
       if (guardFilter != null && !entry.guard.toLowerCase().contains(guardFilter.toLowerCase())) {
         return false;
@@ -86,5 +89,26 @@ class AuditLogReader {
       totalPages: totalPages,
       pageSize: pageSize,
     );
+  }
+
+  Future<List<File>> _auditFiles() async {
+    final directory = Directory(dataDir);
+    if (!await directory.exists()) return const [];
+
+    final files = <File>[];
+    await for (final entity in directory.list()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      if (name == 'audit.ndjson' || _auditFilePattern.hasMatch(name)) {
+        files.add(entity);
+      }
+    }
+    files.sort((a, b) {
+      final aIsLegacy = a.uri.pathSegments.last == 'audit.ndjson';
+      final bIsLegacy = b.uri.pathSegments.last == 'audit.ndjson';
+      if (aIsLegacy != bIsLegacy) return aIsLegacy ? -1 : 1;
+      return a.path.compareTo(b.path);
+    });
+    return files;
   }
 }

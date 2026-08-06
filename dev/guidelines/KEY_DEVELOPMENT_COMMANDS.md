@@ -56,16 +56,11 @@ dart run dartclaw_cli:dartclaw workflow validate <path>
 # Install / sync dependencies (workspace root)
 dart pub get
 
-# Regenerate checked-in embedded asset libraries after editing built-in templates,
-# static files, skills, or workflow definitions. Never hand-edit the generated files.
+# REQUIRED after cloning, and after editing built-in templates, static files,
+# skills, or workflow definitions. The embedded asset libraries are generated,
+# not committed, and lib/ imports them — without this the analyzer reports ~32
+# errors and nothing compiles. CI and dev/tools/build.sh run it automatically.
 dart run dev/tools/embed_assets.dart
-
-# Verify generated asset libraries are current.
-git ls-files --error-unmatch -- \
-  packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
-  packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
-dart run dev/tools/embed_assets.dart
-git diff --exit-code -- '**/generated/embedded_assets.g.dart'
 
 # Build the standalone binary via `dart build cli`. Produces build/bin/dartclaw
 # plus a bundled SQLite library in the sibling build/lib/ (keep the two together;

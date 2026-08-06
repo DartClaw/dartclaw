@@ -53,6 +53,11 @@ target_arch_name() {
   echo "${target##*-}"
 }
 
+# Generated asset libraries are not committed (lib/ imports them), so emit them
+# before compiling or the build fails on a fresh checkout.
+echo "==> Generating embedded assets"
+dart run "$ROOT_DIR/dev/tools/embed_assets.dart"
+
 # Build the release binary with `dart build cli`, which runs the sqlite3 native
 # build hooks and emits a bundle with the executable plus its bundled
 # libsqlite3 in a sibling lib/. `dart compile exe` cannot be used: its

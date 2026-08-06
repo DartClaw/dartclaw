@@ -1,6 +1,6 @@
 # ADR-047: Embedded Binary Assets — Generated Dart Source Replaces the Sidecar/Download Model
 
-**Status:** Accepted — 2026-07-10. Implemented in 0.20.1 (before 0.21 Windows, whose release-artifact story it simplifies). FIS bundle in private repo `docs/specs/0.20.1/`. Amended by [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (2026-07-10): release artifacts are no longer single-file — `dart build cli` bundles the SQLite native library in a sibling `lib/` on every platform. Built-in text and binary assets remain embedded per this ADR. Corrected 2026-07-27 to document the implemented text-map plus binary-byte-map shape and source-tree development precedence; the accepted data-as-code decision is unchanged.
+**Status:** Accepted — 2026-07-10. Implemented in 0.20.1 (before 0.21 Windows, whose release-artifact story it simplifies). FIS bundle in private repo `docs/specs/0.20.1/`. Amended by [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (2026-07-10): release artifacts are no longer single-file — `dart build cli` bundles the SQLite native library in a sibling `lib/` on every platform. Built-in text and binary assets remain embedded per this ADR. Corrected 2026-07-27 to document the implemented text-map plus binary-byte-map shape and source-tree development precedence; the accepted data-as-code decision is unchanged. **Amended 2026-08-06**: the generated libraries are no longer committed — see [Amendment: generated at build time](#amendment-2026-08-06--generated-at-build-time-not-committed). The data-as-code decision itself is unchanged.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-018](018-cli-onboarding-architecture.md) (CLI onboarding — introduced the asset download path), [ADR-038](038-homebrew-formula-publication.md) (Homebrew formula — consumes the platform archive this ADR simplifies)
@@ -29,7 +29,7 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 **Embed all built-in assets as data-as-code: a build-time generator emits checked-in generated Dart libraries, so assets compile into the binary.**
 
 - **Generator**: a plain Dart script (`dev/tools/embed_assets.dart`, no build_runner) walks the four asset directories and emits one checked-in generated library per *owning* package — `dartclaw_server` (templates + static), `dartclaw_workflow` (skills + workflow definitions). Each library exposes a read-only text map (`embeddedServerAssets` / `embeddedWorkflowAssets`, `Map<String, String>`) and a separate binary byte map (`embeddedServerBinaryAssets` / `embeddedWorkflowBinaryAssets`, `Map<String, List<int>>`). Both are base64-backed and lazily decoded with caching; binary values are immutable byte lists, so consumers never UTF-8 re-encode binary assets. Only runtime-read files are embedded: the paired `.dart` template companions (30 files, ~220 K) are compiled into the binary as code and are excluded from the maps — embedded payload is therefore ~63 files / ~1.0 MB.
-- **Checked in + drift-gated**: generated files are committed (pub.dev doesn't run generators; SDK consumers need them present). A CI gate reruns the generator and fails on `git diff`, same discipline as the format gate.
+- ~~**Checked in + drift-gated**: generated files are committed (pub.dev doesn't run generators; SDK consumers need them present). A CI gate reruns the generator and fails on `git diff`, same discipline as the format gate.~~ **Superseded 2026-08-06** — generated at build time, not committed. See the amendment below.
 - **Resolution collapses** to: explicit config → development source tree → discovered source-tree default → embedded. The `installedAlongsideBinary`, `downloadedCache`, and `VERSION`-skew paths are deleted. Dev workflows (`--dev`, maintainer `preferSourceTree`, `examples/run.sh`) keep reading files directly from the checkout — the embedded maps are the compiled-binary default, not a dev-path replacement.
 - **Consumers**:
   - Template `loader.dart` reads text from `embeddedServerAssets` only for the embedded fallback; explicit, `--dev`, and discovered source-tree assets retain filesystem precedence.
@@ -73,6 +73,24 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 ## Project Compliance
 
 Aligns with the binding core philosophy: root cause over workaround (deletes the download/skew machinery instead of hardening it), reuse before build (materializer and dev-mode seams unchanged), smallest change (plain script, no build_runner), approachable over clever (data-as-code is inspectable, greppable, codesign-safe).
+
+## Amendment (2026-08-06) — generated at build time, not committed
+
+**The generated libraries are gitignored and emitted by the build instead of being committed.**
+
+The original rationale — "pub.dev doesn't run generators; SDK consumers need them present" — assumed both owning packages ship to pub.dev. [ADR-008](008-sdk-publishing-strategy.md) was narrowed the same day: publication intent is per-package and both owners (`dartclaw_server`, `dartclaw_workflow`) are undecided. Nothing is published today, so the constraint does not bind now; it binds at first publish.
+
+Weighed against that: the committed `dartclaw_server` library is 1.7 MB of base64 (`dartclaw_workflow`'s is 70 KB), rewritten on every template, static-asset, skill, or definition edit — 13 commits so far. Staleness was gated twice (a CI `git diff` step and `embedded_assets_test.dart`) and still shipped a broken branch, because both gates only fire well after the edit. Generating always makes staleness structurally impossible rather than merely detected.
+
+**What changed**
+- Both files are in `.gitignore`; `git rm --cached` removed them from tracking.
+- `dart run dev/tools/embed_assets.dart` runs in `.github/workflows/ci.yml` (before format/analyze/test), in `dev/tools/build.sh` (before `dart build cli`), and in `dev/tools/release_check.sh`.
+- The CI `git diff` drift gate is deleted — it can no longer fail.
+- `embedded_assets_test.dart` is kept: it now verifies generator correctness (generated content matches sources) rather than commit freshness, and still catches a developer who edits an asset without regenerating.
+
+**Cost accepted**: `lib/` imports the generated libraries, so a fresh checkout reports ~32 analyzer errors until the generator is run once. That bootstrap step is documented in `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` and both package `CLAUDE.md` files.
+
+**Publishing requirement (unresolved until first publish)**: a published package must physically contain its generated library — there is no consumer-side mechanism to produce importable Dart source. Build hooks (`hook/build.dart`) emit only `CodeAsset` native libraries consumed via `dart:ffi`, not importable source; `build_runner` does not run for consumers of a published package. `dart pub publish` selects files by walking the filesystem and filtering by ignore rules, and a `.pubignore` *replaces* a directory's `.gitignore` — so a package-local `.pubignore` that does not list the generated file should publish it even though git ignores it. **That path is inferred from the packaging rules, not verified.** Before the first publish of either owning package: run the generator, then `dart pub publish --dry-run` and confirm `lib/src/generated/embedded_assets.g.dart` appears in the file listing. If it does not, add the package-local `.pubignore` or unignore the file for that package. Do not assume it works.
 
 ## References
 

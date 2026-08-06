@@ -55,3 +55,10 @@ statics
 .claude/skills/dartclaw-*
 notes/
 examples/sdk/*/.dartclaw-sdk-example/
+
+# Generated embedded asset libraries — emitted by dev/tools/embed_assets.dart.
+# Not committed: they are large, churn on every template/skill edit, and go
+# stale silently. CI and dev/tools/build.sh generate them; run the generator
+# once after cloning (see dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md).
+packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
+packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart

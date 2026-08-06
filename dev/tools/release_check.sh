@@ -119,17 +119,15 @@ else
   tail -20 /tmp/release_check_fmt.log | sed 's/^/        /'
 fi
 
-section "5. Embedded asset drift"
+section "5. Embedded assets"
 if {
-  git ls-files --error-unmatch -- \
-    packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
-    packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
   dart run dev/tools/embed_assets.dart
-  git diff --exit-code -- '**/generated/embedded_assets.g.dart'
+  test -s packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
+  test -s packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
 } > /tmp/release_check_assets.log 2>&1; then
-  pass "embedded assets current"
+  pass "embedded assets generated"
 else
-  fail "embedded assets drifted — see /tmp/release_check_assets.log"
+  fail "embedded asset generation failed — see /tmp/release_check_assets.log"
   tail -40 /tmp/release_check_assets.log | sed 's/^/        /'
 fi
 

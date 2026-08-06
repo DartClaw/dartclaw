@@ -114,20 +114,20 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 
 **Pass:**
 - Sidebar visible at desktop with sections per TC-04
-- Chat area: empty state illustration, "No messages yet" heading, subtext
+- Chat area: centered prompt hero with mascot, "Welcome back" heading, and start-conversation subtext
 - Input fixed at bottom; Send button disabled while textarea is empty
 - Mobile (375px): hamburger visible, sidebar hidden behind it
 
-**Fail:** No system nav in sidebar; no empty-state illustration; sidebar visible at mobile
+**Fail:** No system nav in sidebar; prompt hero or mascot missing; sidebar visible at mobile
 
 ---
 
 ### TC-06: Chat Page — Layout & Topbar
 **Steps:**
-1. Open a session at `/sessions/<id>` (Agent in Workspace works)
+1. Open Agent in Workspace, then open a user-created chat at `/sessions/<id>`
 
 **Pass:**
-- Editable title input in topbar
+- Agent keeps the fixed Workspace identity; the user-created chat has an editable title input
 - **ℹ button** in topbar links to `/sessions/<id>/info`
 - Theme toggle and (desktop) Reset button in topbar
 - Sidebar shows the active session with accent left-border (Workspace/Agent stays highlighted for the main session)
@@ -178,7 +178,8 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 
 **Pass:**
 - Status hero: status icon + uptime + version
-- Service cards: WORKER, DATABASE, SESSIONS, STORAGE with colored badges
+- KPI row: UPTIME, SESSIONS, DB SIZE, TASK ARTIFACTS
+- Status panel includes Worker state; the Storage service card reports Database and Sessions storage, with optional Pub/Sub status when configured
 - Audit table renders (rows or "no events"); expandable rows for entries with detail
 - SYSTEM nav: **Health (active)** highlighted
 - No console errors

@@ -99,7 +99,7 @@
                 <div tl:each="field : ${def.variableInputs}" class="form-field">
                   <label class="form-label t-caption tracking-caps" tl:attr="for=${field.id}" tl:text="${field.label}">Variable</label>
                   <input class="form-input" type="text"
-                         tl:attr="id=${field.id},name=${field.inputName},placeholder=${field.placeholder},value=${field.defaultValue},required=${field.required} ? 'required' : null">
+                         tl:attr="id=${field.id},name=${field.inputName},placeholder=${field.placeholder},value=${field.defaultValue}">
                 </div>
                 <div tl:if="${hasProjects}" class="form-field">
                   <label class="form-label t-caption tracking-caps" tl:attr="for=${def.projectSelectId}">Project</label>

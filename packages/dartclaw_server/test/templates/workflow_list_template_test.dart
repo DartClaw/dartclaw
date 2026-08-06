@@ -223,6 +223,15 @@ void main() {
       expect(html, isNot(contains('onclick=')));
     });
 
+    test('launch forms defer required variable validation to the inline error target', () {
+      final html = _render(definitions: [_makeDefinition()]);
+      final requiredVariableInput = RegExp(r'<input[^>]*name="var_FEATURE"[^>]*>').firstMatch(html)?.group(0);
+
+      expect(requiredVariableInput, isNotNull);
+      expect(requiredVariableInput, isNot(contains(' required')));
+      expect(html, contains('id="workflow-error-spec-and-implement"'));
+    });
+
     test('renders definition description', () {
       final html = _render(definitions: [_makeDefinition(description: 'Full feature pipeline')]);
       expect(html, contains('Full feature pipeline'));

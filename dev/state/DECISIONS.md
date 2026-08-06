@@ -22,7 +22,7 @@
 | [005](../adrs/005-whatsapp-integration.md) | WhatsApp Integration Approach | Accepted (implemented) | Channels |
 | [006](../adrs/006-http-auth-scope.md) | HTTP Auth Scope and Mechanism | Accepted (implemented) | Security / auth |
 | [007](../adrs/007-system-prompt-architecture.md) | System Prompt Architecture | Proposed | Agent prompts |
-| [008](../adrs/008-sdk-publishing-strategy.md) | SDK Publishing Strategy | Accepted | SDK / release |
+| [008](../adrs/008-sdk-publishing-strategy.md) | SDK Publishing Strategy | Accepted (narrowed 2026-08-06 — publication intent is per-package; server/workflow undecided) | SDK / release |
 | [009](../adrs/009-internal-mcp-server.md) | Internal MCP Server as Primary Tool Extension Point | Accepted | MCP / tools |
 | [010](../adrs/010-package-split-models.md) | Package Split — `dartclaw_models` | Accepted | Packaging |
 | [011](../adrs/011-event-driven-architecture.md) | Lightweight Event Bus for Internal Decoupling | Proposed | Architecture / events |

@@ -22,10 +22,25 @@ cd "$ROOT_DIR"
 # The case-insensitive match covers both `andthen` and `dartclaw-discover-andthen`
 # (the latter is a subset of the former under -i).
 
-matches="$(rg -i 'andthen' packages/dartclaw_workflow/lib/src/ \
+rg_scan() {
+  local description="$1" output rc
+  shift
+  output="$(rg "$@" 2>&1)" && rc=0 || rc=$?
+  case "$rc" in
+    0) printf '%s' "$output" ;;
+    1) ;;
+    *)
+      echo "Fitness function failed: rg scan error (exit $rc): $description" >&2
+      [[ -z "$output" ]] || echo "$output" >&2
+      return 2
+      ;;
+  esac
+}
+
+matches="$(rg_scan 'framework literals' -i 'andthen' packages/dartclaw_workflow/lib/src/ \
   -g '!**/definitions/*.yaml' \
   -g '!**/generated/*' \
-  --with-filename -n 2>/dev/null || true)"
+  --with-filename -n)"
 matches="$(printf '%s' "$matches" | sed '/^$/d')"
 
 if [[ -n "$matches" ]]; then
@@ -45,7 +60,7 @@ scoring_files=(
 )
 
 scoring_pattern='FIS|Fix/Note|review-verdict\.md|fis-authoring-guidelines\.md'
-scoring_matches="$(rg "$scoring_pattern" "${scoring_files[@]}" --with-filename -n 2>/dev/null || true)"
+scoring_matches="$(rg_scan 'framework scoring concepts' "$scoring_pattern" "${scoring_files[@]}" --with-filename -n)"
 scoring_matches="$(printf '%s' "$scoring_matches" | sed '/^$/d')"
 
 if [[ -n "$scoring_matches" ]]; then

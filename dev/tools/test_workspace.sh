@@ -13,6 +13,9 @@ dart run dev/tools/embed_assets.dart
 echo "==> Testing developer tools"
 bash dev/tools/parallels_windows_test.sh
 bash dev/tools/release_check_test.sh
+bash dev/tools/fitness/test_run_all_prerequisites.sh
+bash dev/tools/fitness/test_check_no_workflow_private_config.sh
+bash dev/tools/fitness/test_check_no_framework_coupling.sh
 
 # Every package runs at default parallelism. Suites share one OS process, so
 # cross-suite coupling can only come through process-level state: ports (all

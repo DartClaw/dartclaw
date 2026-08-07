@@ -23,6 +23,12 @@ cat > "$TMPDIR/packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.da
 const embeddedPath = 'skills/dartclaw-discover-andthen-plan/SKILL.md';
 DART
 
+mkdir -p "$TMPDIR/packages/dartclaw_workflow/lib/src/workflow"
+touch \
+  "$TMPDIR/packages/dartclaw_workflow/lib/src/workflow/review_scoring_fragment.dart" \
+  "$TMPDIR/packages/dartclaw_workflow/lib/src/workflow/review_finding_derivations.dart" \
+  "$TMPDIR/packages/dartclaw_workflow/lib/src/workflow/schema_presets.dart"
+
 # Synthesize a rogue mixed-case literal under lib/src/skills. This is engine
 # code, not the package-root bundled skill payload directory, so the gate must
 # scan it.
@@ -46,5 +52,21 @@ if ! bash dev/tools/fitness/check_no_framework_coupling.sh >/dev/null 2>&1; then
   echo "FAIL: fitness script reported failure on a clean synthetic tree with allowed built-in YAML/generated literals"
   exit 1
 fi
+
+mkdir -p "$TMPDIR/bin"
+cat > "$TMPDIR/bin/rg" <<'SH'
+#!/usr/bin/env bash
+exit 2
+SH
+chmod +x "$TMPDIR/bin/rg"
+if PATH="$TMPDIR/bin:$PATH" bash dev/tools/fitness/check_no_framework_coupling.sh > "$TMPDIR/rg-error.log" 2>&1; then
+  echo "FAIL: fitness script passed when rg could not scan"
+  exit 1
+fi
+if grep -q 'Fitness function passed' "$TMPDIR/rg-error.log"; then
+  echo "FAIL: fitness script printed a pass result after an rg scan error"
+  exit 1
+fi
+grep -q 'rg scan error (exit 2)' "$TMPDIR/rg-error.log"
 
 echo "OK: fitness script detects rogue AndThen literals and permits built-in YAML/generated literals"

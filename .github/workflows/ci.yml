@@ -26,6 +26,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep
           dart pub get --enforce-lockfile
           dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
 

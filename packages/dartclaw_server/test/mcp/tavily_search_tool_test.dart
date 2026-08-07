@@ -39,8 +39,8 @@ void main() {
   group('TavilySearchTool', () {
     group('MCP interface', () {
       test('name is tavily_search — wire contract', () {
-        // The MCP-exposed name, and thus the suffix of the harness-visible
-        // `mcp__dartclaw__<name>` identifier. No code branches on this literal.
+        // The MCP-exposed name — the Claude harness surfaces it as
+        // `mcp__dartclaw__<name>`. No code branches on this literal.
         expect(TavilySearchTool(provider: _MockProvider()).name, 'tavily_search');
       });
 

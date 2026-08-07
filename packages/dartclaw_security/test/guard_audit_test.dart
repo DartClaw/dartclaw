@@ -26,17 +26,19 @@ void main() {
         final dir = Directory.systemTemp.createTempSync('guard_audit_flush_');
         addTearDown(() => dir.deleteSync(recursive: true));
         final logger = GuardAuditLogger(dataDir: dir.path);
+        // One sample: the write and read paths must name the same partition.
+        final now = DateTime.now();
 
         logger.logVerdict(
           verdict: const GuardBlock('nope'),
           guardName: 'command',
           guardCategory: 'shell',
           hookPoint: 'beforeToolCall',
-          timestamp: DateTime.now(),
+          timestamp: now,
         );
         await logger.flush();
 
-        final file = File(_auditFilePathForDate(dir, DateTime.now()));
+        final file = File(_auditFilePathForDate(dir, now));
         expect(file.existsSync(), isTrue);
         expect(_readAuditEntries(file), hasLength(1));
       });

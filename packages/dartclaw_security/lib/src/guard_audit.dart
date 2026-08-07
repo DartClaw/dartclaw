@@ -304,7 +304,10 @@ class GuardAuditLogger {
   /// Returns the number of deleted files. `0` disables cleanup.
   Future<int> cleanOldFiles(int maxRetentionDays) {
     final cleanup = _pendingWrite.then((_) => _cleanOldFilesInternal(maxRetentionDays));
-    _pendingWrite = cleanup.then((_) {});
+    // Same reset as writeEntry: the invariant that the shared chain is never
+    // left errored must hold structurally, not by _cleanOldFilesInternal's
+    // catch-all happening to swallow everything.
+    _pendingWrite = cleanup.then((_) {}, onError: (_) {});
     return cleanup;
   }
 

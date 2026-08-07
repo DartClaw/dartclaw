@@ -21,6 +21,10 @@ class _TrackingConfigNotifier extends ConfigNotifier {
   }
 }
 
+/// Debounce window for the real-filesystem coalescing test — wide enough that
+/// its five writes cannot straddle it under load.
+const _debounceMs = 1000;
+
 DartclawConfig _defaultConfig() => DartclawConfig.load();
 
 void main() {
@@ -415,7 +419,7 @@ void main() {
           // 1s window: the 5 writes below span ~100ms, so they stay inside it even
           // when load stretches the gaps. A window near the write span would let a
           // straddled gap fire the timer twice and legitimately produce 2 reloads.
-          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 1000),
+          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: _debounceMs),
           configLoader: loader,
         );
         svc.start();
@@ -427,9 +431,13 @@ void main() {
         }
 
         await _waitForCount(() => loaderCallCount, 1);
-        // quiet > debounceMs, or a second cycle lands after the window and is
-        // never observed — the assertion would pass without proving coalescing.
-        final settled = await _waitForStableCount(() => loaderCallCount, quiet: const Duration(milliseconds: 1300));
+        // 2x the debounce: one full window to catch a second cycle, plus an equal
+        // allowance for late watch delivery. Anything <= the debounce would let a
+        // second reload land unobserved and the assertion would prove nothing.
+        final settled = await _waitForStableCount(
+          () => loaderCallCount,
+          quiet: const Duration(milliseconds: _debounceMs * 2),
+        );
 
         // Coalescing is the subject: 5 writes inside one debounce window must
         // produce exactly one reload on the real ReloadTriggerService. Waiting
@@ -568,7 +576,11 @@ void main() {
 /// Proving "no further reload arrives" needs quiescence, not a fixed delay
 /// sized against the debounce — that races watch delivery under load. Returns
 /// early once the value holds steady for [quiet], or at the cap.
-Future<int> _waitForStableCount(int Function() count, {Duration quiet = const Duration(milliseconds: 300)}) async {
+///
+/// [quiet] must exceed the debounce window under test plus an allowance for
+/// filesystem-watch delivery lag, or a second debounce cycle lands after the
+/// window closes and the caller's exact-count assertion proves nothing.
+Future<int> _waitForStableCount(int Function() count, {required Duration quiet}) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   var last = count();
   var stableSince = DateTime.now();

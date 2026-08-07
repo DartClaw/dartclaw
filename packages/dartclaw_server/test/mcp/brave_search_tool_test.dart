@@ -39,8 +39,8 @@ void main() {
   group('BraveSearchTool', () {
     group('MCP interface', () {
       test('name is brave_search — wire contract', () {
-        // The MCP-exposed name, and thus the suffix of the harness-visible
-        // `mcp__dartclaw__<name>` identifier. No code branches on this literal.
+        // The MCP-exposed name — the Claude harness surfaces it as
+        // `mcp__dartclaw__<name>`. No code branches on this literal.
         expect(BraveSearchTool(provider: _MockProvider()).name, 'brave_search');
       });
 

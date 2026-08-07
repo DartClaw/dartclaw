@@ -56,7 +56,8 @@ dart run dartclaw_cli:dartclaw workflow validate <path>
 # Install / sync dependencies (workspace root)
 dart pub get
 
-# REQUIRED after cloning, and after editing built-in templates, static files,
+# REQUIRED after cloning or creating a git worktree, and after editing
+# built-in templates, static files,
 # skills, or workflow definitions. The embedded asset libraries are generated,
 # not committed, and lib/ imports them — without this the analyzer reports ~32
 # errors and nothing compiles. CI and dev/tools/build.sh run it automatically.
@@ -121,6 +122,8 @@ touch package boundaries, tests, build tooling, workflow definitions, or cross-p
 `.github/workflows/ci.yml`, with an added whitespace check.
 
 ```bash
+dart pub get --enforce-lockfile
+dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
 dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos

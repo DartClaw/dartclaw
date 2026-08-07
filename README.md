@@ -4,9 +4,9 @@
 
 # DartClaw
 
-_Agentic powers. No dependency black holes. Secure by design._
+_Agentic powers. No supply-chain roulette. Secure by design._
 
-**Take a coding agent. Give it memory, a schedule, and a phone number.** That's DartClaw: a security-conscious runtime that turns Claude Code, Codex, or any ACP-compliant agent into a persistent personal AI – one that remembers across sessions, reaches you on WhatsApp, Signal, or Google Chat, runs scheduled jobs and background tasks, and ships entire coding workflows. Between the agent and your system stand real security boundaries – containers, fail-closed guards, credential isolation – not just a strongly-worded system prompt. And it all fits in one AOT-compiled Dart binary: no Node.js, no npm, no sprawling dependency tree. The web UI, templates, skills, and workflow definitions are baked in; a bundled SQLite is the only thing it brings along.
+**DartClaw turns coding agents into a persistent, security-conscious personal AI.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or any ACP-compliant agent and equips it with long-term memory and a citation-backed knowledge engine, chat access via WhatsApp, Signal, and Google Chat, scheduled jobs and background tasks, subagent delegation, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. And the supply chain won't keep you up at night: no Node.js, no npm, a dependency list short enough to audit, every asset compiled into the binary, and a bundled SQLite as the only native companion. What you install is exactly what runs.
 
 > [!NOTE]
 > DartClaw is **experimental** (soft-published, pre-alpha) – breaking changes are expected while the core matures.
@@ -214,6 +214,7 @@ Dart pub workspace – all packages share dependencies and resolve locally.
 
 ```bash
 dart pub get
+dart run dev/tools/embed_assets.dart   # required after cloning: generates the embedded asset libraries lib/ imports
 dart analyze
 dart test packages/dartclaw_core
 dart test packages/dartclaw_server

@@ -1,7 +1,7 @@
 # DartClaw Testing Strategy
 
 > **Status**: Active
-> **Current through**: 0.14.7
+> **Current through**: 0.23
 > **Scope**: All packages in the DartClaw pub workspace
 
 ---

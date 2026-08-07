@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.23.0] - Unreleased
 
 ### Added
 
@@ -19,9 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Session and task state stays authoritative during concurrent updates** – draft creation is serialized with rename/send mutations, turn-status polling rejects stale responses, and the Running sidebar lists only executing tasks.
-
-### Changed
-
 - **Embedded asset libraries are generated, not committed** – `packages/*/lib/src/generated/embedded_assets.g.dart` is gitignored and emitted by `dart run dev/tools/embed_assets.dart`, which CI, `dev/tools/build.sh`, and `dev/tools/release_check.sh` run automatically. Anyone building from a checkout must run it once after cloning; `lib/` imports these files, so the analyzer fails until they exist. See [ADR-047](dev/adrs/047-embedded-binary-assets.md).
 
 ### Removed

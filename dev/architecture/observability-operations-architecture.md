@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.20
+**Current through**: 0.23
 
 ---
 

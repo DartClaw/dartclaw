@@ -2,7 +2,7 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
-## 0.22.1 release-close decision debt
+## 0.23 release-close decision debt
 
 | Ledger | Deferred cleanup | Reason |
 |---|---|---|
@@ -143,15 +143,15 @@ Last reviewed: 2026-05-31
 **Severity**: Medium (security / auditability – decision made, implementation pending)
 **Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (claude review S-1)
 **Affects**: `packages/dartclaw_server/lib/src/mcp/kg_tools.dart`; `service_wiring_mcp_tools.dart`
-**Target**: 0.25 (Knowledge Interop & Steward, Phase A – retargeted 2026-07-29 from stale 0.18)
+**Target**: 0.27 (Knowledge Interop & Steward, Phase A – shifted 2026-08-07 from 0.25)
 
 **Context**: `kg_add`/`kg_invalidate` are registered with no `contentGuard` and no audit logging, and MCP `tools/call` dispatch does not traverse `GuardChain`; `kg_invalidate` accepts an arbitrary integer id with no session/ownership check. The PRD claims KG writes are logged via existing audit infrastructure, which is not wired.
 
-**Decision**: made (operator, 2026-07-29): dispatch-level enforcement – bring MCP `tools/call` dispatch under `GuardChain` at one seam (all write-capable tools, not just KG), wire KG writes/invalidations into the existing audit sink, add an ownership/scope check on `kg_invalidate` ids. ADR to be authored in the 0.25 milestone. Note: the affected wiring files may move under the 0.23 storage refactor – re-verify paths at 0.25 planning.
+**Decision**: made (operator, 2026-07-29): dispatch-level enforcement – bring MCP `tools/call` dispatch under `GuardChain` at one seam (all write-capable tools, not just KG), wire KG writes/invalidations into the existing audit sink, add an ownership/scope check on `kg_invalidate` ids. ADR to be authored in the 0.27 milestone. Note: the affected wiring files may move under the 0.25 storage refactor – re-verify paths at 0.27 planning.
 
 **Fix**: Implement the dispatch-level guard traversal + audit wiring + `kg_invalidate` ownership check per the decision above.
 
-**Trigger**: scheduled – 0.25 Phase A (this is the enforcement point for the 0.25 steward workflow's human-acceptance invariant).
+**Trigger**: scheduled – 0.27 Phase A (this is the enforcement point for the 0.27 steward workflow's human-acceptance invariant).
 
 **References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-claude-2026-05-30-9.md` (S-1, MEDIUM).
 

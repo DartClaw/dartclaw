@@ -4,9 +4,9 @@
 
 ## Active Milestone
 
-### 0.22.1 — Design-System Refinement & Web UI Polish
+### 0.23 — Design-System Refinement, Web UI Polish & Runtime Hardening
 
-**Status: Implemented; release-close validation pending.** Point release opened 2026-07-25 after a post-release audit of `v0.22.0`
+**Status: Implemented; release-close validation pending.** Opened 2026-07-25 after a post-release audit of `v0.22.0`
 (23 surfaces, 92 screenshots, both themes) found 232 verified defects whose root causes are in the design-system canon
 itself: `.sidebar`/`.topbar`/`.card` and the end stop of the body ground gradient all resolve to `--bg-mantle`
 (card-vs-ground contrast 1.07:1), card colour is entirely `:hover`-gated, three of seven type tiers sit inside a 2px
@@ -15,27 +15,38 @@ revision, type-scale rationalization + composite type layer, a `--container-wide
 native-dialog eradication, a 64-issue glitch sweep, and local vendoring of the remaining CDN runtime dependencies. All
 16 original stories are complete. Post-plan work also refined session navigation and corrected deployment, onboarding,
 Signal, and Signal/WhatsApp typing behavior. Fresh council and visual validation are in progress; paired-device typing
-checks remain manual release-close work. Sequenced before 0.24, whose Phase-0 chat components this release changes by
+checks remain manual release-close work. Sequenced before 0.26, whose Phase-0 chat components this release changes by
 construction.
 
 ## Planned
 
-### 0.23 — Pluggable Database Backend & Multi-Language Search
+### 0.24 — Delegation Correctness & Scheduling Operability
+
+Make delegated execution honor configured agent tool policies, personas, and models on the live dispatch path; add the
+built-in `memory.journal` maintenance job; and expose safe on-demand scheduled-job execution through CLI, API, and Web
+UI. Renumbered from the planned 0.22.2 bundle when the current release became 0.23.
+
+### 0.25 — Pluggable Database Backend & Multi-Language Search
 
 ADR-045 (Accepted 2026-07-24; schema strategy amended 2026-07-30): `DatabaseBackend` abstraction + current-schema bootstrap/compatibility gate (SQLite-only refactor first; no versioned migration runner during pre-alpha), then the opt-in `PostgresBackend` with core-PG `tsvector` language-aware FTS (Swedish/multi-language — the milestone's driving requirement), credential-reference `DATABASE_URL`, and a dual-backend contract-test suite. Native hybrid search including `pgvector` follows in Phase B under ADR-050. Backend track, parallel to the UI track.
 
-### 0.24 — Chat & Session Experience
+### 0.26 — Chat & Session Experience
 
 Best-in-class Web chat + session-management control-plane on the Afterglow system — the app-track flagship. Sequenced
-after 0.22 (renumbered from 0.23 on 2026-07-24). **Hard prerequisite: 0.22.1** — its canon revision changes the
+after 0.22 (renumbered from 0.23 on 2026-07-24). **Hard prerequisite: 0.23** — its canon revision changes the
 Phase-0 conversation components (`.composer`, `.tool-call`, `.approval-card`, `.notif-item`, `.palette-item`) this
 milestone builds on (added 2026-07-25).
 
-### 0.25 — Workflow Track: DSL v2
+### 0.27 — Knowledge Interop & Steward
+
+Guarded knowledge writes, the deferred validation/dogfooding/steward loop, OKF bundle interop, and governed idle-time
+memory curation. Reuses the 0.24 journal and on-demand job surfaces and follows the 0.25 storage/search seams.
+
+### 0.28 — Workflow Track: DSL v2
 
 Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `agents:`, fresh-context loops, conditional `approval:` routing) plus the TR-10 server-first authoring UI. First slice of the workflow track (the 2026-07-04 rebrand's "0.22" target, split + renumbered 2026-07-06, shifted again 2026-07-24).
 
-### 0.26 — Workflow Track: Dynamic Workflows + Orchestration Agent
+### 0.29 — Workflow Track: Dynamic Workflows + Orchestration Agent
 
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
@@ -46,7 +57,7 @@ Runtime-composed, schema-validated workflows (generate-validate-run, restored `w
 Tagged `v0.22.0` on 2026-07-25. Full Web UI adoption of the canonical "Afterglow" design system plus the drift-checked
 `design-system.css`/`app.css` split. All 14 stories complete; final implementation review passed. Its structural
 acceptance criteria hold (zero inline styles, zero template-local `<style>` blocks, tokenized typography) — the
-refinement follow-up in 0.22.1 addresses canon-level quality, not 0.22 execution. See `CHANGELOG.md` for details.
+refinement follow-up in 0.23 addresses canon-level quality, not 0.22 execution. See `CHANGELOG.md` for details.
 
 ### 0.21 — Windows Support & Cross-Platform Hardening ✅
 

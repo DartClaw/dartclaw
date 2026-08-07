@@ -11,7 +11,7 @@ _Agentic powers. No supply-chain roulette. Secure by design._
 > [!NOTE]
 > DartClaw is **experimental** (soft-published, pre-alpha) – breaking changes are expected while the core matures.
 >
-> _Status_: 0.22.0 – the Afterglow design-system overhaul. See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.23.0 release candidate – design-system refinement, Web UI polish, and runtime hardening. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI – Task Dashboard" width="720">

@@ -578,9 +578,9 @@ Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
 
 Periodic agent check-ins via `HEARTBEAT.md`. Each cycle:
 1. Reads `HEARTBEAT.md` from workspace
-2. Dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`)
-3. Optionally triggers `MemoryConsolidator` if `MEMORY.md` exceeds threshold (default: 32KB)
-4. Optionally commits workspace changes via `WorkspaceGitSync`
+2. If present and non-empty, dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`)
+3. After a dispatched checklist, optionally triggers `MemoryConsolidator` if `MEMORY.md` exceeds threshold (default: 32KB)
+4. Independently attempts workspace sync via `WorkspaceGitSync`, including when the checklist is missing or empty
 
 Implements `Reconfigurable` -- watches `scheduling.*` for interval changes. Restarts timer if interval changes while running.
 

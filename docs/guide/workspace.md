@@ -16,7 +16,7 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
     wiki/
       README.md      # Wiki conventions and provenance guidance
     HEARTBEAT.md     # Periodic checklist (human-maintained)
-    .gitignore       # Auto-created if git sync enabled
+    .gitignore       # Created or supplemented if git sync enabled
   sessions/          # Per-session message history (NDJSON)
   logs/              # Daily logs and structured logs
   agents/
@@ -159,4 +159,7 @@ The system prompt is assembled in this order:
 
 ## Git Sync
 
-When enabled (default), DartClaw auto-initializes a git repo in the workspace and commits changes on each heartbeat cycle. Push to a remote if `origin` is configured. See [Configuration](configuration.md) for `workspace.git_sync` options.
+When enabled (default), DartClaw auto-initializes a git repo in the workspace and attempts to commit changes on every
+enabled heartbeat timer cycle, even when `HEARTBEAT.md` is missing or empty. Existing `.gitignore` content is preserved
+while DartClaw adds any missing default exclusions. Push to a remote if `origin` is configured. See
+[Configuration](configuration.md) for `workspace.git_sync` options.

@@ -3,6 +3,7 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 ## Unreleased
 
 ### Fixed
+- Workspace git sync runs on heartbeat timer cycles without requiring `HEARTBEAT.md` content and supplements cloned repositories with missing default ignore entries
 - The default SOUL scaffold defers to active onboarding's direct-or-draft mutation policy
 - Signal pairing preserves indeterminate registration state instead of starting a competing link flow
 - Responsive memory, channel, composer-palette, and pairing surfaces contain long values without page-wide overflow

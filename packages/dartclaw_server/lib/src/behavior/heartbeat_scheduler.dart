@@ -10,9 +10,9 @@ import '../workspace/workspace_git_sync.dart';
 
 /// Periodically processes HEARTBEAT.md in isolated sessions.
 ///
-/// Each heartbeat run reads HEARTBEAT.md from the workspace, dispatches its
-/// content as a turn in a unique isolated session, then logs the result.
-/// Optionally commits workspace changes via [WorkspaceGitSync] after each cycle.
+/// Each heartbeat cycle reads HEARTBEAT.md from the workspace. Non-empty
+/// content is dispatched in a unique isolated session. Workspace sync can run
+/// after every cycle, including cycles without a checklist turn.
 class HeartbeatScheduler implements Reconfigurable {
   static final _log = Logger('HeartbeatScheduler');
 
@@ -73,48 +73,53 @@ class HeartbeatScheduler implements Reconfigurable {
   Future<void> runOnce() => _runHeartbeat();
 
   Future<void> _runHeartbeat() async {
-    final path = p.join(workspaceDir, 'HEARTBEAT.md');
-
-    String content;
     try {
-      content = await File(path).readAsString();
-    } on FileSystemException {
-      _log.fine('No HEARTBEAT.md found — skipping cycle');
-      return;
-    } on FormatException catch (e) {
-      _log.warning('HEARTBEAT.md has invalid encoding: ${e.message} — skipping cycle');
-      return;
+      final path = p.join(workspaceDir, 'HEARTBEAT.md');
+
+      String content;
+      try {
+        content = await File(path).readAsString();
+      } on FileSystemException {
+        _log.fine('No HEARTBEAT.md found — skipping checklist');
+        return;
+      } on FormatException catch (e) {
+        _log.warning('HEARTBEAT.md has invalid encoding: ${e.message} — skipping checklist');
+        return;
+      }
+
+      if (content.trim().isEmpty) {
+        _log.fine('HEARTBEAT.md is empty — skipping checklist');
+        return;
+      }
+
+      final sessionKey = 'agent:main:heartbeat:${DateTime.now().toUtc().toIso8601String()}';
+      _log.info('Running heartbeat in session $sessionKey');
+
+      try {
+        await _dispatch(sessionKey, 'Process this checklist:\n\n$content');
+      } catch (e, st) {
+        _log.severe('Heartbeat dispatch failed', e, st);
+      }
+
+      // Memory consolidation: if MEMORY.md exceeds threshold, dispatch cleanup turn
+      await (_consolidator ??
+              MemoryConsolidator(
+                workspaceDir: workspaceDir,
+                dispatch: _dispatch,
+                threshold: memoryConsolidationThreshold,
+              ))
+          .runIfNeeded();
+    } finally {
+      await _syncWorkspace();
     }
+  }
 
-    if (content.trim().isEmpty) {
-      _log.fine('HEARTBEAT.md is empty — skipping cycle');
-      return;
-    }
-
-    final sessionKey = 'agent:main:heartbeat:${DateTime.now().toUtc().toIso8601String()}';
-    _log.info('Running heartbeat in session $sessionKey');
-
-    try {
-      await _dispatch(sessionKey, 'Process this checklist:\n\n$content');
-    } catch (e, st) {
-      _log.severe('Heartbeat dispatch failed', e, st);
-    }
-
-    // Memory consolidation: if MEMORY.md exceeds threshold, dispatch cleanup turn
-    await (_consolidator ??
-            MemoryConsolidator(
-              workspaceDir: workspaceDir,
-              dispatch: _dispatch,
-              threshold: memoryConsolidationThreshold,
-            ))
-        .runIfNeeded();
-
-    // Commit workspace changes after heartbeat (git failure never fails heartbeat)
+  Future<void> _syncWorkspace() async {
     if (_gitSync != null) {
       try {
         await _gitSync.commitAndPush();
       } catch (e) {
-        _log.warning('Git sync after heartbeat failed: $e');
+        _log.warning('Workspace git sync failed: $e');
       }
     }
   }

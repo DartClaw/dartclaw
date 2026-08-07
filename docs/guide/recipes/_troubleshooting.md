@@ -63,7 +63,8 @@ If/when announce routing is implemented:
        enabled: true
    ```
 2. **Is the workspace a git repo?** Run `ls -la <data_dir>/workspace/.git` to check. If not: `cd <data_dir>/workspace && git init`
-3. **Are there changes to commit?** Git sync only commits when workspace files change. If nothing changed since the last heartbeat, no commit is created
+3. **Is heartbeat enabled and firing?** Git sync uses the heartbeat timer, but does not require a non-empty `HEARTBEAT.md`
+4. **Are there changes to commit?** Git sync only commits when workspace files change. If nothing changed since the last heartbeat cycle, no commit is created
 
 ### Git push failing
 

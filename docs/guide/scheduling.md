@@ -4,7 +4,8 @@ DartClaw supports periodic tasks via the heartbeat scheduler and cron-style job 
 
 ## Heartbeat
 
-The heartbeat scheduler processes `HEARTBEAT.md` at regular intervals (default: 30 minutes). Each run creates an isolated session.
+The heartbeat scheduler checks `HEARTBEAT.md` at regular intervals (default: 30 minutes). A non-empty checklist creates
+an isolated session; missing or empty checklists skip the agent turn while workspace git sync can still run.
 
 ### Configuration
 
@@ -30,10 +31,9 @@ The agent processes the entire checklist in a single turn. Results are logged bu
 ### Heartbeat Lifecycle
 
 1. Read `HEARTBEAT.md` from workspace
-2. Skip if missing or empty
-3. Dispatch to isolated session (`agent:main:heartbeat:<ISO8601>`)
-4. Run memory consolidation (if MEMORY.md > 32KB)
-5. Git commit workspace changes (if git sync enabled)
+2. If present and non-empty, dispatch to an isolated session (`agent:main:heartbeat:<ISO8601>`)
+3. After a dispatched checklist, run memory consolidation (if MEMORY.md > 32KB)
+4. Attempt to commit workspace changes if git sync is enabled, even when the checklist was missing or empty
 
 ## Cron Jobs
 

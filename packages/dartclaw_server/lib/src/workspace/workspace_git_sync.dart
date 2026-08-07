@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
@@ -58,25 +60,53 @@ class WorkspaceGitSync implements Reconfigurable {
   Future<void> initIfNeeded() async {
     if (!_gitAvailable) return;
 
-    final gitDir = Directory('$workspaceDir/.git');
-    if (gitDir.existsSync()) return;
+    final gitMetadataPath = '$workspaceDir/.git';
+    final repoExists = FileSystemEntity.typeSync(gitMetadataPath, followLinks: false) != FileSystemEntityType.notFound;
 
-    _log.info('Initializing git repo in workspace');
+    if (!repoExists) {
+      _log.info('Initializing git repo in workspace');
 
-    final init = await _git(['init']);
-    if (init.exitCode != 0) {
-      _log.warning('git init failed: ${init.stderr}');
-      return;
+      final init = await _git(['init']);
+      if (init.exitCode != 0) {
+        _log.warning('git init failed: ${init.stderr}');
+        return;
+      }
     }
 
-    // Create .gitignore if not exists
-    final gitignore = File('$workspaceDir/.gitignore');
-    if (!gitignore.existsSync()) {
-      gitignore.writeAsStringSync(defaultGitignore);
-    }
+    _ensureDefaultGitignore();
 
-    // Initial commit
+    if (repoExists) return;
+
     await commitAll(message: 'DartClaw workspace initialized');
+  }
+
+  void _ensureDefaultGitignore() {
+    final gitignore = File('$workspaceDir/.gitignore');
+    try {
+      final entityType = FileSystemEntity.typeSync(gitignore.path, followLinks: false);
+      if (entityType == FileSystemEntityType.notFound) {
+        secureWriteFileSync(gitignore, defaultGitignore, restrictPermissions: false);
+        return;
+      }
+      if (entityType != FileSystemEntityType.file) {
+        _log.warning('Workspace .gitignore is not a regular file — default exclusions not applied');
+        return;
+      }
+
+      final content = gitignore.readAsStringSync();
+      final existing = const LineSplitter().convert(content).toSet();
+      final missing = defaultGitignore
+          .split('\n')
+          .where((entry) => entry.isNotEmpty && !existing.contains(entry))
+          .toList();
+      if (missing.isEmpty) return;
+
+      secureWriteFileSync(gitignore, '${missing.join('\n')}\n$content', restrictPermissions: false);
+    } on FileSystemException catch (e) {
+      _log.warning('Workspace .gitignore defaults not applied: ${e.message}');
+    } on FormatException catch (e) {
+      _log.warning('Workspace .gitignore defaults not applied: ${e.message}');
+    }
   }
 
   /// Commit all changes with a timestamp message. No-op if no changes.

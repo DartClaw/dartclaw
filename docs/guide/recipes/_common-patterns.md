@@ -213,7 +213,7 @@ DartClaw has two independent scheduling mechanisms. They serve different purpose
 | **Purpose** | Ongoing maintenance (memory consolidation, git sync, checklist review) | Time-of-day tasks with unique prompts (briefings, reports, scans) |
 | **Schedule** | Fixed interval (`interval_minutes`) | Cron expression or interval per job |
 | **Memory consolidation** | Triggers automatically when MEMORY.md exceeds cap | Does not trigger consolidation |
-| **Git sync** | Commits workspace changes after each run | Does not trigger git sync |
+| **Git sync** | Attempts to commit on every timer cycle | Changes are picked up by the next heartbeat cycle |
 | **Delivery** | Results logged only | Configurable: `none`, `announce`, `webhook` |
 | **Session** | New isolated session each run | Same session reused per job ID (history accumulates) |
 

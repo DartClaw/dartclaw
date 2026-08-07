@@ -100,7 +100,7 @@ void main() {
       expect(content, contains('.DS_Store'));
     });
 
-    test('skips when .git already exists', () async {
+    test('does not reinitialize an existing repo and creates its default .gitignore', () async {
       Directory('${tmpDir.path}/.git').createSync();
       runner.setResult('git --version', _ok());
       final sync = createSync();
@@ -110,6 +110,7 @@ void main() {
 
       // Only the --version call, no init
       expect(runner.calls, hasLength(1));
+      expect(File('${tmpDir.path}/.gitignore').readAsStringSync(), WorkspaceGitSync.defaultGitignore);
     });
 
     test('skips when git not available', () async {
@@ -123,7 +124,7 @@ void main() {
       expect(runner.calls, hasLength(1));
     });
 
-    test('does not overwrite existing .gitignore', () async {
+    test('preserves existing .gitignore entries', () async {
       File('${tmpDir.path}/.gitignore').writeAsStringSync('custom\n');
       runner.setResult('git --version', _ok());
       runner.setResult('git init', _ok());
@@ -135,7 +136,82 @@ void main() {
       await sync.isGitAvailable();
       await sync.initIfNeeded();
 
-      expect(File('${tmpDir.path}/.gitignore').readAsStringSync(), 'custom\n');
+      expect(File('${tmpDir.path}/.gitignore').readAsLinesSync(), containsAll(['custom', 'errors.md', 'learnings.md']));
+    });
+
+    test('adds missing default entries to a cloned repo without duplicating existing entries', () async {
+      Directory('${tmpDir.path}/.git').createSync();
+      final gitignore = File('${tmpDir.path}/.gitignore')..writeAsStringSync('custom/\n.env\n');
+      runner.setResult('git --version', _ok());
+      final sync = createSync();
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+      await sync.initIfNeeded();
+
+      final lines = gitignore.readAsLinesSync();
+      expect(lines, containsAll(['custom/', '.env', 'errors.md', 'learnings.md']));
+      expect(lines.where((line) => line == '.env'), hasLength(1));
+      expect(lines.where((line) => line == 'errors.md'), hasLength(1));
+      expect(runner.calls.where((call) => call.$2.first == 'init'), isEmpty);
+    });
+
+    test('places defaults before custom negations and preserves a missing trailing newline', () async {
+      Directory('${tmpDir.path}/.git').createSync();
+      const custom = '*.md\n!errors.md';
+      final gitignore = File('${tmpDir.path}/.gitignore')..writeAsStringSync(custom);
+      runner.setResult('git --version', _ok());
+      final sync = createSync();
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+      final firstContent = gitignore.readAsStringSync();
+      await sync.initIfNeeded();
+
+      final lines = firstContent.split('\n');
+      expect(lines.indexOf('errors.md'), lessThan(lines.indexOf('!errors.md')));
+      expect(firstContent, endsWith(custom));
+      expect(gitignore.readAsStringSync(), firstContent);
+    });
+
+    test('recognizes a git worktree metadata file as an existing repo', () async {
+      File('${tmpDir.path}/.git').writeAsStringSync('gitdir: /tmp/repo/.git/worktrees/example\n');
+      runner.setResult('git --version', _ok());
+      final sync = createSync();
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+
+      expect(File('${tmpDir.path}/.gitignore').existsSync(), isTrue);
+      expect(runner.calls.where((call) => call.$2.first == 'init'), isEmpty);
+    });
+
+    test('does not follow a .gitignore symlink outside the workspace', () async {
+      Directory('${tmpDir.path}/.git').createSync();
+      final outside = Directory.systemTemp.createTempSync('gitignore_link_target_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final sentinel = File('${outside.path}/sentinel')..writeAsStringSync('unchanged\n');
+      Link('${tmpDir.path}/.gitignore').createSync(sentinel.path);
+      runner.setResult('git --version', _ok());
+      final sync = createSync();
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+
+      expect(sentinel.readAsStringSync(), 'unchanged\n');
+      expect(FileSystemEntity.typeSync('${tmpDir.path}/.gitignore', followLinks: false), FileSystemEntityType.link);
+    });
+
+    test('leaves a non-UTF-8 .gitignore untouched', () async {
+      Directory('${tmpDir.path}/.git').createSync();
+      final gitignore = File('${tmpDir.path}/.gitignore')..writeAsBytesSync([0xff]);
+      runner.setResult('git --version', _ok());
+      final sync = createSync();
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+
+      expect(gitignore.readAsBytesSync(), [0xff]);
     });
   });
 

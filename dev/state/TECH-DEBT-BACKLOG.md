@@ -24,6 +24,33 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C11 | Define the restart-required dispatch contract | A listener exists but no producer dispatches `restart-required`; defining the trigger is a product/runtime contract decision. |
 | RP01 | Bound audit-dashboard reads | The dashboard polls and fully scans every retained audit partition. A cap changes filter/pagination completeness, while caching or indexing adds state; define the supported event volume and whether the dashboard promises full retained-history queries before choosing the mechanism. |
 
+## TD-118 – Inline remediation loop halts on `maxIterations` before the verify-fix gate
+
+**Status**: Open – deferred as the deterministic floor under ADR-044 (orchestration agent); needs loop-control integration decision
+**Severity**: Medium (remediation can stop with unverified fixes and report loop exhaustion as completion)
+**Found**: during 0.19 workflow hardening; recorded 2026-08-07 (memory graduation)
+**Affects**: built-in review-and-remediate inline loop YAMLs, workflow loop control
+
+**Context**: The inline review/remediate loop keys its exit on `gating_findings_count == 0` and halts on `maxIterations` without consuming AndThen's `Auto-Remediation`/convergence signal, so it can terminate before the deterministic verify-fix gate runs. Engine-side gap, not an AndThen bug.
+
+## TD-117 – Working-directory / project-template resolution re-derived at ≥4 sites
+
+**Status**: Open – needs an architecture decision (consolidate into one resolved-once value)
+**Severity**: Low (individual sites are patched; duplication invites regressions)
+**Found**: during 0.18/0.19 standalone fixes; recorded 2026-08-07 (memory graduation)
+**Affects**: workspace-root, session-binding, and artifact-commit template-resolve sites; task-executor preflight
+
+**Context**: Effective working directory / project-template resolution is derived independently at four-plus sites with subtly different fallback logic (unset `{{PROJECT}}` null-resolution was fixed site-by-site). Structural consolidation is needed to stop whack-a-mole fixes.
+
+## TD-116 – One-shot workflow agents inherit the operator's global MCP set unfiltered
+
+**Status**: Open – needs a requirements decision on a project-config MCP curation surface
+**Severity**: Medium (security/attack-surface gap)
+**Found**: during 0.19 one-shot review runs; recorded 2026-08-07 (memory graduation)
+**Affects**: one-shot codex/claude spawn paths (workflow one-shot runner, provider CLIs)
+
+**Context**: One-shot review/implement agents spawn with no MCP config of their own, so they inherit the operator's full `~/.codex` / `~/.claude` global MCP server set (context7, fetch, etc.). No DartClaw config surface exists to curate or trim MCP servers per project for these spawns.
+
 ## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
 
 **Status**: Scheduled 2026-08-07 (owner) – folded into 0.25 story S14 "Instance-local storage hygiene" (`dartclaw-private/docs/specs/0.25/s14-instance-local-storage-hygiene.md`, PRD FR13); close when S14 ships

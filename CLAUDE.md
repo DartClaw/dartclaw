@@ -70,7 +70,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Topic | Location | When to read |
 |-------|----------|--------------|
 | Current state | `dev/state/STATE.md` | Current version, phase, active stories, blockers, and session continuity notes. Check what's in flight before starting work |
-| Learnings | `dev/state/LEARNINGS.md` | Before debugging unfamiliar subsystems; append non-obvious discoveries |
+| Learnings | `dev/state/LEARNINGS.md` (bounded index, ≤150 lines) + topic shards in `dev/state/learnings/` | Before debugging unfamiliar subsystems: read the index whole, open only task-relevant shards (`→ learnings/<topic>.md` pointers). Add discoveries via `andthen:ops update-learnings` (owns the ceiling and shard graduation) |
 | Product (summary) | `dev/state/PRODUCT.md` | Vision and principles |
 | Roadmap (current + next) | `dev/state/ROADMAP.md` | Active milestone and what's after |
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
@@ -128,9 +128,6 @@ To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – see `dev/to
 ### Development Guidelines
 Read relevant guidelines before coding, architecture, UX/UI, or review work:
 
-- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md`_ when doing development work (coding, architecture, etc.)
-- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/UX-UI-GUIDELINES.md`_ when doing UX/UI related work
-- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/WEB-DEV-GUIDELINES.md`_ when doing web development work
 - _`dev/guidelines/DART-EFFECTIVE-GUIDELINES.md`_ – Effective Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config
 - _`dev/guidelines/DART-PACKAGE-GUIDELINES.md`_ – Package creation: structure, pubspec, versioning, pub.dev scoring, publishing workflow, automated publishing
 - _`dev/guidelines/HTMX-GUIDELINES.md`_ – HTMX usage patterns, attributes, server-side rendering best practices, streaming updates, error handling, security considerations

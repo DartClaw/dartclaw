@@ -1009,7 +1009,7 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 | Roadmap | [`dev/state/ROADMAP.md`](../state/ROADMAP.md) | Milestones, status, success criteria |
 | Feature comparison | `docs/specs/feature-comparison.md` (private repo) | OpenClaw vs NanoClaw vs DartClaw |
 | Product Backlog | `docs/PRODUCT-BACKLOG.md` (private repo) | Deferred/future features with rationale |
-| Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |
+| Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) (index) + `dev/state/learnings/` shards | Traps, gotchas, non-obvious patterns |
 | User-facing architecture overview | [`docs/guide/architecture.md`](../../docs/guide/architecture.md) | Operator-oriented 2-layer overview |
 
 ### Key ADRs

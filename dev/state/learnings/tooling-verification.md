@@ -1,0 +1,32 @@
+# Tooling / Verification
+
+- **Failure injection must hit the claimed transition.** A pre-backup lock does not prove post-backup rollback; fail the second move and assert complete-tree restoration.
+- **PowerShell pipeline cardinality is unstable.** Wrap possibly empty pipeline output in `@(...)` before `.Count`; null/scalar shapes fail under strict mode.
+- **Installer activation needs atomic directory renames.** `Move-Item` can partially move a tree; same-volume `[IO.Directory]::Move` preserves rollback.
+- **PowerShell response URIs vary by version.** PS 5.1 uses `ResponseUri`; PS 7 may require `RequestMessage.RequestUri`.
+- **Config guards must parse configuration syntax.** YAML-shaped regex misses flow maps, tags, and quoting; use the real parser for semantic invariants.
+- **Credential-free process smoke still needs a startup seam.** Skipping provider turns does not skip harness startup; use a protocol-valid local stub.
+- **PowerShell native stderr can terminate probes.** Under `ErrorActionPreference=Stop`, use a bounded `Continue` scope around native commands so warnings don't bypass `LASTEXITCODE` handling.
+- **Scoop root URLs do not interpolate.** Use concrete architecture URLs; `$version` works only under `autoupdate`, and `#{version}` is invalid.
+- **Asset resolution must treat explicit source paths as intent.** Dev/testing profiles pass `--source-dir` specifically to exercise the checkout — embedded assets must never shadow local templates, static files, skills, or workflow definitions; explicit, dev, and source-tree paths all win before the embedded fallback.
+- **Workflow Codex E2E needs real `CODEX_API_KEY`** even when the binary starts cleanly. Empty creds surface as websocket `401 Unauthorized` on the first live turn — environment blocker, not product regression.
+- **Path-output test stubs must materialize claimed files under the same roots production validation probes** (task worktree, `dataDir/projects/<projectId>`, discovered `project_root`); otherwise stricter path validation correctly coerces outputs to empty.
+- **Nested `dart run` subprocesses inside `dart test` can stall on build hooks.** Use `Platform.resolvedExecutable` against the script path from the package root.
+- **Filesystem teardown for project/worktree tests needs async retry, not one-shot `deleteSync()`.** Git/file watchers leave temp dirs briefly non-empty.
+- **`HarnessWiring` is the deterministic seam for spawn-time prompt tests.** `ServiceWiring` hides spawn behind the background poller; wire `StorageWiring` + `SecurityWiring` + `HarnessWiring` directly with a recording harness factory.
+- **Standalone CLI preflight tests must inject an explicit environment snapshot.** Otherwise `Platform.environment` makes credential tests non-deterministic.
+- **`TurnManager` interface changes ripple into many test doubles.** New optional named parameters break test-local subclass compilation everywhere.
+- **Focused package runs are the stable verification unit for server feature slices.** Full parallel runs surface unrelated temp-dir flakiness that obscures the feature under test.
+- **Provider-validator runs before the fake harness factory is used.** Wiring tests need a dummy credential entry for the selected provider even when no subprocess launches.
+- **Workspace-root sqlite validation owns native-asset regeneration.** Adding `sqlite3` only at package scope leaves the root `.dart_tool/native_assets.yaml` stale and breaks package-wide test runs.
+- **Testing-profile smoke runs must bypass stale CLI snapshots after schema changes.** `dev/testing/profiles/*/run.sh` prefers cached `.dart_tool/pub/bin` snapshots; rebuild after storage migrations or you'll debug old code.
+- **Mechanical file-split refactors silently change behavior via fallback differences.** Verify extracted utilities keep identical fallback behavior to the inlined original — `null` vs fallback-object, empty-string vs error-summary.
+- **Prove env-export fidelity with a micro-canary, not a full live run.** One live provider turn whose prompt runs `mkdir -p "$VAR"` (value injected via `extraEnvironment`), asserting the real dir exists (~11s), covers the only unit-untestable link: provider-CLI → shell-tool env inheritance + expansion. Integration-tagged, guarded by `codexAvailable()`.
+- **Green unit suites hide wiring gaps.** Tests injecting absolute paths/null deps prove units, not the product. Require ≥1 test driving the real composition root + path discovery.
+- **Bounded filesystem traversal must stream entries.** `Directory.list().toList()` defeats traversal budgets in large flat directories even if callers later cap result counts.
+- **Contract-changing stories need the full CI gate.** Retyping a parse/validation contract consumed cross-package requires workspace analyze + all-package tests + fitness.
+- **A bare `exit(...)` in a `Process` fake kills the test runner while `dart test` reports success.** Unqualified `exit(0)` in a subclass binds to `dart:io`'s top-level, not the inherited `FakeProcess.exit`; the runner dies with status 0 and remaining suites never run (`dartclaw_core` silently lost 57 tests). Call `this.exit(...)`; treat a dropping test count as a failure.
+- **`dart test` runs suites as isolates in ONE process — `Directory.current` is shared.** A suite that assigns it moves the cwd under every concurrently-running suite; inject the working directory instead (`WorktreeManager(currentDirectory:)`). This forced `-j 1` on the three biggest packages until fixed.
+- **Tests must never spawn `dart run <workspace script>`.** Concurrent suites racing the shared `.dart_tool/native_assets.yaml` abort the VM with "File not formatted as yaml: ."; run dependency-free tools from a hermetic temp copy instead.
+- **Package-scoped `dart analyze`/`dart test` can stay green while the workspace fails to build.** Removing a barrel export or retyping a cross-package contract breaks consumers the scoped gate never sees — always run workspace-wide analyze + all-package tests.
+- **.dart templates compile into the serve VM; static/.html reload from disk.** Long-running serves render stale .dart output — verify "no consumers" sweeps against source; test edits on a fresh port.

@@ -27,6 +27,8 @@ Then bump in a single commit:
 
 ## Release sequence (squash-merge pattern)
 
+Development happens directly on `feat/<version>` — no nested sub-branches for individual fixes/stories; the branch squash-merges as one unit.
+
 1. **Scope-frozen** commit on `feat/<version>` – final version pins, CHANGELOG entry, STATE.md says "release-ready, awaiting tag". Run `release_check.sh --version <version>` here; manual gates pass.
 2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.
 3. **Tag** annotated `v<version>` from the squash commit; push tag.

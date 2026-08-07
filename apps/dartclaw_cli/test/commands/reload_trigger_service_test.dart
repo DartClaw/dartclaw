@@ -580,11 +580,9 @@ void main() {
 /// [quiet] must exceed the debounce window under test plus an allowance for
 /// filesystem-watch delivery lag, or a second debounce cycle lands after the
 /// window closes and the caller's exact-count assertion proves nothing. The
-/// overall cap scales with [quiet], so any honoured value gets its full window.
+/// overall cap scales with [quiet] rather than being fixed, so a caller's window
+/// is never silently truncated.
 Future<int> _waitForStableCount(int Function() count, {required Duration quiet}) async {
-  // Derived from [quiet] so the cap can never silently truncate the window
-  // the caller asked for — a fixed cap would return an unstable count that
-  // is indistinguishable from a settled one.
   final deadline = DateTime.now().add(quiet * 2 + const Duration(seconds: 1));
   var last = count();
   var stableSince = DateTime.now();

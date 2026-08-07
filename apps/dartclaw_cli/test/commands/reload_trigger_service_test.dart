@@ -412,7 +412,10 @@ void main() {
         final svc = ReloadTriggerService(
           configPath: configFile.path,
           notifier: notifier,
-          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 200),
+          // 1s window: the 5 writes below span ~100ms, so they stay inside it even
+          // when load stretches the gaps. A window near the write span would let a
+          // straddled gap fire the timer twice and legitimately produce 2 reloads.
+          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 1000),
           configLoader: loader,
         );
         svc.start();
@@ -428,10 +431,11 @@ void main() {
 
         // Coalescing is the subject: 5 writes inside one debounce window must
         // produce exactly one reload on the real ReloadTriggerService. Waiting
-        // for quiescence rather than a fixed settle keeps that exact assertion
-        // safe under load. reloadCalls also proves the loader reached the
-        // notifier — a loader count alone would not, since an invalid reload
-        // increments it and stops short.
+        // for quiescence rather than a fixed settle removes the false-green
+        // window a fixed wait leaves — it will now see a second reload instead
+        // of finishing before it arrives. reloadCalls also proves the loader
+        // reached the notifier — a loader count alone would not, since an
+        // invalid reload increments it and stops short.
         expect(settled, 1);
         expect(notifier.reloadCalls, contains(same(newConfig)));
         svc.dispose();

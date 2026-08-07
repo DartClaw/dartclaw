@@ -52,11 +52,49 @@ void main() {
           logger.writeEntry(
             AuditEntry(timestamp: DateTime.now(), guard: 'command', hook: 'beforeToolCall', verdict: 'block'),
           ),
-          throwsA(isA<Object>()),
+          throwsA(isA<FileSystemException>()),
         );
 
         // A caller shutting down must not have dispose() aborted by this.
         await expectLater(logger.flush(), completes);
+
+        // A poisoned chain would make every later append a silent no-op, since
+        // `.then` skips its callback on an errored future.
+        logger.logVerdict(
+          verdict: const GuardWarn('after'),
+          guardName: 'command',
+          guardCategory: 'shell',
+          hookPoint: 'beforeToolCall',
+          timestamp: DateTime.now(),
+        );
+        await expectLater(logger.flush(), completes);
+      });
+
+      test('appends resume on a healthy logger after a strict write failed', () async {
+        final dir = Directory.systemTemp.createTempSync('guard_audit_recover_');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final logger = GuardAuditLogger(dataDir: dir.path);
+
+        // A directory where the NDJSON partition belongs makes the append fail.
+        final partition = Directory(_auditFilePathForDate(dir, DateTime.now()))..createSync();
+        await expectLater(
+          logger.writeEntry(
+            AuditEntry(timestamp: DateTime.now(), guard: 'command', hook: 'beforeToolCall', verdict: 'block'),
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        partition.deleteSync();
+
+        logger.logVerdict(
+          verdict: const GuardWarn('ok'),
+          guardName: 'command',
+          guardCategory: 'shell',
+          hookPoint: 'beforeToolCall',
+          timestamp: DateTime.now(),
+        );
+        await logger.flush();
+
+        expect(_readAuditEntries(File(_auditFilePathForDate(dir, DateTime.now()))), hasLength(1));
       });
     });
     late GuardAuditLogger logger;

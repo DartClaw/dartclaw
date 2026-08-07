@@ -153,7 +153,10 @@ curl -s "https://pub.dev/api/packages/<package_name>" | jq '{name: .name, latest
 # Format a file or directory (120-char width configured in analysis_options.yaml)
 dart format --line-length=120 <file_or_dir>
 
-# Static analysis + lint (strict-casts, strict-raw-types, lints/recommended)
+# Static analysis + lint (strict-casts, strict-raw-types, lints/recommended).
+# On a fresh checkout or a git worktree, generate the embedded asset libraries
+# first — lib/ imports them and analyze reports ~32 unresolved imports without.
+dart run dev/tools/embed_assets.dart
 dart analyze
 ```
 

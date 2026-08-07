@@ -229,7 +229,12 @@ class GuardAuditLogger {
     }
     if (dataDir == null) return;
     final write = _pendingWrite.then((_) => _appendEntryStrict(entry));
-    _pendingWrite = write;
+    // The awaiting caller still sees the failure, but the shared chain is reset
+    // to a clean future: leaving it errored would make every later
+    // fire-and-forget append a silent no-op (`.then` skips its callback) and
+    // make every later writeEntry re-throw this stale error, permanently
+    // killing the audit trail and wedging egress closed until restart.
+    _pendingWrite = write.then((_) {}, onError: (_) {});
     await write;
   }
 

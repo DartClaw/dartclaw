@@ -209,7 +209,7 @@ Not active. Use Bash for Dart CLI commands (see `KEY_DEVELOPMENT_COMMANDS.md`). 
 
 ### Dart LSP Plugin (`https://github.com/tolo/coding-agent-toolkit/tree/main/plugins/dart-lsp`)
 Spawns `dart language-server` – diagnostics, hover, goToDefinition, findReferences, call hierarchy across workspace packages.
-**Fix all diagnostics immediately** – run `dart analyze` before declaring work done.
+**Fix all diagnostics immediately** – run `dart analyze` before declaring work done. In a fresh checkout or git worktree, run `dart run dev/tools/embed_assets.dart` first: the embedded asset libraries are generated, not committed, and `lib/` imports them.
 
 ### Parallels Windows VM Automation
 

@@ -73,6 +73,10 @@ class SecurityWiring implements Reconfigurable {
   ToolPolicyCascade get toolPolicyCascade => _toolPolicyCascade;
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
+    // Assigned before anything that can throw: dispose() flushes it, and a
+    // partially-wired instance must still tear down cleanly.
+    _auditLogger = GuardAuditLogger(dataDir: _dataDir);
+
     if (config.container.enabled) {
       if (!_platformCapabilities.containerIsolationAvailable) {
         const error = UnsupportedCapabilityError(
@@ -306,8 +310,6 @@ class SecurityWiring implements Reconfigurable {
       agentDeny: agentDeny,
       agentAllow: agentAllow,
     );
-
-    _auditLogger = GuardAuditLogger(dataDir: _dataDir);
 
     if (!config.security.guards.enabled) {
       _guardChain = null;

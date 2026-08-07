@@ -39,8 +39,9 @@ void main() {
   group('BraveSearchTool', () {
     group('MCP interface', () {
       test('name is brave_search — wire contract', () {
-        // The MCP tool name is a wire contract: harness tool-policy allow/deny lists and
-        // built-in-tool suppression key on this literal.
+        // The name is the operator-visible identifier in `agent.disallowed_tools`
+        // and agent `allowedTools` config, so a rename silently breaks existing
+        // operator configs. No code branches on this literal.
         expect(BraveSearchTool(provider: _MockProvider()).name, 'brave_search');
       });
 

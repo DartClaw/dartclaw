@@ -18,7 +18,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SEED_DIR="${SCRIPT_DIR}/data"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
-
 if [ ! -d "${REPO_ROOT}/apps/dartclaw_cli" ]; then
   echo "Error: cannot resolve dartclaw repo root from ${SCRIPT_DIR}" >&2
   exit 1

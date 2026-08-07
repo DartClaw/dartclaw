@@ -86,7 +86,7 @@ The 2026-03-12 revision asserted that every package ships to pub.dev. That is no
 | `dartclaw_workflow` | **Undecided** | Possible. Decide when the workflow API surface is stable enough to support externally. |
 | `dartclaw_server` | **Undecided** | Possibly repo-only. The reference-implementation rationale above still argues for publishing; weigh it against supporting a large surface (HTTP + web UI + task runtime) as public API. |
 | `dartclaw_cli`, `dartclaw_testing` | **Repo-only (leaning)** | Owner position 2026-08-06: publish a conservative core set first and keep these two repo-only. This supersedes the 2026-03-12 listing of `dartclaw_cli` as published. Stated as a leaning, not ratified — revisit before the first publish wave. |
-| `dartclaw_config` | **Undecided** | Owner position 2026-08-06: possible. Currently labelled repo-only in `docs/sdk/packages.md`. |
+| `dartclaw_config` | **Undecided** | Owner position 2026-08-06: possible. |
 
 `publish_to: none` is currently set on every package and is a pre-publication placeholder, not a statement of intent — do not read it as evidence either way. It is removed per-package at first publish.
 

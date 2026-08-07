@@ -38,6 +38,12 @@ String _errorMsg(ToolResult r) => (r as ToolResultError).message;
 void main() {
   group('TavilySearchTool', () {
     group('MCP interface', () {
+      test('name is tavily_search — wire contract', () {
+        // The MCP tool name is a wire contract: harness tool-policy allow/deny lists and
+        // built-in-tool suppression key on this literal.
+        expect(TavilySearchTool(provider: _MockProvider()).name, 'tavily_search');
+      });
+
       test('inputSchema has correct structure', () {
         final tool = TavilySearchTool(provider: _MockProvider());
         expect(tool.inputSchema['type'], 'object');

@@ -72,6 +72,9 @@ if [ "${DARTCLAW_TEST_USE_SNAPSHOT:-0}" = "1" ]; then
   fi
 fi
 
+# Generated asset libraries are gitignored; emit them before running from source.
+dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
+
 exec dart \
   --packages="${REPO_ROOT}/.dart_tool/package_config.json" \
   "${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart" \

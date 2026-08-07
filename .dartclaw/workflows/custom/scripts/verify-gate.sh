@@ -58,6 +58,11 @@ cd "$repo" || emit_fail
 # inline workflow edits still uncommitted).
 # `dart format`/`dart analyze` skip hidden dirs, so the gitignored .dartclaw tree is
 # never scanned.
+# Generated asset libraries are gitignored, so a fresh worktree has none and
+# lib/ imports fail to resolve. Emit them before any gate runs.
+gate_generate_assets() {
+  dart run dev/tools/embed_assets.dart
+}
 gate_format() {
   dart format --line-length=120 --output=none --set-exit-if-changed .
 }
@@ -89,6 +94,14 @@ gate_status() {
 run_gate() {
   local name="$1"
   "gate_$name" >"$log_dir/$name.log" 2>&1
+}
+
+# Runs for every gate, including single-gate invocations: a git worktree is a
+# clean checkout with no gitignored files, so the generated libraries lib/
+# imports are absent until this emits them.
+gate_generate_assets >"$log_dir/generate_assets.log" 2>&1 || {
+  echo "verify-gate: embedded asset generation failed — see $log_dir/generate_assets.log" >&2
+  emit_fail
 }
 
 status=0

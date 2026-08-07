@@ -38,6 +38,12 @@ String _errorMsg(ToolResult r) => (r as ToolResultError).message;
 void main() {
   group('BraveSearchTool', () {
     group('MCP interface', () {
+      test('name is brave_search — wire contract', () {
+        // The MCP tool name is a wire contract: harness tool-policy allow/deny lists and
+        // built-in-tool suppression key on this literal.
+        expect(BraveSearchTool(provider: _MockProvider()).name, 'brave_search');
+      });
+
       test('inputSchema has correct structure', () {
         final tool = BraveSearchTool(provider: _MockProvider());
         expect(tool.inputSchema['type'], 'object');

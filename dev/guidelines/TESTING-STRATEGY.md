@@ -502,11 +502,15 @@ dart test -t contract packages/dartclaw_storage
 Layer 2/3 CLI/server tests exercise real local resources — binding ports, starting service wiring, probing static-asset layout. They run at default parallelism:
 
 ```bash
-dart test --reporter=failures-only \
-  packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli
+# One command per package: a single `dart test A B C` spans all three in ONE
+# process, placing dartclaw_cli's cwd-mutating suites beside server/workflow
+# suites that resolve relative paths.
+dart test --reporter=failures-only packages/dartclaw_workflow
+dart test --reporter=failures-only packages/dartclaw_server
+dart test --reporter=failures-only apps/dartclaw_cli
 ```
 
-That holds only while every such test isolates what it touches. `dart test` runs suites as isolates inside **one OS process**, so ports, the filesystem, and the working directory are shared. A test that binds a fixed port, writes outside a temp dir, or assigns `Directory.current` will corrupt whichever suite happens to be running beside it — intermittently, and usually in a different file. Bind port `0`, use per-test temp roots, and inject the working directory (see `WorktreeManager.currentDirectory`) instead of reaching for `-j 1`.
+That holds only while every such test isolates what it touches. `dart test` runs suites as isolates inside **one OS process**, so ports, the filesystem, and the working directory are shared. A test that binds a fixed port, writes outside a temp dir, or assigns `Directory.current` will corrupt whichever suite happens to be running beside it — intermittently, and usually in a different file. Bind port `0`, use per-test temp roots, and inject the working directory (see `WorktreeManager(currentDirectory:)`) instead of reaching for `-j 1`.
 
 ### All Packages
 

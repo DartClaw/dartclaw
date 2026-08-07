@@ -202,6 +202,17 @@ class GuardAuditLogger {
     }
   }
 
+  /// Completes when the appends queued **at call time** have been written.
+  ///
+  /// [logVerdict] and [logPermissionDenied] append fire-and-forget, so a caller
+  /// shutting down must await this or lose the entries still in flight. It is
+  /// not a global barrier: an append enqueued after this returns is not covered,
+  /// so quiesce every producer first.
+  ///
+  /// Never throws — a failed append (see [writeEntry]) leaves the internal chain
+  /// in an error state, and surfacing that here would abort a caller's shutdown.
+  Future<void> flush() => _pendingWrite.then((_) {}, onError: (_) {});
+
   /// Writes [entry] synchronously enough for callers that must fail closed.
   Future<void> writeEntry(AuditEntry entry) async {
     final msg =

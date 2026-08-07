@@ -408,6 +408,9 @@ class SecurityWiring implements Reconfigurable {
     await _containerHealthMonitor?.stop();
     await _guardAuditSubscriber?.cancel();
     await _sessionLifecycleSubscriber?.cancel();
+    // Cancelling stops new verdicts; queued NDJSON appends are fire-and-forget
+    // and would otherwise be lost or half-written at shutdown.
+    await _auditLogger.flush();
   }
 }
 

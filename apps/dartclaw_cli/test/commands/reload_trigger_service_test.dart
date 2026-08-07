@@ -408,7 +408,7 @@ void main() {
         svc.dispose();
       });
 
-      test('rapid successive saves coalesce into single reload', () async {
+      test('rapid successive saves trigger one debounced live reload', () async {
         final svc = ReloadTriggerService(
           configPath: configFile.path,
           notifier: notifier,
@@ -424,10 +424,16 @@ void main() {
         }
 
         await _waitForCount(() => loaderCallCount, 1);
-        // Settle past the debounce window to prove the 5 writes coalesced.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        final settled = await _waitForStableCount(() => loaderCallCount);
 
-        expect(loaderCallCount, 1);
+        // Coalescing is the subject: 5 writes inside one debounce window must
+        // produce exactly one reload on the real ReloadTriggerService. Waiting
+        // for quiescence rather than a fixed settle keeps that exact assertion
+        // safe under load. reloadCalls also proves the loader reached the
+        // notifier — a loader count alone would not, since an invalid reload
+        // increments it and stops short.
+        expect(settled, 1);
+        expect(notifier.reloadCalls, contains(same(newConfig)));
         svc.dispose();
       });
 
@@ -448,10 +454,10 @@ void main() {
 
         await _waitForCount(() => loaderCallCount, 1);
 
-        // A rename can surface as more than one watch event; events spaced wider
-        // than the debounce window are meant to reload again. Coalescing within
-        // the window has its own test above.
-        expect(loaderCallCount, greaterThanOrEqualTo(1));
+        // Asserts the reached effect, not the poll's own exit condition: a
+        // rename can surface as more than one watch event, so the reload count
+        // is not deterministic here.
+        expect(notifier.reloadCalls, contains(same(newConfig)));
         svc.dispose();
       });
 
@@ -549,6 +555,28 @@ void main() {
       });
     });
   });
+}
+
+/// Waits until [count] stops changing, then returns it.
+///
+/// Proving "no further reload arrives" needs quiescence, not a fixed delay
+/// sized against the debounce — that races watch delivery under load. Returns
+/// early once the value holds steady for [quiet], or at the cap.
+Future<int> _waitForStableCount(int Function() count, {Duration quiet = const Duration(milliseconds: 300)}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  var last = count();
+  var stableSince = DateTime.now();
+  while (DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final now = count();
+    if (now != last) {
+      last = now;
+      stableSince = DateTime.now();
+    } else if (DateTime.now().difference(stableSince) >= quiet) {
+      return now;
+    }
+  }
+  return count();
 }
 
 /// Waits until [count] reaches at least [min].

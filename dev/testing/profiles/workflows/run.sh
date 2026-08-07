@@ -18,10 +18,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SEED_DIR="${SCRIPT_DIR}/data"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
+
 if [ ! -d "${REPO_ROOT}/apps/dartclaw_cli" ]; then
   echo "Error: cannot resolve dartclaw repo root from ${SCRIPT_DIR}" >&2
   exit 1
 fi
+
+# Generated asset libraries are gitignored; emit them before running from source.
+dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
 
 # The workflows profile keeps state across runs by default (sessions, tasks,
 # the workflow fixture checkout under data/projects/, etc.). Override with

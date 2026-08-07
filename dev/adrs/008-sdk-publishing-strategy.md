@@ -85,7 +85,8 @@ The 2026-03-12 revision asserted that every package ships to pub.dev. That is no
 | `dartclaw` (umbrella), `dartclaw_core`, `dartclaw_models`, `dartclaw_storage`, `dartclaw_security`, `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat` | **Planned** | Unchanged. The SDK surface external consumers depend on. |
 | `dartclaw_workflow` | **Undecided** | Possible. Decide when the workflow API surface is stable enough to support externally. |
 | `dartclaw_server` | **Undecided** | Possibly repo-only. The reference-implementation rationale above still argues for publishing; weigh it against supporting a large surface (HTTP + web UI + task runtime) as public API. |
-| `dartclaw_config`, `dartclaw_testing`, `dartclaw_cli` | **Unreviewed here** | `docs/sdk/packages.md` labels `dartclaw_config` and `dartclaw_testing` repo-only; the 2026-03-12 revision listed `dartclaw_cli` as published and deferred `dartclaw_testing` until consumer demand. Not settled by this revision. |
+| `dartclaw_cli`, `dartclaw_testing` | **Repo-only (leaning)** | Owner position 2026-08-06: publish a conservative core set first and keep these two repo-only. This supersedes the 2026-03-12 listing of `dartclaw_cli` as published. Stated as a leaning, not ratified — revisit before the first publish wave. |
+| `dartclaw_config` | **Undecided** | Owner position 2026-08-06: possible. Currently labelled repo-only in `docs/sdk/packages.md`. |
 
 `publish_to: none` is currently set on every package and is a pre-publication placeholder, not a statement of intent — do not read it as evidence either way. It is removed per-package at first publish.
 

@@ -54,6 +54,9 @@ container:
   enabled: true
 EOF
 
+# Generated asset libraries are gitignored; emit them before running from source.
+dart run "$REPO/dev/tools/embed_assets.dart" >/dev/null
+
 dart run dartclaw_cli:dartclaw serve --config "$CONFIG_PATH" --port "$PORT" >"$LOG_PATH" 2>&1 &
 SERVER_PID=$!
 

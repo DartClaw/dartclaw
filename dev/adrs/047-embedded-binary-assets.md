@@ -26,9 +26,9 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 
 ## Decision
 
-**Embed all built-in assets as data-as-code: a build-time generator emits checked-in generated Dart libraries, so assets compile into the binary.**
+**Embed all built-in assets as data-as-code: a build-time generator emits generated Dart libraries, so assets compile into the binary.** (Originally "checked-in"; superseded 2026-08-06 — see the amendment.)
 
-- **Generator**: a plain Dart script (`dev/tools/embed_assets.dart`, no build_runner) walks the four asset directories and emits one checked-in generated library per *owning* package — `dartclaw_server` (templates + static), `dartclaw_workflow` (skills + workflow definitions). Each library exposes a read-only text map (`embeddedServerAssets` / `embeddedWorkflowAssets`, `Map<String, String>`) and a separate binary byte map (`embeddedServerBinaryAssets` / `embeddedWorkflowBinaryAssets`, `Map<String, List<int>>`). Both are base64-backed and lazily decoded with caching; binary values are immutable byte lists, so consumers never UTF-8 re-encode binary assets. Only runtime-read files are embedded: the paired `.dart` template companions (30 files, ~220 K) are compiled into the binary as code and are excluded from the maps — embedded payload is therefore ~63 files / ~1.0 MB.
+- **Generator**: a plain Dart script (`dev/tools/embed_assets.dart`, no build_runner) walks the four asset directories and emits one generated library per *owning* package — `dartclaw_server` (templates + static), `dartclaw_workflow` (skills + workflow definitions). Each library exposes a read-only text map (`embeddedServerAssets` / `embeddedWorkflowAssets`, `Map<String, String>`) and a separate binary byte map (`embeddedServerBinaryAssets` / `embeddedWorkflowBinaryAssets`, `Map<String, List<int>>`). Both are base64-backed and lazily decoded with caching; binary values are immutable byte lists, so consumers never UTF-8 re-encode binary assets. Only runtime-read files are embedded: the paired `.dart` template companions (30 files, ~220 K) are compiled into the binary as code and are excluded from the maps — embedded payload is therefore ~63 files / ~1.0 MB.
 - ~~**Checked in + drift-gated**: generated files are committed (pub.dev doesn't run generators; SDK consumers need them present). A CI gate reruns the generator and fails on `git diff`, same discipline as the format gate.~~ **Superseded 2026-08-06** — generated at build time, not committed. See the amendment below.
 - **Resolution collapses** to: explicit config → development source tree → discovered source-tree default → embedded. The `installedAlongsideBinary`, `downloadedCache`, and `VERSION`-skew paths are deleted. Dev workflows (`--dev`, maintainer `preferSourceTree`, `examples/run.sh`) keep reading files directly from the checkout — the embedded maps are the compiled-binary default, not a dev-path replacement.
 - **Consumers**:
@@ -49,8 +49,8 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 
 **Negative / accepted**
 - Binary grows by the embedded asset payload; negligible against the AOT baseline.
-- Asset edits require a generator re-run before commit; forgetting is caught by the CI drift gate, not at edit time.
-- Generated files add ~1.6 MB of committed source (base64 expansion); diffs on vendored-asset bumps are opaque blobs (the sibling `VENDORS.md` remains the human-readable change record).
+- ~~Asset edits require a generator re-run before commit; forgetting is caught by the CI drift gate, not at edit time.~~ **Superseded 2026-08-06** — the files are generated, not committed, and the CI drift gate is deleted; CI/build/release generate before every gate.
+- ~~Generated files add ~1.6 MB of committed source (base64 expansion); diffs on vendored-asset bumps are opaque blobs (the sibling `VENDORS.md` remains the human-readable change record).~~ **Superseded 2026-08-06** — the generated libraries are no longer committed.
 - Asset updates now require a release (no out-of-band asset refresh) — acceptable: assets and code were version-locked anyway; skew was a bug source, not a feature.
 
 ## Alternatives Considered
@@ -67,7 +67,7 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 - Land as the 0.20.1 FIS bundle (private repo `docs/specs/0.20.1/`): embedding + generation + gates first, consumption + deletion + release-pipeline cleanup second.
 - Encoding is an internal detail of the generated libraries — text consumers see decoded `String` values and binary consumers see decoded immutable `List<int>` values, so a later backing-encoding switch (e.g. gzip+base64 if payload grows) is non-breaking.
 - The maintainer workflow profile's `preferSourceTree` must keep winning over embedded content; add a regression test.
-- Risk: stale generated content when running from source without regenerating — mitigated by dev-mode source-tree precedence plus the CI drift gate.
+- Risk: stale generated content when running from source without regenerating — mitigated by dev-mode source-tree precedence; since 2026-08-06 the files are generated before every gate, so staleness is structurally impossible rather than detected.
 - Docs currency: `docs/guide/deployment.md`, `docs/guide/cli-reference.md`, affected package `CLAUDE.md` files, and the ADR-038 formula template update in the same change.
 
 ## Project Compliance
@@ -86,7 +86,7 @@ Weighed against that: the committed `dartclaw_server` library is 1.7 MB of base6
 - Both files are in `.gitignore`; `git rm --cached` removed them from tracking.
 - `dart run dev/tools/embed_assets.dart` runs in `.github/workflows/ci.yml` (before format/analyze/test), in `dev/tools/build.sh` (before `dart build cli`), and in `dev/tools/release_check.sh`.
 - The CI `git diff` drift gate is deleted — it can no longer fail.
-- `embedded_assets_test.dart` is kept: it now verifies generator correctness (generated content matches sources) rather than commit freshness, and still catches a developer who edits an asset without regenerating.
+- `embedded_assets_test.dart` is unchanged and retained. It verifies generator correctness (generated content matches sources) and, locally, catches an asset edit made without regenerating. In CI it can no longer fail on staleness, since generation now always precedes it — the freshness check was the deleted `git diff` gate, a separate mechanism.
 
 **Cost accepted**: `lib/` imports the generated libraries, so a fresh checkout reports ~32 analyzer errors until the generator is run once. That bootstrap step is documented in `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` and both package `CLAUDE.md` files.
 

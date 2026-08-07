@@ -9,10 +9,6 @@ import 'package:test/test.dart';
 String _auditFilePathForDate(Directory dir, DateTime timestamp) =>
     '${dir.path}/audit-${timestamp.toIso8601String().substring(0, 10)}.ndjson';
 
-Future<void> _flushAuditLogger(GuardAuditLogger logger) async {
-  await logger.cleanOldFiles(0);
-}
-
 List<Map<String, dynamic>> _readAuditEntries(File file) {
   return file
       .readAsLinesSync()
@@ -25,6 +21,44 @@ DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.da
 
 void main() {
   group('GuardAuditLogger', () {
+    group('flush()', () {
+      test('drains queued appends so the entry is on disk', () async {
+        final dir = Directory.systemTemp.createTempSync('guard_audit_flush_');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final logger = GuardAuditLogger(dataDir: dir.path);
+
+        logger.logVerdict(
+          verdict: const GuardBlock('nope'),
+          guardName: 'command',
+          guardCategory: 'shell',
+          hookPoint: 'beforeToolCall',
+          timestamp: DateTime.now(),
+        );
+        await logger.flush();
+
+        final file = File(_auditFilePathForDate(dir, DateTime.now()));
+        expect(file.existsSync(), isTrue);
+        expect(_readAuditEntries(file), hasLength(1));
+      });
+
+      test('does not throw when a strict append failed', () async {
+        final dir = Directory.systemTemp.createTempSync('guard_audit_flush_err_');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        // A path whose parent is a file cannot be created — poisons the chain.
+        final blocker = File('${dir.path}/blocker')..writeAsStringSync('x');
+        final logger = GuardAuditLogger(dataDir: '${blocker.path}/nested');
+
+        await expectLater(
+          logger.writeEntry(
+            AuditEntry(timestamp: DateTime.now(), guard: 'command', hook: 'beforeToolCall', verdict: 'block'),
+          ),
+          throwsA(isA<Object>()),
+        );
+
+        // A caller shutting down must not have dispose() aborted by this.
+        await expectLater(logger.flush(), completes);
+      });
+    });
     late GuardAuditLogger logger;
     late List<LogRecord> records;
 
@@ -130,7 +164,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       expect(file.existsSync(), isTrue);
     });
@@ -151,7 +185,7 @@ void main() {
         peerId: '+1234567890',
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(file.existsSync(), isTrue);
@@ -187,7 +221,7 @@ void main() {
         peerId: 'user-42',
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;
@@ -229,7 +263,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;
@@ -251,7 +285,7 @@ void main() {
         peerId: '+9876',
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;
@@ -274,7 +308,7 @@ void main() {
         );
       }
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(_readAuditEntries(file), hasLength(5));
@@ -312,7 +346,7 @@ void main() {
         timestamp: secondDate,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final firstFile = File(_auditFilePathForDate(tmpDir, firstDate));
       final secondFile = File(_auditFilePathForDate(tmpDir, secondDate));
@@ -402,7 +436,7 @@ void main() {
         timestamp: newDate,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final firstPartition = File(_auditFilePathForDate(tmpDir, firstDate));
 
@@ -441,7 +475,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(_readAuditEntries(file).map((entry) => entry['guard']).toList(), ['entry-1', 'entry-2']);
@@ -528,7 +562,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(fileLogger);
+      await fileLogger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(file.existsSync(), isTrue);
@@ -556,7 +590,7 @@ void main() {
 
       fileLogger.logPermissionDenied(toolName: 'Read', timestamp: timestamp);
 
-      await _flushAuditLogger(fileLogger);
+      await fileLogger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;

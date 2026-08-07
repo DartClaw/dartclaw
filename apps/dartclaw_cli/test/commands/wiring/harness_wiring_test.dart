@@ -15,23 +15,6 @@ Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
 }
 
-/// Deletes [dir], retrying briefly on failure.
-///
-/// `GuardAuditLogger` appends its NDJSON partition fire-and-forget, so a write
-/// queued before shutdown can recreate a file inside a recursive delete that is
-/// already walking the directory.
-Future<void> _deleteTempDir(Directory dir) async {
-  for (var attempt = 0; ; attempt++) {
-    try {
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
-      return;
-    } on FileSystemException {
-      if (attempt >= 10) rethrow;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
-  }
-}
-
 /// Polls [read] until [isReady] holds, then returns that value.
 ///
 /// The turn-monitor thresholds under test are milliseconds apart, so a fixed
@@ -89,7 +72,7 @@ void main() {
     await harnessWiring?.pool.dispose();
     await security?.dispose();
     await storage?.dispose();
-    await _deleteTempDir(tempDir);
+    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
   Future<void> wireStorageAndSecurity() async {

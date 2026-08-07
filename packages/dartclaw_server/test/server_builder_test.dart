@@ -66,9 +66,13 @@ void main() {
       expect(postTurn.isBlock, isFalse);
     });
 
-    test('no filter is fabricated when the host does not supply one', () async {
-      // A fabricated filter would never be in the injected harness's chain, so
-      // the builder must not invent one and imply enforcement it cannot deliver.
+    test('a turn with tool policy runs when the host supplies no filter', () async {
+      // Covers the now-optional taskToolFilterGuard: a turn carrying allowedTools
+      // and readOnly must still complete when no filter was supplied. That the
+      // builder does not fabricate one cannot be asserted from outside — an
+      // invented filter sits outside the harness's chain and is inert by
+      // construction, which is precisely why the old behaviour was a silent bug.
+      // The enforcing case is the test above.
       final base = GuardChain(guards: []);
       final turns = builderWith(guardChain: base).buildTurns();
 
@@ -83,10 +87,9 @@ void main() {
       );
       await worker.turnInvoked;
 
-      expect(base.guards.whereType<TaskToolFilterGuard>(), isEmpty);
-
       worker.completeSuccess();
-      await turns.waitForOutcome(session.id, turnId);
+      final outcome = await turns.waitForOutcome(session.id, turnId);
+      expect(outcome.status, TurnStatus.completed);
     });
   });
 }

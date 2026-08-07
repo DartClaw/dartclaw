@@ -24,6 +24,17 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C11 | Define the restart-required dispatch contract | A listener exists but no producer dispatches `restart-required`; defining the trigger is a product/runtime contract decision. |
 | RP01 | Bound audit-dashboard reads | The dashboard polls and fully scans every retained audit partition. A cap changes filter/pagination completeness, while caching or indexing adds state; define the supported event volume and whether the dashboard promises full retained-history queries before choosing the mechanism. |
 
+## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
+
+**Status**: Scheduled 2026-08-07 (owner) – folded into 0.25 story S14 "Instance-local storage hygiene" (`dartclaw-private/docs/specs/0.25/s14-instance-local-storage-hygiene.md`, PRD FR13); close when S14 ships
+**Severity**: Low (conceptual cleanliness; zero operational impact today)
+**Found**: 2026-08-07, owner design discussion during 0.25 rider planning
+**Affects**: `packages/dartclaw_storage/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_storage/lib/src/storage/webhook_delivery_store.dart`, their open sites in `apps/dartclaw_cli/.../storage_wiring.dart` and `packages/dartclaw_server/lib/src/server.dart`
+
+**Context**: A `database.backend: postgres` deployment still runs embedded SQLite for two instance-local stores – `state.db` (active-turn crash-recovery state, transient) and the webhook delivery ledger (per-instance dedup markers, TTL-purged). The owner flags this three-datastore shape (Postgres + SQLite + files) as an architectural smell. Both stores are touched only by the `serve` process (turn runner/cancellation; webhook routes) – no maintenance-command consumers – so the cross-process-locking argument for SQLite does not actually apply. Both are small, transient, and single-writer, making filesystem alternatives plausible: atomic write-temp-rename JSON for turn state (the `meta.json` pattern), file-per-event-id with `O_CREAT|O_EXCL` plus mtime-based purge for the ledger. That would make PostgreSQL deployments touch SQLite zero times at runtime (the library still ships in the one binary per ADR-045 OQ3 – one binary, no build flavors, a settled decision this item does not reopen; a separate-install SQLite would break the zero-ops default story).
+
+**Resolution (owner, 2026-08-07)**: decided – conceptual cleanliness wins while pre-release. Folded into the existing 0.25 rider story S14 (keeping the plan at 14 stories) rather than a new story: filesystem stores with fault-injection parity against the current suites, Windows rename coverage, tightened sqlite3-import fitness check, and an ADR-045 #3/Q4 mechanism amendment (locality rationale unchanged).
+
 ## TD-114 – Mixed finalizer + `outputMode: prompt` outputs on one agent step drop the opt-out output's main-prompt contract
 
 **Status**: Closed 2026-07-05 — resolved by `dev/bundle/docs/specs/0.20/per-key-main-prompt-output-contract-filtering.md` (approach (a): per-key main-prompt output-contract filtering in `PromptAugmenter`; `spec_source` / `outputMode: prompt` opt-outs stay instructed, host-ownership boundary intact).

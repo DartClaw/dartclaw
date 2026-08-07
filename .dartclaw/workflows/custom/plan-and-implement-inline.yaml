@@ -128,7 +128,12 @@ steps:
         # runs under a broader permission mode, so mutating steps in the inline
         # customs deliberately omit per-tool allowlists.
         maxRetries: 1
-        prompt: "--auto {{map.item.spec_path}}"
+        prompt: >-
+          --auto {{map.item.spec_path}}
+          Verification scope: run fast tests for the packages this story
+          changed only, deferring the repo-wide suite, integration/e2e/slow
+          tiers, and arch/fitness gates to the deterministic verify-all gate
+          after all stories.
         outputs:
           story_result:
             schema: narrative_text
@@ -188,7 +193,12 @@ steps:
           - id: remediate-story
             name: Remediate Story Findings
             skill: andthen:remediate-findings
-            prompt: "--auto {{context.review_report_path}}"
+            prompt: >-
+              --auto {{context.review_report_path}}
+              Verification scope: run fast tests for the packages this story
+              changed only, deferring the repo-wide suite, integration/e2e/slow
+              tiers, and arch/fitness gates to the deterministic verify-all
+              gate after all stories.
             outputs:
               remediation_summary:
                 schema: narrative_text
@@ -302,7 +312,12 @@ steps:
         skill: andthen:remediate-findings
         entryGate: "gating_findings_count > 0"
         inputs: [story_results]
-        prompt: "--auto {{context.review_report_path}}"
+        prompt: >-
+          --auto {{context.review_report_path}}
+          Verification scope: run fast tests for the packages this remediation
+          changed only, deferring the repo-wide suite, integration/e2e/slow
+          tiers, and arch/fitness gates to the deterministic verify-all gate
+          right after this loop.
         outputs:
           remediation_summary:
             schema: narrative_text

@@ -704,7 +704,15 @@ void main() {
         // as an input would be a redundant no-op (no-op-inputs rule).
         expect(remediate.inputs, isNot(contains('review_report_path')), reason: '$file → remediate no-op report input');
         expect(remediate.inputs, isNot(contains('architecture_review_findings')), reason: file);
-        expect(_allPromptText(remediate).trim(), '--auto {{context.review_report_path}}', reason: file);
+        // Inline maintainer variants may append a verification-scope sentence
+        // deferring heavy suites to their deterministic verify-all gate; the
+        // shipped built-ins keep the exact minimal invocation.
+        final remediatePrompt = _allPromptText(remediate).trim();
+        if (file.endsWith('-inline.yaml')) {
+          expect(remediatePrompt, startsWith('--auto {{context.review_report_path}}'), reason: file);
+        } else {
+          expect(remediatePrompt, '--auto {{context.review_report_path}}', reason: file);
+        }
         expect(
           remediate.outputs?.containsKey('architecture-review.gating_findings_count'),
           isNot(isTrue),

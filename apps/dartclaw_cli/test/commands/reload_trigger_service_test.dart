@@ -427,7 +427,9 @@ void main() {
         }
 
         await _waitForCount(() => loaderCallCount, 1);
-        final settled = await _waitForStableCount(() => loaderCallCount);
+        // quiet > debounceMs, or a second cycle lands after the window and is
+        // never observed — the assertion would pass without proving coalescing.
+        final settled = await _waitForStableCount(() => loaderCallCount, quiet: const Duration(milliseconds: 1300));
 
         // Coalescing is the subject: 5 writes inside one debounce window must
         // produce exactly one reload on the real ReloadTriggerService. Waiting

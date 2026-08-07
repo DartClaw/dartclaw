@@ -39,9 +39,8 @@ void main() {
   group('BraveSearchTool', () {
     group('MCP interface', () {
       test('name is brave_search — wire contract', () {
-        // The name is the operator-visible identifier in `agent.disallowed_tools`
-        // and agent `allowedTools` config, so a rename silently breaks existing
-        // operator configs. No code branches on this literal.
+        // The MCP-exposed name, and thus the suffix of the harness-visible
+        // `mcp__dartclaw__<name>` identifier. No code branches on this literal.
         expect(BraveSearchTool(provider: _MockProvider()).name, 'brave_search');
       });
 

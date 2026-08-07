@@ -209,8 +209,9 @@ class GuardAuditLogger {
   /// not a global barrier: an append enqueued after this returns is not covered,
   /// so quiesce every producer first.
   ///
-  /// Never throws — a failed append (see [writeEntry]) leaves the internal chain
-  /// in an error state, and surfacing that here would abort a caller's shutdown.
+  /// Never throws. [writeEntry] resets the shared chain after a failed append,
+  /// so it should not be in an error state; the handler stays as a guard against
+  /// a caller's shutdown being aborted by an audit failure.
   Future<void> flush() => _pendingWrite.then((_) {}, onError: (_) {});
 
   /// Writes [entry] synchronously enough for callers that must fail closed.

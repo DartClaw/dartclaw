@@ -121,6 +121,7 @@ touch package boundaries, tests, build tooling, workflow definitions, or cross-p
 `.github/workflows/ci.yml`, with an added whitespace check.
 
 ```bash
+dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
@@ -154,9 +155,8 @@ curl -s "https://pub.dev/api/packages/<package_name>" | jq '{name: .name, latest
 dart format --line-length=120 <file_or_dir>
 
 # Static analysis + lint (strict-casts, strict-raw-types, lints/recommended).
-# On a fresh checkout or a git worktree, generate the embedded asset libraries
-# first — lib/ imports them and analyze reports ~32 unresolved imports without.
-dart run dev/tools/embed_assets.dart
+# Requires the generated asset libraries — see `dart run dev/tools/embed_assets.dart`
+# under ## Build for when it must be run.
 dart analyze
 ```
 

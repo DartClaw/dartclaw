@@ -7,7 +7,7 @@
 - **Built-in guards** — `CommandGuard` (regex policy on shell commands; quote-stripping, subshell-aware), `FileGuard` (glob policy on resolved paths; symlink-aware; self-protection mode), `NetworkGuard` (URL allowlist/blocklist), `InputSanitizer` (prompt-injection patterns), `ContentGuard` (classifier-driven), `TaskToolFilterGuard` (provider tool gating).
 - **Classifiers** — pluggable content scanners. `ContentClassifier` (interface), `AnthropicApiClassifier`, `ClaudeBinaryClassifier`, `CloudflareDetector`. Throws are the caller's contract — `ContentGuard` decides fail-open vs fail-closed.
 - **Redaction** — `MessageRedactor` (proportional redaction at the agent boundary; preserves shape for audit).
-- **Audit trail** — `GuardAuditLogger` (NDJSON appender; appends are fire-and-forget, so hosts must `await flush()` at shutdown or lose queued entries) + `AuditEntry` (record schema).
+- **Audit trail** — `GuardAuditLogger` (NDJSON appender; appends are fire-and-forget, so hosts must `await flush()` at shutdown or lose queued entries — it drains only what is queued at call time, so quiesce producers first; it is not a global barrier and never throws) + `AuditEntry` (record schema).
 - **Process safety** — `SafeProcess` (the only sanctioned subprocess spawner), `EnvPolicy.sanitize()` (env allowlist + sensitive-name strip), `defaultBashStepEnvAllowlist` / `defaultGitEnvAllowlist` / `defaultSensitivePatterns` (defaults).
 
 ## Boundaries

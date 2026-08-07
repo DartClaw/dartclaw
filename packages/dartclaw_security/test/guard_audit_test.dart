@@ -57,30 +57,20 @@ void main() {
 
         // A caller shutting down must not have dispose() aborted by this.
         await expectLater(logger.flush(), completes);
-
-        // A poisoned chain would make every later append a silent no-op, since
-        // `.then` skips its callback on an errored future.
-        logger.logVerdict(
-          verdict: const GuardWarn('after'),
-          guardName: 'command',
-          guardCategory: 'shell',
-          hookPoint: 'beforeToolCall',
-          timestamp: DateTime.now(),
-        );
-        await expectLater(logger.flush(), completes);
       });
 
       test('appends resume on a healthy logger after a strict write failed', () async {
         final dir = Directory.systemTemp.createTempSync('guard_audit_recover_');
         addTearDown(() => dir.deleteSync(recursive: true));
         final logger = GuardAuditLogger(dataDir: dir.path);
+        // One sample: a midnight crossing between samples would desync the
+        // blocked partition, the written entry, and the asserted read path.
+        final now = DateTime.now();
 
         // A directory where the NDJSON partition belongs makes the append fail.
-        final partition = Directory(_auditFilePathForDate(dir, DateTime.now()))..createSync();
+        final partition = Directory(_auditFilePathForDate(dir, now))..createSync();
         await expectLater(
-          logger.writeEntry(
-            AuditEntry(timestamp: DateTime.now(), guard: 'command', hook: 'beforeToolCall', verdict: 'block'),
-          ),
+          logger.writeEntry(AuditEntry(timestamp: now, guard: 'command', hook: 'beforeToolCall', verdict: 'block')),
           throwsA(isA<FileSystemException>()),
         );
         partition.deleteSync();
@@ -90,11 +80,11 @@ void main() {
           guardName: 'command',
           guardCategory: 'shell',
           hookPoint: 'beforeToolCall',
-          timestamp: DateTime.now(),
+          timestamp: now,
         );
         await logger.flush();
 
-        expect(_readAuditEntries(File(_auditFilePathForDate(dir, DateTime.now()))), hasLength(1));
+        expect(_readAuditEntries(File(_auditFilePathForDate(dir, now))), hasLength(1));
       });
     });
     late GuardAuditLogger logger;

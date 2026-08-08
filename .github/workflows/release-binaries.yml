@@ -48,6 +48,10 @@ jobs:
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
 
+      - name: Generate embedded assets
+        if: runner.os == 'Windows'
+        run: dart run dev/tools/embed_assets.dart
+
       - name: Read DartClaw version
         if: runner.os != 'Windows'
         run: |

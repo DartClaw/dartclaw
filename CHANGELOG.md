@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Windows release builds generate embedded assets on fresh checkouts** – the release workflow now emits the ignored generated Dart libraries before platform compilation, matching local and CI builds.
 - **Scheduled-job CLI output matches canonical configuration** – `dartclaw jobs list` now renders `id`, structured cron/interval/once schedules, and the default prompt type while preserving legacy aliases.
 - **Workspace git sync no longer requires a heartbeat checklist** – each enabled heartbeat timer cycle attempts sync even when `HEARTBEAT.md` is missing or empty, and cloned repositories receive missing default `.gitignore` entries without losing custom content.
 - **The health audit dashboard reads current guard logs again** – date-partitioned audit files and legacy `audit.ndjson` files are combined and ordered newest-first before filtering and pagination.

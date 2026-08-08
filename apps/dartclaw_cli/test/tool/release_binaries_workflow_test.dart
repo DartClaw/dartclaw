@@ -62,6 +62,21 @@ void main() {
     expect(buildSteps.any((step) => '${step['uses']}'.startsWith('softprops/action-gh-release@')), isFalse);
   });
 
+  test('fresh release checkouts generate embedded assets before platform builds', () {
+    final stepNames = buildSteps.map((step) => step['name']).toList();
+    expect(
+      stepNames,
+      contains('Generate embedded assets'),
+      reason: 'Generated Dart libraries are gitignored and must exist before either platform build starts.',
+    );
+
+    final generateIndex = stepNames.indexOf('Generate embedded assets');
+    expect(generateIndex, lessThan(stepNames.indexOf('Build standalone binary')));
+    expect(generateIndex, lessThan(stepNames.indexOf('Build Windows standalone binary')));
+    expect(buildStep('Generate embedded assets')['if'], "runner.os == 'Windows'");
+    expect(buildStep('Generate embedded assets')['run'], 'dart run dev/tools/embed_assets.dart');
+  });
+
   test('installer gates one atomic publication job', () {
     final installer = jobs['windows-installer'] as YamlMap;
     expect(installer['needs'], 'build');

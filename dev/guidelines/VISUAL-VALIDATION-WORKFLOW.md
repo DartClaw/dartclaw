@@ -73,7 +73,7 @@ To verify tokens are active (not hard-coded values), use `evaluate_script`:
 
 ```js
 getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim()
-// Dark: '#1e1e2e'  |  Light: '#eff1f5'
+// Dark: '#1e1e2e'  |  Light: '#e4e7ef'
 ```
 
 If the value is empty or wrong, the design token system is broken for that page.
@@ -94,10 +94,11 @@ When a test requires verifying a CSS-driven visual (gradient, animation, overlay
 Run after loading each page:
 
 ```js
-// No errors expected — any error is a FAIL
+// No errors expected — any error is a FAIL, except TC-12's expected main-document 404
 ```
 
-Use `list_console_messages` and flag any `error`-level entries as P2 issues minimum.
+Use `list_console_messages` and flag any `error`-level entries as P2 issues minimum. TC-12's expected
+main-document 404 entry is the sole exception; subresource, script, API, and all other errors still fail.
 
 ## Report Format
 

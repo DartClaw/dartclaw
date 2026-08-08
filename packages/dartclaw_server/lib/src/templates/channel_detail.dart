@@ -53,6 +53,17 @@ String channelDetailTemplate({
   };
   final disconnectHref = pairingHref != null ? '$pairingHref/disconnect' : null;
   final presentation = status.presentation;
+  final disabledGuidance = status == ChannelStatus.disabled
+      ? switch (channelType) {
+          'whatsapp' =>
+            'Set channels.whatsapp.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register WhatsApp.',
+          'signal' =>
+            'Set channels.signal.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register Signal.',
+          'google_chat' =>
+            'Configure the Google Chat service account, audience, and webhook; set channels.google_chat.enabled: true in dartclaw.yaml; then restart DartClaw.',
+          _ => 'Enable this channel in dartclaw.yaml, then restart DartClaw.',
+        }
+      : null;
   final heroTitle = channelLabel;
   final heroSubtitle = switch (channelType) {
     'whatsapp' => 'Channel access rules, pairing approvals, and session routing.',
@@ -77,6 +88,7 @@ String channelDetailTemplate({
         ? null
         : 'banner banner-${presentation.stateBannerVariant}',
     'stateBannerText': presentation.stateBannerText,
+    'disabledGuidance': disabledGuidance,
     'dmPolicyHint': presentation.dmPolicyHint,
     'phone': phone,
     'pairingHref': pairingHref,

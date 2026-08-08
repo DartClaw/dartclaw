@@ -181,6 +181,16 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
+  test('unknown routes retain a styled 404 response', () async {
+    final response = await server.handler(Request('GET', Uri.parse('http://localhost/nonexistent-page')));
+    final body = await response.readAsString();
+
+    expect(response.statusCode, 404);
+    expect(response.headers['content-type'], startsWith('text/html'));
+    expect(body, contains('Page Not Found'));
+    expect(body, contains('href="/"'));
+  });
+
   group('shutdown', () {
     test('cancels active turn then stops worker', () async {
       final session = await sessions.createSession();

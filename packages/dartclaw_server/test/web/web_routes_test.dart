@@ -299,7 +299,12 @@ void main() {
     // `warn` pair that matched no badge rule. It now resolves through the
     // shared disabled presentation like every other status.
     test('a null channel renders the disabled presentation exactly', () async {
-      for (final type in ['whatsapp', 'signal', 'google_chat']) {
+      for (final entry in const {
+        'whatsapp': 'channels.whatsapp.enabled: true',
+        'signal': 'channels.signal.enabled: true',
+        'google_chat': 'channels.google_chat.enabled: true',
+      }.entries) {
+        final type = entry.key;
         final res = await handler(Request('GET', Uri.parse('http://localhost/settings/channels/$type')));
         final body = await res.readAsString();
 
@@ -312,6 +317,15 @@ void main() {
         expect(body, isNot(contains('status-badge-warn"')), reason: type);
         expect(body, isNot(contains('Policy changes apply when it starts.')), reason: type);
         expect(body, isNot(contains('DM allowlist changes')), reason: type);
+        expect(body, contains(entry.value), reason: type);
+        expect(body, contains('href="/settings#channels"'), reason: type);
+        if (type == 'google_chat') {
+          expect(body, contains('service account, audience, and webhook'), reason: type);
+          expect(body, isNot(contains('Pairing / Registration')), reason: type);
+        } else {
+          expect(body, contains('href="/$type/pairing"'), reason: type);
+          expect(body, contains('Pairing / Registration'), reason: type);
+        }
       }
     });
 

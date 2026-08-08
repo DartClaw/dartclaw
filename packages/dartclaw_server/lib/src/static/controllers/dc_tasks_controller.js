@@ -545,20 +545,23 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       const response = await fetch(window.location.pathname + window.location.search, {
         headers: { 'HX-Request': 'true' },
       });
-      if (!response.ok) return;
+      if (!response.ok) return false;
 
       const html = await response.text();
       const parsed = new DOMParser().parseFromString(html, 'text/html');
       const nextContent = parsed.getElementById('main-content');
       const currentContent = document.getElementById('main-content');
-      if (!nextContent || !currentContent) return;
+      if (!nextContent || !currentContent) return false;
 
       currentContent.replaceWith(nextContent);
       reinitializeTaskUi();
       if (typeof shell.renderMarkdown === 'function') {
         shell.renderMarkdown();
       }
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function applyTaskFilters() {
@@ -695,7 +698,9 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
           body: JSON.stringify({}),
         });
         if (response.ok) {
-          window.location.reload();
+          if (!(await refreshTaskDetailContent())) {
+            ui.showToast('error', 'Task started. Refresh the page to see its status.');
+          }
         } else {
           const data = await response.json().catch(() => ({}));
           ui.showToast('error', data.error?.message || 'Failed to start task');

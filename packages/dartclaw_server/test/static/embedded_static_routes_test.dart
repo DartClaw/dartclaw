@@ -83,15 +83,17 @@ void main() {
     }
   });
 
-  test('serves the vendored htmx and marked bundles same-origin', () async {
+  test('serves vendored scripts same-origin without missing source-map references', () async {
     final scriptHandler = createEmbeddedStaticHandler(embeddedServerAssets, embeddedServerBinaryAssets);
 
-    for (final name in const ['htmx.min.js', 'marked.min.js']) {
+    for (final name in const ['htmx.min.js', 'marked.min.js', 'purify.min.js']) {
       final response = await scriptHandler(Request('GET', Uri.parse('http://localhost/$name')));
 
       expect(response.statusCode, 200, reason: name);
       expect(response.headers['content-type'], startsWith('text/javascript'), reason: name);
-      expect(await response.readAsString(), embeddedServerAssets['static/$name'], reason: name);
+      final body = await response.readAsString();
+      expect(body, embeddedServerAssets['static/$name'], reason: name);
+      expect(body, isNot(contains('sourceMappingURL=')), reason: '$name must not request an unshipped source map');
     }
   });
 }

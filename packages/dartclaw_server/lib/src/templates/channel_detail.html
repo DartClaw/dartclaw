@@ -16,6 +16,12 @@
       <div tl:if="${stateBannerClass}" tl:classappend="${stateBannerClass}" role="status">
         <span class="icon icon-triangle-alert" aria-hidden="true"></span> <span tl:text="${stateBannerText}">Channel is not running.</span>
       </div>
+      <div tl:if="${disabledGuidance}" class="banner banner-info channel-enable-guidance" role="status">
+        <span class="icon icon-info" aria-hidden="true"></span>
+        <span tl:text="${disabledGuidance}">Enable this channel in dartclaw.yaml, then restart DartClaw.</span>
+        <a href="/settings#channels">Channel settings</a>
+        <a tl:if="${pairingHref}" tl:attr="href=${pairingHref}">Pairing / Registration</a>
+      </div>
 
       <section class="card channel-detail-hero">
         <div class="channel-detail-hero-row">

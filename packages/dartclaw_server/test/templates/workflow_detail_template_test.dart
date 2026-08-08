@@ -467,6 +467,20 @@ void main() {
       expect(html, isNot(contains('workflow-pause-banner')));
     });
 
+    test('cancelled approval run does not surface the stale hold reason as an error', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'cancelled', errorMessage: 'approval required: plan-approval'),
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, isNot(contains('workflow-error-message')));
+      expect(html, isNot(contains('approval required: plan-approval')));
+    });
+
     test('awaitingApproval run renders the pause banner, not the error block', () {
       // The awaitingApproval path sets errorMessage ("approval required: <step>");
       // the pause banner must own that message and the red error block stay hidden.
@@ -497,6 +511,21 @@ void main() {
 
       expect(html, contains('workflow-pause-banner'));
       expect(html, isNot(contains('workflow-error-message')));
+    });
+
+    test('awaitingApproval run without pending metadata falls back to its error', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'awaitingApproval', errorMessage: 'approval required: missing-step'),
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, isNot(contains('workflow-pause-banner')));
+      expect(html, contains('workflow-error-message'));
+      expect(html, contains('approval required: missing-step'));
     });
 
     test('no error section when errorMessage is null', () {

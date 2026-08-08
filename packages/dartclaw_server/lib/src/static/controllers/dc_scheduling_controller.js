@@ -211,6 +211,11 @@ export default class DcSchedulingController extends Stimulus.Controller {
     confirmRow.appendChild(td);
     row.parentNode.insertBefore(confirmRow, row.nextSibling);
     row.style.display = 'none';
+    const tableWrap = button.closest('.table-wrap');
+    if (tableWrap) {
+      bar.style.width = tableWrap.clientWidth + 'px';
+      tableWrap.scrollLeft = 0;
+    }
   }
 
   confirmDeleteJob(event) {

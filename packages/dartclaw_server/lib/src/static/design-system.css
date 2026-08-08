@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-08-05.
-   sha256: 43089108275a3ef48a20d46977cad612516eac03b96bc959a782c68e080455ce */
+/* Synced from dev/design-system/components.css on 2026-08-08.
+   sha256: 3470dd9c0f2033b48f69043aebba51afbb40592138511c3736de157ca175f583 */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -3560,6 +3560,16 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
   flex: 1;
   font-size: var(--text-base);
   color: var(--fg);
+}
+
+@media (max-width: 768px) {
+  .delete-confirm-bar {
+    flex-wrap: wrap;
+  }
+
+  .delete-confirm-bar .confirm-msg {
+    flex-basis: 100%;
+  }
 }
 
 

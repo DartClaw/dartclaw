@@ -3,8 +3,8 @@
 # Downloads the correct pre-built binary for your platform and adds it to PATH.
 #
 # Usage:
-#   bash scripts/install-gowa.sh            # latest release
-#   bash scripts/install-gowa.sh v8.3.2     # specific version
+#   bash scripts/install-gowa.sh            # qualified v8.3.2 release
+#   bash scripts/install-gowa.sh v9.0.0     # explicit version override
 #
 # Supports: macOS (Intel + Apple Silicon), Linux (x86_64 + ARM64)
 
@@ -16,17 +16,7 @@ BINARY_NAME="whatsapp"
 
 # --- Resolve version ----------------------------------------------------------
 
-VERSION="${1:-}"
-if [ -z "$VERSION" ]; then
-  echo "Fetching latest release..."
-  VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-fi
-
-if [ -z "$VERSION" ]; then
-  echo "Error: could not determine version." >&2
-  exit 1
-fi
+VERSION="${1:-v8.3.2}"
 
 VERSION_NUM="${VERSION#v}"
 echo "Installing GOWA ${VERSION}..."
@@ -92,9 +82,11 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   if [ -f "$RC_FILE" ] && grep -qF "$INSTALL_DIR" "$RC_FILE"; then
     echo "PATH entry already in ${RC_FILE}"
   else
-    echo "" >> "$RC_FILE"
-    echo "# Added by install-gowa.sh" >> "$RC_FILE"
-    echo "$LINE" >> "$RC_FILE"
+    {
+      echo ""
+      echo "# Added by install-gowa.sh"
+      echo "$LINE"
+    } >> "$RC_FILE"
     echo "Added ${INSTALL_DIR} to PATH in ${RC_FILE}"
     echo "Run 'source ${RC_FILE}' or open a new terminal for it to take effect."
   fi

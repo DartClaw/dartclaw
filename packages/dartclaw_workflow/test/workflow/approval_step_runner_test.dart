@@ -424,6 +424,7 @@ void main() {
 
     test('approval timeout runs workflow git cleanup', () async {
       final cleanupCalls = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
+      final cleanupCompleted = Completer<void>();
       final executor = h.makeExecutor(
         turnAdapter: standardTurnAdapter(
           cleanupWorkflowGit:
@@ -434,6 +435,7 @@ void main() {
                   status: status,
                   preserveWorktrees: preserveWorktrees,
                 ));
+                cleanupCompleted.complete();
               },
         ),
       );
@@ -447,7 +449,7 @@ void main() {
             name: 'Gate',
             taskType: WorkflowTaskType.approval,
             prompts: ['Approve?'],
-            timeoutSeconds: 1,
+            timeoutSeconds: 0,
           ),
         ],
       );
@@ -456,11 +458,14 @@ void main() {
 
       await h.repository.insert(run);
       await executor.execute(run, definition, context);
-      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      await cleanupCompleted.future;
 
       expect(cleanupCalls, hasLength(1));
       expect(cleanupCalls.single, (runId: 'run-1', projectId: 'alpha', status: 'cancelled', preserveWorktrees: false));
-    }, timeout: const Timeout(Duration(seconds: 10)));
+      final cancelledRun = await h.repository.getById(run.id);
+      expect(cancelledRun?.status, WorkflowRunStatus.cancelled);
+      expect(cancelledRun?.errorMessage, isNull);
+    });
 
     test('approval step resolves prompt template from context', () async {
       final definition = h.makeDefinition(

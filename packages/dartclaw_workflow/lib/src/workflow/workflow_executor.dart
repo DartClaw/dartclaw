@@ -854,6 +854,7 @@ class WorkflowExecutor {
     final cancelled = run.copyWith(
       status: WorkflowRunStatus.cancelled,
       completedAt: DateTime.now(),
+      errorMessage: null,
       updatedAt: DateTime.now(),
     );
     await _repository.update(cancelled);

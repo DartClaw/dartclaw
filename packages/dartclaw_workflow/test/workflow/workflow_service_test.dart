@@ -1350,6 +1350,7 @@ void main() {
       Map<String, String> variables = const {},
       WorkflowGitStrategy? gitStrategy,
       WorkflowApprovalPolicy? approvals,
+      String? errorMessage,
     }) async {
       final definition = makeDefinition(
         gitStrategy: gitStrategy,
@@ -1386,6 +1387,7 @@ void main() {
           '_approval.pending.stepId': stepId,
           '_approval.pending.stepIndex': nextStepIndex - 1,
         },
+        errorMessage: errorMessage,
         writeContextFile: true,
       );
     }
@@ -1477,7 +1479,7 @@ void main() {
       final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
       eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
 
-      await insertApprovalPausedRun();
+      await insertApprovalPausedRun(errorMessage: 'approval required: gate');
 
       await workflowService.cancel('run-approval');
 
@@ -1488,6 +1490,7 @@ void main() {
       final updated = await workflowService.get('run-approval');
       expect(updated?.contextJson['gate.approval.status'], equals('rejected'));
       expect(updated?.contextJson['gate.status'], equals('rejected'));
+      expect(updated?.errorMessage, isNull);
     });
 
     test('cancel() with feedback stores feedback in contextJson and event', () async {
@@ -1524,6 +1527,7 @@ void main() {
       await insertApprovalPausedRun(
         runId: 'run-expired-approval',
         timeoutDeadline: DateTime.now().subtract(const Duration(seconds: 1)),
+        errorMessage: 'approval required: gate',
       );
 
       await workflowService.recoverIncompleteRuns();
@@ -1533,6 +1537,7 @@ void main() {
       expect(updated?.status, equals(WorkflowRunStatus.cancelled));
       expect(updated?.contextJson['gate.approval.status'], equals('timed_out'));
       expect(updated?.contextJson['gate.approval.cancel_reason'], equals('timeout'));
+      expect(updated?.errorMessage, isNull);
     });
 
     test('recoverIncompleteRuns() cleans workflow git after expired approval deadline', () async {

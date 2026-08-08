@@ -250,10 +250,11 @@ String workflowDetailPageTemplate({
     'totalTokens': formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
     'durationDisplay': durationDisplay,
     'metricsHtml': metricsHtml,
-    // A pause banner already surfaces the errorMessage (approval hold or pause
-    // reason); suppress the red error block so the same event isn't rendered
-    // twice with contradictory severity.
-    'hasError': run['errorMessage'] != null && pauseBanner == null,
+    // A complete pause banner owns the hold reason. Preserve the error fallback
+    // for malformed approval records that cannot produce that banner.
+    'hasError':
+        run['errorMessage'] != null &&
+        (statusName == 'failed' || (statusName == 'awaitingApproval' && pauseBanner == null)),
     'errorMessage': run['errorMessage'],
     'progressPercent': progressPercent,
     'meterFillClass': presentation.meterFillClass,

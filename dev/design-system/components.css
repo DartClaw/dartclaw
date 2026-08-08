@@ -3560,6 +3560,16 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
   color: var(--fg);
 }
 
+@media (max-width: 768px) {
+  .delete-confirm-bar {
+    flex-wrap: wrap;
+  }
+
+  .delete-confirm-bar .confirm-msg {
+    flex-basis: 100%;
+  }
+}
+
 
 /* ================================================================
    28. COMPOSITE TYPE LAYER

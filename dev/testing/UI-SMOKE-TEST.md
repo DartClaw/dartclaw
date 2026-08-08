@@ -41,7 +41,8 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 ### Cross-cutting setup
 
 - **Viewports**: desktop 1280px and mobile 375px unless a TC says otherwise.
-- **Console errors**: any `error`-level message during a TC fails it.
+- **Console errors**: any `error`-level message during a TC fails it, except the expected
+  main-document 404 entry in TC-12. Subresource, script, API, and all other errors still fail.
 - **Provider badges**: every session/task/channel/workflow surface in the sidebar may render a
   `provider-badge-{claude|codex}` chip after the title — that's expected, not a layout glitch.
 
@@ -242,6 +243,7 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 1. Navigate to `/nonexistent-page`
 
 **Pass:**
+- Main-document response status is `404`
 - Themed page (NOT plain text "Route not found")
 - Large `404` in `--fg-overlay`
 - "Page Not Found" heading in `--fg`
@@ -409,7 +411,8 @@ content directly (NDJSON file or SQLite).
 
 ### TC-21: Task Detail Progression *(requires a task to start)*
 **Steps:**
-1. Create or open a draft task at `/tasks/<id>`
+1. Plain profile: create a **Research** draft task at `/tasks/<id>`; Coding tasks instead require
+   a registered, ready Git project
 2. Click **Start Task** (or equivalent transition); do not manually reload afterwards
 
 **Pass:**
@@ -537,6 +540,12 @@ immediately after success (not on the next 30s poll)
 - SYSTEM nav: **Projects (active)**
 
 **Fail:** Empty state shows raw HTML or unstyled; nav not active
+
+---
+
+### TC-30: Retired — Canvas Admin
+
+**N/A:** Canvas Admin was removed in v0.23. The ID remains reserved so later case references stay stable.
 
 ---
 

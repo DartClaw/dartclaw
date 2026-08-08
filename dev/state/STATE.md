@@ -3,20 +3,21 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-08 10:14 CEST
+Last Updated: 2026-08-08 12:22 CEST
 
 ## Current Phase
 
-**Release close: scope freeze and final manual validation**
+**Release close: final fixes and validation**
 
-**Status**: Scope frozen. The 0.23 implementation and automated release check are complete on `feat/0.23`. Full
-workflow-live, complete UI smoke, and paired-device channel checks remain before merge and tag; 0.24 remains next.
+**Status**: The 0.23 implementation is complete on `feat/0.23`. Final automated release check, full workflow-live, and
+complete UI smoke remain before merge and tag; 0.24 remains next.
 
 ## Current Focus
 
-- Complete the full workflow-live and UI smoke release gates on the scope-frozen HEAD.
-- Complete the paired-device Signal and WhatsApp DM/group typing checks.
-- After all manual gates pass, mark the release ready and request merge approval.
+- Complete the full workflow-live and UI smoke release gates on the final HEAD.
+- Run the automated release check on the clean commit produced after release-close fixes.
+- Run paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
+- After all release gates pass, mark the release ready and request merge approval.
 
 ## Active Stories
 

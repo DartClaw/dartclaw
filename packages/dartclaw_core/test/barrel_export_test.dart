@@ -179,6 +179,13 @@ void main() {
       expect(gating.shouldProcess(message), isFalse);
       expect(chunkTextSlices('plain message').single, isA<TextChunkSlice>());
       expect(chunkNativeChatMarkup('plain message'), ['plain message']);
+      expect(
+        convertStandardMarkdownToNativeChatMarkup(
+          '[docs](https://example.com)',
+          renderLink: (label, url) => '$label ($url)',
+        ),
+        'docs (https://example.com)',
+      );
     });
 
     test('task trigger symbols importable', () {

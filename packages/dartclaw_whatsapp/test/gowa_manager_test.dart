@@ -101,6 +101,59 @@ void main() {
       );
     }, timeout: const Timeout(Duration(seconds: 5)));
 
+    test('raw response handling provisions after an empty list and preserves HTTP failures', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requests = <String>[];
+      final subscription = server.listen((request) {
+        unawaited(() async {
+          requests.add('${request.method} ${request.uri.path}');
+          if (request.method == 'GET' && request.uri.path == '/devices') {
+            await request.response.close();
+            return;
+          }
+          if (request.method == 'POST' && request.uri.path == '/devices') {
+            await utf8.decoder.bind(request).join();
+            request.response.write(
+              jsonEncode({
+                'results': {'id': 'created-device'},
+              }),
+            );
+            await request.response.close();
+            return;
+          }
+          request.response
+            ..statusCode = HttpStatus.serviceUnavailable
+            ..write('temporarily unavailable');
+          await request.response.close();
+        }());
+      });
+      final manager = GowaManager(
+        executable: 'whatsapp',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await manager.reset();
+        await subscription.cancel();
+        await server.close(force: true);
+      });
+
+      await manager.start();
+
+      expect(requests, ['GET /devices', 'POST /devices']);
+      await expectLater(
+        manager.status(),
+        throwsA(
+          isA<HttpException>().having(
+            (error) => error.message,
+            'message',
+            contains('GOWA /app/status returned 503: temporarily unavailable'),
+          ),
+        ),
+      );
+    });
+
     test('start adopts healthy existing service without spawning', () async {
       var spawned = false;
       final mgr = GowaManager(

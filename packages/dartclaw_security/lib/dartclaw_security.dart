@@ -9,6 +9,7 @@ export 'src/guard_audit.dart' show GuardAuditLogger, AuditEntry;
 export 'src/command_guard.dart' show CommandGuard, CommandGuardConfig;
 export 'src/file_guard.dart' show FileAccessLevel, FileGuard, FileGuardConfig, FileGuardRule;
 export 'src/network_guard.dart' show NetworkGuard, NetworkGuardConfig;
+export 'src/path_utils.dart' show expandHome;
 export 'src/input_sanitizer.dart' show InputSanitizer, InputSanitizerConfig;
 export 'src/message_redactor.dart' show MessageRedactor;
 export 'src/content_classifier.dart' show ContentClassifier;

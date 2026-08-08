@@ -22,7 +22,6 @@ void main() {
   late SessionService sessions;
   late MessageService messages;
   late TaskService tasks;
-  late ArtifactCollector collector;
   late SqliteAgentExecutionRepository agentExecutions;
   late SqliteWorkflowRunRepository workflowRuns;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
@@ -36,7 +35,6 @@ void main() {
     sessions = ctx.sessions;
     messages = ctx.messages;
     tasks = ctx.tasks;
-    collector = ctx.collector;
     agentExecutions = ctx.agentExecutions;
     workflowRuns = ctx.workflowRuns;
     workflowStepExecutions = ctx.workflowStepExecutions;
@@ -477,6 +475,32 @@ void main() {
     expect((await tasks.get('task-new'))!.status, TaskStatus.queued);
   });
 
+  test('breaks equal queue timestamps by task ID', () async {
+    worker.responseText = 'ok';
+    final queuedAt = DateTime.parse('2026-03-10T10:00:00Z');
+    await tasks.create(
+      id: 'task-b',
+      title: 'Second by ID',
+      description: 'second',
+      type: TaskType.automation,
+      autoStart: true,
+      now: queuedAt,
+    );
+    await tasks.create(
+      id: 'task-a',
+      title: 'First by ID',
+      description: 'first',
+      type: TaskType.automation,
+      autoStart: true,
+      now: queuedAt,
+    );
+
+    await executor.pollOnce();
+
+    expect((await tasks.get('task-a'))!.status, TaskStatus.review);
+    expect((await tasks.get('task-b'))!.status, TaskStatus.queued);
+  });
+
   test('executes tasks via pool-mode when maxConcurrentTasks > 0', () async {
     final poolWorker1 = FakeTaskWorker();
     final poolWorker2 = FakeTaskWorker();
@@ -492,16 +516,7 @@ void main() {
     final taskRunner = TurnRunner(harness: poolWorker1, messages: messages, behavior: behavior, sessions: sessions);
     final pool = HarnessPool(runners: [primaryRunner, taskRunner]);
     final poolTurns = TurnManager.fromPool(pool: pool);
-    final poolExecutor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: poolTurns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
     addTearDown(poolExecutor.stop);
 
     await tasks.create(
@@ -536,16 +551,11 @@ void main() {
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
     final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
     final poolTurns = TurnManager.fromPool(pool: pool);
-    final poolExecutor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-        workflowRunRepository: workflowRuns,
-        workflowStepExecutionRepository: workflowStepExecutions,
-      ),
-      runners: TaskExecutorRunners(turns: poolTurns, workflowCliRunner: cliRunner),
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(
+      turnManager: poolTurns,
+      workflowCliRunner: cliRunner,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
       limits: const TaskExecutorLimits(defaultProviderId: 'codex'),
       onSpawnNeeded: (requestedProviderId) async {
         spawnRequests.add(requestedProviderId);
@@ -564,7 +574,6 @@ void main() {
         }
         return spawned;
       },
-      pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
 
@@ -603,14 +612,8 @@ void main() {
     final poolTurns = TurnManager.fromPool(pool: pool);
     final spawnRequests = <String?>[];
     final spawnRequested = Completer<void>();
-    final poolExecutor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: poolTurns),
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(
+      turnManager: poolTurns,
       onSpawnNeeded: (requestedProviderId) async {
         spawnRequests.add(requestedProviderId);
         var spawned = false;
@@ -631,7 +634,6 @@ void main() {
         }
         return spawned;
       },
-      pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
 
@@ -679,16 +681,7 @@ void main() {
     final taskRunner2 = TurnRunner(harness: poolWorker2, messages: messages, behavior: behavior, sessions: sessions);
     final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
     final poolTurns = TurnManager.fromPool(pool: pool);
-    final poolExecutor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: poolTurns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
     addTearDown(poolExecutor.stop);
 
     await tasks.create(
@@ -739,18 +732,11 @@ void main() {
     final taskRunner2 = TurnRunner(harness: poolWorker2, messages: messages, behavior: behavior, sessions: sessions);
     final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
     final poolTurns = TurnManager.fromPool(pool: pool);
-    final poolExecutor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-        workflowRunRepository: workflowRuns,
-        workflowStepExecutionRepository: workflowStepExecutions,
-        worktreeManager: worktreeManager,
-      ),
-      runners: TaskExecutorRunners(turns: poolTurns),
-      pollInterval: const Duration(milliseconds: 10),
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(
+      turnManager: poolTurns,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      worktreeManager: worktreeManager,
     );
     addTearDown(poolExecutor.stop);
 
@@ -809,14 +795,8 @@ void main() {
 
   test('waits for shared-harness contention instead of failing the task', () async {
     final contentionTurns = BusyOnceTurnManager(messages, worker);
-    final contentionExecutor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: contentionTurns),
+    final contentionExecutor = ctx.harness.buildWorkflowExecutor(
+      turnManager: contentionTurns,
       pollInterval: const Duration(milliseconds: 1),
     );
     addTearDown(contentionExecutor.stop);
@@ -893,16 +873,9 @@ void main() {
 
     setUp(() {
       capturing = CapturingTurnManager(messages, worker);
-      scopeExecutor = TaskExecutor(
-        services: TaskExecutorServices(
-          tasks: tasks,
-          sessions: sessions,
-          messages: messages,
-          artifactCollector: collector,
-          workflowStepExecutionRepository: workflowStepExecutions,
-        ),
-        runners: TaskExecutorRunners(turns: capturing),
-        pollInterval: const Duration(milliseconds: 10),
+      scopeExecutor = ctx.harness.buildWorkflowExecutor(
+        turnManager: capturing,
+        workflowStepExecutionRepository: workflowStepExecutions,
       );
     });
 

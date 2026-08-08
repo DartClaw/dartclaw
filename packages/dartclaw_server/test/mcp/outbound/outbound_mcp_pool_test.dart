@@ -19,6 +19,20 @@ import 'package:dartclaw_server/src/mcp/outbound/outbound_mcp_pool.dart';
 import 'package:dartclaw_server/src/mcp/outbound/outbound_mcp_transport.dart';
 import 'package:test/test.dart';
 
+Future<OutboundMcpCallResult> _callTool(
+  OutboundMcpPool pool, {
+  String server = 'linear',
+  String tool = 'echo',
+  Map<String, dynamic> arguments = const {},
+  OutboundMcpCaller caller = const OutboundMcpCaller(sessionId: 's1'),
+}) => pool.callTool(serverName: server, toolName: tool, arguments: arguments, caller: caller);
+
+const _credentialedStdioServer = McpServerEntry(
+  command: 'fake',
+  networkClass: McpNetworkClass.local,
+  credential: 'linear-token',
+);
+
 void main() {
   group('OutboundMcpPool', () {
     test('spawns, reuses, tears down after idle TTL, and respawns after unhealthy ping', () async {
@@ -44,18 +58,8 @@ void main() {
         },
       );
 
-      await pool.callTool(
-        serverName: 'stdio',
-        toolName: 'echo',
-        arguments: {'text': 'first'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
-      await pool.callTool(
-        serverName: 'stdio',
-        toolName: 'echo',
-        arguments: {'text': 'second'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      await _callTool(pool, server: 'stdio', arguments: {'text': 'first'});
+      await _callTool(pool, server: 'stdio', arguments: {'text': 'second'});
       expect(transports, hasLength(1));
       expect(events.map((event) => event.type), containsAllInOrder(['spawn', 'reuse']));
 
@@ -64,19 +68,9 @@ void main() {
       expect(transports.single.closed, isTrue);
       expect(events.map((event) => event.type), contains('idle-teardown'));
 
-      await pool.callTool(
-        serverName: 'stdio',
-        toolName: 'echo',
-        arguments: {'text': 'third'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      await _callTool(pool, server: 'stdio', arguments: {'text': 'third'});
       transports.last.healthy = false;
-      await pool.callTool(
-        serverName: 'stdio',
-        toolName: 'echo',
-        arguments: {'text': 'fourth'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      await _callTool(pool, server: 'stdio', arguments: {'text': 'fourth'});
       expect(transports, hasLength(3));
       expect(events.map((event) => event.type), containsAllInOrder(['respawn', 'spawn']));
     });
@@ -102,12 +96,7 @@ void main() {
         arguments: const {},
         caller: const OutboundMcpCaller(sessionId: 's1'),
       );
-      final up = await pool.callTool(
-        serverName: 'up',
-        toolName: 'echo',
-        arguments: {'text': 'ok'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final up = await _callTool(pool, server: 'up', arguments: {'text': 'ok'});
 
       expect(down.error!.code, 'timeout');
       expect(up.isSuccess, isTrue);
@@ -130,12 +119,7 @@ void main() {
       addTearDown(pool.close);
 
       await expectLater(pool.listTools('acme'), throwsA(isA<OutboundMcpException>()));
-      final direct = await pool.callTool(
-        serverName: 'acme',
-        toolName: 'echo',
-        arguments: {'text': 'ok'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final direct = await _callTool(pool, server: 'acme', arguments: {'text': 'ok'});
 
       expect(transports, hasLength(2));
       expect(transports.first.closed, isTrue);
@@ -252,12 +236,7 @@ void main() {
       await callPool.listTools('acme');
 
       callTransport.blockPing();
-      final called = callPool.callTool(
-        serverName: 'acme',
-        toolName: 'echo',
-        arguments: {'text': 'after-close'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final called = _callTool(callPool, server: 'acme', arguments: {'text': 'after-close'});
       await callTransport.pingStarted;
       await callPool.close();
       callTransport.releasePing(true);
@@ -395,13 +374,7 @@ void main() {
         },
       );
       final pool = OutboundMcpPool(
-        mcpServers: _registry({
-          'linear': const McpServerEntry(
-            command: 'fake',
-            networkClass: McpNetworkClass.local,
-            credential: 'linear-token',
-          ),
-        }),
+        mcpServers: _registry({'linear': _credentialedStdioServer}),
         credentials: const CredentialsConfig(entries: {'linear-token': CredentialEntry(apiKey: 'secret-token')}),
         transportFactory: (server, options) async => _PoolTransport(),
         guardDecisionHook: (request) async {
@@ -457,13 +430,7 @@ void main() {
       () async {
         CredentialEntry? observedCredential;
         final pool = OutboundMcpPool(
-          mcpServers: _registry({
-            'linear': const McpServerEntry(
-              command: 'fake',
-              networkClass: McpNetworkClass.local,
-              credential: 'linear-token',
-            ),
-          }),
+          mcpServers: _registry({'linear': _credentialedStdioServer}),
           credentials: const CredentialsConfig(entries: {'linear-token': CredentialEntry(apiKey: 'secret-token')}),
           transportFactory: (server, options) async {
             observedCredential = options.credential;
@@ -514,13 +481,7 @@ void main() {
 
     test('S-01 credentialed stdio server fails closed when the credential declares no env var to inject', () async {
       final pool = OutboundMcpPool(
-        mcpServers: _registry({
-          'linear': const McpServerEntry(
-            command: 'fake',
-            networkClass: McpNetworkClass.local,
-            credential: 'linear-token',
-          ),
-        }),
+        mcpServers: _registry({'linear': _credentialedStdioServer}),
         credentials: const CredentialsConfig(entries: {'linear-token': CredentialEntry(apiKey: 'secret-token')}),
         guardDecisionHook: _allow,
         auditLogger: GuardAuditLogger(),
@@ -560,25 +521,10 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final first = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: {'text': 'first'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
-      final denied = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: {'text': 'second'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final first = await _callTool(pool, tool: 'list_issues', arguments: {'text': 'first'});
+      final denied = await _callTool(pool, tool: 'list_issues', arguments: {'text': 'second'});
       now = now.add(const Duration(seconds: 11));
-      final afterReset = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: {'text': 'after'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final afterReset = await _callTool(pool, tool: 'list_issues', arguments: {'text': 'after'});
 
       expect(first.isSuccess, isTrue);
       expect(denied.error!.code, 'egress_denied');
@@ -611,22 +557,14 @@ void main() {
       );
       addTearDown(pool.close);
 
-      final first = pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: {'text': 'first'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final first = _callTool(pool, tool: 'list_issues', arguments: {'text': 'first'});
       await auditLogger.firstAllowedWrite.timeout(const Duration(seconds: 1));
 
-      final second = await pool
-          .callTool(
-            serverName: 'linear',
-            toolName: 'list_issues',
-            arguments: {'text': 'second'},
-            caller: const OutboundMcpCaller(sessionId: 's1'),
-          )
-          .timeout(const Duration(seconds: 1));
+      final second = await _callTool(
+        pool,
+        tool: 'list_issues',
+        arguments: {'text': 'second'},
+      ).timeout(const Duration(seconds: 1));
       expect(transport.callCount, 0);
       auditLogger.releaseAllowedWrites();
       await first;
@@ -662,25 +600,10 @@ void main() {
         await pool.close();
       });
 
-      final first = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: const {},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
-      final denied = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: const {},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final first = await _callTool(pool, tool: 'list_issues');
+      final denied = await _callTool(pool, tool: 'list_issues');
       now = now.add(const Duration(seconds: 11));
-      final afterReset = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: const {},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final afterReset = await _callTool(pool, tool: 'list_issues');
       await Future<void>.delayed(Duration.zero);
 
       expect(first.outboundCallTokens, 7);
@@ -709,12 +632,7 @@ void main() {
       addTearDown(pool.close);
 
       final tools = await pool.listTools('linear');
-      final result = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'delete_project',
-        arguments: {'text': 'ok'},
-        caller: const OutboundMcpCaller(sessionId: 's1'),
-      );
+      final result = await _callTool(pool, tool: 'delete_project', arguments: {'text': 'ok'});
 
       expect(tools.map((tool) => tool.name), ['list_issues']);
       expect(result.isSuccess, isTrue);
@@ -764,10 +682,9 @@ void main() {
         auditLogger: GuardAuditLogger(dataDir: tempFile.path),
       );
 
-      final result = await pool.callTool(
-        serverName: 'linear',
-        toolName: 'list_issues',
-        arguments: const {},
+      final result = await _callTool(
+        pool,
+        tool: 'list_issues',
         caller: const OutboundMcpCaller(sessionId: 'session-1'),
       );
 

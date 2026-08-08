@@ -53,8 +53,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
-        WorkflowRoleDefault,
-        WorkflowRoleDefaults,
         WorkflowSource,
         WorkflowStepOutputTransformer,
         WorkflowService,
@@ -93,6 +91,7 @@ import '../workflow_asset_source_resolver.dart';
 import 'workflow_skill_bootstrap.dart';
 import 'credential_preflight.dart';
 import 'project_definition_paths.dart';
+import 'workflow_config_support.dart';
 import 'workflow_git_support.dart';
 import 'workflow_local_path_preflight.dart';
 import 'workflow_provider_environment.dart';
@@ -296,7 +295,7 @@ class CliWorkflowWiring {
     if (ctx == null || taskHandles == null) {
       throw StateError('wireLifecycleOnly called before wirePreHarness');
     }
-    final workflowRoleDefaults = _buildWorkflowRoleDefaults();
+    final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     workflowService = WorkflowService.lifecycleOnly(
       repository: taskHandles.workflowRunRepository,
       taskService: taskService,
@@ -509,31 +508,6 @@ class CliWorkflowWiring {
     return ctx.withTurns(turns);
   }
 
-  WorkflowRoleDefaults _buildWorkflowRoleDefaults() {
-    return WorkflowRoleDefaults(
-      workflow: WorkflowRoleDefault(
-        provider: config.workflow.defaults.workflow.provider,
-        model: config.workflow.defaults.workflow.model,
-        effort: config.workflow.defaults.workflow.effort,
-      ),
-      planner: WorkflowRoleDefault(
-        provider: config.workflow.defaults.planner.provider,
-        model: config.workflow.defaults.planner.model,
-        effort: config.workflow.defaults.planner.effort,
-      ),
-      executor: WorkflowRoleDefault(
-        provider: config.workflow.defaults.executor.provider,
-        model: config.workflow.defaults.executor.model,
-        effort: config.workflow.defaults.executor.effort,
-      ),
-      reviewer: WorkflowRoleDefault(
-        provider: config.workflow.defaults.reviewer.provider,
-        model: config.workflow.defaults.reviewer.model,
-        effort: config.workflow.defaults.reviewer.effort,
-      ),
-    );
-  }
-
   WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
     return buildWorkflowSkillPreflightConfig(config);
   }
@@ -543,7 +517,7 @@ class CliWorkflowWiring {
     _TaskHandles taskHandles, {
     FutureOr<void> Function(WorkflowWorktreeBinding binding)? hydrateBinding,
   }) async {
-    final workflowRoleDefaults = _buildWorkflowRoleDefaults();
+    final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     workflowService = WorkflowService(
       repository: taskHandles.workflowRunRepository,
       taskService: taskService,
@@ -588,7 +562,7 @@ class CliWorkflowWiring {
   }
 
   Future<void> _wireWorkflowRegistry() async {
-    final workflowRoleDefaults = _buildWorkflowRoleDefaults();
+    final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     // Source continuity capability from unstarted harness probes (cwd:'/', no
     // spawn) rather than `pool.runners`, so the registry loads in the
     // pre-harness phase before any provider harness starts.

@@ -14,39 +14,52 @@ String findRepoRoot() {
 Map<String, String> readAllowlist(String repoRoot, String filename) {
   final file = File('$repoRoot/packages/dartclaw_testing/test/fitness/allowlist/$filename');
   if (!file.existsSync()) return {};
-  assertAllowlistFormat(file);
   final result = <String, String>{};
   for (final line in file.readAsLinesSync()) {
     final stripped = line.trim();
     if (stripped.isEmpty || stripped.startsWith('#')) continue;
     final sep = stripped.indexOf('  # ');
+    if (sep < 0) continue;
     result[stripped.substring(0, sep)] = stripped.substring(sep + 4).trim();
   }
   return result;
 }
 
-void assertAllowlistFormat(File allowlistFile) {
+void assertAllowlistFormat(File allowlistFile, {String entryFormat = '<pattern>'}) {
   if (!allowlistFile.existsSync()) return;
   final bad = <String>[];
   final lines = allowlistFile.readAsLinesSync();
   for (var i = 0; i < lines.length; i++) {
     final stripped = lines[i].trim();
     if (stripped.isEmpty || stripped.startsWith('#')) continue;
-    final sep = stripped.indexOf('  # ');
+    final sep = stripped.indexOf('  #');
     if (sep < 0) {
       bad.add('line ${i + 1}: missing "  # " separator');
       continue;
     }
-    if (stripped.substring(sep + 4).trim().isEmpty) {
+    final rationale = stripped.substring(sep + 3);
+    if (rationale.trim().isEmpty) {
       bad.add('line ${i + 1}: rationale is empty');
+    } else if (!rationale.startsWith(' ')) {
+      bad.add('line ${i + 1}: missing "  # " separator');
     }
   }
   if (bad.isNotEmpty) {
     fail(
       'Malformed allowlist ${allowlistFile.path}:\n'
       '  ${bad.join('\n  ')}\n'
-      'Each non-comment line must be: <pattern>  # <non-empty rationale>',
+      'Each non-comment line must be: $entryFormat  # <non-empty rationale>',
     );
+  }
+}
+
+Iterable<File> testDartFiles(String repoRoot) sync* {
+  for (final rootName in const ['packages', 'apps']) {
+    final root = Directory('$repoRoot/$rootName');
+    if (!root.existsSync()) continue;
+    for (final file in root.listSync(recursive: true).whereType<File>()) {
+      if (file.path.endsWith('_test.dart')) yield file;
+    }
   }
 }
 

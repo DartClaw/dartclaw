@@ -63,14 +63,14 @@ class FailingWriteClaudeProcess extends CapturingFakeProcess {
 
   bool failWrites = false;
 
-  late final IOSink _failingStdin = _SwitchableFailingSink(super.stdin, () => failWrites);
+  late final IOSink _failingStdin = SwitchableFailingSink(super.stdin, () => failWrites);
 
   @override
   IOSink get stdin => _failingStdin;
 }
 
-class _SwitchableFailingSink implements IOSink {
-  _SwitchableFailingSink(this._delegate, this._shouldFail);
+class SwitchableFailingSink implements IOSink {
+  SwitchableFailingSink(this._delegate, this._shouldFail);
 
   final IOSink _delegate;
   final bool Function() _shouldFail;

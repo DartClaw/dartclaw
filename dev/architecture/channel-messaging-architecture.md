@@ -311,9 +311,9 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
          |
          v
   Channel.formatResponse(text) -- channel-specific formatting
-    - WhatsApp: Markdown-to-native conversion, attribution prefix, MEDIA: directives
+    - WhatsApp: shared Markdown-to-native conversion with WhatsApp links, attribution prefix, MEDIA: directives
     - Signal: Markdown-to-text + native UTF-16 style ranges, style-aware chunking
-    - Google Chat: Markdown-to-Google-Chat conversion, table normalization, chunk at 4000 chars
+    - Google Chat: shared Markdown-to-native conversion with Chat links, table normalization, chunk at 4000 chars
     - Web: Markdown rendered client-side with Marked and sanitized by DOMPurify
          |
          v
@@ -351,9 +351,9 @@ List<String> chunkText(String text, {int maxSize = 4000})
 
 ### 5.4 Channel-Specific Outbound Behavior
 
-**Google Chat** -- `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators via placeholder messages or emoji reactions. Native quote-reply support in Spaces.
+**Google Chat** -- Core's standard-Markdown converter supplies Chat markup through a Google-specific link wrapper. `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators use placeholder messages or emoji reactions. Native quote-reply support is available in Spaces.
 
-**WhatsApp** -- `ResponseFormatter` converts standard Markdown to WhatsApp-native markup, prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
+**WhatsApp** -- `ResponseFormatter` uses core's standard-Markdown converter with WhatsApp link rendering, prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
 
 **Signal** -- Standard Markdown is parsed into readable text plus signal-cli `textStyle` ranges (`BOLD`, `ITALIC`, `STRIKETHROUGH`, `MONOSPACE`). Style offsets use UTF-16 code units and are remapped when text is chunked. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
 
@@ -810,7 +810,8 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
        v
   dartclaw_core
   (Channel, ChannelMessage, ChannelResponse, ChannelManager, MessageQueue,
-   MessageDeduplicator, MentionGating, DmAccessController, ThreadBinding,
+   MessageDeduplicator, MentionGating, DmAccessController, standard Markdown
+   conversion, ThreadBinding,
    ThreadBindingStore, ThreadBindingRouter, ThreadBindingLifecycleManager,
    ChannelTaskBridge, TaskTriggerParser, TaskTriggerEvaluator,
    ReviewCommandParser, ReviewCommandDispatcher, TaskCreator,
@@ -830,7 +831,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
        |     (GoogleChatChannel, GoogleChatConfig, GoogleChatRestClient,
        |      ChatCardBuilder, CloudEventAdapter, PubSubClient,
        |      WorkspaceEventsManager, SlashCommandParser,
-       |      PubSubHealthReporter, MarkdownConverter)
+       |      PubSubHealthReporter, Markdown link/plain-text wrappers)
        |     deps: dartclaw_core, dartclaw_config
        |
        v

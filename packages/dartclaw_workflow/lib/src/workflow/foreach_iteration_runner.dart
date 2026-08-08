@@ -753,21 +753,17 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           mapCtx.abortReason ??= reason;
           await persistProgress();
           mapCtx.inFlightCount--;
-          _eventBus.fire(
-            WorkflowStepCompletedEvent(
-              runId: run.id,
-              stepId: childStep.id,
-              stepName: childStep.name,
-              stepIndex: childStepIndex,
-              totalSteps: definition.steps.length,
-              taskId: result.task?.id ?? '',
-              success: false,
-              outcome: result.outcome,
-              reason: reason,
-              tokenCount: tokenCount,
-              timestamp: DateTime.now(),
-              displayScope: _mapItemDisplayScope(mapContext),
-            ),
+          _fireStepCompletedEvent(
+            run: run,
+            step: childStep,
+            stepIndex: childStepIndex,
+            totalSteps: definition.steps.length,
+            taskId: result.task?.id ?? '',
+            success: false,
+            outcome: result.outcome,
+            reason: reason,
+            tokenCount: tokenCount,
+            displayScope: _mapItemDisplayScope(mapContext),
           );
           return;
         }
@@ -786,21 +782,17 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           );
           await persistProgress();
           mapCtx.inFlightCount--;
-          _eventBus.fire(
-            WorkflowStepCompletedEvent(
-              runId: run.id,
-              stepId: childStep.id,
-              stepName: childStep.name,
-              stepIndex: childStepIndex,
-              totalSteps: definition.steps.length,
-              taskId: result.task?.id ?? '',
-              success: false,
-              outcome: result.outcome,
-              reason: reason,
-              tokenCount: tokenCount,
-              timestamp: DateTime.now(),
-              displayScope: _mapItemDisplayScope(mapContext),
-            ),
+          _fireStepCompletedEvent(
+            run: run,
+            step: childStep,
+            stepIndex: childStepIndex,
+            totalSteps: definition.steps.length,
+            taskId: result.task?.id ?? '',
+            success: false,
+            outcome: result.outcome,
+            reason: reason,
+            tokenCount: tokenCount,
+            displayScope: _mapItemDisplayScope(mapContext),
           );
           _eventBus.fire(
             MapIterationCompletedEvent(
@@ -820,21 +812,17 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           return;
         }
         await failAndReturn("Foreach child step '${childStep.id}' failed", result.task?.id);
-        _eventBus.fire(
-          WorkflowStepCompletedEvent(
-            runId: run.id,
-            stepId: childStep.id,
-            stepName: childStep.name,
-            stepIndex: childStepIndex,
-            totalSteps: definition.steps.length,
-            taskId: result.task?.id ?? '',
-            success: false,
-            outcome: result.outcome,
-            reason: result.outcomeReason,
-            tokenCount: tokenCount,
-            timestamp: DateTime.now(),
-            displayScope: _mapItemDisplayScope(mapContext),
-          ),
+        _fireStepCompletedEvent(
+          run: run,
+          step: childStep,
+          stepIndex: childStepIndex,
+          totalSteps: definition.steps.length,
+          taskId: result.task?.id ?? '',
+          success: false,
+          outcome: result.outcome,
+          reason: result.outcomeReason,
+          tokenCount: tokenCount,
+          displayScope: _mapItemDisplayScope(mapContext),
         );
         return;
       }
@@ -855,19 +843,15 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       completedSubStepIds.add(childStep.id);
       _writeCompletedForeachSubStepIds(context, controllerStep.id, iterIndex, completedSubStepIds);
       await persistProgress();
-      _eventBus.fire(
-        WorkflowStepCompletedEvent(
-          runId: run.id,
-          stepId: childStep.id,
-          stepName: childStep.name,
-          stepIndex: childStepIndex,
-          totalSteps: definition.steps.length,
-          taskId: result.task?.id ?? '',
-          success: true,
-          tokenCount: tokenCount,
-          timestamp: DateTime.now(),
-          displayScope: _mapItemDisplayScope(mapContext),
-        ),
+      _fireStepCompletedEvent(
+        run: run,
+        step: childStep,
+        stepIndex: childStepIndex,
+        totalSteps: definition.steps.length,
+        taskId: result.task?.id ?? '',
+        success: true,
+        tokenCount: tokenCount,
+        displayScope: _mapItemDisplayScope(mapContext),
       );
     }
     if (promotionAware) {

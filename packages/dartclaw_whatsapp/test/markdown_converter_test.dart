@@ -45,5 +45,11 @@ final value = "**inside**";
 
       expect(markdownToWhatsApp(input).trimRight(), '- parent\n  - child\n\ndocs (https://docs.example.com)');
     });
+
+    test('converts reference images and preserves unresolved references', () {
+      const input = '![diagram][asset] [missing][unknown]\n\n[asset]: https://img.example.com/diagram.png';
+
+      expect(markdownToWhatsApp(input).trimRight(), 'diagram (https://img.example.com/diagram.png) [missing][unknown]');
+    });
   });
 }

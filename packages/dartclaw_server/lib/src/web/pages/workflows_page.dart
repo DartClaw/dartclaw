@@ -17,6 +17,7 @@ import '../../templates/chat.dart';
 import '../../templates/helpers.dart';
 import '../../templates/workflow_detail.dart';
 import '../../templates/workflow_list.dart';
+import '../../workflow_approval_metadata.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
 
@@ -263,19 +264,7 @@ class WorkflowsPage extends DashboardPage {
         'taskId': task?.id,
       };
       if (isApproval && approvalStatus != null) {
-        stepEntry['approval'] = <String, dynamic>{
-          'status': approvalStatus,
-          'message': run.contextJson['${step.id}.approval.message'],
-          'requestedAt': run.contextJson['${step.id}.approval.requested_at'],
-          if (run.contextJson['${step.id}.approval.resolved_at'] != null)
-            'resolvedAt': run.contextJson['${step.id}.approval.resolved_at'],
-          if (run.contextJson['${step.id}.approval.feedback'] != null)
-            'feedback': run.contextJson['${step.id}.approval.feedback'],
-          if (run.contextJson['${step.id}.approval.timeout_deadline'] != null)
-            'timeoutDeadline': run.contextJson['${step.id}.approval.timeout_deadline'],
-          if (run.contextJson['${step.id}.approval.cancel_reason'] != null)
-            'cancelReason': run.contextJson['${step.id}.approval.cancel_reason'],
-        };
+        stepEntry['approval'] = workflowApprovalMetadata(run.contextJson, step.id, approvalStatus);
       }
       steps.add(stepEntry);
     }

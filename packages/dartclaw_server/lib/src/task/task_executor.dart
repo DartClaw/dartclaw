@@ -201,14 +201,8 @@ class TaskExecutor {
   Future<bool> _pollOnceInner() async {
     // Pool mode: dispatch as many queued tasks as there are compatible idle runners.
     if (_pool.maxConcurrentTasks > 0) {
-      final queued = await _tasks.list(status: TaskStatus.queued);
+      final queued = await _queuedTasks();
       if (queued.isEmpty) return false;
-
-      queued.sort((a, b) {
-        final createdAtCompare = a.createdAt.compareTo(b.createdAt);
-        if (createdAtCompare != 0) return createdAtCompare;
-        return a.id.compareTo(b.id);
-      });
 
       String? requestedProviderId;
       for (final task in queued) {
@@ -260,14 +254,8 @@ class TaskExecutor {
       return false;
     }
 
-    final queued = await _tasks.list(status: TaskStatus.queued);
+    final queued = await _queuedTasks();
     if (queued.isEmpty) return false;
-
-    queued.sort((a, b) {
-      final createdAtCompare = a.createdAt.compareTo(b.createdAt);
-      if (createdAtCompare != 0) return createdAtCompare;
-      return a.id.compareTo(b.id);
-    });
 
     var didWork = false;
     for (final task in queued) {
@@ -296,6 +284,16 @@ class TaskExecutor {
     }
 
     return didWork;
+  }
+
+  Future<List<Task>> _queuedTasks() async {
+    final queued = await _tasks.list(status: TaskStatus.queued);
+    queued.sort((a, b) {
+      final createdAtCompare = a.createdAt.compareTo(b.createdAt);
+      if (createdAtCompare != 0) return createdAtCompare;
+      return a.id.compareTo(b.id);
+    });
+    return queued;
   }
 
   String? _effectivePoolProviderForTask(Task task) {

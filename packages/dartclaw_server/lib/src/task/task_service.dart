@@ -450,12 +450,7 @@ class TaskService implements WorkflowTaskService {
           if (!updated) {
             throw const _TaskTransitionConflict();
           }
-          final existing = await repository.get(nextExecution.id);
-          if (existing == null) {
-            await repository.create(nextExecution);
-          } else {
-            await repository.update(nextExecution, trigger: trigger, timestamp: timestamp);
-          }
+          await _persistAgentExecution(repository, nextExecution, trigger: trigger, timestamp: timestamp);
         });
         return true;
       } on _TaskTransitionConflict {
@@ -467,13 +462,22 @@ class TaskService implements WorkflowTaskService {
     if (!updated) {
       return false;
     }
-    final existing = await repository.get(nextExecution.id);
-    if (existing == null) {
-      await repository.create(nextExecution);
-    } else {
-      await repository.update(nextExecution, trigger: trigger, timestamp: timestamp);
-    }
+    await _persistAgentExecution(repository, nextExecution, trigger: trigger, timestamp: timestamp);
     return true;
+  }
+
+  Future<void> _persistAgentExecution(
+    AgentExecutionRepository repository,
+    AgentExecution execution, {
+    required String trigger,
+    required DateTime timestamp,
+  }) async {
+    final existing = await repository.get(execution.id);
+    if (existing == null) {
+      await repository.create(execution);
+    } else {
+      await repository.update(execution, trigger: trigger, timestamp: timestamp);
+    }
   }
 
   String? _trimmedOrNull(String? value) {

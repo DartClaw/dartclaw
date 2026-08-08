@@ -32,6 +32,23 @@ CapturingFakeProcess _bufferedCapturingFakeProcess() => CapturingFakeProcess(
   completeExitOnKill: true,
 );
 
+Future<Process> Function(
+  String,
+  List<String>, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+  bool includeParentEnvironment,
+})
+_processFactory(FakeProcess process, {void Function(List<String>, Map<String, String>?)? onSpawn}) {
+  return (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+    onSpawn?.call(args, environment);
+    scheduleMicrotask(() {
+      process.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+    });
+    return process;
+  };
+}
+
 void _expectSecurityExecArgs(List<String> args) {
   for (final entry in claudeHardeningEnvVars.entries) {
     expect(args, contains('${entry.key}=${entry.value}'));
@@ -57,20 +74,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedArgs = args;
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake, onSpawn: (args, _) => capturedArgs = args),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -107,21 +111,13 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              final idx = args.indexOf('--mcp-config');
-              if (idx != -1) mcpConfigPath = args[idx + 1];
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(
+          fake,
+          onSpawn: (args, _) {
+            final idx = args.indexOf('--mcp-config');
+            if (idx != -1) mcpConfigPath = args[idx + 1];
+          },
+        ),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -146,21 +142,13 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              final idx = args.indexOf('--mcp-config');
-              if (idx != -1) mcpConfigPath = args[idx + 1];
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(
+          fake,
+          onSpawn: (args, _) {
+            final idx = args.indexOf('--mcp-config');
+            if (idx != -1) mcpConfigPath = args[idx + 1];
+          },
+        ),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -183,21 +171,13 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              final idx = args.indexOf('--mcp-config');
-              if (idx != -1) mcpConfigPath = args[idx + 1];
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(
+          fake,
+          onSpawn: (args, _) {
+            final idx = args.indexOf('--mcp-config');
+            if (idx != -1) mcpConfigPath = args[idx + 1];
+          },
+        ),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -280,20 +260,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedArgs = args;
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake, onSpawn: (args, _) => capturedArgs = args),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
@@ -312,19 +279,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -353,19 +308,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -478,21 +421,13 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedArgs = args;
-              capturedEnvironment = environment;
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(
+          fake,
+          onSpawn: (args, environment) {
+            capturedArgs = args;
+            capturedEnvironment = environment;
+          },
+        ),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
@@ -517,20 +452,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedEnvironment = environment;
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake, onSpawn: (_, environment) => capturedEnvironment = environment),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {
@@ -555,20 +477,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedEnvironment = environment;
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake, onSpawn: (_, environment) => capturedEnvironment = environment),
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
@@ -637,19 +546,7 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        processFactory: _processFactory(fake),
         // Simulate `claude auth status` returning logged in via OAuth.
         commandProbe: (exe, args) async {
           if (exe == 'which') return _result(stdout: '/usr/local/bin/claude');

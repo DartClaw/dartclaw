@@ -197,6 +197,12 @@ class WorkspaceEventsManager {
     }
   }
 
+  Future<void> _storeSubscriptionRecord(SubscriptionRecord record) async {
+    _subscriptions[record.spaceId] = record;
+    await _saveToDisk();
+    _scheduleRenewal(record);
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
@@ -463,9 +469,7 @@ class WorkspaceEventsManager {
         createdAt: _now(),
       );
 
-      _subscriptions[spaceId] = record;
-      await _saveToDisk();
-      _scheduleRenewal(record);
+      await _storeSubscriptionRecord(record);
       _log.info('Created subscription for space $spaceId: $subscriptionName (expires $expireTimeStr)');
       return record;
     } on Exception catch (e, st) {
@@ -567,9 +571,7 @@ class WorkspaceEventsManager {
         createdAt: _now(),
       );
 
-      _subscriptions[spaceId] = record;
-      await _saveToDisk();
-      _scheduleRenewal(record);
+      await _storeSubscriptionRecord(record);
       _log.info(
         'Recovered existing subscription for space $spaceId: '
         '$subscriptionName (expires $expireTimeStr)',

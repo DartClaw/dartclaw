@@ -121,12 +121,9 @@ Router configApiRoutes({
   router.post('/api/config/guards/<guard>/<field>', (Request request, String guard, String field) async {
     final denied = _requireGuardEditorAdmin(request, 'Guard editing requires an admin user');
     if (denied != null) return denied;
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
     late final GuardEditorResult result;
     return _writeConfigOrError(
       () async {
@@ -195,12 +192,9 @@ Router configApiRoutes({
   router.post('/api/config/guards/test', (Request request) async {
     final denied = _requireGuardEditorAdmin(request, 'Guard testing requires an admin user');
     if (denied != null) return denied;
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
     final guard = body['guard'];
     if (guard is! String || !guardEditorFamilies.contains(guard)) {
       return errorResponse(400, 'INVALID_INPUT', '"guard" must be one of ${guardEditorFamilies.join(', ')}');
@@ -218,12 +212,9 @@ Router configApiRoutes({
     if (!requestHasAdminAccess(request)) {
       return errorResponse(403, 'FORBIDDEN', 'Config changes require an admin user');
     }
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
     final normalizedBody = _normalizeConfigPatch(body);
     if (normalizedBody.isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
@@ -336,12 +327,13 @@ Router configApiRoutes({
 
   // POST /api/scheduling/jobs — create a new job
   router.post('/api/scheduling/jobs', (Request request) async {
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(
+      request,
+      requiredMessage: 'Request body must be a non-empty JSON object',
+      requireNonEmpty: true,
+    );
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null || body.isEmpty) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
-    }
+    final body = parsedBody.body!;
 
     // Validate required fields
     final name = body['name'];
@@ -425,12 +417,13 @@ Router configApiRoutes({
   // PUT /api/scheduling/jobs/<name> — update existing job
   router.put('/api/scheduling/jobs/<name>', (Request request, String rawName) async {
     final name = _decodePathSegment(rawName);
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(
+      request,
+      requiredMessage: 'Request body must be a non-empty JSON object',
+      requireNonEmpty: true,
+    );
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null || body.isEmpty) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
-    }
+    final body = parsedBody.body!;
 
     // Read fresh from YAML (not startup snapshot) to avoid overwrite races.
     final currentJobs = await writer.readSchedulingJobs();
@@ -517,12 +510,13 @@ Router configApiRoutes({
 
   // POST /api/scheduling/tasks — create a new scheduled task
   router.post('/api/scheduling/tasks', (Request request) async {
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(
+      request,
+      requiredMessage: 'Request body must be a non-empty JSON object',
+      requireNonEmpty: true,
+    );
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null || body.isEmpty) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
-    }
+    final body = parsedBody.body!;
 
     final id = body['id'];
     final schedule = body['schedule'];
@@ -585,12 +579,13 @@ Router configApiRoutes({
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
   router.put('/api/scheduling/tasks/<id>', (Request request, String rawId) async {
     final id = _decodePathSegment(rawId);
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(
+      request,
+      requiredMessage: 'Request body must be a non-empty JSON object',
+      requireNonEmpty: true,
+    );
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null || body.isEmpty) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
-    }
+    final body = parsedBody.body!;
 
     final currentJobs = await writer.readSchedulingJobs();
     final idx = currentJobs.indexWhere((j) => j['type'] == 'task' && (j['id'] == id || j['name'] == id));
@@ -695,6 +690,19 @@ Router configApiRoutes({
     return null;
   }
 
+  Response? requireGroupChannel(String type) {
+    final channel = switch (type) {
+      'whatsapp' => whatsAppChannel,
+      'signal' => signalChannel,
+      'google_chat' => googleChatChannel,
+      _ => null,
+    };
+    if (channel == null && type != 'google_chat') {
+      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
+    }
+    return null;
+  }
+
   // GET /api/config/channels/<type>/dm-allowlist
   router.get('/api/config/channels/<type>/dm-allowlist', (Request request, String type) async {
     final controller = resolveController(type);
@@ -718,12 +726,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
 
     final entry = body['entry'];
     if (entry is! String || entry.isEmpty) {
@@ -756,12 +761,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
 
     final entry = body['entry'];
     if (entry is! String || entry.isEmpty) {
@@ -786,17 +788,8 @@ Router configApiRoutes({
 
   // GET /api/config/channels/<type>/group-allowlist
   router.get('/api/config/channels/<type>/group-allowlist', (Request request, String type) async {
-    if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
-      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
-    }
-    final channel = switch (type) {
-      'whatsapp' => whatsAppChannel,
-      'signal' => signalChannel,
-      _ => googleChatChannel,
-    };
-    if (type != 'google_chat' && channel == null) {
-      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
-    }
+    final missingChannel = requireGroupChannel(type);
+    if (missingChannel != null) return missingChannel;
     // Read from YAML to reflect pending (not-yet-restarted) changes.
     final entries = await writer.readChannelAllowlist(type, 'group_allowlist');
     return jsonResponse(200, {'allowlist': entries});
@@ -804,24 +797,12 @@ Router configApiRoutes({
 
   // POST /api/config/channels/<type>/group-allowlist
   router.post('/api/config/channels/<type>/group-allowlist', (Request request, String type) async {
-    if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
-      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
-    }
-    final channel = switch (type) {
-      'whatsapp' => whatsAppChannel,
-      'signal' => signalChannel,
-      _ => googleChatChannel,
-    };
-    if (type != 'google_chat' && channel == null) {
-      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
-    }
+    final missingChannel = requireGroupChannel(type);
+    if (missingChannel != null) return missingChannel;
 
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
 
     final entry = body['entry'];
     if (entry is! String || entry.isEmpty) {
@@ -853,24 +834,12 @@ Router configApiRoutes({
 
   // DELETE /api/config/channels/<type>/group-allowlist
   router.delete('/api/config/channels/<type>/group-allowlist', (Request request, String type) async {
-    if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
-      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
-    }
-    final channel = switch (type) {
-      'whatsapp' => whatsAppChannel,
-      'signal' => signalChannel,
-      _ => googleChatChannel,
-    };
-    if (type != 'google_chat' && channel == null) {
-      return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
-    }
+    final missingChannel = requireGroupChannel(type);
+    if (missingChannel != null) return missingChannel;
 
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
 
     final entry = body['entry'];
     if (entry is! String || entry.isEmpty) {
@@ -922,12 +891,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
 
     final code = body['code'];
     if (code is! String || code.isEmpty) {
@@ -962,12 +928,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final parsedBody = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request, requiredMessage: 'Request body must be valid JSON');
     if (parsedBody.error != null) return parsedBody.error;
-    final body = parsedBody.body;
-    if (body == null) {
-      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
-    }
+    final body = parsedBody.body!;
 
     final code = body['code'];
     if (code is! String || code.isEmpty) {
@@ -1083,19 +1046,26 @@ String _decodePathSegment(String value) {
   }
 }
 
-Future<({Map<String, dynamic>? body, Response? error})> _parseJsonBody(Request request) async {
+Future<({Map<String, dynamic>? body, Response? error})> _parseJsonBody(
+  Request request, {
+  String? requiredMessage,
+  bool requireNonEmpty = false,
+}) async {
   final bodyResult = await readRequestBody(request, maxBytes: _maxConfigJsonBodyBytes);
   if (bodyResult.error != null) return (body: null, error: bodyResult.error);
   final body = bodyResult.body!;
-  if (body.isEmpty) return (body: null, error: null);
+  if (body.isEmpty) {
+    return (body: null, error: requiredMessage == null ? null : errorResponse(400, 'INVALID_INPUT', requiredMessage));
+  }
   try {
     final parsed = jsonDecode(body);
-    if (parsed is Map<String, dynamic>) return (body: parsed, error: null);
-    return (body: null, error: null);
+    if (parsed is Map<String, dynamic> && (!requireNonEmpty || parsed.isNotEmpty)) {
+      return (body: parsed, error: null);
+    }
   } catch (e) {
     _log.fine('Failed to parse JSON request body: $e');
-    return (body: null, error: null);
   }
+  return (body: null, error: requiredMessage == null ? null : errorResponse(400, 'INVALID_INPUT', requiredMessage));
 }
 
 /// Runs [write], returning [onSuccess] on completion. Maps the shared config-write

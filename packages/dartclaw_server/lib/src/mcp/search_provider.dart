@@ -9,6 +9,17 @@ class SearchResult {
   Map<String, dynamic> toJson() => {'title': title, 'url': url, 'snippet': snippet};
 }
 
+List<SearchResult> decodeSearchResults(List<dynamic> results, {required String snippetField}) {
+  return results.map((result) {
+    final item = result as Map<String, dynamic>;
+    return SearchResult(
+      title: item['title'] as String? ?? '',
+      url: item['url'] as String? ?? '',
+      snippet: item[snippetField] as String? ?? '',
+    );
+  }).toList();
+}
+
 /// Provider-agnostic search interface.
 abstract interface class SearchProvider {
   /// Execute a search query. Returns up to [count] results.

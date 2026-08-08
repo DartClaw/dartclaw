@@ -2,6 +2,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show AgentExecution, AgentExecutionRepository, AgentExecutionStatusChangedEvent, EventBus;
 import 'package:sqlite3/sqlite3.dart';
 
+import 'sqlite_execution_row_mappers.dart';
+
 /// SQLite-backed persistence for [AgentExecution].
 class SqliteAgentExecutionRepository implements AgentExecutionRepository {
   final Database _db;
@@ -62,7 +64,7 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
     final stmt = _db.prepare('SELECT * FROM agent_executions WHERE id = ?');
     try {
       final rows = stmt.select([id]);
-      return rows.isEmpty ? null : _executionFromRow(rows.first);
+      return rows.isEmpty ? null : agentExecutionFromRow(rows.first);
     } finally {
       stmt.close();
     }
@@ -89,7 +91,7 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
 
     final stmt = _db.prepare(buffer.toString());
     try {
-      return stmt.select(params).map(_executionFromRow).toList(growable: false);
+      return stmt.select(params).map(agentExecutionFromRow).toList(growable: false);
     } finally {
       stmt.close();
     }
@@ -155,23 +157,6 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
       stmt.close();
     }
   }
-
-  AgentExecution _executionFromRow(Row row) {
-    return AgentExecution(
-      id: row['id'] as String,
-      sessionId: row['session_id'] as String?,
-      provider: row['provider'] as String?,
-      model: row['model'] as String?,
-      workspaceDir: row['workspace_dir'] as String?,
-      containerJson: row['container_json'] as String?,
-      budgetTokens: row['budget_tokens'] as int?,
-      harnessMetaJson: row['harness_meta_json'] as String?,
-      startedAt: _decodeDateTime(row['started_at']),
-      completedAt: _decodeDateTime(row['completed_at']),
-    );
-  }
-
-  DateTime? _decodeDateTime(Object? value) => value == null ? null : DateTime.parse(value as String);
 
   String _statusOf(AgentExecution? execution) {
     if (execution == null) return 'missing';

@@ -112,30 +112,7 @@ String _renderLibrary(String variableName, String binaryVariableName, _Collected
     ..writeln()
     ..writeln('const _assetsBase64 = <String, String>{');
 
-  for (final entry in assets.text.entries) {
-    final encoded = base64Encode(entry.value);
-    final escapedKey = _escapeDartString(entry.key);
-    if (encoded.length <= _base64ChunkLength) {
-      final singleLine = "  '$escapedKey': '$encoded',";
-      if (singleLine.length <= 120) {
-        output.writeln(singleLine);
-      } else {
-        output
-          ..writeln("  '$escapedKey':")
-          ..writeln("      '$encoded',");
-      }
-      continue;
-    }
-    final chunks = <String>[
-      for (var start = 0; start < encoded.length; start += _base64ChunkLength)
-        encoded.substring(start, (start + _base64ChunkLength).clamp(0, encoded.length)),
-    ];
-    output.writeln("  '$escapedKey':");
-    for (var index = 0; index < chunks.length; index++) {
-      final suffix = index == chunks.length - 1 ? ',' : '';
-      output.writeln("      '${chunks[index]}'$suffix");
-    }
-  }
+  _appendEncodedAssets(output, assets.text);
 
   output
     ..writeln('};')

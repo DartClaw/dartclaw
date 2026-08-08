@@ -42,5 +42,5 @@
 - `lib/src/pubsub_client.dart` — pull loop, backoff, health status.
 - `lib/src/cloud_event_adapter.dart` — sealed `AdapterResult` types, CloudEvent → `ChannelMessage`.
 - `lib/src/workspace_events_manager.dart` — subscription create/renew/reconcile, persisted records.
-- `lib/src/markdown_converter.dart` — markdown → Chat markup (single-star bold, custom links).
+- `lib/src/markdown_converter.dart` — thin Google Chat link/plain-text wrappers over core's shared Markdown converter.
 - `lib/src/gcp_auth_service.dart` / `lib/src/user_oauth_auth_service.dart` — service-account vs user-OAuth clients.

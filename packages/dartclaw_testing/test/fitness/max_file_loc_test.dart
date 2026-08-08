@@ -23,20 +23,22 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '_internal/fitness_test_utils.dart';
+
 const _locLimit = 1500;
 
 void main() {
-  late Set<String> allowlist;
+  late Map<String, String> allowlist;
   late String repoRoot;
 
   setUpAll(() {
-    repoRoot = _findRepoRoot();
-    allowlist = _readAllowlist(repoRoot, 'max_file_loc.txt');
+    repoRoot = findRepoRoot();
+    allowlist = readAllowlist(repoRoot, 'max_file_loc.txt');
   });
 
   test('allowlist entries have required rationale format', () {
     final allowlistFile = File('$repoRoot/packages/dartclaw_testing/test/fitness/allowlist/max_file_loc.txt');
-    _assertAllowlistFormat(allowlistFile);
+    assertAllowlistFormat(allowlistFile, entryFormat: '<relative-path>');
   });
 
   test('no lib/src/**/*.dart file exceeds $_locLimit lines', () {
@@ -48,9 +50,9 @@ void main() {
       if (!srcDir.existsSync()) continue;
       for (final entity in srcDir.listSync(recursive: true).whereType<File>()) {
         if (!entity.path.endsWith('.dart')) continue;
-        final relativePath = _relativeTo(entity.path, repoRoot).replaceAll('\\', '/');
+        final relativePath = relativeTo(entity.path, repoRoot).replaceAll('\\', '/');
         if (relativePath.contains('/lib/src/generated/')) continue;
-        if (allowlist.contains(relativePath)) continue;
+        if (allowlist.containsKey(relativePath)) continue;
         final loc = entity.readAsLinesSync().length;
         if (loc > _locLimit) {
           violations.add(
@@ -68,57 +70,4 @@ void main() {
       );
     }
   });
-}
-
-String _findRepoRoot() {
-  for (var dir = Directory.current; dir.parent.path != dir.path; dir = dir.parent) {
-    if (File('${dir.path}/pubspec.yaml').existsSync() && Directory('${dir.path}/packages').existsSync()) {
-      return dir.path;
-    }
-  }
-  throw StateError('Could not locate repo root from ${Directory.current.path}');
-}
-
-Set<String> _readAllowlist(String repoRoot, String filename) {
-  final file = File('$repoRoot/packages/dartclaw_testing/test/fitness/allowlist/$filename');
-  if (!file.existsSync()) return {};
-  final result = <String>{};
-  for (final line in file.readAsLinesSync()) {
-    final stripped = line.trim();
-    if (stripped.isEmpty || stripped.startsWith('#')) continue;
-    final sep = stripped.indexOf('  # ');
-    if (sep < 0) continue;
-    result.add(stripped.substring(0, sep));
-  }
-  return result;
-}
-
-void _assertAllowlistFormat(File allowlistFile) {
-  if (!allowlistFile.existsSync()) return;
-  final bad = <String>[];
-  final lines = allowlistFile.readAsLinesSync();
-  for (var i = 0; i < lines.length; i++) {
-    final stripped = lines[i].trim();
-    if (stripped.isEmpty || stripped.startsWith('#')) continue;
-    final sep = stripped.indexOf('  # ');
-    if (sep < 0) {
-      bad.add('line ${i + 1}: missing "  # " separator');
-      continue;
-    }
-    if (stripped.substring(sep + 4).trim().isEmpty) {
-      bad.add('line ${i + 1}: rationale is empty');
-    }
-  }
-  if (bad.isNotEmpty) {
-    fail(
-      'Malformed allowlist ${allowlistFile.path}:\n'
-      '  ${bad.join('\n  ')}\n'
-      'Each non-comment line must be: <relative-path>  # <non-empty rationale>',
-    );
-  }
-}
-
-String _relativeTo(String path, String root) {
-  final normalizedRoot = root.endsWith('/') ? root : '$root/';
-  return path.startsWith(normalizedRoot) ? path.substring(normalizedRoot.length) : path;
 }

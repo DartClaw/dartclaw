@@ -25,25 +25,27 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '_internal/fitness_test_utils.dart';
+
 void main() {
   late Map<String, String> allowlist;
   late String repoRoot;
 
   setUpAll(() {
-    repoRoot = _findRepoRoot();
-    allowlist = _readAllowlist(repoRoot, 'barrel_show_clauses.txt');
+    repoRoot = findRepoRoot();
+    allowlist = readAllowlist(repoRoot, 'barrel_show_clauses.txt');
   });
 
   test('allowlist entries have required rationale format', () {
     final allowlistFile = File('$repoRoot/packages/dartclaw_testing/test/fitness/allowlist/barrel_show_clauses.txt');
-    _assertAllowlistFormat(allowlistFile);
+    assertAllowlistFormat(allowlistFile);
   });
 
   test('all barrel exports have show clauses or are allowlisted', () {
     final violations = <String>[];
 
     for (final barrelFile in _findBarrels(repoRoot)) {
-      final relativePath = _relativeTo(barrelFile.path, repoRoot);
+      final relativePath = relativeTo(barrelFile.path, repoRoot);
       final lines = barrelFile.readAsLinesSync();
       for (var i = 0; i < lines.length; i++) {
         final line = lines[i];
@@ -85,58 +87,4 @@ Iterable<File> _findBarrels(String repoRoot) sync* {
       if (barrel.existsSync()) yield barrel;
     }
   }
-}
-
-String _findRepoRoot() {
-  for (var dir = Directory.current; dir.parent.path != dir.path; dir = dir.parent) {
-    if (File('${dir.path}/pubspec.yaml').existsSync() && Directory('${dir.path}/packages').existsSync()) {
-      return dir.path;
-    }
-  }
-  throw StateError('Could not locate repo root from ${Directory.current.path}');
-}
-
-/// Reads allowlist; keys are `<relative-path>:<line>`, values are rationale.
-Map<String, String> _readAllowlist(String repoRoot, String filename) {
-  final file = File('$repoRoot/packages/dartclaw_testing/test/fitness/allowlist/$filename');
-  if (!file.existsSync()) return {};
-  final result = <String, String>{};
-  for (final line in file.readAsLinesSync()) {
-    final stripped = line.trim();
-    if (stripped.isEmpty || stripped.startsWith('#')) continue;
-    final sep = stripped.indexOf('  # ');
-    if (sep < 0) continue; // format errors caught by separate test
-    result[stripped.substring(0, sep)] = stripped.substring(sep + 4);
-  }
-  return result;
-}
-
-void _assertAllowlistFormat(File allowlistFile) {
-  if (!allowlistFile.existsSync()) return;
-  final bad = <String>[];
-  final lines = allowlistFile.readAsLinesSync();
-  for (var i = 0; i < lines.length; i++) {
-    final stripped = lines[i].trim();
-    if (stripped.isEmpty || stripped.startsWith('#')) continue;
-    final sep = stripped.indexOf('  # ');
-    if (sep < 0) {
-      bad.add('line ${i + 1}: missing "  # " separator');
-      continue;
-    }
-    if (stripped.substring(sep + 4).trim().isEmpty) {
-      bad.add('line ${i + 1}: rationale is empty');
-    }
-  }
-  if (bad.isNotEmpty) {
-    fail(
-      'Malformed allowlist ${allowlistFile.path}:\n'
-      '  ${bad.join('\n  ')}\n'
-      'Each non-comment line must be: <pattern>  # <non-empty rationale>',
-    );
-  }
-}
-
-String _relativeTo(String path, String root) {
-  final normalizedRoot = root.endsWith('/') ? root : '$root/';
-  return path.startsWith(normalizedRoot) ? path.substring(normalizedRoot.length) : path;
 }

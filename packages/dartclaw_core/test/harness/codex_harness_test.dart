@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
@@ -12,6 +11,8 @@ import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'harness_test_support.dart';
 
 class _PassGuard extends Guard {
   GuardContext? lastContext;
@@ -34,65 +35,10 @@ class _FailingWriteCodexProcess extends FakeCodexProcess {
 
   bool failWrites = false;
 
-  late final IOSink _failingStdin = _SwitchableFailingSink(super.stdin, () => failWrites);
+  late final IOSink _failingStdin = SwitchableFailingSink(super.stdin, () => failWrites);
 
   @override
   IOSink get stdin => _failingStdin;
-}
-
-class _SwitchableFailingSink implements IOSink {
-  _SwitchableFailingSink(this._delegate, this._shouldFail);
-
-  final IOSink _delegate;
-  final bool Function() _shouldFail;
-
-  @override
-  Encoding encoding = utf8;
-
-  @override
-  void add(List<int> data) {
-    if (_shouldFail()) throw StateError('stdin write failed');
-    _delegate.add(data);
-  }
-
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) => _delegate.addError(error, stackTrace);
-
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => _delegate.addStream(stream);
-
-  @override
-  Future<void> close() => _delegate.close();
-
-  @override
-  Future<void> get done => _delegate.done;
-
-  @override
-  Future<void> flush() => _delegate.flush();
-
-  @override
-  void write(Object? object) {
-    if (_shouldFail()) throw StateError('stdin write failed');
-    _delegate.write(object);
-  }
-
-  @override
-  void writeAll(Iterable<Object?> objects, [String separator = '']) {
-    if (_shouldFail()) throw StateError('stdin write failed');
-    _delegate.writeAll(objects, separator);
-  }
-
-  @override
-  void writeCharCode(int charCode) {
-    if (_shouldFail()) throw StateError('stdin write failed');
-    _delegate.writeCharCode(charCode);
-  }
-
-  @override
-  void writeln([Object? object = '']) {
-    if (_shouldFail()) throw StateError('stdin write failed');
-    _delegate.writeln(object);
-  }
 }
 
 CodexHarness _buildHarness({

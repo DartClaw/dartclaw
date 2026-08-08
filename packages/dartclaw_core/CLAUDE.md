@@ -1,11 +1,11 @@
 # Package Rules — `dartclaw_core`
 
-**Role**: sqlite3-free runtime primitives — `AgentHarness`/`ClaudeCodeHarness`/`CodexHarness`/`AcpHarness`, `Channel`/`ChannelManager`/`ChannelTaskBridge`, `BridgeEvent` and `DartclawEvent`/`EventBus`, file-backed `SessionService`/`MessageService`/`KvService`, `TaskEvent`/`TaskEventKind`, `TurnTrace`/`TurnTraceSummary`/`ToolCallRecord`, task/goal/execution repository **interfaces**.
+**Role**: sqlite3-free runtime primitives — `AgentHarness`/`ClaudeCodeHarness`/`CodexHarness`/`AcpHarness`, `Channel`/`ChannelManager`/`ChannelTaskBridge`, shared standard-Markdown/native-chat conversion and chunking, `BridgeEvent` and `DartclawEvent`/`EventBus`, file-backed `SessionService`/`MessageService`/`KvService`, `TaskEvent`/`TaskEventKind`, `TurnTrace`/`TurnTraceSummary`/`ToolCallRecord`, task/goal/execution repository **interfaces**.
 
 ## Architecture
 - **Harness layer** — provider abstraction. `AgentHarness` (interface), `ClaudeCodeHarness` (Bun standalone binary), `CodexHarness` (Rust static binary), `AcpHarness` (Agent Client Protocol — stdio JSON-RPC agents via `acp_client.dart`/`acp_protocol_adapter.dart`), `HarnessFactory` (construction + capability probes).
 - **Protocol layer** — wire-format adapters between harnesses and the host. `ProtocolAdapter` (interface), `ClaudeProtocolAdapter` (JSONL stream + tool-name normalization to canonical taxonomy), `CodexProtocolAdapter` (JSON-RPC + approval round-trip).
-- **Channel layer** — inbound message routing scaffolding plus shared Unicode-safe/native-markup chunking. `Channel` (interface; concrete impls in `dartclaw_*` channel packages), `ChannelManager` (per-channel ownership via `ownsJid`), `ChannelTaskBridge` (binding → rate limit → review → trigger → fall-through policy).
+- **Channel layer** — inbound message routing scaffolding plus shared standard-Markdown/native-chat conversion and Unicode-safe/native-markup chunking. `Channel` (interface; concrete impls in `dartclaw_*` channel packages), `ChannelManager` (per-channel ownership via `ownsJid`), `ChannelTaskBridge` (binding → rate limit → review → trigger → fall-through policy).
 - **Event bus** — `EventBus` (broadcast, fire-and-forget); `BridgeEvent` (sealed; protocol-stream signals from harnesses); `DartclawEvent` (sealed; app-semantics events surfaced to subscribers).
 - **File-backed services** — workspace-state primitives. `SessionService`, `MessageService` (1-based cursor over `messages.ndjson`), `KvService` (atomic JSON via `atomicWriteJson`).
 - **Repository contracts** — interface-only persistence ports: `TaskRepository`, `GoalRepository`, `AgentExecutionRepository`, `WorkflowStepExecutionRepository`. Concrete SQLite impls live in `dartclaw_storage`.
@@ -52,6 +52,7 @@
 - `lib/src/bridge/bridge_events.dart` — sealed `BridgeEvent` hierarchy.
 - `lib/src/events/dartclaw_event.dart` + `event_bus.dart` — sealed event taxonomy + bus.
 - `lib/src/channel/channel_task_bridge.dart` — inbound routing precedence (binding → rate limit → review → trigger → fall-through).
+- `lib/src/channel/standard_markdown_converter.dart` — shared standard-Markdown → native-chat conversion with platform link rendering.
 - `lib/src/channel/text_chunking.dart` — bounded Unicode-safe text and native chat-markup chunking.
 - `lib/src/storage/atomic_write.dart` — the only sanctioned JSON write path.
 - `lib/src/turn/turn_trace.dart`, `lib/src/turn/tool_call_record.dart` — turn execution telemetry types.

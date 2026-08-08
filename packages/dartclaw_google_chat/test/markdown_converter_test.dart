@@ -201,6 +201,15 @@ void main() {
           '<https://docs.example.com|docs> and <https://example.com|home>',
         );
       });
+
+      test('converts reference images and preserves unresolved references', () {
+        const input = '![diagram][asset] [missing][unknown]\n\n[asset]: https://img.example.com/diagram.png';
+
+        expect(
+          markdownToGoogleChat(input).trimRight(),
+          'diagram (https://img.example.com/diagram.png) [missing][unknown]',
+        );
+      });
     });
 
     group('tables', () {

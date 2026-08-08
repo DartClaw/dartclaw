@@ -1,12 +1,7 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:test/test.dart';
 
-GuardContext _bash(String command) => GuardContext(
-  hookPoint: 'beforeToolCall',
-  toolName: 'shell',
-  toolInput: {'command': command},
-  timestamp: DateTime.now(),
-);
+import 'guard_test_support.dart';
 
 GuardContext _nonBash({String hookPoint = 'beforeToolCall', String toolName = 'file_read'}) =>
     GuardContext(hookPoint: hookPoint, toolName: toolName, toolInput: {}, timestamp: DateTime.now());
@@ -44,7 +39,7 @@ void main() {
       ];
 
       for (final (:command, :messageContains) in cases) {
-        final verdict = await guard.evaluate(_bash(command));
+        final verdict = await guard.evaluate(bashGuardContext(command));
         expect(verdict.isBlock, isTrue, reason: command);
         if (messageContains != null) {
           expect(verdict.message, contains(messageContains), reason: command);
@@ -65,7 +60,7 @@ void main() {
         'mkdir -p /tmp/test',
       ];
       for (final command in safeCommands) {
-        expect((await guard.evaluate(_bash(command))).isPass, isTrue, reason: command);
+        expect((await guard.evaluate(bashGuardContext(command))).isPass, isTrue, reason: command);
       }
 
       expect((await guard.evaluate(_nonBash(toolName: 'file_read'))).isPass, isTrue);

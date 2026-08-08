@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
@@ -17,7 +16,7 @@ void main() {
   late String workspaceDir;
   late SessionService sessions;
   late MessageService messages;
-  late _FastFakeWorker worker;
+  late FastFakeWorker worker;
   late Database turnStateDb;
   late TurnStateStore turnState;
 
@@ -30,7 +29,7 @@ void main() {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    worker = _FastFakeWorker();
+    worker = FastFakeWorker();
     turnStateDb = sqlite3.openInMemory();
     turnState = TurnStateStore(turnStateDb);
   });
@@ -137,51 +136,4 @@ void main() {
       await runner.waitForOutcome(session.id, turnId);
     });
   });
-}
-
-/// Fake harness that returns immediately.
-class _FastFakeWorker extends AgentHarness {
-  String responseText = '';
-  final StreamController<BridgeEvent> _eventsCtrl = StreamController.broadcast();
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async {
-    if (responseText.isNotEmpty) {
-      _eventsCtrl.add(DeltaEvent(responseText));
-    }
-    return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
-  }
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
 }

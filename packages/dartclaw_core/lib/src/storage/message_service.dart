@@ -79,36 +79,19 @@ class MessageService {
     return completer.future;
   }
 
-  Future<List<Message>> getMessages(String sessionId) async {
+  Future<List<Message>> getMessages(String sessionId) => _readMessagesForward(sessionId, startLine: 1);
+
+  Future<List<Message>> getMessagesAfterCursor(String sessionId, int cursor) =>
+      _readMessagesForward(sessionId, startLine: cursor + 1);
+
+  Future<List<Message>> _readMessagesForward(String sessionId, {required int startLine}) async {
     if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
     final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
     final messages = <Message>[];
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
-      try {
-        final json = jsonDecode(line) as Map<String, dynamic>;
-        // Override cursor with 1-based line number
-        json['cursor'] = i + 1;
-        messages.add(Message.fromJson(json));
-      } catch (e) {
-        _log.warning('Malformed NDJSON line ${i + 1} in session $sessionId: $e');
-      }
-    }
-    return messages;
-  }
-
-  Future<List<Message>> getMessagesAfterCursor(String sessionId, int cursor) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
-    if (!ndjsonFile.existsSync()) return [];
-
-    final lines = await ndjsonFile.readAsLines();
-    final messages = <Message>[];
-    for (var i = cursor; i < lines.length; i++) {
+    for (var i = startLine - 1; i < lines.length; i++) {
       final line = lines[i].trim();
       if (line.isEmpty) continue;
       try {

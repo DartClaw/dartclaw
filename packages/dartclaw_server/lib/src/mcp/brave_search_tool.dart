@@ -38,15 +38,7 @@ class BraveSearchProvider implements SearchProvider {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
       final web = json['web'] as Map<String, dynamic>?;
       final results = web?['results'] as List<dynamic>? ?? [];
-
-      return results.map((r) {
-        final item = r as Map<String, dynamic>;
-        return SearchResult(
-          title: item['title'] as String? ?? '',
-          url: item['url'] as String? ?? '',
-          snippet: item['description'] as String? ?? '',
-        );
-      }).toList();
+      return decodeSearchResults(results, snippetField: 'description');
     } on TimeoutException {
       _log.warning('Brave search timed out after ${_timeout.inSeconds}s');
       rethrow;
@@ -59,20 +51,12 @@ class BraveSearchProvider implements SearchProvider {
 
 /// MCP tool that searches via Brave Search API.
 class BraveSearchTool extends SearchMcpTool {
-  BraveSearchTool({required super.provider, super.contentGuard});
-
-  @override
-  String get name => 'brave_search';
-
-  @override
-  String get description => 'Search the web using Brave Search API. Returns titles, URLs, and snippets.';
-
-  @override
-  String get providerId => 'brave';
-
-  @override
-  String get providerLabel => 'Brave';
-
-  @override
-  int get maxCount => 20;
+  BraveSearchTool({required super.provider, super.contentGuard})
+    : super(
+        name: 'brave_search',
+        description: 'Search the web using Brave Search API. Returns titles, URLs, and snippets.',
+        providerId: 'brave',
+        providerLabel: 'Brave',
+        maxCount: 20,
+      );
 }

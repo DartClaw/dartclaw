@@ -517,12 +517,7 @@ class GowaManager with SequentialLock {
       final request = await client.getUrl(Uri.parse('$baseUrl$path'));
       _addDeviceHeader(request);
       final response = await request.close().timeout(_apiTimeout);
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode >= 400) {
-        throw HttpException('GOWA $path returned ${response.statusCode}: $body');
-      }
-      if (body.isEmpty) return {};
-      return jsonDecode(body) as Map<String, dynamic>;
+      return _decodeRawResponse(response, path);
     } finally {
       client.close();
     }
@@ -536,15 +531,19 @@ class GowaManager with SequentialLock {
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
       final response = await request.close().timeout(_apiTimeout);
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode >= 400) {
-        throw HttpException('GOWA $path returned ${response.statusCode}: $body');
-      }
-      if (body.isEmpty) return {};
-      return jsonDecode(body) as Map<String, dynamic>;
+      return _decodeRawResponse(response, path);
     } finally {
       client.close();
     }
+  }
+
+  Future<Map<String, dynamic>> _decodeRawResponse(HttpClientResponse response, String path) async {
+    final body = await response.transform(utf8.decoder).join();
+    if (response.statusCode >= 400) {
+      throw HttpException('GOWA $path returned ${response.statusCode}: $body');
+    }
+    if (body.isEmpty) return {};
+    return jsonDecode(body) as Map<String, dynamic>;
   }
 
   /// POST request that unwraps GOWA v8 response envelope, returning `results`.

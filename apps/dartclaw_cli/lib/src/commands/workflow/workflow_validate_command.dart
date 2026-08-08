@@ -12,13 +12,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
-        WorkflowRoleDefault,
-        WorkflowRoleDefaults,
         WorkflowSkillCheckResult,
         checkWorkflowSkillRefs;
 
 import '../config_loader.dart';
 import '../serve_command.dart' show WriteLine;
+import 'workflow_config_support.dart';
 import 'workflow_provider_environment.dart';
 import 'workflow_skill_preflight_config.dart';
 
@@ -74,7 +73,7 @@ class WorkflowValidateCommand extends Command<void> {
     final continuityProviders = config.providers.entries.keys.where(allContinuityProviders.contains).toSet();
 
     final parser = WorkflowDefinitionParser();
-    final validator = WorkflowDefinitionValidator(roleDefaults: _workflowRoleDefaults(config));
+    final validator = WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaultsFromConfig(config));
 
     // --- Parse phase ---
     exitCode = 0;
@@ -141,7 +140,7 @@ class WorkflowValidateCommand extends Command<void> {
       definition: definition,
       introspector: introspector,
       skillPreflightConfig: buildWorkflowSkillPreflightConfig(config),
-      roleDefaults: _workflowRoleDefaults(config),
+      roleDefaults: workflowRoleDefaultsFromConfig(config),
     );
   }
 
@@ -212,26 +211,3 @@ class WorkflowValidateCommand extends Command<void> {
     return location.isEmpty ? e.message : '[$location] ${e.message}';
   }
 }
-
-WorkflowRoleDefaults _workflowRoleDefaults(DartclawConfig config) => WorkflowRoleDefaults(
-  workflow: WorkflowRoleDefault(
-    provider: config.workflow.defaults.workflow.provider,
-    model: config.workflow.defaults.workflow.model,
-    effort: config.workflow.defaults.workflow.effort,
-  ),
-  planner: WorkflowRoleDefault(
-    provider: config.workflow.defaults.planner.provider,
-    model: config.workflow.defaults.planner.model,
-    effort: config.workflow.defaults.planner.effort,
-  ),
-  executor: WorkflowRoleDefault(
-    provider: config.workflow.defaults.executor.provider,
-    model: config.workflow.defaults.executor.model,
-    effort: config.workflow.defaults.executor.effort,
-  ),
-  reviewer: WorkflowRoleDefault(
-    provider: config.workflow.defaults.reviewer.provider,
-    model: config.workflow.defaults.reviewer.model,
-    effort: config.workflow.defaults.reviewer.effort,
-  ),
-);

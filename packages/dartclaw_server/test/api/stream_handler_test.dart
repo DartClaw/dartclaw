@@ -68,6 +68,27 @@ Future<List<String>> _collectFrames(Future<void> Function() trigger, Stream<List
   return frames;
 }
 
+Future<List<String>> _streamFrames(
+  FakeAgentHarness worker,
+  ControllableTurnManager turns,
+  String sessionId,
+  String turnId, {
+  void Function()? emit,
+  TurnOutcome? outcome,
+}) {
+  final response = sseStreamResponse(worker, turns, sessionId, turnId);
+  return _collectFrames(() async {
+    await pumpEventQueue();
+    emit?.call();
+    await pumpEventQueue();
+    turns.complete(
+      outcome ??
+          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
+    );
+    await pumpEventQueue();
+  }, response.read());
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -124,17 +145,13 @@ void main() {
   // -------------------------------------------------------------------------
   group('sseStreamResponse — event forwarding', () {
     test('forwards delta event as SSE frame', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        worker.emit(DeltaEvent('Hello World'));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () => worker.emit(DeltaEvent('Hello World')),
+      );
 
       final deltaFrame = frames.firstWhere((f) => f.contains('event: delta'), orElse: () => '');
       expect(deltaFrame, isNotEmpty);
@@ -143,17 +160,13 @@ void main() {
     });
 
     test('forwards tool_use event as SSE frame', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tool-1', input: {'command': 'ls'}));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () => worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tool-1', input: {'command': 'ls'})),
+      );
 
       final frame = frames.firstWhere((f) => f.contains('event: tool_use'), orElse: () => '');
       expect(frame, isNotEmpty);
@@ -162,17 +175,13 @@ void main() {
     });
 
     test('forwards tool_result event as SSE frame', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        worker.emit(ToolResultEvent(toolId: 'tool-1', output: 'ok', isError: false));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () => worker.emit(ToolResultEvent(toolId: 'tool-1', output: 'ok', isError: false)),
+      );
 
       final frame = frames.firstWhere((f) => f.contains('event: tool_result'), orElse: () => '');
       expect(frame, isNotEmpty);
@@ -185,15 +194,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('sseStreamResponse — terminal events', () {
     test('emits done frame when turn completes successfully', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(worker, turns, sessionId, turnId);
 
       final doneFrame = frames.firstWhere((f) => f.contains('event: done'), orElse: () => '');
       expect(doneFrame, isNotEmpty);
@@ -203,21 +204,19 @@ void main() {
     });
 
     test('emits turn_error frame when turn fails', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(
-            turnId: turnId,
-            sessionId: sessionId,
-            status: TurnStatus.failed,
-            errorMessage: 'Worker crashed',
-            completedAt: DateTime.now(),
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        outcome: TurnOutcome(
+          turnId: turnId,
+          sessionId: sessionId,
+          status: TurnStatus.failed,
+          errorMessage: 'Worker crashed',
+          completedAt: DateTime.now(),
+        ),
+      );
 
       final errorFrame = frames.firstWhere((f) => f.contains('event: turn_error'), orElse: () => '');
       expect(errorFrame, isNotEmpty);
@@ -226,18 +225,16 @@ void main() {
     });
 
     test('terminal done comes after all delta frames', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        worker.emit(DeltaEvent('chunk1'));
-        worker.emit(DeltaEvent('chunk2'));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () {
+          worker.emit(DeltaEvent('chunk1'));
+          worker.emit(DeltaEvent('chunk2'));
+        },
+      );
 
       final eventTypes = frames
           .map((f) {
@@ -256,17 +253,13 @@ void main() {
   // -------------------------------------------------------------------------
   group('sseStreamResponse — security & edge cases', () {
     test('HTML-escapes XSS payloads in delta text', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        worker.emit(DeltaEvent('<script>alert(1)</script>'));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () => worker.emit(DeltaEvent('<script>alert(1)</script>')),
+      );
 
       final deltaFrame = frames.firstWhere((f) => f.contains('event: delta'), orElse: () => '');
       expect(deltaFrame, contains('&lt;script&gt;'));
@@ -274,35 +267,26 @@ void main() {
     });
 
     test('falls back to "Tool" name when tool_result has no prior tool_use', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        // Emit tool_result without preceding tool_use
-        worker.emit(ToolResultEvent(toolId: 'unknown-tool', output: 'ok', isError: false));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () => worker.emit(ToolResultEvent(toolId: 'unknown-tool', output: 'ok', isError: false)),
+      );
 
       final frame = frames.firstWhere((f) => f.contains('event: tool_result'), orElse: () => '');
       expect(frame, contains('>Tool</div>'));
     });
 
     test('sanitizes tool IDs with special characters', () async {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
-
-      final frames = await _collectFrames(() async {
-        await Future<void>.delayed(Duration.zero);
-        worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'toolu_01XyZ-abc', input: {}));
-        await Future<void>.delayed(Duration.zero);
-        turns.complete(
-          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }, res.read());
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        emit: () => worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'toolu_01XyZ-abc', input: {})),
+      );
 
       final frame = frames.firstWhere((f) => f.contains('event: tool_use'), orElse: () => '');
       expect(frame, contains('id="tool-toolu01XyZabc"'));

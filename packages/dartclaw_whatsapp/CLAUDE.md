@@ -39,5 +39,5 @@
 - `lib/src/gowa_manager.dart` — subprocess lifecycle, REST client, device provisioning, JID capture.
 - `lib/src/whatsapp_config.dart` — typed config + `fromYaml`.
 - `lib/src/response_formatter.dart` — `*Model* — _Agent_` prefix + balanced native-markup chunking + media interleave.
-- `lib/src/markdown_converter.dart` — standard Markdown → WhatsApp-native chat markup.
+- `lib/src/markdown_converter.dart` — thin WhatsApp link wrapper over core's shared Markdown converter.
 - `lib/src/media_extractor.dart` — `MEDIA:<path>` directives resolved against workspace dir.

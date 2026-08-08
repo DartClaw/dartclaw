@@ -26,6 +26,54 @@ class RecordingSseBroadcast extends SseBroadcast {
   }
 }
 
+/// Immediate harness used by governance suites that exercise the runner rather
+/// than harness scheduling.
+class FastFakeWorker extends AgentHarness {
+  String responseText = '';
+  final StreamController<BridgeEvent> _events = StreamController.broadcast();
+
+  @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
+  WorkerState get state => WorkerState.idle;
+
+  @override
+  Stream<BridgeEvent> get events => _events.stream;
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<Map<String, dynamic>> turn({
+    required String sessionId,
+    required List<Map<String, dynamic>> messages,
+    required String systemPrompt,
+    Map<String, dynamic>? mcpServers,
+    bool resume = false,
+    String? directory,
+    String? model,
+    String? effort,
+    int? maxTurns,
+  }) async {
+    if (responseText.isNotEmpty) {
+      _events.add(DeltaEvent(responseText));
+    }
+    return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
+  }
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {
+    if (!_events.isClosed) await _events.close();
+  }
+}
+
 /// Minimal real-[TurnRunner] subclass with no-op collaborators, for tests that
 /// only need a `TurnRunner` instance (e.g. harness-pool metrics / agent routes).
 ///

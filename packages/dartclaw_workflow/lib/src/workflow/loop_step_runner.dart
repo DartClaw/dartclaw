@@ -479,23 +479,18 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
               updatedAt: DateTime.now(),
             );
-            await _persistContext(run.id, context);
-            await _repository.update(run);
+            await _persistContextThenRun(run, context);
             onRunUpdated(run);
-            _eventBus.fire(
-              WorkflowStepCompletedEvent(
-                runId: run.id,
-                stepId: step.id,
-                stepName: step.name,
-                stepIndex: stepIndex,
-                totalSteps: definition.steps.length,
-                taskId: result.task?.id ?? '',
-                success: false,
-                outcome: result.outcome,
-                reason: result.outcomeReason,
-                tokenCount: result.tokenCount,
-                timestamp: DateTime.now(),
-              ),
+            _fireStepCompletedEvent(
+              run: run,
+              step: step,
+              stepIndex: stepIndex,
+              totalSteps: definition.steps.length,
+              taskId: result.task?.id ?? '',
+              success: false,
+              outcome: result.outcome,
+              reason: result.outcomeReason,
+              tokenCount: result.tokenCount,
             );
             await _pauseRun(
               run,
@@ -506,50 +501,39 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
 
           if (step.onError == OnErrorPolicy.continueWorkflow) {
             _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
-            final nextLoopStepId = loopStepIndex + 1 < loop.steps.length ? loop.steps[loopStepIndex + 1] : null;
-            if (nested == null) {
-              run = run.copyWith(totalTokens: run.totalTokens + result.tokenCount, updatedAt: DateTime.now());
-              final nextLoopStepIndex = nextLoopStepId == null
-                  ? (loopStartStepIndex >= 0 ? loopStartStepIndex : stepIndex)
-                  : definition.steps.indexWhere((candidate) => candidate.id == nextLoopStepId);
-              run = await _persistLoopStepCheckpoint(
-                run,
-                context,
-                loopId: loop.id,
-                iteration: iteration,
-                nextStepId: nextLoopStepId,
-                nextStepIndex: nextLoopStepIndex >= 0 ? nextLoopStepIndex : stepIndex,
-              );
-              onRunUpdated(run);
-            } else {
-              _writeNestedLoopCheckpoint(
-                nested,
-                loop,
-                context,
-                iteration: iteration,
-                nextStepId: nextLoopStepId,
-                tokens: loopTokens,
-              );
-              await nested.persist();
-            }
-            _eventBus.fire(
-              WorkflowStepCompletedEvent(
-                runId: run.id,
-                stepId: step.id,
-                stepName: step.name,
-                stepIndex: stepIndex,
-                totalSteps: definition.steps.length,
-                taskId: result.task?.id ?? '',
-                success: false,
-                tokenCount: result.tokenCount,
-                timestamp: DateTime.now(),
-              ),
+            run = await _persistLoopStepProgress(
+              run,
+              definition,
+              loop,
+              context,
+              nested,
+              iteration: iteration,
+              loopStepIndex: loopStepIndex,
+              outcome: result,
+              loopTokens: loopTokens,
+              loopStartStepIndex: loopStartStepIndex,
+              stepIndex: stepIndex,
+              onRunUpdated: onRunUpdated,
             );
-            if (isCancelled?.call() ?? false) {
-              WorkflowExecutor._log.info(
-                "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
-              );
-              return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+            _fireStepCompletedEvent(
+              run: run,
+              step: step,
+              stepIndex: stepIndex,
+              totalSteps: definition.steps.length,
+              taskId: result.task?.id ?? '',
+              success: false,
+              tokenCount: result.tokenCount,
+            );
+            final cancelledResult = _loopCancellationResult(
+              run,
+              loop,
+              step,
+              iteration: iteration,
+              loopTokens: loopTokens,
+              isCancelled: isCancelled?.call() ?? false,
+            );
+            if (cancelledResult != null) {
+              return cancelledResult;
             }
             continue;
           }
@@ -572,52 +556,41 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         }
 
         _mergeStepResultIntoContext(context, result, fallbackStatus: result.task?.status.name ?? 'completed');
-        final nextLoopStepId = loopStepIndex + 1 < loop.steps.length ? loop.steps[loopStepIndex + 1] : null;
-        if (nested == null) {
-          run = run.copyWith(totalTokens: run.totalTokens + result.tokenCount, updatedAt: DateTime.now());
-          final nextLoopStepIndex = nextLoopStepId == null
-              ? (loopStartStepIndex >= 0 ? loopStartStepIndex : stepIndex)
-              : definition.steps.indexWhere((candidate) => candidate.id == nextLoopStepId);
-          run = await _persistLoopStepCheckpoint(
-            run,
-            context,
-            loopId: loop.id,
-            iteration: iteration,
-            nextStepId: nextLoopStepId,
-            nextStepIndex: nextLoopStepIndex >= 0 ? nextLoopStepIndex : stepIndex,
-          );
-          onRunUpdated(run);
-        } else {
-          _writeNestedLoopCheckpoint(
-            nested,
-            loop,
-            context,
-            iteration: iteration,
-            nextStepId: nextLoopStepId,
-            tokens: loopTokens,
-          );
-          await nested.persist();
-        }
-
-        _eventBus.fire(
-          WorkflowStepCompletedEvent(
-            runId: run.id,
-            stepId: step.id,
-            stepName: step.name,
-            stepIndex: stepIndex,
-            totalSteps: definition.steps.length,
-            taskId: result.task?.id ?? '',
-            success: result.success,
-            tokenCount: result.tokenCount,
-            timestamp: DateTime.now(),
-          ),
+        run = await _persistLoopStepProgress(
+          run,
+          definition,
+          loop,
+          context,
+          nested,
+          iteration: iteration,
+          loopStepIndex: loopStepIndex,
+          outcome: result,
+          loopTokens: loopTokens,
+          loopStartStepIndex: loopStartStepIndex,
+          stepIndex: stepIndex,
+          onRunUpdated: onRunUpdated,
         );
 
-        if (isCancelled?.call() ?? false) {
-          WorkflowExecutor._log.info(
-            "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
-          );
-          return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+        _fireStepCompletedEvent(
+          run: run,
+          step: step,
+          stepIndex: stepIndex,
+          totalSteps: definition.steps.length,
+          taskId: result.task?.id ?? '',
+          success: result.success,
+          tokenCount: result.tokenCount,
+        );
+
+        final cancelledResult = _loopCancellationResult(
+          run,
+          loop,
+          step,
+          iteration: iteration,
+          loopTokens: loopTokens,
+          isCancelled: isCancelled?.call() ?? false,
+        );
+        if (cancelledResult != null) {
+          return cancelledResult;
         }
       }
 
@@ -776,6 +749,67 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     return updatedRun;
   }
 
+  Future<WorkflowRun> _persistLoopStepProgress(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowLoop loop,
+    WorkflowContext context,
+    _NestedLoopScope? nested, {
+    required int iteration,
+    required int loopStepIndex,
+    required StepOutcome outcome,
+    required int loopTokens,
+    required int loopStartStepIndex,
+    required int stepIndex,
+    required void Function(WorkflowRun) onRunUpdated,
+  }) async {
+    final nextStepId = loopStepIndex + 1 < loop.steps.length ? loop.steps[loopStepIndex + 1] : null;
+    if (nested != null) {
+      _writeNestedLoopCheckpoint(
+        nested,
+        loop,
+        context,
+        iteration: iteration,
+        nextStepId: nextStepId,
+        tokens: loopTokens,
+      );
+      await nested.persist();
+      return run;
+    }
+
+    final updatedRun = run.copyWith(totalTokens: run.totalTokens + outcome.tokenCount, updatedAt: DateTime.now());
+    final nextStepIndex = nextStepId == null
+        ? (loopStartStepIndex >= 0 ? loopStartStepIndex : stepIndex)
+        : definition.steps.indexWhere((candidate) => candidate.id == nextStepId);
+    final persistedRun = await _persistLoopStepCheckpoint(
+      updatedRun,
+      context,
+      loopId: loop.id,
+      iteration: iteration,
+      nextStepId: nextStepId,
+      nextStepIndex: nextStepIndex >= 0 ? nextStepIndex : stepIndex,
+    );
+    onRunUpdated(persistedRun);
+    return persistedRun;
+  }
+
+  WorkflowLoopExecutionResult? _loopCancellationResult(
+    WorkflowRun run,
+    WorkflowLoop loop,
+    WorkflowStep step, {
+    required int iteration,
+    required int loopTokens,
+    required bool isCancelled,
+  }) {
+    if (!isCancelled) {
+      return null;
+    }
+    WorkflowExecutor._log.info(
+      "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
+    );
+    return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+  }
+
   Future<(WorkflowRun, String?)> _executeLoopFinalizer(
     WorkflowRun run,
     WorkflowDefinition definition,
@@ -818,18 +852,14 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     run = run.copyWith(totalTokens: run.totalTokens + result.tokenCount, updatedAt: DateTime.now());
     onRunUpdated(run);
 
-    _eventBus.fire(
-      WorkflowStepCompletedEvent(
-        runId: run.id,
-        stepId: finallyStep.id,
-        stepName: finallyStep.name,
-        stepIndex: stepIndex,
-        totalSteps: definition.steps.length,
-        taskId: result.task!.id,
-        success: true,
-        tokenCount: result.tokenCount,
-        timestamp: DateTime.now(),
-      ),
+    _fireStepCompletedEvent(
+      run: run,
+      step: finallyStep,
+      stepIndex: stepIndex,
+      totalSteps: definition.steps.length,
+      taskId: result.task!.id,
+      success: true,
+      tokenCount: result.tokenCount,
     );
 
     return (run, null);

@@ -125,6 +125,60 @@ void main() {
         expect(loaded?.toJson(), task.toJson());
       });
 
+      test('hydrates every prefixed execution field and preserves empty left joins', () async {
+        final execution = AgentExecution(
+          id: 'execution-joined',
+          sessionId: 'provider-session',
+          provider: 'codex',
+          model: 'gpt-5.6',
+          workspaceDir: '/workspace/task-joined',
+          containerJson: '{"image":"dartclaw:test"}',
+          budgetTokens: 12345,
+          harnessMetaJson: '{"effort":"high"}',
+          startedAt: DateTime.parse('2026-03-10T10:01:00Z'),
+          completedAt: DateTime.parse('2026-03-10T10:02:00Z'),
+        );
+        final task = Task(
+          id: 'task-joined',
+          title: 'Joined task',
+          description: 'Exercises prefixed execution hydration',
+          type: TaskType.coding,
+          createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+          agentExecution: execution,
+          workflowRunId: 'run-joined',
+          stepIndex: 4,
+        );
+        final stepExecution = WorkflowStepExecution(
+          taskId: task.id,
+          agentExecutionId: execution.id,
+          workflowRunId: 'run-joined',
+          stepIndex: 4,
+          stepId: 'implement',
+          stepType: 'agent',
+          gitJson: '{"branch":"feature/joined"}',
+          providerSessionId: 'thread-joined',
+          structuredSchemaJson: '{"type":"object"}',
+          structuredOutputJson: '{"result":"done"}',
+          followUpPromptsJson: '["verify","summarize"]',
+          externalArtifactMount: '{"path":"/artifacts"}',
+          mapIterationIndex: 2,
+          mapIterationTotal: 5,
+          stepTokenBreakdownJson: '{"input":100,"output":25}',
+        );
+
+        await repository.insert(task);
+        await SqliteWorkflowStepExecutionRepository(db).create(stepExecution);
+        await repository.insert(_task(id: 'task-without-executions'));
+
+        final loaded = await repository.getById(task.id);
+        final withoutExecutions = await repository.getById('task-without-executions');
+
+        expect(loaded?.agentExecution, execution);
+        expect(loaded?.workflowStepExecution, stepExecution);
+        expect(withoutExecutions?.agentExecution, isNull);
+        expect(withoutExecutions?.workflowStepExecution, isNull);
+      });
+
       test('returns null for missing task', () async {
         expect(await repository.getById('missing'), isNull);
       });

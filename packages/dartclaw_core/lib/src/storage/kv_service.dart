@@ -26,15 +26,7 @@ class KvService {
       final file = File(filePath);
       final nextMap = Map<String, dynamic>.from(await _ensureCache());
       nextMap[key] = {'value': value, 'updatedAt': DateTime.now().toIso8601String()};
-      final dir = file.parent;
-      if (!dir.existsSync()) await dir.create(recursive: true);
-      try {
-        await atomicWriteJson(file, nextMap);
-        _cache = nextMap;
-      } catch (e, st) {
-        _cache = null;
-        Error.throwWithStackTrace(e, st);
-      }
+      await _persist(file, nextMap);
     });
     _queue.add(op);
     return op.completer.future;
@@ -60,16 +52,7 @@ class KvService {
 
       final nextMap = Map<String, dynamic>.from(await _ensureCache());
       nextMap.remove(key);
-
-      final dir = file.parent;
-      if (!dir.existsSync()) await dir.create(recursive: true);
-      try {
-        await atomicWriteJson(file, nextMap);
-        _cache = nextMap;
-      } catch (e, st) {
-        _cache = null;
-        Error.throwWithStackTrace(e, st);
-      }
+      await _persist(file, nextMap);
     });
     _queue.add(op);
     return op.completer.future;
@@ -77,6 +60,18 @@ class KvService {
 
   Future<void> dispose() async {
     await _queue.close();
+  }
+
+  Future<void> _persist(File file, Map<String, dynamic> nextMap) async {
+    final dir = file.parent;
+    if (!dir.existsSync()) await dir.create(recursive: true);
+    try {
+      await atomicWriteJson(file, nextMap);
+      _cache = nextMap;
+    } catch (e, st) {
+      _cache = null;
+      Error.throwWithStackTrace(e, st);
+    }
   }
 
   Future<Map<String, dynamic>> _ensureCache() async {

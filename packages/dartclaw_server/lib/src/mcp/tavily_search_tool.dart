@@ -39,15 +39,7 @@ class TavilySearchProvider implements SearchProvider {
 
       final json = jsonDecode(response.body) as Map<String, dynamic>;
       final results = json['results'] as List<dynamic>? ?? [];
-
-      return results.map((r) {
-        final item = r as Map<String, dynamic>;
-        return SearchResult(
-          title: item['title'] as String? ?? '',
-          url: item['url'] as String? ?? '',
-          snippet: item['content'] as String? ?? '',
-        );
-      }).toList();
+      return decodeSearchResults(results, snippetField: 'content');
     } on TimeoutException {
       _log.warning('Tavily search timed out after ${_timeout.inSeconds}s');
       rethrow;
@@ -60,20 +52,12 @@ class TavilySearchProvider implements SearchProvider {
 
 /// MCP tool that searches via Tavily Search API.
 class TavilySearchTool extends SearchMcpTool {
-  TavilySearchTool({required super.provider, super.contentGuard});
-
-  @override
-  String get name => 'tavily_search';
-
-  @override
-  String get description => 'Search the web using Tavily Search API. Returns titles, URLs, and snippets.';
-
-  @override
-  String get providerId => 'tavily';
-
-  @override
-  String get providerLabel => 'Tavily';
-
-  @override
-  int get maxCount => 10;
+  TavilySearchTool({required super.provider, super.contentGuard})
+    : super(
+        name: 'tavily_search',
+        description: 'Search the web using Tavily Search API. Returns titles, URLs, and snippets.',
+        providerId: 'tavily',
+        providerLabel: 'Tavily',
+        maxCount: 10,
+      );
 }

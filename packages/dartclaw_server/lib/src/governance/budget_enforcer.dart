@@ -103,28 +103,22 @@ class BudgetEnforcer {
     }
 
     final timestamp = now ?? DateTime.now();
-    final localNow = _localTimeFor(timestamp, _config.timezone);
-    final dateKey = _dateKey(localNow);
-    final summary = await _usageTracker.dailySummaryForDate(dateKey);
-
-    final totalTokens = _extractTotalTokens(summary);
-    final budget = _config.dailyTokens;
-    final percentage = budget > 0 ? (totalTokens / budget * 100).round() : 0;
-    final warningAlreadyPosted = summary?['budget_warning_posted_at'] is String;
+    final snapshot = await _readSnapshot(timestamp);
+    final warningAlreadyPosted = snapshot.summary?['budget_warning_posted_at'] is String;
 
     // At or above 100%
-    if (totalTokens >= budget) {
+    if (snapshot.tokensUsed >= snapshot.budget) {
       final shouldWarn = !warningAlreadyPosted;
       if (shouldWarn) {
-        await _usageTracker.markBudgetWarningPosted(dateKey, timestamp: timestamp);
+        await _usageTracker.markBudgetWarningPosted(snapshot.dateKey, timestamp: timestamp);
       }
 
       if (_config.action == BudgetAction.block) {
         return BudgetCheckResult(
           decision: BudgetDecision.block,
-          tokensUsed: totalTokens,
-          budget: budget,
-          percentage: percentage,
+          tokensUsed: snapshot.tokensUsed,
+          budget: snapshot.budget,
+          percentage: snapshot.percentage,
           warningIsNew: shouldWarn,
         );
       }
@@ -132,24 +126,24 @@ class BudgetEnforcer {
       // warn mode at 100% — log but allow
       return BudgetCheckResult(
         decision: shouldWarn ? BudgetDecision.warn : BudgetDecision.allow,
-        tokensUsed: totalTokens,
-        budget: budget,
-        percentage: percentage,
+        tokensUsed: snapshot.tokensUsed,
+        budget: snapshot.budget,
+        percentage: snapshot.percentage,
         warningIsNew: shouldWarn,
       );
     }
 
     // At or above 80%
-    if (totalTokens >= budget * 0.8) {
+    if (snapshot.tokensUsed >= snapshot.budget * 0.8) {
       final shouldWarn = !warningAlreadyPosted;
       if (shouldWarn) {
-        await _usageTracker.markBudgetWarningPosted(dateKey, timestamp: timestamp);
+        await _usageTracker.markBudgetWarningPosted(snapshot.dateKey, timestamp: timestamp);
       }
       return BudgetCheckResult(
         decision: shouldWarn ? BudgetDecision.warn : BudgetDecision.allow,
-        tokensUsed: totalTokens,
-        budget: budget,
-        percentage: percentage,
+        tokensUsed: snapshot.tokensUsed,
+        budget: snapshot.budget,
+        percentage: snapshot.percentage,
         warningIsNew: shouldWarn,
       );
     }
@@ -157,9 +151,9 @@ class BudgetEnforcer {
     // Under 80%
     return BudgetCheckResult(
       decision: BudgetDecision.allow,
-      tokensUsed: totalTokens,
-      budget: budget,
-      percentage: percentage,
+      tokensUsed: snapshot.tokensUsed,
+      budget: snapshot.budget,
+      percentage: snapshot.percentage,
     );
   }
 
@@ -170,21 +164,32 @@ class BudgetEnforcer {
     }
 
     final timestamp = now ?? DateTime.now();
-    final localNow = _localTimeFor(timestamp, _config.timezone);
-    final dateKey = _dateKey(localNow);
-    final summary = await _usageTracker.dailySummaryForDate(dateKey);
-
-    final totalTokens = _extractTotalTokens(summary);
-    final budget = _config.dailyTokens;
-    final percentage = budget > 0 ? (totalTokens / budget * 100).round() : 0;
+    final snapshot = await _readSnapshot(timestamp);
 
     return BudgetStatus(
       enabled: true,
-      tokensUsed: totalTokens,
-      budget: budget,
-      percentage: percentage,
+      tokensUsed: snapshot.tokensUsed,
+      budget: snapshot.budget,
+      percentage: snapshot.percentage,
       action: _config.action,
       timezone: _config.timezone,
+    );
+  }
+
+  Future<({String dateKey, Map<String, dynamic>? summary, int tokensUsed, int budget, int percentage})> _readSnapshot(
+    DateTime timestamp,
+  ) async {
+    final localNow = _localTimeFor(timestamp, _config.timezone);
+    final dateKey = _dateKey(localNow);
+    final summary = await _usageTracker.dailySummaryForDate(dateKey);
+    final tokensUsed = _extractTotalTokens(summary);
+    final budget = _config.dailyTokens;
+    return (
+      dateKey: dateKey,
+      summary: summary,
+      tokensUsed: tokensUsed,
+      budget: budget,
+      percentage: budget > 0 ? (tokensUsed / budget * 100).round() : 0,
     );
   }
 

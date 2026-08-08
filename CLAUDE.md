@@ -197,6 +197,10 @@ Specify a config: `bash examples/run.sh production --port 8080`
 - **ripgrep (rg)**: Fast recursive search. Example: `rg "createServerSupabaseClient"`. _Use instead of grep_ for better search performance.
 - **ast-grep**: Search by AST node types. Example: `ast-grep 'import { $X } from "supabase"' routes/`
 - **tree**: Directory structure visualization. Example: `tree -L 2 routes/`
+- **Deslop**: Before adding non-trivial code, search for an existing implementation. For duplicate cleanup, run
+  `deslop . --output .deslop/deslop-report --no-fail-over`, inspect worst-first clusters by stable `id` in the JSON
+  report, refactor one semantically valid cluster at a time, test, and rescan. Never hide owned code or distort code to
+  silence a finding; reserve `exclude` for unowned code and `report_hide` for generated code.
 
 ### Context7 MCP / Fetch MCP
 Both used **only** via the _`andthen:documentation-lookup`_ sub-agent. Context7 fetches version-specific library docs; Fetch converts web pages to markdown.

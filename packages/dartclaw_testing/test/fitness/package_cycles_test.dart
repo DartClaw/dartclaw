@@ -25,16 +25,18 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '_internal/fitness_test_utils.dart';
+
 void main() {
   late String repoRoot;
 
   setUpAll(() {
-    repoRoot = _findRepoRoot();
+    repoRoot = findRepoRoot();
   });
 
   test('allowlist entries have required rationale format', () {
     final allowlistFile = File('$repoRoot/packages/dartclaw_testing/test/fitness/allowlist/package_cycles.txt');
-    _assertAllowlistFormat(allowlistFile);
+    assertAllowlistFormat(allowlistFile);
   });
 
   test('workspace package graph has no cycles', () async {
@@ -106,38 +108,4 @@ String? _detectCycle(String start, Map<String, Set<String>> deps, Set<String> wo
   }
 
   return dfs(start);
-}
-
-String _findRepoRoot() {
-  for (var dir = Directory.current; dir.parent.path != dir.path; dir = dir.parent) {
-    if (File('${dir.path}/pubspec.yaml').existsSync() && Directory('${dir.path}/packages').existsSync()) {
-      return dir.path;
-    }
-  }
-  throw StateError('Could not locate repo root from ${Directory.current.path}');
-}
-
-void _assertAllowlistFormat(File allowlistFile) {
-  if (!allowlistFile.existsSync()) return;
-  final bad = <String>[];
-  final lines = allowlistFile.readAsLinesSync();
-  for (var i = 0; i < lines.length; i++) {
-    final stripped = lines[i].trim();
-    if (stripped.isEmpty || stripped.startsWith('#')) continue;
-    final sep = stripped.indexOf('  # ');
-    if (sep < 0) {
-      bad.add('line ${i + 1}: missing "  # " separator');
-      continue;
-    }
-    if (stripped.substring(sep + 4).trim().isEmpty) {
-      bad.add('line ${i + 1}: rationale is empty');
-    }
-  }
-  if (bad.isNotEmpty) {
-    fail(
-      'Malformed allowlist ${allowlistFile.path}:\n'
-      '  ${bad.join('\n  ')}\n'
-      'Each non-comment line must be: <pattern>  # <non-empty rationale>',
-    );
-  }
 }

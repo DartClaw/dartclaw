@@ -442,20 +442,61 @@ Router webRoutes(
       }
 
       final sidebarData = await pageContext.sidebar.build();
+      String renderChannelDetail({
+        required String channelType,
+        required String channelLabel,
+        required ChannelStatus status,
+        String? phone,
+        required String dmAccessMode,
+        required List<String> dmAllowlist,
+        required String groupAccessMode,
+        required List<String> groupAllowlist,
+        required bool requireMention,
+        required bool taskTriggerEnabled,
+        required String taskTriggerPrefix,
+        required String taskTriggerDefaultType,
+        required bool taskTriggerAutoStart,
+        required String entryPlaceholder,
+        required String groupPlaceholder,
+        required List<Map<String, dynamic>> pendingPairings,
+      }) {
+        return channelDetailTemplate(
+          channelType: channelType,
+          channelLabel: channelLabel,
+          status: status,
+          phone: phone,
+          dmAccessMode: dmAccessMode,
+          dmAccessModes: const ['open', 'disabled', 'allowlist', 'pairing'],
+          dmAllowlist: dmAllowlist,
+          groupAccessMode: groupAccessMode,
+          groupAccessModes: const ['open', 'disabled', 'allowlist'],
+          groupAllowlist: groupAllowlist,
+          requireMention: requireMention,
+          taskTriggerEnabled: taskTriggerEnabled,
+          taskTriggerPrefix: taskTriggerPrefix,
+          taskTriggerDefaultType: taskTriggerDefaultType,
+          taskTriggerAutoStart: taskTriggerAutoStart,
+          entryPlaceholder: entryPlaceholder,
+          groupPlaceholder: groupPlaceholder,
+          sidebarData: sidebarData,
+          navItems: registry.navItems(activePage: 'Settings'),
+          pendingPairings: pendingPairings,
+          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
+          appName: appDisplay.name,
+        );
+      }
 
       if (type == 'whatsapp') {
         final channel = whatsAppChannel;
         final status = channel != null ? await whatsAppChannelStatus(channel) : ChannelStatus.disabled;
-        final page = channelDetailTemplate(
+        final page = renderChannelDetail(
           channelType: 'whatsapp',
           channelLabel: 'WhatsApp',
           status: status,
           phone: channel != null ? jidToPhone(channel.gowa.pairedJid) : null,
           dmAccessMode: channel?.dmAccess.mode.name ?? 'disabled',
-          dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
           dmAllowlist: channel?.dmAccess.allowlist.toList() ?? const [],
           groupAccessMode: channel?.config.groupAccess.name ?? 'disabled',
-          groupAccessModes: ['open', 'disabled', 'allowlist'],
           groupAllowlist: channel?.config.groupIds ?? const [],
           requireMention: channel?.config.requireMention ?? false,
           taskTriggerEnabled: channel?.config.taskTrigger.enabled ?? false,
@@ -464,26 +505,20 @@ Router webRoutes(
           taskTriggerAutoStart: channel?.config.taskTrigger.autoStart ?? true,
           entryPlaceholder: '15551234567@s.whatsapp.net',
           groupPlaceholder: '12345678@g.us',
-          sidebarData: sidebarData,
-          navItems: registry.navItems(activePage: 'Settings'),
           pendingPairings: channel != null ? pendingPairingsData(channel.dmAccess) : const [],
-          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
-          appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       } else if (type == 'signal') {
         final channel = signalChannel;
         final status = channel != null ? await signalChannelStatus(channel) : ChannelStatus.disabled;
-        final page = channelDetailTemplate(
+        final page = renderChannelDetail(
           channelType: 'signal',
           channelLabel: 'Signal',
           status: status,
           phone: channel?.sidecar.registeredPhone,
           dmAccessMode: channel?.dmAccess.mode.name ?? 'disabled',
-          dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
           dmAllowlist: channel?.dmAccess.allowlist.toList() ?? const [],
           groupAccessMode: channel?.config.groupAccess.name ?? 'disabled',
-          groupAccessModes: ['open', 'disabled', 'allowlist'],
           groupAllowlist: channel?.config.groupIds ?? const [],
           requireMention: channel?.config.requireMention ?? false,
           taskTriggerEnabled: channel?.config.taskTrigger.enabled ?? false,
@@ -492,11 +527,7 @@ Router webRoutes(
           taskTriggerAutoStart: channel?.config.taskTrigger.autoStart ?? true,
           entryPlaceholder: '+15551234567 or UUID',
           groupPlaceholder: 'base64-group-id',
-          sidebarData: sidebarData,
-          navItems: registry.navItems(activePage: 'Settings'),
           pendingPairings: channel != null ? pendingPairingsData(channel.dmAccess) : const [],
-          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
-          appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       } else {
@@ -505,15 +536,13 @@ Router webRoutes(
         final googleChatConfig =
             config?.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat) ?? const GoogleChatConfig.disabled();
         final status = googleChatChannelStatus(channel, enabledInConfig: googleChatConfig.enabled);
-        final page = channelDetailTemplate(
+        final page = renderChannelDetail(
           channelType: 'google_chat',
           channelLabel: 'Google Chat',
           status: status,
           dmAccessMode: dmAccess?.mode.name ?? 'disabled',
-          dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
           dmAllowlist: dmAccess?.allowlist.toList() ?? const [],
           groupAccessMode: channel?.config.groupAccess.name ?? 'disabled',
-          groupAccessModes: ['open', 'disabled', 'allowlist'],
           groupAllowlist: channel?.config.groupIds ?? const [],
           requireMention: channel?.config.requireMention ?? false,
           taskTriggerEnabled: channel?.config.taskTrigger.enabled ?? false,
@@ -522,11 +551,7 @@ Router webRoutes(
           taskTriggerAutoStart: channel?.config.taskTrigger.autoStart ?? true,
           entryPlaceholder: 'users/123456789',
           groupPlaceholder: 'spaces/AAAA',
-          sidebarData: sidebarData,
-          navItems: registry.navItems(activePage: 'Settings'),
           pendingPairings: dmAccess != null ? pendingPairingsData(dmAccess) : const [],
-          restartBannerHtml: restartBannerHtml(appDisplay.dataDir),
-          appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       }

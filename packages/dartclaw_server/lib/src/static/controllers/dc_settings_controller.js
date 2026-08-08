@@ -180,6 +180,15 @@ function getNestedValue(obj, path) {
   return current;
 }
 
+function setNestedValue(obj, path, value) {
+  var parts = path.split('.');
+  for (var i = 0; i < parts.length - 1; i++) {
+    if (!obj[parts[i]]) obj[parts[i]] = {};
+    obj = obj[parts[i]];
+  }
+  obj[parts[parts.length - 1]] = value;
+}
+
 function fieldToJsonPath(yamlPath) {
   return yamlPath.split('.').map(function (part) {
     return part.replace(/_([a-z])/g, function (_, c) { return c.toUpperCase(); });
@@ -418,6 +427,15 @@ function clearFormErrors(form) {
   form.querySelectorAll('[aria-invalid="true"]').forEach(function (el) { el.removeAttribute('aria-invalid'); });
 }
 
+function parseJsonResponse(res) {
+  if (!res.ok) return res.json().then(function (data) { throw data; });
+  return res.json();
+}
+
+function parseJsonResult(res) {
+  return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+}
+
 function handleToggleChange(field, value) {
   var body = {};
   body[field] = value;
@@ -427,20 +445,11 @@ function handleToggleChange(field, value) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-    .then(function (res) {
-      if (!res.ok) return res.json().then(function (d) { throw d; });
-      return res.json();
-    })
+    .then(parseJsonResponse)
     .then(function () {
       if (settingsInitialConfig) {
         var jsonPath = fieldToJsonPath(field);
-        var parts = jsonPath.split('.');
-        var obj = settingsInitialConfig;
-        for (var i = 0; i < parts.length - 1; i++) {
-          if (!obj[parts[i]]) obj[parts[i]] = {};
-          obj = obj[parts[i]];
-        }
-        obj[parts[parts.length - 1]] = value;
+        setNestedValue(settingsInitialConfig, jsonPath, value);
       }
       showToast('success', 'Applied');
     })
@@ -476,9 +485,7 @@ function handleFormSave(form) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(changes),
   })
-    .then(function (res) {
-      return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
-    })
+    .then(parseJsonResult)
     .then(function (result) {
       delete form.dataset.saving;
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
@@ -503,13 +510,7 @@ function handleFormSave(form) {
 
       Object.keys(changes).forEach(function (field) {
         var jsonPath = fieldToJsonPath(field);
-        var parts = jsonPath.split('.');
-        var obj = settingsInitialConfig;
-        for (var i = 0; i < parts.length - 1; i++) {
-          if (!obj[parts[i]]) obj[parts[i]] = {};
-          obj = obj[parts[i]];
-        }
-        obj[parts[parts.length - 1]] = changes[field];
+        setNestedValue(settingsInitialConfig, jsonPath, changes[field]);
       });
 
       updateFormDirtyState(form);
@@ -782,10 +783,7 @@ async function handleGuardEntryEdit(edit) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-    .then(function (res) {
-      if (!res.ok) return res.json().then(function (data) { throw data; });
-      return res.json();
-    })
+    .then(parseJsonResponse)
     .then(function (mutation) {
       return refreshGuardEditorState().then(function () {
         showGuardMutationToast('Guard extension updated', mutation);
@@ -826,10 +824,7 @@ async function handleGuardEntryDelete(del) {
   fetch('/api/config/guards/' + guard + '/' + field + '/' + resolvedIndex, {
     method: 'DELETE',
   })
-    .then(function (res) {
-      if (!res.ok) return res.json().then(function (data) { throw data; });
-      return res.json();
-    })
+    .then(parseJsonResponse)
     .then(function (mutation) {
       return refreshGuardEditorState().then(function () {
         showGuardMutationToast('Guard extension deleted', mutation);
@@ -1000,10 +995,7 @@ function attachGuardEditorListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload.body),
       })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (data) { throw data; });
-          return res.json();
-        })
+        .then(parseJsonResponse)
         .then(function (mutation) {
           var input = root.querySelector('[data-guard-editor-value]');
           if (input) input.value = '';
@@ -1037,10 +1029,7 @@ function attachGuardEditorListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (data) { throw data; });
-          return res.json();
-        })
+        .then(parseJsonResponse)
         .then(function (data) {
           if (result) {
             result.classList.remove('guard-editor-error');
@@ -1170,6 +1159,14 @@ function initSettingsForm() {
   loadSettingsConfig();
 }
 
+function requestAllowlist(channelType, listType, method, entry) {
+  return fetch('/api/config/channels/' + channelType + '/' + listType + '-allowlist', {
+    method: method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entry: entry }),
+  });
+}
+
 function initChannelDetail() {
   var page = document.querySelector('.channel-detail-page');
   if (!page || page.dataset.channelInit) return;
@@ -1187,10 +1184,7 @@ function initChannelDetail() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-      .then(function (res) {
-        if (!res.ok) return res.json().then(function (d) { throw d; });
-        return res.json();
-      })
+      .then(parseJsonResponse)
       .then(function () {
         if (onSuccess) onSuccess();
       })
@@ -1275,14 +1269,8 @@ function initChannelDetail() {
 
       if (errorEl) errorEl.textContent = '';
 
-      fetch('/api/config/channels/' + channelType + '/dm-allowlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: entry }),
-      })
-        .then(function (res) {
-          return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
-        })
+      requestAllowlist(channelType, 'dm', 'POST', entry)
+        .then(parseJsonResult)
         .then(function (result) {
           if (!result.ok) {
             var msg = (result.data.error && result.data.error.message) || 'Failed to add entry';
@@ -1312,14 +1300,8 @@ function initChannelDetail() {
 
       if (errorEl) errorEl.textContent = '';
 
-      fetch('/api/config/channels/' + channelType + '/group-allowlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: entry }),
-      })
-        .then(function (res) {
-          return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
-        })
+      requestAllowlist(channelType, 'group', 'POST', entry)
+        .then(parseJsonResult)
         .then(function (result) {
           if (!result.ok) {
             var msg = (result.data.error && result.data.error.message) || 'Failed to add entry';
@@ -1363,15 +1345,8 @@ function initChannelDetail() {
     if (!confirmed) return;
 
     if (listType === 'dm') {
-      fetch('/api/config/channels/' + channelType + '/dm-allowlist', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: entry }),
-      })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (d) { throw d; });
-          return res.json();
-        })
+      requestAllowlist(channelType, 'dm', 'DELETE', entry)
+        .then(parseJsonResponse)
         .then(function (data) {
           renderAllowlistEntries(page, 'dm', data.allowlist, channelType);
           showToast('success', 'Entry removed');
@@ -1381,15 +1356,8 @@ function initChannelDetail() {
           showToast('error', msg);
         });
     } else if (listType === 'group') {
-      fetch('/api/config/channels/' + channelType + '/group-allowlist', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: entry }),
-      })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (d) { throw d; });
-          return res.json();
-        })
+      requestAllowlist(channelType, 'group', 'DELETE', entry)
+        .then(parseJsonResponse)
         .then(function (data) {
           renderAllowlistEntries(page, 'group', data.allowlist, channelType);
           showChannelRestartBanner();

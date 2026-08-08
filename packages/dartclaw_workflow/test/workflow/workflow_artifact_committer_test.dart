@@ -13,6 +13,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowGitArtifactsStrategy,
+        WorkflowGitCommit,
         WorkflowGitPort,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
@@ -566,8 +567,62 @@ void main() {
         expect(result.failed, isFalse);
         expect(result.committedPaths, isEmpty); // already at HEAD – skipped
       });
+
+      test('post-commit missing artifact returns the same failed result contract', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        final delegate = FakeGitGateway()..initWorktree(repoDir.path);
+        delegate.addUntracked(repoDir.path, 'plan.md', content: 'plan');
+        final git = _PostCommitMissingGit(delegate);
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
+
+        expect(result.failed, isTrue);
+        expect(result.fatal, isFalse);
+        expect(result.failureReason, contains("required artifacts missing at HEAD for step 'plan': [plan.md]"));
+        expect(result.skippedPaths, ['plan.md']);
+        expect(git.committed, isTrue);
+      });
     });
   });
+}
+
+final class _PostCommitMissingGit implements WorkflowGitPort {
+  final FakeGitGateway _delegate;
+  bool committed = false;
+
+  _PostCommitMissingGit(this._delegate);
+
+  @override
+  Future<void> add(String worktreePath, List<String> paths, {bool all = false}) =>
+      _delegate.add(worktreePath, paths, all: all);
+
+  @override
+  Future<WorkflowGitCommit> commit(
+    String worktreePath, {
+    required String message,
+    String? authorName,
+    String? authorEmail,
+  }) async {
+    final result = await _delegate.commit(
+      worktreePath,
+      message: message,
+      authorName: authorName,
+      authorEmail: authorEmail,
+    );
+    committed = true;
+    return result;
+  }
+
+  @override
+  Future<List<String>> diffNameOnly(String worktreePath, {String? against, bool cached = false, String? diffFilter}) =>
+      _delegate.diffNameOnly(worktreePath, against: against, cached: cached, diffFilter: diffFilter);
+
+  @override
+  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path}) async => !committed;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 WorkflowRun _run() {

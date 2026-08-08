@@ -80,6 +80,38 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
   return factory;
 }
 
+Directory _tempDirectory([String prefix = 'dartclaw_serve_test_']) {
+  final directory = Directory.systemTemp.createTempSync(prefix);
+  addTearDown(() {
+    if (directory.existsSync()) directory.deleteSync(recursive: true);
+  });
+  return directory;
+}
+
+Future<void> _expectExit(DartclawRunner runner, {int? code, List<String> args = const ['serve']}) {
+  final matcher = code == null
+      ? isA<_ExitIntercept>()
+      : isA<_ExitIntercept>().having((error) => error.code, 'code', code);
+  return expectLater(runner.run(args), throwsA(matcher));
+}
+
+ServeCommand _bindingFailureCommand({
+  required DartclawConfig config,
+  required Directory tempDir,
+  required AgentHarness worker,
+  void Function(String)? stderrLine,
+}) => ServeCommand(
+  config: config,
+  searchDbFactory: (_) => sqlite3.openInMemory(),
+  harnessFactory: _harnessFactoryFor(worker),
+  serverFactory: (builder) => builder.build(),
+  serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+  stderrLine: stderrLine ?? (_) {},
+  exitFn: (code) => throw _ExitIntercept(code),
+  assetResolver: _assetResolverFor(tempDir),
+  runWorkflowSkillsBootstrap: false,
+);
+
 void main() {
   late DartclawRunner runner;
   late ServeCommand serveCommand;
@@ -180,11 +212,7 @@ void main() {
     test('host 0.0.0.0 prints network exposure warning', () async {
       final stderrLines = <String>[];
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -197,36 +225,24 @@ void main() {
         ),
       );
 
-      final command = ServeCommand(
+      final command = _bindingFailureCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        tempDir: tempDir,
+        worker: worker,
         stderrLine: stderrLines.add,
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot bind to 0.0.0.0:3333'],
       );
       expect(stderrLines.join('\n'), contains('WARNING: Binding to 0.0.0.0 exposes the server to the network.'));
     });
 
     test('Windows isolation capability reaches security wiring and aborts before server bind', () async {
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_isolation_test_');
+      final tempDir = _tempDirectory('dartclaw_serve_isolation_test_');
       var serveCalled = false;
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
 
       final config = DartclawConfig(
         container: const ContainerConfig(enabled: true),
@@ -255,10 +271,7 @@ void main() {
       final localRunner = DartclawRunner()..addCommand(command);
 
       final logs = await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Unsupported capability "container isolation"'],
       );
 
@@ -267,11 +280,8 @@ void main() {
     });
 
     test('Windows platform policy skips SIGTERM registration', () async {
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_signals_test_');
+      final tempDir = _tempDirectory('dartclaw_serve_signals_test_');
       var sigtermWatchCalls = 0;
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -301,10 +311,7 @@ void main() {
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await expectLater(
-        localRunner.run(['serve']),
-        throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 0)),
-      );
+      await _expectExit(localRunner, code: 0);
 
       expect(sigtermWatchCalls, 0);
     });
@@ -313,10 +320,7 @@ void main() {
       ensureDartclawWhatsappRegistered();
       final worker = _FakeWorkerService();
       late String pairingBody;
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_channels_skipped_test_');
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory('dartclaw_serve_channels_skipped_test_');
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -354,10 +358,7 @@ void main() {
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve', '--no-connect-channels']),
-          throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 0)),
-        ),
+        () => _expectExit(localRunner, code: 0, args: const ['serve', '--no-connect-channels']),
       );
 
       expect(pairingBody, contains('Not Connected'));
@@ -368,10 +369,7 @@ void main() {
     test('channels connect by default', () async {
       ensureDartclawWhatsappRegistered();
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_channels_default_test_');
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory('dartclaw_serve_channels_default_test_');
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -403,10 +401,7 @@ void main() {
       final localRunner = DartclawRunner()..addCommand(command);
 
       final logs = await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((error) => error.code, 'code', 0)),
-        ),
+        () => _expectExit(localRunner, code: 0),
         expectedSevereSubstrings: const ['Failed to spawn GOWA process', 'Failed to connect channel whatsapp'],
       );
 
@@ -419,15 +414,11 @@ void main() {
     test('channel config warnings are printed before server startup', () async {
       final stderrLines = <String>[];
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+      final tempDir = _tempDirectory();
 
       ensureDartclawGoogleChatRegistered();
       ensureDartclawWhatsappRegistered();
       ensureDartclawSignalRegistered();
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
 
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
@@ -457,24 +448,16 @@ channels:
         env: {'HOME': '/home/user'},
       );
 
-      final command = ServeCommand(
+      final command = _bindingFailureCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        tempDir: tempDir,
+        worker: worker,
         stderrLine: stderrLines.add,
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
       expect(stderrLines.join('\n'), contains('WARNING: Invalid type for google_chat.group_access'));
@@ -486,11 +469,7 @@ channels:
 
     test('legacy startup validation fails fast when default provider credentials are missing', () async {
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
@@ -502,24 +481,11 @@ channels:
         ),
       );
 
-      final command = ServeCommand(
-        config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stderrLine: (_) {},
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
-      );
+      final command = _bindingFailureCommand(config: config, tempDir: tempDir, worker: worker);
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Failed to start harness'],
       );
       expect(worker.started, isFalse);
@@ -528,10 +494,7 @@ channels:
 
     test('uses embedded templates and static assets without filesystem assets', () async {
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_asset_root_test_');
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory('dartclaw_serve_asset_root_test_');
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -561,10 +524,7 @@ channels:
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
 
@@ -575,11 +535,7 @@ channels:
 
     test('secondary-provider validation warnings do not block startup', () async {
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
@@ -598,24 +554,11 @@ channels:
         ),
       );
 
-      final command = ServeCommand(
-        config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stderrLine: (_) {},
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
-      );
+      final command = _bindingFailureCommand(config: config, tempDir: tempDir, worker: worker);
       final localRunner = DartclawRunner()..addCommand(command);
 
       final logs = await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
       expect(worker.started, isTrue);
@@ -633,11 +576,7 @@ channels:
     test('port-in-use path prints clear bind error', () async {
       final stderrLines = <String>[];
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -649,24 +588,16 @@ channels:
         ),
       );
 
-      final command = ServeCommand(
+      final command = _bindingFailureCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        tempDir: tempDir,
+        worker: worker,
         stderrLine: stderrLines.add,
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
       final logs = await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot bind to localhost:3333')), isTrue);
@@ -678,11 +609,7 @@ channels:
 
     test('startup migrates legacy turn KV keys to state db without touching session cost keys', () async {
       final worker = _FakeWorkerService();
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -702,24 +629,11 @@ channels:
         }),
       );
 
-      final command = ServeCommand(
-        config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stderrLine: (_) {},
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
-      );
+      final command = _bindingFailureCommand(config: config, tempDir: tempDir, worker: worker);
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
 
@@ -731,11 +645,7 @@ channels:
     });
 
     test('search database open failure prints clear startup error', () async {
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
@@ -752,21 +662,14 @@ channels:
       final localRunner = DartclawRunner()..addCommand(command);
 
       final logs = await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot open search database'],
       );
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open search database')), isTrue);
     });
 
     test('task database open failure prints clear startup error', () async {
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
@@ -784,10 +687,7 @@ channels:
       final localRunner = DartclawRunner()..addCommand(command);
 
       final logs = await _captureExpectedServeLogs(
-        () async => await expectLater(
-          localRunner.run(['serve']),
-          throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
-        ),
+        () => _expectExit(localRunner, code: 1),
         expectedSevereSubstrings: const ['Cannot open task database'],
       );
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open task database')), isTrue);
@@ -806,10 +706,7 @@ channels:
       });
       addTearDown(sub.cancel);
 
-      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+      final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -823,21 +720,11 @@ channels:
       );
       final worker = _FakeWorkerService();
 
-      final command = ServeCommand(
-        config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
-        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stderrLine: (_) {},
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
-      );
+      final command = _bindingFailureCommand(config: config, tempDir: tempDir, worker: worker);
       final localRunner = DartclawRunner()..addCommand(command);
 
       await _captureExpectedServeLogs(
-        () async => await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>())),
+        () => _expectExit(localRunner),
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
       // Default classifier is claude_binary which doesn't need ANTHROPIC_API_KEY.

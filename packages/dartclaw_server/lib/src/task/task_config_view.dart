@@ -56,34 +56,21 @@ final class TaskConfigView {
 
   String? get model => task.model;
 
-  String? get effort {
-    final raw = task.configJson['effort'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
+  String? get effort => _trimmedString('effort');
 
-  String? get pushBackComment {
-    final raw = task.configJson['pushBackComment'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
+  String? get pushBackComment => _trimmedString('pushBackComment');
 
   String? get lastError {
     final raw = task.configJson['lastError'];
     return raw is String ? raw : null;
   }
 
-  String? get continueSessionId {
-    final raw = task.configJson['_continueSessionId'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
+  String? get continueSessionId => _trimmedString('_continueSessionId');
 
-  String? get requiredInputPath {
-    final raw = task.configJson['requiredInputPath'];
+  String? get requiredInputPath => _trimmedString('requiredInputPath');
+
+  String? _trimmedString(String key) {
+    final raw = task.configJson[key];
     if (raw is! String) return null;
     final trimmed = raw.trim();
     return trimmed.isEmpty ? null : trimmed;

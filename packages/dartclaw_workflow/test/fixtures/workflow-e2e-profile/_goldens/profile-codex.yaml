@@ -11,6 +11,7 @@
 # - agent.provider / agent.model            (provider + workflow model)
 # - providers.<id> block                    (codex or claude shape)
 # - workflow.defaults.*.model               (per-role <provider>/<model>)
+# - workflow.defaults.planner.effort        (provider-preset effort, when set)
 
 port: 3333
 data_dir: "/tmp/dartclaw-test/data"
@@ -46,11 +47,12 @@ workflow:
     workflow:
       model: codex/gpt-5.4
     planner:
-      model: codex/gpt-5.4
+      model: codex/gpt-5.6-sol
+      effort: medium
     executor:
-      model: codex/gpt-5.3-codex-spark
+      model: codex/gpt-5.6-luna
     reviewer:
-      model: codex/gpt-5.3-codex-spark
+      model: codex/gpt-5.6-luna
 
 projects:
   workflow-test-todo-app:

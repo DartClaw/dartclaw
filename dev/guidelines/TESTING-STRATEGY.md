@@ -238,14 +238,14 @@ The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run t
 
 **Provider presets**:
 
-| Preset | Workflow / Planner | Executor / Reviewer | Sandbox | API key env var |
-|---|---|---|---|---|
-| `codex` | `gpt-5.4` | `gpt-5.3-codex-spark` | `danger-full-access` | `CODEX_API_KEY` |
-| `claude` | `claude-opus-4-7` | `claude-sonnet-4-6` | `dontAsk` | `ANTHROPIC_API_KEY` |
+| Preset | Workflow | Planner | Executor / Reviewer | Sandbox | API key env var |
+|---|---|---|---|---|---|
+| `codex` | `gpt-5.4` | `gpt-5.6-sol` (`medium`) | `gpt-5.6-luna` | `danger-full-access` | `CODEX_API_KEY` |
+| `claude` | `claude-opus-4-7` | `claude-opus-4-7` | `claude-sonnet-4-6` | `dontAsk` | `ANTHROPIC_API_KEY` |
 
 (The claude `Sandbox` column is the `permissionMode`. It must be `dontAsk`, **not** `bypassPermissions` — the Claude workflow one-shot runner rejects `bypassPermissions` for any step that declares an `allowedTools` policy, i.e. every workflow step.)
 
-The fixture default provider is `codex`, and the heavy workflow e2e (`workflow-live/run.sh`) uses it (validated live: A2's plan-skip pipeline ran end-to-end on codex/`gpt-5.3-codex-spark` in ~24 min). Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. Claude one-shot spawns print a benign stderr notice (`Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`); the CLI does force default mode when the scrub var is set, but the step tool policy rides in `--settings` permission rules, which default mode enforces identically in headless runs (allowed tools run, everything else is denied, never prompted) — verified live 2026-07-07: a claude plan-and-implement canary ran discovery, both story implementations, simplify, and all reviews green with the var set. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
+The fixture default provider is `codex`: planner runs on `gpt-5.6-sol` at medium effort, while executor and reviewer run on `gpt-5.6-luna`. Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. Claude one-shot spawns print a benign stderr notice (`Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`); the CLI does force default mode when the scrub var is set, but the step tool policy rides in `--settings` permission rules, which default mode enforces identically in headless runs (allowed tools run, everything else is denied, never prompted) — verified live 2026-07-07: a claude plan-and-implement canary ran discovery, both story implementations, simplify, and all reviews green with the var set. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
 
 **Run the integration tier against Claude explicitly** (e.g. the other integration files):
 
@@ -261,7 +261,7 @@ DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-4-7 \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
-**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and one round-trip on the pinned executor model (skip with `--skip-preflight`). For codex it also writes a profile-owned hermetic `CODEX_HOME` under the log dir (`auth.json` seeded from the operator's `~/.codex`, `config.toml` pinning the executor-model preset) and exports it, so operator dotfiles (`~/.codex/config.toml` model/effort) can't override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct one-shot spawns.
+**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned planner, executor, and any distinct reviewer configuration (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). For codex it also writes a profile-owned hermetic `CODEX_HOME` under the log dir (`auth.json` seeded from the operator's `~/.codex`, `config.toml` pinning the executor-model preset) and exports it, so operator dotfiles (`~/.codex/config.toml` model/effort) can't override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct one-shot spawns.
 
 ### Visual / UI Smoke Tests (Manual)
 

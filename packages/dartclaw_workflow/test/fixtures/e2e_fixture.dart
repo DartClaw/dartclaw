@@ -43,6 +43,7 @@ typedef _ResolvedDefaults = ({
 typedef _ProviderPreset = ({
   String workflowModel,
   String plannerModel,
+  String? plannerEffort,
   String executorModel,
   String reviewerModel,
   String sandbox,
@@ -50,15 +51,17 @@ typedef _ProviderPreset = ({
 
 const _ProviderPreset _codexPreset = (
   workflowModel: 'gpt-5.4',
-  plannerModel: 'gpt-5.4',
-  executorModel: 'gpt-5.3-codex-spark',
-  reviewerModel: 'gpt-5.3-codex-spark',
+  plannerModel: 'gpt-5.6-sol',
+  plannerEffort: 'medium',
+  executorModel: 'gpt-5.6-luna',
+  reviewerModel: 'gpt-5.6-luna',
   sandbox: 'danger-full-access',
 );
 
 const _ProviderPreset _claudePreset = (
   workflowModel: 'claude-opus-4-7',
   plannerModel: 'claude-opus-4-7',
+  plannerEffort: null,
   executorModel: 'claude-sonnet-4-6',
   reviewerModel: 'claude-sonnet-4-6',
   // Claude workflow one-shot tasks declare per-step allowedTools policies, and
@@ -338,7 +341,11 @@ final class E2EFixture {
         workspaceDir: workflowWorkspaceDir,
         defaults: WorkflowRoleDefaultsConfig(
           workflow: WorkflowRoleModelConfig(provider: provider, model: workflowModel),
-          planner: WorkflowRoleModelConfig(provider: provider, model: plannerModel),
+          planner: WorkflowRoleModelConfig(
+            provider: provider,
+            model: plannerModel,
+            effort: _presetFor(provider).plannerEffort,
+          ),
           executor: WorkflowRoleModelConfig(provider: provider, model: executorModel),
           reviewer: WorkflowRoleModelConfig(provider: provider, model: reviewerModel),
         ),
@@ -468,6 +475,8 @@ final class E2EFixture {
     final template = File(path).readAsStringSync();
     final providerBlock = _renderProvidersBlock();
     final credentialBlock = _renderProviderCredentialBlock();
+    final plannerEffort = _presetFor(provider).plannerEffort;
+    final plannerEffortLine = plannerEffort == null ? '' : '      effort: $plannerEffort\n';
     return template
         .replaceAll('__DATA_DIR__', dataDir)
         .replaceAll('__WORKFLOW_WORKSPACE_DIR__', workflowWorkspaceDir)
@@ -477,6 +486,7 @@ final class E2EFixture {
         .replaceAll('__PROVIDER_CREDENTIAL_BLOCK__', credentialBlock)
         .replaceAll('__WORKFLOW_MODEL__', '$provider/$workflowModel')
         .replaceAll('__PLANNER_MODEL__', '$provider/$plannerModel')
+        .replaceAll('__PLANNER_EFFORT__\n', plannerEffortLine)
         .replaceAll('__EXECUTOR_MODEL__', '$provider/$executorModel')
         .replaceAll('__REVIEWER_MODEL__', '$provider/$reviewerModel');
   }

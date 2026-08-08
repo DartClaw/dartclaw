@@ -11,6 +11,7 @@
 # - agent.provider / agent.model            (provider + workflow model)
 # - providers.<id> block                    (codex or claude shape)
 # - workflow.defaults.*.model               (per-role <provider>/<model>)
+# - workflow.defaults.planner.effort        (provider-preset effort, when set)
 
 port: 3333
 data_dir: "__DATA_DIR__"
@@ -41,6 +42,7 @@ workflow:
       model: __WORKFLOW_MODEL__
     planner:
       model: __PLANNER_MODEL__
+__PLANNER_EFFORT__
     executor:
       model: __EXECUTOR_MODEL__
     reviewer:

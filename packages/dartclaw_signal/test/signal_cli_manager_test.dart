@@ -14,9 +14,7 @@ Future<Map<String, dynamic>> _captureRpc(Future<void> Function(SignalCliManager 
     unawaited(() async {
       final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
       captured.complete({'path': request.uri.path, ...payload});
-      request.response.headers.contentType = ContentType.json;
-      request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
-      await request.response.close();
+      await _writeRpcResult(request.response, payload['id']);
     }());
   });
 
@@ -33,6 +31,18 @@ Future<Map<String, dynamic>> _captureRpc(Future<void> Function(SignalCliManager 
     await subscription.cancel();
     await server.close(force: true);
   }
+}
+
+Future<void> _openSse(HttpResponse response) async {
+  response.headers.contentType = ContentType('text', 'event-stream');
+  response.write(': connected\n\n');
+  await response.flush();
+}
+
+Future<void> _writeRpcResult(HttpResponse response, Object? id, [Object? result]) async {
+  response.headers.contentType = ContentType.json;
+  response.write(jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}));
+  await response.close();
 }
 
 void main() {
@@ -343,9 +353,7 @@ void main() {
         unawaited(() async {
           requestPath = request.uri.path;
           payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
-          await request.response.close();
+          await _writeRpcResult(request.response, payload['id']);
           requestHandled.complete();
         }());
       });
@@ -379,9 +387,7 @@ void main() {
         unawaited(() async {
           if (request.uri.path == '/api/v1/events') {
             sseConnections++;
-            request.response.headers.contentType = ContentType('text', 'event-stream');
-            request.response.write(': connected\n\n');
-            await request.response.flush();
+            await _openSse(request.response);
             if (sseConnections == 1) {
               initialSse.complete(request.response);
             } else if (sseConnections == 2) {
@@ -391,9 +397,7 @@ void main() {
           }
 
           final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
-          await request.response.close();
+          await _writeRpcResult(request.response, payload['id']);
         }());
       });
 
@@ -440,9 +444,7 @@ void main() {
             await request.response.close();
             return;
           }
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          request.response.write(': connected\n\n');
-          await request.response.flush();
+          await _openSse(request.response);
           if (sseConnections == 1) {
             initialSse.complete(request.response);
           } else {
@@ -492,8 +494,7 @@ void main() {
             await request.response.close();
             return;
           }
-          request.response.write(': connected\n\n');
-          await request.response.flush();
+          await _openSse(request.response);
           if (sseConnections == 1) {
             initialSse.complete(request.response);
           } else {
@@ -542,9 +543,7 @@ void main() {
           return;
         }
         unawaited(() async {
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          request.response.write(': connected\n\n');
-          await request.response.flush();
+          await _openSse(request.response);
           recoveredSse.complete(request.response);
         }());
       });
@@ -592,9 +591,7 @@ void main() {
             errorHeadersSent.complete();
             return;
           }
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          request.response.write(': connected\n\n');
-          await request.response.flush();
+          await _openSse(request.response);
           recoveredSse.complete(request.response);
         }());
       });
@@ -638,9 +635,7 @@ void main() {
           return;
         }
         unawaited(() async {
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          request.response.write(': connected\n\n');
-          await request.response.flush();
+          await _openSse(request.response);
           initialSse.complete(request.response);
         }());
       });
@@ -686,9 +681,7 @@ void main() {
             return;
           }
           sseConnections++;
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          request.response.write(': connected\n\n');
-          await request.response.flush();
+          await _openSse(request.response);
           if (!initialSse.isCompleted) initialSse.complete(request.response);
         }());
       });
@@ -776,9 +769,7 @@ void main() {
             'finishLink' => {'number': '+12125550100'},
             _ => null,
           };
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': result}));
-          await request.response.close();
+          await _writeRpcResult(request.response, payload['id'], result);
         }());
       });
 
@@ -839,9 +830,7 @@ void main() {
             await releaseStartLink.future;
           }
           final result = method == 'startLink' ? {'deviceLinkUri': 'sgnl://linkdevice?uuid=single'} : null;
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': result}));
-          await request.response.close();
+          await _writeRpcResult(request.response, payload['id'], result);
         }());
       });
       final mgr = SignalCliManager(
@@ -886,9 +875,7 @@ void main() {
             'finishLink' => {'number': '+12125550199'},
             _ => null,
           };
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': result}));
-          await request.response.close();
+          await _writeRpcResult(request.response, payload['id'], result);
           if (method == 'finishLink') finishLinkResponded.complete();
         }());
       });

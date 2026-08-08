@@ -24,59 +24,39 @@ Handler mcpRoute(McpProtocolHandler handler, {required String gatewayToken}) {
           origin.startsWith('http://127.0.0.1') ||
           origin.startsWith('https://127.0.0.1');
       if (!allowed) {
-        return Response(
-          403,
-          body: jsonEncode({'error': 'Forbidden — invalid Origin'}),
-          headers: {'content-type': 'application/json'},
-        );
+        return _mcpError(403, 'Forbidden — invalid Origin');
       }
     }
 
     // Auth check: Bearer token
     final authHeader = request.headers['authorization'];
     if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-      return Response(401, body: jsonEncode({'error': 'Unauthorized'}), headers: {'content-type': 'application/json'});
+      return _mcpError(401, 'Unauthorized');
     }
     final token = authHeader.substring(7);
     if (token != gatewayToken) {
-      return Response(401, body: jsonEncode({'error': 'Unauthorized'}), headers: {'content-type': 'application/json'});
+      return _mcpError(401, 'Unauthorized');
     }
 
     // Method check
     if (request.method == 'GET') {
-      return Response(
-        405,
-        body: jsonEncode({'error': 'GET not implemented — use POST for JSON-RPC'}),
-        headers: {'content-type': 'application/json'},
-      );
+      return _mcpError(405, 'GET not implemented — use POST for JSON-RPC');
     }
     if (request.method != 'POST') {
-      return Response(
-        405,
-        body: jsonEncode({'error': 'Method not allowed'}),
-        headers: {'content-type': 'application/json'},
-      );
+      return _mcpError(405, 'Method not allowed');
     }
 
     // Content-Type check
     final contentType = request.headers['content-type'] ?? '';
     if (!contentType.contains('application/json')) {
-      return Response(
-        415,
-        body: jsonEncode({'error': 'Unsupported Media Type — expected application/json'}),
-        headers: {'content-type': 'application/json'},
-      );
+      return _mcpError(415, 'Unsupported Media Type — expected application/json');
     }
 
     // Bounded body read: enforces 1 MiB limit at stream level, regardless of
     // Content-Length presence or truthfulness (covers chunked / spoofed headers).
     final body = await readBounded(request, maxWebhookPayloadBytes);
     if (body == null) {
-      return Response(
-        413,
-        body: jsonEncode({'error': 'Payload too large — 1 MB limit'}),
-        headers: {'content-type': 'application/json'},
-      );
+      return _mcpError(413, 'Payload too large — 1 MB limit');
     }
     final response = await handler.handleRequest(body);
 
@@ -88,3 +68,6 @@ Handler mcpRoute(McpProtocolHandler handler, {required String gatewayToken}) {
     return Response.ok(response, headers: {'content-type': 'application/json'});
   };
 }
+
+Response _mcpError(int status, String message) =>
+    Response(status, body: jsonEncode({'error': message}), headers: {'content-type': 'application/json'});

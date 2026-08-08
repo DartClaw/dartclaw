@@ -131,14 +131,7 @@ final class AcpTargetValidationResult {
       providerId: providerId,
       status: AcpTargetValidationStatus.passed,
       securityClassification: AcpSecurityClassification.guardMediated,
-      evidence: {
-        for (final operation in AcpTargetOperation.values)
-          operation: AcpTargetOperationEvidence(
-            operation: operation,
-            status: AcpTargetEvidenceStatus.guardMediated,
-            rawMethod: operation.rawMethod,
-          ),
-      },
+      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.guardMediated),
     );
   }
 
@@ -149,14 +142,7 @@ final class AcpTargetValidationResult {
       status: AcpTargetValidationStatus.passed,
       securityClassification: AcpSecurityClassification.containerIsolationOnly,
       message: message,
-      evidence: {
-        for (final operation in AcpTargetOperation.values)
-          operation: AcpTargetOperationEvidence(
-            operation: operation,
-            status: AcpTargetEvidenceStatus.containerIsolationOnly,
-            rawMethod: operation.rawMethod,
-          ),
-      },
+      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.containerIsolationOnly),
     );
   }
 
@@ -168,14 +154,7 @@ final class AcpTargetValidationResult {
       securityClassification: AcpSecurityClassification.containerIsolationOnly,
       errorCode: AcpHarnessErrorCode.spawnFailed.code,
       message: message,
-      evidence: {
-        for (final operation in AcpTargetOperation.values)
-          operation: AcpTargetOperationEvidence(
-            operation: operation,
-            status: AcpTargetEvidenceStatus.skipped,
-            rawMethod: operation.rawMethod,
-          ),
-      },
+      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.skipped),
     );
   }
 

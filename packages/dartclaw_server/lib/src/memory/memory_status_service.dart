@@ -63,14 +63,7 @@ class MemoryStatusService {
     final filePath = p.join(workspaceDir, 'MEMORY.md');
     final file = File(filePath);
     if (!file.existsSync()) {
-      return {
-        'sizeBytes': 0,
-        'entryCount': 0,
-        'oldestEntry': null,
-        'newestEntry': null,
-        'budgetBytes': config.memory.maxBytes,
-        'categories': <Map<String, dynamic>>[],
-      };
+      return _emptyMemoryMdStatus();
     }
 
     try {
@@ -113,16 +106,18 @@ class MemoryStatusService {
       };
     } catch (e) {
       _log.warning('Failed to read MEMORY.md: $e');
-      return {
-        'sizeBytes': 0,
-        'entryCount': 0,
-        'oldestEntry': null,
-        'newestEntry': null,
-        'budgetBytes': config.memory.maxBytes,
-        'categories': <Map<String, dynamic>>[],
-      };
+      return _emptyMemoryMdStatus();
     }
   }
+
+  Map<String, dynamic> _emptyMemoryMdStatus() => {
+    'sizeBytes': 0,
+    'entryCount': 0,
+    'oldestEntry': null,
+    'newestEntry': null,
+    'budgetBytes': config.memory.maxBytes,
+    'categories': <Map<String, dynamic>>[],
+  };
 
   Map<String, dynamic> _getArchiveStatus() {
     final filePath = p.join(workspaceDir, 'MEMORY.archive.md');

@@ -1,71 +1,17 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:test/test.dart';
-
-/// Minimal AgentHarness stub for pool tests.
-class _StubHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-  @override
-  Future<void> start() async {}
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async => {};
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-  @override
-  Future<void> stop() async {}
-  @override
-  Future<void> dispose() async {}
-}
 
 TurnRunner _makeRunner({String profileId = 'workspace'}) {
   final dir = Directory.systemTemp.createTempSync('pool-test-');
   addTearDown(() => dir.deleteSync(recursive: true));
   return TurnRunner(
-    harness: _StubHarness(),
+    harness: FakeAgentHarness(autoTransitionState: false),
     messages: MessageService(baseDir: dir.path),
     behavior: BehaviorFileService(workspaceDir: dir.path),
     profileId: profileId,

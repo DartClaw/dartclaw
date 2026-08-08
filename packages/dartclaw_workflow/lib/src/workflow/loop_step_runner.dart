@@ -308,16 +308,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             context['step.$bodyStepId.outcome.reason'] = entryGate;
           }
         }
-        _eventBus.fire(
-          LoopIterationCompletedEvent(
-            runId: run.id,
-            loopId: loop.id,
-            iteration: iteration,
-            maxIterations: loop.maxIterations,
-            gateResult: false,
-            timestamp: DateTime.now(),
-          ),
-        );
+        _fireLoopIterationCompletedEvent(run, loop, iteration: iteration, gateResult: false);
         finalizeBeforeConverged = true;
         break;
       }
@@ -597,30 +588,12 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       if (_gateEvaluator.evaluate(loop.exitGate, context)) {
         gatePassed = true;
         WorkflowExecutor._log.info("Loop '${loop.id}' completed: exit gate passed at iteration $iteration");
-        _eventBus.fire(
-          LoopIterationCompletedEvent(
-            runId: run.id,
-            loopId: loop.id,
-            iteration: iteration,
-            maxIterations: loop.maxIterations,
-            gateResult: true,
-            timestamp: DateTime.now(),
-          ),
-        );
+        _fireLoopIterationCompletedEvent(run, loop, iteration: iteration, gateResult: true);
         finalizeBeforeConverged = true;
         break;
       }
 
-      _eventBus.fire(
-        LoopIterationCompletedEvent(
-          runId: run.id,
-          loopId: loop.id,
-          iteration: iteration,
-          maxIterations: loop.maxIterations,
-          gateResult: false,
-          timestamp: DateTime.now(),
-        ),
-      );
+      _fireLoopIterationCompletedEvent(run, loop, iteration: iteration, gateResult: false);
 
       if (nested == null) {
         await _persistContext(run.id, context);
@@ -808,6 +781,24 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
     );
     return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+  }
+
+  void _fireLoopIterationCompletedEvent(
+    WorkflowRun run,
+    WorkflowLoop loop, {
+    required int iteration,
+    required bool gateResult,
+  }) {
+    _eventBus.fire(
+      LoopIterationCompletedEvent(
+        runId: run.id,
+        loopId: loop.id,
+        iteration: iteration,
+        maxIterations: loop.maxIterations,
+        gateResult: gateResult,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   Future<(WorkflowRun, String?)> _executeLoopFinalizer(

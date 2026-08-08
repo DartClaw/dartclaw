@@ -268,38 +268,37 @@ void main() {
     }
   });
 
-  test('ServiceWiring builds a server that serves / and /health', () async {
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
-    );
+  ServiceWiring buildWiring(
+    DartclawConfig config, {
+    DartclawServer Function(DartclawServerBuilder builder)? serverFactory,
+    OutboundMcpTransportFactory? outboundMcpTransportFactory,
+    PostMcpStartupHook? postMcpStartupHook,
+    bool runWorkflowSkillsBootstrap = false,
+    Map<String, String>? skillProvisionerEnvironment,
+  }) => ServiceWiring(
+    config: config,
+    dataDir: tempDir.path,
+    port: 3000,
+    harnessFactory: _harnessFactoryFor(worker),
+    serverFactory: serverFactory ?? (builder) => builder.build(),
+    searchDbFactory: (_) => sqlite3.openInMemory(),
+    taskDbFactory: (_) => sqlite3.openInMemory(),
+    stderrLine: (_) {},
+    exitFn: _unexpectedExit,
+    resolvedConfigPath: configFile.path,
+    logService: logService,
+    messageRedactor: messageRedactor,
+    resolvedAssets: _resolvedAssetsForConfig(config),
+    outboundMcpTransportFactory: outboundMcpTransportFactory,
+    postMcpStartupHook: postMcpStartupHook,
+    runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
+    skillProvisionerEnvironment: skillProvisionerEnvironment,
+  );
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+  test('ServiceWiring builds a server that serves / and /health', () async {
+    final config = _baseConfig(tempDir);
+
+    final wiring = buildWiring(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -347,13 +346,7 @@ void main() {
         {'name': 'delete_all'},
       ],
     );
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
+    final config = _baseConfig(tempDir).copyWith(
       mcpServers: const McpServersConfig(
         entries: {
           'acme': McpServerEntry(
@@ -364,32 +357,13 @@ void main() {
           ),
         },
       ),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
+    final wiring = buildWiring(
+      config,
       outboundMcpTransportFactory: (server, options) async {
         expect(server.name, 'acme');
         return transport;
       },
-      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -449,23 +423,7 @@ void main() {
         },
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      outboundMcpTransportFactory: (server, options) async => transport,
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config, outboundMcpTransportFactory: (server, options) async => transport);
 
     await expectLater(
       wiring.wire(),
@@ -481,13 +439,7 @@ void main() {
 
   test('ServiceWiring keeps direct outbound policy when startup listing fails', () async {
     final transports = <_FakeOutboundTransport>[];
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
+    final config = _baseConfig(tempDir).copyWith(
       mcpServers: const McpServersConfig(
         entries: {
           'acme': McpServerEntry(
@@ -498,27 +450,9 @@ void main() {
           ),
         },
       ),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
+    final wiring = buildWiring(
+      config,
       outboundMcpTransportFactory: (server, options) async {
         final transport = _FakeOutboundTransport(
           tools: const [
@@ -530,7 +464,6 @@ void main() {
         transports.add(transport);
         return transport;
       },
-      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -559,13 +492,7 @@ void main() {
         {'name': 'delete_all'},
       ],
     );
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
+    final config = _baseConfig(tempDir).copyWith(
       mcpServers: const McpServersConfig(
         entries: {
           'acme': McpServerEntry(
@@ -576,33 +503,14 @@ void main() {
           ),
         },
       ),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
+    final wiring = buildWiring(
+      config,
       outboundMcpTransportFactory: (server, options) async {
         factoryCalls++;
         expect(server.name, 'acme');
         return transport;
       },
-      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -643,23 +551,7 @@ void main() {
         },
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      outboundMcpTransportFactory: (server, options) async => transport,
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config, outboundMcpTransportFactory: (server, options) async => transport);
 
     await expectLater(
       wiring.wire(),
@@ -692,23 +584,10 @@ void main() {
         },
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
+    final wiring = buildWiring(
+      config,
       outboundMcpTransportFactory: (server, options) async => transport,
       postMcpStartupHook: (_) async => throw StateError('post-registration startup failed'),
-      runWorkflowSkillsBootstrap: false,
     );
 
     await expectLater(
@@ -742,23 +621,7 @@ void main() {
         },
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      outboundMcpTransportFactory: (server, options) async => transport,
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config, outboundMcpTransportFactory: (server, options) async => transport);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
@@ -817,26 +680,14 @@ void main() {
         },
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
+    final wiring = buildWiring(
+      config,
       serverFactory: (builder) {
         final server = builder.build();
         server.registerTool(_NamedTool('mcp__acme__lookup'));
         return server;
       },
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
       outboundMcpTransportFactory: (server, options) async => transport,
-      runWorkflowSkillsBootstrap: false,
     );
 
     await expectLater(
@@ -865,40 +716,14 @@ mcp_servers:
       env: {'HOME': tempDir.path},
       fileReader: (path) => path == configFile.path ? yaml : null,
     );
-    final config = parsed.copyWith(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
-    );
+    final config = _baseConfig(tempDir).copyWith(mcpServers: parsed.mcpServers);
     var factoryCalls = 0;
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
+    final wiring = buildWiring(
+      config,
       outboundMcpTransportFactory: (server, options) async {
         factoryCalls++;
         return _FakeOutboundTransport(tools: const []);
       },
-      runWorkflowSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -929,23 +754,7 @@ mcp_servers:
         },
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      outboundMcpTransportFactory: (server, options) async => transport,
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config, outboundMcpTransportFactory: (server, options) async => transport);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
@@ -956,13 +765,7 @@ mcp_servers:
   });
 
   test('ServiceWiring wires AlertRouter into the production EventBus', () async {
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
+    final config = _baseConfig(tempDir).copyWith(
       alerts: const AlertsConfig(
         enabled: true,
         targets: [AlertTarget(channel: 'googlechat', recipient: 'spaces/abc')],
@@ -972,30 +775,9 @@ mcp_servers:
           'google_chat': {'enabled': true},
         },
       ),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
     );
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -1024,43 +806,16 @@ mcp_servers:
       Directory(p.join(tempDir.path, 'projects', projectId)).createSync(recursive: true);
     }
 
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
+    final config = _baseConfig(tempDir).copyWith(
       projects: const ProjectConfig(
         definitions: {
           'alpha': ProjectDefinition(id: 'alpha', remote: 'file:///tmp/alpha.git'),
           'beta': ProjectDefinition(id: 'beta', remote: 'file:///tmp/beta.git'),
         },
       ),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
     );
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -1090,40 +845,13 @@ mcp_servers:
     _stageProviderAndThenSkillStubs(tempDir.path);
     _stageProviderAndThenSkillStubs(projectDir.path);
 
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
+    final config = _baseConfig(tempDir).copyWith(
       projects: ProjectConfig(
         definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path, branch: 'main')},
       ),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
     );
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -1168,20 +896,7 @@ mcp_servers:
     );
     await seededKv.dispose();
 
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
-    );
+    final config = _baseConfig(tempDir);
 
     final oldLevel = Logger.root.level;
     Logger.root.level = Level.ALL;
@@ -1192,22 +907,7 @@ mcp_servers:
       Logger.root.level = oldLevel;
     });
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = buildWiring(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -1229,36 +929,11 @@ mcp_servers:
     final provisionHome = Directory(p.join(tempDir.path, 'provision-home'))..createSync(recursive: true);
     _stageProviderAndThenSkillStubs(provisionHome.path);
 
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      gateway: const GatewayConfig(authMode: 'none'),
-      server: ServerConfig(
-        dataDir: tempDir.path,
-        staticDir: _staticDir(),
-        templatesDir: _templatesDir(),
-        claudeExecutable: Platform.resolvedExecutable,
-      ),
-    );
+    final config = _baseConfig(tempDir);
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      // Default `runWorkflowSkillsBootstrap: true` – we want the bootstrap to run.
+    final wiring = buildWiring(
+      config,
+      runWorkflowSkillsBootstrap: true,
       skillProvisionerEnvironment: {'HOME': provisionHome.path},
     );
 

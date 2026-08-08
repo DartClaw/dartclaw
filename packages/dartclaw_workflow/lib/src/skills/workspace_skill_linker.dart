@@ -177,9 +177,8 @@ final class WorkspaceSkillLinker {
   static bool _isReservedDartClawPayload(String path) => p.basenameWithoutExtension(path).startsWith('dartclaw-');
 
   void _writeGitExclude(String workspaceDir) {
-    final gitDir = _gitDirResolver(workspaceDir);
-    if (gitDir == null || gitDir.trim().isEmpty) return;
-    final exclude = File(p.join(gitDir, 'info', 'exclude'));
+    final exclude = _gitExcludeFile(workspaceDir);
+    if (exclude == null) return;
     exclude.parent.createSync(recursive: true);
     final existing = exclude.existsSync() ? exclude.readAsStringSync() : '';
     final lines = existing.split('\n').where((line) => line.isNotEmpty).toList();
@@ -195,15 +194,19 @@ final class WorkspaceSkillLinker {
   }
 
   void _removeGitExclude(String workspaceDir) {
-    final gitDir = _gitDirResolver(workspaceDir);
-    if (gitDir == null || gitDir.trim().isEmpty) return;
-    final exclude = File(p.join(gitDir, 'info', 'exclude'));
+    final exclude = _gitExcludeFile(workspaceDir);
+    if (exclude == null) return;
     if (!exclude.existsSync()) return;
     final lines = exclude.readAsStringSync().split('\n');
     final removablePatterns = {...managedExcludePatterns, ..._legacyManagedExcludePatterns};
     final filtered = lines.where((line) => !removablePatterns.contains(line)).toList();
     final content = filtered.where((line) => line.isNotEmpty).join('\n');
     exclude.writeAsStringSync(content.isEmpty ? '' : '$content\n');
+  }
+
+  File? _gitExcludeFile(String workspaceDir) {
+    final gitDir = _gitDirResolver(workspaceDir);
+    return gitDir == null || gitDir.trim().isEmpty ? null : File(p.join(gitDir, 'info', 'exclude'));
   }
 
   void _cleanDartclawEntries(Directory root, {required String? extension}) {

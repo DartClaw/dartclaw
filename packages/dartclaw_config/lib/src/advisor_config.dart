@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 /// Configuration for the advisor agent subsystem.
 class AdvisorConfig {
   /// Whether the advisor subscriber is enabled.
@@ -42,7 +44,7 @@ class AdvisorConfig {
           enabled == other.enabled &&
           model == other.model &&
           effort == other.effort &&
-          _listEquals(triggers, other.triggers) &&
+          const ListEquality<String>().equals(triggers, other.triggers) &&
           periodicIntervalMinutes == other.periodicIntervalMinutes &&
           maxWindowTurns == other.maxWindowTurns &&
           maxPriorReflections == other.maxPriorReflections;
@@ -63,12 +65,4 @@ class AdvisorConfig {
       'AdvisorConfig(enabled: $enabled, model: $model, effort: $effort, '
       'triggers: $triggers, periodicIntervalMinutes: $periodicIntervalMinutes, '
       'maxWindowTurns: $maxWindowTurns, maxPriorReflections: $maxPriorReflections)';
-
-  static bool _listEquals(List<String> left, List<String> right) {
-    if (left.length != right.length) return false;
-    for (var i = 0; i < left.length; i++) {
-      if (left[i] != right[i]) return false;
-    }
-    return true;
-  }
 }

@@ -265,18 +265,12 @@ class ConfigValidator {
     } else if (value is double) {
       if (value != value.toInt().toDouble()) {
         final typeLabel = meta.nullable ? 'an integer or null' : 'an integer';
-        return ValidationError(
-          field: meta.yamlPath,
-          message: "Field '${meta.yamlPath}' must be $typeLabel, got ${value.runtimeType}",
-        );
+        return _typeError(meta, value, typeLabel);
       }
       intValue = value.toInt();
     } else {
       final typeLabel = meta.nullable ? 'an integer or null' : 'an integer';
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be $typeLabel, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, typeLabel);
     }
 
     // Range checks
@@ -298,10 +292,7 @@ class ConfigValidator {
   ValidationError? _validateString(FieldMeta meta, Object value) {
     if (value is! String) {
       final typeLabel = meta.nullable ? 'a string or null' : 'a string';
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be $typeLabel, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, typeLabel);
     }
 
     // Non-empty check (non-nullable strings must not be blank)
@@ -314,20 +305,14 @@ class ConfigValidator {
 
   ValidationError? _validateBool(FieldMeta meta, Object value) {
     if (value is! bool) {
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be a boolean, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, 'a boolean');
     }
     return null;
   }
 
   ValidationError? _validateEnum(FieldMeta meta, Object value) {
     if (value is! String) {
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be a string, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, 'a string');
     }
 
     final allowed = meta.allowedValues!;
@@ -343,10 +328,7 @@ class ConfigValidator {
 
   ValidationError? _validateStringList(FieldMeta meta, Object value) {
     if (value is! List) {
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be a list of strings, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, 'a list of strings');
     }
     if (value.any((item) => item is! String)) {
       return ValidationError(field: meta.yamlPath, message: "Field '${meta.yamlPath}' must contain only strings");
@@ -356,10 +338,7 @@ class ConfigValidator {
 
   ValidationError? _validateObjectList(FieldMeta meta, Object value) {
     if (value is! List) {
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be a list of objects, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, 'a list of objects');
     }
     if (value.any((item) => item is! Map)) {
       return ValidationError(field: meta.yamlPath, message: "Field '${meta.yamlPath}' must contain only objects");
@@ -369,11 +348,13 @@ class ConfigValidator {
 
   ValidationError? _validateObjectMap(FieldMeta meta, Object value) {
     if (value is! Map) {
-      return ValidationError(
-        field: meta.yamlPath,
-        message: "Field '${meta.yamlPath}' must be an object map, got ${value.runtimeType}",
-      );
+      return _typeError(meta, value, 'an object map');
     }
     return null;
   }
+
+  ValidationError _typeError(FieldMeta meta, Object value, String expected) => ValidationError(
+    field: meta.yamlPath,
+    message: "Field '${meta.yamlPath}' must be $expected, got ${value.runtimeType}",
+  );
 }

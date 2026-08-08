@@ -1,5 +1,6 @@
 # Temp files
 .agent_temp/
+.deslop/
 
 # Review files
 dev/bundle/docs/specs/**/*-review*.md

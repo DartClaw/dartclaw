@@ -74,13 +74,7 @@ class BehaviorFileService {
 
     // SOUL.md — workspace only (project SOUL.md is deprecated; harness binary reads CLAUDE.md/AGENTS.md natively)
     if (scope != PromptScope.restricted) {
-      _checkProjectSoulDeprecation();
-      final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
-      if (globalSoul != null) {
-        parts.add(globalSoul);
-      } else {
-        parts.add(defaultPrompt);
-      }
+      await _addGlobalSoul(parts);
     }
 
     if (scope == PromptScope.restricted) {
@@ -154,13 +148,7 @@ class BehaviorFileService {
         parts.add(defaultPrompt);
       }
     } else {
-      _checkProjectSoulDeprecation();
-      final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
-      if (globalSoul != null) {
-        parts.add(globalSoul);
-      } else {
-        parts.add(defaultPrompt);
-      }
+      await _addGlobalSoul(parts);
 
       if (_includesInteractiveContext(scope)) {
         // USER.md — workspace only (agent-updatable user context)
@@ -224,6 +212,12 @@ class BehaviorFileService {
     if (content != null && content.trim().isNotEmpty) {
       parts.add('$header\n$content');
     }
+  }
+
+  Future<void> _addGlobalSoul(List<String> parts) async {
+    _checkProjectSoulDeprecation();
+    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
+    parts.add(globalSoul ?? defaultPrompt);
   }
 
   bool _includesInteractiveContext(PromptScope scope) {

@@ -12,8 +12,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         HarnessFactoryConfig,
         KvService,
         MessageService,
-        SessionService,
-        Task;
+        SessionService;
 import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess, normalizeGitRefOperand;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show

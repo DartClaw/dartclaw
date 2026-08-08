@@ -140,19 +140,7 @@ class TaskWiring {
     _remotePushService = RemotePushService(credentials: config.credentials, dataDir: _dataDir);
     _prCreator = PrCreator(credentials: config.credentials);
 
-    _taskReviewService = TaskReviewService(
-      tasks: _storage.taskService,
-      worktreeManager: _worktreeManager,
-      taskFileGuard: _taskFileGuard,
-      mergeExecutor: _mergeExecutor,
-      remotePushService: _remotePushService,
-      prCreator: _prCreator,
-      projectService: _project?.projectService,
-      dataDir: _dataDir,
-      mergeStrategy: config.tasks.worktreeMergeStrategy,
-      baseRef: config.tasks.worktreeBaseRef,
-      eventRecorder: _storage.taskEventRecorder,
-    );
+    _taskReviewService = _buildTaskReviewService();
     _reviewHandler = _taskReviewService.channelReviewHandler(trigger: 'channel');
   }
 
@@ -261,7 +249,13 @@ class TaskWiring {
   /// Recreates the review service (and channel review handler) with the callback.
   /// Safe to call after [wirePreServer] but before any review actions occur.
   void setPushBackFeedbackDelivery(PushBackFeedbackDelivery? delivery) {
-    _taskReviewService = TaskReviewService(
+    _taskReviewService = _buildTaskReviewService(pushBackFeedbackDelivery: delivery);
+    _reviewHandler = _taskReviewService.channelReviewHandler(trigger: 'channel');
+    _log.fine('TaskReviewService updated with push-back feedback delivery');
+  }
+
+  TaskReviewService _buildTaskReviewService({PushBackFeedbackDelivery? pushBackFeedbackDelivery}) {
+    return TaskReviewService(
       tasks: _storage.taskService,
       worktreeManager: _worktreeManager,
       taskFileGuard: _taskFileGuard,
@@ -272,11 +266,9 @@ class TaskWiring {
       dataDir: _dataDir,
       mergeStrategy: config.tasks.worktreeMergeStrategy,
       baseRef: config.tasks.worktreeBaseRef,
-      pushBackFeedbackDelivery: delivery,
+      pushBackFeedbackDelivery: pushBackFeedbackDelivery,
       eventRecorder: _storage.taskEventRecorder,
     );
-    _reviewHandler = _taskReviewService.channelReviewHandler(trigger: 'channel');
-    _log.fine('TaskReviewService updated with push-back feedback delivery');
   }
 
   Future<void> dispose() async {

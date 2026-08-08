@@ -132,13 +132,9 @@ class CleanupCommand extends Command<void> {
   }
 
   void _printReport(MaintenanceReport report, {MaintenanceMode? modeOverride}) {
-    final modeSource = modeOverride != null
-        ? '${report.mode.toYaml()} (--${modeOverride == MaintenanceMode.warn ? 'dry-run' : 'enforce'} override)'
-        : '${report.mode.toYaml()} (config)';
-
     _writeLine('Session Maintenance Report');
     _writeLine('──────────────────────────');
-    _writeLine('Mode:             $modeSource');
+    _writeLine('Mode:             ${_modeSource(report.mode, modeOverride)}');
     _writeLine('Sessions:         ${report.totalSessions} total');
     _writeLine('Disk usage:       ${_formatBytes(report.totalDiskBytes)}');
     _writeLine('');
@@ -165,19 +161,10 @@ class CleanupCommand extends Command<void> {
       }
     }
 
-    if (report.warnings.isNotEmpty) {
-      _writeLine('');
-      _writeLine('Warnings:');
-      for (final w in report.warnings) {
-        _writeLine('  - $w');
-      }
-    }
+    _printWarnings(report.warnings);
   }
 
   void _printRetentionReport(RuntimeArtifactsPruneReport report, {MaintenanceMode? modeOverride}) {
-    final modeSource = modeOverride != null
-        ? '${report.mode.toYaml()} (--${modeOverride == MaintenanceMode.warn ? 'dry-run' : 'enforce'} override)'
-        : '${report.mode.toYaml()} (config)';
     final isEnforce = report.mode == MaintenanceMode.enforce;
     final verb = isEnforce ? 'Pruned' : 'Would prune';
     // In enforce mode a failed delete is still recorded as an action (applied:
@@ -189,7 +176,7 @@ class CleanupCommand extends Command<void> {
     _writeLine('');
     _writeLine('Workflow Runtime-Artifacts Retention');
     _writeLine('────────────────────────────────────');
-    _writeLine('Mode:             $modeSource');
+    _writeLine('Mode:             ${_modeSource(report.mode, modeOverride)}');
 
     if (reported.isEmpty) {
       _writeLine('No runtime-artifacts to prune.');
@@ -201,11 +188,21 @@ class CleanupCommand extends Command<void> {
       }
     }
 
-    if (report.warnings.isNotEmpty) {
+    _printWarnings(report.warnings);
+  }
+
+  String _modeSource(MaintenanceMode mode, MaintenanceMode? modeOverride) {
+    if (modeOverride == null) return '${mode.toYaml()} (config)';
+    final flag = modeOverride == MaintenanceMode.warn ? 'dry-run' : 'enforce';
+    return '${mode.toYaml()} (--$flag override)';
+  }
+
+  void _printWarnings(List<String> warnings) {
+    if (warnings.isNotEmpty) {
       _writeLine('');
       _writeLine('Warnings:');
-      for (final w in report.warnings) {
-        _writeLine('  - $w');
+      for (final warning in warnings) {
+        _writeLine('  - $warning');
       }
     }
   }

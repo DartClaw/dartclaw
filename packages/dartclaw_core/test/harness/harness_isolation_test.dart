@@ -1,121 +1,29 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
-import 'package:dartclaw_core/src/harness/harness_config.dart';
-import 'package:dartclaw_core/src/harness/process_types.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:test/test.dart';
 
-/// Creates a [FakeProcess] with a non-broadcast stdout controller so that
-/// [scheduleMicrotask] emission before subscription is still delivered.
-///
-/// `completeExitOnKill` lets harness teardown observe the exit immediately
-/// instead of waiting out the SIGTERM grace period and the SIGKILL follow-up.
-FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-ClaudeCodeHarness _buildHarness({
-  ProcessFactory? processFactory,
-  CommandProbe? commandProbe,
-  HarnessConfig harnessConfig = const HarnessConfig(),
-  Map<String, dynamic>? providerOptions,
-}) {
-  return ClaudeCodeHarness(
-    cwd: '/tmp',
-    processFactory:
-        processFactory ??
-        (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          final fake = _makeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
-    commandProbe: commandProbe ?? (exe, args) async => ProcessResult(0, 0, '1.0.0', ''),
-    environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-    harnessConfig: harnessConfig,
-    providerOptions: providerOptions,
-  );
-}
-
-void addTeardownAsync(Future<void> Function() fn) => addTearDown(fn);
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+import 'harness_test_support.dart';
 
 void main() {
   group('harness startup isolation (--setting-sources)', () {
     test('default non-containerized spawn omits --setting-sources project', () async {
-      List<String>? capturedArgs;
+      final capturedArgs = await startHarnessAndCaptureArgs();
 
-      final h = _buildHarness(
-        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          capturedArgs = args;
-          final fake = _makeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
-      );
-      addTeardownAsync(() => h.dispose());
-
-      await h.start();
-
-      expect(capturedArgs, isNotNull);
       expect(capturedArgs, isNot(contains('--setting-sources')));
       expect(capturedArgs, isNot(contains('project')));
     });
 
     test('inherit_user_settings false passes --setting-sources project before --model', () async {
-      List<String>? capturedArgs;
+      final capturedArgs = await startHarnessAndCaptureArgs(providerOptions: const {'inherit_user_settings': false});
 
-      final h = _buildHarness(
-        providerOptions: const {'inherit_user_settings': false},
-        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          capturedArgs = args;
-          final fake = _makeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
-      );
-      addTeardownAsync(() => h.dispose());
-
-      await h.start();
-
-      expect(capturedArgs, isNotNull);
-      final settingIdx = capturedArgs!.indexOf('--setting-sources');
-      final modelIdx = capturedArgs!.indexOf('--model');
+      final settingIdx = capturedArgs.indexOf('--setting-sources');
+      final modelIdx = capturedArgs.indexOf('--model');
       expect(settingIdx, isNot(-1));
       expect(modelIdx, isNot(-1));
       expect(settingIdx, lessThan(modelIdx));
-      expect(capturedArgs![settingIdx + 1], 'project');
+      expect(capturedArgs[settingIdx + 1], 'project');
     });
 
     test('--print and --output-format stream-json are also present (baseline)', () async {
-      List<String>? capturedArgs;
-
-      final h = _buildHarness(
-        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          capturedArgs = args;
-          final fake = _makeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
-      );
-      addTeardownAsync(() => h.dispose());
-
-      await h.start();
+      final capturedArgs = await startHarnessAndCaptureArgs();
 
       expect(capturedArgs, contains('--print'));
       expect(capturedArgs, contains('--output-format'));

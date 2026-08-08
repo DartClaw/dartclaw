@@ -1292,38 +1292,10 @@ void main() {
       test('null processEffort adopts first-use non-null effort without restart', () async {
         var spawnCount = 0;
 
-        Future<Process> makeProcess() async {
-          spawnCount++;
-          final fake = makeCapturingClaudeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          Future.delayed(const Duration(milliseconds: 20), () {
-            fake.emitStdout(
-              jsonEncode({
-                'type': 'result',
-                'result': 'ok',
-                'cost_usd': 0.001,
-                'duration_ms': 10,
-                'duration_api_ms': 5,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 'test-session',
-              }),
-            );
-          });
-          return fake;
-        }
-
         // Harness spawned with no effort (null).
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(effort: null),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
-              makeProcess(),
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          processFactory: resultEmittingFactory(onSpawn: (_) => spawnCount++),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -1348,37 +1320,9 @@ void main() {
       test('non-null -> different non-null effort triggers restart', () async {
         var spawnCount = 0;
 
-        Future<Process> makeProcess() async {
-          spawnCount++;
-          final fake = makeClaudeFakeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          Future.delayed(const Duration(milliseconds: 20), () {
-            fake.emitStdout(
-              jsonEncode({
-                'type': 'result',
-                'result': 'ok',
-                'cost_usd': 0.001,
-                'duration_ms': 10,
-                'duration_api_ms': 5,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 'test-session',
-              }),
-            );
-          });
-          return fake;
-        }
-
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(effort: 'low'),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
-              makeProcess(),
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          processFactory: resultEmittingFactory(onSpawn: (_) => spawnCount++),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -1535,36 +1479,9 @@ void main() {
         final sub = Logger('ClaudeCodeHarness').onRecord.listen(logRecords.add);
         addTearDown(sub.cancel);
 
-        Future<Process> makeProcess() async {
-          final fake = makeClaudeFakeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          Future.delayed(const Duration(milliseconds: 20), () {
-            fake.emitStdout(
-              jsonEncode({
-                'type': 'result',
-                'result': 'ok',
-                'cost_usd': 0.001,
-                'duration_ms': 10,
-                'duration_api_ms': 5,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 's1',
-              }),
-            );
-          });
-          return fake;
-        }
-
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(model: 'sonnet'),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
-              makeProcess(),
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          processFactory: resultEmittingFactory(result: const {'session_id': 's1'}),
         );
         addTeardownAsync(() => h.dispose());
 

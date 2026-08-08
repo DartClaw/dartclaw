@@ -27,13 +27,7 @@ class ChannelTaskBridgeSupport {
     bool Function(String text)? isReservedCommand,
     EventBus? eventBus,
     required TaskTriggerEvaluator taskTriggerEvaluator,
-    required Future<void> Function(
-      Channel channel,
-      String recipientId,
-      ChannelResponse response, {
-      required String failureMessage,
-    })
-    sendBestEffort,
+    required BestEffortChannelSender sendBestEffort,
   }) : _reviewCommandParser = reviewCommandParser,
        _perSenderRateLimiter = perSenderRateLimiter,
        _isAdmin = isAdmin,

@@ -239,9 +239,7 @@ void main() {
   });
 
   test('provider-specific lazy spawn consumes the requested provider entry', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       providers: ProvidersConfig(
         entries: {
           'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
@@ -254,7 +252,6 @@ void main() {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 2),
     );
 
@@ -280,9 +277,7 @@ void main() {
   });
 
   test('configured ACP agents register provider identity and default pool capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -298,11 +293,6 @@ void main() {
           },
         ),
       ),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -317,9 +307,7 @@ void main() {
   });
 
   test('configured Goose and Vibe ACP agents register without unknown-provider fallback', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -342,16 +330,12 @@ void main() {
           },
         ),
       ),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
       credentials: const CredentialsConfig(
         entries: {
           'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
           'mistral': CredentialEntry(apiKey: 'mistral-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -375,9 +359,7 @@ void main() {
   });
 
   test('guarded ACP agent without runtime probe evidence fails before registration', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -393,11 +375,6 @@ void main() {
           },
         ),
       ),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -448,8 +425,7 @@ void main(List<String> args) async {
   }
 }
 ''');
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    config = config.copyWith(
       agent: const AgentConfig(provider: 'goose'),
       harness: HarnessConfig(
         acp: AcpConfig(
@@ -466,8 +442,7 @@ void main(List<String> args) async {
           },
         ),
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
+      providers: const ProvidersConfig(),
       tasks: const TaskConfig(maxConcurrent: 0),
     );
 
@@ -478,9 +453,7 @@ void main(List<String> args) async {
   });
 
   test('ACP agents are included in task capacity when providers section is absent', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -496,8 +469,7 @@ void main(List<String> args) async {
           },
         ),
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
+      providers: const ProvidersConfig(),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -511,9 +483,7 @@ void main(List<String> args) async {
   });
 
   test('providers pool_size overrides configured ACP agent default capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -535,8 +505,6 @@ void main(List<String> args) async {
           'goose': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 2),
         },
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -559,9 +527,7 @@ void main(List<String> args) async {
   });
 
   test('container-required ACP spawn fails closed when the configured profile is unavailable', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -574,8 +540,7 @@ void main(List<String> args) async {
           },
         ),
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
+      providers: const ProvidersConfig(),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -589,9 +554,7 @@ void main(List<String> args) async {
   });
 
   test('configured providers use effective pool_size with independent capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       providers: ProvidersConfig(
         entries: {
           'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0),
@@ -604,7 +567,6 @@ void main(List<String> args) async {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -628,9 +590,7 @@ void main(List<String> args) async {
   });
 
   test('non-empty provider config missing default still reserves default capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       providers: ProvidersConfig(
         entries: {'codex': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
       ),
@@ -640,7 +600,6 @@ void main(List<String> args) async {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -658,21 +617,14 @@ void main(List<String> args) async {
   });
 
   test('wired runners use configured turn monitor thresholds and worker timeout', () async {
-    config = DartclawConfig(
+    config = config.copyWith(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable, workerTimeout: 3),
-      agent: const AgentConfig(provider: 'claude'),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       harness: const HarnessConfig(
         turnMonitor: TurnMonitorConfig(
           waitWarningAfter: Duration(milliseconds: 10),
           stuckAfter: Duration(milliseconds: 25),
         ),
       ),
-      tasks: const TaskConfig(maxConcurrent: 1),
     );
 
     await wireStorageAndSecurity();

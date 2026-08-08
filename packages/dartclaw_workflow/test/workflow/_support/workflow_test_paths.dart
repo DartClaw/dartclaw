@@ -23,6 +23,9 @@ String workflowFixturesRoot() => findAncestorDir(['test/fixtures', 'packages/dar
 String workflowDefinitionsDir() =>
     findAncestorDir(['lib/src/workflow/definitions', 'packages/dartclaw_workflow/lib/src/workflow/definitions']);
 
+/// Resolves the workspace repository root.
+String workflowRepositoryRoot() => p.dirname(p.dirname(findAncestorDir(['packages/dartclaw_workflow'])));
+
 /// Returns `true` when the `codex` binary is on PATH and exits cleanly.
 Future<bool> codexAvailable() async {
   try {

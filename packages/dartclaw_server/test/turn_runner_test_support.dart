@@ -82,66 +82,11 @@ class FastFakeWorker extends AgentHarness {
 class FakeTurnRunner extends TurnRunner {
   FakeTurnRunner({super.providerId = 'claude'})
     : super(
-        harness: MinimalHarness(),
+        harness: FakeAgentHarness(autoTransitionState: false),
         messages: NoOpMessages(),
         behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-turn-runner-test'),
         sessions: NoOpSessions(),
       );
-}
-
-/// Inert [AgentHarness] whose [turn] returns an empty map; declares full
-/// capability support so wiring code that probes the flags is satisfied.
-class MinimalHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-  @override
-  WorkerState get state => WorkerState.idle;
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-  @override
-  Future<void> start() async {}
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async => {};
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-  @override
-  Future<void> stop() async {}
-  @override
-  Future<void> dispose() async {}
 }
 
 /// No-op [MessageService] for tests that never read messages.

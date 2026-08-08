@@ -350,13 +350,7 @@ Future<void> _cascadeDeleteProject(
           if (task.sessionId != null) {
             await turns?.cancelTurn(task.sessionId!);
           }
-          try {
-            await tasks.transition(task.id, TaskStatus.cancelled);
-          } catch (e) {
-            _log.warning('Version conflict cancelling task ${task.id} during project delete: $e');
-          }
-          await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
-          break;
+          continue cancelTask;
         case TaskStatus.queued:
           await _failTaskForProjectDelete(
             tasks,
@@ -366,13 +360,7 @@ Future<void> _cascadeDeleteProject(
           await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           break;
         case TaskStatus.interrupted:
-          try {
-            await tasks.transition(task.id, TaskStatus.cancelled);
-          } catch (e) {
-            _log.warning('Version conflict cancelling task ${task.id} during project delete: $e');
-          }
-          await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
-          break;
+          continue cancelTask;
         case TaskStatus.review:
           await _failTaskForProjectDelete(
             tasks,
@@ -381,11 +369,15 @@ Future<void> _cascadeDeleteProject(
           );
           await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           break;
+        cancelTask:
         case TaskStatus.draft:
           try {
             await tasks.transition(task.id, TaskStatus.cancelled);
           } catch (e) {
             _log.warning('Version conflict cancelling task ${task.id} during project delete: $e');
+          }
+          if (task.status != TaskStatus.draft) {
+            await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           }
           break;
         default:

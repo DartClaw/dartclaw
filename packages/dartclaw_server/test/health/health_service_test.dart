@@ -4,78 +4,20 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/health/health_route.dart';
 import 'package:dartclaw_server/src/health/health_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-class _FakeHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  WorkerState _state = WorkerState.idle;
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => _state;
-
-  void setState(WorkerState s) => _state = s;
-
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-  @override
-  Future<void> start() async {}
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async => {};
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-  @override
-  Future<void> stop() async {}
-  @override
-  Future<void> dispose() async {}
-}
-
 void main() {
   late Directory tempDir;
-  late _FakeHarness harness;
+  late FakeAgentHarness harness;
   late String sessionsDir;
   late String tasksDir;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('health_test_');
-    harness = _FakeHarness();
+    harness = FakeAgentHarness(autoTransitionState: false);
     sessionsDir = p.join(tempDir.path, 'sessions');
     tasksDir = p.join(tempDir.path, 'tasks');
     Directory(sessionsDir).createSync(recursive: true);

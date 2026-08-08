@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
@@ -22,7 +20,7 @@ void main() {
       expect(validator.validateConfig('vibe', config, advertisedCapabilities: {'fs'}), isEmpty);
       final result = (await validator.validateConfiguredTargets(
         agents: {'vibe': config},
-        commandProbe: _binaryPresent,
+        commandProbe: presentAcpBinary,
         targetProbe: _guardMediatedProbe,
         advertisedCapabilities: const {
           'vibe': {'fs', 'terminal'},
@@ -54,10 +52,6 @@ void main() {
       expect(AcpTargetValidationResult.containerIsolationOnly('vibe').isGuardMediated, isFalse);
     });
   });
-}
-
-Future<ProcessResult> _binaryPresent(String executable, List<String> arguments) async {
-  return ProcessResult(1, 0, '$executable 1.0.0', '');
 }
 
 Future<Iterable<AcpTargetOperationEvidence>> _guardMediatedProbe(String providerId, AcpAgentConfig config) async {

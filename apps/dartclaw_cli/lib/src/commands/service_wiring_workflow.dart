@@ -127,7 +127,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
       final cleanupLog = Logger('ServiceWiring');
 
       if (config.workflow.cleanup.deleteRemoteBranchOnFailure && status == 'failed') {
-        final pushedBranches = await pushedWorkflowBranches(storage.taskService, runTasks);
+        final pushedBranches = await workflowPushedBranches(storage.taskService, runTasks);
         for (final branch in pushedBranches) {
           final result = await runWorkflowGitCommand(['push', 'origin', '--delete', branch], workingDirectory: gitDir);
           final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
@@ -390,19 +390,6 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
         error: message,
       );
   }
-}
-
-Future<Set<String>> pushedWorkflowBranches(TaskService taskService, List<Task> runTasks) async {
-  final branches = <String>{};
-  for (final task in runTasks) {
-    final artifacts = await taskService.listArtifacts(task.id);
-    for (final artifact in artifacts) {
-      if (artifact.kind == ArtifactKind.branch && artifact.path.trim().isNotEmpty) {
-        branches.add(artifact.path.trim());
-      }
-    }
-  }
-  return branches;
 }
 
 const _legacySessionCostFreshInputKey = 'new_input_tokens';

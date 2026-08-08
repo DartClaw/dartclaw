@@ -398,17 +398,22 @@ class HarnessWiring {
     final loopAction = config.governance.loopDetection.enabled ? config.governance.loopDetection.action : null;
     final globalTimeout = Duration(seconds: config.server.workerTimeout);
 
-    // Build primary TurnRunner and pool (task runners spawned lazily).
-    final primaryRunner = TurnRunner(
-      harness: _harness,
+    TurnRunner buildRunner({
+      required AgentHarness harness,
+      required GuardChain guardChain,
+      required TaskToolFilterGuard toolFilter,
+      required String providerId,
+      String profileId = 'workspace',
+    }) => TurnRunner(
+      harness: harness,
       messages: _storage.messages,
       behavior: _behavior,
       memoryFile: _storage.memoryFile,
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
       kv: _storage.kvService,
-      guardChain: _primaryGuardChain,
-      taskToolFilterGuard: primaryFilter,
+      guardChain: guardChain,
+      taskToolFilterGuard: toolFilter,
       lockManager: _lockManager,
       resetService: _resetService,
       contextMonitor: _contextMonitor,
@@ -424,6 +429,15 @@ class HarnessWiring {
       eventBus: _eventBus,
       turnMonitor: config.harness.turnMonitor,
       globalTimeout: globalTimeout,
+      profileId: profileId,
+      providerId: providerId,
+    );
+
+    // Build primary TurnRunner and pool (task runners spawned lazily).
+    final primaryRunner = buildRunner(
+      harness: _harness,
+      guardChain: _primaryGuardChain,
+      toolFilter: primaryFilter,
       providerId: defaultProviderId,
     );
     _pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrent);
@@ -489,31 +503,10 @@ class HarnessWiring {
               );
               _wireCompactionCallbacks(taskHarness);
               await taskHarness.start();
-              final runner = TurnRunner(
+              final runner = buildRunner(
                 harness: taskHarness,
-                messages: _storage.messages,
-                behavior: _behavior,
-                memoryFile: _storage.memoryFile,
-                sessions: _storage.sessions,
-                turnState: _storage.turnStateStore,
-                kv: _storage.kvService,
                 guardChain: taskGuardChain,
-                taskToolFilterGuard: taskFilter,
-                lockManager: _lockManager,
-                resetService: _resetService,
-                contextMonitor: _contextMonitor,
-                explorationSummarizer: _explorationSummarizer,
-                redactor: _messageRedactor,
-                selfImprovement: _selfImprovement,
-                usageTracker: _usageTracker,
-                sseBroadcast: _sseBroadcast,
-                globalRateLimiter: globalRateLimiter,
-                budgetEnforcer: budgetEnforcer,
-                loopDetector: loopDetector,
-                loopAction: loopAction,
-                eventBus: _eventBus,
-                turnMonitor: config.harness.turnMonitor,
-                globalTimeout: globalTimeout,
+                toolFilter: taskFilter,
                 profileId: plan.profileId,
                 providerId: plan.providerId,
               );

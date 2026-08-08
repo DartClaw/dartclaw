@@ -410,27 +410,19 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           _serializeRemainingSettleTimeout,
         );
         if (remainingTimeout == Duration.zero) {
-          return MapStepResult(
-            results: const [],
-            totalTokens: 0,
-            success: false,
-            error:
-                "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
-                '${engine.inFlight.length} in-flight iteration(s) after '
-                '${_serializeRemainingSettleTimeout.inMilliseconds}ms',
+          return _serializeRemainingSettleTimeoutResult(
+            controllerStep,
+            engine.inFlight.length,
+            _serializeRemainingSettleTimeout,
           );
         }
         try {
           await Future.wait(engine.inFlight.values, eagerError: false).timeout(remainingTimeout);
         } on TimeoutException {
-          return MapStepResult(
-            results: const [],
-            totalTokens: 0,
-            success: false,
-            error:
-                "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
-                '${engine.inFlight.length} in-flight iteration(s) after '
-                '${_serializeRemainingSettleTimeout.inMilliseconds}ms',
+          return _serializeRemainingSettleTimeoutResult(
+            controllerStep,
+            engine.inFlight.length,
+            _serializeRemainingSettleTimeout,
           );
         }
       } else {
@@ -718,22 +710,15 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       iterTokens += tokenCount;
       context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
       if (!result.success) {
-        _mergeStepResultIntoContext(
-          iterContext,
-          result,
+        _mirrorForeachChildResult(
+          context: context,
+          iterContext: iterContext,
+          result: result,
+          childStep: childStep,
+          iterIndex: iterIndex,
           fallbackStatus: result.outcome == 'cancelled' ? 'cancelled' : 'failed',
+          mergeStepResult: _mergeStepResultIntoContext,
         );
-        for (final entry in result.outputs.entries) {
-          context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
-        }
-        _persistForeachSubStepSessionKeys(context, iterContext, childStep.id, iterIndex);
-        context['${childStep.id}[$iterIndex].status'] = iterContext['${childStep.id}.status'];
-        if (result.outcome != null) {
-          context['step.${childStep.id}[$iterIndex].outcome'] = result.outcome!;
-        }
-        if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
-          context['step.${childStep.id}[$iterIndex].outcome.reason'] = result.outcomeReason!;
-        }
         if (result.outcome == 'cancelled') {
           final reason =
               result.outcomeReason ?? "Foreach child step '${childStep.id}' was interrupted and can be resumed.";
@@ -826,19 +811,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         );
         return;
       }
-      _mergeStepResultIntoContext(iterContext, result, fallbackStatus: result.task?.status.name ?? 'completed');
-      for (final entry in result.outputs.entries) {
-        context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
-      }
-      _persistForeachSubStepSessionKeys(context, iterContext, childStep.id, iterIndex);
-      context['${childStep.id}[$iterIndex].status'] = iterContext['${childStep.id}.status'];
+      _mirrorForeachChildResult(
+        context: context,
+        iterContext: iterContext,
+        result: result,
+        childStep: childStep,
+        iterIndex: iterIndex,
+        fallbackStatus: result.task?.status.name ?? 'completed',
+        mergeStepResult: _mergeStepResultIntoContext,
+      );
       context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
-      if (result.outcome != null) {
-        context['step.${childStep.id}[$iterIndex].outcome'] = result.outcome!;
-      }
-      if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
-        context['step.${childStep.id}[$iterIndex].outcome.reason'] = result.outcomeReason!;
-      }
       iterResult[childStep.id] = Map<String, dynamic>.from(result.outputs);
       completedSubStepIds.add(childStep.id);
       _writeCompletedForeachSubStepIds(context, controllerStep.id, iterIndex, completedSubStepIds);
@@ -1053,6 +1035,41 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     // snapshot regardless of which write lands first.
     await _persistContext(run.id, context);
     await _repository.update(updatedRun);
+  }
+}
+
+MapStepResult _serializeRemainingSettleTimeoutResult(WorkflowStep step, int inFlightCount, Duration settleTimeout) =>
+    MapStepResult(
+      results: const [],
+      totalTokens: 0,
+      success: false,
+      error:
+          "serialize-remaining settle-timeout: foreach step '${step.id}' still had "
+          '$inFlightCount in-flight iteration(s) after ${settleTimeout.inMilliseconds}ms',
+    );
+
+typedef _MergeStepResult = void Function(WorkflowContext, StepOutcome, {String? fallbackStatus});
+
+void _mirrorForeachChildResult({
+  required WorkflowContext context,
+  required WorkflowContext iterContext,
+  required StepOutcome result,
+  required WorkflowStep childStep,
+  required int iterIndex,
+  required String fallbackStatus,
+  required _MergeStepResult mergeStepResult,
+}) {
+  mergeStepResult(iterContext, result, fallbackStatus: fallbackStatus);
+  for (final entry in result.outputs.entries) {
+    context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
+  }
+  _persistForeachSubStepSessionKeys(context, iterContext, childStep.id, iterIndex);
+  context['${childStep.id}[$iterIndex].status'] = iterContext['${childStep.id}.status'];
+  if (result.outcome != null) {
+    context['step.${childStep.id}[$iterIndex].outcome'] = result.outcome!;
+  }
+  if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
+    context['step.${childStep.id}[$iterIndex].outcome.reason'] = result.outcomeReason!;
   }
 }
 

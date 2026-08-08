@@ -35,6 +35,12 @@ SpaceEventsConfig testConfig({
   );
 }
 
+Map<String, dynamic> activeSubscription({String name = 'subscriptions/new-sub-1'}) => {
+  'name': name,
+  'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
+  'state': 'ACTIVE',
+};
+
 MockClient createMockClient({
   int createStatus = 200,
   Map<String, dynamic>? createResponse,
@@ -50,28 +56,14 @@ MockClient createMockClient({
     final path = request.url.path;
     if (request.method == 'POST' && path.endsWith('/subscriptions')) {
       return http.Response(
-        jsonEncode(
-          createResponse ??
-              {
-                'name': 'subscriptions/new-sub-1',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              },
-        ),
+        jsonEncode(createResponse ?? activeSubscription()),
         createStatus,
         headers: {'content-type': 'application/json'},
       );
     }
     if (request.method == 'PATCH') {
       return http.Response(
-        jsonEncode(
-          patchResponse ??
-              {
-                'name': 'subscriptions/new-sub-1',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              },
-        ),
+        jsonEncode(patchResponse ?? activeSubscription()),
         patchStatus,
         headers: {'content-type': 'application/json'},
       );
@@ -81,14 +73,7 @@ MockClient createMockClient({
     }
     if (request.method == 'GET') {
       return http.Response(
-        jsonEncode(
-          getResponse ??
-              {
-                'name': 'subscriptions/new-sub-1',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              },
-        ),
+        jsonEncode(getResponse ?? activeSubscription()),
         getStatus,
         headers: {'content-type': 'application/json'},
       );
@@ -593,11 +578,7 @@ void main() {
           requests.add(request);
           if (request.method == 'POST') {
             return http.Response(
-              jsonEncode({
-                'name': 'subscriptions/sub-1',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              }),
+              jsonEncode(activeSubscription(name: 'subscriptions/sub-1')),
               200,
               headers: {'content-type': 'application/json'},
             );
@@ -605,11 +586,7 @@ void main() {
           if (request.method == 'PATCH') {
             if (!patchDone.isCompleted) patchDone.complete();
             return http.Response(
-              jsonEncode({
-                'name': 'subscriptions/sub-1',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              }),
+              jsonEncode(activeSubscription(name: 'subscriptions/sub-1')),
               200,
               headers: {'content-type': 'application/json'},
             );
@@ -679,11 +656,7 @@ void main() {
             createCount++;
             if (createCount >= 2 && !recreateDone.isCompleted) recreateDone.complete();
             return http.Response(
-              jsonEncode({
-                'name': 'subscriptions/sub-$createCount',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              }),
+              jsonEncode(activeSubscription(name: 'subscriptions/sub-$createCount')),
               200,
               headers: {'content-type': 'application/json'},
             );
@@ -715,11 +688,7 @@ void main() {
           }
           if (request.method == 'POST') {
             return http.Response(
-              jsonEncode({
-                'name': 'subscriptions/sub-1',
-                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                'state': 'ACTIVE',
-              }),
+              jsonEncode(activeSubscription(name: 'subscriptions/sub-1')),
               200,
               headers: {'content-type': 'application/json'},
             );

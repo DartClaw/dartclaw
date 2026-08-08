@@ -13,7 +13,6 @@ import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show MergeResolveConfig, MergeResolveEscalation, WorkflowGitStrategy, WorkflowGitWorktreeStrategy;
 import 'package:path/path.dart' as p;
@@ -234,18 +233,12 @@ void main() {
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         // Merge-resolve skill task — inject resolved outcome.
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        // Story task — bind worktree.
-        firstTaskId = e.taskId;
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      // Story task — bind worktree.
+      firstTaskId = e.taskId;
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -336,16 +329,10 @@ void main() {
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         mergeResolveTaskId = e.taskId;
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -414,16 +401,10 @@ void main() {
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         mergeResolveTaskId = e.taskId;
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -496,17 +477,14 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'failed', errorMessage: 'agent gave up'),
+        await h.completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: _mergeResolveMessage(outcome: 'failed', errorMessage: 'agent gave up'),
         );
-      } else {
-        storyTaskId = e.taskId;
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        return;
       }
+      storyTaskId = e.taskId;
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -592,17 +570,11 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        storyTaskId = e.taskId;
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      storyTaskId = e.taskId;
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -860,17 +832,11 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        allStoryTaskIds.add(e.taskId);
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      allStoryTaskIds.add(e.taskId);
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -963,17 +929,11 @@ void main() {
         mergeResolveTaskId = e.taskId;
         mergeResolveMapIterationIndex = task.workflowStepExecution?.mapIterationIndex;
         mergeResolveMapIterationTotal = task.workflowStepExecution?.mapIterationTotal;
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        storyTaskId = e.taskId;
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      storyTaskId = e.taskId;
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 
@@ -1068,16 +1028,10 @@ void main() {
         if (lockEnterCount > lockExitCount) {
           skillTaskDispatchedWhileLockHeld = true;
         }
-        final session = await h.sessionService.createSession(type: SessionType.task);
-        await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: _mergeResolveMessage(outcome: 'resolved'),
-        );
-      } else {
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
+        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        return;
       }
+      await _bindWorktree(h, e.taskId, h.tempDir.path);
       await h.completeTask(e.taskId);
     });
 

@@ -352,19 +352,11 @@ WorkflowRoleDefaultsConfig _parseWorkflowRoleDefaults(Object? raw, List<String> 
 WorkflowRoleModelConfig _parseWorkflowRoleModel(Map<Object?, Object?> defaultsMap, String role, List<String> warns) {
   final raw = defaultsMap[role];
   if (raw == null) {
-    return switch (role) {
-      'workflow' => const WorkflowRoleModelConfig(provider: 'claude'),
-      'reviewer' => const WorkflowRoleModelConfig(model: 'claude-opus-4'),
-      _ => const WorkflowRoleModelConfig(),
-    };
+    return _defaultWorkflowRoleModel(role);
   }
   if (raw is! Map) {
     warns.add('Invalid type for workflow.defaults.$role: "${raw.runtimeType}" — using defaults');
-    return switch (role) {
-      'workflow' => const WorkflowRoleModelConfig(provider: 'claude'),
-      'reviewer' => const WorkflowRoleModelConfig(model: 'claude-opus-4'),
-      _ => const WorkflowRoleModelConfig(),
-    };
+    return _defaultWorkflowRoleModel(role);
   }
 
   final roleMap = raw.cast<Object?, Object?>();
@@ -385,6 +377,12 @@ WorkflowRoleModelConfig _parseWorkflowRoleModel(Map<Object?, Object?> defaultsMa
   }
   return WorkflowRoleModelConfig(provider: provider, model: model, effort: effort);
 }
+
+WorkflowRoleModelConfig _defaultWorkflowRoleModel(String role) => switch (role) {
+  'workflow' => const WorkflowRoleModelConfig(provider: 'claude'),
+  'reviewer' => const WorkflowRoleModelConfig(model: 'claude-opus-4'),
+  _ => const WorkflowRoleModelConfig(),
+};
 
 String? _readNullableString(Object? raw, String path, List<String> warns) {
   if (raw == null) return null;

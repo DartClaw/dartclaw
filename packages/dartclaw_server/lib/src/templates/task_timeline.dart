@@ -144,22 +144,10 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
       detail = truncate(details['outputKey']?.toString() ?? '(output)', 60);
     case TaskEventKind.structuredOutputFallbackUsed:
       label = 'Structured output fallback';
-      final outputKey = details['outputKey']?.toString();
-      final failureReason = details['failureReason']?.toString();
-      if (outputKey != null && failureReason != null) {
-        detail = '$outputKey ($failureReason)';
-      } else if (outputKey != null) {
-        detail = outputKey;
-      }
+      detail = _structuredOutputFailureDetail(details);
     case TaskEventKind.structuredOutputValidationFailed:
       label = 'Structured output validation failed';
-      final outputKey = details['outputKey']?.toString();
-      final failureReason = details['failureReason']?.toString();
-      if (outputKey != null && failureReason != null) {
-        detail = '$outputKey ($failureReason)';
-      } else if (outputKey != null) {
-        detail = outputKey;
-      }
+      detail = _structuredOutputFailureDetail(details);
     case TaskEventKind.pushBack:
       label = 'Push-back';
       final comment = details['comment']?.toString();
@@ -201,4 +189,13 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
     'timestamp': formatRelativeTime(timestamp),
     'timestampIso': timestamp.toIso8601String(),
   };
+}
+
+String? _structuredOutputFailureDetail(Map<String, dynamic> details) {
+  final outputKey = details['outputKey']?.toString();
+  final failureReason = details['failureReason']?.toString();
+  if (outputKey != null && failureReason != null) {
+    return '$outputKey ($failureReason)';
+  }
+  return outputKey;
 }

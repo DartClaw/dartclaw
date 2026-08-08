@@ -20,26 +20,14 @@ class ReviewCommandDispatcher {
   final ChannelReviewHandler _reviewHandler;
   final TaskLister _taskLister;
   final TaskTriggerEvaluator _taskTriggerEvaluator;
-  final Future<void> Function(
-    Channel channel,
-    String recipientId,
-    ChannelResponse response, {
-    required String failureMessage,
-  })
-  _sendBestEffort;
+  final BestEffortChannelSender _sendBestEffort;
 
   ReviewCommandDispatcher({
     required ReviewCommandParser reviewCommandParser,
     required ChannelReviewHandler reviewHandler,
     required TaskLister taskLister,
     required TaskTriggerEvaluator taskTriggerEvaluator,
-    required Future<void> Function(
-      Channel channel,
-      String recipientId,
-      ChannelResponse response, {
-      required String failureMessage,
-    })
-    sendBestEffort,
+    required BestEffortChannelSender sendBestEffort,
   }) : _reviewCommandParser = reviewCommandParser,
        _reviewHandler = reviewHandler,
        _taskLister = taskLister,

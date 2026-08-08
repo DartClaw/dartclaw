@@ -49,6 +49,17 @@ TaskEvent _tokenEvent(String id, {int input = 1000, int output = 500, int cacheR
 TaskEvent _errorEvent(String id, {String message = 'Something went wrong'}) =>
     TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: TaskEventKind.taskError, details: {'message': message});
 
+TaskEvent _structuredOutputFailureEvent(String id, TaskEventKind kind, {String? outputKey, String? failureReason}) {
+  final details = <String, dynamic>{};
+  if (outputKey case final value?) {
+    details['outputKey'] = value;
+  }
+  if (failureReason case final value?) {
+    details['failureReason'] = value;
+  }
+  return TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: kind, details: details);
+}
+
 void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
@@ -257,6 +268,38 @@ void main() {
       expect(html, contains('Something went wrong'));
       expect(html, contains('icon-triangle-alert'));
       expect(html, contains('tl-event-error'));
+    });
+  });
+
+  group('taskTimelineHtml — structured output failures', () {
+    test('fallback includes the output key and failure reason', () {
+      final html = taskTimelineHtml(
+        events: [
+          _structuredOutputFailureEvent(
+            'e1',
+            TaskEventKind.structuredOutputFallbackUsed,
+            outputKey: 'review',
+            failureReason: 'invalid JSON',
+          ),
+        ],
+        taskId: _taskId,
+        taskStatus: 'completed',
+      );
+
+      expect(html, contains('review (invalid JSON)'));
+    });
+
+    test('validation failure includes the output key without an absent reason', () {
+      final html = taskTimelineHtml(
+        events: [
+          _structuredOutputFailureEvent('e1', TaskEventKind.structuredOutputValidationFailed, outputKey: 'result'),
+        ],
+        taskId: _taskId,
+        taskStatus: 'failed',
+      );
+
+      expect(html, contains('result'));
+      expect(html, isNot(contains('result (')));
     });
   });
 

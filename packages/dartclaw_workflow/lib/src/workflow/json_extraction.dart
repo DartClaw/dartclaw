@@ -12,45 +12,23 @@ import 'dart:convert';
 /// Throws [FormatException] with descriptive message on failure.
 Object extractJson(String raw) {
   // Strategy 1: Raw parse.
-  try {
-    final result = jsonDecode(raw.trim());
-    if (result is Map || result is List) return result as Object;
-  } on FormatException {
-    // Fall through to next strategy.
-  }
+  final rawResult = _tryDecodeJsonCollection(raw.trim());
+  if (rawResult != null) return rawResult;
 
   // Strategy 2: ```json fenced blocks.
   final jsonFenced = _extractFencedBlock(raw, requireJson: true);
-  if (jsonFenced != null) {
-    try {
-      final result = jsonDecode(jsonFenced);
-      if (result is Map || result is List) return result as Object;
-    } on FormatException {
-      // Fall through.
-    }
-  }
+  final jsonFencedResult = _tryDecodeJsonCollection(jsonFenced);
+  if (jsonFencedResult != null) return jsonFencedResult;
 
   // Strategy 3: Bare ``` fenced blocks.
   final bareFenced = _extractFencedBlock(raw, requireJson: false);
-  if (bareFenced != null) {
-    try {
-      final result = jsonDecode(bareFenced);
-      if (result is Map || result is List) return result as Object;
-    } on FormatException {
-      // Fall through.
-    }
-  }
+  final bareFencedResult = _tryDecodeJsonCollection(bareFenced);
+  if (bareFencedResult != null) return bareFencedResult;
 
   // Strategy 4: Longest balanced brace/bracket pattern.
   final pattern = _extractLongestBalanced(raw);
-  if (pattern != null) {
-    try {
-      final result = jsonDecode(pattern);
-      if (result is Map || result is List) return result as Object;
-    } on FormatException {
-      // Fall through.
-    }
-  }
+  final patternResult = _tryDecodeJsonCollection(pattern);
+  if (patternResult != null) return patternResult;
 
   // All strategies failed.
   final preview = raw.length > 500 ? '${raw.substring(0, 500)}...' : raw;
@@ -59,6 +37,16 @@ Object extractJson(String raw) {
     '(raw parse, json-fenced, bare-fenced, pattern scan). '
     'Raw output (first 500 chars):\n$preview',
   );
+}
+
+Object? _tryDecodeJsonCollection(String? candidate) {
+  if (candidate == null) return null;
+  try {
+    final result = jsonDecode(candidate);
+    return result is Map || result is List ? result as Object : null;
+  } on FormatException {
+    return null;
+  }
 }
 
 /// Extracts content from the first markdown fenced code block.

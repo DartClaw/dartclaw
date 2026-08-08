@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock, Task;
+import 'package:dartclaw_core/dartclaw_core.dart' show ArtifactKind, RepoLock, Task, WorkflowTaskService;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
@@ -28,6 +28,19 @@ import 'package:path/path.dart' as p;
 
 final _workflowGitRepoLock = RepoLock();
 final _workflowGitSupportLog = Logger('WorkflowGitSupport');
+
+Future<Set<String>> workflowPushedBranches(WorkflowTaskService taskService, List<Task> tasks) async {
+  final branches = <String>{};
+  for (final task in tasks) {
+    final artifacts = await taskService.listArtifacts(task.id);
+    for (final artifact in artifacts) {
+      if (artifact.kind == ArtifactKind.branch && artifact.path.trim().isNotEmpty) {
+        branches.add(artifact.path.trim());
+      }
+    }
+  }
+  return branches;
+}
 
 Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
   return SafeProcess.git(
@@ -503,6 +516,27 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
   });
 }
 
+Future<String?> _prepareWorkflowBranchForPublish(String projectDir, String branch) async {
+  try {
+    await commitWorkflowWorktreeChangesIfNeeded(
+      projectDir: projectDir,
+      branch: branch,
+      commitMessage: 'workflow: prepare publish',
+    );
+    return null;
+  } catch (error) {
+    return 'Failed to commit pending worktree changes before publish: $error';
+  }
+}
+
+WorkflowGitPublishResult _publishFailure(String branch, String remote, String error) => WorkflowGitPublishResult(
+  status: WorkflowPublishStatus.failed,
+  branch: branch,
+  remote: remote,
+  prUrl: '',
+  error: error,
+);
+
 Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
   required String projectDir,
   required String branch,
@@ -513,31 +547,12 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
   // workflows the agent may leave uncommitted changes in the worktree that is
   // checked out on [branch]. Without this step the push would succeed but the
   // remote branch would have no new commits relative to the base.
-  try {
-    await commitWorkflowWorktreeChangesIfNeeded(
-      projectDir: projectDir,
-      branch: safeBranch,
-      commitMessage: 'workflow: prepare publish',
-    );
-  } catch (e) {
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: 'Failed to commit pending worktree changes before publish: $e',
-    );
-  }
+  final prepareError = await _prepareWorkflowBranchForPublish(projectDir, safeBranch);
+  if (prepareError != null) return _publishFailure(safeBranch, remote, prepareError);
 
   final push = await _workflowGit(['push', remote, safeBranch], workingDirectory: projectDir);
   if (push.exitCode != 0) {
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: (push.stderr as String).trim(),
-    );
+    return _publishFailure(safeBranch, remote, (push.stderr as String).trim());
   }
 
   final fetch = await _fetchRemoteTrackingRef(projectDir: projectDir, branch: safeBranch, remote: remote);
@@ -545,13 +560,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
     final stderr = (fetch.stderr as String).trim();
     final stdout = (fetch.stdout as String).trim();
     final detail = stderr.isNotEmpty ? stderr : stdout;
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: 'Failed to refresh remote-tracking ref for "$safeBranch": $detail',
-    );
+    return _publishFailure(safeBranch, remote, 'Failed to refresh remote-tracking ref for "$safeBranch": $detail');
   }
 
   final verify = await _workflowGit([
@@ -560,12 +569,10 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
     'refs/remotes/$remote/$safeBranch',
   ], workingDirectory: projectDir);
   if (verify.exitCode != 0) {
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: 'Remote-tracking ref refs/remotes/$remote/$safeBranch unavailable after fetch',
+    return _publishFailure(
+      safeBranch,
+      remote,
+      'Remote-tracking ref refs/remotes/$remote/$safeBranch unavailable after fetch',
     );
   }
 
@@ -601,50 +608,19 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchWithRemotePushUnlocked({
   required WorkflowRemoteTrackingRefFetch fetchRemoteTrackingRef,
 }) async {
   final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
-  try {
-    await commitWorkflowWorktreeChangesIfNeeded(
-      projectDir: projectDir,
-      branch: safeBranch,
-      commitMessage: 'workflow: prepare publish',
-    );
-  } catch (e) {
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: 'Failed to commit pending worktree changes before publish: $e',
-    );
-  }
+  final prepareError = await _prepareWorkflowBranchForPublish(projectDir, safeBranch);
+  if (prepareError != null) return _publishFailure(safeBranch, remote, prepareError);
 
   final push = await pushBranch();
   switch (push) {
     case PushSuccess():
       break;
     case PushAuthFailure(:final details):
-      return WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.failed,
-        branch: safeBranch,
-        remote: remote,
-        prUrl: '',
-        error: 'Authentication failed: $details',
-      );
+      return _publishFailure(safeBranch, remote, 'Authentication failed: $details');
     case PushRejected(:final reason):
-      return WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.failed,
-        branch: safeBranch,
-        remote: remote,
-        prUrl: '',
-        error: 'Remote rejected push: $reason',
-      );
+      return _publishFailure(safeBranch, remote, 'Remote rejected push: $reason');
     case PushError(:final message):
-      return WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.failed,
-        branch: safeBranch,
-        remote: remote,
-        prUrl: '',
-        error: message,
-      );
+      return _publishFailure(safeBranch, remote, message);
   }
 
   final fetch = await fetchRemoteTrackingRef();
@@ -652,13 +628,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchWithRemotePushUnlocked({
     final stderr = (fetch.stderr as String).trim();
     final stdout = (fetch.stdout as String).trim();
     final detail = stderr.isNotEmpty ? stderr : stdout;
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: 'Failed to refresh remote-tracking ref for "$safeBranch": $detail',
-    );
+    return _publishFailure(safeBranch, remote, 'Failed to refresh remote-tracking ref for "$safeBranch": $detail');
   }
 
   final verify = await _workflowGit([
@@ -667,12 +637,10 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchWithRemotePushUnlocked({
     'refs/remotes/$remote/$safeBranch',
   ], workingDirectory: projectDir);
   if (verify.exitCode != 0) {
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: safeBranch,
-      remote: remote,
-      prUrl: '',
-      error: 'Push reported success but refs/remotes/$remote/$safeBranch is unavailable locally',
+    return _publishFailure(
+      safeBranch,
+      remote,
+      'Push reported success but refs/remotes/$remote/$safeBranch is unavailable locally',
     );
   }
 

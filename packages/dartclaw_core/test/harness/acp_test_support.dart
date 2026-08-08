@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
@@ -66,4 +67,8 @@ Iterable<AcpTargetOperationEvidence> guardMediatedTargetEvidence() {
         rawMethod: operation.rawMethod,
       ),
   ];
+}
+
+Future<ProcessResult> presentAcpBinary(String executable, List<String> arguments) async {
+  return ProcessResult(1, 0, '$executable 1.0.0', '');
 }

@@ -732,6 +732,18 @@ class WorkflowExecutor {
                 "Step '${step.id}' (${step.name}) ${result.task?.status.name ?? 'failed'}"
                 "${reason != null ? ': $reason' : ''}";
             _logRun(run, msg, level: Level.INFO);
+            void fireFailedStepCompletedEvent() => _fireStepCompletedEvent(
+              run: run,
+              step: step,
+              stepIndex: stepIndex,
+              totalSteps: totalSteps,
+              taskId: result.task?.id ?? '',
+              success: false,
+              outcome: result.outcome,
+              reason: result.outcomeReason ?? reason,
+              tokenCount: result.tokenCount,
+            );
+
             // Teardown interruption pauses without advancing currentStepIndex
             // (resume re-runs this step) and is checked before `onError:
             // continue` – advancing past a task the run's own teardown killed
@@ -744,17 +756,7 @@ class WorkflowExecutor {
                 updatedAt: DateTime.now(),
               );
               await _persistContextThenRun(run, context);
-              _fireStepCompletedEvent(
-                run: run,
-                step: step,
-                stepIndex: stepIndex,
-                totalSteps: totalSteps,
-                taskId: result.task?.id ?? '',
-                success: false,
-                outcome: result.outcome,
-                reason: result.outcomeReason ?? reason,
-                tokenCount: result.tokenCount,
-              );
+              fireFailedStepCompletedEvent();
               await _pauseRun(
                 run,
                 "Step '${step.id}' was interrupted by task cancellation; resume re-runs it from its checkpoint.",
@@ -770,17 +772,7 @@ class WorkflowExecutor {
                 updatedAt: DateTime.now(),
               );
               await _persistContextThenRun(run, context);
-              _fireStepCompletedEvent(
-                run: run,
-                step: step,
-                stepIndex: stepIndex,
-                totalSteps: totalSteps,
-                taskId: result.task?.id ?? '',
-                success: false,
-                outcome: result.outcome,
-                reason: result.outcomeReason ?? reason,
-                tokenCount: result.tokenCount,
-              );
+              fireFailedStepCompletedEvent();
               nodeIndex++;
               continue;
             }
@@ -791,17 +783,7 @@ class WorkflowExecutor {
               updatedAt: DateTime.now(),
             );
             await _persistContextThenRun(run, context);
-            _fireStepCompletedEvent(
-              run: run,
-              step: step,
-              stepIndex: stepIndex,
-              totalSteps: totalSteps,
-              taskId: result.task?.id ?? '',
-              success: false,
-              outcome: result.outcome,
-              reason: result.outcomeReason ?? reason,
-              tokenCount: result.tokenCount,
-            );
+            fireFailedStepCompletedEvent();
             if (result.awaitingApproval) {
               run = await _transitionStepAwaitingApproval(
                 run,

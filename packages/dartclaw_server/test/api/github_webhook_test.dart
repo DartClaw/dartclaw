@@ -33,6 +33,23 @@ void main() {
   late Directory tempDir;
   late WorkflowDefinitionSource definitions;
 
+  WorkflowDefinitionSource definitionSourceFor(String repositoryContext) => InMemoryDefinitionSource([
+    WorkflowDefinition(
+      name: 'code-review',
+      description: 'Review a pull request',
+      variables: {
+        'TARGET': const WorkflowVariable(required: true),
+        'PR_NUMBER': const WorkflowVariable(required: true),
+        'BRANCH': const WorkflowVariable(required: true),
+        'BASE_BRANCH': const WorkflowVariable(required: true),
+        repositoryContext: const WorkflowVariable(required: true),
+      },
+      steps: const [
+        WorkflowStep(id: 'step-1', name: 'Review', prompts: ['Review']),
+      ],
+    ),
+  ]);
+
   setUp(() async {
     taskDb = openTaskDbInMemory();
     workflowDb = sqlite3.openInMemory();
@@ -50,22 +67,7 @@ void main() {
       updatedAt: DateTime.utc(2026, 1, 1, 12),
       definitionJson: const {},
     );
-    definitions = InMemoryDefinitionSource([
-      WorkflowDefinition(
-        name: 'code-review',
-        description: 'Review a pull request',
-        variables: const {
-          'TARGET': WorkflowVariable(required: true),
-          'PR_NUMBER': WorkflowVariable(required: true),
-          'BRANCH': WorkflowVariable(required: true),
-          'BASE_BRANCH': WorkflowVariable(required: true),
-          'REPO': WorkflowVariable(required: true),
-        },
-        steps: const [
-          WorkflowStep(id: 'step-1', name: 'Review', prompts: ['Review']),
-        ],
-      ),
-    ]);
+    definitions = definitionSourceFor('REPO');
   });
 
   tearDown(() async {
@@ -78,18 +80,29 @@ void main() {
     }
   });
 
+  GitHubWebhookHandler buildHandler({
+    GitHubWebhookConfig config = const GitHubWebhookConfig(
+      enabled: true,
+      webhookSecret: 'secret',
+      triggers: [
+        GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
+      ],
+    ),
+    WorkflowDefinitionSource? definitionSource,
+    _StaticProjectService? projects,
+    WebhookDeliveryStore? deliveryStore,
+    EventBus? eventBus,
+  }) => GitHubWebhookHandler(
+    config: config,
+    workflows: workflows,
+    definitions: definitionSource ?? definitions,
+    projects: projects,
+    deliveryStore: deliveryStore,
+    eventBus: eventBus,
+  );
+
   test('valid GitHub signatures start the workflow', () async {
-    final handler = GitHubWebhookHandler(
-      config: const GitHubWebhookConfig(
-        enabled: true,
-        webhookSecret: 'secret',
-        triggers: [
-          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-        ],
-      ),
-      workflows: workflows,
-      definitions: definitions,
-    );
+    final handler = buildHandler();
     final payload = _pullRequestPayload(action: 'opened');
 
     final response = await handler.handle(_signedRequest(payload, 'secret', deliveryId: 'del-1'));
@@ -107,10 +120,8 @@ void main() {
     final sub = eventBus.on<FailedAuthEvent>().listen(events.add);
     addTearDown(sub.cancel);
 
-    final handler = GitHubWebhookHandler(
+    final handler = buildHandler(
       config: const GitHubWebhookConfig(enabled: true, webhookSecret: 'secret'),
-      workflows: workflows,
-      definitions: definitions,
       eventBus: eventBus,
     );
 
@@ -129,17 +140,7 @@ void main() {
   });
 
   test('duplicate pull request events are deduplicated while a run is active', () async {
-    final handler = GitHubWebhookHandler(
-      config: const GitHubWebhookConfig(
-        enabled: true,
-        webhookSecret: 'secret',
-        triggers: [
-          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-        ],
-      ),
-      workflows: workflows,
-      definitions: definitions,
-    );
+    final handler = buildHandler();
     final payload = _pullRequestPayload(action: 'opened');
 
     await handler.handle(_signedRequest(payload, 'secret', deliveryId: 'del-first'));
@@ -152,17 +153,7 @@ void main() {
   });
 
   test('unmatched pull request actions are ignored', () async {
-    final handler = GitHubWebhookHandler(
-      config: const GitHubWebhookConfig(
-        enabled: true,
-        webhookSecret: 'secret',
-        triggers: [
-          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-        ],
-      ),
-      workflows: workflows,
-      definitions: definitions,
-    );
+    final handler = buildHandler();
 
     final response = await handler.handle(
       _signedRequest(_pullRequestPayload(action: 'closed'), 'secret', deliveryId: 'del-closed'),
@@ -203,31 +194,8 @@ void main() {
   });
 
   test('webhook review start passes PROJECT context instead of REPO-only context', () async {
-    final handler = GitHubWebhookHandler(
-      config: const GitHubWebhookConfig(
-        enabled: true,
-        webhookSecret: 'secret',
-        triggers: [
-          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-        ],
-      ),
-      workflows: workflows,
-      definitions: InMemoryDefinitionSource([
-        WorkflowDefinition(
-          name: 'code-review',
-          description: 'Review a pull request',
-          variables: const {
-            'TARGET': WorkflowVariable(required: true),
-            'PR_NUMBER': WorkflowVariable(required: true),
-            'BRANCH': WorkflowVariable(required: true),
-            'BASE_BRANCH': WorkflowVariable(required: true),
-            'PROJECT': WorkflowVariable(required: true),
-          },
-          steps: const [
-            WorkflowStep(id: 'step-1', name: 'Review', prompts: ['Review']),
-          ],
-        ),
-      ]),
+    final handler = buildHandler(
+      definitionSource: definitionSourceFor('PROJECT'),
       projects: _StaticProjectService([
         Project(
           id: 'owner-repo',
@@ -252,31 +220,8 @@ void main() {
   });
 
   test('project-backed webhook fails fast when repository slug has no unique project match', () async {
-    final handler = GitHubWebhookHandler(
-      config: const GitHubWebhookConfig(
-        enabled: true,
-        webhookSecret: 'secret',
-        triggers: [
-          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-        ],
-      ),
-      workflows: workflows,
-      definitions: InMemoryDefinitionSource([
-        WorkflowDefinition(
-          name: 'code-review',
-          description: 'Review a pull request',
-          variables: const {
-            'TARGET': WorkflowVariable(required: true),
-            'PR_NUMBER': WorkflowVariable(required: true),
-            'BRANCH': WorkflowVariable(required: true),
-            'BASE_BRANCH': WorkflowVariable(required: true),
-            'PROJECT': WorkflowVariable(required: true),
-          },
-          steps: const [
-            WorkflowStep(id: 'step-1', name: 'Review', prompts: ['Review']),
-          ],
-        ),
-      ]),
+    final handler = buildHandler(
+      definitionSource: definitionSourceFor('PROJECT'),
       projects: _StaticProjectService(const []),
     );
 
@@ -298,18 +243,7 @@ void main() {
     });
 
     GitHubWebhookHandler makeHandler({WebhookDeliveryStore? store}) {
-      return GitHubWebhookHandler(
-        config: const GitHubWebhookConfig(
-          enabled: true,
-          webhookSecret: 'secret',
-          triggers: [
-            GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-          ],
-        ),
-        workflows: workflows,
-        definitions: definitions,
-        deliveryStore: store,
-      );
+      return buildHandler(deliveryStore: store);
     }
 
     test('first delivery starts a workflow', () async {
@@ -484,31 +418,8 @@ void main() {
   });
 
   test('project-backed webhook fails fast on ambiguous slug matches', () async {
-    final handler = GitHubWebhookHandler(
-      config: const GitHubWebhookConfig(
-        enabled: true,
-        webhookSecret: 'secret',
-        triggers: [
-          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
-        ],
-      ),
-      workflows: workflows,
-      definitions: InMemoryDefinitionSource([
-        WorkflowDefinition(
-          name: 'code-review',
-          description: 'Review a pull request',
-          variables: const {
-            'TARGET': WorkflowVariable(required: true),
-            'PR_NUMBER': WorkflowVariable(required: true),
-            'BRANCH': WorkflowVariable(required: true),
-            'BASE_BRANCH': WorkflowVariable(required: true),
-            'PROJECT': WorkflowVariable(required: true),
-          },
-          steps: const [
-            WorkflowStep(id: 'step-1', name: 'Review', prompts: ['Review']),
-          ],
-        ),
-      ]),
+    final handler = buildHandler(
+      definitionSource: definitionSourceFor('PROJECT'),
       projects: _StaticProjectService([
         Project(
           id: 'repo-a',

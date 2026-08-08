@@ -85,8 +85,7 @@ class MessageService {
       _readMessagesForward(sessionId, startLine: cursor + 1);
 
   Future<List<Message>> _readMessagesForward(String sessionId, {required int startLine}) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
+    final ndjsonFile = _messagesFile(sessionId);
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
@@ -106,10 +105,9 @@ class MessageService {
   }
 
   Future<List<Message>> getMessagesTail(String sessionId, {int count = 200}) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    final ndjsonFile = _messagesFile(sessionId);
     if (count <= 0) return [];
 
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
@@ -117,10 +115,9 @@ class MessageService {
   }
 
   Future<List<Message>> getMessagesBefore(String sessionId, int cursor, {int count = 50}) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    final ndjsonFile = _messagesFile(sessionId);
     if (cursor <= 1 || count <= 0) return [];
 
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
@@ -137,23 +134,15 @@ class MessageService {
 
   /// Clears all messages for [sessionId] by truncating the NDJSON file.
   Future<void> clearMessages(String sessionId) {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
-    final completer = Completer<void>();
+    final ndjsonFile = _messagesFile(sessionId);
     final op = WriteOp(() async {
-      final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
       if (ndjsonFile.existsSync()) {
         await ndjsonFile.writeAsString('');
       }
       _lineCounts.remove(sessionId);
-      completer.complete();
     });
     _queue.add(op);
-    unawaited(
-      op.completer.future.catchError((Object e, StackTrace st) {
-        if (!completer.isCompleted) completer.completeError(e, st);
-      }),
-    );
-    return completer.future;
+    return op.completer.future;
   }
 
   Future<void> dispose() async {
@@ -164,6 +153,11 @@ class MessageService {
     if (!file.existsSync()) return 0;
     final lines = await file.readAsLines();
     return lines.where((line) => line.trim().isNotEmpty).length;
+  }
+
+  File _messagesFile(String sessionId) {
+    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    return File(p.join(baseDir, sessionId, 'messages.ndjson'));
   }
 
   List<Message> _collectMessagesBackwards(

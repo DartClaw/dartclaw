@@ -19,43 +19,21 @@ String? readString(
   List<String> warns, {
   String? defaultValue,
   String? warnKey,
-}) {
-  final raw = yaml[key];
-  if (raw == null) return defaultValue;
-  if (raw is String) return raw;
-  warns.add(
-    'Invalid type for ${warnKey ?? key}: "${raw.runtimeType}" — using ${defaultValue == null ? 'defaults' : 'default'}',
-  );
-  return defaultValue;
-}
+}) => readField<String>(key, yaml, warns, defaultValue: defaultValue, warnKey: warnKey);
 
 /// Returns the [key] value from [yaml] as an [int], or [defaultValue] on
 /// mismatch. Appends a warning to [warns] if the value is present but not an
 /// [int]. [warnKey] overrides the key shown in the warning (defaults to [key])
 /// — use it when the lookup key is bare but the message needs a prefix.
-int? readInt(String key, Map<dynamic, dynamic> yaml, List<String> warns, {int? defaultValue, String? warnKey}) {
-  final raw = yaml[key];
-  if (raw == null) return defaultValue;
-  if (raw is int) return raw;
-  warns.add(
-    'Invalid type for ${warnKey ?? key}: "${raw.runtimeType}" — using ${defaultValue == null ? 'defaults' : 'default'}',
-  );
-  return defaultValue;
-}
+int? readInt(String key, Map<dynamic, dynamic> yaml, List<String> warns, {int? defaultValue, String? warnKey}) =>
+    readField<int>(key, yaml, warns, defaultValue: defaultValue, warnKey: warnKey);
 
 /// Returns the [key] value from [yaml] as a [bool], or [defaultValue] on
 /// mismatch. Appends a warning to [warns] if the value is present but not a
 /// [bool]. [warnKey] overrides the key shown in the warning (defaults to [key])
 /// — use it when the lookup key is bare but the message needs a prefix.
-bool? readBool(String key, Map<dynamic, dynamic> yaml, List<String> warns, {bool? defaultValue, String? warnKey}) {
-  final raw = yaml[key];
-  if (raw == null) return defaultValue;
-  if (raw is bool) return raw;
-  warns.add(
-    'Invalid type for ${warnKey ?? key}: "${raw.runtimeType}" — using ${defaultValue == null ? 'defaults' : 'default'}',
-  );
-  return defaultValue;
-}
+bool? readBool(String key, Map<dynamic, dynamic> yaml, List<String> warns, {bool? defaultValue, String? warnKey}) =>
+    readField<bool>(key, yaml, warns, defaultValue: defaultValue, warnKey: warnKey);
 
 /// Returns the [key] value from [yaml] as a [Map<String, dynamic>], or
 /// [defaultValue] on mismatch. Handles YAML [Map<dynamic,dynamic>] → normalised

@@ -3,21 +3,20 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-08 12:22 CEST
+Last Updated: 2026-08-08 18:22 CEST
 
 ## Current Phase
 
-**Release close: final fixes and validation**
+**Release ready**
 
-**Status**: The 0.23 implementation is complete on `feat/0.23`. Final automated release check, full workflow-live, and
-complete UI smoke remain before merge and tag; 0.24 remains next.
+**Status**: The 0.23 release is scope-frozen and release-ready on `feat/0.23`, awaiting squash merge and the `v0.23.0`
+tag. The automated release check, full workflow-live, complete UI smoke, and exact-SHA GitHub CI pass; 0.24 remains next.
 
 ## Current Focus
 
-- Complete the full workflow-live and UI smoke release gates on the final HEAD.
-- Run the automated release check on the clean commit produced after release-close fixes.
-- Run paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
-- After all release gates pass, mark the release ready and request merge approval.
+- Squash-merge the release branch to `main` and tag the squash commit `v0.23.0`.
+- Audit release assets and Homebrew/Scoop publication after the tag workflow completes.
+- Continue paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
 
 ## Active Stories
 

@@ -6,7 +6,7 @@
 
 ### 0.23 — Design-System Refinement, Web UI Polish & Runtime Hardening
 
-**Status: Implemented; final fixes and validation in progress.** Opened 2026-07-25 after a post-release audit of `v0.22.0`
+**Status: Implemented; release-ready, awaiting tag.** Opened 2026-07-25 after a post-release audit of `v0.22.0`
 (23 surfaces, 92 screenshots, both themes) found 232 verified defects whose root causes are in the design-system canon
 itself: `.sidebar`/`.topbar`/`.card` and the end stop of the body ground gradient all resolve to `--bg-mantle`
 (card-vs-ground contrast 1.07:1), card colour is entirely `:hover`-gated, three of seven type tiers sit inside a 2px
@@ -14,9 +14,9 @@ band, and canon ships no form, tab or dialog primitives while sanctioning `windo
 revision, type-scale rationalization + composite type layer, a `--container-wide` tier, form/tab/dialog primitives,
 native-dialog eradication, a 64-issue glitch sweep, and local vendoring of the remaining CDN runtime dependencies. All
 16 original stories are complete. Post-plan work also refined session navigation and corrected deployment, onboarding,
-Signal, and Signal/WhatsApp typing behavior. Release-close fixes must land before the final automated release check;
-full workflow-live and complete UI smoke also remain before merge and tag. Paired-device typing checks continue as
-non-blocking field validation. Sequenced before 0.26, whose Phase-0 chat components this release changes by construction.
+Signal, and Signal/WhatsApp typing behavior. The automated release check, full workflow-live, complete UI smoke, and
+exact-SHA GitHub CI pass on the scope-frozen branch. Paired-device typing checks continue as non-blocking field
+validation. Sequenced before 0.26, whose Phase-0 chat components this release changes by construction.
 
 ## Planned
 

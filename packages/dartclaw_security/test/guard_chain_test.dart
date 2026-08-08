@@ -299,6 +299,78 @@ void main() {
       });
     });
 
+    group('layered', () {
+      test('evaluates base guards before layer guards', () async {
+        final baseGuard = FakeGuard(name: 'base');
+        final layerGuard = FakeGuard(name: 'layer', verdict: GuardVerdict.block('layer blocked'));
+        final base = buildChain([baseGuard]);
+        final layered = GuardChain.layered(base: base, guards: [layerGuard]);
+
+        final verdict = await layered.evaluateBeforeToolCall('shell', {});
+
+        expect(verdict.isBlock, isTrue);
+        expect(verdict.message, 'layer blocked');
+        expect(baseGuard.evaluationCount, 1);
+        expect(layerGuard.evaluationCount, 1);
+      });
+
+      test('base block short-circuits before layer guards run', () async {
+        final layerGuard = FakeGuard(name: 'layer');
+        final base = buildChain([FakeGuard.block('base blocked', name: 'base')]);
+        final layered = GuardChain.layered(base: base, guards: [layerGuard]);
+
+        final verdict = await layered.evaluateBeforeToolCall('shell', {});
+
+        expect(verdict.isBlock, isTrue);
+        expect(verdict.message, 'base blocked');
+        expect(layerGuard.evaluationCount, 0);
+      });
+
+      test('replaceGuards on base is picked up live and layer guards survive', () async {
+        final layerGuard = FakeGuard(name: 'layer');
+        final base = buildChain([FakeGuard(name: 'original')]);
+        final layered = GuardChain.layered(base: base, guards: [layerGuard]);
+
+        expect((await layered.evaluateBeforeToolCall('shell', {})).isPass, isTrue);
+
+        base.replaceGuards([FakeGuard.block('rebuilt blocked', name: 'rebuilt')]);
+
+        final verdict = await layered.evaluateBeforeToolCall('shell', {});
+        expect(verdict.isBlock, isTrue);
+        expect(verdict.message, 'rebuilt blocked');
+        expect(layered.guards.map((g) => g.name), ['rebuilt', 'layer']);
+
+        base.replaceGuards([]);
+        layerGuard.evaluationCount = 0;
+        await layered.evaluateBeforeToolCall('shell', {});
+        expect(layerGuard.evaluationCount, 1);
+      });
+
+      test('null base evaluates only layer guards, fail-closed', () async {
+        final layered = GuardChain.layered(base: null, guards: [ThrowingGuard()]);
+
+        final verdict = await layered.evaluateBeforeToolCall('shell', {});
+
+        expect(verdict.isBlock, isTrue);
+        expect(layered.failOpen, isFalse);
+      });
+
+      test('inherits onVerdict and failOpen from base', () async {
+        final base = buildChain([], failOpen: true);
+        final layered = GuardChain.layered(
+          base: base,
+          guards: [FakeGuard.block('layer blocked', name: 'layer')],
+        );
+
+        await layered.evaluateBeforeToolCall('shell', {});
+
+        expect(layered.failOpen, isTrue);
+        expect(verdicts, hasLength(1));
+        expect(verdicts.single.guardName, 'layer');
+        expect(verdicts.single.verdict, 'block');
+      });
+    });
+
     group('GuardBuildResult', () {
       test('GuardBuildSuccess can be constructed and pattern-matched', () {
         final guards = [FakeGuard()];

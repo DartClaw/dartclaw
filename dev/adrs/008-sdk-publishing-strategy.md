@@ -1,7 +1,7 @@
 # ADR-008: SDK Publishing Strategy
 
-**Status:** Accepted (revised 2026-03-12)
-**Date:** 2026-03-01 (revised 2026-03-12)
+**Status:** Accepted (revised 2026-03-12; narrowed 2026-08-06)
+**Date:** 2026-03-01 (revised 2026-03-12, 2026-08-06)
 **Deciders:** DartClaw team
 
 ## Context
@@ -61,7 +61,9 @@ If the split happens at 0.5:
 
 If the split is not needed, `dartclaw` remains the single published package.
 
-### All packages published (revised 2026-03-12)
+### All packages published (revised 2026-03-12; narrowed 2026-08-06)
+
+> **Narrowed 2026-08-06** — the blanket "all packages will be published" claim below no longer holds. Publication intent is now per-package; `dartclaw_server` and `dartclaw_workflow` are undecided. See [Per-package publication intent](#per-package-publication-intent-2026-08-06).
 
 ~~The `publish_to: none` on `dartclaw_server` and `dartclaw_cli` signals "not for external use."~~ **Revised: all packages will be published**, including `dartclaw_server` and `dartclaw_cli`. This supersedes the original decision to keep server and CLI as internal-only.
 
@@ -73,6 +75,22 @@ If the split is not needed, `dartclaw` remains the single published package.
 - **Dependency example** — they consume the same published SDK packages that external developers would, serving as living documentation of the consumption pattern
 
 This aligns with DartClaw's "build your own agent" philosophy: the SDK packages (`dartclaw_core`, `dartclaw_models`, `dartclaw_storage`) are composable building blocks; the server and CLI are *one composition* of those blocks. Publishing them invites developers to build different compositions for their own use cases.
+
+### Per-package publication intent (2026-08-06)
+
+The 2026-03-12 revision asserted that every package ships to pub.dev. That is no longer the plan, and it had drifted out of sync with `docs/sdk/packages.md`, which labels four packages "Repo-only". Publication intent is per-package:
+
+| Package | Intent | Note |
+|---|---|---|
+| `dartclaw` (umbrella), `dartclaw_core`, `dartclaw_models`, `dartclaw_storage`, `dartclaw_security`, `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat` | **Planned** | Unchanged. The SDK surface external consumers depend on. |
+| `dartclaw_workflow` | **Undecided** | Possible. Decide when the workflow API surface is stable enough to support externally. |
+| `dartclaw_server` | **Undecided** | Possibly repo-only. The reference-implementation rationale above still argues for publishing; weigh it against supporting a large surface (HTTP + web UI + task runtime) as public API. |
+| `dartclaw_cli`, `dartclaw_testing` | **Repo-only (leaning)** | Owner position 2026-08-06: publish a conservative core set first and keep these two repo-only. This supersedes the 2026-03-12 listing of `dartclaw_cli` as published. Stated as a leaning, not ratified — revisit before the first publish wave. |
+| `dartclaw_config` | **Undecided** | Owner position 2026-08-06: possible. |
+
+`publish_to: none` is currently set on every package and is a pre-publication placeholder, not a statement of intent — do not read it as evidence either way. It is removed per-package at first publish.
+
+**Consequence for generated assets ([ADR-047](047-embedded-binary-assets.md))**: ADR-047 originally justified committing `embedded_assets.g.dart` with "pub.dev doesn't run generators; SDK consumers need them present" — a rationale that only holds for packages that ship. Since nothing is published today and both owning packages are undecided, ADR-047 was amended the same day: the generated libraries are now gitignored and emitted by the build. The publish-time requirement does not disappear — a published package must physically contain its generated library — so whichever of these two packages ships first must verify inclusion with `dart pub publish --dry-run` before its first release. See the ADR-047 amendment for the procedure.
 
 ### Private customization layer
 
@@ -267,6 +285,19 @@ apps/
 - All tests pass: core (770), storage (64), server (444)
 
 ## Revision History
+
+### 2026-08-06: Per-package publication intent
+
+**Superseded aspects of the 2026-03-12 revision:**
+- ~~All packages will be published~~ → intent is per-package; `dartclaw_server` and `dartclaw_workflow` are undecided
+- ~~`publish_to: none` signals intent~~ → it is a pre-publication placeholder on every package and signals nothing
+
+**Preserved aspects (still valid):**
+- The reference-implementation rationale for publishing server/CLI — it remains the argument *for* shipping them, now weighed against public-API support cost rather than treated as settled
+- Namespace reservation, umbrella package, versioning, mono-repo structure
+- Everything in the 2026-03-12 revision not listed as superseded above
+
+**Trigger:** `docs/sdk/packages.md` labels `dartclaw_server` and `dartclaw_workflow` "Repo-only", contradicting this ADR's blanket claim. Surfaced while auditing whether ADR-047's checked-in generated assets are still justified.
 
 ### 2026-03-12: All packages published + reference implementation model
 

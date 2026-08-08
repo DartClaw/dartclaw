@@ -26,53 +26,24 @@ class RecordingSseBroadcast extends SseBroadcast {
   }
 }
 
-/// Minimal real-[TurnRunner] subclass with no-op collaborators, for tests that
-/// only need a `TurnRunner` instance (e.g. harness-pool metrics / agent routes).
-///
-/// [providerId] defaults to `claude`; pass another to exercise per-provider
-/// metric grouping.
-class FakeTurnRunner extends TurnRunner {
-  FakeTurnRunner({super.providerId = 'claude'})
-    : super(
-        harness: MinimalHarness(),
-        messages: NoOpMessages(),
-        behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-turn-runner-test'),
-        sessions: NoOpSessions(),
-      );
-}
-
-/// Inert [AgentHarness] whose [turn] returns an empty map; declares full
-/// capability support so wiring code that probes the flags is satisfied.
-class MinimalHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
+/// Immediate harness used by governance suites that exercise the runner rather
+/// than harness scheduling.
+class FastFakeWorker extends AgentHarness {
+  String responseText = '';
+  final StreamController<BridgeEvent> _events = StreamController.broadcast();
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
+
   @override
   WorkerState get state => WorkerState.idle;
+
   @override
-  Stream<BridgeEvent> get events => const Stream.empty();
+  Stream<BridgeEvent> get events => _events.stream;
+
   @override
   Future<void> start() async {}
+
   @override
   Future<Map<String, dynamic>> turn({
     required String sessionId,
@@ -84,16 +55,38 @@ class MinimalHarness implements AgentHarness {
     String? model,
     String? effort,
     int? maxTurns,
-  }) async => {};
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
+  }) async {
+    if (responseText.isNotEmpty) {
+      _events.add(DeltaEvent(responseText));
+    }
+    return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
+  }
 
   @override
   Future<void> cancel() async {}
+
   @override
   Future<void> stop() async {}
+
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    if (!_events.isClosed) await _events.close();
+  }
+}
+
+/// Minimal real-[TurnRunner] subclass with no-op collaborators, for tests that
+/// only need a `TurnRunner` instance (e.g. harness-pool metrics / agent routes).
+///
+/// [providerId] defaults to `claude`; pass another to exercise per-provider
+/// metric grouping.
+class FakeTurnRunner extends TurnRunner {
+  FakeTurnRunner({super.providerId = 'claude'})
+    : super(
+        harness: FakeAgentHarness(autoTransitionState: false),
+        messages: NoOpMessages(),
+        behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-turn-runner-test'),
+        sessions: NoOpSessions(),
+      );
 }
 
 /// No-op [MessageService] for tests that never read messages.

@@ -211,9 +211,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     if (staged.isEmpty) {
       final missingAtHead = await _pathsMissingAtHead(git, projectDir, producedPaths);
       if (missingAtHead.isNotEmpty) {
-        final reason = "artifact-commit: required artifacts missing at HEAD for step '${step.id}': $missingAtHead";
-        _log.warning(reason);
-        return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: missingAtHead, fatal: failureIsFatal);
+        return _missingAtHeadFailure(missingAtHead, stepId: step.id, fatal: failureIsFatal);
       }
       _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' – skipping commit");
       return ArtifactCommitResult.skipped(skippedPaths: producedPaths);
@@ -230,9 +228,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
     final missingAtHead = await _pathsMissingAtHead(git, projectDir, producedPaths);
     if (missingAtHead.isNotEmpty) {
-      final reason = "artifact-commit: required artifacts missing at HEAD for step '${step.id}': $missingAtHead";
-      _log.warning(reason);
-      return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: missingAtHead, fatal: failureIsFatal);
+      return _missingAtHeadFailure(missingAtHead, stepId: step.id, fatal: failureIsFatal);
     }
     return ArtifactCommitResult.committed(committedPaths: staged, commitSha: commit.sha);
   } on WorkflowGitException catch (e) {
@@ -244,6 +240,12 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     _log.warning(reason);
     return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
   }
+}
+
+ArtifactCommitResult _missingAtHeadFailure(List<String> missingPaths, {required String stepId, required bool fatal}) {
+  final reason = "artifact-commit: required artifacts missing at HEAD for step '$stepId': $missingPaths";
+  _log.warning(reason);
+  return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: missingPaths, fatal: fatal);
 }
 
 String _runtimeArtifactsRoot(ArtifactCommitPolicy policy) =>

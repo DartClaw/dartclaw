@@ -13,6 +13,14 @@ import 'task_origin.dart';
 import 'task_trigger_config.dart';
 import 'task_trigger_parser.dart';
 
+typedef BestEffortChannelSender =
+    Future<void> Function(
+      Channel channel,
+      String recipientId,
+      ChannelResponse response, {
+      required String failureMessage,
+    });
+
 /// Extracted task-trigger workflow for [ChannelTaskBridge].
 class TaskTriggerEvaluator {
   static final _log = Logger('TaskTriggerEvaluator');
@@ -21,26 +29,14 @@ class TaskTriggerEvaluator {
   final TaskTriggerParser? _triggerParser;
   final Map<ChannelType, TaskTriggerConfig> _taskTriggerConfigs;
   final GroupConfigResolver? Function()? _groupConfigResolverGetter;
-  final Future<void> Function(
-    Channel channel,
-    String recipientId,
-    ChannelResponse response, {
-    required String failureMessage,
-  })
-  _sendBestEffort;
+  final BestEffortChannelSender _sendBestEffort;
 
   TaskTriggerEvaluator({
     TaskCreator? taskCreator,
     TaskTriggerParser? triggerParser,
     Map<ChannelType, TaskTriggerConfig> taskTriggerConfigs = const {},
     GroupConfigResolver? Function()? groupConfigResolverGetter,
-    required Future<void> Function(
-      Channel channel,
-      String recipientId,
-      ChannelResponse response, {
-      required String failureMessage,
-    })
-    sendBestEffort,
+    required BestEffortChannelSender sendBestEffort,
   }) : _taskCreator = taskCreator,
        _triggerParser = triggerParser,
        _taskTriggerConfigs = Map.unmodifiable(taskTriggerConfigs),

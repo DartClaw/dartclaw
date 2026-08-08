@@ -1,3 +1,4 @@
+import 'components.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -16,11 +17,11 @@ String workflowListPageTemplate({
   required List<Map<String, dynamic>> definitions,
   required List<Map<String, dynamic>> projectOptions,
   required Map<String, dynamic> filters,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final topbar = pageTopbarTemplate(title: 'Workflows');
+  final topbar = pageTopbarTemplate(title: 'Workflows', restartBannerHtml: restartBannerHtml);
 
   final activeStatus = filters['activeStatus']?.toString() ?? 'all';
   final activeDefinition = filters['activeDefinition']?.toString();
@@ -50,7 +51,6 @@ String workflowListPageTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('workflow_list'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
     'runs': runs,
     'hasRuns': runs.isNotEmpty,
     'definitions': definitions,
@@ -60,6 +60,11 @@ String workflowListPageTemplate({
     'filters': filters,
     'statusOptions': statusOptions,
     'definitionOptions': definitionOptions,
+    'emptyRunsHtml': emptyStateTemplate(
+      title: 'No workflow runs found',
+      body: 'Adjust the filters or launch an available workflow.',
+      actionHtml: '<a class="btn btn-primary" href="/workflows">Clear filters</a>',
+    ),
   });
 
   return layoutTemplate(title: 'Workflows', body: body, scripts: standardShellScripts());

@@ -106,6 +106,215 @@ void main() {
       expect(body.containsKey('createdAt'), isTrue);
       expect(body.containsKey('updatedAt'), isTrue);
     });
+
+    test('keeps generic creation unconditional', () async {
+      final first = await api.expectJsonObject('POST', '/api/sessions', status: 201);
+      final second = await api.expectJsonObject('POST', '/api/sessions', status: 201);
+
+      expect(second['id'], isNot(first['id']));
+    });
+  });
+
+  group('POST /api/sessions/open', () {
+    test('reuses the newest blank default chat across sequential requests', () async {
+      final first = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+      final second = await api.expectJsonObject('POST', '/api/sessions/open');
+
+      expect(second['id'], first['id']);
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(1));
+    });
+
+    test('coalesces concurrent requests into one blank chat', () async {
+      final responses = await Future.wait(List.generate(4, (_) => api.request('POST', '/api/sessions/open')));
+      final ids = <String>{};
+      for (final response in responses) {
+        expect(response.statusCode, anyOf(200, 201));
+        ids.add((jsonDecode(await response.readAsString()) as Map<String, dynamic>)['id'] as String);
+      }
+
+      expect(ids, hasLength(1));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(1));
+    });
+
+    test('reuses the newest duplicate blank without deleting older drafts', () async {
+      final older = await sessions.createSession();
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      final newer = await sessions.createSession();
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open');
+
+      expect(opened['id'], newer.id);
+      expect(opened['id'], isNot(older.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('does not reuse an empty chat with an active turn', () async {
+      final active = await sessions.createSession();
+      await turns.reserveTurn(active.id);
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+
+      expect(opened['id'], isNot(active.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('does not reuse an untitled chat that already has messages', () async {
+      final existing = await sessions.createSession();
+      await messages.insertMessage(sessionId: existing.id, role: 'user', content: 'Hello');
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+
+      expect(opened['id'], isNot(existing.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('does not reuse titled, keyed, or provider-specific empty chats', () async {
+      final titled = await sessions.createSession();
+      await sessions.updateTitle(titled.id, 'Saved draft');
+      await sessions.createSession(type: SessionType.user, channelKey: 'custom:key');
+      await sessions.createSession(provider: 'codex');
+
+      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
+
+      expect(opened['id'], isNot(titled.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(4));
+    });
+
+    test('serializes eligibility with a concurrent PATCH title mutation', () async {
+      final pausingSessions = PausingUpdateTitleSessionService(baseDir: tempDir.path);
+      final existing = await pausingSessions.createSession();
+      final localMessages = PausingTailMessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(localMessages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(pausingSessions, localMessages, localTurns, worker).call),
+      );
+
+      final rename = localApi.request(
+        'PATCH',
+        '/api/sessions/${existing.id}',
+        body: 'title=Established+while+opening',
+        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      );
+      await pausingSessions.updateStarted.future;
+      final open = localApi.request('POST', '/api/sessions/open');
+      await pausingSessions.openListStarted.future;
+      await pumpEventQueue();
+      expect(localMessages.firstTailReadStarted.isCompleted, isFalse);
+      pausingSessions.resumeUpdate.complete();
+      await localMessages.firstTailReadStarted.future;
+      localMessages.resumeFirstTailRead.complete();
+
+      expect((await rename).statusCode, 200);
+      final response = await open;
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(response.statusCode, 201);
+      expect(body['id'], isNot(existing.id));
+      expect(await pausingSessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('revalidates a draft whose turn is reserved while eligibility is loading', () async {
+      final existing = await sessions.createSession();
+      final pausingMessages = PausingTailMessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(pausingMessages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(sessions, pausingMessages, localTurns, worker).call),
+      );
+
+      final request = localApi.request('POST', '/api/sessions/open');
+      await pausingMessages.firstTailReadStarted.future;
+      await localTurns.reserveTurn(existing.id);
+      pausingMessages.resumeFirstTailRead.complete();
+      final response = await request;
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(response.statusCode, 201);
+      expect(body['id'], isNot(existing.id));
+      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
+    });
+
+    test('waits for an archive mutation and does not reuse the archived draft', () async {
+      final pausingSessions = PausingUpdateSessionTypeSessionService(baseDir: tempDir.path);
+      final existing = await pausingSessions.createSession();
+      final pausingMessages = PausingTailMessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(pausingMessages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(pausingSessions, pausingMessages, localTurns, worker).call),
+      );
+
+      final archive = localApi.request('POST', '/api/sessions/${existing.id}/archive');
+      await pausingSessions.updateStarted.future;
+      final open = localApi.request('POST', '/api/sessions/open');
+      await pausingSessions.openListCompleted.future;
+      await pumpEventQueue();
+      expect(pausingMessages.firstTailReadStarted.isCompleted, isFalse);
+
+      pausingSessions.resumeUpdate.complete();
+      expect((await archive).statusCode, 200);
+      await pausingMessages.firstTailReadStarted.future;
+      pausingMessages.resumeFirstTailRead.complete();
+      final response = await open;
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(response.statusCode, 201);
+      expect(body['id'], isNot(existing.id));
+      expect((await pausingSessions.getSession(existing.id))?.type, SessionType.archive);
+      expect(await pausingSessions.listSessions(type: SessionType.user), hasLength(1));
+    });
+
+    test('does not reuse a draft while a send is being persisted', () async {
+      final existing = await sessions.createSession();
+      final pausingMessages = PausingInsertMessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(pausingMessages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(sessions, pausingMessages, localTurns, worker).call),
+      );
+
+      final send = localApi.request(
+        'POST',
+        '/api/sessions/${existing.id}/send',
+        body: 'message=Established',
+        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      );
+      await pausingMessages.insertStarted.future;
+      final open = localApi.request('POST', '/api/sessions/open');
+      pausingMessages.resumeInsert.complete();
+
+      expect((await send).statusCode, 200);
+      final openResponse = await open;
+      final opened = jsonDecode(await openResponse.readAsString()) as Map<String, dynamic>;
+      expect(openResponse.statusCode, 201);
+      expect(opened['id'], isNot(existing.id));
+    });
+
+    test('does not wait behind a queued send for an active draft', () async {
+      final localSessions = OpenTrackingSessionService(baseDir: tempDir.path);
+      final existing = await localSessions.createSession();
+      final localTurns = QueuingFakeTurnManager(messages, worker);
+      final localApi = ApiRouteTestClient(
+        localAdminMiddleware()(sessionRoutes(localSessions, messages, localTurns, worker).call),
+      );
+      await localTurns.reserveTurn(existing.id);
+      final send = localApi.request(
+        'POST',
+        '/api/sessions/${existing.id}/send',
+        body: 'message=Queued',
+        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      );
+      await localTurns.queuedReservationStarted.future;
+
+      final open = localApi.request('POST', '/api/sessions/open');
+      await pumpEventQueue();
+      expect(localSessions.replacementCreateStarted.isCompleted, isTrue);
+      final openResponse = await open;
+      final opened = jsonDecode(await openResponse.readAsString()) as Map<String, dynamic>;
+      expect(openResponse.statusCode, 201);
+      expect(opened['id'], isNot(existing.id));
+
+      await localTurns.cancelTurn(existing.id);
+      localTurns.resumeQueuedReservation.complete();
+      expect((await send).statusCode, 200);
+    });
   });
 
   group('PATCH /api/sessions/<id>', () {
@@ -124,6 +333,21 @@ void main() {
       final session = await sessions.createSession();
       final body = await api.expectJsonObject('PATCH', '/api/sessions/${session.id}', json: {'title': 'JSON Title'});
       expect(body['title'], equals('JSON Title'));
+    });
+
+    test('returns 403 and preserves the fixed main workspace identity', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.updateTitle(session.id, 'Legacy title');
+
+      final code = await api.expectJsonErrorCode(
+        'PATCH',
+        '/api/sessions/${session.id}',
+        json: {'title': 'Renamed Session E2E'},
+        status: 403,
+      );
+
+      expect(code, equals('FORBIDDEN'));
+      expect((await sessions.getSession(session.id))?.title, equals('Legacy title'));
     });
 
     test('returns 400 for empty title', () async {
@@ -357,6 +581,56 @@ void main() {
       final res = await handler(apiRequest('POST', '/api/sessions/${session.id}/send', jsonBody: {'message': 'test'}));
       expect(res.statusCode, equals(200));
       expect(res.headers['content-type'], contains('text/html'));
+    });
+
+    test('rejects a send when archive wins after the initial session read', () async {
+      final pausingSessions = PausingFirstGetSessionService(baseDir: tempDir.path);
+      final session = await pausingSessions.createSession();
+      final localMessages = MessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(localMessages, worker);
+      final localApi = ApiRouteTestClient(sessionRoutes(pausingSessions, localMessages, localTurns, worker).call);
+
+      final send = localApi.request(
+        'POST',
+        '/api/sessions/${session.id}/send',
+        body: 'message=Too+late',
+        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      );
+      await pausingSessions.firstReadStarted.future;
+      expect((await localApi.request('POST', '/api/sessions/${session.id}/archive')).statusCode, 200);
+      pausingSessions.resumeFirstRead.complete();
+
+      final response = await send;
+      expect(response.statusCode, 403);
+      expect(await errorCode(response), 'FORBIDDEN');
+      expect(await localMessages.getMessages(session.id), isEmpty);
+      expect(localTurns.reserveCalled, isFalse);
+      expect(localTurns.lastExecuteMessages, isNull);
+    });
+
+    test('rejects a send when delete wins after the initial session read', () async {
+      final pausingSessions = PausingFirstGetSessionService(baseDir: tempDir.path);
+      final session = await pausingSessions.createSession();
+      final localMessages = MessageService(baseDir: tempDir.path);
+      final localTurns = FakeTurnManager(localMessages, worker);
+      final localApi = ApiRouteTestClient(sessionRoutes(pausingSessions, localMessages, localTurns, worker).call);
+
+      final send = localApi.request(
+        'POST',
+        '/api/sessions/${session.id}/send',
+        body: 'message=Too+late',
+        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      );
+      await pausingSessions.firstReadStarted.future;
+      expect((await localApi.request('DELETE', '/api/sessions/${session.id}')).statusCode, 204);
+      pausingSessions.resumeFirstRead.complete();
+
+      final response = await send;
+      expect(response.statusCode, 404);
+      expect(await errorCode(response), 'SESSION_NOT_FOUND');
+      expect(await localMessages.getMessages(session.id), isEmpty);
+      expect(localTurns.reserveCalled, isFalse);
+      expect(localTurns.lastExecuteMessages, isNull);
     });
 
     test('rejects oversized JSON send body before message validation', () async {
@@ -1094,6 +1368,47 @@ void main() {
       expect(refs, contains(predicate((ref) => (ref as Map<String, dynamic>)['label'] == 'Release planning')));
     });
 
+    test('workspace references use the fixed Agent identity instead of persisted titles', () async {
+      final current = await sessions.createSession();
+      final workspace = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.updateTitle(workspace.id, 'Renamed Session E2E');
+
+      final suggestionsRes = await handler(
+        Request('GET', Uri.parse('http://localhost/api/sessions/${current.id}/references?q=agent')),
+      );
+      final suggestions =
+          (jsonDecode(await suggestionsRes.readAsString()) as Map<String, dynamic>)['references'] as List<dynamic>;
+
+      expect(suggestionsRes.statusCode, 200);
+      expect(
+        suggestions,
+        contains(
+          predicate(
+            (reference) => (reference as Map<String, dynamic>)['id'] == workspace.id && reference['label'] == 'Agent',
+          ),
+        ),
+      );
+
+      final sendRes = await handler(
+        apiRequest(
+          'POST',
+          '/api/sessions/${current.id}/send',
+          jsonBody: {
+            'message': 'Compare this',
+            'references': [
+              {'type': 'session', 'id': workspace.id, 'label': 'Renamed Session E2E', 'state': 'resolved'},
+            ],
+          },
+        ),
+      );
+      final metadata = jsonDecode((await messages.getMessages(current.id)).single.metadata!) as Map<String, dynamic>;
+
+      expect(sendRes.statusCode, 200);
+      expect((metadata['references'] as List<dynamic>).single, containsPair('label', 'Agent'));
+      expect(turns.lastExecuteMessages!.last['content'], contains('"label": "Agent"'));
+      expect(turns.lastExecuteMessages!.last['content'], isNot(contains('Renamed Session E2E')));
+    });
+
     test('GET /references returns matching nested workspace files', () async {
       final session = await sessions.createSession();
       final nested = File(p.join(tempDir.path, 'packages', 'demo', 'lib', 'release_notes.md'))
@@ -1500,4 +1815,197 @@ void main() {
       expect(res.headers['content-type'], contains('text/event-stream'));
     });
   });
+}
+
+final class PausingTailMessageService extends MessageService {
+  PausingTailMessageService({required super.baseDir});
+
+  final firstTailReadStarted = Completer<void>();
+  final resumeFirstTailRead = Completer<void>();
+  var _tailReadCount = 0;
+
+  @override
+  Future<List<Message>> getMessagesTail(String sessionId, {int count = 200}) async {
+    _tailReadCount += 1;
+    if (_tailReadCount == 1) {
+      firstTailReadStarted.complete();
+      await resumeFirstTailRead.future;
+    }
+    return super.getMessagesTail(sessionId, count: count);
+  }
+}
+
+final class PausingInsertMessageService extends MessageService {
+  PausingInsertMessageService({required super.baseDir});
+
+  final insertStarted = Completer<void>();
+  final resumeInsert = Completer<void>();
+
+  @override
+  Future<Message> insertMessage({
+    required String sessionId,
+    required String role,
+    required String content,
+    String? metadata,
+  }) async {
+    insertStarted.complete();
+    await resumeInsert.future;
+    return super.insertMessage(sessionId: sessionId, role: role, content: content, metadata: metadata);
+  }
+}
+
+final class PausingUpdateTitleSessionService extends SessionService {
+  PausingUpdateTitleSessionService({required super.baseDir});
+
+  final updateStarted = Completer<void>();
+  final resumeUpdate = Completer<void>();
+  final openListStarted = Completer<void>();
+  Session? _initialSession;
+
+  @override
+  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+    final created = await super.createSession(type: type, channelKey: channelKey, provider: provider);
+    _initialSession ??= created;
+    return created;
+  }
+
+  @override
+  Future<List<Session>> listSessions({
+    SessionType? type,
+    List<SessionType>? types,
+    bool includeTaskSessions = false,
+  }) async {
+    final initial = _initialSession;
+    if (initial != null && updateStarted.isCompleted && (type == null || type == initial.type)) {
+      if (!openListStarted.isCompleted) {
+        openListStarted.complete();
+        return [initial];
+      }
+    }
+    return super.listSessions(type: type, types: types, includeTaskSessions: includeTaskSessions);
+  }
+
+  @override
+  Future<int> updateTitle(String id, String title) async {
+    updateStarted.complete();
+    await resumeUpdate.future;
+    return super.updateTitle(id, title);
+  }
+}
+
+final class PausingUpdateSessionTypeSessionService extends SessionService {
+  PausingUpdateSessionTypeSessionService({required super.baseDir});
+
+  final updateStarted = Completer<void>();
+  final resumeUpdate = Completer<void>();
+  final openListCompleted = Completer<void>();
+
+  @override
+  Future<List<Session>> listSessions({
+    SessionType? type,
+    List<SessionType>? types,
+    bool includeTaskSessions = false,
+  }) async {
+    final result = await super.listSessions(type: type, types: types, includeTaskSessions: includeTaskSessions);
+    if (updateStarted.isCompleted && type == SessionType.user && !openListCompleted.isCompleted) {
+      openListCompleted.complete();
+    }
+    return result;
+  }
+
+  @override
+  Future<Session?> updateSessionType(String id, SessionType type) async {
+    updateStarted.complete();
+    await resumeUpdate.future;
+    return super.updateSessionType(id, type);
+  }
+}
+
+final class PausingFirstGetSessionService extends SessionService {
+  PausingFirstGetSessionService({required super.baseDir});
+
+  final firstReadStarted = Completer<void>();
+  final resumeFirstRead = Completer<void>();
+  var _reads = 0;
+
+  @override
+  Future<Session?> getSession(String id) async {
+    final read = ++_reads;
+    final session = await super.getSession(id);
+    if (read == 1) {
+      firstReadStarted.complete();
+      await resumeFirstRead.future;
+    }
+    return session;
+  }
+}
+
+final class OpenTrackingSessionService extends SessionService {
+  OpenTrackingSessionService({required super.baseDir});
+
+  final replacementCreateStarted = Completer<void>();
+  Session? _initialSession;
+
+  @override
+  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+    if (_initialSession != null) replacementCreateStarted.complete();
+    final created = await super.createSession(type: type, channelKey: channelKey, provider: provider);
+    _initialSession ??= created;
+    return created;
+  }
+
+  @override
+  Future<List<Session>> listSessions({
+    SessionType? type,
+    List<SessionType>? types,
+    bool includeTaskSessions = false,
+  }) async {
+    final initial = _initialSession;
+    if (initial != null && (type == null || type == initial.type)) return [initial];
+    return super.listSessions(type: type, types: types, includeTaskSessions: includeTaskSessions);
+  }
+}
+
+final class QueuingFakeTurnManager extends FakeTurnManager {
+  QueuingFakeTurnManager(super.messages, super.worker);
+
+  final queuedReservationStarted = Completer<void>();
+  final resumeQueuedReservation = Completer<void>();
+  var _reservations = 0;
+
+  @override
+  Future<String> reserveTurn(
+    String sessionId, {
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+    int? maxTurns,
+    String? taskId,
+    bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
+  }) async {
+    _reservations += 1;
+    if (_reservations == 2) {
+      queuedReservationStarted.complete();
+      await resumeQueuedReservation.future;
+    }
+    return super.reserveTurn(
+      sessionId,
+      agentName: agentName,
+      directory: directory,
+      model: model,
+      effort: effort,
+      maxTurns: maxTurns,
+      taskId: taskId,
+      isHumanInput: isHumanInput,
+      behaviorOverride: behaviorOverride,
+      promptScope: promptScope,
+      allowedTools: allowedTools,
+      readOnly: readOnly,
+    );
+  }
 }

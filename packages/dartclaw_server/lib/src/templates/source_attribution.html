@@ -1,12 +1,14 @@
-<span tl:fragment="sourceAttribution" class="source-attribution" tl:classappend="${stateClass}" tl:attr="data-controller=${controllerName}">
+<span tl:fragment="sourceAttribution" class="source-attribution" tl:classappend="${stateClass}"
+      data-action="mouseenter->dc-attribution#cancelClose mouseleave->dc-attribution#scheduleHide"
+      tl:attr="data-controller=${controllerName}">
   <button tl:if="${attributed}"
           type="button"
           class="citation-marker"
-          data-action="click->dc-attribution#toggle mouseenter->dc-attribution#show keydown.esc->dc-attribution#hide"
+          data-action="click->dc-attribution#toggle mouseenter->dc-attribution#show"
           tl:attr="aria-label=${ariaLabel}">
     [<span tl:text="${marker}">1</span>]
   </button>
-  <span tl:if="${attributed}" class="layer-badge" tl:classappend="${layerClass}" tl:text="${layerLabel}">Wiki</span>
+  <span tl:if="${inlineBadge}" class="layer-badge" tl:classappend="${layerClass}" tl:text="${layerLabel}">Wiki</span>
   <span tl:if="${attributed}" class="attribution-popover card-elevated" hidden="hidden" data-dc-attribution-target="popover">
     <span class="attribution-popover-head">
       <span class="layer-badge" tl:classappend="${layerClass}" tl:text="${layerLabel}">Wiki</span>

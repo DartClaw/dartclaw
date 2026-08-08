@@ -1,6 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 
 import 'components.dart';
+import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -21,12 +22,12 @@ String sessionInfoTemplate({
   int? effectiveTokens,
   double? estimatedCostUsd,
   int? cachedInputTokens,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   List<Map<String, String>> recentTurns = const [],
   Map<String, dynamic>? turnStatus,
   String appName = 'DartClaw',
 }) {
-  final displayTitle = sessionTitle.trim().isEmpty ? 'New Chat' : sessionTitle;
+  final displayTitle = displayChatTitle(sessionTitle);
   final totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
   final normalizedDefaultProvider = ProviderIdentity.normalize(defaultProvider);
   final normalizedProvider = ProviderIdentity.normalize(provider, fallback: normalizedDefaultProvider);
@@ -45,38 +46,36 @@ String sessionInfoTemplate({
       : null;
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final turnStatusView = sessionTurnStatusView(turnStatus, fallbackSessionId: sessionId);
+  final turnStatusView = sessionTurnStatusMountView(turnStatus, fallbackSessionId: sessionId);
 
-  final topbar = pageTopbarTemplate(title: 'Session Info', backHref: '/sessions/$sessionId', backLabel: 'Back to Chat');
+  final topbar = pageTopbarTemplate(
+    title: 'Session Info',
+    backHref: '/sessions/$sessionId',
+    backLabel: 'Back to Chat',
+    restartBannerHtml: restartBannerHtml,
+  );
 
   final body = templateLoader.trellis.render(templateLoader.source('session_info'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'title': displayTitle,
+    'pageHeaderHtml': pageHeaderTemplate(title: displayTitle, subtitle: sessionId),
     'sessionId': sessionId,
     'inputLabel': inputLabel,
     'inputTooltip': inputTooltip,
     'tokenMetricCardsHtml': [
       metricCardTemplate(
         color: 'info',
-        value: inputTokens != null ? _formatNumber(inputTokens) : '\u2014',
+        value: inputTokens != null ? _formatNumber(inputTokens) : null,
         label: inputLabel,
         labelTooltip: inputTooltip,
       ),
       metricCardTemplate(
         color: 'info',
-        value: outputTokens != null ? _formatNumber(outputTokens) : '\u2014',
+        value: outputTokens != null ? _formatNumber(outputTokens) : null,
         label: 'Output',
       ),
-      metricCardTemplate(
-        color: 'accent',
-        value: totalTokens > 0 ? _formatNumber(totalTokens) : '\u2014',
-        label: 'Total',
-      ),
+      metricCardTemplate(color: 'accent', value: totalTokens > 0 ? _formatNumber(totalTokens) : null, label: 'Total'),
     ].join('\n'),
-    'inputStr': inputTokens != null ? _formatNumber(inputTokens) : '\u2014',
-    'outputStr': outputTokens != null ? _formatNumber(outputTokens) : '\u2014',
-    'totalStr': totalTokens > 0 ? _formatNumber(totalTokens) : '\u2014',
     'provider': normalizedProvider,
     'providerLabel': ProviderIdentity.displayName(normalizedProvider),
     'estimatedCostUsd': templateEstimatedCostUsd,
@@ -92,12 +91,13 @@ String sessionInfoTemplate({
     'costUnavailableTooltip':
         'This provider does not report USD cost. Token counts are tracked for governance budgets.',
     'messageCount': messageCount.toString(),
-    'createdAt': createdAt ?? '\u2014',
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+    'createdAt': formatRelativeTimeIso(createdAt),
+    'createdAtAbsent': absentValue(formatRelativeTimeIso(createdAt)).isAbsent,
+    'createdAtIso': isoTitle(createdAt),
     'hasRecentTurns': recentTurns.isNotEmpty,
     'recentTurns': recentTurns,
     'turnStatus': turnStatusView,
-    'hasTurnStatus': turnStatusView != null,
+    'hasTurnStatus': true,
   });
 
   return layoutTemplate(title: 'Session Info', body: body, appName: appName, scripts: standardShellScripts());
@@ -106,21 +106,47 @@ String sessionInfoTemplate({
 Map<String, dynamic>? sessionTurnStatusView(Map<String, dynamic>? status, {required String fallbackSessionId}) {
   if (status == null) return null;
   final state = status['state']?.toString() ?? 'idle';
-  if (state == 'idle') return null;
+  if (!isActiveTurnStatusState(state)) return null;
   final reason = status['wait_reason']?.toString();
   final canCancel = status['can_cancel'] == true;
   return {
     'sessionId': status['session_id']?.toString() ?? fallbackSessionId,
     'turnId': status['turn_id']?.toString() ?? '',
     'stateLabel': state.replaceAll('_', ' '),
-    'reasonLabel': reason == null ? '—' : reason.replaceAll('_', ' '),
-    'waitingSince': status['waiting_since']?.toString() ?? '',
-    'stuckSince': status['stuck_since']?.toString() ?? '',
-    'globalTimeoutAt': status['global_timeout_at']?.toString() ?? '',
+    'reasonLabel': reason?.replaceAll('_', ' '),
+    'reasonAbsent': absentValue(reason).isAbsent,
+    // Two directions, two formatters: the first two slots are elapsed, the
+    // third is a deadline ahead. Each renders '' when absent or unparseable so
+    // the template omits the slot rather than printing a raw ISO string.
+    'waitingSince': formatRelativeTimeIso(status['waiting_since']?.toString()),
+    'stuckSince': formatRelativeTimeIso(status['stuck_since']?.toString()),
+    'globalTimeoutAt': formatRemainingTimeIso(status['global_timeout_at']?.toString()),
     'canCancel': canCancel,
+    'hidden': null,
+    'cancelHidden': canCancel ? null : true,
     'cancelDisabled': canCancel ? null : 'disabled',
   };
 }
+
+Map<String, dynamic> sessionTurnStatusMountView(Map<String, dynamic>? status, {required String fallbackSessionId}) {
+  return sessionTurnStatusView(status, fallbackSessionId: fallbackSessionId) ??
+      {
+        'sessionId': status?['session_id']?.toString() ?? fallbackSessionId,
+        'turnId': '',
+        'stateLabel': '',
+        'reasonLabel': '',
+        'reasonAbsent': true,
+        'waitingSince': '',
+        'stuckSince': '',
+        'globalTimeoutAt': '',
+        'canCancel': false,
+        'hidden': true,
+        'cancelHidden': true,
+        'cancelDisabled': 'disabled',
+      };
+}
+
+bool isActiveTurnStatusState(String state) => const {'running', 'waiting', 'stuck', 'cancelling'}.contains(state);
 
 String _formatNumber(int n) {
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';

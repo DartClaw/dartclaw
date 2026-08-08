@@ -79,36 +79,18 @@ class MessageService {
     return completer.future;
   }
 
-  Future<List<Message>> getMessages(String sessionId) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
+  Future<List<Message>> getMessages(String sessionId) => _readMessagesForward(sessionId, startLine: 1);
+
+  Future<List<Message>> getMessagesAfterCursor(String sessionId, int cursor) =>
+      _readMessagesForward(sessionId, startLine: cursor + 1);
+
+  Future<List<Message>> _readMessagesForward(String sessionId, {required int startLine}) async {
+    final ndjsonFile = _messagesFile(sessionId);
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
     final messages = <Message>[];
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
-      try {
-        final json = jsonDecode(line) as Map<String, dynamic>;
-        // Override cursor with 1-based line number
-        json['cursor'] = i + 1;
-        messages.add(Message.fromJson(json));
-      } catch (e) {
-        _log.warning('Malformed NDJSON line ${i + 1} in session $sessionId: $e');
-      }
-    }
-    return messages;
-  }
-
-  Future<List<Message>> getMessagesAfterCursor(String sessionId, int cursor) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
-    if (!ndjsonFile.existsSync()) return [];
-
-    final lines = await ndjsonFile.readAsLines();
-    final messages = <Message>[];
-    for (var i = cursor; i < lines.length; i++) {
+    for (var i = startLine - 1; i < lines.length; i++) {
       final line = lines[i].trim();
       if (line.isEmpty) continue;
       try {
@@ -123,10 +105,9 @@ class MessageService {
   }
 
   Future<List<Message>> getMessagesTail(String sessionId, {int count = 200}) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    final ndjsonFile = _messagesFile(sessionId);
     if (count <= 0) return [];
 
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
@@ -134,10 +115,9 @@ class MessageService {
   }
 
   Future<List<Message>> getMessagesBefore(String sessionId, int cursor, {int count = 50}) async {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    final ndjsonFile = _messagesFile(sessionId);
     if (cursor <= 1 || count <= 0) return [];
 
-    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
     if (!ndjsonFile.existsSync()) return [];
 
     final lines = await ndjsonFile.readAsLines();
@@ -154,23 +134,15 @@ class MessageService {
 
   /// Clears all messages for [sessionId] by truncating the NDJSON file.
   Future<void> clearMessages(String sessionId) {
-    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
-    final completer = Completer<void>();
+    final ndjsonFile = _messagesFile(sessionId);
     final op = WriteOp(() async {
-      final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
       if (ndjsonFile.existsSync()) {
         await ndjsonFile.writeAsString('');
       }
       _lineCounts.remove(sessionId);
-      completer.complete();
     });
     _queue.add(op);
-    unawaited(
-      op.completer.future.catchError((Object e, StackTrace st) {
-        if (!completer.isCompleted) completer.completeError(e, st);
-      }),
-    );
-    return completer.future;
+    return op.completer.future;
   }
 
   Future<void> dispose() async {
@@ -181,6 +153,11 @@ class MessageService {
     if (!file.existsSync()) return 0;
     final lines = await file.readAsLines();
     return lines.where((line) => line.trim().isNotEmpty).length;
+  }
+
+  File _messagesFile(String sessionId) {
+    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    return File(p.join(baseDir, sessionId, 'messages.ndjson'));
   }
 
   List<Message> _collectMessagesBackwards(

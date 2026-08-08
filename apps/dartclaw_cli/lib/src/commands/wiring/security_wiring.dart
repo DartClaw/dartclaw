@@ -59,8 +59,8 @@ class SecurityWiring implements Reconfigurable {
   ContentClassifier? _contentClassifier;
   bool _contentGuardFailOpen = false;
   late ToolPolicyCascade _toolPolicyCascade;
-  late GuardAuditSubscriber _guardAuditSubscriber;
-  late SessionLifecycleSubscriber _sessionLifecycleSubscriber;
+  GuardAuditSubscriber? _guardAuditSubscriber;
+  SessionLifecycleSubscriber? _sessionLifecycleSubscriber;
 
   CredentialProxy? get credentialProxy => _credentialProxy;
   ContainerHealthMonitor? get containerHealthMonitor => _containerHealthMonitor;
@@ -73,6 +73,10 @@ class SecurityWiring implements Reconfigurable {
   ToolPolicyCascade get toolPolicyCascade => _toolPolicyCascade;
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
+    // Assigned before anything that can throw: dispose() flushes it, and a
+    // partially-wired instance must still tear down cleanly.
+    _auditLogger = GuardAuditLogger(dataDir: _dataDir);
+
     if (config.container.enabled) {
       if (!_platformCapabilities.containerIsolationAvailable) {
         const error = UnsupportedCapabilityError(
@@ -307,8 +311,6 @@ class SecurityWiring implements Reconfigurable {
       agentAllow: agentAllow,
     );
 
-    _auditLogger = GuardAuditLogger(dataDir: _dataDir);
-
     if (!config.security.guards.enabled) {
       _guardChain = null;
       return;
@@ -355,11 +357,8 @@ class SecurityWiring implements Reconfigurable {
   }
 
   void _wireAuditAndLifecycle() {
-    _guardAuditSubscriber = GuardAuditSubscriber(_auditLogger);
-    _guardAuditSubscriber.subscribe(_eventBus);
-
-    _sessionLifecycleSubscriber = SessionLifecycleSubscriber();
-    _sessionLifecycleSubscriber.subscribe(_eventBus);
+    _guardAuditSubscriber = GuardAuditSubscriber(_auditLogger)..subscribe(_eventBus);
+    _sessionLifecycleSubscriber = SessionLifecycleSubscriber()..subscribe(_eventBus);
   }
 
   void _wireContentGuard() {
@@ -409,6 +408,11 @@ class SecurityWiring implements Reconfigurable {
     }
     await _credentialProxy?.stop();
     await _containerHealthMonitor?.stop();
+    await _guardAuditSubscriber?.cancel();
+    await _sessionLifecycleSubscriber?.cancel();
+    // Cancelling stops new verdicts; queued NDJSON appends are fire-and-forget
+    // and would otherwise be lost or half-written at shutdown.
+    await _auditLogger.flush();
   }
 }
 

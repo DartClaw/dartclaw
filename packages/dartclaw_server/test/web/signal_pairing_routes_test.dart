@@ -25,11 +25,7 @@ void main() {
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_signal_route_test_');
     sessions = SessionService(baseDir: tempDir.path);
-    fakeSidecar = FakeSignalCliManager(
-      fakeHealthy: true,
-      fakeRegistered: false,
-      fakeLinkUri: 'sgnl://linkdevice?uuid=test-uuid',
-    );
+    fakeSidecar = FakeSignalCliManager(fakeHealthy: true, fakeLinkUri: 'sgnl://linkdevice?uuid=test-uuid');
     signalChannel = SignalChannel(
       sidecar: fakeSidecar,
       config: const SignalConfig(enabled: true, phoneNumber: '+15551234567'),
@@ -47,7 +43,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('GET /pairing', () {
     test('sidecar healthy + registered shows "Signal Connected"', () async {
-      fakeSidecar.fakeRegistered = true;
+      fakeSidecar.fakeRegistrationState = SignalRegistrationState.registered;
       final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
       expect(res.statusCode, 200);
       final body = await res.readAsString();
@@ -64,17 +60,47 @@ void main() {
       expect(body, contains('class="pairing-qr-frame"'));
       expect(body, isNot(contains('style="')));
       expect(body, isNot(contains('wa-')));
+      expect(fakeSidecar.linkUriRequests, 1);
+    });
+
+    test('indeterminate registration does not start linking', () async {
+      fakeSidecar.fakeRegistrationState = SignalRegistrationState.unknown;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, contains('Registration Status Unavailable'));
+      expect(body, isNot(contains('Connect Signal')));
+      expect(fakeSidecar.linkUriRequests, 0);
     });
 
     test('sidecar not reachable shows setup instructions', () async {
-      fakeSidecar.fakeHealthy = false;
+      fakeSidecar.fakeRunning = false;
       final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
       expect(res.statusCode, 200);
       final body = await res.readAsString();
       expect(body, contains('signal-cli Not Reachable'));
-      expect(body, contains('class="well-deep"'));
+      expect(body, contains('class="well-deep pairing-config-block"'));
       expect(body, isNot(contains('style="')));
       expect(body, isNot(contains('wa-')));
+      expect(fakeSidecar.healthCheckRequests, 0);
+    });
+
+    test('sidecar restart backoff shows reconnecting state without probing', () async {
+      fakeSidecar
+        ..fakeRunning = false
+        ..fakeWasPaired = true
+        ..fakeRestartCount = 2;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, contains('Reconnecting'));
+      expect(body, contains('Attempt'));
+      expect(body, contains('2 of 5'));
+      expect(fakeSidecar.healthCheckRequests, 0);
     });
 
     test('status probe failure shows clean setup card without leaking the exception', () async {

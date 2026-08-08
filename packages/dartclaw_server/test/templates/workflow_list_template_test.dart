@@ -27,6 +27,7 @@ Map<String, dynamic> _makeRun({
   int completedSteps = 2,
   int totalSteps = 4,
   int progressPercent = 50,
+  bool hasStepCount = true,
   String startedAtDisplay = '1h ago',
   String totalTokens = '12,000',
 }) {
@@ -39,6 +40,12 @@ Map<String, dynamic> _makeRun({
     'completedSteps': completedSteps,
     'totalSteps': totalSteps,
     'progressPercent': progressPercent,
+    'hasStepCount': hasStepCount,
+    'dotClass': 'status-dot--live',
+    'attention': false,
+    'meterFillClass': '',
+    'percentageClass': '',
+    'startedAtIso': '2026-03-24T10:00:00Z',
     'startedAtDisplay': startedAtDisplay,
     'totalTokens': totalTokens,
     'href': '/workflows/$id',
@@ -115,7 +122,7 @@ void main() {
       final html = _render();
       expect(html, contains('workflow-list-page'));
       expect(html, contains('class="content-area print-in"'));
-      expect(html, contains('class="content-inner workflow-list-page"'));
+      expect(html, contains('class="content-inner content-inner--wide workflow-list-page"'));
       expect(html, isNot(contains('page-content')));
       expect(html, isNot(contains('page-inner')));
     });
@@ -125,9 +132,18 @@ void main() {
       expect(html, contains('No workflow runs found'));
     });
 
+    test('workflow launch actions use the orchestration button tier', () {
+      final html = _render(definitions: [_makeDefinition()]);
+
+      expect(html, contains('<summary class="btn btn-secondary btn-sm btn-full">Run</summary>'));
+      expect(html, contains('<button type="submit" class="btn btn-secondary btn-sm">Launch</button>'));
+      expect(html, isNot(contains('onclick=')));
+    });
+
     test('renders run cards when runs present', () {
       final html = _render(runs: [_makeRun()]);
-      expect(html, contains('workflow-run-card card print-in'));
+      expect(html, contains('class="workflow-runs-stack"'));
+      expect(html, contains('card run-card print-in'));
       expect(html, contains('spec-and-implement'));
     });
 
@@ -154,6 +170,12 @@ void main() {
       expect(html, contains('steps'));
     });
 
+    test('S03 unknown step count renders absent value without meter', () {
+      final html = _render(runs: [_makeRun(hasStepCount: false, completedSteps: 0, totalSteps: 0)]);
+      expect(html, contains('class="value-absent"'));
+      expect(html, isNot(contains('class="meter"')));
+    });
+
     test('renders run link to detail page', () {
       final html = _render(runs: [_makeRun(id: 'run-abc')]);
       expect(html, contains('/workflows/run-abc'));
@@ -172,9 +194,11 @@ void main() {
       expect(html, contains('Failed'));
     });
 
-    test('active filter button gets btn-active class', () {
+    test('active filter gets canonical active tab marker', () {
       final html = _render(filters: _makeFilters(activeStatus: 'running'));
-      expect(html, contains('btn-active'));
+      expect(html, contains('<nav class="tabs" aria-labelledby="workflow-status-filter-label">'));
+      expect(html, contains('class="tab t-label active"'));
+      expect(html, contains('aria-current="page"'));
     });
 
     test('definition browser not shown when no definitions', () {
@@ -185,15 +209,27 @@ void main() {
     test('definition browser shown when definitions present', () {
       final html = _render(definitions: [_makeDefinition()]);
       expect(html, contains('workflow-definitions-section'));
+      expect(html, contains('class="workflow-definition-card card"'));
+      expect(html, contains('data-icon="workflow"'));
+      expect(html, contains('<h3 class="workflow-definition-name t-heading">spec-and-implement</h3>'));
       expect(html, contains('spec-and-implement'));
     });
 
     test('definition cards include launch forms', () {
       final html = _render(definitions: [_makeDefinition()]);
-      expect(html, contains('workflow-launch-form'));
+      expect(html, contains('data-workflow-launch-form'));
       expect(html, contains('Run'));
       expect(html, contains('var_FEATURE'));
-      expect(html, contains('Cancel'));
+      expect(html, isNot(contains('onclick=')));
+    });
+
+    test('launch forms defer required variable validation to the inline error target', () {
+      final html = _render(definitions: [_makeDefinition()]);
+      final requiredVariableInput = RegExp(r'<input[^>]*name="var_FEATURE"[^>]*>').firstMatch(html)?.group(0);
+
+      expect(requiredVariableInput, isNotNull);
+      expect(requiredVariableInput, isNot(contains(' required')));
+      expect(html, contains('id="workflow-error-spec-and-implement"'));
     });
 
     test('renders definition description', () {
@@ -228,6 +264,7 @@ void main() {
         ],
       );
       expect(html, contains('workflow-var-chip'));
+      expect(html, contains('class="chip workflow-var-chip"'));
       expect(html, contains('FEATURE'));
       expect(html, contains('PROJECT'));
     });

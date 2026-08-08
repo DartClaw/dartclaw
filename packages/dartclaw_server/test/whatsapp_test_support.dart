@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
@@ -9,8 +10,9 @@ import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 /// than in the testing barrel.
 ///
 /// Lifecycle methods ([start], [stop], [reset]) are no-ops. Outbound messages
-/// are recorded in [sentTexts]/[sentMedia]; [firstSent] completes on the first
-/// [sendText]/[sendMedia]. Status and running/paired state are configurable so
+/// are recorded in [sentTexts]/[sentMedia], chat presence in
+/// [chatPresenceUpdates], and delivery order in [outboundEvents]. [firstSent]
+/// completes on the first [sendText]/[sendMedia]. Status and running/paired state are configurable so
 /// each call site can reproduce its own permutation.
 class FakeGowaManager extends GowaManager {
   FakeGowaManager({
@@ -18,6 +20,7 @@ class FakeGowaManager extends GowaManager {
     GowaStatus status = (isConnected: false, isLoggedIn: false, deviceId: null),
     String? pairedJid,
     GowaLoginQr loginQrValue = (url: null, durationSeconds: 60),
+    this.statusThrows = false,
   }) : _running = running,
        _status = status,
        _pairedJid = pairedJid,
@@ -28,10 +31,14 @@ class FakeGowaManager extends GowaManager {
   final GowaStatus _status;
   final String? _pairedJid;
   final GowaLoginQr _loginQr;
+  final bool statusThrows;
 
   final List<(String, String)> sentTexts = [];
   final List<(String, String)> sentMedia = [];
+  final List<(String, bool)> chatPresenceUpdates = [];
+  final List<String> outboundEvents = [];
   final _firstSentCompleter = Completer<void>();
+  int statusRequests = 0;
 
   /// Completes when the first outbound message is sent.
   Future<void> get firstSent => _firstSentCompleter.future;
@@ -54,6 +61,7 @@ class FakeGowaManager extends GowaManager {
   @override
   Future<void> sendText(String jid, String text) async {
     sentTexts.add((jid, text));
+    outboundEvents.add('text:$jid');
     if (!_firstSentCompleter.isCompleted) _firstSentCompleter.complete();
   }
 
@@ -63,7 +71,21 @@ class FakeGowaManager extends GowaManager {
   }
 
   @override
-  Future<GowaStatus> status() async => _status;
+  Future<void> sendChatPresence(String jid, {required bool isTyping}) async {
+    chatPresenceUpdates.add((jid, isTyping));
+    outboundEvents.add('${isTyping ? 'start' : 'stop'}:$jid');
+  }
+
+  @override
+  Future<GowaStatus> status() async {
+    statusRequests++;
+    if (statusThrows) {
+      throw const SocketException(
+        'Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 58402',
+      );
+    }
+    return _status;
+  }
 
   @override
   Future<GowaLoginQr> loginQr() async => _loginQr;

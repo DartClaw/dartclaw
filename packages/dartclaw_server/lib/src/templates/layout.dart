@@ -14,6 +14,16 @@ List<String> standardShellScripts() {
   return <String>[..._defaultLayoutScripts];
 }
 
+/// Browser-title fragment for HTMX responses. Dynamic values are escaped by
+/// the same Trellis fragment used by the full document layout.
+String documentTitleFragment({required String title, String appName = 'DartClaw'}) {
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('layout'),
+    fragment: 'documentTitle',
+    context: {'title': title, 'appName': appName},
+  );
+}
+
 /// Full HTML document wrapper. [title] is auto-escaped by Trellis (`tl:text`);
 /// [body] is raw HTML inserted verbatim via `tl:utext`.
 ///
@@ -23,11 +33,17 @@ List<String> standardShellScripts() {
 ///
 /// Callers should wrap `<main id="main-content" hx-history-elt>` in [body]
 /// for HTMX SPA navigation history tracking.
+///
+/// [showSkipLink] emits the body-first "Skip to content" link. It defaults to
+/// true because every standard shell body supplies `#main-content`; a caller
+/// whose body does not (login, the bare error fallback) must pass false, or the
+/// link becomes a focusable control that jumps nowhere.
 String layoutTemplate({
   required String title,
   required String body,
   String appName = 'DartClaw',
   List<String> scripts = _defaultLayoutScripts,
+  bool showSkipLink = true,
 }) {
   final scriptsHtml = _renderScriptTags(scripts);
   return templateLoader.trellis.render(templateLoader.source('layout'), {
@@ -36,6 +52,7 @@ String layoutTemplate({
     'appName': appName,
     'assetPrefix': '/static/v$dartclawVersion',
     'scriptsHtml': scriptsHtml,
+    'showSkipLink': showSkipLink,
   });
 }
 

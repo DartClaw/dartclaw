@@ -16,7 +16,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutionCursorNodeType,
         WorkflowLoop,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowStepCompletedEvent;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -234,6 +235,8 @@ void main() {
     await h.repository.insert(run);
 
     var taskCount = 0;
+    final completedEvents = <WorkflowStepCompletedEvent>[];
+    final completedSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen(completedEvents.add);
     final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
@@ -244,6 +247,7 @@ void main() {
 
     await executor.execute(run, definition, WorkflowContext(variables: const {'PROJECT': 'proj'}));
     await sub.cancel();
+    await completedSub.cancel();
 
     expect(taskCount, equals(1));
     final finalRun = await h.repository.getById('run-1');
@@ -258,6 +262,11 @@ void main() {
     expect(cursor?.nodeId, equals('l1'));
     expect(cursor?.stepId, equals('ls'));
     expect(cursor?.iteration, equals(1));
+    expect(completedEvents, hasLength(1));
+    expect(completedEvents.single.stepId, 'ls');
+    expect(completedEvents.single.success, isFalse);
+    expect(completedEvents.single.outcome, 'cancelled');
+    expect(completedEvents.single.taskId, isNotEmpty);
     expect(cleanupCalls, isEmpty, reason: 'teardown pause must not destroy worktrees via cleanupWorkflowGit');
   });
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show AgentExecution, ArtifactKind, Task, TaskArtifact, TaskRepository, TaskStatus, TaskType, WorkflowStepExecution;
+    show AgentExecution, ArtifactKind, Task, TaskArtifact, TaskRepository, TaskStatus, TaskType;
 import 'package:sqlite3/sqlite3.dart';
+
+import 'sqlite_execution_row_mappers.dart';
 
 /// SQLite-backed task persistence for [Task] and [TaskArtifact].
 class SqliteTaskRepository implements TaskRepository {
@@ -573,60 +575,17 @@ class SqliteTaskRepository implements TaskRepository {
       configJson: _decodeJson(row['task_config_json'] as String),
       worktreeJson: _decodeJsonNullable(row['task_worktree_json'] as String?),
       createdAt: DateTime.parse(row['task_created_at'] as String),
-      startedAt: _decodeDateTime(row['task_started_at']),
-      completedAt: _decodeDateTime(row['task_completed_at']),
+      startedAt: sqliteDateTime(row['task_started_at']),
+      completedAt: sqliteDateTime(row['task_completed_at']),
       createdBy: row['task_created_by'] as String?,
       agentExecutionId: row['task_agent_execution_id'] as String?,
-      agentExecution: _agentExecutionFromRow(row),
+      agentExecution: nullableAgentExecutionFromRow(row, prefix: 'ae_'),
       projectId: row['task_project_id'] as String?,
       workflowRunId: row['task_workflow_run_id'] as String?,
       stepIndex: row['task_step_index'] as int?,
-      workflowStepExecution: _workflowStepExecutionFromRow(row),
+      workflowStepExecution: nullableWorkflowStepExecutionFromRow(row, prefix: 'wse_'),
       maxRetries: (row['task_max_retries'] as int?) ?? 0,
       retryCount: (row['task_retry_count'] as int?) ?? 0,
-    );
-  }
-
-  AgentExecution? _agentExecutionFromRow(Row row) {
-    final id = row['ae_id'] as String?;
-    if (id == null || id.isEmpty) {
-      return null;
-    }
-    return AgentExecution(
-      id: id,
-      sessionId: row['ae_session_id'] as String?,
-      provider: row['ae_provider'] as String?,
-      model: row['ae_model'] as String?,
-      workspaceDir: row['ae_workspace_dir'] as String?,
-      containerJson: row['ae_container_json'] as String?,
-      budgetTokens: row['ae_budget_tokens'] as int?,
-      harnessMetaJson: row['ae_harness_meta_json'] as String?,
-      startedAt: _decodeDateTime(row['ae_started_at']),
-      completedAt: _decodeDateTime(row['ae_completed_at']),
-    );
-  }
-
-  WorkflowStepExecution? _workflowStepExecutionFromRow(Row row) {
-    final taskId = row['wse_task_id'] as String?;
-    if (taskId == null || taskId.isEmpty) {
-      return null;
-    }
-    return WorkflowStepExecution(
-      taskId: taskId,
-      agentExecutionId: row['wse_agent_execution_id'] as String,
-      workflowRunId: row['wse_workflow_run_id'] as String,
-      stepIndex: row['wse_step_index'] as int,
-      stepId: row['wse_step_id'] as String,
-      stepType: row['wse_step_type'] as String?,
-      gitJson: row['wse_git_json'] as String?,
-      providerSessionId: row['wse_provider_session_id'] as String?,
-      structuredSchemaJson: row['wse_structured_schema_json'] as String?,
-      structuredOutputJson: row['wse_structured_output_json'] as String?,
-      followUpPromptsJson: row['wse_follow_up_prompts_json'] as String?,
-      externalArtifactMount: row['wse_external_artifact_mount'] as String?,
-      mapIterationIndex: row['wse_map_iteration_index'] as int?,
-      mapIterationTotal: row['wse_map_iteration_total'] as int?,
-      stepTokenBreakdownJson: row['wse_step_token_breakdown_json'] as String?,
     );
   }
 
@@ -640,8 +599,6 @@ class SqliteTaskRepository implements TaskRepository {
       createdAt: DateTime.parse(row['created_at'] as String),
     );
   }
-
-  DateTime? _decodeDateTime(Object? value) => value == null ? null : DateTime.parse(value as String);
 
   String _encodeJson(Map<String, dynamic> value) => jsonEncode(value);
 

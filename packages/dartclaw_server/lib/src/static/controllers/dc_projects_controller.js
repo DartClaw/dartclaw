@@ -1,4 +1,4 @@
-import { initCustomSelects, showToast } from './shared.js';
+import { confirmDialog, initCustomSelects, showToast } from './shared.js';
 
 export default class DcProjectsController extends Stimulus.Controller {
   connect() {
@@ -116,6 +116,18 @@ export default class DcProjectsController extends Stimulus.Controller {
     return body;
   }
 
+  async refreshProjects(message) {
+    try {
+      sessionStorage.removeItem('dartclaw-queued-toast');
+    } catch (_) {}
+    await htmx.ajax('GET', '/projects', {
+      target: '#projects-content',
+      select: '#projects-content',
+      swap: 'outerHTML',
+    });
+    showToast('success', message);
+  }
+
   async createProject(form) {
     const body = this.projectPayload(form);
     if (!body.remoteUrl || !body.name) {
@@ -130,7 +142,7 @@ export default class DcProjectsController extends Stimulus.Controller {
       });
       if (response.ok || response.status === 201) {
         this.dialog?.close();
-        window.location.reload();
+        await this.refreshProjects('Project added');
         return;
       }
       const data = await response.json().catch(() => ({}));
@@ -152,7 +164,7 @@ export default class DcProjectsController extends Stimulus.Controller {
       if (response.ok) {
         delete form.dataset.editProjectId;
         this.dialog?.close();
-        window.location.reload();
+        await this.refreshProjects('Project updated');
         return;
       }
       const data = await response.json().catch(() => ({}));
@@ -172,7 +184,7 @@ export default class DcProjectsController extends Stimulus.Controller {
     try {
       const response = await fetch('/api/projects/' + projectId + '/fetch', { method: 'POST' });
       if (response.ok) {
-        window.location.reload();
+        await this.refreshProjects('Project fetched');
         return;
       }
       const data = await response.json().catch(() => ({}));
@@ -186,14 +198,21 @@ export default class DcProjectsController extends Stimulus.Controller {
   }
 
   async removeProject(button) {
+    // Read the dataset before awaiting — the row is re-rendered under us.
     const projectId = button.dataset.projectRemove;
     const projectName = button.dataset.projectName || projectId;
     if (!projectId) return;
-    if (!window.confirm('Remove project \'' + projectName + '\'? Running tasks will be cancelled.')) return;
+    const confirmed = await confirmDialog({
+      title: 'Remove project',
+      body: 'Remove project "' + projectName + '"? Running tasks will be cancelled.',
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch('/api/projects/' + projectId, { method: 'DELETE' });
       if (response.ok || response.status === 204) {
-        window.location.reload();
+        await this.refreshProjects('Project removed');
         return;
       }
       const data = await response.json().catch(() => ({}));

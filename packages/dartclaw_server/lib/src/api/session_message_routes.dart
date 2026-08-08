@@ -9,6 +9,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/request_auth_context.dart';
+import '../session/session_display_title.dart';
 import '../templates/chat.dart' show richInputHtmlFromMetadataMap;
 import '../templates/loader.dart';
 import '../turn_manager.dart' show TurnManager;
@@ -38,6 +39,7 @@ void registerSessionMessageRoutes(
   MessageRedactor? redactor,
   ChatCommandHandler? chatCommandHandler,
   ProjectService? projectService,
+  required SessionMutationCoordinator sessionMutations,
 }) {
   // GET /api/sessions/<id>/messages
   router.get('/api/sessions/<id>/messages', (Request request, String id) async {
@@ -60,17 +62,8 @@ void registerSessionMessageRoutes(
     try {
       // 1. Look up session
       final session = await sessions.getSession(id);
-      if (session == null) {
-        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
-      }
-      if (session.type == SessionType.archive) {
-        return errorResponse(403, 'FORBIDDEN', 'Cannot send to archived session');
-      }
-      if (session.type == SessionType.task) {
-        return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
-      }
-      final providerValidation = _validateSessionProviderForSend(session.provider, turns.pool);
-      if (providerValidation != null) return providerValidation;
+      final sessionValidation = _validateSessionForSend(session, turns.pool);
+      if (sessionValidation != null) return sessionValidation;
 
       // 2. Parse + validate message
       final parsed = await parseBodyFields(request);
@@ -88,49 +81,62 @@ void registerSessionMessageRoutes(
       final trimmedMessage = rawMessage?.trim() ?? '';
       final messageValidation = _validateMessage(trimmedMessage, richInput.metadata != null);
       if (messageValidation != null) return messageValidation;
-      final commandHandler = chatCommandHandler;
-      if (commandHandler != null && trimmedMessage.isNotEmpty) {
-        final commandResponse = await commandHandler.handle(request, session, trimmedMessage);
-        if (commandResponse != null) {
-          return commandResponse;
-        }
-      }
+      final ({String? turnId, Response? response}) turnResult = await sessionMutations.run(id, () async {
+        final current = await sessions.getSession(id);
+        final currentValidation = _validateSessionForSend(current, turns.pool);
+        if (currentValidation != null) return (turnId: null, response: currentValidation);
 
-      // 3. Reserve turn — same-session queues behind active turn, global cap → 409.
-      final String turnId;
-      try {
-        turnId = await turns.reserveTurn(id, isHumanInput: true, promptScope: PromptScope.webInteractive);
-      } on BusyTurnException {
-        if (session.provider != null) {
-          return errorResponse(409, 'AGENT_BUSY_PROVIDER', 'No idle ${session.provider} workers available', {
-            'provider': session.provider,
-          });
+        final commandHandler = chatCommandHandler;
+        if (commandHandler != null && trimmedMessage.isNotEmpty) {
+          final commandResponse = await commandHandler.handle(request, current!, trimmedMessage);
+          if (commandResponse != null) return (turnId: null, response: commandResponse);
         }
-        return errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
-      }
 
-      // 4. Persist + fetch messages; release reservation on failure.
-      try {
-        final persistedMessage = await messages.insertMessage(
-          sessionId: id,
-          role: 'user',
-          content: trimmedMessage,
-          metadata: richInput.metadataJson,
-        );
-        final sessionMessages = await messages.getMessages(id);
-        final messagesList = _messagesForTurn(
-          sessionMessages,
-          activeUserMessageId: persistedMessage.id,
-          activeContext: richInput.turnContextMetadata == null
-              ? null
-              : _richInputContextFromMetadata(richInput.turnContextMetadata!),
-        );
-        // 5. Launch async execution.
-        turns.executeTurn(id, turnId, messagesList, source: 'web');
-      } catch (e) {
-        turns.releaseTurn(id, turnId);
-        rethrow;
-      }
+        // 3. Reserve turn — same-session queues behind active turn, global cap → 409.
+        final String turnId;
+        try {
+          turnId = await turns.reserveTurn(id, isHumanInput: true, promptScope: PromptScope.webInteractive);
+        } on BusyTurnException {
+          if (current!.provider != null) {
+            return (
+              turnId: null,
+              response: errorResponse(409, 'AGENT_BUSY_PROVIDER', 'No idle ${current.provider} workers available', {
+                'provider': current.provider,
+              }),
+            );
+          }
+          return (
+            turnId: null,
+            response: errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session'),
+          );
+        }
+
+        // 4. Persist + fetch messages; release reservation on failure.
+        try {
+          final persistedMessage = await messages.insertMessage(
+            sessionId: id,
+            role: 'user',
+            content: trimmedMessage,
+            metadata: richInput.metadataJson,
+          );
+          final sessionMessages = await messages.getMessages(id);
+          final messagesList = _messagesForTurn(
+            sessionMessages,
+            activeUserMessageId: persistedMessage.id,
+            activeContext: richInput.turnContextMetadata == null
+                ? null
+                : _richInputContextFromMetadata(richInput.turnContextMetadata!),
+          );
+          // 5. Launch async execution.
+          turns.executeTurn(id, turnId, messagesList, source: 'web');
+          return (turnId: turnId, response: null);
+        } catch (e) {
+          turns.releaseTurn(id, turnId);
+          rethrow;
+        }
+      });
+      if (turnResult.response != null) return turnResult.response!;
+      final turnId = turnResult.turnId!;
 
       // 6. Return HTML fragment
       final html = templateLoader.trellis.renderFragment(
@@ -468,7 +474,7 @@ Future<({Map<String, dynamic>? reference, Response? error})> _resolveReference({
     if (session == null) {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
-    final label = session.title?.trim().isNotEmpty ?? false ? session.title!.trim() : session.id;
+    final label = displaySessionTitle(session.title, session.type, emptyTitle: session.id);
     return (reference: {'type': 'session', 'id': session.id, 'label': label}, error: null);
   }
   if (type == 'project') {
@@ -589,4 +595,17 @@ Response? _validateSessionProviderForSend(String? provider, HarnessPool pool) {
   return errorResponse(409, 'PROVIDER_UNAVAILABLE', 'Provider "$provider" is not available for session overrides', {
     'provider': provider,
   });
+}
+
+Response? _validateSessionForSend(Session? session, HarnessPool pool) {
+  if (session == null) {
+    return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+  }
+  if (session.type == SessionType.archive) {
+    return errorResponse(403, 'FORBIDDEN', 'Cannot send to archived session');
+  }
+  if (session.type == SessionType.task) {
+    return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
+  }
+  return _validateSessionProviderForSend(session.provider, pool);
 }

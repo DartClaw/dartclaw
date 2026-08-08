@@ -56,6 +56,7 @@ class _QueueEntry {
 /// concurrency cap, and retry with dead-letter.
 class MessageQueue {
   static final _log = Logger('MessageQueue');
+  static const _typingOperationTimeout = Duration(seconds: 3);
 
   final Duration debounceWindow;
   final int maxConcurrentTurns;
@@ -247,30 +248,32 @@ class MessageQueue {
           _activeFairSender[sessionKey] = entry.senderJid;
         }
         try {
-          final responseFuture = _dispatcher(
-            entry.sessionKey,
-            entry.message.text,
-            senderJid: entry.message.senderJid,
-            senderDisplayName: entry.message.senderDisplayName,
-          );
-          final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);
-          final observer = _turnObserver;
-          final skipSendFuture = observer != null
-              ? observer(
-                  entry.sessionKey,
-                  entry.message,
-                  entry.sourceChannel,
-                  resolveRecipientId(entry.message),
-                  redactedResponseFuture,
-                )
-              : null;
-          final response = await redactedResponseFuture;
-          final skipSend = skipSendFuture != null
-              ? await skipSendFuture.catchError((Object e, StackTrace st) {
-                  _log.warning('Turn observer failed for ${entry.sessionKey}', e, st);
-                  return false;
-                })
-              : false;
+          final recipientJid = resolveRecipientId(entry.message);
+          await _setTyping(entry.sourceChannel, recipientJid, isTyping: true, sessionKey: entry.sessionKey);
+          late final String response;
+          var skipSend = false;
+          try {
+            final responseFuture = _dispatcher(
+              entry.sessionKey,
+              entry.message.text,
+              senderJid: entry.message.senderJid,
+              senderDisplayName: entry.message.senderDisplayName,
+            );
+            final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);
+            final observer = _turnObserver;
+            final skipSendFuture = observer != null
+                ? observer(entry.sessionKey, entry.message, entry.sourceChannel, recipientJid, redactedResponseFuture)
+                : null;
+            response = await redactedResponseFuture;
+            skipSend = skipSendFuture != null
+                ? await skipSendFuture.catchError((Object e, StackTrace st) {
+                    _log.warning('Turn observer failed for ${entry.sessionKey}', e, st);
+                    return false;
+                  })
+                : false;
+          } finally {
+            await _setTyping(entry.sourceChannel, recipientJid, isTyping: false, sessionKey: entry.sessionKey);
+          }
           if (skipSend) {
             continue;
           }
@@ -293,7 +296,6 @@ class MessageQueue {
                   replyToMessageId: entry.message.metadata['messageName'] as String?,
                 ),
               );
-          final recipientJid = resolveRecipientId(entry.message);
           for (final chunk in formatted) {
             await entry.sourceChannel.sendMessage(recipientJid, chunk);
           }
@@ -466,6 +468,20 @@ class MessageQueue {
       );
     } catch (e) {
       _log.warning('Failed to send busy response', e);
+    }
+  }
+
+  Future<void> _setTyping(
+    Channel channel,
+    String recipientJid, {
+    required bool isTyping,
+    required String sessionKey,
+  }) async {
+    try {
+      final operation = isTyping ? channel.startTyping(recipientJid) : channel.stopTyping(recipientJid);
+      await operation.timeout(_typingOperationTimeout);
+    } catch (error, stackTrace) {
+      _log.warning('Failed to ${isTyping ? 'start' : 'stop'} typing for $sessionKey', error, stackTrace);
     }
   }
 

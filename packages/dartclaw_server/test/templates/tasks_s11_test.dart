@@ -262,11 +262,12 @@ void main() {
       expect(html, contains('<th class="task-col-tokens">Tokens</th>'));
     });
 
-    test('shows dash when task has no token events', () {
+    test('shows the canon absent treatment when task has no token events', () {
       final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [reviewTask]);
 
       expect(html, contains('task-tokens-static'));
-      expect(html, contains('—'));
+      expect(html, contains('task-tokens-static value-absent'));
+      expect(html, isNot(contains('—')));
     });
 
     test('shows formatted token total from token events', () {
@@ -347,8 +348,9 @@ void main() {
         taskEventService: eventService,
       );
 
-      // No token events → should show dash
-      expect(html, contains('—'));
+      // No token events → the canon absent treatment, not a literal dash
+      expect(html, contains('task-tokens-static value-absent'));
+      expect(html, isNot(contains('—')));
     });
   });
 }

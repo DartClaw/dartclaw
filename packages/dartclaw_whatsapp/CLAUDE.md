@@ -3,7 +3,7 @@
 **Role**: WhatsApp channel adapter — manages the GOWA Go binary as a subprocess and implements the `Channel` contract from `dartclaw_core`. Entry point: `WhatsAppChannel`; sidecar driver: `GowaManager`; barrel re-exports + parser registration: `lib/dartclaw_whatsapp.dart`.
 
 ## Shape
-- **Outbound**: agent reply → `ResponseFormatter` (prefix + chunk + media interleave) → `WhatsAppChannel.sendMessage` → `GowaManager._post` (v8 envelope unwrap) → GOWA HTTP API → WhatsApp.
+- **Outbound**: queued turn → `WhatsAppChannel.startTyping` / `stopTyping` → agent reply → `ResponseFormatter` (Markdown conversion + prefix + chunk + media interleave) → `WhatsAppChannel.sendMessage` → `GowaManager._post` (v8 envelope unwrap) → GOWA HTTP API → WhatsApp.
 - **Inbound**: WhatsApp → GOWA → POST `/whatsapp/webhook` (route in `dartclaw_server`) → `WhatsAppChannel.handleWebhook(payload)` → parse (filters `is_from_me`, JID format check) → `ChannelMessage` → `ChannelManager` (in core) → `ChannelTaskBridge`.
 - **Subprocess lifecycle**: `GowaManager.start()` spawns the GOWA binary or attaches to an existing instance; `_ensureDevice()` provisions an `X-Device-Id`; pairing capture watches stderr for `LOGIN_SUCCESS`.
 
@@ -16,6 +16,7 @@
 - Construct subprocess managers with injected `ProcessFactory`, `DelayFactory`, and `HealthProbe` so tests can run `start()`/`stop()`/crash-recovery without a real binary.
 - All GOWA REST calls go through `_post`/`_get` (which unwrap the v8 `{status,code,message,results}` envelope); only health probes and `/devices` use `_postRaw`/`_getRaw`.
 - Outbound media routes by file extension in `GowaManager.sendMedia` (image/video/file). Add new types there, not at call sites.
+- Chat typing uses bounded GOWA v8.3.2 `POST /send/chat-presence` calls with `action: start|stop`; `WhatsAppChannel` serializes transitions per recipient and sends STOP before disconnect resets the sidecar. Use the typed manager method so device headers and envelope handling stay centralized.
 - Channel config is registered via top-level side-effect in `dartclaw_whatsapp.dart` (`DartclawConfig.registerChannelConfigParser`). New users of `WhatsAppConfig` must call `ensureDartclawWhatsappRegistered()` so tree-shaking does not drop the parser.
 
 ## Gotchas
@@ -37,5 +38,6 @@
 - `lib/src/whatsapp_channel.dart` — `Channel` impl, webhook parsing, DM/group/mention gating, ban latch.
 - `lib/src/gowa_manager.dart` — subprocess lifecycle, REST client, device provisioning, JID capture.
 - `lib/src/whatsapp_config.dart` — typed config + `fromYaml`.
-- `lib/src/response_formatter.dart` — `*Model* — _Agent_` prefix + chunking + media interleave.
+- `lib/src/response_formatter.dart` — `*Model* — _Agent_` prefix + balanced native-markup chunking + media interleave.
+- `lib/src/markdown_converter.dart` — thin WhatsApp link wrapper over core's shared Markdown converter.
 - `lib/src/media_extractor.dart` — `MEDIA:<path>` directives resolved against workspace dir.

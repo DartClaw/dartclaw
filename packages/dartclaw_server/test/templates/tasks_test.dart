@@ -27,9 +27,10 @@ void main() {
     test('renders empty state with no tasks', () {
       final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const []);
 
+      // Composed through the shared emptyState fragment, not a page-local copy.
       expect(html, contains('No tasks yet'));
-      expect(html, contains('Tasks will appear here when created.'));
-      expect(html, contains('class="claw-mark"'));
+      expect(html, contains('Create a task to hand a piece of work to an agent.'));
+      expect(html, contains('empty-state-title t-label'));
       expect(html, isNot(contains('\u2610')));
     });
 
@@ -70,9 +71,14 @@ void main() {
       );
 
       expect(html, contains('Interrupted'));
-      expect(html, contains('status-badge-interrupted'));
+      // The table's STATUS column is a canon pill driven by the shared
+      // presentation map, not the badge vocabulary.
+      expect(html, contains('status-pill--warning'));
+      expect(html, contains('status-dot--warning'));
       expect(html, contains('value="interrupted"'));
       expect(html, contains('selected'));
+      expect(html, contains('<section class="task-status-group" aria-labelledby="task-status-interrupted">'));
+      expect(html, contains('<h2 class="t-heading" id="task-status-interrupted">'));
     });
 
     test('links task title to detail page', () {

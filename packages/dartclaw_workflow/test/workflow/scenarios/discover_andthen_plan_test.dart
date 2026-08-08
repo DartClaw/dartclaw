@@ -3,8 +3,7 @@ library;
 
 import 'dart:convert';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, OutputConfig, OutputFormat, TaskType, WorkflowStep;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show OutputConfig, OutputFormat, TaskType, WorkflowStep;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -231,12 +230,7 @@ Future<Map<String, dynamic>> _extractDiscoverAndthenPlanOutputs(
   );
   await harness.tasks.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': projectRoot});
   final taskWithSession = (await harness.tasks.get(task.id))!;
-  final extractor = ContextExtractor(
-    taskService: harness.tasks,
-    messageService: harness.messages,
-    dataDir: harness.tempDir.path,
-    workflowStepExecutionRepository: harness.workflowStepExecutions,
-  );
+  final extractor = harness.contextExtractor();
   return extractor.extract(
     const WorkflowStep(
       id: 'discover-plan-state',

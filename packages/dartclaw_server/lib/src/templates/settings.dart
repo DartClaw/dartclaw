@@ -38,7 +38,7 @@ String settingsTemplate({
   bool guardFailOpen = false,
   List<GuardConfigSummary> guardConfigs = const [],
   String? workspacePath,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
@@ -51,12 +51,11 @@ String settingsTemplate({
 
   // Pre-render status badges.
   final healthBadgeHtml = statusBadgeTemplate(variant: healthVariant, text: healthLabel);
-  final whatsAppStatusBadgeHtml = statusBadgeTemplate(variant: whatsAppStatus.badgeVariant, text: whatsAppStatus.label);
-  final signalStatusBadgeHtml = statusBadgeTemplate(variant: signalStatus.badgeVariant, text: signalStatus.label);
-  final googleChatStatusBadgeHtml = statusBadgeTemplate(
-    variant: googleChatStatus.badgeVariant,
-    text: googleChatStatus.label,
-  );
+  // Channel badges come from the shared presentation record, so the summary
+  // card and the channel detail page never disagree about a status.
+  final whatsAppStatusBadgeHtml = _channelStatusBadge(whatsAppStatus);
+  final signalStatusBadgeHtml = _channelStatusBadge(signalStatus);
+  final googleChatStatusBadgeHtml = _channelStatusBadge(googleChatStatus);
 
   // Pre-render provider health badges.
   const badgePrefix = 'status-badge-';
@@ -69,11 +68,17 @@ String settingsTemplate({
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(title: 'Settings');
+  final topbar = pageTopbarTemplate(title: 'Settings', restartBannerHtml: restartBannerHtml);
+
+  // The topbar owns the page's only <h1>; the head carries the description.
+  final pageHeaderHtml = pageHeaderTemplate(subtitle: 'Configuration and system status');
+
+  final resolvedVersion = absentValue(version);
 
   final body = templateLoader.trellis.render(templateLoader.source('settings'), {
     'sidebar': sidebar,
     'topbar': topbar,
+    'pageHeaderHtml': pageHeaderHtml,
     'providers': providersWithBadges,
     'hasProviders': providers.isNotEmpty,
     'providerConfiguredCount': providerConfiguredCount,
@@ -100,10 +105,19 @@ String settingsTemplate({
     'healthBadgeHtml': healthBadgeHtml,
     'uptimeStr': uptimeStr,
     'sessionCount': sessionCount,
-    'version': version,
+    'version': resolvedVersion.value ?? '',
+    'versionClass': resolvedVersion.isAbsent ? 'value-absent' : '',
     'workspacePathDisplay': workspacePath ?? '~/.dartclaw/workspace/',
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
   return layoutTemplate(title: 'Settings', body: body, appName: appName, scripts: standardShellScripts());
+}
+
+/// Renders a channel summary badge from the shared [ChannelStatus] presentation.
+///
+/// The dot suffix is the record's own field, never derived from the badge
+/// variant — three statuses share the warning badge with different dots.
+String _channelStatusBadge(ChannelStatus status) {
+  final presentation = status.presentation;
+  return statusBadgeTemplate(variant: status.badgeVariant, text: presentation.label, dot: presentation.dotVariant);
 }

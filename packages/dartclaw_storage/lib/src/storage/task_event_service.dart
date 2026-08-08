@@ -55,23 +55,15 @@ class TaskEventService {
   ///
   /// Optionally filtered by [kind] and limited to [limit] results.
   List<TaskEvent> listForTask(String taskId, {TaskEventKind? kind, int? limit}) {
-    final where = ['task_id = ?'];
-    final params = <Object?>[taskId];
-
-    if (kind != null) {
-      where.add('kind = ?');
-      params.add(kind.name);
-    }
-
-    final whereClause = where.join(' AND ');
+    final filter = _taskFilter(taskId, kind);
     final limitClause = limit != null ? ' LIMIT $limit' : '';
 
     final stmt = _db.prepare(
       'SELECT id, task_id, timestamp, kind, details FROM task_events '
-      'WHERE $whereClause ORDER BY timestamp ASC$limitClause',
+      'WHERE ${filter.whereClause} ORDER BY timestamp ASC$limitClause',
     );
     try {
-      final rows = stmt.select(params);
+      final rows = stmt.select(filter.params);
       return rows.map(_eventFromRow).toList();
     } finally {
       stmt.close();
@@ -80,22 +72,24 @@ class TaskEventService {
 
   /// Returns the count of events for a task, optionally filtered by kind.
   int countForTask(String taskId, {TaskEventKind? kind}) {
-    final where = ['task_id = ?'];
-    final params = <Object?>[taskId];
-
-    if (kind != null) {
-      where.add('kind = ?');
-      params.add(kind.name);
-    }
-
-    final whereClause = where.join(' AND ');
-    final stmt = _db.prepare('SELECT COUNT(*) as cnt FROM task_events WHERE $whereClause');
+    final filter = _taskFilter(taskId, kind);
+    final stmt = _db.prepare('SELECT COUNT(*) as cnt FROM task_events WHERE ${filter.whereClause}');
     try {
-      final rows = stmt.select(params);
+      final rows = stmt.select(filter.params);
       return (rows.firstOrNull?['cnt'] as num?)?.toInt() ?? 0;
     } finally {
       stmt.close();
     }
+  }
+
+  ({String whereClause, List<Object?> params}) _taskFilter(String taskId, TaskEventKind? kind) {
+    final where = ['task_id = ?'];
+    final params = <Object?>[taskId];
+    if (kind != null) {
+      where.add('kind = ?');
+      params.add(kind.name);
+    }
+    return (whereClause: where.join(' AND '), params: params);
   }
 
   TaskEvent _eventFromRow(Row row) {

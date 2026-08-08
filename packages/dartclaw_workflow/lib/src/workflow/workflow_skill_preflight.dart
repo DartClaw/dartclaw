@@ -19,6 +19,22 @@ final class WorkflowSkillPreflightResult {
   }
 }
 
+String? _resolvedPreflightProvider({
+  required WorkflowDefinition definition,
+  required WorkflowStep step,
+  required WorkflowSkillPreflightConfig skillPreflightConfig,
+  required WorkflowRoleDefaults roleDefaults,
+}) {
+  final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
+  return _effectivePreflightProvider(
+    definition: definition,
+    step: step,
+    resolved: resolved,
+    roleDefaults: roleDefaults,
+    defaultProvider: skillPreflightConfig.defaultProvider,
+  )?.trim();
+}
+
 Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
   required WorkflowDefinition definition,
   required SkillIntrospector? introspector,
@@ -32,14 +48,12 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
   final refsByProvider = <String, Set<String>>{};
 
   void addSkillRef(WorkflowStep step, String skill) {
-    final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
-    final provider = _effectivePreflightProvider(
+    final provider = _resolvedPreflightProvider(
       definition: definition,
       step: step,
-      resolved: resolved,
+      skillPreflightConfig: skillPreflightConfig,
       roleDefaults: roleDefaults,
-      defaultProvider: skillPreflightConfig.defaultProvider,
-    )?.trim();
+    );
     if (provider == null || provider.isEmpty) {
       throw WorkflowPreflightException(
         'Step "${step.id}" references skill "$skill" but no provider is configured for runtime preflight.',
@@ -156,14 +170,12 @@ Future<WorkflowSkillCheckResult> checkWorkflowSkillRefs({
   final probeNotes = <String>[];
 
   void addRef(WorkflowStep step, String skill) {
-    final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
-    final provider = _effectivePreflightProvider(
+    final provider = _resolvedPreflightProvider(
       definition: definition,
       step: step,
-      resolved: resolved,
+      skillPreflightConfig: skillPreflightConfig,
       roleDefaults: roleDefaults,
-      defaultProvider: skillPreflightConfig.defaultProvider,
-    )?.trim();
+    );
     if (provider == null || provider.isEmpty) {
       probeNotes.add('Step "${step.id}" references skill "$skill" but no provider is configured; not checked.');
       return;

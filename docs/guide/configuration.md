@@ -70,7 +70,7 @@ Some channel features require the server to be running before they can complete.
 | Channel | Deferred step |
 |---------|---------------|
 | WhatsApp | QR-code pairing (scan shown in logs after `dartclaw serve`) |
-| Signal | Device link (`signal-cli link --name dartclaw`, then restart) |
+| Signal | Open `/signal/pairing` after startup and scan the device-link QR code |
 | Google Chat | Register webhook URL in Google Cloud Console using the configured audience type/value |
 
 #### Security defaults
@@ -312,7 +312,7 @@ channels:
     group_allowlist: []           # signal group IDs (base64)
     require_mention: true         # require @mention in groups
     mention_patterns: []          # regex patterns for mention detection
-    max_chunk_size: 4000          # max message length before chunking
+    max_chunk_size: 4000          # positive max message length, including multipart labels
   google_chat:
     enabled: false
     service_account: ''           # path to service account JSON or inline JSON

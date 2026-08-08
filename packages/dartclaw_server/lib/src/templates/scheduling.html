@@ -1,16 +1,18 @@
 <div tl:fragment="scheduling" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
-    <div class="page-inner" data-controller="dc-scheduling">
+    <div class="page-inner page-inner--wide" data-controller="dc-scheduling">
 
-      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-      <div class="heartbeat-card" id="heartbeat-section">
+      <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
+
+      <div class="card heartbeat-card" id="heartbeat-section">
         <div class="heartbeat-header">
           <span tl:classappend="${pulseClass}" class="pulse-icon"></span>
           <span class="heartbeat-label">Heartbeat</span>
           <tl:block tl:utext="${heartbeatBadgeHtml}">badge</tl:block>
-          <label class="toggle-switch toggle-inline">
+          <label class="form-toggle toggle-inline">
             <input type="checkbox" tl:if="${heartbeatOn}" checked
                    hx-post="/api/settings/heartbeat/toggle"
                    hx-swap="none"
@@ -19,43 +21,43 @@
                    hx-post="/api/settings/heartbeat/toggle"
                    hx-swap="none"
                    hx-vals='js:{"enabled": event.target.checked}'>
-            <span class="toggle-slider"></span>
+            <span class="form-toggle-slider"></span>
           </label>
         </div>
-        <div class="heartbeat-grid">
-          <tl:block tl:utext="${heartbeatMetricCardsHtml}">heartbeat metrics</tl:block>
-        </div>
+        <div tl:if="${hasHeartbeatMetrics}" class="heartbeat-grid"
+             tl:utext="${heartbeatMetricCardsHtml}">heartbeat metrics</div>
       </div>
 
       <div class="section-toolbar">
         <h2 class="section-header">Scheduled Jobs</h2>
-        <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#toggleJobForm">+ Add Job</button>
+        <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#toggleJobForm"
+                data-icon="plus">Add Job</button>
       </div>
 
       <div class="well-content" id="job-form" hidden>
         <div class="form-title">Add New Job</div>
         <div class="form-grid">
-          <div class="form-row">
-            <label for="job-name">Name</label>
-            <input type="text" id="job-name" placeholder="e.g. code-review">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="job-name">Name</label>
+            <input type="text" class="form-input" id="job-name" placeholder="e.g. code-review">
           </div>
-          <div class="form-row">
-            <label for="job-schedule">Schedule</label>
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="job-schedule">Schedule</label>
             <div class="schedule-row">
-              <input type="text" id="job-schedule" placeholder="0 7 * * *" data-action="input->dc-scheduling#updateJobCronPreview">
+              <input type="text" class="form-input" id="job-schedule" placeholder="0 7 * * *" data-action="input->dc-scheduling#updateJobCronPreview">
               <span class="cron-preview" id="cron-preview"></span>
             </div>
           </div>
-          <div class="form-row">
-            <label for="job-prompt">Prompt</label>
-            <textarea id="job-prompt" rows="3" placeholder="Describe the task for the agent..."></textarea>
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="job-prompt">Prompt</label>
+            <textarea class="form-textarea" id="job-prompt" rows="3" placeholder="Describe the task for the agent..."></textarea>
           </div>
-          <div class="form-row">
-            <label>Delivery</label>
-            <div class="radio-group">
-              <label><input type="radio" name="delivery" value="announce" checked> announce</label>
-              <label><input type="radio" name="delivery" value="webhook"> webhook</label>
-              <label><input type="radio" name="delivery" value="none"> none</label>
+          <div class="form-field">
+            <span class="form-label t-caption tracking-caps" id="job-delivery-label">Delivery</span>
+            <div class="radio-group" role="radiogroup" aria-labelledby="job-delivery-label">
+              <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="delivery" value="announce" checked> announce</label>
+              <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="delivery" value="webhook"> webhook</label>
+              <label class="form-field form-field--checkbox"><input type="radio" class="form-radio" name="delivery" value="none"> none</label>
             </div>
           </div>
           <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
@@ -93,10 +95,10 @@
               <td><span tl:classappend="${job.statusDotClass}" class="status-dot"></span> <span tl:text="${job.status}">active</span></td>
               <td tl:if="${job.hasActions}">
                 <div class="action-btns">
-                  <button class="btn-icon-sm"
+                  <button class="btn btn-icon-sm"
                           data-action="click->dc-scheduling#editJob" tl:attr="data-job-name=${job.name}"
                           title="Edit" aria-label="Edit" data-icon="pencil"></button>
-                  <button class="btn-icon-sm"
+                  <button class="btn btn-icon-sm"
                           data-action="click->dc-scheduling#confirmDeleteJob" tl:attr="data-job-name=${job.name}"
                           title="Delete" aria-label="Delete" data-icon="x"></button>
                 </div>
@@ -106,7 +108,7 @@
               </td>
             </tr>
             <tr tl:unless="${hasJobs}">
-              <td colspan="5" class="table-empty-cell">No scheduled jobs configured</td>
+              <td colspan="5" tl:utext="${jobsEmptyStateHtml}">empty state</td>
             </tr>
           </tbody>
         </table>
@@ -115,45 +117,47 @@
 
       <div class="section-toolbar section-toolbar--spaced">
         <h2 class="section-header">Scheduled Tasks</h2>
-        <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#toggleTaskForm">+ Add Task</button>
+        <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#toggleTaskForm"
+                data-icon="plus">Add Task</button>
       </div>
 
       <div class="well-content" id="task-form" hidden>
         <div class="form-title" id="task-form-title">Add Scheduled Task</div>
         <input type="hidden" id="task-edit-id" value="">
         <div class="form-grid">
-          <div class="form-row">
-            <label for="task-id">ID</label>
-            <input type="text" id="task-id" placeholder="e.g. weekly-report">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="task-id">ID</label>
+            <input type="text" class="form-input" id="task-id" placeholder="e.g. weekly-report">
           </div>
-          <div class="form-row">
-            <label for="task-schedule">Schedule</label>
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="task-schedule">Schedule</label>
             <div class="schedule-row">
-              <input type="text" id="task-schedule" placeholder="0 9 * * 1" data-action="input->dc-scheduling#updateTaskCronPreview">
+              <input type="text" class="form-input" id="task-schedule" placeholder="0 9 * * 1" data-action="input->dc-scheduling#updateTaskCronPreview">
               <span class="cron-preview" id="task-cron-preview"></span>
             </div>
           </div>
-          <div class="form-row">
-            <label for="task-title">Title</label>
-            <input type="text" id="task-title" placeholder="Task title">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="task-title">Title</label>
+            <input type="text" class="form-input" id="task-title" placeholder="Task title">
           </div>
-          <div class="form-row">
-            <label for="task-description">Description</label>
-            <textarea id="task-description" rows="3" placeholder="Describe what the task should accomplish..."></textarea>
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="task-description">Description</label>
+            <textarea class="form-textarea" id="task-description" rows="3" placeholder="Describe what the task should accomplish..."></textarea>
           </div>
-          <div class="form-row">
-            <label for="task-type">Type</label>
-            <select id="task-type">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="task-type">Type</label>
+            <select class="form-select" id="task-type">
               <option tl:each="t : ${taskTypes}" tl:attr="value=${t}" tl:text="${t}">type</option>
             </select>
           </div>
-          <div class="form-row">
-            <label for="task-acceptance">Acceptance Criteria</label>
-            <textarea id="task-acceptance" rows="2" placeholder="Optional acceptance criteria..."></textarea>
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="task-acceptance">Acceptance Criteria</label>
+            <textarea class="form-textarea" id="task-acceptance" rows="2" placeholder="Optional acceptance criteria..."></textarea>
           </div>
-          <div class="form-row">
-            <label><input type="checkbox" id="task-enabled" checked> Enabled</label>
-          </div>
+          <label class="form-field form-field--checkbox">
+            <input type="checkbox" class="form-checkbox" id="task-enabled" checked>
+            <span class="form-label t-caption tracking-caps">Enabled</span>
+          </label>
           <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
           <div class="form-actions">
             <button class="btn btn-primary btn-sm" data-action="click->dc-scheduling#submitTaskForm">Save Task</button>
@@ -189,21 +193,20 @@
               <td><span tl:classappend="${task.statusDotClass}" class="status-dot"></span> <span tl:text="${task.statusText}">enabled</span></td>
               <td>
                 <div class="action-btns scheduling-action-btns">
-                  <button class="btn-icon-sm scheduling-action-toggle"
-                          data-action="click->dc-scheduling#toggleScheduledTask" tl:attr="data-task-id=${task.id},aria-label=${task.enabled ? 'Disable scheduled task' : 'Enable scheduled task'}"
-                          tl:attrappend="title=${task.enabled ? 'Disable scheduled task' : 'Enable scheduled task'}"
-                          data-icon="check"></button>
-                  <button class="btn-icon-sm"
+                  <button class="btn btn-icon-sm scheduling-action-toggle"
+                          data-action="click->dc-scheduling#toggleScheduledTask" tl:attr="data-task-id=${task.id},aria-label=${task.enabled ? 'Disable scheduled task' : 'Enable scheduled task'},data-icon=${task.enabled ? 'check' : 'circle-x'}"
+                          tl:attrappend="title=${task.enabled ? 'Disable scheduled task' : 'Enable scheduled task'}"></button>
+                  <button class="btn btn-icon-sm"
                           data-action="click->dc-scheduling#editScheduledTask" tl:attr="data-task-id=${task.id}"
                           title="Edit" aria-label="Edit" data-icon="pencil"></button>
-                  <button class="btn-icon-sm"
-                          data-action="click->dc-scheduling#deleteScheduledTask" tl:attr="data-task-id=${task.id}"
+                  <button class="btn btn-icon-sm"
+                          data-action="click->dc-scheduling#deleteScheduledTask" tl:attr="data-task-id=${task.id},data-task-title=${task.title}"
                           title="Delete" aria-label="Delete" data-icon="x"></button>
                 </div>
               </td>
             </tr>
             <tr tl:unless="${hasScheduledTasks}">
-              <td colspan="5" class="table-empty-cell">No scheduled tasks configured. Add one to automate recurring work.</td>
+              <td colspan="5" tl:utext="${tasksEmptyStateHtml}">empty state</td>
             </tr>
           </tbody>
         </table>
@@ -217,4 +220,5 @@
 
     </div>
   </main>
+  </div>
 </div>

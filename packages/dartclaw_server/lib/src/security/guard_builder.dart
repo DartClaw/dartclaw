@@ -13,12 +13,16 @@ const _fileAccessLevels = {'no_access', 'read_only', 'no_delete'};
 /// (bad regex, conflicting rules). The caller decides whether to swap the chain
 /// or log and preserve the existing one.
 ///
+/// The result is the *base* guard list — the list a `guards.*` reload replaces
+/// wholesale via `GuardChain.replaceGuards`. Per-runner guards that must survive
+/// a reload (notably `TaskToolFilterGuard`) belong in a `GuardChain.layered`
+/// layer over this base, never in the base list itself.
+///
 /// [toolPolicyCascade] is appended as-is.
 GuardBuildResult buildGuardsFromConfig({
   required SecurityConfig securityConfig,
   required String dataDir,
   required ToolPolicyCascade toolPolicyCascade,
-  TaskToolFilterGuard? taskToolFilterGuard,
 }) {
   final yaml = securityConfig.guardsYaml;
   final errors = <String>[];
@@ -174,7 +178,6 @@ GuardBuildResult buildGuardsFromConfig({
       fileGuard,
       networkGuard,
       ToolPolicyGuard(cascade: toolPolicyCascade),
-      ?taskToolFilterGuard,
     ],
     warnings: warnings,
   );

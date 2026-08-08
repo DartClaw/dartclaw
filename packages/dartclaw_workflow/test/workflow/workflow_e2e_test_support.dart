@@ -897,13 +897,15 @@ bool _jsonContainsString(Object? value, String needle) {
   return false;
 }
 
+List<Map<String, dynamic>> _artifactPayloads(Directory artifactDir) => artifactDir
+    .listSync()
+    .whereType<File>()
+    .where((file) => file.path.endsWith('.json'))
+    .map((file) => jsonDecode(file.readAsStringSync()) as Map<String, dynamic>)
+    .toList(growable: false);
+
 void expectIsolationDiagnostics(Directory artifactDir, E2EFixtureInstance fixture) {
-  final payloads = artifactDir
-      .listSync()
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.json'))
-      .map((file) => jsonDecode(file.readAsStringSync()) as Map<String, dynamic>)
-      .toList(growable: false);
+  final payloads = _artifactPayloads(artifactDir);
   expect(payloads, isNotEmpty, reason: 'Expected step artifacts with isolation diagnostics.');
   for (final payload in payloads) {
     final isolation = (payload['isolation'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
@@ -916,13 +918,9 @@ void expectIsolationDiagnostics(Directory artifactDir, E2EFixtureInstance fixtur
 }
 
 void expectStepArtifactOutputs(Directory artifactDir, String stepKey, Set<String> requiredKeys) {
-  final payloads = artifactDir
-      .listSync()
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.json'))
-      .map((file) => jsonDecode(file.readAsStringSync()) as Map<String, dynamic>)
-      .where((payload) => payload['stepKey'] == stepKey)
-      .toList(growable: false);
+  final payloads = _artifactPayloads(
+    artifactDir,
+  ).where((payload) => payload['stepKey'] == stepKey).toList(growable: false);
   expect(payloads, isNotEmpty, reason: 'Expected preserved artifact for step "$stepKey".');
   for (final payload in payloads) {
     final extractError = payload['outputsExtractError'];

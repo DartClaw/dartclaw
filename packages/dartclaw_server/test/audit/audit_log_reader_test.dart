@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_security/dartclaw_security.dart' as security show GuardAuditLogger;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
@@ -82,6 +83,37 @@ void main() {
       expect(page.entries[2].guard, 'GuardA');
     });
 
+    test('reads the logger date partitions newest first', () async {
+      final logger = security.GuardAuditLogger(dataDir: tempDir.path);
+      await logger.writeEntry(
+        AuditEntry(timestamp: DateTime.utc(2026, 3, 1, 10), guard: 'GuardA', hook: 'pre_inbound', verdict: 'pass'),
+      );
+      await logger.writeEntry(
+        AuditEntry(timestamp: DateTime.utc(2026, 3, 1, 11), guard: 'GuardB', hook: 'pre_inbound', verdict: 'pass'),
+      );
+      await logger.writeEntry(
+        AuditEntry(timestamp: DateTime.utc(2026, 3, 2, 9), guard: 'GuardC', hook: 'pre_inbound', verdict: 'pass'),
+      );
+
+      final page = await reader.read();
+
+      expect(page.totalEntries, 3);
+      expect(page.entries.map((entry) => entry.guard), ['GuardC', 'GuardB', 'GuardA']);
+    });
+
+    test('orders a new partition entry before an equal-time legacy entry', () async {
+      final timestamp = DateTime.utc(2026, 3, 1, 10);
+      writeEntries([AuditEntry(timestamp: timestamp, guard: 'LegacyGuard', hook: 'pre_inbound', verdict: 'pass')]);
+      final logger = security.GuardAuditLogger(dataDir: tempDir.path);
+      await logger.writeEntry(
+        AuditEntry(timestamp: timestamp, guard: 'PartitionGuard', hook: 'pre_inbound', verdict: 'pass'),
+      );
+
+      final page = await reader.read();
+
+      expect(page.entries.map((entry) => entry.guard), ['PartitionGuard', 'LegacyGuard']);
+    });
+
     test('skips malformed lines gracefully', () async {
       final file = File('${tempDir.path}/audit.ndjson');
       final valid = jsonEncode(makeEntry().toJson());
@@ -156,6 +188,14 @@ void main() {
         final page = await reader.read(page: 2, pageSize: 3);
         expect(page.entries.length, 3);
         expect(page.currentPage, 2);
+      });
+
+      test('keeps equal-timestamp entries stable across pages', () async {
+        final firstPage = await reader.read(pageSize: 3);
+        final secondPage = await reader.read(page: 2, pageSize: 3);
+
+        expect(firstPage.entries.map((entry) => entry.guard), ['Guard6', 'Guard5', 'Guard4']);
+        expect(secondPage.entries.map((entry) => entry.guard), ['Guard3', 'Guard2', 'Guard1']);
       });
 
       test('returns partial last page', () async {

@@ -4,13 +4,14 @@ import 'package:shelf/shelf.dart';
 /// Must be updated if that script changes.
 const _themeScriptHash = 'sha256-Nv1JReIKyK52u/L2sOlX5XEwoodaiEphFAlIFGeX9A8=';
 
-/// Content-Security-Policy: script hashes for static inline scripts,
-/// explicit CDN allowlist, no unsafe-inline for scripts.
+/// Content-Security-Policy: same-origin sources only, plus a script hash for
+/// the static inline theme script. No external origin and no unsafe-inline for
+/// scripts; every runtime dependency is vendored under `lib/src/static/`.
 const _csp =
     "default-src 'none'; "
-    "script-src 'self' '$_themeScriptHash' https://unpkg.com https://cdn.jsdelivr.net; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    'font-src https://fonts.gstatic.com; '
+    "script-src 'self' '$_themeScriptHash'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
     "img-src 'self' data:; "
     "connect-src 'self'; "
     "base-uri 'self'; "

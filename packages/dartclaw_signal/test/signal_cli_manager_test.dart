@@ -7,6 +7,44 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:test/test.dart';
 
+Future<Map<String, dynamic>> _captureRpc(Future<void> Function(SignalCliManager manager) invoke) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  final captured = Completer<Map<String, dynamic>>();
+  final subscription = server.listen((request) {
+    unawaited(() async {
+      final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+      captured.complete({'path': request.uri.path, ...payload});
+      await _writeRpcResult(request.response, payload['id']);
+    }());
+  });
+
+  try {
+    final manager = SignalCliManager(
+      executable: 'signal-cli',
+      host: InternetAddress.loopbackIPv4.address,
+      port: server.port,
+      phoneNumber: '+12125550100',
+    );
+    await invoke(manager);
+    return await captured.future;
+  } finally {
+    await subscription.cancel();
+    await server.close(force: true);
+  }
+}
+
+Future<void> _openSse(HttpResponse response) async {
+  response.headers.contentType = ContentType('text', 'event-stream');
+  response.write(': connected\n\n');
+  await response.flush();
+}
+
+Future<void> _writeRpcResult(HttpResponse response, Object? id, [Object? result]) async {
+  response.headers.contentType = ContentType.json;
+  response.write(jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}));
+  await response.close();
+}
+
 void main() {
   group('SignalCliManager', () {
     test('baseUrl constructed from host and port', () {
@@ -23,6 +61,80 @@ void main() {
       final mgr = SignalCliManager(executable: 'signal-cli', phoneNumber: '+1');
       expect(mgr.isRunning, isFalse);
     });
+
+    for (final scenario in [
+      (name: 'starts direct typing', recipient: '+12125550101', isGroup: false, isTyping: true),
+      (name: 'stops direct typing', recipient: '+12125550101', isGroup: false, isTyping: false),
+      (name: 'starts group typing', recipient: 'c2lnbmFsLWdyb3Vw', isGroup: true, isTyping: true),
+      (name: 'stops group typing', recipient: 'c2lnbmFsLWdyb3Vw', isGroup: true, isTyping: false),
+    ]) {
+      test('${scenario.name} with the signal-cli JSON-RPC contract', () async {
+        final payload = await _captureRpc(
+          (manager) => manager.sendTyping(scenario.recipient, isGroup: scenario.isGroup, isTyping: scenario.isTyping),
+        );
+
+        expect(payload['path'], '/api/v1/rpc');
+        expect(payload['method'], 'sendTyping');
+        expect(payload['params'], {
+          'account': '+12125550100',
+          if (scenario.isGroup) 'groupId': scenario.recipient else 'recipient': scenario.recipient,
+          if (!scenario.isTyping) 'stop': true,
+        });
+      });
+    }
+
+    test('sends group replies with groupId instead of recipient', () async {
+      final payload = await _captureRpc(
+        (manager) => manager.sendMessage('c2lnbmFsLWdyb3Vw', 'Hello group', isGroup: true),
+      );
+
+      expect(payload['method'], 'send');
+      expect(payload['params'], {'account': '+12125550100', 'groupId': 'c2lnbmFsLWdyb3Vw', 'message': 'Hello group'});
+    });
+
+    test('sends native text styles with UTF-16 ranges', () async {
+      final payload = await _captureRpc(
+        (manager) => manager.sendMessage('+12125550101', 'Hello', isGroup: false, textStyles: const ['0:5:BOLD']),
+      );
+
+      expect(payload['params'], {
+        'account': '+12125550100',
+        'recipient': ['+12125550101'],
+        'message': 'Hello',
+        'textStyle': ['0:5:BOLD'],
+      });
+    });
+
+    test(
+      'typing RPC times out when the daemon never completes its response body',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final subscription = server.listen((request) {
+          unawaited(() async {
+            await utf8.decoder.bind(request).join();
+            request.response.headers.contentType = ContentType.json;
+            request.response.write('{"jsonrpc":"2.0","id":"1","result":');
+            await request.response.flush();
+          }());
+        });
+        final manager = SignalCliManager(
+          executable: 'signal-cli',
+          host: InternetAddress.loopbackIPv4.address,
+          port: server.port,
+          phoneNumber: '+12125550100',
+        );
+        addTearDown(() async {
+          await subscription.cancel();
+          await server.close(force: true);
+        });
+
+        await expectLater(
+          manager.sendTyping('+12125550101', isGroup: false, isTyping: true),
+          throwsA(isA<TimeoutException>()),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 5)),
+    );
 
     test('start spawns process with correct args', () async {
       late String capturedExe;
@@ -49,7 +161,7 @@ void main() {
       }
 
       expect(capturedExe, '/usr/local/bin/signal-cli');
-      expect(capturedArgs, ['daemon', '--http', '0.0.0.0:9090']);
+      expect(capturedArgs, ['daemon', '--http', '0.0.0.0:9090', '--receive-mode', 'on-connection']);
     });
 
     test('start throws when already stopped', () async {
@@ -241,9 +353,7 @@ void main() {
         unawaited(() async {
           requestPath = request.uri.path;
           payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(jsonEncode({'jsonrpc': '2.0', 'id': payload['id'], 'result': null}));
-          await request.response.close();
+          await _writeRpcResult(request.response, payload['id']);
           requestHandled.complete();
         }());
       });
@@ -266,6 +376,533 @@ void main() {
         await sub.cancel();
         await server.close(force: true);
       }
+    });
+
+    test('verifySmsCode activates registration and reconnects the receive stream', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final replacementSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path == '/api/v1/events') {
+            sseConnections++;
+            await _openSse(request.response);
+            if (sseConnections == 1) {
+              initialSse.complete(request.response);
+            } else if (sseConnections == 2) {
+              replacementSse.complete(request.response);
+            }
+            return;
+          }
+
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          await _writeRpcResult(request.response, payload['id']);
+        }());
+      });
+
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      await initialSse.future.timeout(const Duration(seconds: 2));
+      await mgr.verifySmsCode('123-456');
+
+      expect(mgr.wasPaired, isTrue);
+      expect(mgr.registeredPhone, '+12125550100');
+      await replacementSse.future.timeout(const Duration(seconds: 2));
+    });
+
+    test('a failed SSE replacement keeps retrying until connected', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path != '/api/v1/events') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          sseConnections++;
+          if (sseConnections == 2) {
+            request.response.statusCode = HttpStatus.serviceUnavailable;
+            await request.response.close();
+            return;
+          }
+          await _openSse(request.response);
+          if (sseConnections == 1) {
+            initialSse.complete(request.response);
+          } else {
+            recoveredSse.complete(request.response);
+          }
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+      expect(sseConnections, 3);
+    });
+
+    test('an immediately closed SSE replacement queues another reconnect', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path != '/api/v1/events') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          sseConnections++;
+          request.response.headers.contentType = ContentType('text', 'event-stream');
+          if (sseConnections == 2) {
+            await request.response.close();
+            return;
+          }
+          await _openSse(request.response);
+          if (sseConnections == 1) {
+            initialSse.complete(request.response);
+          } else {
+            recoveredSse.complete(request.response);
+          }
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+      expect(sseConnections, 3);
+    });
+
+    test('a stalled SSE handshake times out and retries', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final stalledRequest = Completer<void>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        if (request.uri.path != '/api/v1/events') {
+          request.response.statusCode = HttpStatus.notFound;
+          unawaited(request.response.close());
+          return;
+        }
+        sseConnections++;
+        if (sseConnections == 1) {
+          stalledRequest.complete();
+          return;
+        }
+        unawaited(() async {
+          await _openSse(request.response);
+          recoveredSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+        sseHandshakeTimeout: const Duration(milliseconds: 20),
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      await stalledRequest.future.timeout(const Duration(seconds: 2));
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+
+      expect(sseConnections, 2);
+    });
+
+    test('an SSE error with a stalled body is closed and retried', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final errorHeadersSent = Completer<void>();
+      final recoveredSse = Completer<HttpResponse>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        if (request.uri.path != '/api/v1/events') {
+          request.response.statusCode = HttpStatus.notFound;
+          unawaited(request.response.close());
+          return;
+        }
+        sseConnections++;
+        unawaited(() async {
+          if (sseConnections == 1) {
+            request.response.statusCode = HttpStatus.serviceUnavailable;
+            request.response.write('partial error');
+            await request.response.flush();
+            errorHeadersSent.complete();
+            return;
+          }
+          await _openSse(request.response);
+          recoveredSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      await errorHeadersSent.future.timeout(const Duration(seconds: 2));
+      await recoveredSse.future.timeout(const Duration(seconds: 2));
+
+      expect(sseConnections, 2);
+    });
+
+    test('reset settles a reconnect stalled during the SSE handshake', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final stalledReconnect = Completer<void>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        if (request.uri.path != '/api/v1/events') {
+          request.response.statusCode = HttpStatus.notFound;
+          unawaited(request.response.close());
+          return;
+        }
+        sseConnections++;
+        if (sseConnections > 1) {
+          stalledReconnect.complete();
+          return;
+        }
+        unawaited(() async {
+          await _openSse(request.response);
+          initialSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+        sseHandshakeTimeout: const Duration(seconds: 30),
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+      await stalledReconnect.future.timeout(const Duration(seconds: 2));
+
+      await mgr.reset().timeout(const Duration(seconds: 2));
+      await pumpEventQueue();
+
+      expect(sseConnections, 2);
+    });
+
+    test('reset invalidates a reconnect waiting on backoff', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final initialSse = Completer<HttpResponse>();
+      final reconnectDelayStarted = Completer<void>();
+      final reconnectDelay = Completer<void>();
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path != '/api/v1/events') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          sseConnections++;
+          await _openSse(request.response);
+          if (!initialSse.isCompleted) initialSse.complete(request.response);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (duration) {
+          if (!reconnectDelayStarted.isCompleted) reconnectDelayStarted.complete();
+          return reconnectDelay.future;
+        },
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        if (!reconnectDelay.isCompleted) reconnectDelay.complete();
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final initialResponse = await initialSse.future.timeout(const Duration(seconds: 2));
+      await initialResponse.close();
+      await reconnectDelayStarted.future.timeout(const Duration(seconds: 2));
+
+      await mgr.reset();
+      reconnectDelay.complete();
+      await pumpEventQueue();
+
+      expect(sseConnections, 1);
+    });
+
+    test('finishLink refreshes receiving and selects the linked account for sending', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final firstSse = Completer<HttpResponse>();
+      final secondSse = Completer<HttpResponse>();
+      final thirdSse = Completer<void>();
+      final registrationActivated = Completer<String>();
+      final rpcMethods = <String>[];
+      String? sendAccount;
+      var sseConnections = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          if (request.uri.path == '/api/v1/events') {
+            sseConnections++;
+            request.response.headers.contentType = ContentType('text', 'event-stream');
+            switch (sseConnections) {
+              case 1:
+                request.response.write(': connected\n\n');
+                await request.response.flush();
+                firstSse.complete(request.response);
+                return;
+              case 2:
+                secondSse.complete(request.response);
+                return;
+              case 3:
+                request.response.write(
+                  'data: ${jsonEncode({
+                    'params': {
+                      'envelope': {'sourceNumber': '+12125550101'},
+                    },
+                  })}\n\n',
+                );
+                await request.response.close();
+                thirdSse.complete();
+                return;
+              default:
+                request.response.write(': connected\n\n');
+                await request.response.flush();
+                return;
+            }
+          }
+
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          final method = payload['method'] as String;
+          rpcMethods.add(method);
+          if (method == 'send') {
+            sendAccount = (payload['params'] as Map<String, dynamic>)['account'] as String?;
+          }
+          final result = switch (method) {
+            'startLink' => {'deviceLinkUri': 'sgnl://linkdevice?uuid=test'},
+            'finishLink' => {'number': '+12125550100'},
+            _ => null,
+          };
+          await _writeRpcResult(request.response, payload['id'], result);
+        }());
+      });
+
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+19999999999',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+            FakeProcess(completeExitOnKill: true),
+        delay: (_) async {},
+        healthProbe: () async => true,
+        onRegistered: (phone) {
+          if (!registrationActivated.isCompleted) registrationActivated.complete(phone);
+        },
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      await mgr.start();
+      final firstResponse = await firstSse.future.timeout(const Duration(seconds: 2));
+      final event = mgr.events.first;
+      await firstResponse.close();
+      final delayedResponse = await secondSse.future.timeout(const Duration(seconds: 2));
+
+      expect(await mgr.getLinkDeviceUri(), 'sgnl://linkdevice?uuid=test');
+      expect(await registrationActivated.future.timeout(const Duration(seconds: 2)), '+12125550100');
+      expect(mgr.wasPaired, isTrue);
+
+      delayedResponse.write(': connected\n\n');
+      await delayedResponse.flush();
+      await thirdSse.future.timeout(const Duration(seconds: 2));
+      await mgr.sendMessage('+12125550102', 'reply', isGroup: false);
+
+      expect(sseConnections, greaterThanOrEqualTo(3));
+      expect(rpcMethods, ['startLink', 'finishLink', 'send']);
+      expect(sendAccount, '+12125550100');
+      expect(await event.timeout(const Duration(seconds: 2)), {
+        'envelope': {'sourceNumber': '+12125550101'},
+      });
+    });
+
+    test('coalesces concurrent device-link requests before startLink completes', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final startLinkReceived = Completer<void>();
+      final releaseStartLink = Completer<void>();
+      var startLinkCalls = 0;
+      final sub = server.listen((request) {
+        unawaited(() async {
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          final method = payload['method'] as String;
+          if (method == 'startLink') {
+            startLinkCalls++;
+            if (!startLinkReceived.isCompleted) startLinkReceived.complete();
+            await releaseStartLink.future;
+          }
+          final result = method == 'startLink' ? {'deviceLinkUri': 'sgnl://linkdevice?uuid=single'} : null;
+          await _writeRpcResult(request.response, payload['id'], result);
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+      );
+      addTearDown(() async {
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      final first = mgr.getLinkDeviceUri();
+      await startLinkReceived.future.timeout(const Duration(seconds: 2));
+      final second = mgr.getLinkDeviceUri();
+      await pumpEventQueue();
+      expect(startLinkCalls, 1);
+
+      releaseStartLink.complete();
+      expect(await Future.wait([first, second]), everyElement('sgnl://linkdevice?uuid=single'));
+      expect(startLinkCalls, 1);
+    });
+
+    test('ignores finishLink completion from a reset generation', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final finishLinkReceived = Completer<void>();
+      final releaseFinishLink = Completer<void>();
+      final finishLinkResponded = Completer<void>();
+      final registrations = <String>[];
+      final sub = server.listen((request) {
+        unawaited(() async {
+          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+          final method = payload['method'] as String;
+          if (method == 'finishLink') {
+            finishLinkReceived.complete();
+            await releaseFinishLink.future;
+          }
+          final result = switch (method) {
+            'startLink' => {'deviceLinkUri': 'sgnl://linkdevice?uuid=stale'},
+            'finishLink' => {'number': '+12125550199'},
+            _ => null,
+          };
+          await _writeRpcResult(request.response, payload['id'], result);
+          if (method == 'finishLink') finishLinkResponded.complete();
+        }());
+      });
+      final mgr = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+        onRegistered: registrations.add,
+      );
+      addTearDown(() async {
+        if (!releaseFinishLink.isCompleted) releaseFinishLink.complete();
+        await mgr.stop();
+        await sub.cancel();
+        await server.close(force: true);
+      });
+
+      expect(await mgr.getLinkDeviceUri(), 'sgnl://linkdevice?uuid=stale');
+      await finishLinkReceived.future.timeout(const Duration(seconds: 2));
+      await mgr.reset();
+      releaseFinishLink.complete();
+      await finishLinkResponded.future.timeout(const Duration(seconds: 2));
+      await pumpEventQueue();
+
+      expect(mgr.wasPaired, isFalse);
+      expect(mgr.registeredPhone, isNull);
+      expect(registrations, isEmpty);
     });
 
     test('events stream is broadcast', () {

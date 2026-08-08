@@ -75,27 +75,21 @@ final class GuardEditorService {
 
   Future<GuardEditorResult> createEntry(String guard, String field, Object? value) async {
     final normalized = _normalizeEntry(guard, field, value);
-    final config = _freshConfig();
-    final yaml = _editableGuardsYaml(config);
-    final entries = _entriesFor(yaml, guard, field);
+    final (:yaml, :entries) = _freshEntries(guard, field);
     entries.add(normalized);
     return _persist(guard: guard, field: field, entries: entries, candidateYaml: yaml);
   }
 
   Future<GuardEditorResult> updateEntry(String guard, String field, int index, Object? value) async {
     final normalized = _normalizeEntry(guard, field, value);
-    final config = _freshConfig();
-    final yaml = _editableGuardsYaml(config);
-    final entries = _entriesFor(yaml, guard, field);
+    final (:yaml, :entries) = _freshEntries(guard, field);
     _checkIndex(index, entries.length);
     entries[index] = normalized;
     return _persist(guard: guard, field: field, entries: entries, candidateYaml: yaml);
   }
 
   Future<GuardEditorResult> deleteEntry(String guard, String field, int index) async {
-    final config = _freshConfig();
-    final yaml = _editableGuardsYaml(config);
-    final entries = _entriesFor(yaml, guard, field);
+    final (:yaml, :entries) = _freshEntries(guard, field);
     _checkIndex(index, entries.length);
     entries.removeAt(index);
     return _persist(guard: guard, field: field, entries: entries, candidateYaml: yaml);
@@ -143,9 +137,7 @@ final class GuardEditorService {
     if (field is! String) {
       throw const GuardEditorValidationException(['candidate.field is required']);
     }
-    final config = _freshConfig();
-    final yaml = _editableGuardsYaml(config);
-    final entries = _entriesFor(yaml, guard, field);
+    final (:yaml, :entries) = _freshEntries(guard, field);
     entries.add(_normalizeEntry(guard, field, _candidateEntryValue(guard, candidateMap['value'])));
     final candidateConfig = _freshConfigWithGuards(yaml);
     final validation = validateGuardEditorConfig(candidateConfig.security, dataDir: dataDir);
@@ -201,6 +193,11 @@ final class GuardEditorService {
 
   DartclawConfig _freshConfig() => DartclawConfig.load(configPath: writer.configPath);
 
+  ({Map<String, dynamic> yaml, List<Object?> entries}) _freshEntries(String guard, String field) {
+    final yaml = _guardsYaml(_freshConfig());
+    return (yaml: yaml, entries: _entriesFor(yaml, guard, field));
+  }
+
   List<String> _pendingGuardFields() {
     final pending = _readRestartPending(dataDir);
     final fields = (pending?['fields'] as List<dynamic>?)?.whereType<String>().toList() ?? const <String>[];
@@ -224,8 +221,6 @@ GuardBuildResult validateGuardEditorConfig(SecurityConfig securityConfig, {requi
 Map<String, Object?> _guardState(String guard, Map<String, Object?> fields) => {'guard': guard, 'fields': fields};
 
 Map<String, dynamic> _guardsYaml(DartclawConfig config) => _deepStringMap(config.security.guardsYaml);
-
-Map<String, dynamic> _editableGuardsYaml(DartclawConfig config) => _deepStringMap(config.security.guardsYaml);
 
 Map<String, dynamic> _deepStringMap(Map<dynamic, dynamic> source) {
   return {

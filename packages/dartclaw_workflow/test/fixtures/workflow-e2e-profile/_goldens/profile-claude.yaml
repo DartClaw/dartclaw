@@ -11,6 +11,7 @@
 # - agent.provider / agent.model            (provider + workflow model)
 # - providers.<id> block                    (codex or claude shape)
 # - workflow.defaults.*.model               (per-role <provider>/<model>)
+# - workflow.defaults.planner.effort        (provider-preset effort, when set)
 
 port: 3333
 data_dir: "/tmp/dartclaw-test/data"

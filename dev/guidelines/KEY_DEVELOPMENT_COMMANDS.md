@@ -56,16 +56,12 @@ dart run dartclaw_cli:dartclaw workflow validate <path>
 # Install / sync dependencies (workspace root)
 dart pub get
 
-# Regenerate checked-in embedded asset libraries after editing built-in templates,
-# static files, skills, or workflow definitions. Never hand-edit the generated files.
+# REQUIRED after cloning or creating a git worktree, and after editing built-in
+# templates, static files, skills, or workflow definitions. The embedded asset
+# libraries are generated, not committed, and lib/ imports them — without this
+# the analyzer reports ~32 errors and nothing compiles. CI and
+# dev/tools/build.sh run it automatically.
 dart run dev/tools/embed_assets.dart
-
-# Verify generated asset libraries are current.
-git ls-files --error-unmatch -- \
-  packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
-  packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
-dart run dev/tools/embed_assets.dart
-git diff --exit-code -- '**/generated/embedded_assets.g.dart'
 
 # Build the standalone binary via `dart build cli`. Produces build/bin/dartclaw
 # plus a bundled SQLite library in the sibling build/lib/ (keep the two together;
@@ -126,6 +122,9 @@ touch package boundaries, tests, build tooling, workflow definitions, or cross-p
 `.github/workflows/ci.yml`, with an added whitespace check.
 
 ```bash
+dart pub get --enforce-lockfile
+dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
+dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
@@ -158,7 +157,9 @@ curl -s "https://pub.dev/api/packages/<package_name>" | jq '{name: .name, latest
 # Format a file or directory (120-char width configured in analysis_options.yaml)
 dart format --line-length=120 <file_or_dir>
 
-# Static analysis + lint (strict-casts, strict-raw-types, lints/recommended)
+# Static analysis + lint (strict-casts, strict-raw-types, lints/recommended).
+# Requires the generated asset libraries — see `dart run dev/tools/embed_assets.dart`
+# under ## Build for when it must be run.
 dart analyze
 ```
 
@@ -169,7 +170,7 @@ dart analyze
 >
 > **Reporter**: Use `--reporter=failures-only` for agent-driven test runs — it suppresses passing-test output and only shows failures, reducing noise. This is the default the Dart MCP `run_tests` tool uses internally.
 >
-> **Parallelism**: Do not use default package-parallel aggregate commands as release/FIS gates for suites that include CLI/server tests. Some of those tests intentionally exercise real local ports, process wiring, and filesystem/static-asset fixtures; the mixed-package gate must run with `-j 1` or as separate package commands.
+> **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(currentDirectory:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
 
 Use the workspace root for package-wide server/CLI validation. On supported local/CI environments, the
 `dart test packages/dartclaw_server` and `dart test apps/dartclaw_cli` commands should run without manual sqlite
@@ -209,11 +210,13 @@ dart test --reporter=failures-only packages/dartclaw_security
 dart test --reporter=failures-only packages/dartclaw_workflow
 dart test --reporter=failures-only apps/dartclaw_cli
 
-# Mixed workflow/server/CLI gate.
-# This package set includes local integration tests that bind ports and use
-# filesystem/static-asset fixtures, so run it serially.
-dart test -j 1 --reporter=failures-only \
-  packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli
+# Mixed workflow/server/CLI gate — one command per package. A single
+# `dart test A B C` spans all three in ONE process, which puts dartclaw_cli's
+# cwd-mutating suites alongside server/workflow suites that resolve relative
+# paths. test_workspace.sh runs per package for the same reason.
+dart test --reporter=failures-only packages/dartclaw_workflow
+dart test --reporter=failures-only packages/dartclaw_server
+dart test --reporter=failures-only apps/dartclaw_cli
 
 # Fast local CLI iteration: skip real-build / real-process tests tagged slow.
 dart test --reporter=failures-only -x slow apps/dartclaw_cli
@@ -221,7 +224,7 @@ dart test --reporter=failures-only -x slow apps/dartclaw_cli
 # Run only slow CLI tests when validating build/release behavior.
 dart test --reporter=failures-only --run-skipped -t slow apps/dartclaw_cli
 
-# Test all packages with the CI-equivalent package/test serialization policy
+# Test all packages exactly as CI does
 bash dev/tools/test_workspace.sh
 
 # Specific test directory
@@ -273,4 +276,4 @@ dart pub global run coverage:format_coverage \
 
 See `VISUAL-VALIDATION-WORKFLOW.md` for project-specific conventions (server setup, auth, chrome-devtools, viewports, screenshot naming).
 
-See `dev/testing/UI-SMOKE-TEST.md` for concrete numbered test cases (TC-01…TC-18).
+See `dev/testing/UI-SMOKE-TEST.md` for concrete numbered test cases (TC-01…TC-31).

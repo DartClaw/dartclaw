@@ -65,6 +65,15 @@ void main() {
   Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) =>
       h.completeTask(taskId, status: status);
 
+  Future<void> attachWorktree(String taskId) => h.taskService.updateFields(
+    taskId,
+    worktreeJson: {
+      'path': p.join(h.tempDir.path, 'worktrees', taskId),
+      'branch': 'story-branch-$taskId',
+      'createdAt': DateTime.now().toIso8601String(),
+    },
+  );
+
   /// Builds a definition with a foreach step that has merge-resolve enabled.
   ///
   /// Uses a ForeachNode (controller + child step) so the path goes through
@@ -240,14 +249,7 @@ void main() {
         e,
       ) async {
         taskCount.add(e.taskId);
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -325,14 +327,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -410,14 +405,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -478,14 +466,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         // Generic task failure — not a merge conflict.
         await completeTask(e.taskId, status: TaskStatus.failed);
@@ -622,14 +603,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         if (!queuedTaskIds.contains(e.taskId)) {
           queuedTaskIds.add(e.taskId);
         }
@@ -717,14 +691,7 @@ void main() {
         e,
       ) async {
         final task = await h.taskService.get(e.taskId);
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         if (task?.configJson['displayScope'] == 'S03') {
           s03TaskIds.add(e.taskId);
           if (s03TaskIds.length == 1) {
@@ -786,14 +753,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         queuedTaskIds.add(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
@@ -867,14 +827,7 @@ void main() {
         e,
       ) async {
         final task = await h.taskService.get(e.taskId);
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         if (task?.configJson['displayScope'] == 'S03') {
           s03TaskIds.add(e.taskId);
           await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
@@ -957,14 +910,7 @@ void main() {
         e,
       ) async {
         final task = await h.taskService.get(e.taskId);
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         if (task?.configJson['displayScope'] == 'S03') {
           s03TaskIds.add(e.taskId);
           await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
@@ -1050,14 +996,7 @@ void main() {
       ) async {
         final task = await h.taskService.get(e.taskId);
         queuedScopes.add(task?.configJson['displayScope']);
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -1101,14 +1040,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await h.completeTaskWithOutcome(
           e.taskId,
@@ -1186,14 +1118,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -1273,14 +1198,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await h.taskService.updateFields(
-          e.taskId,
-          worktreeJson: {
-            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-            'branch': 'story-branch-${e.taskId}',
-            'createdAt': DateTime.now().toIso8601String(),
-          },
-        );
+        await attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });

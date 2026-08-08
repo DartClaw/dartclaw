@@ -267,18 +267,15 @@ void main() {
         expect(result, isA<GuardBuildSuccess>());
       });
 
-      test('TaskToolFilterGuard is appended when provided', () {
-        final ttfg = TaskToolFilterGuard();
-
+      test('base list carries no per-runner tool filter — those are layered per runner', () {
         final result = buildGuardsFromConfig(
           securityConfig: const SecurityConfig.defaults(),
           dataDir: dataDir,
           toolPolicyCascade: _cascade,
-          taskToolFilterGuard: ttfg,
         );
 
         final success = result as GuardBuildSuccess;
-        expect(success.guards.last, same(ttfg));
+        expect(success.guards.whereType<TaskToolFilterGuard>(), isEmpty);
       });
 
       test('multiple invalid patterns aggregate all errors into single failure', () {

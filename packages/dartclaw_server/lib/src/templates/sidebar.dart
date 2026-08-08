@@ -75,6 +75,19 @@ String sidebarTemplate({
   final systemNavItems = navItems.where((item) => item.navGroup == 'system').toList();
   final extensionNavItems = navItems.where((item) => item.navGroup != 'system').toList();
 
+  // A badge repeated on every row carries no discriminating information, so the
+  // rail renders provider badges only where the visible rows actually disagree.
+  final visibleProviders = <String>{
+    if (resolvedMainSession != null) resolvedMainSession.provider,
+    ...resolvedDmChannels.map((s) => s.provider),
+    ...resolvedGroupChannels.map((s) => s.provider),
+    ...resolvedActiveEntries.map((s) => s.provider),
+    ...resolvedArchivedEntries.map((s) => s.provider),
+    ...resolvedActiveTasks.map((t) => t.provider),
+  }..removeWhere((provider) => provider.trim().isEmpty);
+  final providersAreUniform = visibleProviders.length < 2;
+  bool showProvider(String provider) => !providersAreUniform && provider.trim().isNotEmpty;
+
   Map<String, Object?> mapChannel(SidebarSession ch) {
     final trimmed = ch.title.trim();
     return {
@@ -84,6 +97,7 @@ String sidebarTemplate({
       'active': ch.id == resolvedActiveSessionId,
       'provider': ch.provider,
       'providerLabel': ProviderIdentity.displayName(ch.provider),
+      'showProvider': showProvider(ch.provider),
     };
   }
 
@@ -92,16 +106,16 @@ String sidebarTemplate({
 
   // Build active entries list (user sessions only — all get delete button).
   final activeList = resolvedActiveEntries.map((entry) {
-    final trimmed = entry.title.trim();
     final isActive = entry.id == resolvedActiveSessionId;
     return {
       'id': entry.id,
       'href': '/sessions/${entry.id}',
       'active': isActive,
       'extraClass': isActive ? 'active' : '',
-      'title': trimmed.isEmpty ? 'New Chat' : trimmed,
+      'title': displayChatTitle(entry.title),
       'provider': entry.provider,
       'providerLabel': ProviderIdentity.displayName(entry.provider),
+      'showProvider': showProvider(entry.provider),
     };
   }).toList();
 
@@ -117,6 +131,7 @@ String sidebarTemplate({
       'title': trimmed.isEmpty ? 'Archived session' : trimmed,
       'provider': entry.provider,
       'providerLabel': ProviderIdentity.displayName(entry.provider),
+      'showProvider': showProvider(entry.provider),
     };
   }).toList();
 
@@ -131,6 +146,7 @@ String sidebarTemplate({
           'startedAt': task.startedAt,
           'provider': task.provider,
           'providerLabel': task.providerLabel,
+          'showProvider': showProvider(task.provider),
         },
       )
       .toList();
@@ -144,6 +160,8 @@ String sidebarTemplate({
         },
       )
       .toList();
+  final activeSystemItem = systemNavItems.where((item) => item.active).firstOrNull;
+  final systemMenuLabel = activeSystemItem == null ? 'System' : 'System · ${activeSystemItem.label}';
 
   final aside = templateLoader.trellis.renderFragment(
     templateLoader.source('sidebar'),
@@ -157,7 +175,9 @@ String sidebarTemplate({
       'mainProviderLabel': resolvedMainSession != null
           ? ProviderIdentity.displayName(resolvedMainSession.provider)
           : null,
+      'mainShowProvider': resolvedMainSession != null && showProvider(resolvedMainSession.provider),
       'tasksEnabledAttr': resolvedTasksEnabled ? 'true' : null,
+      'providerBadgeAttr': providersAreUniform ? 'hidden' : null,
       'showChannels': resolvedShowChannels,
       'noChannels': resolvedDmChannels.isEmpty && resolvedGroupChannels.isEmpty,
       'noDmChannels': resolvedDmChannels.isEmpty,
@@ -178,6 +198,7 @@ String sidebarTemplate({
       'hasNav': navItems.isNotEmpty,
       'showSystemNav': systemNavItems.isNotEmpty,
       'showExtensionNav': extensionNavItems.isNotEmpty,
+      'systemMenuLabel': systemMenuLabel,
       'systemNavItems': systemNavItems.map((item) {
         final labelHtml = item.label == 'Tasks'
             ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" hidden></span>'

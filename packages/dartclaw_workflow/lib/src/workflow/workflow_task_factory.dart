@@ -66,8 +66,8 @@ Future<void> createWorkflowTaskTriple({
   final agentExecutionId = ctx.uuid.v4();
   final agentExecution = AgentExecution(
     id: agentExecutionId,
-    provider: trimmedString(provider),
-    model: trimmedString(effectiveTaskConfig['model']),
+    provider: _trimmedString(provider),
+    model: _trimmedString(effectiveTaskConfig['model']),
     workspaceDir: workflowWorkspaceDir,
     budgetTokens: maxTokens,
   );
@@ -256,7 +256,7 @@ WorkflowStepExecution buildWorkflowStepExecutionFromConfig({
     stepId: step.id,
     stepType: step.taskType.toJson(),
     gitJson: encodeJsonString(taskConfig['_workflowGit']),
-    providerSessionId: trimmedString(taskConfig['_continueProviderSessionId']),
+    providerSessionId: _trimmedString(taskConfig['_continueProviderSessionId']),
     structuredSchemaJson: encodeJsonString(taskConfig['_workflowStructuredSchema']),
     structuredOutputJson: encodeJsonString(taskConfig['_workflowStructuredOutputPayload']),
     followUpPromptsJson: encodeJsonString(taskConfig['_workflowFollowUpPrompts']),
@@ -265,6 +265,12 @@ WorkflowStepExecution buildWorkflowStepExecutionFromConfig({
     mapIterationTotal: intOrNull(taskConfig['_mapIterationTotal']),
     stepTokenBreakdownJson: tokenBreakdown,
   );
+}
+
+String? _trimmedString(Object? value) {
+  if (value is! String) return null;
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }
 
 String? buildTokenBreakdownJson(Map<String, dynamic> taskConfig) {
@@ -291,12 +297,6 @@ String? buildTokenBreakdownJson(Map<String, dynamic> taskConfig) {
 }
 
 String? encodeJsonString(Object? value) => value == null ? null : jsonEncode(value);
-
-String? trimmedString(Object? value) {
-  if (value is! String) return null;
-  final trimmed = value.trim();
-  return trimmed.isEmpty ? null : trimmed;
-}
 
 int? intOrNull(Object? value) {
   return switch (value) {

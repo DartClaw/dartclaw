@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.22**
+> Current through: **0.23**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -237,6 +237,8 @@ TurnRunner (per-harness)
     └── Self-improvement (errors.md / learnings.md on failure)
 ```
 
+Each runner owns a layered guard chain: shared reloadable base guards plus that runner's tool filter. The harness evaluates this combined chain, so config reloads do not discard per-turn or per-task policy. SDK hosts that construct harnesses own this same composition boundary.
+
 Since 0.14.4, `TurnRunner` treats text deltas and tool events as forward progress. That keeps session idle timers fresh during long-running tool execution and lets governance stall timers warn or cancel only when the provider event stream actually goes silent, instead of after a fixed wall-clock timeout.
 
 Since 0.16, the turn stack also tracks provider compaction lifecycle signals. Claude emits `PreCompact` and `compact_boundary`; Codex parses `contextCompaction` items. `ContextMonitor` uses those signals to suppress heuristic flushes when a deterministic provider hook exists, deduplicate pre-compaction flush turns, and emit task timeline compaction markers for running task sessions.
@@ -249,10 +251,12 @@ DartClaw receives messages from multiple sources through a unified channel abstr
 |---------|-----------|---------|
 | **Web** | HTTP API + SSE | None |
 | **WhatsApp** | Webhook (GOWA binary) | Yes — Go binary, outpost pattern |
-| **Signal** | REST API (signal-cli-rest-api) | Yes — Docker container |
+| **Signal** | JSON-RPC + SSE (signal-cli) | Yes — managed external binary |
 | **Google Chat** | Webhook + REST API | None — pure REST, GCP service account auth |
 
 All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
+
+Each channel normalizes inbound messages, formats outbound responses, and may provide best-effort typing feedback; unsupported channels use no-op hooks.
 
 For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a `ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route context, which keeps task discussion and review commands such as `accept`, `reject`, and `push back` scoped to the task instead of falling back to the shared room session.
 
@@ -342,6 +346,7 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 | **XSS prevention** | Server-side HTML escaping (Trellis `tl:text`) + client-side DOMPurify |
 
 The concrete guard chain lives in `dartclaw_security` and is wired into the running server by the Dart host.
+Each executing harness evaluates a runner-specific layered chain, combining reloadable base guards with that runner's turn/task tool policy.
 
 For configuration and guard details, see the [Security guide](security.md).
 
@@ -401,7 +406,7 @@ The web UI avoids JavaScript build toolchains entirely:
 
 - **Server-side**: Trellis template engine with HTML fragment rendering. Templates are `.html` files with `tl:` attributes for auto-escaping.
 - **Client-side**: HTMX for SPA-like navigation and form submission, HTMX SSE extension for streaming, marked.js for markdown, highlight.js for syntax highlighting. Vendored locally — no CDN dependency at runtime.
-- **Styling**: Custom CSS with Catppuccin-based design tokens. Light/dark theme toggle.
+- **Styling**: Afterglow `tokens.css` and `design-system.css` provide the canonical layer; app-only `app-tokens.css` and `app.css` add product composition. Light/dark theme toggle.
 
 ### SSE Streaming
 
@@ -422,6 +427,9 @@ When you send a message:
 | `/tasks/:id` | Task detail (embedded chat, artifact panel, review controls) |
 | `/health-dashboard` | System health, guard audit log, usage stats |
 | `/memory` | Memory overview, file browser, pruner history |
+| `/knowledge` | Wiki search, inbox, and knowledge-graph timeline |
+| `/projects` | Project and repository management |
+| `/workflows` | Workflow discovery, launch, and run status |
 | `/settings` | Live configuration editor, guard config viewer, channel access management |
 | `/scheduling` | Cron job management (add/edit/delete) |
 

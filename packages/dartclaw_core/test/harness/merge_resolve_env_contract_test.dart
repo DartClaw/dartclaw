@@ -23,7 +23,10 @@ import 'package:test/test.dart';
 
 /// Creates a [FakeProcess] with a non-broadcast stdout controller so that
 /// [scheduleMicrotask] emission before subscription is still delivered.
-FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
+///
+/// `completeExitOnKill` lets harness teardown observe the exit immediately
+/// instead of waiting out the SIGTERM grace period and the SIGKILL follow-up.
+FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
 
 // ---------------------------------------------------------------------------
 // ClaudeCodeHarness helpers
@@ -100,7 +103,7 @@ void main() {
     group('TI03 — CodexHarness injects MERGE_RESOLVE_* keys (survives CodexEnvironment merge)', () {
       test('MERGE_RESOLVE_TOKEN_CEILING survives CodexEnvironment environmentOverrides merge', () async {
         Map<String, String>? captured;
-        final fakeProcess = FakeCodexProcess();
+        final fakeProcess = FakeCodexProcess(completeExitOnKill: true);
 
         final harness = CodexHarness(
           cwd: '/tmp',
@@ -124,7 +127,7 @@ void main() {
 
       test('all three MERGE_RESOLVE_* keys are present in Codex spawn env', () async {
         Map<String, String>? captured;
-        final fakeProcess = FakeCodexProcess();
+        final fakeProcess = FakeCodexProcess(completeExitOnKill: true);
 
         final harness = CodexHarness(
           cwd: '/tmp',
@@ -191,7 +194,7 @@ void main() {
 
       test('CodexHarness: no MERGE_RESOLVE_* key leaks in when environment map is empty', () async {
         Map<String, String>? captured;
-        final fakeProcess = FakeCodexProcess();
+        final fakeProcess = FakeCodexProcess(completeExitOnKill: true);
 
         final harness = CodexHarness(
           cwd: '/tmp',
@@ -225,7 +228,7 @@ void main() {
 
       test('CodexHarness spawns with the environment values present at start() time', () async {
         Map<String, String>? captured;
-        final fakeProcess = FakeCodexProcess();
+        final fakeProcess = FakeCodexProcess(completeExitOnKill: true);
         final env = {mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4', 'OPENAI_API_KEY': 'sk-test'};
 
         final harness = CodexHarness(
@@ -275,7 +278,7 @@ void main() {
         });
 
         for (final branch in ['integration/0.16.4', 'integration/0.17.0']) {
-          currentFakeProcess = FakeCodexProcess();
+          currentFakeProcess = FakeCodexProcess(completeExitOnKill: true);
           spawnEnv = null;
           final config = HarnessFactoryConfig(
             cwd: '/tmp',

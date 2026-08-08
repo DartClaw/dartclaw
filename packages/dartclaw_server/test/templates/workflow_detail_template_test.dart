@@ -1,6 +1,7 @@
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/templates/workflow_detail.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus;
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -22,6 +23,137 @@ void main() {
     activeSessionId: null,
   );
 
+  test('S01/S04 run presentation covers every workflow status field', () {
+    final expected = <WorkflowRunStatus, WorkflowRunPresentation>{
+      WorkflowRunStatus.pending: (
+        label: 'Pending',
+        badgeClass: 'status-badge-pending',
+        terminal: false,
+        progressOverride: null,
+        meterFillClass: '',
+        percentageClass: '',
+        dotClass: 'status-dot--idle',
+        attention: false,
+      ),
+      WorkflowRunStatus.running: (
+        label: 'Running',
+        badgeClass: 'status-badge-running',
+        terminal: false,
+        progressOverride: null,
+        meterFillClass: '',
+        percentageClass: '',
+        dotClass: 'status-dot--live',
+        attention: false,
+      ),
+      WorkflowRunStatus.paused: (
+        label: 'Paused',
+        badgeClass: 'status-badge-paused',
+        terminal: false,
+        progressOverride: null,
+        meterFillClass: 'meter-fill--warning',
+        percentageClass: 'text-warning',
+        dotClass: 'status-dot--warning',
+        attention: false,
+      ),
+      WorkflowRunStatus.awaitingApproval: (
+        label: 'Awaiting approval',
+        badgeClass: 'status-badge-awaiting-approval',
+        terminal: false,
+        progressOverride: null,
+        meterFillClass: 'meter-fill--warning',
+        percentageClass: 'text-warning',
+        dotClass: 'status-dot--attention',
+        attention: true,
+      ),
+      WorkflowRunStatus.completed: (
+        label: 'Completed',
+        badgeClass: 'status-badge-completed',
+        terminal: true,
+        progressOverride: 100,
+        meterFillClass: '',
+        percentageClass: 'text-success',
+        dotClass: 'status-dot--success',
+        attention: false,
+      ),
+      WorkflowRunStatus.failed: (
+        label: 'Failed',
+        badgeClass: 'status-badge-failed',
+        terminal: true,
+        progressOverride: null,
+        meterFillClass: 'meter-fill--error',
+        percentageClass: 'text-error',
+        dotClass: 'status-dot--error',
+        attention: false,
+      ),
+      WorkflowRunStatus.cancelled: (
+        label: 'Cancelled',
+        badgeClass: 'status-badge-cancelled',
+        terminal: true,
+        progressOverride: null,
+        meterFillClass: 'meter-fill--warning',
+        percentageClass: 'text-warning',
+        dotClass: 'status-dot--warning',
+        attention: false,
+      ),
+    };
+    expect(WorkflowRunStatus.values, hasLength(expected.length));
+    for (final status in WorkflowRunStatus.values) {
+      expect(workflowRunPresentation(status), expected[status], reason: status.name);
+    }
+  });
+
+  test('S02 pipeline decoder normalizes aliases and signals unknown values', () {
+    final cases = {
+      'completed': 'pipeline-step--done',
+      'skipped': 'pipeline-step--done',
+      'running': 'pipeline-step--running',
+      'failed': 'pipeline-step--failed',
+      'rejected': 'pipeline-step--failed',
+      'interrupted': 'pipeline-step--failed',
+      'cancelled': 'pipeline-step--failed',
+      'timed_out': 'pipeline-step--failed',
+      'timed-out': 'pipeline-step--failed',
+      'timedOut': 'pipeline-step--failed',
+      'awaiting_approval': 'pipeline-step--blocked',
+      'awaiting-approval': 'pipeline-step--blocked',
+      'awaitingApproval': 'pipeline-step--blocked',
+      'review': 'pipeline-step--blocked',
+      'queued': 'pipeline-step--pending',
+      'pending': 'pipeline-step--pending',
+    };
+    for (final entry in cases.entries) {
+      expect(workflowStepPresentation('  ${entry.key}  ').className, entry.value, reason: entry.key);
+    }
+    for (final value in [null, '', 'future_status_v2']) {
+      final presentation = workflowStepPresentation(value);
+      expect(presentation.className, 'pipeline-step--failed');
+      expect(presentation.label, 'Unknown status');
+    }
+  });
+
+  test('S02 approval decoder covers aliases and explicit unknown fallback', () {
+    final cases = {
+      'pending': 'approval-card--waiting',
+      'waiting': 'approval-card--waiting',
+      'awaiting_approval': 'approval-card--waiting',
+      'awaiting-approval': 'approval-card--waiting',
+      'awaitingApproval': 'approval-card--waiting',
+      'approved': 'approval-card--approved',
+      'completed': 'approval-card--approved',
+      'rejected': 'approval-card--rejected',
+      'expired': 'approval-card--expired',
+      'timed_out': 'approval-card--expired',
+      'timed-out': 'approval-card--expired',
+      'timedOut': 'approval-card--expired',
+    };
+    for (final entry in cases.entries) {
+      expect(workflowApprovalPresentation(' ${entry.key} ').className, entry.value, reason: entry.key);
+    }
+    for (final value in [null, '', 'future_approval_state']) {
+      expect(workflowApprovalPresentation(value).label, 'Unknown approval status');
+    }
+  });
+
   Map<String, dynamic> makeRun({
     String id = 'run-001',
     String definitionName = 'spec-and-implement',
@@ -32,6 +164,8 @@ void main() {
       'id': id,
       'definitionName': definitionName,
       'status': status,
+      'statusValue': WorkflowRunStatus.values.asNameMap()[status]!,
+      'hasStepCount': true,
       'startedAt': '2026-03-24T10:00:00.000Z',
       'updatedAt': '2026-03-24T10:30:00.000Z',
       'completedAt': null,
@@ -72,13 +206,12 @@ void main() {
         contextEntries: const [],
         loopInfo: const [],
       );
-      // Each step has a workflow-step-card element.
-      final count = RegExp(r'workflow-step-card').allMatches(html).length;
+      final count = RegExp(r'class="pipeline-step ').allMatches(html).length;
       expect(count, 4);
       expect(html, contains('data-controller="dc-workflows"'));
       expect(html, contains('data-run-status="running"'));
       expect(html, contains('class="content-area print-in"'));
-      expect(html, contains('class="content-inner workflow-detail-page"'));
+      expect(html, contains('class="content-inner content-inner--wide workflow-detail-page"'));
       expect(html, contains('class="workflow-step-detail" hidden="" id="step-detail-0"'));
     });
 
@@ -92,7 +225,7 @@ void main() {
         loopInfo: const [],
       );
       expect(html, contains('width: 0%'));
-      expect(html, contains('class="workflow-progress-label"'));
+      expect(html, contains('data-workflow-progress-label'));
       expect(html, contains('<span>0</span> / <span>6</span> steps complete'));
       expect(html, contains('class="workflow-progress-pct">0%</span>'));
     });
@@ -247,6 +380,43 @@ void main() {
       expect(html, contains('width: 100%'));
     });
 
+    test('S03 unknown step count renders absent value without a meter', () {
+      final run = makeRun(status: 'completed')..['hasStepCount'] = false;
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: const [],
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+      expect(html, contains('class="value-absent"'));
+      expect(html, isNot(contains('class="meter"')));
+      expect(html, isNot(contains('class="workflow-actions"')));
+    });
+
+    test('S04 completed overrides partial progress and failed uses error treatment', () {
+      final completed = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'completed'),
+        steps: makeSteps(count: 4, completedCount: 1),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+      final failed = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'failed'),
+        steps: makeSteps(count: 4, completedCount: 1),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+      expect(completed, contains('width: 100%'));
+      expect(failed, contains('meter-fill--error'));
+      expect(failed, contains('text-error'));
+    });
+
     test('Pause button shown for running status', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
@@ -297,6 +467,20 @@ void main() {
       expect(html, isNot(contains('workflow-pause-banner')));
     });
 
+    test('cancelled approval run does not surface the stale hold reason as an error', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'cancelled', errorMessage: 'approval required: plan-approval'),
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, isNot(contains('workflow-error-message')));
+      expect(html, isNot(contains('approval required: plan-approval')));
+    });
+
     test('awaitingApproval run renders the pause banner, not the error block', () {
       // The awaitingApproval path sets errorMessage ("approval required: <step>");
       // the pause banner must own that message and the red error block stay hidden.
@@ -327,6 +511,21 @@ void main() {
 
       expect(html, contains('workflow-pause-banner'));
       expect(html, isNot(contains('workflow-error-message')));
+    });
+
+    test('awaitingApproval run without pending metadata falls back to its error', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(status: 'awaitingApproval', errorMessage: 'approval required: missing-step'),
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, isNot(contains('workflow-pause-banner')));
+      expect(html, contains('workflow-error-message'));
+      expect(html, contains('approval required: missing-step'));
     });
 
     test('no error section when errorMessage is null', () {
@@ -401,7 +600,7 @@ void main() {
       expect(html, contains('workflow-loop-badge'));
     });
 
-    test('step icon CSS class matches step status', () {
+    test('pipeline class and non-colour cue match step status', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
         navItems: const [],
@@ -429,9 +628,9 @@ void main() {
         contextEntries: const [],
         loopInfo: const [],
       );
-      expect(html, contains('workflow-step-icon--completed'));
-      expect(html, contains('workflow-step-icon--interrupted'));
-      expect(RegExp(r'workflow-step-icon--interrupted[^>]*>!</span>').hasMatch(html), isTrue);
+      expect(html, contains('pipeline-step--done'));
+      expect(html, contains('pipeline-step--failed'));
+      expect(html, contains('Failed'));
     });
 
     test('lazy step details expose terminal error and retry states', () {
@@ -478,7 +677,7 @@ void main() {
       expect(html, contains('terminal-frame-bar'));
       expect(html, contains('terminal-frame-dots'));
       expect(html, contains('terminal-frame-body'));
-      expect(html, contains('terminal-frame-title">Research</span>'));
+      expect(html, contains('<span>Research</span>'));
       expect(html, isNot(contains('terminal-frame--crt')));
     });
 

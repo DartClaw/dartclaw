@@ -37,4 +37,20 @@ if ! bash dev/tools/fitness/check_no_workflow_private_config.sh >/dev/null 2>&1;
   exit 1
 fi
 
+mkdir -p "$TMPDIR/bin"
+cat > "$TMPDIR/bin/rg" <<'SH'
+#!/usr/bin/env bash
+exit 2
+SH
+chmod +x "$TMPDIR/bin/rg"
+if PATH="$TMPDIR/bin:$PATH" bash dev/tools/fitness/check_no_workflow_private_config.sh > "$TMPDIR/rg-error.log" 2>&1; then
+  echo "FAIL: fitness script passed when rg could not scan"
+  exit 1
+fi
+if grep -q 'Fitness function passed' "$TMPDIR/rg-error.log"; then
+  echo "FAIL: fitness script printed a pass result after an rg scan error"
+  exit 1
+fi
+grep -q 'rg scan error (exit 2)' "$TMPDIR/rg-error.log"
+
 echo "OK: fitness script detects rogue _workflow* leaks and passes on a clean tree"

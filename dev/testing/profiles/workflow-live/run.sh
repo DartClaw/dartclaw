@@ -31,8 +31,8 @@ Modes:
                        (spec-and-implement + plan-and-implement, tag: live-e2e).
   --canary <name>      Single targeted canary (see below).
   --skip-preflight     Skip the fail-fast provider preflight (version, codex
-                       bundled-tool quarantine check, one pinned-model
-                       round-trip). Combines with any execute mode.
+                       bundled-tool quarantine check, pinned role-model
+                       round-trips). Combines with any execute mode.
 
 Canaries:
   core                 Real core bridge protocol smoke.
@@ -46,9 +46,13 @@ Canaries:
 Environment:
   DARTCLAW_TEST_LOG_DIR         Log directory. Defaults to .agent_temp/.
   DARTCLAW_TEST_PROVIDER        Provider preset for workflow E2E fixtures.
+  DARTCLAW_TEST_PLANNER_MODEL   Pins the planner model; Codex preflight probes it.
+                                Defaults to the E2EFixture preset.
   DARTCLAW_TEST_EXECUTOR_MODEL  Pins the executor model used by the preflight
                                 round-trip and the hermetic codex config.toml.
                                 Defaults to the E2EFixture preset.
+  DARTCLAW_TEST_REVIEWER_MODEL  Pins the reviewer model; Codex preflight probes
+                                distinct overrides. Defaults to the fixture preset.
 
 For codex runs this script writes a hermetic CODEX_HOME under the log dir
 (auth.json seeded from the operator's ~/.codex, config.toml pinning the executor
@@ -193,20 +197,27 @@ case "${MODE}:${CANARY:-}" in
     ;;
 esac
 
-# Provider is the fixture default (codex / gpt-5.3-codex-spark) unless overridden.
-# Opt into Claude Sonnet with DARTCLAW_TEST_PROVIDER=claude. The codex `-mini`
-# executor/reviewer measured a regression on these pipelines (~5-8x slower, ~100x
-# tokens/review), so the default stays on spark.
+# Provider and role models use the fixture defaults unless overridden.
+# Opt into Claude Sonnet with DARTCLAW_TEST_PROVIDER=claude.
 
-# Executor-model defaults mirror the E2EFixture presets in
+# Role-model defaults and planner effort mirror the E2EFixture presets in
 # packages/dartclaw_workflow/test/fixtures/e2e_fixture.dart — keep them in sync so
-# the preflight round-trip and the hermetic codex config.toml pin the same model
-# the tests resolve to.
+# preflight checks the same configurations the tests resolve to. The hermetic
+# codex config.toml keeps the executor model as the fallback for unpinned turns.
 PROVIDER="${DARTCLAW_TEST_PROVIDER:-codex}"
 case "${PROVIDER}" in
-  codex) EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-gpt-5.3-codex-spark}" ;;
-  claude) EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-claude-sonnet-4-6}" ;;
-  *) EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-}" ;;
+  codex)
+    PLANNER_MODEL="${DARTCLAW_TEST_PLANNER_MODEL:-gpt-5.6-sol}"
+    PLANNER_EFFORT="medium"
+    EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-gpt-5.6-luna}"
+    REVIEWER_MODEL="${DARTCLAW_TEST_REVIEWER_MODEL:-gpt-5.6-luna}"
+    ;;
+  claude)
+    EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-claude-sonnet-4-6}"
+    ;;
+  *)
+    EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-}"
+    ;;
 esac
 
 LOG_DIR="${DARTCLAW_TEST_LOG_DIR:-${REPO_ROOT}/.agent_temp}"
@@ -258,8 +269,8 @@ run_with_timeout() {
   return "${rc}"
 }
 
-# Fail-fast provider preflight: prove the CLI runs and the pinned executor model
-# actually round-trips before spending real tokens on `dart test`.
+# Fail-fast provider preflight: prove the CLI and pinned role configurations
+# actually round-trip before spending real tokens on `dart test`.
 run_preflight() {
   local exe login_hint
   case "${PROVIDER}" in
@@ -312,43 +323,65 @@ run_preflight() {
     fi
   fi
 
-  # One trivial one-shot round-trip on the pinned executor model. Codex reads the
-  # already-exported hermetic CODEX_HOME.
-  local preflight_log cmd rc=0
-  preflight_log="${LOG_DIR}/workflow-live-preflight-${LOG_LABEL}-$(date '+%Y%m%d-%H%M%S').log"
   if [ "${PROVIDER}" = "codex" ]; then
-    cmd="codex exec --json --skip-git-repo-check --ephemeral --sandbox read-only -c approval_policy=\"never\" --model \"${EXECUTOR_MODEL}\" 'Reply with exactly: OK'"
-    run_with_timeout 120 "${preflight_log}" \
-      codex exec --json --skip-git-repo-check --ephemeral --sandbox read-only \
-      -c approval_policy="never" --model "${EXECUTOR_MODEL}" 'Reply with exactly: OK' || rc=$?
+    run_model_preflight "planner" "${PLANNER_MODEL}" "${PLANNER_EFFORT}" "DARTCLAW_TEST_PLANNER_MODEL" "${login_hint}"
+    run_model_preflight "executor" "${EXECUTOR_MODEL}" "" "DARTCLAW_TEST_EXECUTOR_MODEL" "${login_hint}"
+    if [ "${REVIEWER_MODEL}" != "${EXECUTOR_MODEL}" ]; then
+      if [ "${REVIEWER_MODEL}" != "${PLANNER_MODEL}" ] || [ -n "${PLANNER_EFFORT}" ]; then
+        run_model_preflight "reviewer" "${REVIEWER_MODEL}" "" "DARTCLAW_TEST_REVIEWER_MODEL" "${login_hint}"
+      fi
+    fi
   else
-    cmd="claude -p --model \"${EXECUTOR_MODEL}\" 'Reply with exactly: OK'"
-    run_with_timeout 120 "${preflight_log}" \
-      claude -p --model "${EXECUTOR_MODEL}" 'Reply with exactly: OK' || rc=$?
+    run_model_preflight "executor" "${EXECUTOR_MODEL}" "" "DARTCLAW_TEST_EXECUTOR_MODEL" "${login_hint}"
   fi
 
-  if [ "${rc}" -ne 0 ]; then
-    echo >&2
-    echo "Preflight round-trip FAILED." >&2
-    echo "  Command: ${cmd}" >&2
-    if [ "${rc}" -eq 124 ]; then
-      echo "  Result: timed out after 120s" >&2
-    else
-      echo "  Result: exit code ${rc}" >&2
+  echo "Preflight OK: ${version_output}; pinned role-model round-trips passed."
+}
+
+run_model_preflight() {
+  local role="$1" model="$2" effort="$3" override_var="$4" login_hint="$5"
+  local preflight_log cmd rc=0
+  local -a roundtrip_cmd
+  preflight_log="${LOG_DIR}/workflow-live-preflight-${LOG_LABEL}-${role}-$(date '+%Y%m%d-%H%M%S').log"
+
+  if [ "${PROVIDER}" = "codex" ]; then
+    roundtrip_cmd=(
+      codex exec --json --skip-git-repo-check --ephemeral --sandbox read-only
+      -c approval_policy="never"
+    )
+    if [ -n "${effort}" ]; then
+      roundtrip_cmd+=(-c model_reasoning_effort="${effort}")
     fi
-    echo "  Log: ${preflight_log}" >&2
-    echo "  Last output:" >&2
-    tail -n 20 "${preflight_log}" 2>/dev/null | sed 's/^/    /' >&2 || true
-    echo "  Likely causes:" >&2
-    echo "    - provider not logged in (${login_hint})" >&2
-    echo "    - configured model not supported by the installed CLI — upgrade the CLI or set DARTCLAW_TEST_EXECUTOR_MODEL" >&2
-    if [ "${PROVIDER}" = "codex" ]; then
-      echo "    - quarantined bundled tools (xattr -d com.apple.quarantine <path>)" >&2
-    fi
-    exit 1
+    roundtrip_cmd+=(--model "${model}" 'Reply with exactly: OK')
+  else
+    roundtrip_cmd=(claude -p --model "${model}" 'Reply with exactly: OK')
   fi
 
-  echo "Preflight OK: ${version_output}, model ${EXECUTOR_MODEL} round-trip passed."
+  printf -v cmd '%q ' "${roundtrip_cmd[@]}"
+  run_with_timeout 120 "${preflight_log}" "${roundtrip_cmd[@]}" || rc=$?
+  if [ "${rc}" -eq 0 ]; then
+    echo "Preflight ${role} OK: model ${model}${effort:+, effort ${effort}}."
+    return 0
+  fi
+
+  echo >&2
+  echo "Preflight ${role} round-trip FAILED." >&2
+  echo "  Command: ${cmd}" >&2
+  if [ "${rc}" -eq 124 ]; then
+    echo "  Result: timed out after 120s" >&2
+  else
+    echo "  Result: exit code ${rc}" >&2
+  fi
+  echo "  Log: ${preflight_log}" >&2
+  echo "  Last output:" >&2
+  tail -n 20 "${preflight_log}" 2>/dev/null | sed 's/^/    /' >&2 || true
+  echo "  Likely causes:" >&2
+  echo "    - provider not logged in (${login_hint})" >&2
+  echo "    - configured model not supported by the installed CLI — upgrade the CLI or set ${override_var}" >&2
+  if [ "${PROVIDER}" = "codex" ]; then
+    echo "    - quarantined bundled tools (xattr -d com.apple.quarantine <path>)" >&2
+  fi
+  exit 1
 }
 
 if [ "${SKIP_PREFLIGHT}" -eq 0 ]; then

@@ -55,7 +55,7 @@ void main() {
   });
 
   test('ACP session title and usage data land on existing session and usage surfaces', () async {
-    final session = await sessions.getOrCreateMainSession();
+    final session = await sessions.createSession();
 
     unawaited(() async {
       await worker.turnInvoked;
@@ -86,6 +86,28 @@ void main() {
     expect(costData['provider'], 'acp');
     expect(costData['input_tokens'], 13);
     expect(costData['output_tokens'], 17);
+  });
+
+  test('ACP session title metadata does not rename the main workspace', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.completeSuccess({
+        'stop_reason': 'end_turn',
+        'input_tokens': 1,
+        'output_tokens': 1,
+        'session_title': 'Plan cleanup',
+      });
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'run acp'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect((await sessions.getSession(session.id))?.title, isNull);
   });
 
   test('ACP tool_call_update reaches shared provider progress telemetry without response pollution', () async {

@@ -56,6 +56,9 @@
   /* chevron-right — expand/navigate */
   --icon-chevron-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
 
+  /* chevron-up — expand toggle (expanded state) */
+  --icon-chevron-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 15-6-6-6 6'/%3E%3C/svg%3E");
+
   /* circle-check — health status OK */
   --icon-circle-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E");
 
@@ -84,6 +87,9 @@
 
   /* info — session info */
   --icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E");
+
+  /* layers — context compaction */
+  --icon-layers: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z'/%3E%3Cpath d='m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65'/%3E%3Cpath d='m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65'/%3E%3C/svg%3E");
 
   /* menu — hamburger toggle */
   --icon-menu: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5h16'/%3E%3Cpath d='M4 12h16'/%3E%3Cpath d='M4 19h16'/%3E%3C/svg%3E");
@@ -136,6 +142,14 @@
   /* file-text — artifact/document */
   --icon-file-text: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 9H8'/%3E%3Cpath d='M16 13H8'/%3E%3Cpath d='M16 17H8'/%3E%3C/svg%3E");
 
+  /* file-json — structured-output envelope event */
+  --icon-file-json: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1'/%3E%3Cpath d='M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1'/%3E%3C/svg%3E");
+
+  /* file-warning — structured-output fallback/validation failure.
+     Upstream Lucide omits the fold-corner path; it is kept here so the glyph
+     matches its file-text/file-json siblings. Don't "restore" it to upstream. */
+  --icon-file-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M12 9v4'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+
   /* gauge — token meter */
   --icon-gauge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 14 4-4'/%3E%3Cpath d='M3.34 19a10 10 0 1 1 17.32 0'/%3E%3C/svg%3E");
 
@@ -165,6 +179,21 @@
 
   /* search — research packet (Research nav) */
   --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+
+  /* chevron-down, control chrome — the ONLY pre-coloured icon URI in this file.
+     Every other --icon-* is black-stroked and resolves colour through
+     mask-image + currentColor, which a native <select> cannot use: a mask on
+     the control clips the whole element, and ::before/::after do not render on
+     it. That leaves background-image, which paints the URI as authored, so the
+     stroke colour is baked in and needs a per-theme pair. Value tracks
+     --fg-sub0 in each theme. */
+  --icon-chevron-down-control: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a6adc8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Light theme: the baked-in stroke has to be re-declared, since the URI cannot
+   read a token. Mirrors --fg-sub0's light value. */
+[data-theme="light"] {
+  --icon-chevron-down-control: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23565b71' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 
@@ -225,6 +254,7 @@
 .icon-check             { -webkit-mask-image: var(--icon-check);           mask-image: var(--icon-check); }
 .icon-chevron-down      { -webkit-mask-image: var(--icon-chevron-down);    mask-image: var(--icon-chevron-down); }
 .icon-chevron-right     { -webkit-mask-image: var(--icon-chevron-right);   mask-image: var(--icon-chevron-right); }
+.icon-chevron-up        { -webkit-mask-image: var(--icon-chevron-up);      mask-image: var(--icon-chevron-up); }
 .icon-circle-check      { -webkit-mask-image: var(--icon-circle-check);    mask-image: var(--icon-circle-check); }
 .icon-circle-x          { -webkit-mask-image: var(--icon-circle-x);        mask-image: var(--icon-circle-x); }
 .icon-clipboard-list    { -webkit-mask-image: var(--icon-clipboard-list);  mask-image: var(--icon-clipboard-list); }
@@ -236,7 +266,10 @@
 .icon-hash              { -webkit-mask-image: var(--icon-hash);            mask-image: var(--icon-hash); }
 .icon-info              { -webkit-mask-image: var(--icon-info);            mask-image: var(--icon-info); }
 .icon-file-text         { -webkit-mask-image: var(--icon-file-text);       mask-image: var(--icon-file-text); }
+.icon-file-json         { -webkit-mask-image: var(--icon-file-json);       mask-image: var(--icon-file-json); }
+.icon-file-warning      { -webkit-mask-image: var(--icon-file-warning);    mask-image: var(--icon-file-warning); }
 .icon-gauge             { -webkit-mask-image: var(--icon-gauge);           mask-image: var(--icon-gauge); }
+.icon-layers            { -webkit-mask-image: var(--icon-layers);          mask-image: var(--icon-layers); }
 .icon-menu              { -webkit-mask-image: var(--icon-menu);            mask-image: var(--icon-menu); }
 .icon-message-circle    { -webkit-mask-image: var(--icon-message-circle);  mask-image: var(--icon-message-circle); }
 .icon-messages-square   { -webkit-mask-image: var(--icon-messages-square); mask-image: var(--icon-messages-square); }
@@ -278,6 +311,7 @@
 [data-icon="database"]::before   { -webkit-mask-image: var(--icon-database);       mask-image: var(--icon-database); }
 [data-icon="search"]::before     { -webkit-mask-image: var(--icon-search);         mask-image: var(--icon-search); }
 [data-icon="clock"]::before      { -webkit-mask-image: var(--icon-clock);          mask-image: var(--icon-clock); }
+[data-icon="server"]::before     { -webkit-mask-image: var(--icon-server);         mask-image: var(--icon-server); }
 
 /* Sidebar — session items */
 [data-icon="terminal"]::before       { -webkit-mask-image: var(--icon-terminal);       mask-image: var(--icon-terminal); }
@@ -292,7 +326,10 @@
 [data-icon="info"]::before          { -webkit-mask-image: var(--icon-info);           mask-image: var(--icon-info); }
 [data-icon="pencil"]::before        { -webkit-mask-image: var(--icon-pencil);         mask-image: var(--icon-pencil); }
 [data-icon="square"]::before        { -webkit-mask-image: var(--icon-square);         mask-image: var(--icon-square); }
+[data-icon="check"]::before         { -webkit-mask-image: var(--icon-check);          mask-image: var(--icon-check); }
+[data-icon="circle-x"]::before      { -webkit-mask-image: var(--icon-circle-x);       mask-image: var(--icon-circle-x); }
 [data-icon="chevron-down"]::before  { -webkit-mask-image: var(--icon-chevron-down);   mask-image: var(--icon-chevron-down); }
+[data-icon="chevron-up"]::before    { -webkit-mask-image: var(--icon-chevron-up);     mask-image: var(--icon-chevron-up); }
 [data-icon="chevron-right"]::before { -webkit-mask-image: var(--icon-chevron-right);  mask-image: var(--icon-chevron-right); }
 [data-icon="arrow-left"]::before    { -webkit-mask-image: var(--icon-arrow-left);     mask-image: var(--icon-arrow-left); }
 [data-icon="arrow-right"]::before   { -webkit-mask-image: var(--icon-arrow-right);    mask-image: var(--icon-arrow-right); }
@@ -330,11 +367,8 @@
   padding-left: 0;
 }
 
-/* New Session button: flex with icon */
-.btn-new-session[data-icon] {
-  display: inline-flex;
-  align-items: center;
-}
+/* New Session command: centre the semantic icon inside its visible affordance. */
+.btn-new-session-icon[data-icon]::before { margin-right: 0; }
 
 /* Icon-only buttons: center the icon, hide text overflow */
 .btn-icon[data-icon] {

@@ -349,18 +349,7 @@ final class WorkflowTaskExecutorTestContext {
       dataDir: _harness.tempDir.path,
       workspaceDir: _harness.workspaceDir,
     );
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-        workflowRunRepository: workflowRuns,
-        workflowStepExecutionRepository: workflowStepExecutions,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor();
   }
 
   Future<void> tearDown({Future<void> Function()? workerDispose}) async {

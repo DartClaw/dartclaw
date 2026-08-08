@@ -22,14 +22,38 @@ class JobsListCommand extends ConnectedCommand {
       writeLine('No scheduled jobs found.');
       return;
     }
-    writeLine('  ${'NAME'.padRight(20)}  ${'SCHEDULE'.padRight(16)}  TYPE');
+    writeLine('  ${'ID'.padRight(20)}  ${'SCHEDULE'.padRight(16)}  TYPE');
     for (final raw in jobs) {
       final job = Map<String, dynamic>.from(raw as Map);
+      final id = (job['id'] ?? job['name'])?.toString() ?? '';
+      final schedule = _formatSchedule(job['schedule']);
+      final type = job['type']?.toString() ?? 'prompt';
       writeLine(
-        '  ${truncate(job['name']?.toString() ?? '', 20).padRight(20)}  '
-        '${truncate(job['schedule']?.toString() ?? '', 16).padRight(16)}  '
-        '${job['type']}',
+        '  ${truncate(id, 20).padRight(20)}  '
+        '${truncate(schedule, 16).padRight(16)}  '
+        '$type',
       );
     }
   });
+}
+
+String _formatSchedule(Object? raw) {
+  const invalid = '<invalid>';
+  if (raw is String) return raw.trim().isEmpty ? invalid : raw.trim();
+  if (raw is! Map) return invalid;
+
+  final schedule = Map<Object?, Object?>.from(raw);
+  switch (schedule['type']) {
+    case 'cron':
+      final expression = schedule['expression'];
+      return expression is String && expression.trim().isNotEmpty ? expression.trim() : invalid;
+    case 'interval':
+      final minutes = schedule['minutes'];
+      return minutes is int && minutes > 0 ? 'every $minutes minutes' : invalid;
+    case 'once':
+      final at = schedule['at'];
+      return at is String && DateTime.tryParse(at) != null ? at : invalid;
+    default:
+      return invalid;
+  }
 }

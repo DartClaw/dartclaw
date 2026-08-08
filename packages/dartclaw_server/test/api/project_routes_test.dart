@@ -563,6 +563,24 @@ void main() {
       await taskService.dispose();
     });
 
+    test('delete cancels draft and interrupted tasks', () async {
+      projects.seed(makeProject(id: 'cancel-proj'));
+      final db = openTaskDbInMemory();
+      final eventBus = EventBus();
+      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      await _seedDraftTask(taskService, 'draft-task', 'cancel-proj');
+      await _seedInterruptedTask(taskService, 'interrupted-task', 'cancel-proj');
+      final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
+
+      await clientWithTasks.expectResponse('DELETE', '/api/projects/cancel-proj', status: 200);
+
+      expect((await taskService.get('draft-task'))!.status, TaskStatus.cancelled);
+      expect((await taskService.get('interrupted-task'))!.status, TaskStatus.cancelled);
+
+      await eventBus.dispose();
+      await taskService.dispose();
+    });
+
     test('delete with queued task fails task and deletes project', () async {
       projects.seed(makeProject(id: 'q-proj'));
       final db = openTaskDbInMemory();
@@ -715,6 +733,22 @@ Future<void> _seedRunningTask(TaskService tasks, String id, String projectId) as
     autoStart: true,
   );
   await tasks.transition(id, TaskStatus.running);
+}
+
+Future<void> _seedDraftTask(TaskService tasks, String id, String projectId) async {
+  await tasks.create(
+    id: id,
+    title: 'Draft $id',
+    description: 'For project $projectId',
+    type: TaskType.coding,
+    projectId: projectId,
+    autoStart: false,
+  );
+}
+
+Future<void> _seedInterruptedTask(TaskService tasks, String id, String projectId) async {
+  await _seedRunningTask(tasks, id, projectId);
+  await tasks.transition(id, TaskStatus.interrupted);
 }
 
 Future<void> _seedQueuedTask(TaskService tasks, String id, String projectId) async {

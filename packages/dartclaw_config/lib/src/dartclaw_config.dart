@@ -39,7 +39,6 @@ import 'logging_config.dart';
 import 'memory_config.dart';
 import 'mcp_servers_config.dart';
 import 'onboarding_config.dart';
-import 'path_utils.dart';
 import 'project_config.dart';
 import 'provider_identity.dart';
 import 'providers_config.dart';

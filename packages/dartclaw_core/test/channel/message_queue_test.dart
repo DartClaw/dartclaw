@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -15,7 +16,11 @@ class FakeChannel extends Channel {
   @override
   final ChannelType type = ChannelType.whatsapp;
   final List<(String, ChannelResponse)> sent = [];
+  final List<String> typingEvents = [];
   bool failSend = false;
+  bool failTyping = false;
+  Completer<void>? startTypingGate;
+  Completer<void>? stopTypingGate;
 
   @override
   Future<void> connect() async {}
@@ -29,7 +34,22 @@ class FakeChannel extends Channel {
   @override
   Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
     if (failSend) throw Exception('send failed');
+    typingEvents.add('send:$recipientJid');
     sent.add((recipientJid, response));
+  }
+
+  @override
+  Future<void> startTyping(String recipientJid) async {
+    typingEvents.add('start:$recipientJid');
+    await startTypingGate?.future;
+    if (failTyping) throw Exception('typing failed');
+  }
+
+  @override
+  Future<void> stopTyping(String recipientJid) async {
+    typingEvents.add('stop:$recipientJid');
+    await stopTypingGate?.future;
+    if (failTyping) throw Exception('typing failed');
   }
 }
 
@@ -102,16 +122,22 @@ void main() {
       QueueStrategy queueStrategy = QueueStrategy.fifo,
       bool Function(String senderId)? isAdmin,
       bool Function()? shouldFail,
+      Duration retryDelay = const Duration(milliseconds: 10),
+      String response = 'response',
+      TurnObserver? turnObserver,
+      MessageRedactor? redactor,
     }) {
       return MessageQueue(
         debounceWindow: debounce,
         maxConcurrentTurns: maxConcurrent,
         maxQueueDepth: maxDepth,
         maxQueued: maxQueued,
-        defaultRetryPolicy: RetryPolicy(maxAttempts: maxRetries, baseDelay: const Duration(milliseconds: 10)),
+        defaultRetryPolicy: RetryPolicy(maxAttempts: maxRetries, baseDelay: retryDelay),
         queueStrategy: queueStrategy,
         random: Random(42), // deterministic
         isAdmin: isAdmin,
+        turnObserver: turnObserver,
+        redactor: redactor,
         dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
             dispatchStarted!.complete();
@@ -120,7 +146,7 @@ void main() {
           if (shouldFail != null && shouldFail()) throw Exception('dispatch failed');
           dispatched.add((sessionKey, message));
           dispatchedSenders.add(senderJid);
-          return 'response';
+          return response;
         },
       );
     }
@@ -435,6 +461,149 @@ void main() {
 
       expect(channel.sent, hasLength(1));
       expect(channel.sent.single.$1, 'group@test');
+    });
+
+    test('shows typing only while the queued turn is running', () async {
+      dispatchGate = Completer<void>();
+      dispatchStarted = Completer<void>();
+      final queue = makeQueue(debounce: Duration.zero);
+      addTearDown(() {
+        if (!dispatchGate!.isCompleted) dispatchGate!.complete();
+        queue.dispose();
+      });
+
+      queue.enqueue(_msg(groupJid: 'group@test'), channel, 'session-1');
+      await dispatchStarted!.future;
+
+      expect(channel.typingEvents, ['start:group@test']);
+
+      dispatchGate!.complete();
+      await pumpEventQueue();
+
+      expect(channel.typingEvents, ['start:group@test', 'stop:group@test', 'send:group@test']);
+    });
+
+    test('typing failures never block the response', () async {
+      channel.failTyping = true;
+      final queue = makeQueue(debounce: Duration.zero);
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(channel.sent.single.$2.text, 'response');
+      expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
+    });
+
+    test('stops typing before an observer suppresses the normal send', () async {
+      String? observedResponse;
+      final queue = makeQueue(
+        debounce: Duration.zero,
+        turnObserver: (sessionKey, message, sourceChannel, recipientJid, responseFuture) async {
+          observedResponse = await responseFuture;
+          return true;
+        },
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(observedResponse, 'response');
+      expect(channel.sent, isEmpty);
+      expect(channel.typingEvents, ['start:user@test', 'stop:user@test']);
+    });
+
+    test('stops typing before sending a redacted response', () async {
+      final queue = makeQueue(
+        debounce: Duration.zero,
+        response: 'SECRET-VALUE',
+        redactor: MessageRedactor(extraPatterns: [r'SECRET-[A-Z]+']),
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(channel.sent.single.$2.text, 'SECRET***');
+      expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
+    });
+
+    test('each retry attempt brackets dispatch with typing cleanup', () async {
+      var attempts = 0;
+      final queue = makeQueue(
+        debounce: Duration.zero,
+        maxRetries: 2,
+        retryDelay: Duration.zero,
+        shouldFail: () => attempts++ == 0,
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(attempts, 2);
+      expect(channel.sent.single.$2.text, 'response');
+      expect(channel.typingEvents, [
+        'start:user@test',
+        'stop:user@test',
+        'start:user@test',
+        'stop:user@test',
+        'send:user@test',
+      ]);
+    });
+
+    test('a stalled typing start cannot block dispatch', () {
+      fakeAsync((async) {
+        channel.startTypingGate = Completer<void>();
+        final queue = makeQueue(debounce: Duration.zero);
+
+        queue.enqueue(_msg(), channel, 'session-1');
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+
+        expect(dispatched, isEmpty);
+        expect(channel.typingEvents, ['start:user@test']);
+
+        async.elapse(const Duration(seconds: 3));
+        async.flushMicrotasks();
+
+        expect(dispatched, [('session-1', 'hello')]);
+        expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
+        queue.dispose();
+      });
+    });
+
+    test('a stalled typing stop cannot block final delivery', () {
+      fakeAsync((async) {
+        channel.stopTypingGate = Completer<void>();
+        final queue = makeQueue(debounce: Duration.zero);
+
+        queue.enqueue(_msg(), channel, 'session-1');
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+
+        expect(channel.typingEvents, ['start:user@test', 'stop:user@test']);
+        expect(channel.sent, isEmpty);
+
+        async.elapse(const Duration(seconds: 3));
+        async.flushMicrotasks();
+
+        expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
+        expect(channel.sent.single.$2.text, 'response');
+        queue.dispose();
+      });
+    });
+
+    test('stops typing when dispatch fails', () async {
+      final queue = makeQueue(debounce: Duration.zero, maxRetries: 1, shouldFail: () => true);
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue();
+
+      expect(channel.typingEvents.take(2), ['start:user@test', 'stop:user@test']);
+      expect(channel.sent.single.$2.text, contains('unable to process'));
     });
 
     test('prefers metadata spaceName as reply recipient', () async {

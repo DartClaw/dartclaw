@@ -1,6 +1,6 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -15,6 +15,7 @@ WorkflowRun _buildRun({
   DateTime? completedAt,
   String? errorMessage,
   WorkflowExecutionCursor? executionCursor,
+  List<WorkflowWorktreeBinding> workflowWorktrees = const [],
 }) {
   final now = DateTime.parse('2026-01-01T10:00:00Z');
   return WorkflowRun(
@@ -29,6 +30,7 @@ WorkflowRun _buildRun({
     errorMessage: errorMessage,
     definitionJson: definitionJson ?? const {},
     executionCursor: executionCursor,
+    workflowWorktrees: workflowWorktrees,
   );
 }
 
@@ -183,6 +185,37 @@ void main() {
         expect(loaded!.status, WorkflowRunStatus.running);
         expect(loaded.totalTokens, 500);
         expect(loaded.currentStepIndex, 1);
+      });
+    });
+
+    group('worktree bindings', () {
+      const binding = WorkflowWorktreeBinding(
+        key: 'story-a',
+        path: '/tmp/worktrees/story-a',
+        branch: 'story-a',
+        workflowRunId: 'run-1',
+      );
+
+      test('persists the items wrapper JSON shape', () async {
+        await repository.insert(_buildRun(workflowWorktrees: const [binding]));
+
+        final row = db.select('SELECT workflow_worktree_json FROM workflow_runs WHERE id = ?', ['run-1']).single;
+        expect(
+          row['workflow_worktree_json'],
+          '{"items":[{"key":"story-a","path":"/tmp/worktrees/story-a","branch":"story-a","workflowRunId":"run-1"}]}',
+        );
+      });
+
+      test('getWorktreeBindings preserves legacy single-binding decoding', () async {
+        await repository.insert(_buildRun());
+        db.execute('UPDATE workflow_runs SET workflow_worktree_json = ? WHERE id = ?', [
+          '{"key":"story-a","path":"/tmp/worktrees/story-a","branch":"story-a","workflowRunId":"run-1"}',
+          'run-1',
+        ]);
+
+        final bindings = await repository.getWorktreeBindings('run-1');
+        expect(bindings, hasLength(1));
+        expect(bindings.single.toJson(), binding.toJson());
       });
     });
 

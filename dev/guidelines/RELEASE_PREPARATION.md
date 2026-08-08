@@ -1,6 +1,6 @@
 # Release Preparation
 
-Run `bash dev/tools/release_check.sh --version <version>` on the final pinned commit before tagging. It checks exported-bundle cleanup, the exact target version across all pins, the tracked workspace dependency lock, formatting, embedded assets, static analysis, the CI workspace test runner, architecture rules, the complete CI fitness suite, and whitespace. `--quick` skips only workspace tests and is for iteration, not final signoff.
+Run `bash dev/tools/release_check.sh --version <version>` on the final pinned commit before tagging. It checks exported-bundle cleanup, the exact target version across all pins, the tracked workspace dependency lock, embedded assets, formatting, static analysis, the CI workspace test runner, architecture rules, the complete CI fitness suite, and whitespace. `--quick` skips only workspace tests and is for iteration, not final signoff.
 
 ## Pre-tag gates
 
@@ -16,7 +16,7 @@ Run `bash dev/tools/release_check.sh --version <version>` on the final pinned co
 - Homebrew: approve the `Release Binaries` workflow's `homebrew` job in the `distribution-publication` environment, confirm the rendered formula reached `DartClaw/homebrew-dartclaw`, then verify `brew tap DartClaw/dartclaw && brew install dartclaw && dartclaw --version`. If the environment secret is absent, render with `dart run dev/tools/render_homebrew_formula.dart` and publish manually.
 - Scoop: confirm the `scoop` job rendered the published Windows ZIP checksum into `DartClaw/scoop-dartclaw`, then run the install/version/update/uninstall audit on Windows x64. If publication fails, render with `dev/tools/render_scoop_manifest.dart` and publish manually.
 
-**Before the exported-bundle-cleanup gate can pass:** integrate the cycle's standalone FIS + interlude PRDs into the milestone PRD's *Adjacent & interlude work* section **and** into the private canonical PRD, and *move* (don't delete) any unfinished/future-milestone specs to the private repo under their target version (`docs/specs/0.next/`). The public bundle is then removed; the private canonical PRD is the durable record. See `dev/state/SPEC-LIFECYCLE.md` § *Before removal: integrate into the canonical PRD*.
+**Before the exported-bundle-cleanup gate can pass:** consolidate the private canonical PRD into the complete record of the cycle — each numbered story's outcome and worthwhile plan/FIS learnings folded in, standalone FIS + interlude PRDs integrated into the *Adjacent & interlude work* section — and *move* (don't delete) any unfinished/future-milestone specs to the private repo under their target version (`docs/specs/0.next-<slug>/`). The public bundle is then removed, and the private `docs/specs/<version>/` is pruned to `prd.md`: the PRD is the sole surviving per-version document. See `dev/state/SPEC-LIFECYCLE.md` § *Before removal: integrate into the canonical PRD*.
 
 Then bump in a single commit:
 - `dartclawVersion` in `packages/dartclaw_server/lib/src/version.dart`
@@ -26,6 +26,8 @@ Then bump in a single commit:
 - CHANGELOG, `dev/state/STATE.md`, `dev/state/ROADMAP.md`, "Current through" markers in docs
 
 ## Release sequence (squash-merge pattern)
+
+Development happens directly on `feat/<version>` — no nested sub-branches for individual fixes/stories; the branch squash-merges as one unit.
 
 1. **Scope-frozen** commit on `feat/<version>` – final version pins, CHANGELOG entry, STATE.md says "release-ready, awaiting tag". Run `release_check.sh --version <version>` here; manual gates pass.
 2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.

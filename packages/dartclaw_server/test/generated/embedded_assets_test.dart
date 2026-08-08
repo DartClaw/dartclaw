@@ -29,6 +29,9 @@ void main() {
   });
 }
 
+/// Mirrors `_binaryAssetExtensions` in `dev/tools/embed_assets.dart`; both must change together.
+const _binaryAssetExtensions = <String>{'.png', '.woff2'};
+
 void _collectAssets(
   Directory root,
   String prefix,
@@ -42,7 +45,7 @@ void _collectAssets(
       continue;
     }
     final key = '$prefix/$relative';
-    if (binary != null && relative.toLowerCase().endsWith('.png')) {
+    if (binary != null && _binaryAssetExtensions.any(relative.toLowerCase().endsWith)) {
       binary[key] = file.readAsBytesSync();
     } else {
       text[key] = file.readAsBytesSync();

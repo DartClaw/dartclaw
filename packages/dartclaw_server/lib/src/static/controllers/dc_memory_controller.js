@@ -40,7 +40,7 @@ export default class DcMemoryController extends Stimulus.Controller {
   }
 
   initMemoryDefaultTab() {
-    const activeTab = this.element.querySelector('.tab-btn.active[data-action="click->dc-memory#switchTab"][data-tab]');
+    const activeTab = this.element.querySelector('.tab.active[data-action="click->dc-memory#switchTab"][data-tab]');
     if (!activeTab) return;
 
     const tabId = activeTab.dataset.tab;
@@ -61,7 +61,7 @@ export default class DcMemoryController extends Stimulus.Controller {
     const card = button.closest('.card');
     if (!card) return;
 
-    card.querySelectorAll('.tab-btn').forEach((tab) => {
+    card.querySelectorAll('.tab').forEach((tab) => {
       tab.classList.remove('active');
       tab.setAttribute('aria-selected', 'false');
     });
@@ -92,26 +92,33 @@ export default class DcMemoryController extends Stimulus.Controller {
     this.element.querySelectorAll('.memory-preview[data-loaded]').forEach((preview) => this.applyMemoryViewMode(preview));
   }
 
+  // Prune states swap the button's variant class rather than painting its text
+  // colour, so each state keeps real button chrome and stays legible to a
+  // reader who cannot separate the colours.
+  setPruneState(button, label, variant, disabled = false) {
+    button.textContent = label;
+    button.classList.remove('btn-danger', 'btn-danger-fill', 'btn-ghost');
+    button.classList.add(variant);
+    button.disabled = disabled;
+  }
+
   confirmPrune(event) {
     const button = event?.currentTarget;
     if (!button) return;
 
     if (button.dataset.confirming) {
-      button.textContent = 'Pruning...';
-      button.disabled = true;
       delete button.dataset.confirming;
+      this.setPruneState(button, 'Pruning...', 'btn-danger-fill', true);
       this.pruneMemory(button);
       return;
     }
 
     button.dataset.confirming = '1';
-    button.textContent = 'Confirm Prune?';
-    button.style.color = 'var(--warning)';
+    this.setPruneState(button, 'Confirm Prune?', 'btn-danger-fill');
     window.setTimeout(() => {
       if (button.dataset.confirming) {
-        button.textContent = 'Prune Now';
-        button.style.color = '';
         delete button.dataset.confirming;
+        this.resetPruneButton(button);
       }
     }, 4000);
   }
@@ -159,8 +166,7 @@ export default class DcMemoryController extends Stimulus.Controller {
       if (!response.ok) throw new Error('Memory prune request failed');
       await response.json().catch(() => ({}));
 
-      button.textContent = 'Done!';
-      button.style.color = 'var(--success)';
+      this.setPruneState(button, 'Done!', 'btn-ghost', true);
       const content = document.getElementById('memory-content');
       if (content) {
         htmx.ajax('GET', '/memory/content' + this.apiQs, {
@@ -171,15 +177,12 @@ export default class DcMemoryController extends Stimulus.Controller {
       }
       window.setTimeout(() => this.resetPruneButton(button), 2000);
     } catch (_) {
-      button.textContent = 'Failed';
-      button.style.color = 'var(--error)';
+      this.setPruneState(button, 'Failed', 'btn-danger-fill', true);
       window.setTimeout(() => this.resetPruneButton(button), 2000);
     }
   }
 
   resetPruneButton(button) {
-    button.textContent = 'Prune Now';
-    button.style.color = '';
-    button.disabled = false;
+    this.setPruneState(button, 'Prune Now', 'btn-danger');
   }
 }

@@ -732,6 +732,18 @@ class WorkflowExecutor {
                 "Step '${step.id}' (${step.name}) ${result.task?.status.name ?? 'failed'}"
                 "${reason != null ? ': $reason' : ''}";
             _logRun(run, msg, level: Level.INFO);
+            void fireFailedStepCompletedEvent() => _fireStepCompletedEvent(
+              run: run,
+              step: step,
+              stepIndex: stepIndex,
+              totalSteps: totalSteps,
+              taskId: result.task?.id ?? '',
+              success: false,
+              outcome: result.outcome,
+              reason: result.outcomeReason ?? reason,
+              tokenCount: result.tokenCount,
+            );
+
             // Teardown interruption pauses without advancing currentStepIndex
             // (resume re-runs this step) and is checked before `onError:
             // continue` – advancing past a task the run's own teardown killed
@@ -743,19 +755,8 @@ class WorkflowExecutor {
                 contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                 updatedAt: DateTime.now(),
               );
-              await _persistContext(run.id, context);
-              await _repository.update(run);
-              _fireStepCompletedEvent(
-                run: run,
-                step: step,
-                stepIndex: stepIndex,
-                totalSteps: totalSteps,
-                taskId: result.task?.id ?? '',
-                success: false,
-                outcome: result.outcome,
-                reason: result.outcomeReason ?? reason,
-                tokenCount: result.tokenCount,
-              );
+              await _persistContextThenRun(run, context);
+              fireFailedStepCompletedEvent();
               await _pauseRun(
                 run,
                 "Step '${step.id}' was interrupted by task cancellation; resume re-runs it from its checkpoint.",
@@ -770,19 +771,8 @@ class WorkflowExecutor {
                 contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                 updatedAt: DateTime.now(),
               );
-              await _persistContext(run.id, context);
-              await _repository.update(run);
-              _fireStepCompletedEvent(
-                run: run,
-                step: step,
-                stepIndex: stepIndex,
-                totalSteps: totalSteps,
-                taskId: result.task?.id ?? '',
-                success: false,
-                outcome: result.outcome,
-                reason: result.outcomeReason ?? reason,
-                tokenCount: result.tokenCount,
-              );
+              await _persistContextThenRun(run, context);
+              fireFailedStepCompletedEvent();
               nodeIndex++;
               continue;
             }
@@ -792,19 +782,8 @@ class WorkflowExecutor {
               contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
               updatedAt: DateTime.now(),
             );
-            await _persistContext(run.id, context);
-            await _repository.update(run);
-            _fireStepCompletedEvent(
-              run: run,
-              step: step,
-              stepIndex: stepIndex,
-              totalSteps: totalSteps,
-              taskId: result.task?.id ?? '',
-              success: false,
-              outcome: result.outcome,
-              reason: result.outcomeReason ?? reason,
-              tokenCount: result.tokenCount,
-            );
+            await _persistContextThenRun(run, context);
+            fireFailedStepCompletedEvent();
             if (result.awaitingApproval) {
               run = await _transitionStepAwaitingApproval(
                 run,
@@ -836,8 +815,7 @@ class WorkflowExecutor {
               contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
               updatedAt: DateTime.now(),
             );
-            await _persistContext(run.id, context);
-            await _repository.update(run);
+            await _persistContextThenRun(run, context);
             _fireStepCompletedEvent(
               run: run,
               step: step,
@@ -856,8 +834,7 @@ class WorkflowExecutor {
             contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
             updatedAt: DateTime.now(),
           );
-          await _persistContext(run.id, context);
-          await _repository.update(run);
+          await _persistContextThenRun(run, context);
           _fireStepCompletedEvent(
             run: run,
             step: step,
@@ -877,19 +854,11 @@ class WorkflowExecutor {
     final cancelled = run.copyWith(
       status: WorkflowRunStatus.cancelled,
       completedAt: DateTime.now(),
+      errorMessage: null,
       updatedAt: DateTime.now(),
     );
     await _repository.update(cancelled);
-    _eventBus.fire(
-      WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: run.status,
-        newStatus: WorkflowRunStatus.cancelled,
-        errorMessage: reason,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.cancelled, errorMessage: reason);
     await _cancelActiveTasksForRun(run.id, trigger: 'approval-timeout');
     await _cleanupWorkflowGit(cancelled, preserveWorktrees: !workflowCleanupEnabledForRun(cancelled, _log));
   }
@@ -914,31 +883,13 @@ class WorkflowExecutor {
     if (latest.status != WorkflowRunStatus.running) return;
     final paused = latest.copyWith(status: WorkflowRunStatus.paused, errorMessage: reason, updatedAt: DateTime.now());
     await _repository.update(paused);
-    _eventBus.fire(
-      WorkflowRunStatusChangedEvent(
-        runId: latest.id,
-        definitionName: latest.definitionName,
-        oldStatus: latest.status,
-        newStatus: WorkflowRunStatus.paused,
-        errorMessage: reason,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _fireRunStatusChangedEvent(run: latest, newStatus: WorkflowRunStatus.paused, errorMessage: reason);
   }
 
   Future<void> _failRun(WorkflowRun run, String reason, {bool cleanupWorkflowGit = true}) async {
     final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
     await _repository.update(failed);
-    _eventBus.fire(
-      WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: run.status,
-        newStatus: WorkflowRunStatus.failed,
-        errorMessage: reason,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.failed, errorMessage: reason);
     if (cleanupWorkflowGit) {
       await _cleanupWorkflowGit(failed, preserveWorktrees: !workflowCleanupEnabledForRun(failed, _log));
     }
@@ -952,16 +903,7 @@ class WorkflowExecutor {
   }) async {
     final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
     await _repository.update(failed);
-    _eventBus.fire(
-      WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: run.status,
-        newStatus: WorkflowRunStatus.failed,
-        errorMessage: reason,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.failed, errorMessage: reason);
     await _cancelActiveTasksForRun(run.id, trigger: taskCancelTrigger);
     if (cleanupWorkflowGit) {
       await _cleanupWorkflowGit(failed, preserveWorktrees: !workflowCleanupEnabledForRun(failed, _log));
@@ -987,15 +929,7 @@ class WorkflowExecutor {
       updatedAt: DateTime.now(),
     );
     await _repository.update(completed);
-    _eventBus.fire(
-      WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: run.status,
-        newStatus: WorkflowRunStatus.completed,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.completed);
     await _cleanupWorkflowGit(completed, preserveWorktrees: !workflowCleanupEnabledForRun(completed, _log));
     _log.info("Workflow '${run.definitionName}' (${run.id}) completed successfully");
   }

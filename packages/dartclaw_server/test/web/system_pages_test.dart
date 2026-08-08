@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('registerSystemDashboardPages', () {
-    test('defaults register all 7 functional system pages', () {
+    test('defaults register all 7 functional system pages without duplicating the Knowledge timeline in nav', () {
       final registry = PageRegistry();
 
       registerSystemDashboardPages(registry);
@@ -12,8 +12,10 @@ void main() {
       expect(registry.pages, hasLength(7));
       expect(
         _labels(registry),
-        containsAll(<String>['Health', 'Settings', 'Memory', 'Knowledge', 'Timeline', 'Scheduling', 'Tasks']),
+        containsAll(<String>['Health', 'Settings', 'Memory', 'Knowledge', 'Scheduling', 'Tasks']),
       );
+      expect(_labels(registry), isNot(contains('Timeline')));
+      expect(registry.resolve('/knowledge/timeline'), isNotNull);
       expect(_labels(registry).where((label) => label == 'Settings'), hasLength(1));
     });
 
@@ -29,7 +31,7 @@ void main() {
       );
 
       expect(registry.pages, hasLength(3));
-      expect(_labels(registry), ['Settings', 'Knowledge', 'Timeline']);
+      expect(_labels(registry), ['Settings', 'Knowledge']);
     });
 
     test('showTasks false omits Tasks', () {
@@ -38,10 +40,7 @@ void main() {
       registerSystemDashboardPages(registry, showTasks: false);
 
       expect(_labels(registry), isNot(contains('Tasks')));
-      expect(
-        _labels(registry),
-        containsAll(<String>['Health', 'Settings', 'Memory', 'Knowledge', 'Timeline', 'Scheduling']),
-      );
+      expect(_labels(registry), containsAll(<String>['Health', 'Settings', 'Memory', 'Knowledge', 'Scheduling']));
     });
 
     test('showHealth false and showMemory false keep Settings, knowledge pages, Scheduling, and Tasks', () {
@@ -49,7 +48,7 @@ void main() {
 
       registerSystemDashboardPages(registry, showHealth: false, showMemory: false);
 
-      expect(_labels(registry), containsAll(<String>['Settings', 'Knowledge', 'Timeline', 'Scheduling', 'Tasks']));
+      expect(_labels(registry), containsAll(<String>['Settings', 'Knowledge', 'Scheduling', 'Tasks']));
       expect(_labels(registry), isNot(contains('Health')));
       expect(_labels(registry), isNot(contains('Memory')));
     });

@@ -2,7 +2,7 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-class _StubDashboardPage extends DashboardPage {
+class _StubDashboardPage implements DashboardPage {
   _StubDashboardPage(this._route, this._title, {this.iconValue});
 
   final String _route;
@@ -25,6 +25,10 @@ class _StubDashboardPage extends DashboardPage {
   Future<Response> handler(Request request, PageContext context) async {
     return Response.ok(_title);
   }
+}
+
+class _HiddenStubDashboardPage extends _StubDashboardPage implements DashboardNavigationExclusion {
+  _HiddenStubDashboardPage(super._route, super._title);
 }
 
 void main() {
@@ -55,6 +59,16 @@ void main() {
       expect(navItems[1].icon, isNull);
     });
 
+    test('registered pages can stay routable without appearing in navigation', () {
+      final registry = PageRegistry()
+        ..register(_StubDashboardPage('/visible', 'Visible'))
+        ..register(_HiddenStubDashboardPage('/nested', 'Nested'));
+
+      expect(registry.resolve('/nested'), isNotNull);
+      expect(registry.pages, hasLength(2));
+      expect(registry.navItems(activePage: 'Nested').map((item) => item.label), ['Visible']);
+    });
+
     test('register rejects reserved fixed sub-routes and earlier-mounted server paths', () {
       final registry = PageRegistry();
       final reservedRoutes = [
@@ -62,6 +76,8 @@ void main() {
         '/settings/channels/whatsapp',
         '/settings/channels/signal',
         '/memory/content',
+        '/knowledge/wiki',
+        '/knowledge/wiki/custom',
         '/health',
         '/static/app.css',
         '/whatsapp/pairing',
@@ -81,6 +97,8 @@ void main() {
           reason: route,
         );
       }
+
+      expect(() => registry.register(_StubDashboardPage('/knowledge/wikimedia', 'Allowed')), returnsNormally);
     });
 
     test('register rejects duplicate routes', () {

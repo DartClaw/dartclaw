@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '_support/workflow_test_paths.dart';
+
 void main() {
   group('plan.json fixtures', () {
     test('synthetic pending-story fixture has one null FIS story', () {
@@ -47,21 +49,6 @@ void main() {
 }
 
 Map<String, dynamic> _loadJson(String repoRelativePath) {
-  final file = File(p.join(_repoRoot(), repoRelativePath));
+  final file = File(p.join(workflowRepositoryRoot(), repoRelativePath));
   return jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-}
-
-String _repoRoot() {
-  var current = Directory.current;
-  while (true) {
-    if (File(p.join(current.path, 'AGENTS.md')).existsSync() &&
-        Directory(p.join(current.path, 'packages', 'dartclaw_workflow')).existsSync()) {
-      return current.path;
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate repository root');
-    }
-    current = parent;
-  }
 }

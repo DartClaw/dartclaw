@@ -1,13 +1,23 @@
 import {
   apiQs,
   applyIdenticons,
+  beginSessionDraftMutation,
   closeAllCustomSelects,
+  confirmDialog,
+  dismissRestartBanner as dismissRestartBannerState,
+  endSessionDraftMutation,
   getApiToken,
   initCustomSelects,
+  isAtBottom,
+  queueToast,
   readHtmxErrorMessage,
+  reconcileRestartBanner,
   renderMarkdown,
   scrollToBottom,
   showToast,
+  syncSidebarSessionTitle,
+  syncRestartBannerAfterSwap,
+  TOAST_QUEUE_KEY,
 } from './shared.js';
 
 const restartPollIntervalMs = 2000;
@@ -18,25 +28,43 @@ export default class DcShellController extends Stimulus.Controller {
     this.restartPollTimer = null;
     this.restartPollStart = null;
     this.globalEventSource = null;
-    this.restartBannerDismissed = false;
+    // Sticky-bottom intent captured before the pending mutation, keyed by the
+    // scroll container it was measured on. Cleared once consumed so an
+    // unrelated later swap cannot inherit it.
+    this.stickyIntent = null;
 
     this.handleServerEvent = this.handleServerEvent.bind(this);
     this.handleDocumentClick = this.handleDocumentClick.bind(this);
     this.handleDocumentKeydown = this.handleDocumentKeydown.bind(this);
     this.handleAfterSwap = this.handleAfterSwap.bind(this);
+    this.handleBeforeSwap = this.handleBeforeSwap.bind(this);
+    this.captureStickyIntent = this.captureStickyIntent.bind(this);
+    this.handleDrawerViewportChange = this.handleDrawerViewportChange.bind(this);
+    this.handleHtmxConfirm = this.handleHtmxConfirm.bind(this);
     this.handleHistoryRestore = this.handleHistoryRestore.bind(this);
     this.handleHistoryCacheMissLoad = this.handleHistoryCacheMissLoad.bind(this);
-    this.applyTimelineAutoScroll = this.applyTimelineAutoScroll.bind(this);
+    this.handleAfterSettle = this.handleAfterSettle.bind(this);
+    this.handleHtmxResponseError = this.handleHtmxResponseError.bind(this);
+    this.handleHtmxSendError = this.handleHtmxSendError.bind(this);
 
     document.body.addEventListener('dartclaw:server-event', this.handleServerEvent);
+    document.body.addEventListener('htmx:responseError', this.handleHtmxResponseError);
+    document.body.addEventListener('htmx:sendError', this.handleHtmxSendError);
     document.addEventListener('click', this.handleDocumentClick);
     document.addEventListener('keydown', this.handleDocumentKeydown);
     document.body.addEventListener('htmx:afterSwap', this.handleAfterSwap);
+    document.body.addEventListener('htmx:beforeSwap', this.handleBeforeSwap);
+    document.body.addEventListener('htmx:beforeSwap', this.captureStickyIntent);
+    document.body.addEventListener('htmx:confirm', this.handleHtmxConfirm);
     document.body.addEventListener('htmx:historyRestore', this.handleHistoryRestore);
     document.body.addEventListener('htmx:historyCacheMissLoad', this.handleHistoryCacheMissLoad);
-    document.addEventListener('htmx:afterSettle', this.applyTimelineAutoScroll);
+    document.addEventListener('htmx:afterSettle', this.handleAfterSettle);
+    // The off-canvas drawer only exists below this width.
+    this.drawerViewport = window.matchMedia('(max-width: 768px)');
+    this.drawerViewport.addEventListener('change', this.handleDrawerViewportChange);
 
     this.initializeShellUi();
+    this.drainQueuedToast();
     // Global SSE (restart / context-warning events) only exists for authenticated
     // shell pages; the login page renders no sidebar and would 401 on /api/events.
     if (document.querySelector('.sidebar')) {
@@ -44,18 +72,24 @@ export default class DcShellController extends Stimulus.Controller {
     }
     renderMarkdown();
     applyIdenticons();
-    scrollToBottom();
-    this.applyTimelineAutoScroll();
+    scrollToBottom(document, { force: true });
+    this.applyTimelineAutoScroll({ force: true });
   }
 
   disconnect() {
     document.body.removeEventListener('dartclaw:server-event', this.handleServerEvent);
+    document.body.removeEventListener('htmx:responseError', this.handleHtmxResponseError);
+    document.body.removeEventListener('htmx:sendError', this.handleHtmxSendError);
     document.removeEventListener('click', this.handleDocumentClick);
     document.removeEventListener('keydown', this.handleDocumentKeydown);
     document.body.removeEventListener('htmx:afterSwap', this.handleAfterSwap);
+    document.body.removeEventListener('htmx:beforeSwap', this.handleBeforeSwap);
+    document.body.removeEventListener('htmx:beforeSwap', this.captureStickyIntent);
+    document.body.removeEventListener('htmx:confirm', this.handleHtmxConfirm);
     document.body.removeEventListener('htmx:historyRestore', this.handleHistoryRestore);
     document.body.removeEventListener('htmx:historyCacheMissLoad', this.handleHistoryCacheMissLoad);
-    document.removeEventListener('htmx:afterSettle', this.applyTimelineAutoScroll);
+    document.removeEventListener('htmx:afterSettle', this.handleAfterSettle);
+    this.drawerViewport?.removeEventListener('change', this.handleDrawerViewportChange);
     if (this.globalEventSource) {
       this.globalEventSource.close();
       this.globalEventSource = null;
@@ -78,13 +112,16 @@ export default class DcShellController extends Stimulus.Controller {
     if (!event.target.closest('.custom-select')) {
       closeAllCustomSelects();
     }
-    if (event.target.matches('.dismiss')) {
+    // One-shot page notices are removed outright; the shell's restart banner is
+    // a persistent slot node that client state hides and reveals, so removing it
+    // would leave a later pending restart with nothing to surface into.
+    if (event.target.matches('.dismiss') && !event.target.closest('#restart-banner-slot')) {
       event.target.closest('.banner')?.remove();
     }
 
-    const auditRow = event.target.closest('.audit-row');
-    if (auditRow) {
-      this.toggleAuditRow(auditRow);
+    const auditToggle = event.target.closest('.audit-row-toggle');
+    if (auditToggle) {
+      this.toggleAuditRow(auditToggle);
       return;
     }
 
@@ -119,14 +156,14 @@ export default class DcShellController extends Stimulus.Controller {
   }
 
   handleDocumentKeydown(event) {
-    if (event.key === 'Escape') {
-      closeAllCustomSelects();
+    if (event.key !== 'Escape') return;
+    // An open drawer is the innermost dismissible layer, so it wins; otherwise
+    // Escape keeps its existing meaning for an open custom select.
+    if (document.getElementById('sidebar')?.classList.contains('open')) {
+      this.setSidebarOpen(false);
+      return;
     }
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    const row = event.target.closest('.audit-row');
-    if (!row) return;
-    event.preventDefault();
-    this.toggleAuditRow(row);
+    closeAllCustomSelects();
   }
 
   handleAfterSwap(event) {
@@ -136,18 +173,39 @@ export default class DcShellController extends Stimulus.Controller {
     renderMarkdown();
     applyIdenticons();
     if (!isLoadEarlier) {
-      scrollToBottom();
+      scrollToBottom(document, { stickToBottom: this.stickyIntent?.messages === true });
     }
+    syncRestartBannerAfterSwap();
     this.initializeShellUi();
+    this.restoreAuditExpansion();
     if (target && target.id === 'main-content') {
       target.focus({ preventScroll: true });
     }
   }
 
+  // Adapts every `hx-confirm` attribute onto the canonical dialog, so the markup
+  // never has to name a confirmation mechanism and future uses convert for free.
+  async handleHtmxConfirm(event) {
+    // htmx fires this for every request; only those carrying hx-confirm have a question.
+    const question = event.detail && event.detail.question;
+    if (!question) return;
+    event.preventDefault();
+    const element = event.detail.elt;
+    const confirmed = await confirmDialog({ body: question, danger: true });
+    if (!confirmed) return;
+    // htmx silently drops requests for detached elements, so an SSE-driven swap
+    // during the dialog would otherwise turn a confirmed action into a no-op.
+    if (element && !element.isConnected) {
+      showToast('error', 'That action is no longer available – the page changed while you were confirming.');
+      return;
+    }
+    event.detail.issueRequest(true);
+  }
+
   handleHistoryRestore() {
     renderMarkdown();
     applyIdenticons();
-    scrollToBottom();
+    scrollToBottom(document, { force: true });
     this.initializeShellUi();
     document.getElementById('main-content')?.focus({ preventScroll: true });
   }
@@ -155,7 +213,7 @@ export default class DcShellController extends Stimulus.Controller {
   handleHistoryCacheMissLoad() {
     renderMarkdown();
     applyIdenticons();
-    scrollToBottom();
+    scrollToBottom(document, { force: true });
   }
 
   initializeShellUi() {
@@ -218,20 +276,59 @@ export default class DcShellController extends Stimulus.Controller {
     this.syncSidebarNavActiveState();
   }
 
+  /// Re-derives the drawer's inert boundary from the DOM.
+  ///
+  /// Navigating from an open drawer replaces `#sidebar` out-of-band with server
+  /// markup that carries no `.open`, so the drawer closes without ever calling
+  /// [setSidebarOpen]. Left alone, `.shell-main` stays `inert` with
+  /// `.menu-toggle` — the only control that could undo it — inside that
+  /// boundary, and the page has no recovery short of a reload.
+  ///
+  /// Idempotent: [setSidebarOpen] short-circuits before moving focus when the
+  /// state is already what it asks for, so the repeat settles per navigation
+  /// cost nothing.
+  reconcileDrawerState() {
+    if (document.getElementById('sidebar')?.classList.contains('open')) return;
+    this.setSidebarOpen(false);
+  }
+
+  /// Above the drawer breakpoint the rail is permanent and `.menu-toggle` is
+  /// hidden, so an "open" drawer carried across a resize would inert the page
+  /// with nothing left to close it.
+  handleDrawerViewportChange(event) {
+    if (!event.matches) this.setSidebarOpen(false);
+  }
+
   setSidebarOpen(open) {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
+    const wasOpen = sidebar.classList.contains('open');
     sidebar.classList.toggle('open', open);
     const scrim = document.querySelector('.sidebar-scrim');
     if (scrim) {
       scrim.setAttribute('aria-hidden', String(!open));
-      scrim.tabIndex = open ? 0 : -1;
+      // Pointer-only: the drawer's own close button and Escape are the keyboard
+      // paths, so the scrim never becomes a sequential tab stop.
+      scrim.tabIndex = -1;
     }
     const menuToggle = document.querySelector('.menu-toggle');
     if (menuToggle) {
       menuToggle.setAttribute('aria-label', open ? 'Close sidebar' : 'Open sidebar');
       menuToggle.setAttribute('aria-expanded', String(open));
       menuToggle.setAttribute('data-icon', open ? 'x' : 'menu');
+    }
+    // Inert the whole right column rather than a selector list, so a visible
+    // restart banner's controls are covered without a second focus trap.
+    for (const region of [document.querySelector('.skip-link'), document.querySelector('.shell-main')]) {
+      region?.toggleAttribute('inert', open);
+    }
+    // Only on a real transition: a no-op close (shell re-init, restore) must not
+    // yank focus to a control the user never touched.
+    if (open === wasOpen) return;
+    if (open) {
+      document.querySelector('.sidebar-close')?.focus();
+    } else {
+      menuToggle?.focus();
     }
   }
 
@@ -306,6 +403,7 @@ export default class DcShellController extends Stimulus.Controller {
       return;
     }
 
+    beginSessionDraftMutation(sessionId);
     fetch('/api/sessions/' + encodeURIComponent(sessionId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -315,30 +413,81 @@ export default class DcShellController extends Stimulus.Controller {
         if (!response.ok) throw new Error('Failed to rename session');
         input.dataset.originalTitle = newTitle;
         const chatArea = document.querySelector('.chat-area');
-        if (chatArea) chatArea.dataset.hasTitle = 'true';
-        const sidebarItem = document.querySelector(
-          '.session-item-link[href*="' + CSS.escape(sessionId) + '"] .session-item-title',
-        );
-        if (sidebarItem) sidebarItem.textContent = newTitle;
+        if (chatArea) {
+          chatArea.dataset.hasTitle = 'true';
+          delete chatArea.dataset.newChatDraft;
+        }
+        syncSidebarSessionTitle(sessionId, newTitle);
         document.title = newTitle + ' - ' + (document.body.dataset.appName || 'DartClaw');
         showToast('success', 'Session renamed');
       })
       .catch((error) => {
         input.value = original;
         showToast('error', error.message || 'Failed to rename session');
-      });
+      })
+      .finally(() => endSessionDraftMutation(sessionId));
   }
 
   createSession() {
-    fetch('/api/sessions', { method: 'POST' })
-      .then((response) => {
-        if (!response.ok) throw new Error('Failed to create session');
-        return response.json();
+    if (this.sessionCreatePromise) return this.sessionCreatePromise;
+
+    const createButtons = Array.from(document.querySelectorAll('[data-session-create]'));
+    for (const button of createButtons) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+    }
+
+    this.sessionCreatePromise = this.openNewChatAfterPendingMutation()
+      .catch((error) => {
+        showToast('error', error.message || 'Failed to create session');
       })
-      .then((data) => {
-        window.location.href = '/sessions/' + data.id;
-      })
-      .catch((error) => showToast('error', error.message || 'Failed to create session'));
+      .finally(() => {
+        this.sessionCreatePromise = null;
+        for (const button of createButtons) {
+          button.disabled = false;
+          button.removeAttribute('aria-busy');
+        }
+      });
+    return this.sessionCreatePromise;
+  }
+
+  async openNewChatAfterPendingMutation() {
+    await this.waitForSessionDraftMutation();
+    if (this.focusCurrentNewChatDraft()) return;
+
+    const response = await fetch('/api/sessions/open', { method: 'POST' });
+    if (!response.ok) throw new Error('Failed to create session');
+    const data = await response.json();
+    if (data.id === this.currentSessionPathId() && this.focusCurrentNewChatDraft()) return;
+    window.location.href = '/sessions/' + data.id;
+  }
+
+  waitForSessionDraftMutation() {
+    const mutationPending = () => {
+      const chatArea = document.querySelector('.chat-area');
+      return chatArea?.dataset.sessionId === this.currentSessionPathId() &&
+        Number.parseInt(chatArea.dataset.sessionMutationPending || '0', 10) > 0;
+    };
+    if (!mutationPending()) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      const handleComplete = () => {
+        if (mutationPending()) return;
+        document.removeEventListener('dartclaw:session-draft-mutation-complete', handleComplete);
+        resolve();
+      };
+      document.addEventListener('dartclaw:session-draft-mutation-complete', handleComplete);
+      handleComplete();
+    });
+  }
+
+  focusCurrentNewChatDraft() {
+    const chatArea = document.querySelector('.chat-area[data-new-chat-draft="true"]');
+    if (!chatArea || chatArea.dataset.sessionId !== this.currentSessionPathId()) return false;
+    if (chatArea.querySelector('#messages .msg')) return false;
+    this.setSidebarOpen(false);
+    chatArea.querySelector('#message-input')?.focus();
+    return true;
   }
 
   archiveSession(button) {
@@ -348,7 +497,8 @@ export default class DcShellController extends Stimulus.Controller {
     const wasSidebarOpen = !!(sidebar && sidebar.classList.contains('open'));
     const activeSessionId = this.currentSessionPathId();
     const headers = activeSessionId ? { 'X-Dartclaw-Active-Session-Id': activeSessionId } : {};
-    const cleanup = this.bindHtmxRequestErrors(button, 'Failed to archive chat');
+    // Failures are reported by the body-level htmx error listeners; this only
+    // restores the sidebar the swap collapsed.
     const request = htmx.ajax('POST', '/api/sessions/' + encodeURIComponent(sessionId) + '/archive', {
       source: button,
       target: '#sidebar',
@@ -358,18 +508,31 @@ export default class DcShellController extends Stimulus.Controller {
     if (request && typeof request.then === 'function') {
       request.then(() => {
         if (wasSidebarOpen) this.setSidebarOpen(true);
-        cleanup();
-      }, cleanup);
+        // Failures are already reported by the body-level listeners; this arm
+        // only stops an unhandled rejection.
+      }, () => {});
     }
   }
 
-  deleteSession(button) {
+  async deleteSession(button) {
+    // Read the dataset before awaiting — the row can be swapped out under us.
     const sessionId = button.dataset.sessionId;
+    const sessionTitle = button.dataset.sessionTitle;
     if (!sessionId) return;
-    if (!confirm('Permanently delete this chat and all its messages?')) return;
+    const confirmed = await confirmDialog({
+      title: 'Delete chat',
+      body: sessionTitle
+        ? 'Permanently delete "' + sessionTitle + '" and all its messages?'
+        : 'Permanently delete this chat and all its messages?',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
     fetch('/api/sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' })
       .then((response) => {
         if (!response.ok) throw new Error('Failed to delete session');
+        // Queued, not shown: the navigation below destroys this document.
+        queueToast('success', 'Chat deleted');
         window.location.href = '/';
       })
       .catch((error) => showToast('error', error.message || 'Failed to delete session'));
@@ -392,41 +555,94 @@ export default class DcShellController extends Stimulus.Controller {
     return match ? decodeURIComponent(match[1]) : null;
   }
 
-  bindHtmxRequestErrors(source, fallbackMessage) {
-    let cleanedUp = false;
-    const cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      document.body.removeEventListener('htmx:responseError', handleResponseError);
-      document.body.removeEventListener('htmx:sendError', handleSendError);
-    };
-    const handleResponseError = (event) => {
-      if (!event.detail || event.detail.elt !== source) return;
-      cleanup();
-      showToast('error', readHtmxErrorMessage(event.detail.xhr, fallbackMessage));
-    };
-    const handleSendError = (event) => {
-      if (!event.detail || event.detail.elt !== source) return;
-      cleanup();
-      showToast('error', fallbackMessage);
-    };
-    document.body.addEventListener('htmx:responseError', handleResponseError);
-    document.body.addEventListener('htmx:sendError', handleSendError);
-    return cleanup;
+  drainQueuedToast() {
+    let raw = null;
+    try {
+      raw = sessionStorage.getItem(TOAST_QUEUE_KEY);
+      // Cleared in the same read, so a second navigation cannot repeat it.
+      sessionStorage.removeItem(TOAST_QUEUE_KEY);
+    } catch (_) {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const queued = JSON.parse(raw);
+      if (queued && queued.message) showToast(queued.type || 'success', queued.message);
+    } catch (_) {}
   }
 
-  toggleAuditRow(row) {
-    const detailRow = row.nextElementSibling;
+  // Sole owner of HTMX failure reporting. Every hx-* site on the page is
+  // covered without a template edit, and no call site may add its own pair —
+  // two listeners on the same event paint two toasts for one failure.
+  handleHtmxResponseError(event) {
+    if (!event.detail) return;
+    showToast('error', readHtmxErrorMessage(event.detail.xhr, 'Request failed'));
+  }
+
+  handleHtmxSendError(event) {
+    if (!event.detail) return;
+    showToast('error', 'Could not reach the server');
+  }
+
+  toggleAuditRow(toggle) {
+    const detailRow = document.getElementById(toggle.getAttribute('aria-controls') || '');
     if (!detailRow || !detailRow.classList.contains('audit-detail-row')) return;
-    const isHidden = detailRow.style.display === 'none' || !detailRow.style.display;
-    detailRow.style.display = isHidden ? 'table-row' : 'none';
-    row.classList.toggle('expanded', isHidden);
-    row.setAttribute('aria-expanded', String(isHidden));
+    const expand = detailRow.hidden;
+    detailRow.hidden = !expand;
+    toggle.setAttribute('aria-expanded', String(expand));
+    // A collapse is the reader retracting their intent, so the restore key goes
+    // with it. Left set, the next swap from anywhere on the page – the status
+    // region above refreshes on its own 30s timer – would re-open the row they
+    // just closed.
+    this.expandedAuditKey = expand ? toggle.dataset.auditKey : null;
   }
 
-  applyTimelineAutoScroll() {
+  // The audit log has no row id, so an expanded row is tracked by the
+  // presentation key the server derives from the fields it renders. Captured
+  // before the 30s poll replaces the table and re-applied only if the same key
+  // comes back – an entry that dropped out of the page leaves every row closed
+  // rather than transferring its expansion to whichever row took its place.
+  handleBeforeSwap(event) {
+    const target = event.detail && event.detail.target;
+    if (!target || target.id !== 'audit-table-container') return;
+    const open = target.querySelector('.audit-row-toggle[aria-expanded="true"]');
+    this.expandedAuditKey = open ? open.dataset.auditKey : null;
+  }
+
+  restoreAuditExpansion() {
+    if (!this.expandedAuditKey) return;
+    const toggle = document.querySelector(
+      '.audit-row-toggle[data-audit-key="' + CSS.escape(this.expandedAuditKey) + '"]',
+    );
+    if (toggle && toggle.getAttribute('aria-expanded') !== 'true') this.toggleAuditRow(toggle);
+  }
+
+  applyTimelineAutoScroll({ force = false, stickToBottom = false } = {}) {
+    if (!force && !stickToBottom) return;
     const container = document.querySelector('[data-auto-scroll="true"]');
     if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  /// Records, before htmx mutates the DOM, whether each shared scroll region was
+  /// at its bottom. Content growth changes that distance, so measuring after the
+  /// swap would report the reader's new position rather than their intent.
+  captureStickyIntent() {
+    this.stickyIntent = {
+      messages: isAtBottom(document.querySelector('.messages')),
+      timeline: isAtBottom(document.querySelector('[data-auto-scroll="true"]')),
+    };
+  }
+
+  /// Settle is the last event of a swap cycle, so the timeline follows here and
+  /// the captured intent is released here — one clear per mutation, whether or
+  /// not an afterSwap handler ran.
+  handleAfterSettle() {
+    this.applyTimelineAutoScroll({ stickToBottom: this.stickyIntent?.timeline === true });
+    this.stickyIntent = null;
+    // Settle, not swap: the out-of-band `#sidebar` replacement still carries the
+    // old `.open` class at every afterSwap and only loses it once the swap
+    // settles, so reconciling any earlier reads a stale open drawer.
+    this.reconcileDrawerState();
   }
 
   connectGlobalEvents() {
@@ -435,11 +651,39 @@ export default class DcShellController extends Stimulus.Controller {
     this.globalEventSource = new EventSource(url);
     this.globalEventSource.addEventListener('server_restart', () => this.showRestartOverlay());
     this.globalEventSource.addEventListener('context_warning', (event) => this.showContextWarning(event));
+    this.globalEventSource.onopen = () => this.setConnectionState('live');
     this.globalEventSource.onerror = () => {
       if (document.getElementById('restart-overlay')) {
         this.startRestartPolling();
+        return;
       }
+      this.setConnectionState('lost');
     };
+  }
+
+  // A live pulse or a sweeping scan-bar is a claim that the view is current.
+  // While the event stream is down that claim is false, so the shell records
+  // the state, says so in words, and app.css stops the animations that would
+  // otherwise keep asserting freshness.
+  setConnectionState(state) {
+    const shell = document.querySelector('.shell');
+    if (shell) shell.dataset.connection = state;
+
+    const existing = document.getElementById('connection-lost-banner');
+    if (state !== 'lost') {
+      if (existing) existing.remove();
+      return;
+    }
+    if (existing) return;
+    const host = document.getElementById('main-content');
+    if (!host) return;
+    const banner = document.createElement('div');
+    banner.id = 'connection-lost-banner';
+    banner.className = 'banner banner-warning';
+    banner.setAttribute('role', 'status');
+    banner.setAttribute('aria-live', 'polite');
+    banner.innerHTML = '<span>Live updates disconnected. Reconnecting…</span>';
+    host.prepend(banner);
   }
 
   showContextWarning(event) {
@@ -464,19 +708,19 @@ export default class DcShellController extends Stimulus.Controller {
   }
 
   showRestartBanner(payload) {
-    if (this.restartBannerDismissed) return;
-    const banner = document.getElementById('restart-banner');
-    const fields = document.getElementById('restart-banner-fields');
-    if (!banner || !fields) return;
-    const names = Array.isArray(payload.fields) ? payload.fields : [];
-    fields.textContent = names.length ? names.join(', ') : 'configuration';
-    banner.style.display = '';
+    reconcileRestartBanner(Array.isArray(payload.fields) ? payload.fields : []);
   }
 
-  confirmRestart() {
-    if (!confirm('Restart ' + (document.body.dataset.appName || 'DartClaw') + '? Active turns will complete first.')) {
-      return;
-    }
+  async confirmRestart() {
+    const appName = document.body.dataset.appName || 'DartClaw';
+    // Restarting is recoverable, so this is the non-destructive confirmation:
+    // no glyph, plain confirm button — see DESIGN.md § Feedback.
+    const confirmed = await confirmDialog({
+      title: 'Restart ' + appName,
+      body: 'Restart ' + appName + '? Active turns will complete first.',
+      confirmLabel: 'Restart',
+    });
+    if (!confirmed) return;
     const token = getApiToken();
     fetch('/api/system/restart' + (token ? '?token=' + encodeURIComponent(token) : ''), { method: 'POST' })
       .then((response) => {
@@ -485,16 +729,14 @@ export default class DcShellController extends Stimulus.Controller {
           return;
         }
         response.json()
-          .then((data) => alert('Restart failed: ' + (data.error?.message || 'Unknown error')))
-          .catch(() => alert('Restart failed'));
+          .then((data) => showToast('error', 'Restart failed: ' + (data.error?.message || 'Unknown error')))
+          .catch(() => showToast('error', 'Restart failed'));
       })
-      .catch(() => alert('Failed to reach server'));
+      .catch(() => showToast('error', 'Failed to reach server'));
   }
 
   dismissRestartBanner() {
-    const banner = document.getElementById('restart-banner');
-    if (banner) banner.style.display = 'none';
-    this.restartBannerDismissed = true;
+    dismissRestartBannerState();
   }
 
   showRestartOverlay() {

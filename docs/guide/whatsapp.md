@@ -13,12 +13,16 @@ DartClaw connects to WhatsApp via GOWA (Go WhatsApp), a sidecar binary that wrap
 The installer script downloads the pre-built binary for your platform and adds it to PATH:
 
 ```bash
-bash scripts/install-gowa.sh
+bash scripts/install-gowa.sh          # qualified v8.3.2 release
+bash scripts/install-gowa.sh v9.0.0   # explicit version override
 ```
+
+DartClaw targets the GOWA v8.3.2 API contract, so the installer defaults to that qualified release rather than the
+latest upstream tag. Override the version only after qualifying its API and webhook compatibility.
 
 Then open a new terminal (or `source ~/.zshrc`).
 
-Alternatively, download manually from [GitHub releases](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases) — pick the zip for your OS/arch, extract, and place the binary on PATH as `whatsapp`.
+Alternatively, download the matching archive from the [GOWA v8.3.2 release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/tag/v8.3.2), extract it, and place the binary on PATH as `whatsapp`.
 
 ## Setup
 
@@ -96,6 +100,8 @@ In groups, the agent only responds when mentioned (default `mention` mode). Conf
 
 ## Message Handling
 
+- **Typing indication**: DMs and groups show composing presence while the agent turn runs. DartClaw makes a bounded, best-effort clear request before sending the response; presence failures are logged and never prevent delivery
+- **Formatting**: Standard Markdown headings, emphasis, strikethrough, code, links, lists, quotes, and tables are converted to WhatsApp-native chat markup
 - **Text chunking**: Long responses split at ~4000 chars with `(n/total)` prefixes
 - **Media**: Agent can send images/files via `MEDIA:<path>` directives in responses
 - **Response prefix**: Messages prefixed with model name and agent identity
@@ -150,14 +156,15 @@ These tests verify the full WhatsApp integration. Tests requiring a phone are ma
 
 1. Send a WhatsApp DM to the paired number: "Hello"
 2. Verify: GOWA webhook fires (logs: `POST /webhook/whatsapp`)
-3. Verify: agent processes the message (turn starts)
-4. Verify: response received in WhatsApp with prefix `*Claude* -- _DartClaw_`
+3. Verify: WhatsApp shows typing while the agent processes the message
+4. Ask for a response with a heading, bold text, a code span, and a table
+5. Verify: typing clears and the response arrives with native formatting, no Markdown table separator row, and prefix `*Claude* -- _DartClaw_`
 
 ### T04: Group Mention Gating (requires phone)
 
 1. Add bot to a group, set `group_access: open` in config
 2. Send message **without** mentioning bot — verify: no response
-3. Send message @mentioning bot — verify: bot responds
+3. Send message @mentioning bot — verify: group typing appears, clears, and the bot responds
 4. Reply to bot message — verify: bot responds
 
 ### T05: DM Access Control (requires phone)

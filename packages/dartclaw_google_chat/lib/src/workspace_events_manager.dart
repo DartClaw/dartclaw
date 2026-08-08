@@ -197,6 +197,12 @@ class WorkspaceEventsManager {
     }
   }
 
+  Future<void> _storeSubscriptionRecord(SubscriptionRecord record) async {
+    _subscriptions[record.spaceId] = record;
+    await _saveToDisk();
+    _scheduleRenewal(record);
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
@@ -296,11 +302,7 @@ class WorkspaceEventsManager {
         if (record.isExpiredAt(_now())) {
           _log.info('Subscription for space $spaceId expired — recreating');
           await _deleteSubscription(record.subscriptionName);
-          final newRecord = await _createSubscription(spaceId);
-          if (newRecord == null) {
-            _subscriptions.remove(spaceId);
-            _log.warning('Failed to recreate subscription for space $spaceId — removing');
-          }
+          await _recreateOrRemove(spaceId);
           updated = true;
         } else {
           final verified = await _verifySubscription(record);
@@ -308,11 +310,7 @@ class WorkspaceEventsManager {
             _scheduleRenewal(_subscriptions[spaceId]!);
           } else {
             _log.info('Subscription for space $spaceId not verifiable — recreating');
-            final newRecord = await _createSubscription(spaceId);
-            if (newRecord == null) {
-              _subscriptions.remove(spaceId);
-              _log.warning('Failed to recreate subscription for space $spaceId — removing');
-            }
+            await _recreateOrRemove(spaceId);
             updated = true;
           }
         }
@@ -329,6 +327,14 @@ class WorkspaceEventsManager {
     }
     await _discoverAndSubscribe();
     _log.info('Reconciliation complete: ${_subscriptions.length} active subscriptions');
+  }
+
+  Future<void> _recreateOrRemove(String spaceId) async {
+    final newRecord = await _createSubscription(spaceId);
+    if (newRecord == null) {
+      _subscriptions.remove(spaceId);
+      _log.warning('Failed to recreate subscription for space $spaceId — removing');
+    }
   }
 
   Future<void> _discoverAndSubscribe() async {
@@ -456,16 +462,7 @@ class WorkspaceEventsManager {
         return null;
       }
 
-      final record = SubscriptionRecord(
-        spaceId: spaceId,
-        subscriptionName: subscriptionName,
-        expireTime: DateTime.parse(expireTimeStr),
-        createdAt: _now(),
-      );
-
-      _subscriptions[spaceId] = record;
-      await _saveToDisk();
-      _scheduleRenewal(record);
+      final record = await _storeActiveSubscription(spaceId, subscriptionName, expireTimeStr);
       _log.info('Created subscription for space $spaceId: $subscriptionName (expires $expireTimeStr)');
       return record;
     } on Exception catch (e, st) {
@@ -560,16 +557,7 @@ class WorkspaceEventsManager {
         return null;
       }
 
-      final record = SubscriptionRecord(
-        spaceId: spaceId,
-        subscriptionName: subscriptionName,
-        expireTime: DateTime.parse(expireTimeStr),
-        createdAt: _now(),
-      );
-
-      _subscriptions[spaceId] = record;
-      await _saveToDisk();
-      _scheduleRenewal(record);
+      final record = await _storeActiveSubscription(spaceId, subscriptionName, expireTimeStr);
       _log.info(
         'Recovered existing subscription for space $spaceId: '
         '$subscriptionName (expires $expireTimeStr)',
@@ -579,6 +567,21 @@ class WorkspaceEventsManager {
       _log.warning('Exception recovering subscription $subscriptionName for space $spaceId', e, st);
       return null;
     }
+  }
+
+  Future<SubscriptionRecord> _storeActiveSubscription(
+    String spaceId,
+    String subscriptionName,
+    String expireTime,
+  ) async {
+    final record = SubscriptionRecord(
+      spaceId: spaceId,
+      subscriptionName: subscriptionName,
+      expireTime: DateTime.parse(expireTime),
+      createdAt: _now(),
+    );
+    await _storeSubscriptionRecord(record);
+    return record;
   }
 
   /// Deletes a subscription via the Workspace Events API.

@@ -233,6 +233,11 @@ class SetupApply {
     Directory(p.join(state.instanceDir, 'sessions')).createSync(recursive: true);
     Directory(p.join(state.instanceDir, 'logs')).createSync(recursive: true);
 
+    final existingBehaviorFiles = [
+      'SOUL.md',
+      'USER.md',
+    ].map((name) => File(p.join(workspaceDir, name))).any((file) => file.existsSync());
+
     for (final entry in {
       'SOUL.md': WorkspaceService.defaultSoulMd,
       'AGENTS.md': WorkspaceService.defaultAgentsMd,
@@ -248,12 +253,27 @@ class SetupApply {
       }
     }
 
+    final soulFile = File(p.join(workspaceDir, 'SOUL.md'));
+    final soul = soulFile.readAsStringSync();
+    final upgradedSoul = _upgradeLegacySoul(soul);
+    if (upgradedSoul != soul) {
+      soulFile.writeAsStringSync(upgradedSoul);
+      created.add('${soulFile.path} (updated)');
+    }
+
     // --- ONBOARDING.md sentinel ---
     final onboardingPath = p.join(workspaceDir, 'ONBOARDING.md');
     final onboardingFile = File(onboardingPath);
     if (!onboardingFile.existsSync()) {
-      onboardingFile.writeAsStringSync(_buildOnboarding(state));
+      onboardingFile.writeAsStringSync(_buildOnboarding(state, draftMode: existingBehaviorFiles));
       created.add(onboardingPath);
+    } else if (existingBehaviorFiles) {
+      final onboarding = onboardingFile.readAsStringSync();
+      final upgradedOnboarding = _upgradeGeneratedDirectOnboarding(onboarding);
+      if (upgradedOnboarding != onboarding) {
+        onboardingFile.writeAsStringSync(upgradedOnboarding);
+        created.add('$onboardingPath (updated)');
+      }
     }
 
     return created;
@@ -320,7 +340,7 @@ class SetupApply {
     Directory(workspaceDir).createSync(recursive: true);
 
     final onboardingPath = p.join(workspaceDir, 'ONBOARDING.md');
-    File(onboardingPath).writeAsStringSync(_buildOnboarding(state, personalize: true));
+    File(onboardingPath).writeAsStringSync(_buildOnboarding(state, draftMode: true));
     return [onboardingPath];
   }
 
@@ -437,7 +457,48 @@ class SetupApply {
     };
   }
 
-  static String _buildOnboarding(SetupState state, {bool personalize = false}) {
+  static String _upgradeLegacySoul(String soul) => soul.replaceFirst(
+    'During first-run onboarding you may write this file directly; during\n'
+        'reruns, propose changes in SOUL.md.draft and wait for the user to apply them.',
+    'When ONBOARDING.md is active, follow its Draft mode for SOUL.md updates. Otherwise, propose changes in\n'
+        'SOUL.md.draft and wait for the user to apply them.',
+  );
+
+  static const _draftModeInstruction =
+      '- Draft mode: write USER.md.draft and SOUL.md.draft instead of overwriting curated files';
+  static const _draftStepSixInstruction =
+      '6. Read existing USER.md and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.';
+  static const _legacyDirectStepSixInstructions = [
+    '6. On first run, write USER.md and SOUL.md directly. On reruns, read existing USER.md\n'
+        '   and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.',
+    '6. If Draft mode is enabled, read USER.md and SOUL.md first, then write USER.md.draft\n'
+        '   and SOUL.md.draft for review. Otherwise, write USER.md and SOUL.md directly.',
+    '6. Write USER.md and SOUL.md directly.',
+  ];
+
+  static String _upgradeGeneratedDirectOnboarding(String onboarding) {
+    if (!onboarding.startsWith('# DartClaw Onboarding\n<!--') ||
+        !onboarding.contains("This file is a sentinel for DartClaw's conversational bootstrapping")) {
+      return onboarding;
+    }
+
+    const generatedEnd = '10. When onboarding is complete, call onboarding_complete.\n';
+    final generatedEndIndex = onboarding.indexOf(generatedEnd);
+    if (generatedEndIndex < 0) return onboarding;
+    final customContentStart = generatedEndIndex + generatedEnd.length;
+    final generated = onboarding.substring(0, customContentStart);
+    final custom = onboarding.substring(customContentStart);
+
+    var upgraded = generated
+        .replaceFirst('- Rerun: false', '- Rerun: true')
+        .replaceFirst('- Draft mode: first-run files may be updated directly', _draftModeInstruction);
+    for (final legacyInstruction in _legacyDirectStepSixInstructions) {
+      upgraded = upgraded.replaceFirst(legacyInstruction, _draftStepSixInstruction);
+    }
+    return '$upgraded$custom';
+  }
+
+  static String _buildOnboarding(SetupState state, {bool draftMode = false}) {
     final buffer = StringBuffer();
     buffer.writeln('# DartClaw Onboarding');
     buffer.writeln('<!--');
@@ -452,9 +513,9 @@ class SetupApply {
     buffer.writeln('- Instance name: ${state.instanceName}');
     buffer.writeln('- Provider: ${state.provider}');
     buffer.writeln('- Port: ${state.port}');
-    if (personalize) {
+    if (draftMode) {
       buffer.writeln('- Rerun: true');
-      buffer.writeln('- Draft mode: write USER.md.draft and SOUL.md.draft instead of overwriting curated files');
+      buffer.writeln(_draftModeInstruction);
     } else {
       buffer.writeln('- Rerun: false');
       buffer.writeln('- Draft mode: first-run files may be updated directly');
@@ -471,8 +532,11 @@ class SetupApply {
     buffer.writeln('4. Populate USER.md using exactly these sections:');
     buffer.writeln('   Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant.');
     buffer.writeln('5. Collaboratively decide on durable behavior and proactivity guidance for SOUL.md.');
-    buffer.writeln('6. On first run, write USER.md and SOUL.md directly. On reruns, read existing USER.md');
-    buffer.writeln('   and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.');
+    if (draftMode) {
+      buffer.writeln(_draftStepSixInstruction);
+    } else {
+      buffer.writeln('6. Write USER.md and SOUL.md directly.');
+    }
     buffer.writeln('7. USER.md.draft should only update answered sections; leave unsupplied sections as');
     buffer.writeln('   placeholders or preserve prior content.');
     buffer.writeln('8. If the user says "skip" or "later", acknowledge the deferral and explain the rerun path:');

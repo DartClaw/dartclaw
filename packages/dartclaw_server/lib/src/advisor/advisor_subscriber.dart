@@ -434,6 +434,13 @@ class AdvisorOutputRouter {
       return;
     }
 
+    if (destination.channelType != ChannelType.googlechat.name) {
+      for (final formatted in channel.formatResponse(response.text)) {
+        await channel.sendMessage(destination.recipientId, formatted);
+      }
+      return;
+    }
+
     await channel.sendMessage(destination.recipientId, response);
   }
 
@@ -447,11 +454,11 @@ class AdvisorOutputRouter {
     }
 
     return ChannelResponse(
-      text: text,
+      text: markdownToGoogleChat(text),
       structuredPayload: _googleChatCardBuilder.advisorInsight(
         status: output.status.wireName,
-        observation: output.observation,
-        suggestion: output.suggestion,
+        observation: markdownToGoogleChatPlainText(output.observation),
+        suggestion: output.suggestion == null ? null : markdownToGoogleChatPlainText(output.suggestion!),
         triggerType: triggerType,
       ),
     );

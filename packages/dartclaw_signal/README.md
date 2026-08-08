@@ -4,7 +4,9 @@ Signal channel integration for DartClaw via signal-cli subprocess.
 
 `dartclaw_signal` implements the DartClaw channel interface for Signal. It
 provides typed configuration, subprocess management for `signal-cli`, sender
-mapping, and mention gating for group conversations.
+mapping, mention gating for group conversations, and native typing indication
+while queued turns run. Standard Markdown is converted to Signal text with
+native style ranges before delivery.
 
 > **Status: Pre-1.0**. The channel package is usable, but operational details
 > and API surface may still change before 1.0.

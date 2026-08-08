@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
@@ -6,8 +7,153 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
+Future<Map<String, dynamic>> _capturePost(Future<void> Function(GowaManager manager) invoke) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  final captured = Completer<Map<String, dynamic>>();
+  final subscription = server.listen((request) {
+    unawaited(() async {
+      if (request.uri.path == '/devices') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'status': true,
+            'code': 200,
+            'message': 'ok',
+            'results': [
+              {'id': 'device-1'},
+            ],
+          }),
+        );
+        await request.response.close();
+        return;
+      }
+      final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+      captured.complete({'path': request.uri.path, 'deviceId': request.headers.value('X-Device-Id'), ...payload});
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'status': true, 'code': 200, 'message': 'ok', 'results': {}}));
+      await request.response.close();
+    }());
+  });
+
+  try {
+    final manager = GowaManager(
+      executable: 'whatsapp',
+      host: InternetAddress.loopbackIPv4.address,
+      port: server.port,
+      healthProbe: () async => true,
+    );
+    await manager.start();
+    try {
+      await invoke(manager);
+      return await captured.future;
+    } finally {
+      await manager.reset();
+    }
+  } finally {
+    await subscription.cancel();
+    await server.close(force: true);
+  }
+}
+
 void main() {
   group('GowaManager', () {
+    for (final scenario in [
+      (name: 'starts DM typing', jid: '12125550101@s.whatsapp.net', isTyping: true),
+      (name: 'stops group typing', jid: '120363000000000000@g.us', isTyping: false),
+    ]) {
+      test('${scenario.name} with the GOWA chat-presence contract', () async {
+        final payload = await _capturePost(
+          (manager) => manager.sendChatPresence(scenario.jid, isTyping: scenario.isTyping),
+        );
+
+        expect(payload, {
+          'path': '/send/chat-presence',
+          'deviceId': 'device-1',
+          'phone': scenario.jid,
+          'action': scenario.isTyping ? 'start' : 'stop',
+        });
+      });
+    }
+
+    test('chat presence times out when GOWA never completes its response body', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final subscription = server.listen((request) {
+        unawaited(() async {
+          await utf8.decoder.bind(request).join();
+          request.response.headers.contentType = ContentType.json;
+          request.response.write('{"status":true,"code":200,"results":');
+          await request.response.flush();
+        }());
+      });
+      final manager = GowaManager(
+        executable: 'whatsapp',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+      );
+      addTearDown(() async {
+        await subscription.cancel();
+        await server.close(force: true);
+      });
+
+      await expectLater(
+        manager.sendChatPresence('12125550101@s.whatsapp.net', isTyping: true),
+        throwsA(isA<TimeoutException>()),
+      );
+    }, timeout: const Timeout(Duration(seconds: 5)));
+
+    test('raw response handling provisions after an empty list and preserves HTTP failures', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requests = <String>[];
+      final subscription = server.listen((request) {
+        unawaited(() async {
+          requests.add('${request.method} ${request.uri.path}');
+          if (request.method == 'GET' && request.uri.path == '/devices') {
+            await request.response.close();
+            return;
+          }
+          if (request.method == 'POST' && request.uri.path == '/devices') {
+            await utf8.decoder.bind(request).join();
+            request.response.write(
+              jsonEncode({
+                'results': {'id': 'created-device'},
+              }),
+            );
+            await request.response.close();
+            return;
+          }
+          request.response
+            ..statusCode = HttpStatus.serviceUnavailable
+            ..write('temporarily unavailable');
+          await request.response.close();
+        }());
+      });
+      final manager = GowaManager(
+        executable: 'whatsapp',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        healthProbe: () async => true,
+      );
+      addTearDown(() async {
+        await manager.reset();
+        await subscription.cancel();
+        await server.close(force: true);
+      });
+
+      await manager.start();
+
+      expect(requests, ['GET /devices', 'POST /devices']);
+      await expectLater(
+        manager.status(),
+        throwsA(
+          isA<HttpException>().having(
+            (error) => error.message,
+            'message',
+            contains('GOWA /app/status returned 503: temporarily unavailable'),
+          ),
+        ),
+      );
+    });
+
     test('start adopts healthy existing service without spawning', () async {
       var spawned = false;
       final mgr = GowaManager(

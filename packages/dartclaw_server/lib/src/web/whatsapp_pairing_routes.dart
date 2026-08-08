@@ -48,6 +48,18 @@ Router whatsappPairingRoutes({
       );
     }
 
+    if (!whatsAppChannel.gowa.isRunning) {
+      return Response.ok(
+        whatsappPairingTemplate(
+          sidebarData: sidebarData,
+          navItems: pageRegistry.navItems(activePage: 'Settings'),
+          fragmentOnly: fragment,
+          appName: appName,
+        ),
+        headers: htmlHeaders,
+      );
+    }
+
     try {
       final status = await whatsAppChannel.gowa.status();
       if (status.isLoggedIn) {

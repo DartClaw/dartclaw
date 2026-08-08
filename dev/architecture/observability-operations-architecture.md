@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.20
+**Current through**: 0.23
 
 ---
 
@@ -203,9 +203,9 @@ Structured audit logger in `dartclaw_security`. Dual output:
 
 File operations are fire-and-forget via `unawaited` to avoid affecting guard verdict latency. Write serialization is enforced via a `_pendingWrite` future chain.
 
-**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `sessionId`, `channel`, `peerId`.
+**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`.
 
-**Date partitioning**: Files are named `audit-YYYY-MM-DD.ndjson`. Legacy `audit.ndjson` files are auto-migrated on first write. Old partitions are cleaned via `cleanOldFiles(maxRetentionDays)`.
+**Date partitioning**: New entries use `audit-YYYY-MM-DD.ndjson`. A legacy `audit.ndjson` remains readable alongside dated partitions and ages out by file modification date under `cleanOldFiles(maxRetentionDays)`, avoiding non-idempotent copy migration. Dated partitions age out by the date in their filename.
 
 **PermissionDenied logging**: Claude Code's own permission layer events are also captured with `guard: 'PermissionDenied'` and `verdict: 'denied'`.
 
@@ -219,7 +219,7 @@ Source: `packages/dartclaw_server/lib/src/audit/guard_audit_subscriber.dart`
 
 ### AuditLogReader
 
-Reads and parses audit NDJSON with filtering and pagination. Reads the full file on each call (no caching) -- acceptable at 10K entries per PRD note. Returns newest entries first.
+Reads every retained audit NDJSON file on each call, combines legacy and dated entries, and orders equal-timestamp entries by append sequence before filtering and pagination. File read failures propagate so the dashboard cannot present a partial audit trail as complete.
 
 Filters (AND-combined):
 - `verdictFilter`: exact match on verdict string (`pass`, `warn`, `block`)
@@ -578,9 +578,9 @@ Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
 
 Periodic agent check-ins via `HEARTBEAT.md`. Each cycle:
 1. Reads `HEARTBEAT.md` from workspace
-2. Dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`)
-3. Optionally triggers `MemoryConsolidator` if `MEMORY.md` exceeds threshold (default: 32KB)
-4. Optionally commits workspace changes via `WorkspaceGitSync`
+2. If present and non-empty, dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`)
+3. After a dispatched checklist, optionally triggers `MemoryConsolidator` if `MEMORY.md` exceeds threshold (default: 32KB)
+4. Independently attempts workspace sync via `WorkspaceGitSync`, including when the checklist is missing or empty
 
 Implements `Reconfigurable` -- watches `scheduling.*` for interval changes. Restarts timer if interval changes while running.
 

@@ -1,6 +1,7 @@
 <div tl:fragment="whatsappPairing" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="pairing-main print-in">
     <div class="pairing-inner">
 
@@ -88,7 +89,7 @@
 
             <!-- Lightweight poll: 204 while waiting, full page swap on connect. -->
             <div class="pairing-status-row"
-                 hx-get="/whatsapp/pairing/poll" hx-trigger="every 10s"
+                 hx-get="/whatsapp/pairing/poll" hx-trigger="every 10s" hx-indicator="closest .pairing-main"
                  hx-target="#main-content" hx-swap="outerHTML show:none" hx-select="#main-content">
               <span class="scan-bar"></span>
               <span class="text-muted text-sm">Waiting for connection...</span>
@@ -127,4 +128,5 @@
 
     </div>
   </main>
+  </div>
 </div>

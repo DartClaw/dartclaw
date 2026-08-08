@@ -49,60 +49,108 @@ TaskEvent _tokenEvent(String id, {int input = 1000, int output = 500, int cacheR
 TaskEvent _errorEvent(String id, {String message = 'Something went wrong'}) =>
     TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: TaskEventKind.taskError, details: {'message': message});
 
+TaskEvent _structuredOutputFailureEvent(String id, TaskEventKind kind, {String? outputKey, String? failureReason}) {
+  final details = <String, dynamic>{};
+  if (outputKey case final value?) {
+    details['outputKey'] = value;
+  }
+  if (failureReason case final value?) {
+    details['failureReason'] = value;
+  }
+  return TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: kind, details: details);
+}
+
 void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  group('taskTimelineHtml — filter bar', () {
-    test('all filter is active when no filter param', () {
-      final html = taskTimelineHtml(events: const [], taskId: _taskId, taskStatus: 'running');
-      expect(html, contains('tl-filter-link active'));
-      expect(html, contains('href="/tasks/$_taskId"'));
+  group('taskTimelineHtml — filter chips', () {
+    test('all filter is pressed when no filter param', () {
+      final html = taskTimelineHtml(events: [_toolEvent('e1')], taskId: _taskId, taskStatus: 'running');
+      final firstChip = html.indexOf('<button');
+      expect(firstChip, isNot(-1));
+      expect(html.substring(firstChip, firstChip + 200), contains('aria-pressed="true"'));
+      expect(html, contains('hx-get="/tasks/$_taskId"'));
     });
 
-    test('status filter is active when filter=status', () {
-      final html = taskTimelineHtml(events: const [], taskId: _taskId, taskStatus: 'completed', activeFilter: 'status');
-      // The active link href must be the status filter href.
-      final activeIdx = html.indexOf('tl-filter-link active');
-      expect(activeIdx, isNot(-1));
-      // Find the href on the same link element (search forward for href).
-      final hrefIdx = html.indexOf('href=', activeIdx);
-      expect(hrefIdx, isNot(-1));
-      final hrefSlice = html.substring(hrefIdx, hrefIdx + 60);
-      expect(hrefSlice, contains('filter=status'));
+    test('status filter is pressed when filter=status', () {
+      final html = taskTimelineHtml(
+        events: [_statusEvent('e1', 'running')],
+        taskId: _taskId,
+        taskStatus: 'completed',
+        activeFilter: 'status',
+      );
+      // Exactly one chip is pressed, and it is the one targeting filter=status.
+      expect('aria-pressed="true"'.allMatches(html).length, 1);
+      final pressedIdx = html.indexOf('aria-pressed="true"');
+      expect(html.substring(pressedIdx, pressedIdx + 80), contains('filter=status'));
     });
 
-    test('filter bar contains all five filter hrefs', () {
-      final html = taskTimelineHtml(events: const [], taskId: _taskId, taskStatus: 'draft');
+    test('chip row offers all five buckets', () {
+      final html = taskTimelineHtml(events: [_toolEvent('e1')], taskId: _taskId, taskStatus: 'draft');
+      expect(html, contains('chip-row'));
+      expect('<button'.allMatches(html).length, 5);
       expect(html, contains('/tasks/$_taskId'));
-      expect(html, contains('filter=status'));
-      expect(html, contains('filter=tools'));
-      expect(html, contains('filter=artifacts'));
-      expect(html, contains('filter=errors'));
+      for (final filter in ['status', 'tools', 'artifacts', 'errors']) {
+        expect(html, contains('filter=$filter'));
+      }
+    });
+
+    test('counts come from the unfiltered list, not the active filter', () {
+      // Three tools, two status. Under filter=tools the other buckets must still
+      // report what they hold, or the chips stop being a way back.
+      final events = [
+        _toolEvent('t1'),
+        _toolEvent('t2'),
+        _toolEvent('t3'),
+        _statusEvent('s1', 'running'),
+        _statusEvent('s2', 'review'),
+      ];
+      final html = taskTimelineHtml(events: events, taskId: _taskId, taskStatus: 'running', activeFilter: 'tools');
+      final counts = RegExp(r'chip-meta">(\d+)<').allMatches(html).map((m) => m.group(1)).toList();
+      // Order is All, Status, Tools, Artifacts, Errors.
+      expect(counts, ['5', '2', '3', '0', '0']);
     });
   });
 
-  group('taskTimelineHtml — empty state', () {
-    test('shows empty state message when no events', () {
+  group('taskTimelineHtml — empty cases', () {
+    test('a task with no events at all emits no timeline panel', () {
+      // The caller keys `hasTimeline` off this being empty, so the whole panel —
+      // chips included — is suppressed rather than rendered around nothing.
       final html = taskTimelineHtml(events: const [], taskId: _taskId, taskStatus: 'draft');
-      expect(html, contains('No timeline events yet'));
+      expect(html, isEmpty);
     });
 
-    test('empty state absent when events present', () {
+    test('a filter matching nothing still renders the panel and its chips', () {
+      // Suppressing here would strand the operator on a URL they must hand-edit,
+      // because the chip row is the only control that returns them to All.
+      final html = taskTimelineHtml(
+        events: [_toolEvent('e1')],
+        taskId: _taskId,
+        taskStatus: 'running',
+        activeFilter: 'errors',
+      );
+      expect(html, contains('chip-row'));
+      expect(html, contains('task-timeline'));
+      expect(html, contains('No matching events'));
+      expect(html, contains('empty-state-title'));
+    });
+
+    test('empty state absent when the active filter matches', () {
       final html = taskTimelineHtml(events: [_statusEvent('e1', 'running')], taskId: _taskId, taskStatus: 'running');
-      expect(html, isNot(contains('No timeline events yet')));
+      expect(html, isNot(contains('No matching events')));
     });
   });
 
   group('taskTimelineHtml — auto-scroll', () {
     test('sets data-auto-scroll when task is running', () {
-      final html = taskTimelineHtml(events: const [], taskId: _taskId, taskStatus: 'running');
+      final html = taskTimelineHtml(events: [_toolEvent('e1')], taskId: _taskId, taskStatus: 'running');
       expect(html, contains('data-auto-scroll="true"'));
     });
 
     test('does not set data-auto-scroll for non-running status', () {
       for (final status in ['draft', 'completed', 'failed', 'review']) {
-        final html = taskTimelineHtml(events: const [], taskId: _taskId, taskStatus: status);
+        final html = taskTimelineHtml(events: [_toolEvent('e1')], taskId: _taskId, taskStatus: status);
         expect(html, isNot(contains('data-auto-scroll="true"')), reason: 'status=$status should not have auto-scroll');
       }
     });
@@ -220,6 +268,38 @@ void main() {
       expect(html, contains('Something went wrong'));
       expect(html, contains('icon-triangle-alert'));
       expect(html, contains('tl-event-error'));
+    });
+  });
+
+  group('taskTimelineHtml — structured output failures', () {
+    test('fallback includes the output key and failure reason', () {
+      final html = taskTimelineHtml(
+        events: [
+          _structuredOutputFailureEvent(
+            'e1',
+            TaskEventKind.structuredOutputFallbackUsed,
+            outputKey: 'review',
+            failureReason: 'invalid JSON',
+          ),
+        ],
+        taskId: _taskId,
+        taskStatus: 'completed',
+      );
+
+      expect(html, contains('review (invalid JSON)'));
+    });
+
+    test('validation failure includes the output key without an absent reason', () {
+      final html = taskTimelineHtml(
+        events: [
+          _structuredOutputFailureEvent('e1', TaskEventKind.structuredOutputValidationFailed, outputKey: 'result'),
+        ],
+        taskId: _taskId,
+        taskStatus: 'failed',
+      );
+
+      expect(html, contains('result'));
+      expect(html, isNot(contains('result (')));
     });
   });
 

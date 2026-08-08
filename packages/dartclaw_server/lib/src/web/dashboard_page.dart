@@ -18,7 +18,7 @@ abstract class DashboardPage {
   /// Route path served by this page. Must start with `/`.
   String get route;
 
-  /// Label shown in sidebar navigation.
+  /// Page label, shown in sidebar navigation unless the page opts out.
   String get title;
 
   /// Reserved for future sidebar icon rendering.
@@ -33,6 +33,9 @@ abstract class DashboardPage {
   /// Handles an incoming request for this page.
   Future<Response> handler(Request request, PageContext context);
 }
+
+/// Marks a registered [DashboardPage] that should remain outside dashboard navigation.
+abstract interface class DashboardNavigationExclusion {}
 
 /// Shared services made available to registered dashboard pages.
 class PageContext {

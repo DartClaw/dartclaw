@@ -2,21 +2,21 @@
   <div tl:if="${hasSession}" class="workflow-step-chat">
     <h4>Session</h4>
     <div class="terminal-frame">
-      <div class="terminal-frame-bar"><span class="terminal-frame-dots"><span></span><span></span><span></span></span><span class="terminal-frame-title" tl:text="${stepName}">Step</span></div>
+      <div class="terminal-frame-bar"><span class="terminal-frame-dots"><span></span><span></span><span></span></span><span tl:text="${stepName}">Step</span></div>
       <div class="terminal-frame-body">
         <div class="messages" tl:utext="${messagesHtml}">messages</div>
       </div>
     </div>
   </div>
   <div tl:unless="${hasSession}" class="workflow-step-no-session">
-    <span class="empty-state-text" tl:text="${noSessionText}">No session yet.</span>
+    <span class="text-muted" tl:text="${noSessionText}">No session yet.</span>
   </div>
 
   <div tl:if="${hasArtifacts}" class="workflow-step-artifacts">
     <h4>Artifacts</h4>
     <div tl:each="artifact : ${artifacts}" class="artifact-item">
       <span tl:classappend="${artifact.badgeClass}" class="workflow-artifact-badge" tl:text="${artifact.kindLabel}">Document</span>
-      <span class="artifact-name" tl:text="${artifact.name}">output.md</span>
+      <span tl:text="${artifact.name}">output.md</span>
     </div>
   </div>
 
@@ -37,7 +37,7 @@
   </div>
 
   <div tl:if="${hasMetrics}" class="workflow-step-metrics">
-    <span class="workflow-step-metric">Tokens: <span class="workflow-step-metric-value" tl:text="${tokenCount}">0</span></span>
-    <span tl:if="${hasDuration}" class="workflow-step-metric">Duration: <span class="workflow-step-metric-value" tl:text="${durationDisplay}">--</span></span>
+    <span>Tokens: <span class="workflow-step-metric-value" tl:text="${tokenCount}">0</span></span>
+    <span tl:if="${hasDuration}">Duration: <span class="workflow-step-metric-value" tl:text="${durationDisplay}">--</span></span>
   </div>
 </div>

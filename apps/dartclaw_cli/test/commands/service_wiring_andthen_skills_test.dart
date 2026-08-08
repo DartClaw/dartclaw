@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:dartclaw_cli/src/commands/service_wiring.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
@@ -8,16 +9,19 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-String _staticDir() {
-  const fromPkg = 'packages/dartclaw_server/lib/src/static';
-  if (Directory(fromPkg).existsSync()) return fromPkg;
-  return p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'static');
-}
+late String _staticDir;
+late String _templatesDir;
 
-String _templatesDir() {
-  const fromWorkspace = 'packages/dartclaw_server/lib/src/templates';
-  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
-  return p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
+/// Resolves a `dartclaw_server` asset directory to an absolute path.
+///
+/// Relative paths and cwd-relative `existsSync` probes are unsafe here: sibling
+/// suites in this package set `Directory.current`, which is process-wide.
+Future<String> _resolveServerAssetDir(String child) async {
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
+  if (uri == null) {
+    throw StateError('Could not resolve package:dartclaw_server.');
+  }
+  return p.join(File.fromUri(uri).parent.path, 'src', child);
 }
 
 HarnessFactory _harnessFactoryFor(AgentHarness harness) {
@@ -27,7 +31,11 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
 }
 
 void main() {
-  setUpAll(() => initTemplates(_templatesDir()));
+  setUpAll(() async {
+    _templatesDir = await _resolveServerAssetDir('templates');
+    _staticDir = await _resolveServerAssetDir('static');
+    initTemplates(_templatesDir);
+  });
 
   test('ServiceWiring materializes embedded workflow skills', () async {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_positive_skills_');
@@ -168,8 +176,8 @@ DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB})
     ),
     server: ServerConfig(
       dataDir: dataDir,
-      staticDir: _staticDir(),
-      templatesDir: _templatesDir(),
+      staticDir: _staticDir,
+      templatesDir: _templatesDir,
       claudeExecutable: Platform.resolvedExecutable,
     ),
   );

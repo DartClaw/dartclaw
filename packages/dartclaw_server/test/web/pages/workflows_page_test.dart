@@ -180,6 +180,26 @@ void main() {
       expect(body, contains('spec-and-implement'));
     });
 
+    test('S03 malformed stored definition reports an absent step count on list and detail', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-malformed',
+          definitionName: 'broken-definition',
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          definitionJson: const {'name': 42},
+        ),
+      );
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final list = await (await page.handler(_get('/workflows'), context)).readAsString();
+      final detail = await (await page.handler(_get('/workflows/run-malformed'), context)).readAsString();
+      expect(list, contains('class="value-absent"'));
+      expect(detail, contains('class="value-absent"'));
+      expect(detail, isNot(contains('class="meter"')));
+    });
+
     test('status filter passes to service query', () async {
       final def = _makeDefinition();
       await workflows.start(def, const {});
@@ -286,7 +306,7 @@ void main() {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows/$runId'), context);
       final body = await response.readAsString();
-      expect(RegExp(r'workflow-step-card').allMatches(body).length, 2);
+      expect(RegExp(r'class="pipeline-step ').allMatches(body).length, 2);
     });
 
     test('renders timed-out approval state without flattening it to pending', () async {

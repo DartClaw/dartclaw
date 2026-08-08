@@ -1,4 +1,15 @@
-import { escapeHtml, readHtmxErrorMessage, renderMarkdown, scrollToBottom, showBanner, showToast } from './shared.js';
+import {
+  beginSessionDraftMutation,
+  endSessionDraftMutation,
+  escapeHtml,
+  isAtBottom,
+  readHtmxErrorMessage,
+  renderMarkdown,
+  scrollToBottom,
+  showBanner,
+  showToast,
+  syncSidebarSessionTitle,
+} from './shared.js';
 
 export default class DcChatController extends Stimulus.Controller {
   connect() {
@@ -13,8 +24,10 @@ export default class DcChatController extends Stimulus.Controller {
     this.recoveryActive = false;
     this.canCancel = false;
     this.turnStatusTimer = null;
+    this.turnStatusPollGeneration = 0;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
     this.handleAfterRequest = this.handleAfterRequest.bind(this);
+    this.captureSseStickyIntent = this.captureSseStickyIntent.bind(this);
     this.handleSseMessage = this.handleSseMessage.bind(this);
     this.handleSseClose = this.handleSseClose.bind(this);
     this.handleLoadEarlierClick = this.handleLoadEarlierClick.bind(this);
@@ -24,6 +37,7 @@ export default class DcChatController extends Stimulus.Controller {
 
     document.body.addEventListener('htmx:beforeRequest', this.handleBeforeRequest);
     document.body.addEventListener('htmx:afterRequest', this.handleAfterRequest);
+    document.body.addEventListener('htmx:sseBeforeMessage', this.captureSseStickyIntent);
     document.body.addEventListener('htmx:sseMessage', this.handleSseMessage);
     document.body.addEventListener('htmx:sseClose', this.handleSseClose);
     this.element.addEventListener('click', this.handleLoadEarlierClick);
@@ -33,12 +47,13 @@ export default class DcChatController extends Stimulus.Controller {
     this.loadCommands();
     this.updateSendState();
     renderMarkdown(this.element);
-    scrollToBottom(this.element);
+    scrollToBottom(this.element, { force: true });
   }
 
   disconnect() {
     document.body.removeEventListener('htmx:beforeRequest', this.handleBeforeRequest);
     document.body.removeEventListener('htmx:afterRequest', this.handleAfterRequest);
+    document.body.removeEventListener('htmx:sseBeforeMessage', this.captureSseStickyIntent);
     document.body.removeEventListener('htmx:sseMessage', this.handleSseMessage);
     document.body.removeEventListener('htmx:sseClose', this.handleSseClose);
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
@@ -187,12 +202,14 @@ export default class DcChatController extends Stimulus.Controller {
         return;
       }
       this.hideRecovery();
+      beginSessionDraftMutation(this.sessionId);
       this.disableInput();
     }
   }
 
   handleAfterRequest(event) {
     if (this.isChatFormRequest(event)) {
+      endSessionDraftMutation(this.sessionId);
       if (!event.detail.successful) {
         this.enableInput();
         showBanner('error', readHtmxErrorMessage(event.detail.xhr));
@@ -259,12 +276,19 @@ export default class DcChatController extends Stimulus.Controller {
     this.canCancel = false;
     this.updateSendState();
     if (!this.sessionId) return;
+    const generation = this.turnStatusPollGeneration;
+    const sessionId = this.sessionId;
+    let nextRequest = 0;
+    let lastAppliedRequest = 0;
     const poll = () => {
-      if (!this.streaming || !this.sessionId) return;
-      fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/turn-status')
+      if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
+      const request = ++nextRequest;
+      fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
         .then((response) => (response.ok ? response.json() : null))
         .then((status) => {
-          if (!this.streaming) return;
+          if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
+          if (request < lastAppliedRequest) return;
+          lastAppliedRequest = request;
           const next = Boolean(status && status.can_cancel === true);
           if (next !== this.canCancel) {
             this.canCancel = next;
@@ -278,6 +302,7 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   _stopTurnStatusPolling() {
+    this.turnStatusPollGeneration += 1;
     if (this.turnStatusTimer !== null) {
       clearInterval(this.turnStatusTimer);
       this.turnStatusTimer = null;
@@ -323,11 +348,17 @@ export default class DcChatController extends Stimulus.Controller {
     }
   }
 
+  captureSseStickyIntent() {
+    this.sseStickyIntent = isAtBottom(this.element.querySelector('.messages'));
+  }
+
   handleSseMessage(event) {
     if (event.detail?.type === 'delta') {
-      document.querySelector('#streaming-content .claw-loader')?.remove();
+      document.getElementById('streaming-msg')?.querySelector('.msg-thinking')?.remove();
+      document.getElementById('streaming-content')?.classList.add('streaming');
     }
-    scrollToBottom(this.element);
+    scrollToBottom(this.element, { stickToBottom: this.sseStickyIntent === true });
+    this.sseStickyIntent = null;
   }
 
   handleSseClose() {
@@ -361,6 +392,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.enableInput();
     if (!this.sessionId || !refreshMessages) return;
 
+    const stickToBottom = isAtBottom(this.element.querySelector('.messages'));
     htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html', {
       target: '#messages',
       swap: 'innerHTML',
@@ -368,7 +400,7 @@ export default class DcChatController extends Stimulus.Controller {
     })
       .then(() => {
         renderMarkdown(this.element);
-        scrollToBottom(this.element);
+        scrollToBottom(this.element, { stickToBottom });
         this.autoTitleSession();
       })
       .catch(() => showToast('error', 'Failed to refresh messages'));
@@ -397,8 +429,7 @@ export default class DcChatController extends Stimulus.Controller {
           titleInput.value = title;
           titleInput.dataset.originalTitle = title;
         }
-        const sidebarItem = document.querySelector('.session-item.active .session-item-title');
-        if (sidebarItem) sidebarItem.textContent = title;
+        syncSidebarSessionTitle(this.sessionId, title);
       })
       .catch(() => {});
   }

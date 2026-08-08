@@ -440,6 +440,10 @@ dartclaw service uninstall
 `service` manages LaunchAgents on macOS and `systemd --user` units on Linux. It is unsupported on native Windows; run
 `dartclaw serve` directly or use operator-managed process supervision.
 
+On macOS, `service install` records the absolute entries from the current `PATH` in the LaunchAgent so configured
+provider and channel executables remain resolvable under launchd. Run `service install` again to refresh the loaded
+definition after changing that PATH.
+
 ### `google-auth`
 
 ```bash

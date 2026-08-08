@@ -35,6 +35,17 @@ ConfigDelta _delta(AlertsConfig newAlerts) => ConfigDelta(
 
 DateTime get _now => DateTime.now();
 
+GuardBlockEvent _guardBlockEvent() => GuardBlockEvent(
+  verdict: 'block',
+  verdictMessage: 'msg',
+  guardName: 'g',
+  guardCategory: 'input',
+  hookPoint: 'messageReceived',
+  timestamp: _now,
+);
+
+void _fireGuardBlock(EventBus bus) => bus.fire(_guardBlockEvent());
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -202,16 +213,7 @@ void main() {
         await router.cancel();
         router = AlertRouter(bus: bus, adapter: adapter, config: testCase.config);
 
-        bus.fire(
-          GuardBlockEvent(
-            verdict: 'block',
-            verdictMessage: 'msg',
-            guardName: 'g',
-            guardCategory: 'input',
-            hookPoint: 'messageReceived',
-            timestamp: _now,
-          ),
-        );
+        _fireGuardBlock(bus);
         await pumpEventQueue();
 
         expect(adapter.delivered, hasLength(testCase.expectedDeliveries));
@@ -233,16 +235,7 @@ void main() {
         await router.cancel();
         router = AlertRouter(bus: bus, adapter: adapter, config: testCase.config);
 
-        bus.fire(
-          GuardBlockEvent(
-            verdict: 'block',
-            verdictMessage: 'msg',
-            guardName: 'g',
-            guardCategory: 'input',
-            hookPoint: 'messageReceived',
-            timestamp: _now,
-          ),
-        );
+        _fireGuardBlock(bus);
         await pumpEventQueue();
 
         expect(adapter.delivered, isEmpty);
@@ -253,16 +246,7 @@ void main() {
   group('AlertRouter — Reconfigurable', () {
     test('reconfigure() with enabled=false suppresses subsequent events', () async {
       // Confirm it works before reconfigure
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
-        ),
-      );
+      _fireGuardBlock(bus);
       await pumpEventQueue();
       expect(adapter.delivered, hasLength(2));
 
@@ -270,16 +254,7 @@ void main() {
       router.reconfigure(_delta(AlertsConfig(enabled: false, targets: [_target0, _target1])));
       adapter.delivered.clear();
 
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
-        ),
-      );
+      _fireGuardBlock(bus);
       await pumpEventQueue();
       expect(adapter.delivered, isEmpty);
     });
@@ -288,16 +263,7 @@ void main() {
       const newTarget = AlertTarget(channel: 'googlechat', recipient: 'spaces/new');
       router.reconfigure(_delta(AlertsConfig(enabled: true, targets: [newTarget])));
 
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
-        ),
-      );
+      _fireGuardBlock(bus);
       await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(1));
@@ -313,16 +279,7 @@ void main() {
     test('cancel() stops subscription — no delivery after cancel', () async {
       await router.cancel();
 
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
-        ),
-      );
+      _fireGuardBlock(bus);
       await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
@@ -477,14 +434,7 @@ void main() {
           config: _config(cooldownSeconds: 300, burstThreshold: 5),
         );
 
-        final event = GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: DateTime.now(),
-        );
+        final event = _guardBlockEvent();
 
         for (var i = 0; i < 10; i++) {
           localBus.fire(event);
@@ -519,14 +469,7 @@ void main() {
           ),
         );
 
-        final event = GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: DateTime.now(),
-        );
+        final event = _guardBlockEvent();
 
         for (var i = 0; i < 6; i++) {
           localBus.fire(event);
@@ -556,14 +499,7 @@ void main() {
           config: _config(targets: [_target0, _target1], cooldownSeconds: 300, burstThreshold: 5),
         );
 
-        final event = GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: DateTime.now(),
-        );
+        final event = _guardBlockEvent();
 
         // Fire 6 events — each target gets 1 immediate + 5 suppressed
         for (var i = 0; i < 6; i++) {

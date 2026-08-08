@@ -50,7 +50,7 @@ class SchedulingPage extends DashboardPage {
       jobs: liveJobs,
       systemJobNames: schedulingDisplay.systemJobNames,
       scheduledTasks: schedulingDisplay.scheduledTasks,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
     );
 

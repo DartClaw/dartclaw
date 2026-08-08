@@ -70,6 +70,30 @@ void main() {
       expect(signal.sentMessages.single.$2.text, 'hello channels');
     });
 
+    test('announce applies channel formatting and delivers every chunk', () async {
+      const signalPeer = 'signal/+46700000000';
+      await _createChannelSession(
+        sessions,
+        SessionKey.dmPerChannelContact(channelType: ChannelType.signal.name, peerId: signalPeer),
+      );
+      final signal = FakeChannel(
+        type: ChannelType.signal,
+        ownedJids: {signalPeer},
+        responseFormatter: (text) => [
+          ChannelResponse(text: 'formatted:$text:1'),
+          ChannelResponse(text: 'formatted:$text:2'),
+        ],
+      );
+      final service = _makeService(sessions: sessions, sseBroadcast: sseBroadcast, channels: [signal]);
+
+      await service.deliver(mode: DeliveryMode.announce, jobId: 'job-formatted', result: '**scheduled**');
+
+      expect(signal.sentMessages.map((entry) => entry.$2.text), [
+        'formatted:**scheduled**:1',
+        'formatted:**scheduled**:2',
+      ]);
+    });
+
     test('announce skips dmShared sessions with no peerId', () async {
       await _createChannelSession(sessions, SessionKey.dmShared());
 
@@ -101,6 +125,24 @@ void main() {
       expect(signal.sentMessages, hasLength(1));
       expect(signal.sentMessages.single.$1, deliveredPeer);
       expect(signal.sentMessages.single.$2.text, 'best effort');
+    });
+
+    test('announce stops a failed multipart target and continues with later targets', () async {
+      const failingPeer = 'dm/contact/partial@s.whatsapp.net';
+      const deliveredPeer = 'signal/+46700000002';
+      await _createChannelSession(
+        sessions,
+        SessionKey.dmPerChannelContact(channelType: ChannelType.whatsapp.name, peerId: failingPeer),
+      );
+      await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: deliveredPeer));
+      final failingChannel = _SecondChunkFailureChannel(ownedJids: {failingPeer});
+      final signal = FakeChannel(type: ChannelType.signal, ownedJids: {deliveredPeer});
+      final service = _makeService(sessions: sessions, sseBroadcast: sseBroadcast, channels: [failingChannel, signal]);
+
+      await service.deliver(mode: DeliveryMode.announce, jobId: 'job-partial', result: 'multipart');
+
+      expect(failingChannel.sentMessages.map((entry) => entry.$2.text), ['multipart:1']);
+      expect(signal.sentMessages.single.$2.text, 'multipart');
     });
 
     test('announce works with no channels registered', () async {
@@ -180,6 +222,27 @@ void main() {
       expect(await _nextSseFrame(controller), isNull);
     });
   });
+}
+
+class _SecondChunkFailureChannel extends FakeChannel {
+  _SecondChunkFailureChannel({required super.ownedJids})
+    : super(
+        type: ChannelType.whatsapp,
+        responseFormatter: (text) => [
+          ChannelResponse(text: '$text:1'),
+          ChannelResponse(text: '$text:2'),
+          ChannelResponse(text: '$text:3'),
+        ],
+      );
+
+  var _sendCount = 0;
+
+  @override
+  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    _sendCount += 1;
+    if (_sendCount == 2) throw StateError('second chunk failed');
+    await super.sendMessage(recipientJid, response);
+  }
 }
 
 DeliveryService _makeService({

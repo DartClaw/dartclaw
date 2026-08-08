@@ -38,9 +38,10 @@ String _errorMsg(ToolResult r) => (r as ToolResultError).message;
 void main() {
   group('TavilySearchTool', () {
     group('MCP interface', () {
-      test('name is tavily_search', () {
-        final tool = TavilySearchTool(provider: _MockProvider());
-        expect(tool.name, 'tavily_search');
+      test('name is tavily_search — wire contract', () {
+        // The MCP-exposed name — the Claude harness surfaces it as
+        // `mcp__dartclaw__<name>`. No code branches on this literal.
+        expect(TavilySearchTool(provider: _MockProvider()).name, 'tavily_search');
       });
 
       test('inputSchema has correct structure', () {

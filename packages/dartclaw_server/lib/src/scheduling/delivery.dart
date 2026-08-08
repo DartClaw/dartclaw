@@ -82,7 +82,9 @@ class DeliveryService {
       }
 
       try {
-        await channel.sendMessage(target.$2, ChannelResponse(text: result));
+        for (final response in channel.formatResponse(result)) {
+          await channel.sendMessage(target.$2, response);
+        }
         delivered += 1;
       } catch (error, stackTrace) {
         failed += 1;

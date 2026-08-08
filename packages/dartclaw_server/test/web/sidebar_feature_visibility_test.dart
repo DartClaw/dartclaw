@@ -8,61 +8,57 @@ import 'package:test/test.dart';
 
 void main() {
   group('computeSidebarFeatureVisibility', () {
-    test('dev.yaml collapses system nav to Settings only', () {
+    test('dev.yaml keeps the core Health dashboard visible', () {
       final config = DartclawConfig.load(configPath: _exampleConfigPath('dev.yaml'));
-      final visibility = _visibilityForConfig(config, hasHealthService: true, hasTaskService: true);
+      final visibility = _visibilityForConfig(config, hasTaskService: true);
       final registry = PageRegistry();
 
       registerSystemDashboardPages(
         registry,
-        showHealth: visibility.showHealth,
         showMemory: visibility.showMemory,
         showScheduling: visibility.showScheduling,
         showTasks: visibility.showTasks,
       );
 
       expect(visibility.showChannels, isFalse);
-      expect(_labels(registry), ['Settings', 'Knowledge', 'Timeline']);
+      expect(_labels(registry), ['Health', 'Settings', 'Knowledge']);
     });
 
-    test('personal-assistant.yaml keeps only Settings and Scheduling on real startup inputs', () {
+    test('personal-assistant.yaml keeps Health, Settings, and Scheduling on real startup inputs', () {
       final config = DartclawConfig.load(configPath: _exampleConfigPath('personal-assistant.yaml'));
-      final visibility = _visibilityForConfig(config, hasHealthService: true, hasTaskService: true);
+      final visibility = _visibilityForConfig(config, hasTaskService: true);
       final registry = PageRegistry();
 
       registerSystemDashboardPages(
         registry,
-        showHealth: visibility.showHealth,
         showMemory: visibility.showMemory,
         showScheduling: visibility.showScheduling,
         showTasks: visibility.showTasks,
       );
 
       expect(visibility.showChannels, isFalse);
-      expect(_labels(registry), ['Settings', 'Knowledge', 'Timeline', 'Scheduling']);
+      expect(_labels(registry), ['Health', 'Settings', 'Knowledge', 'Scheduling']);
     });
 
     test('production.yaml enables the full system nav on real startup inputs', () {
       final config = DartclawConfig.load(configPath: _exampleConfigPath('production.yaml'));
-      final visibility = _visibilityForConfig(config, hasHealthService: true, hasTaskService: true);
+      final visibility = _visibilityForConfig(config, hasTaskService: true);
       final registry = PageRegistry();
 
       registerSystemDashboardPages(
         registry,
-        showHealth: visibility.showHealth,
         showMemory: visibility.showMemory,
         showScheduling: visibility.showScheduling,
         showTasks: visibility.showTasks,
       );
 
       expect(visibility.showChannels, isFalse);
-      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Knowledge', 'Timeline', 'Scheduling', 'Tasks']);
+      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Knowledge', 'Scheduling', 'Tasks']);
     });
 
-    test('config-free callers retain legacy service-presence behavior', () {
+    test('config-free callers retain service-presence behavior for optional pages', () {
       final visibility = computeSidebarFeatureVisibility(
         hasChannels: false,
-        hasHealthService: true,
         hasTaskService: true,
         workspaceDisplay: const WorkspaceDisplayParams(path: '/tmp/workspace'),
       );
@@ -70,13 +66,12 @@ void main() {
 
       registerSystemDashboardPages(
         registry,
-        showHealth: visibility.showHealth,
         showMemory: visibility.showMemory,
         showScheduling: visibility.showScheduling,
         showTasks: visibility.showTasks,
       );
 
-      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Knowledge', 'Timeline', 'Tasks']);
+      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Knowledge', 'Tasks']);
     });
   });
 }
@@ -84,16 +79,12 @@ void main() {
 SidebarFeatureVisibility _visibilityForConfig(
   DartclawConfig config, {
   bool hasChannels = false,
-  bool hasHealthService = false,
   bool hasTaskService = false,
-  bool hasPubSubHealth = false,
 }) {
   return computeSidebarFeatureVisibility(
     config: config,
     hasChannels: hasChannels,
-    hasHealthService: hasHealthService,
     hasTaskService: hasTaskService,
-    hasPubSubHealth: hasPubSubHealth,
     heartbeatDisplay: HeartbeatDisplayParams(
       enabled: config.scheduling.heartbeatEnabled,
       intervalMinutes: config.scheduling.heartbeatIntervalMinutes,

@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         StepConfigDefault,
+        Task,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowBudgetWarningEvent,
@@ -54,6 +55,21 @@ void main() {
       await h.taskService.transition(taskId, TaskStatus.accepted, trigger: 'test');
     }
 
+    Future<List<Task>> executeAndCompleteQueuedTasks(Future<void> Function() execute) async {
+      final tasks = <Task>[];
+      final subscription = h.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((e) => e.newStatus == TaskStatus.queued)
+          .listen((event) async {
+            await pumpEventQueue();
+            tasks.add((await h.taskService.get(event.taskId))!);
+            await completeDefaultsTask(event.taskId);
+          });
+      await execute();
+      await subscription.cancel();
+      return tasks;
+    }
+
     test('step inherits model from matching stepDefaults', () async {
       final definition = WorkflowDefinition(
         name: 'wf',
@@ -67,24 +83,12 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      Map<String, dynamic>? capturedConfig;
-      String? capturedModel;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedConfig = task?.configJson;
-        capturedModel = task?.model;
-        await completeDefaultsTask(e.taskId);
-      });
+      final task = (await executeAndCompleteQueuedTasks(
+        () => h.executor.execute(run, definition, WorkflowContext()),
+      )).single;
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      expect(capturedConfig, isNotNull);
-      expect(capturedModel, equals('claude-opus-4'));
-      expect(capturedConfig!.containsKey('model'), isFalse);
+      expect(task.model, equals('claude-opus-4'));
+      expect(task.configJson.containsKey('model'), isFalse);
     });
 
     test('per-step explicit provider overrides stepDefaults provider', () async {
@@ -100,20 +104,11 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      String? capturedProvider;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedProvider = task?.provider;
-        await completeDefaultsTask(e.taskId);
-      });
+      final task = (await executeAndCompleteQueuedTasks(
+        () => h.executor.execute(run, definition, WorkflowContext()),
+      )).single;
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      expect(capturedProvider, equals('explicit-provider'));
+      expect(task.provider, equals('explicit-provider'));
     });
 
     test('first-match-wins: review-code matches review* not catch-all *', () async {
@@ -132,20 +127,11 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      String? capturedModel;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedModel = task?.model;
-        await completeDefaultsTask(e.taskId);
-      });
+      final task = (await executeAndCompleteQueuedTasks(
+        () => h.executor.execute(run, definition, WorkflowContext()),
+      )).single;
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      expect(capturedModel, equals('opus'));
+      expect(task.model, equals('opus'));
     });
 
     test('no matching default: step uses own config only', () async {
@@ -161,20 +147,11 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      Map<String, dynamic>? capturedConfig;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedConfig = task?.configJson;
-        await completeDefaultsTask(e.taskId);
-      });
+      final task = (await executeAndCompleteQueuedTasks(
+        () => h.executor.execute(run, definition, WorkflowContext()),
+      )).single;
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      expect(capturedConfig!.containsKey('model'), isFalse);
+      expect(task.configJson.containsKey('model'), isFalse);
     });
 
     test('step inherits timeout from matching stepDefaults', () async {
@@ -190,20 +167,11 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      Map<String, dynamic>? capturedConfig;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedConfig = task?.configJson;
-        await completeDefaultsTask(e.taskId);
-      });
+      final task = (await executeAndCompleteQueuedTasks(
+        () => h.executor.execute(run, definition, WorkflowContext()),
+      )).single;
 
-      await h.executor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      expect(capturedConfig?[WorkflowTaskConfig.workflowTimeoutSeconds], 900);
+      expect(task.configJson[WorkflowTaskConfig.workflowTimeoutSeconds], 900);
     });
 
     test('mapOver iterations inherit timeout from matching stepDefaults', () async {
@@ -224,21 +192,10 @@ void main() {
         },
       );
 
-      Map<String, dynamic>? capturedConfig;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        capturedConfig = task?.configJson;
-        await completeDefaultsTask(e.taskId);
-      });
-
-      await h.executor.execute(run, definition, context);
-      await sub.cancel();
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, context))).single;
 
       expect(
-        capturedConfig?[WorkflowTaskConfig.workflowTimeoutSeconds],
+        task.configJson[WorkflowTaskConfig.workflowTimeoutSeconds],
         900,
         reason: 'mapOver child tasks must use the same resolved timeout defaults as single-step dispatch',
       );

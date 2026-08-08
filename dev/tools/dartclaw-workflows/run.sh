@@ -149,6 +149,8 @@ ensure_binary() {
   echo "[dartclaw-workflows] building host binary (key=${key:0:12})..." >&2
 
   ( cd "$REPO_ROOT" && dart pub get >&2 )
+  # Generated asset libraries are gitignored; `dart build cli` needs them.
+  ( cd "$REPO_ROOT" && dart run dev/tools/embed_assets.dart >&2 )
 
   # `dart pub get` may rewrite pubspec.lock; recompute the key so the artifact
   # name reflects the post-resolve state and the next run does not redundantly

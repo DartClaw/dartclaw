@@ -1,3 +1,4 @@
+import 'components.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -43,11 +44,11 @@ String kgTimelineTemplate({
   String? asOf,
   String? errorMessage,
   int? statusCode,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
-  final topbar = pageTopbarTemplate(title: 'KG Timeline');
+  final topbar = pageTopbarTemplate(title: 'KG Timeline', restartBannerHtml: restartBannerHtml);
   final context = <String, dynamic>{
     'sidebar': sidebar,
     'topbar': topbar,
@@ -58,9 +59,7 @@ String kgTimelineTemplate({
     'errorMessage': errorMessage ?? '',
     'statusCode': statusCode == null ? '' : '$statusCode',
     'hasCategories': categories.isNotEmpty,
-    'emptyMessage': selectedCategory == null || selectedCategory.isEmpty
-        ? 'No temporal KG facts recorded yet.'
-        : 'No facts recorded in this category yet.',
+    'emptyStateHtml': _emptyStateHtml(selectedCategory),
     'categories': categories
         .map(
           (category) => {
@@ -84,8 +83,18 @@ String kgTimelineTemplate({
         )
         .toList(),
   };
-  if (bannerHtml.isNotEmpty) context['bannerHtml'] = bannerHtml;
 
   final body = templateLoader.trellis.render(templateLoader.source('kg_timeline'), context);
   return layoutTemplate(title: 'KG Timeline', body: body, appName: appName, scripts: standardShellScripts());
+}
+
+String _emptyStateHtml(String? selectedCategory) {
+  final filtered = selectedCategory != null && selectedCategory.isNotEmpty;
+  return emptyStateTemplate(
+    title: filtered ? 'No facts in this category' : 'No temporal facts yet',
+    body: filtered
+        ? 'Nothing was recorded for this category in the selected window. Reset the filters or try another category.'
+        : 'Facts with a validity window appear here once the knowledge graph records them.',
+    actionHtml: '<a class="btn btn-primary" href="/knowledge">Browse the knowledge hub</a>',
+  );
 }

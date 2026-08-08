@@ -1,6 +1,7 @@
 <div tl:fragment="signalPairing" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="pairing-main print-in">
     <div class="pairing-inner">
 
@@ -44,6 +45,22 @@
           </div>
           <div class="pairing-connected-actions">
             <a href="/signal/pairing" class="btn btn-sm">Re-pair</a>
+          </div>
+          </div>
+        </div>
+
+        <div tl:if="${showStatusUnavailable}" class="well pairing-section">
+          <div class="well-content">
+          <div class="pairing-connected-header">
+            <span class="icon icon-triangle-alert pairing-step-icon text-warning" aria-hidden="true"></span>
+            Registration Status Unavailable
+          </div>
+          <p class="text-muted text-sm">
+            signal-cli is reachable, but DartClaw could not confirm whether this account is paired.
+            Refresh to retry; no new linking session has been started.
+          </p>
+          <div class="pairing-connected-actions">
+            <a href="/signal/pairing" class="btn btn-sm">Retry status check</a>
           </div>
           </div>
         </div>
@@ -126,7 +143,7 @@
 
           <!-- Lightweight poll: 204 while waiting, full page swap on connect. -->
           <div class="pairing-status-row"
-               hx-get="/signal/pairing/poll" hx-trigger="every 10s"
+               hx-get="/signal/pairing/poll" hx-trigger="every 10s" hx-indicator="closest .pairing-main"
                hx-target="#main-content" hx-swap="outerHTML show:none" hx-select="#main-content">
             <span class="scan-bar"></span>
             <span class="text-muted text-sm">Waiting for connection&hellip;</span>
@@ -142,7 +159,7 @@
             The signal-cli daemon is not running or not reachable.
             Ensure signal-cli is installed and configured in <code>dartclaw.yaml</code>:
           </p>
-          <pre class="well-deep">channels:
+          <pre class="well-deep pairing-config-block">channels:
   signal:
     enabled: true
     phone_number: "+1234567890"
@@ -159,4 +176,5 @@
 
     </div>
   </main>
+  </div>
 </div>

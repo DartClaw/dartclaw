@@ -15,11 +15,7 @@ import 'workflow_run.dart' show WorkflowRun;
 /// Shared by the API routes and the workflow UI templates to avoid duplicating
 /// this mapping in multiple places.
 String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepId}) {
-  final contextData = switch (run.contextJson['data']) {
-    final Map<String, dynamic> data => data,
-    final Map<Object?, Object?> data => Map<String, dynamic>.from(data),
-    _ => const <String, dynamic>{},
-  };
+  final contextData = _contextData(run);
   final outcome = stepId == null
       ? null
       : (run.contextJson['step.$stepId.outcome'] ?? contextData['step.$stepId.outcome']);
@@ -52,11 +48,7 @@ String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepI
 /// green while a story shipped unresolved. The summary makes that gap
 /// surfaceable on operator-facing rollups without re-gating the run.
 String? workflowBlockedOutcomeSummary(WorkflowRun run) {
-  final contextData = switch (run.contextJson['data']) {
-    final Map<String, dynamic> data => data,
-    final Map<Object?, Object?> data => Map<String, dynamic>.from(data),
-    _ => const <String, dynamic>{},
-  };
+  final contextData = _contextData(run);
   final pattern = RegExp(r'^step\.(.+)\.outcome$');
   final lines = <String>[];
   for (final entry in contextData.entries) {
@@ -71,6 +63,12 @@ String? workflowBlockedOutcomeSummary(WorkflowRun run) {
   lines.sort();
   return lines.join('\n');
 }
+
+Map<String, dynamic> _contextData(WorkflowRun run) => switch (run.contextJson['data']) {
+  final Map<String, dynamic> data => data,
+  final Map<Object?, Object?> data => Map<String, dynamic>.from(data),
+  _ => const <String, dynamic>{},
+};
 
 /// Builds loop membership info for all loops in a workflow definition.
 ///

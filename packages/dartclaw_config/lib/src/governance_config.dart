@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 part 'budget_config.dart';
 part 'crowd_coding_config.dart';
 part 'loop_detection_config.dart';
@@ -60,7 +62,7 @@ class GovernanceConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is GovernanceConfig &&
-          _listEquals(adminSenders, other.adminSenders) &&
+          const ListEquality<String>().equals(adminSenders, other.adminSenders) &&
           rateLimits == other.rateLimits &&
           budget == other.budget &&
           loopDetection == other.loopDetection &&
@@ -84,12 +86,4 @@ class GovernanceConfig {
       'GovernanceConfig(adminSenders: $adminSenders, rateLimits: $rateLimits, '
       'budget: $budget, loopDetection: $loopDetection, queueStrategy: $queueStrategy, '
       'crowdCoding: $crowdCoding, turnProgress: $turnProgress)';
-
-  static bool _listEquals(List<String> a, List<String> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
 }

@@ -65,7 +65,8 @@ export 'src/channel/task_origin.dart' show TaskOrigin;
 export 'src/channel/task_creator.dart' show TaskCreator, TaskLister;
 export 'src/channel/task_trigger_config.dart' show TaskTriggerConfig;
 export 'src/channel/task_trigger_parser.dart' show TaskTriggerParser, TaskTriggerResult;
-export 'src/channel/text_chunking.dart' show chunkText;
+export 'src/channel/text_chunking.dart' show TextChunkSlice, chunkNativeChatMarkup, chunkText, chunkTextSlices;
+export 'src/channel/standard_markdown_converter.dart' show convertStandardMarkdownToNativeChatMarkup;
 export 'src/channel/turn_progress_event.dart'
     show
         TurnProgressEvent,

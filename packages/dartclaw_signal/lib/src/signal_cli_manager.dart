@@ -8,6 +8,9 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show DelayFactory, HealthProbe, ProcessFactory, ProcessTerminationResult, SequentialLock, killWithEscalation;
 import 'package:logging/logging.dart';
 
+/// Result of querying signal-cli for a registered account.
+enum SignalRegistrationState { registered, unregistered, unknown }
+
 /// Manages signal-cli as a subprocess in daemon HTTP mode.
 ///
 /// Mirrors [GowaManager] for WhatsApp: spawn, health check, crash recovery
@@ -27,6 +30,7 @@ class SignalCliManager with SequentialLock {
   final HealthProbe? _healthProbe;
   final PlatformCapabilities _platformCapabilities;
   final Duration _terminationGracePeriod;
+  final Duration _sseHandshakeTimeout;
 
   /// Timeout for standard API calls.
   static const _apiTimeout = Duration(seconds: 10);
@@ -45,12 +49,18 @@ class SignalCliManager with SequentialLock {
   bool _stopped = false;
   bool _wasPaired = false;
   String? _pendingLinkUri;
+  int? _pendingLinkGeneration;
+  Future<String?>? _linkFuture;
+  int? _linkGeneration;
   String? _registeredPhone;
 
   StreamController<Map<String, dynamic>> _eventController = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription<String>? _sseSub;
   HttpClient? _sseClient;
-  bool _reconnecting = false;
+  Future<void>? _reconnectFuture;
+  int? _reconnectGeneration;
+  Completer<void> _reconnectCancellation = Completer<void>();
+  bool _reconnectPending = false;
   int _rpcId = 0;
 
   SignalCliManager({
@@ -65,11 +75,13 @@ class SignalCliManager with SequentialLock {
     HealthProbe? healthProbe,
     PlatformCapabilities? platformCapabilities,
     Duration terminationGracePeriod = const Duration(seconds: 5),
+    Duration sseHandshakeTimeout = _apiTimeout,
   }) : _processFactory = processFactory ?? Process.start,
        _delay = delay ?? Future.delayed,
        _healthProbe = healthProbe,
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
-       _terminationGracePeriod = terminationGracePeriod;
+       _terminationGracePeriod = terminationGracePeriod,
+       _sseHandshakeTimeout = sseHandshakeTimeout;
 
   bool get isRunning => _process != null && !_stopped;
 
@@ -98,7 +110,7 @@ class SignalCliManager with SequentialLock {
     final gen = ++_generation;
     _log.info('Starting signal-cli (gen $gen): $executable on $host:$port');
 
-    final args = ['daemon', '--http', '$host:$port'];
+    final args = ['daemon', '--http', '$host:$port', '--receive-mode', 'on-connection'];
 
     try {
       _process = await _processFactory(executable, args);
@@ -144,21 +156,24 @@ class SignalCliManager with SequentialLock {
     _restartCount = 0;
     _log.info('signal-cli started successfully (gen $gen)');
 
-    // Restore registered account state (phone number may differ from config placeholder).
-    unawaited(isAccountRegistered());
-
     // Connect SSE stream — relays inbound message events from signal-cli daemon.
-    unawaited(_connectSse());
+    unawaited(_connectInitialSse(gen));
   }
 
   /// Stop the signal-cli process gracefully.
   Future<void> stop() {
     _stopped = true;
+    ++_generation;
+    _pendingLinkUri = null;
+    _pendingLinkGeneration = null;
+    _cancelReconnect();
+    _sseClient?.close(force: true);
     _beginIntentionalProcessTeardown(_process);
     return withLock(_stop);
   }
 
   Future<void> _stop() async {
+    await _settleReconnect();
     await _sseSub?.cancel();
     _sseSub = null;
     _sseClient?.close(force: true);
@@ -197,6 +212,9 @@ class SignalCliManager with SequentialLock {
 
   Future<void> _reset() async {
     ++_generation;
+    _cancelReconnect();
+    _sseClient?.close(force: true);
+    await _settleReconnect();
     final proc = _process;
     _beginIntentionalProcessTeardown(proc);
 
@@ -227,20 +245,37 @@ class SignalCliManager with SequentialLock {
     _stopped = false;
     _wasPaired = false;
     _pendingLinkUri = null;
+    _pendingLinkGeneration = null;
     _registeredPhone = null;
     _restartCount = 0;
-    _reconnecting = false;
+    _reconnectCancellation = Completer<void>();
+    _reconnectPending = false;
   }
 
   // ---- JSON-RPC client methods ----
 
-  /// Send a text message via signal-cli JSON-RPC.
-  Future<void> sendMessage(String recipient, String text) async {
+  /// Sends text and optional signal-cli UTF-16 [textStyles] via JSON-RPC.
+  Future<void> sendMessage(
+    String recipient,
+    String text, {
+    required bool isGroup,
+    List<String> textStyles = const [],
+  }) async {
     await _rpc('send', {
-      'account': phoneNumber,
-      'recipient': [recipient],
+      'account': _registeredPhone ?? phoneNumber,
+      if (isGroup) 'groupId': recipient else 'recipient': [recipient],
       'message': text,
+      if (textStyles.isNotEmpty) 'textStyle': textStyles,
     });
+  }
+
+  /// Starts or stops a typing indicator for a direct recipient or group.
+  Future<void> sendTyping(String recipient, {required bool isGroup, required bool isTyping}) async {
+    await _rpc('sendTyping', {
+      'account': _registeredPhone ?? phoneNumber,
+      if (isGroup) 'groupId': recipient else 'recipient': recipient,
+      if (!isTyping) 'stop': true,
+    }, timeout: const Duration(seconds: 1));
   }
 
   /// Returns true if any Signal account is registered in signal-cli.
@@ -251,8 +286,11 @@ class SignalCliManager with SequentialLock {
   ///
   /// Also caches the registered phone number in [_registeredPhone] — this
   /// handles the case where [phoneNumber] is a config placeholder.
-  Future<bool> isAccountRegistered() async {
-    if (_wasPaired) return true;
+  Future<bool> isAccountRegistered() async => await registrationState() == SignalRegistrationState.registered;
+
+  /// Queries registration while preserving an indeterminate RPC result.
+  Future<SignalRegistrationState> registrationState() async {
+    if (_wasPaired) return SignalRegistrationState.registered;
     try {
       final result = await _rpc('listAccounts', {});
       if (result is List && result.isNotEmpty) {
@@ -266,13 +304,13 @@ class SignalCliManager with SequentialLock {
         if (_registeredPhone != null) {
           _wasPaired = true;
           _notifyRegistered(_registeredPhone!);
-          return true;
+          return SignalRegistrationState.registered;
         }
       }
-      return false;
+      return SignalRegistrationState.unregistered;
     } catch (e) {
       _log.fine('isAccountRegistered check failed: $e');
-      return false;
+      return SignalRegistrationState.unknown;
     }
   }
 
@@ -292,45 +330,44 @@ class SignalCliManager with SequentialLock {
   ///
   /// `finishLink` is long-polled with a 5-minute timeout — signal-cli holds
   /// the connection open until the user confirms on the phone.
-  Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async {
-    // Return cached URI while a link session is already in progress.
-    if (_pendingLinkUri != null) return _pendingLinkUri;
+  Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) {
+    if (_stopped) return Future.value(null);
+    final pendingUri = _pendingLinkUri;
+    if (pendingUri != null && _pendingLinkGeneration == _generation && !_stopped) {
+      return Future.value(pendingUri);
+    }
+    _pendingLinkUri = null;
+    _pendingLinkGeneration = null;
 
+    final generation = _generation;
+    final active = _linkFuture;
+    if (active != null && _linkGeneration == generation) return active;
+
+    late final Future<String?> operation;
+    operation = _startDeviceLink(deviceName, generation).whenComplete(() {
+      if (identical(_linkFuture, operation)) {
+        _linkFuture = null;
+        _linkGeneration = null;
+      }
+    });
+    _linkFuture = operation;
+    _linkGeneration = generation;
+    return operation;
+  }
+
+  Future<String?> _startDeviceLink(String deviceName, int generation) async {
     try {
       final result = await _rpc('startLink', {});
+      if (!_isCurrentLinkGeneration(generation)) return null;
       final uri = result is Map
           ? (result['deviceLinkUri'] as String? ?? result['uri'] as String?)
           : (result is String ? result : null);
       if (uri == null) return null;
 
       _pendingLinkUri = uri;
+      _pendingLinkGeneration = generation;
 
-      // finishLink is a long-poll: stays open until phone confirms or times out.
-      unawaited(
-        _rpc('finishLink', {'deviceLinkUri': uri, 'deviceName': deviceName}, timeout: _linkTimeout)
-            .then((result) {
-              _pendingLinkUri = null;
-              _wasPaired = true; // Account is now registered — unblock isAccountRegistered()
-              if (result is Map) {
-                _registeredPhone = result['number'] as String? ?? result['account'] as String?;
-              }
-              _log.info('finishLink completed: $result');
-              if (_registeredPhone != null) _notifyRegistered(_registeredPhone!);
-              // Reconnect SSE so signal-cli routes events for the newly linked account.
-              unawaited(_reconnectSse());
-            })
-            .catchError((Object e) {
-              // Connection close is expected when user disconnects or
-              // signal-cli restarts — log at fine, not warning.
-              final msg = e.toString();
-              if (msg.contains('Connection closed') || msg.contains('IOException')) {
-                _log.fine('finishLink cancelled (connection closed)');
-              } else {
-                _log.warning('finishLink failed', e);
-              }
-              _pendingLinkUri = null;
-            }),
-      );
+      unawaited(_finishDeviceLink(uri, deviceName, generation));
 
       return uri;
     } catch (e) {
@@ -338,6 +375,35 @@ class SignalCliManager with SequentialLock {
       return null;
     }
   }
+
+  Future<void> _finishDeviceLink(String uri, String deviceName, int generation) async {
+    try {
+      final result = await _rpc('finishLink', {'deviceLinkUri': uri, 'deviceName': deviceName}, timeout: _linkTimeout);
+      if (!_isCurrentLink(generation, uri)) return;
+      _pendingLinkUri = null;
+      _pendingLinkGeneration = null;
+      if (result is Map) {
+        _registeredPhone = result['number'] as String? ?? result['account'] as String?;
+      }
+      _log.info('finishLink completed: $result');
+      _activateRegistration(_registeredPhone);
+    } catch (e) {
+      if (!_isCurrentLink(generation, uri)) return;
+      final msg = e.toString();
+      if (msg.contains('Connection closed') || msg.contains('IOException')) {
+        _log.fine('finishLink cancelled (connection closed)');
+      } else {
+        _log.warning('finishLink failed', e);
+      }
+      _pendingLinkUri = null;
+      _pendingLinkGeneration = null;
+    }
+  }
+
+  bool _isCurrentLinkGeneration(int generation) => !_stopped && generation == _generation;
+
+  bool _isCurrentLink(int generation, String uri) =>
+      _isCurrentLinkGeneration(generation) && _pendingLinkGeneration == generation && _pendingLinkUri == uri;
 
   /// Sends an SMS verification code to [phone] (defaults to [phoneNumber]).
   ///
@@ -358,7 +424,18 @@ class SignalCliManager with SequentialLock {
 
   /// Verifies [code] received via SMS and completes registration.
   Future<void> verifySmsCode(String code, {String? phone}) async {
-    await _rpc('verify', {'account': phone ?? phoneNumber, 'verificationCode': code});
+    final account = phone ?? phoneNumber;
+    await _rpc('verify', {'account': account, 'verificationCode': code});
+    _activateRegistration(account);
+  }
+
+  void _activateRegistration(String? phone) {
+    _wasPaired = true;
+    if (phone != null && phone.isNotEmpty) {
+      _registeredPhone = phone;
+      _notifyRegistered(phone);
+    }
+    unawaited(_reconnectSse(queueIfActive: true, generation: _generation));
   }
 
   // ---- Health check ----
@@ -394,71 +471,118 @@ class SignalCliManager with SequentialLock {
 
   // ---- SSE event stream ----
 
-  Future<void> _connectSse() async {
-    if (_stopped) return;
+  Future<void> _connectInitialSse(int generation) async {
+    if (!await _connectSse(generation) && _isCurrentSseGeneration(generation)) {
+      await _reconnectSse(generation: generation);
+    }
+  }
+
+  Future<bool> _connectSse(int generation) async {
+    if (!_isCurrentSseGeneration(generation)) return false;
 
     try {
       _sseClient?.close(force: true);
       final client = HttpClient();
       _sseClient = client;
-      final request = await client.getUrl(Uri.parse('$baseUrl/api/v1/events'));
-      final response = await request.close();
+      final response =
+          await (() async {
+            final request = await client.getUrl(Uri.parse('$baseUrl/api/v1/events'));
+            return request.close();
+          }()).timeout(
+            _sseHandshakeTimeout,
+            onTimeout: () {
+              client.close(force: true);
+              throw TimeoutException('Signal SSE handshake timed out', _sseHandshakeTimeout);
+            },
+          );
+      if (!_isCurrentSseGeneration(generation)) {
+        client.close(force: true);
+        return false;
+      }
+      if (response.statusCode >= 400) {
+        client.close(force: true);
+        throw HttpException('SSE endpoint returned HTTP ${response.statusCode}');
+      }
 
       _sseSub = response
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-            (line) {
-              if (!line.startsWith('data:')) return;
-              final json = line.substring(5).trim();
-              if (json.isEmpty) return;
-              try {
-                final parsed = jsonDecode(json);
-                if (parsed is Map<String, dynamic>) {
-                  // Extract envelope from JSON-RPC notification params
-                  final params = parsed['params'] as Map<String, dynamic>?;
-                  final envelope = params?['envelope'] as Map<String, dynamic>?;
-                  if (envelope != null) {
-                    _log.fine('SSE envelope received, dispatching to channel');
-                    _eventController.add({'envelope': envelope});
-                  } else {
-                    // Pass through as-is if no envelope wrapper
-                    _eventController.add(parsed);
-                  }
-                }
-              } catch (e) {
-                _log.fine('Failed to parse SSE event: $e');
-              }
-            },
+            (line) => _handleSseLine(line, _eventController, _log),
             onError: (Object e) {
               _log.warning('SSE stream error', e);
-              if (!_stopped) unawaited(_reconnectSse());
+              if (_isCurrentSseGeneration(generation)) {
+                unawaited(_reconnectSse(queueIfActive: true, generation: generation));
+              }
             },
             onDone: () {
-              if (!_stopped) {
+              if (_isCurrentSseGeneration(generation)) {
                 _log.info('SSE stream closed, reconnecting');
-                unawaited(_reconnectSse());
+                unawaited(_reconnectSse(queueIfActive: true, generation: generation));
               }
             },
           );
+      return true;
     } catch (e) {
       _log.warning('Failed to connect SSE', e);
-      if (!_stopped) unawaited(_reconnectSse());
+      return false;
     }
   }
 
-  Future<void> _reconnectSse() async {
-    if (_reconnecting) return; // Single-flight guard (P1)
-    _reconnecting = true;
-    try {
+  Future<void> _reconnectSse({bool queueIfActive = false, int? generation}) {
+    final reconnectGeneration = generation ?? _generation;
+    final active = _reconnectFuture;
+    if (active != null) {
+      if (queueIfActive && _reconnectGeneration == reconnectGeneration) {
+        _reconnectPending = true;
+      }
+      return active;
+    }
+
+    _reconnectGeneration = reconnectGeneration;
+    late final Future<void> operation;
+    operation = _runReconnectSse(reconnectGeneration).whenComplete(() {
+      if (identical(_reconnectFuture, operation)) {
+        final reconnectAgain = _reconnectPending && _isCurrentSseGeneration(reconnectGeneration);
+        _reconnectPending = false;
+        _reconnectFuture = null;
+        _reconnectGeneration = null;
+        if (reconnectAgain) {
+          unawaited(_reconnectSse(generation: reconnectGeneration));
+        }
+      }
+    });
+    _reconnectFuture = operation;
+    return operation;
+  }
+
+  Future<void> _runReconnectSse(int generation) async {
+    do {
+      _reconnectPending = false;
       await _sseSub?.cancel();
       _sseSub = null;
       _sseClient?.close(force: true);
       _sseClient = null;
-      await _delay(const Duration(seconds: 2));
-      if (!_stopped) await _connectSse();
-    } finally {
-      _reconnecting = false;
+      await Future.any<void>([_delay(const Duration(seconds: 2)), _reconnectCancellation.future]);
+      if (!_isCurrentSseGeneration(generation)) return;
+      if (!await _connectSse(generation)) {
+        _reconnectPending = true;
+      }
+    } while (_reconnectPending && _isCurrentSseGeneration(generation));
+  }
+
+  bool _isCurrentSseGeneration(int generation) => !_stopped && generation == _generation;
+
+  void _cancelReconnect() {
+    if (!_reconnectCancellation.isCompleted) {
+      _reconnectCancellation.complete();
+    }
+  }
+
+  Future<void> _settleReconnect() async {
+    final reconnect = _reconnectFuture;
+    if (reconnect != null) {
+      await reconnect;
     }
   }
 
@@ -520,24 +644,54 @@ class SignalCliManager with SequentialLock {
   /// [timeout] overrides [_apiTimeout] for long-poll calls like `finishLink`.
   Future<dynamic> _rpc(String method, Map<String, dynamic> params, {Duration? timeout}) async {
     final client = HttpClient();
+    final requestTimeout = timeout ?? _apiTimeout;
     try {
-      final request = await client.postUrl(Uri.parse('$baseUrl/api/v1/rpc'));
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({'jsonrpc': '2.0', 'id': (++_rpcId).toString(), 'method': method, 'params': params}));
-      final response = await request.close().timeout(timeout ?? _apiTimeout);
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode >= 400) {
-        throw HttpException('signal-cli RPC $method returned ${response.statusCode}: $body');
-      }
-      if (body.isEmpty) return <String, dynamic>{};
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      if (decoded.containsKey('error')) {
-        final error = decoded['error'];
-        throw HttpException('signal-cli RPC $method error: ${error is Map ? error['message'] : error}');
-      }
-      return decoded['result'];
+      return await (() async {
+        final request = await client.postUrl(Uri.parse('$baseUrl/api/v1/rpc'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'jsonrpc': '2.0', 'id': (++_rpcId).toString(), 'method': method, 'params': params}));
+        final response = await request.close();
+        final body = await response.transform(utf8.decoder).join();
+        if (response.statusCode >= 400) {
+          throw HttpException('signal-cli RPC $method returned ${response.statusCode}: $body');
+        }
+        if (body.isEmpty) return <String, dynamic>{};
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        if (decoded.containsKey('error')) {
+          final error = decoded['error'];
+          throw HttpException('signal-cli RPC $method error: ${error is Map ? error['message'] : error}');
+        }
+        return decoded['result'];
+      }()).timeout(
+        requestTimeout,
+        onTimeout: () {
+          client.close(force: true);
+          throw TimeoutException('signal-cli RPC $method timed out', requestTimeout);
+        },
+      );
     } finally {
       client.close();
     }
+  }
+}
+
+void _handleSseLine(String line, StreamController<Map<String, dynamic>> eventController, Logger log) {
+  if (!line.startsWith('data:')) return;
+  final json = line.substring(5).trim();
+  if (json.isEmpty) return;
+  try {
+    final parsed = jsonDecode(json);
+    if (parsed is Map<String, dynamic>) {
+      final params = parsed['params'] as Map<String, dynamic>?;
+      final envelope = params?['envelope'] as Map<String, dynamic>?;
+      if (envelope != null) {
+        log.fine('SSE envelope received, dispatching to channel');
+        eventController.add({'envelope': envelope});
+      } else {
+        eventController.add(parsed);
+      }
+    }
+  } catch (e) {
+    log.fine('Failed to parse SSE event: $e');
   }
 }

@@ -152,11 +152,7 @@ final class AcpProtocolAdapter {
   }
 
   static ToolUse _toolUse(Map<String, dynamic> update, String updateType) {
-    final id =
-        _stringValue(update['id']) ??
-        _stringValue(update['toolCallId']) ??
-        _stringValue(update['tool_call_id']) ??
-        'unknown';
+    final id = _toolCallId(update);
     final title =
         _stringValue(update['title']) ?? _stringValue(update['name']) ?? _stringValue(update['toolName']) ?? 'acp_tool';
     final status = _stringValue(update['status']);
@@ -179,11 +175,7 @@ final class AcpProtocolAdapter {
   }
 
   static ToolResult _toolResult(Map<String, dynamic> update, String updateType) {
-    final id =
-        _stringValue(update['id']) ??
-        _stringValue(update['toolCallId']) ??
-        _stringValue(update['tool_call_id']) ??
-        'unknown';
+    final id = _toolCallId(update);
     final output =
         _stringValue(update['output']) ?? _stringValue(update['content']) ?? _stringValue(update['message']) ?? '';
     final status = _stringValue(update['status'])?.toLowerCase();
@@ -193,6 +185,12 @@ final class AcpProtocolAdapter {
       isError: update['isError'] == true || status == 'error' || status == 'failed',
     );
   }
+
+  static String _toolCallId(Map<String, dynamic> update) =>
+      _stringValue(update['id']) ??
+      _stringValue(update['toolCallId']) ??
+      _stringValue(update['tool_call_id']) ??
+      'unknown';
 
   static List<ProtocolMessage> _toolUpdate(Map<String, dynamic> update, String updateType) {
     final status = _stringValue(update['status'])?.toLowerCase();

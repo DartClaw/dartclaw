@@ -100,7 +100,7 @@ const sourceMessageIdMetadataKey = 'sourceMessageId';
 
 /// Abstract base class for messaging channel integrations.
 ///
-/// Concrete implementations (WhatsApp, Telegram, etc.) extend this class.
+/// Concrete implementations (WhatsApp, Signal, Google Chat) extend this class.
 abstract class Channel {
   /// Stable runtime name for this channel implementation.
   String get name;
@@ -113,6 +113,16 @@ abstract class Channel {
 
   /// Sends [response] to the given channel-specific recipient identifier.
   Future<void> sendMessage(String recipientJid, ChannelResponse response);
+
+  /// Attempts to show a typing indicator for [recipientJid].
+  ///
+  /// The default implementation is a no-op for integrations without typing support.
+  Future<void> startTyping(String recipientJid) async {}
+
+  /// Attempts to clear the typing indicator for [recipientJid].
+  ///
+  /// The default implementation is a no-op for integrations without typing support.
+  Future<void> stopTyping(String recipientJid) async {}
 
   /// Returns `true` when this channel is responsible for [jid].
   bool ownsJid(String jid);

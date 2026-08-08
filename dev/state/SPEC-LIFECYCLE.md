@@ -13,8 +13,9 @@ When DartClaw is implementing a planned milestone, an exported implementation bu
 
 ## Before removal: integrate into the canonical PRD
 
-The transient bundle is a working copy; its canonical home is the private repo. Removing it must not lose information. **Before the bundle is removed (at or before the scope-frozen release commit):**
+The transient bundle is a working copy. Supporting research and wireframes have canonical homes in the private repo; the milestone's `plan.json` and FIS files do **not** — at release prep they are deleted from the private repo too, leaving the private milestone PRD (`<private>/docs/specs/<version>/prd.md`) as the **sole surviving record** of the version. Removal must not lose information. **Before the bundle is removed (at or before the scope-frozen release commit):**
 
+- **The milestone PRD is consolidated into the complete record of the cycle**: each numbered story's outcome (what shipped, deviations from plan, commit refs where useful) and any `plan.json` or FIS `## Learnings` content worth keeping are folded into the private canonical PRD before the plan and FIS files are deleted anywhere.
 - **Standalone FIS + interlude PRDs** under `dev/bundle/docs/specs/` (the loose `*.md` and sibling bundles such as `workflow-andthen-decoupling/`) are integrated into the milestone PRD's *Adjacent & interlude work* section — one row/subsection per FIS capturing intent + what shipped + commit — so the PRD is the complete record of the cycle. Review-only artifacts (e.g. `*-mixed-review-*.md`) are process output, not specs, and need no integration.
 - The same integration is reflected in the **private canonical** PRD (`<private>/docs/specs/<version>/prd.md`). The public bundle copy is deleted at merge, so the public bundle PRD alone is **not** durable — the private canonical is the surviving record.
 - **Unfinished or future-milestone specs** (a PRD/FIS that did not ship in this version) are *moved, not deleted*: relocate them to the private repo under their target version (e.g. `docs/specs/0.next/`), so pending work is not lost with the bundle.

@@ -111,26 +111,24 @@ else
   tail -40 /tmp/release_check_lock.log | sed 's/^/        /'
 fi
 
-section "4. Format (dart format --line-length=120 --set-exit-if-changed .)"
+section "4. Embedded assets"
+if {
+  dart run dev/tools/embed_assets.dart
+  test -s packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
+  test -s packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
+} > /tmp/release_check_assets.log 2>&1; then
+  pass "embedded assets generated"
+else
+  fail "embedded asset generation failed — see /tmp/release_check_assets.log"
+  tail -40 /tmp/release_check_assets.log | sed 's/^/        /'
+fi
+
+section "5. Format (dart format --line-length=120 --set-exit-if-changed .)"
 if dart format --line-length=120 --output=none --set-exit-if-changed . > /tmp/release_check_fmt.log 2>&1; then
   pass "format clean"
 else
   fail "format changes pending — run: dart format --line-length=120 ."
   tail -20 /tmp/release_check_fmt.log | sed 's/^/        /'
-fi
-
-section "5. Embedded asset drift"
-if {
-  git ls-files --error-unmatch -- \
-    packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
-    packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
-  dart run dev/tools/embed_assets.dart
-  git diff --exit-code -- '**/generated/embedded_assets.g.dart'
-} > /tmp/release_check_assets.log 2>&1; then
-  pass "embedded assets current"
-else
-  fail "embedded assets drifted — see /tmp/release_check_assets.log"
-  tail -40 /tmp/release_check_assets.log | sed 's/^/        /'
 fi
 
 section "6. Static analysis (dart analyze, fatal on warnings + infos)"

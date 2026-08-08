@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.23.0] - 2026-08-08
+
+### Added
+
+- **Refined Phosphor Aurora Web UI** – the design canon now provides clearer depth and typography, reusable form/tab/dialog primitives, responsive containment, and locally served browser dependencies across the complete UI.
+- **Persistent session navigation** – New Chat reuses only a truly empty draft, while a stable System section keeps runtime and administration destinations reachable without displacing conversations.
+- **Native typing indicators for Signal and WhatsApp** – queued agent turns now show typing state in DMs and groups and attempt to clear it before delivery. Signal refreshes the indicator before its 15-second expiry, and bounded typing failures never prevent the turn or response.
+- **Knowledge-layer documentation from field feedback** – the workspace guide documents each store's single write path (`memory_save`, inbox → wiki/KG, daily turn logs) and how to recognize an empty knowledge layer, and the personal-assistant recipe adds a memory-before-web retrieval-precedence rule to its `AGENTS.md`.
+
+### Changed
+
+- **Session and task state stays authoritative during concurrent updates** – draft creation is serialized with rename/send mutations, turn-status polling rejects stale responses, and the Running sidebar lists only executing tasks.
+- **Embedded asset libraries are generated, not committed** – `packages/*/lib/src/generated/embedded_assets.g.dart` is gitignored and emitted by `dart run dev/tools/embed_assets.dart`, which CI, `dev/tools/build.sh`, and `dev/tools/release_check.sh` run automatically. Anyone building from a checkout must run it once after cloning; `lib/` imports these files, so the analyzer fails until they exist. See [ADR-047](dev/adrs/047-embedded-binary-assets.md).
+- **GOWA installation is version-qualified** – the installer defaults to v8.3.2, matching DartClaw's tested API contract; operators can still request another version explicitly.
+
+### Removed
+
+- **`buildGuardsFromConfig(taskToolFilterGuard:)` (breaking, SDK)** – the optional parameter is gone; the function returns only the base guard list. A tool filter placed in that list was silently dropped by the next `guards.*` reload, since a reload replaces the base list wholesale. SDK hosts compose per-runner filters with `GuardChain.layered(base: …, guards: [filter])`, which survives reloads — see the security architecture reference.
+
+### Fixed
+
+- **Scheduled-job CLI output matches canonical configuration** – `dartclaw jobs list` now renders `id`, structured cron/interval/once schedules, and the default prompt type while preserving legacy aliases.
+- **Workspace git sync no longer requires a heartbeat checklist** – each enabled heartbeat timer cycle attempts sync even when `HEARTBEAT.md` is missing or empty, and cloned repositories receive missing default `.gitignore` entries without losing custom content.
+- **The health audit dashboard reads current guard logs again** – date-partitioned audit files and legacy `audit.ndjson` files are combined and ordered newest-first before filtering and pagination.
+- **Per-turn and per-task tool policies are enforced again** – tool allowlists and read-only turns are applied by the guard chain each harness actually consults. The interactive harness previously enforced none of them, and a `guards.*` reload never reached an already-running task runner. Reloads now propagate to every runner while each runner keeps its own tool filter.
+- **Guard audit entries queued at shutdown are flushed** – security wiring drains the NDJSON audit log when it disposes, so verdicts already queued are written rather than dropped mid-append.
+- **Agent response formatting is consistent across messaging channels** – Signal now sends native style ranges instead of literal Markdown markers, WhatsApp converts standard Markdown to its chat syntax, Google Chat normalizes Markdown and advisor-card text, and scheduled announcements and plain-text advisor replies use the same per-channel formatter as interactive turns.
+- **Signal group replies use the group JSON-RPC contract** – base64 group IDs, including IDs beginning with `+`, now route through `groupId` instead of being mistaken for phone-number recipients.
+- **Signal pairing becomes receive-ready without a service restart** – signal-cli now receives on SSE connection, registration refreshes the receive stream, and startup distinguishes a registered account from a daemon that is merely reachable.
+- **macOS services preserve executable discovery** – LaunchAgents snapshot the installer shell's absolute PATH entries and refresh loaded definitions, so provider and channel binaries verified by `init` remain resolvable under launchd.
+- **Existing behavior files are protected during onboarding** – init selects draft-review mode whenever USER.md or SOUL.md already exists, upgrades exact legacy generated instructions, and keeps fresh SOUL/ONBOARDING policy consistent.
+- **Built-in workflow startup is warning-free** – both `spec_path` producers now publish the same context description.
 
 ## [0.22.0] - 2026-07-24
 
@@ -413,7 +444,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening – connected-
 - **AndThen-derived skills now provisioned at runtime under DartClaw's `dartclaw-` namespace**: `dartclaw serve` clones AndThen from `https://github.com/IT-HUSET/andthen` into `<data_dir>/andthen-src/` on first startup and runs `install-skills.sh --prefix dartclaw- --display-brand DartClaw --claude-user` to install workflow skills and agents with the `dartclaw-` prefix into native user-tier roots. DartClaw-native skills (`dartclaw-detect-spec-input`, `dartclaw-discover-plan-state`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) are copied alongside them. Configure via `andthen.git_url`, `andthen.ref`, and `andthen.network` (`auto` / `required` / `disabled`). Replaces the previous in-tree skill porting workflow.
 - **Built-in `plan-and-implement` workflow now passes `--auto` to the `dartclaw-refactor` step**: the upstream `dartclaw-refactor` skill (provisioned from AndThen) now supports the `--auto` automation flag. The bundled `plan-and-implement.yaml` refactor step prepends `--auto ` to its prompt accordingly, removing a known unattended-run pause risk. Operators on the default `andthen.ref: latest` (fetch + fast-forward `main` on every `dartclaw serve` startup) auto-pick up the new flag on the next restart; operators pinned to a specific tag or SHA must bump `andthen.ref` to a version that includes the upstream `--auto` support. See `docs/guide/andthen-skills.md` for the `andthen.ref` semantics.
 - **Built-in `dartclaw-review` steps now pin report output to an engine-managed runtime artifacts directory**: the bundled `plan-and-implement`, `spec-and-implement`, and `code-review` workflows pass AndThen's `--output-dir {{workflow.runtime_artifacts_dir}}/reviews` flag to every `dartclaw-review` invocation. The engine resolves that variable to `<data_dir>/workflows/runs/<runId>/runtime-artifacts/`, creates the directory before launching Claude/Codex, and keeps transient review reports outside project repos. This supersedes the short-lived S79 `.agent_temp/reviews` design; DartClaw no longer parses prompts for review output dirs, mutates `info/exclude`, or classifies `.agent_temp` outputs as advisory runtime artifacts. Foreach merge-resolve attempt JSON also moved from `<data_dir>/runs/<runId>/artifacts/` to `<data_dir>/workflows/runs/<runId>/runtime-artifacts/merge-resolve/`; pre-S80 attempt artifacts remain readable through their stored absolute paths, while new runs use the unified namespace. Operators on the default `andthen.ref: latest` auto-pick up the upstream `--output-dir` support on the next `dartclaw serve` restart; operators pinned to a specific tag or SHA must bump `andthen.ref` to a version that includes upstream `dartclaw-review --output-dir` support, otherwise the flag is forwarded but the skill writes to its heuristic location.
-- **Workflow integration test fixture**: `E2EFixture` executor/reviewer defaults dropped to `gpt-5.3-codex-spark`; new `DARTCLAW_TEST_PROVIDER` and `DARTCLAW_TEST_*_MODEL` env vars override fixture defaults at construction time
+- **Workflow integration test fixture**: `E2EFixture` defaults use `gpt-5.6-sol` at medium effort for planning and `gpt-5.6-luna` for execution/review; `DARTCLAW_TEST_PROVIDER` and `DARTCLAW_TEST_*_MODEL` env vars override fixture defaults at construction time, and the live provider preflight probes the distinct pinned Codex role configurations
 - **Local-path branch inference**: `branch:` is now optional for `localPath:` projects. When omitted, workflow start/bootstrap resolves the effective branch from the checkout's current `HEAD`, while an explicit `branch:` still acts as a drift-detection guard
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
 - **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided

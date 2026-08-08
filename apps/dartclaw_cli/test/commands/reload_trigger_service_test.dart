@@ -21,6 +21,10 @@ class _TrackingConfigNotifier extends ConfigNotifier {
   }
 }
 
+/// Debounce window for the real-filesystem coalescing test — wide enough that
+/// its five writes cannot straddle it under load.
+const _debounceMs = 1000;
+
 DartclawConfig _defaultConfig() => DartclawConfig.load();
 
 void main() {
@@ -382,8 +386,7 @@ void main() {
         tempFile.writeAsStringSync('# updated\n');
         tempFile.renameSync(configFile.path);
 
-        // Wait beyond debounce period.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await _waitForCount(() => loaderCallCount, 1);
 
         expect(loaderCallCount, greaterThanOrEqualTo(1));
         expect(notifier.current.server.maxParallelTurns, 7);
@@ -409,11 +412,14 @@ void main() {
         svc.dispose();
       });
 
-      test('rapid successive saves coalesce into single reload', () async {
+      test('rapid successive saves trigger one debounced live reload', () async {
         final svc = ReloadTriggerService(
           configPath: configFile.path,
           notifier: notifier,
-          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 200),
+          // 1s window: the 5 writes below span ~100ms, so they stay inside it even
+          // when load stretches the gaps. A window near the write span would let a
+          // straddled gap fire the timer twice and legitimately produce 2 reloads.
+          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: _debounceMs),
           configLoader: loader,
         );
         svc.start();
@@ -424,10 +430,24 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
 
-        // Wait for debounce to settle.
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _waitForCount(() => loaderCallCount, 1);
+        // 2x the debounce: one full window to catch a second cycle, plus an equal
+        // allowance for late watch delivery. Anything <= the debounce would let a
+        // second reload land unobserved and the assertion would prove nothing.
+        final settled = await _waitForStableCount(
+          () => loaderCallCount,
+          quiet: const Duration(milliseconds: _debounceMs * 2),
+        );
 
-        expect(loaderCallCount, 1);
+        // Coalescing is the subject: 5 writes inside one debounce window must
+        // produce exactly one reload on the real ReloadTriggerService. Waiting
+        // for quiescence rather than a fixed settle removes the false-green
+        // window a fixed wait leaves — it will now see a second reload instead
+        // of finishing before it arrives. reloadCalls also proves the loader
+        // reached the notifier — a loader count alone would not, since an
+        // invalid reload increments it and stops short.
+        expect(settled, 1);
+        expect(notifier.reloadCalls, contains(same(newConfig)));
         svc.dispose();
       });
 
@@ -446,9 +466,12 @@ void main() {
         tempFile.writeAsStringSync('# renamed update\n');
         tempFile.renameSync(configFile.path);
 
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await _waitForCount(() => loaderCallCount, 1);
 
-        expect(loaderCallCount, 1);
+        // Asserts the reached effect, not the poll's own exit condition: a
+        // rename can surface as more than one watch event, so the reload count
+        // is not deterministic here.
+        expect(notifier.reloadCalls, contains(same(newConfig)));
         svc.dispose();
       });
 
@@ -546,6 +569,47 @@ void main() {
       });
     });
   });
+}
+
+/// Waits until [count] stops changing, then returns it.
+///
+/// Proving "no further reload arrives" needs quiescence, not a fixed delay
+/// sized against the debounce — that races watch delivery under load. Returns
+/// early once the value holds steady for [quiet], or at the cap.
+///
+/// [quiet] must exceed the debounce window under test plus an allowance for
+/// filesystem-watch delivery lag, or a second debounce cycle lands after the
+/// window closes and the caller's exact-count assertion proves nothing. The
+/// overall cap scales with [quiet] rather than being fixed, so a caller's window
+/// is never silently truncated.
+Future<int> _waitForStableCount(int Function() count, {required Duration quiet}) async {
+  final deadline = DateTime.now().add(quiet * 2 + const Duration(seconds: 1));
+  var last = count();
+  var stableSince = DateTime.now();
+  while (DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final now = count();
+    if (now != last) {
+      last = now;
+      stableSince = DateTime.now();
+    } else if (DateTime.now().difference(stableSince) >= quiet) {
+      return now;
+    }
+  }
+  return count();
+}
+
+/// Waits until [count] reaches at least [min].
+///
+/// Filesystem-watch delivery and the debounce timer are both at the mercy of
+/// machine load, so a fixed wait sized just past the debounce races them. The
+/// cap is far longer than any debounce under test, so a genuine no-reload still
+/// fails the assertion that follows.
+Future<void> _waitForCount(int Function() count, int min) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (count() < min && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
 
 /// Test-only shim that isolates the debounce Timer pattern from real I/O,

@@ -48,6 +48,18 @@ void main() {
     if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
   });
 
+  TaskExecutor buildExecutor(TurnManager turnManager, {TaskEventRecorder? eventRecorder}) => TaskExecutor(
+    services: TaskExecutorServices(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      artifactCollector: collector,
+      eventRecorder: eventRecorder,
+    ),
+    runners: TaskExecutorRunners(turns: turnManager),
+    pollInterval: const Duration(milliseconds: 10),
+  );
+
   test('task with provider override acquires the matching provider worker', () async {
     final primaryWorker = _ProviderWorker(responseText: 'primary complete');
     final claudeTaskWorker = _ProviderWorker(responseText: 'claude complete');
@@ -74,16 +86,7 @@ void main() {
     );
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
     final turns = TurnManager.fromPool(pool: pool);
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
     await tasks.create(
@@ -123,16 +126,7 @@ void main() {
     );
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner]);
     final turns = TurnManager.fromPool(pool: pool);
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
     await tasks.create(
@@ -182,17 +176,7 @@ void main() {
     );
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
     final turns = TurnManager.fromPool(pool: pool);
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-        eventRecorder: eventRecorder,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor(turns, eventRecorder: eventRecorder);
     addTearDown(executor.stop);
 
     await tasks.create(
@@ -236,16 +220,7 @@ void main() {
       );
       final pool = HarnessPool(runners: [primaryRunner, taskCodexWorkspaceRunner]);
       final turns = TurnManager.fromPool(pool: pool);
-      executor = TaskExecutor(
-        services: TaskExecutorServices(
-          tasks: tasks,
-          sessions: sessions,
-          messages: messages,
-          artifactCollector: collector,
-        ),
-        runners: TaskExecutorRunners(turns: turns),
-        pollInterval: const Duration(milliseconds: 10),
-      );
+      executor = buildExecutor(turns);
       addTearDown(executor.stop);
 
       await tasks.create(
@@ -286,16 +261,7 @@ void main() {
     );
     final pool = HarnessPool(runners: [primaryRunner, taskCodexRestrictedRunner]);
     final turns = TurnManager.fromPool(pool: pool);
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
     await tasks.create(
@@ -333,16 +299,7 @@ void main() {
     );
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner]);
     final turns = TurnManager.fromPool(pool: pool);
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
     await tasks.create(
@@ -388,16 +345,7 @@ void main() {
     );
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
     final turns = TurnManager.fromPool(pool: pool);
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        artifactCollector: collector,
-      ),
-      runners: TaskExecutorRunners(turns: turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
     await tasks.create(

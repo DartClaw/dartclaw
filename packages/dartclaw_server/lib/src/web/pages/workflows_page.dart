@@ -9,9 +9,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTaskType,
         buildLoopInfo,
         formatContextForDisplay,
-        stepStatusFromTask,
-        workflowStatusBadgeClass,
-        workflowStatusLabel;
+        stepStatusFromTask;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -19,6 +17,7 @@ import '../../templates/chat.dart';
 import '../../templates/helpers.dart';
 import '../../templates/workflow_detail.dart';
 import '../../templates/workflow_list.dart';
+import '../../workflow_approval_metadata.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
 
@@ -33,12 +32,13 @@ class WorkflowsPage extends DashboardPage {
   static String _stepStatusForRunDetail(WorkflowRun run, int index, WorkflowStep step, Task? task) {
     if (step.taskType == WorkflowTaskType.approval) {
       final approvalStatus = run.contextJson['${step.id}.approval.status'] as String?;
-      return switch (approvalStatus) {
-        'pending' => 'awaiting_approval',
-        'approved' => 'completed',
+      return switch (normalizeWorkflowState(approvalStatus)) {
+        'pending' || 'waiting' || 'awaiting_approval' => 'awaiting_approval',
+        'approved' || 'completed' => 'completed',
         'rejected' => 'rejected',
-        'timed_out' => 'timed_out',
-        _ => 'pending',
+        'expired' || 'timed_out' => 'timed_out',
+        '' => 'pending',
+        _ => approvalStatus!,
       };
     }
     return stepStatusFromTask(run, index, task, stepId: step.id);
@@ -107,6 +107,7 @@ class WorkflowsPage extends DashboardPage {
       try {
         definition = WorkflowDefinition.fromJson(run.definitionJson);
       } catch (_) {} // Malformed stored definition — render with null definition (no step progress).
+      final hasStepCount = definition != null;
       final totalSteps = definition?.steps.length ?? 0;
       final tasksByStepIndex = <int, Task>{
         for (final task in allTasks.where((t) => t.workflowRunId == run.id))
@@ -122,18 +123,26 @@ class WorkflowsPage extends DashboardPage {
                 })
                 .length
                 .clamp(0, totalSteps);
-      final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
+      final presentation = workflowRunPresentation(run.status);
+      final computedProgress = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
+      final progressPercent = presentation.progressOverride ?? computedProgress;
 
       runSummaries.add({
         'id': run.id,
         'definitionName': run.definitionName,
         'status': run.status.name,
-        'statusLabel': workflowStatusLabel(run.status),
-        'statusBadgeClass': workflowStatusBadgeClass(run.status),
+        'statusLabel': presentation.label,
+        'statusBadgeClass': presentation.badgeClass,
+        'dotClass': presentation.dotClass,
+        'attention': presentation.attention,
+        'meterFillClass': presentation.meterFillClass,
+        'percentageClass': presentation.percentageClass,
+        'hasStepCount': hasStepCount,
         'completedSteps': completedSteps,
         'totalSteps': totalSteps,
         'progressPercent': progressPercent,
         'startedAtDisplay': _formatRelative(run.startedAt),
+        'startedAtIso': run.startedAt.toIso8601String(),
         'totalTokens': formatNumber(run.totalTokens),
         'href': '/workflows/${run.id}',
       });
@@ -190,7 +199,7 @@ class WorkflowsPage extends DashboardPage {
         for (final project in projects) {'value': project.id, 'label': project.name},
       ],
       filters: filters,
-      bannerHtml: bannerHtml,
+      restartBannerHtml: bannerHtml,
       appName: context.appDisplay.name,
     );
 
@@ -222,12 +231,11 @@ class WorkflowsPage extends DashboardPage {
     }
 
     // Parse definition from snapshot.
-    WorkflowDefinition definition;
+    WorkflowDefinition? definition;
     try {
       definition = WorkflowDefinition.fromJson(run.definitionJson);
     } catch (e) {
       _log.warning('Failed to parse definitionJson for run $runId: $e');
-      definition = WorkflowDefinition(name: run.definitionName, description: '', steps: const [], variables: const {});
     }
 
     // Build step-index -> task map.
@@ -240,8 +248,8 @@ class WorkflowsPage extends DashboardPage {
     // Build step data list (approval-aware status).
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     final steps = <Map<String, dynamic>>[];
-    for (var i = 0; i < definition.steps.length; i++) {
-      final step = definition.steps[i];
+    for (var i = 0; i < (definition?.steps.length ?? 0); i++) {
+      final step = definition!.steps[i];
       final task = tasksByStepIndex[i];
       final isApproval = step.taskType == WorkflowTaskType.approval;
       final approvalStatus = isApproval ? run.contextJson['${step.id}.approval.status'] as String? : null;
@@ -256,25 +264,13 @@ class WorkflowsPage extends DashboardPage {
         'taskId': task?.id,
       };
       if (isApproval && approvalStatus != null) {
-        stepEntry['approval'] = <String, dynamic>{
-          'status': approvalStatus,
-          'message': run.contextJson['${step.id}.approval.message'],
-          'requestedAt': run.contextJson['${step.id}.approval.requested_at'],
-          if (run.contextJson['${step.id}.approval.resolved_at'] != null)
-            'resolvedAt': run.contextJson['${step.id}.approval.resolved_at'],
-          if (run.contextJson['${step.id}.approval.feedback'] != null)
-            'feedback': run.contextJson['${step.id}.approval.feedback'],
-          if (run.contextJson['${step.id}.approval.timeout_deadline'] != null)
-            'timeoutDeadline': run.contextJson['${step.id}.approval.timeout_deadline'],
-          if (run.contextJson['${step.id}.approval.cancel_reason'] != null)
-            'cancelReason': run.contextJson['${step.id}.approval.cancel_reason'],
-        };
+        stepEntry['approval'] = workflowApprovalMetadata(run.contextJson, step.id, approvalStatus);
       }
       steps.add(stepEntry);
     }
 
     // Build loop info.
-    final loopInfo = buildLoopInfo(definition, run.contextJson);
+    final loopInfo = definition == null ? <Map<String, dynamic>>[] : buildLoopInfo(definition, run.contextJson);
 
     // Format context for display.
     final contextEntries = formatContextForDisplay(run.contextJson);
@@ -287,6 +283,8 @@ class WorkflowsPage extends DashboardPage {
         'id': run.id,
         'definitionName': run.definitionName,
         'status': run.status.name,
+        'statusValue': run.status,
+        'hasStepCount': definition != null,
         'startedAt': run.startedAt.toIso8601String(),
         'updatedAt': run.updatedAt.toIso8601String(),
         'completedAt': run.completedAt?.toIso8601String(),
@@ -298,7 +296,7 @@ class WorkflowsPage extends DashboardPage {
       steps: steps,
       contextEntries: contextEntries,
       loopInfo: loopInfo,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
     );
 

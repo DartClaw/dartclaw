@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.21
+**Current through**: 0.23
 
 ---
 
@@ -13,7 +13,7 @@ DartClaw supports four messaging channels as entry points for human-to-agent int
 | Channel | Transport | Sidecar / Integration | Package |
 |---------|-----------|----------------------|---------|
 | **WhatsApp** | GOWA webhook | Go binary (`gowa`) | `dartclaw_whatsapp` |
-| **Signal** | signal-cli SSE | Java binary (`signal-cli`) | `dartclaw_signal` |
+| **Signal** | signal-cli SSE | External binary (`signal-cli`) | `dartclaw_signal` |
 | **Google Chat** | REST API + Pub/Sub | Direct HTTP (no sidecar) | `dartclaw_google_chat` |
 | **Web UI** | Direct HTTP / SSE | Built into `dartclaw_server` | `dartclaw_server` |
 
@@ -21,7 +21,7 @@ Three principles govern channel design:
 
 1. **Normalize early** -- Every channel adapter converts platform-specific payloads into a single `ChannelMessage` model as close to the ingress point as possible. Downstream pipeline stages never see WhatsApp JIDs, Google Chat space names, or Signal envelopes directly.
 
-2. **Outpost pattern** -- WhatsApp and Signal use external binaries (GOWA in Go, signal-cli in Java) managed as subprocesses. No shared runtime, no dependency contamination. The Dart host communicates with these sidecars via their native REST/RPC APIs.
+2. **Outpost pattern** -- WhatsApp and Signal use external binaries (GOWA and signal-cli) managed as subprocesses. No shared runtime, no dependency contamination. The Dart host communicates with these sidecars via their native REST/RPC APIs.
 
 3. **Core abstractions, platform packages** -- The abstract `Channel` base class, `ChannelManager`, `MessageQueue`, thread binding, and the `ChannelTaskBridge` live in `dartclaw_core`. Per-platform adapters (`WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`) live in dedicated packages that depend on core. The Web channel is served directly by `dartclaw_server`.
 
@@ -88,6 +88,8 @@ abstract class Channel {
   ChannelType get type;
   Future<void> connect();
   Future<void> sendMessage(String recipientJid, ChannelResponse response);
+  Future<void> startTyping(String recipientJid); // default no-op
+  Future<void> stopTyping(String recipientJid);  // default no-op
   bool ownsJid(String jid);
   Future<void> disconnect();
   List<ChannelResponse> formatResponse(String text);
@@ -96,7 +98,7 @@ abstract class Channel {
 
 `ownsJid()` is the JID-routing predicate -- each channel implementation recognizes its own identifier format:
 - **WhatsApp**: ends with `@s.whatsapp.net` or `@g.us`
-- **Signal**: starts with `+` (E.164) or matches UUID v4 pattern
+- **Signal**: strict E.164 or case-insensitive UUIDv4 identifiers are direct recipients; every other outbound identifier is a group ID
 - **Google Chat**: starts with `spaces/`
 
 ### 2.5 ChannelManager
@@ -296,6 +298,8 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
 
 ### 5.1 Response Flow
 
+`MessageQueue` starts channel typing immediately before dispatching an accepted queued turn and attempts to clear it in guaranteed, bounded cleanup before final delivery, including failures and retries. Transport failures are logged but never prevent the turn or response. Unsupported channels inherit no-op hooks. Google Chat keeps its existing placeholder/reaction flow at ingress because the API has no native typing state.
+
 ```
   Agent turn completes
          |
@@ -307,15 +311,15 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
          |
          v
   Channel.formatResponse(text) -- channel-specific formatting
-    - WhatsApp: prefix with "*Claude* -- _DartClaw_", extract MEDIA: directives
-    - Signal: chunk text (max chunk size from config)
-    - Google Chat: markdown-to-Google-Chat conversion, chunk at 4000 chars
-    - Web: no special formatting (direct HTTP response)
+    - WhatsApp: shared Markdown-to-native conversion with WhatsApp links, attribution prefix, MEDIA: directives
+    - Signal: Markdown-to-text + native UTF-16 style ranges, style-aware chunking
+    - Google Chat: shared Markdown-to-native conversion with Chat links, table normalization, chunk at 4000 chars
+    - Web: Markdown rendered client-side with Marked and sanitized by DOMPurify
          |
          v
   Channel.sendMessage(recipientJid, ChannelResponse)
-    - WhatsApp: GOWA REST API (sendText, sendMedia)
-    - Signal: signal-cli JSON-RPC (send)
+    - WhatsApp: GOWA REST API (sendText, sendMedia, chat presence)
+    - Signal: signal-cli JSON-RPC (send, sendTyping)
     - Google Chat: REST API (sendMessage, sendCard, editMessage)
     - Web: SSE event stream
 ```
@@ -347,11 +351,13 @@ List<String> chunkText(String text, {int maxSize = 4000})
 
 ### 5.4 Channel-Specific Outbound Behavior
 
-**Google Chat** -- `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators via placeholder messages or emoji reactions. Native quote-reply support in Spaces.
+**Google Chat** -- Core's standard-Markdown converter supplies Chat markup through a Google-specific link wrapper. `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators use placeholder messages or emoji reactions. Native quote-reply support is available in Spaces.
 
-**WhatsApp** -- `ResponseFormatter` prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API.
+**WhatsApp** -- `ResponseFormatter` uses core's standard-Markdown converter with WhatsApp link rendering, prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
 
-**Signal** -- Plain text chunked to configured max size. Sent via signal-cli JSON-RPC `send` method.
+**Signal** -- Standard Markdown is parsed into readable text plus signal-cli `textStyle` ranges (`BOLD`, `ITALIC`, `STRIKETHROUGH`, `MONOSPACE`). Style offsets use UTF-16 code units and are remapped when text is chunked. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
+
+Scheduled announcements and plain-text advisor replies also pass through `Channel.formatResponse`, so interactive and proactive model output use the same platform formatting and chunking rules. Google advisor replies retain their structured Cards v2 path; their card fields use readable plain text and their fallback uses Google Chat markup.
 
 
 ---
@@ -563,6 +569,7 @@ class GowaManager {
   Future<void> stop();          // Platform-capability termination + bounded reap
   Future<void> sendText(String jid, String text);
   Future<void> sendMedia(String jid, String filePath, {String? caption});
+  Future<void> sendChatPresence(String jid, {required bool isTyping});
   Future<GowaStatus> getStatus();
   Future<GowaLoginQr> getLoginQr();
   Future<Map<String, dynamic>> requestPairingCode(String phone);
@@ -608,16 +615,17 @@ Webhook payload parsing (GOWA v8 format):
 
 ### 9.1 signal-cli Sidecar
 
-Signal uses signal-cli, a Java application running in HTTP daemon mode:
+Signal uses signal-cli running in HTTP daemon mode:
 
 ```
 // packages/dartclaw_signal/lib/src/signal_cli_manager.dart
 class SignalCliManager {
   Future<void> start();    // Spawn + health check + SSE connect
   Future<void> stop();
-  Future<void> sendMessage(String recipient, String text);
+  Future<void> sendMessage(String recipient, String text, {required bool isGroup});
+  Future<void> sendTyping(String recipient, {required bool isGroup, required bool isTyping});
   Future<String?> getLinkDeviceUri({String deviceName});  // QR linking
-  Future<bool> isAccountRegistered();
+  Future<SignalRegistrationState> registrationState();
   Stream<Map<String, dynamic>> get events;  // SSE event stream
 }
 ```
@@ -626,6 +634,7 @@ Key behaviors:
 - **SSE event stream** -- Connects to `/api/v1/events` for real-time inbound message notification
 - **JSON-RPC** -- All commands sent via JSON-RPC 2.0 to `/api/v1/rpc`
 - **Device linking** -- `getLinkDeviceUri()` starts a link session, caches the URI, and long-polls `finishLink` (5-minute timeout) until the user confirms on their phone
+- **Post-start registration** -- The daemon uses `--receive-mode on-connection`; successful registration reconnects SSE so accounts added after daemon startup immediately begin receiving
 - **Crash recovery** -- Same exponential backoff pattern as GOWA (max 5 attempts, 30s cap)
 - **SSE reconnection** -- Single-flight guard prevents concurrent reconnect attempts
 
@@ -786,7 +795,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 
 **Retry and dead-letter** -- Failed turns retry with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`). After `maxAttempts` (default 3), the message is dead-lettered and the sender receives an error notification.
 
-**Channel feedback** -- `ChannelFeedbackStrategy` interface enables per-channel progress feedback during turn execution. Google Chat uses this for typing indicator management. `NoFeedbackStrategy` is the default no-op.
+**Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping`; the queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
 
 
 ---
@@ -801,7 +810,8 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
        v
   dartclaw_core
   (Channel, ChannelMessage, ChannelResponse, ChannelManager, MessageQueue,
-   MessageDeduplicator, MentionGating, DmAccessController, ThreadBinding,
+   MessageDeduplicator, MentionGating, DmAccessController, standard Markdown
+   conversion, ThreadBinding,
    ThreadBindingStore, ThreadBindingRouter, ThreadBindingLifecycleManager,
    ChannelTaskBridge, TaskTriggerParser, TaskTriggerEvaluator,
    ReviewCommandParser, ReviewCommandDispatcher, TaskCreator,
@@ -821,7 +831,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
        |     (GoogleChatChannel, GoogleChatConfig, GoogleChatRestClient,
        |      ChatCardBuilder, CloudEventAdapter, PubSubClient,
        |      WorkspaceEventsManager, SlashCommandParser,
-       |      PubSubHealthReporter, MarkdownConverter)
+       |      PubSubHealthReporter, Markdown link/plain-text wrappers)
        |     deps: dartclaw_core, dartclaw_config
        |
        v

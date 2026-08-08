@@ -2,138 +2,93 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
-## TD-114 – Mixed finalizer + `outputMode: prompt` outputs on one agent step drop the opt-out output's main-prompt contract
+## 0.23 release-close decision debt
 
-**Status**: Closed 2026-07-05 — resolved by `dev/bundle/docs/specs/0.20/per-key-main-prompt-output-contract-filtering.md` (approach (a): per-key main-prompt output-contract filtering in `PromptAugmenter`; `spec_source` / `outputMode: prompt` opt-outs stay instructed, host-ownership boundary intact).
+| Ledger | Deferred cleanup | Reason |
+|---|---|---|
+| D02 | Resolve seven remaining app-owned CSS shadows | Seven app-owned shadows remain; deleting them needs a page-by-page ownership decision so live-only behavior is not lost. |
+| D04 | Define an orphan/unstyled-class scanner contract | An orphan/unstyled-class scanner needs an exemption contract for JS hooks, state classes and third-party markup. |
+| D15 | Stabilize knowledge total-page semantics | Stable total-page semantics need a product decision and service-query correction. |
+| D16 | Define legal effort/provider metadata values | Legal effort/provider value sets require product decisions and `FieldMeta.allowedValues` changes. |
+| D17 | Define an effective-default metadata contract | `FieldMeta` has no effective-default surface, so settings cannot truthfully display defaults without a metadata contract change. |
+| D29 | Retire ignored task SSE icon fields | Removing `iconChar` and `compactEventIconChar` needs an API-compatibility ownership decision; all UI consumers already ignore them. |
+| C01 | Repair the light foreground ladder | `.delivery-badge` is 3.62:1 and existing 10–12px badge/code pairings remain below AA; repairing them requires coordinated foreground-ladder re-spacing rather than isolated retunes. |
+| C02 | Retone the fifth identicon gradient | `.identicon--5`'s second `--sky` stop measures 2.31:1 against its initials; the gradient needs a coordinated design retone. |
+| C05 | Inject deterministic time into relative-date tests | The same-year test can go vacuous early each year; a deterministic fix needs an injected `now` contract across shared callers. |
+| C08 | Reconcile the dialog-tab selector contract | Canon's descendant `.dialog .tabs` rule is gate-pinned while the intended direct-child contract needs a specification amendment. |
+| C10 | Unify live-task timestamp formatting ownership | Live task polling still writes raw ISO values; changing it needs one owner for server/local formatting across the update path. |
+| C11 | Define the restart-required dispatch contract | A listener exists but no producer dispatches `restart-required`; defining the trigger is a product/runtime contract decision. |
+| RP01 | Bound audit-dashboard reads | The dashboard polls and fully scans every retained audit partition. A cap changes filter/pagination completeness, while caching or indexing adds state; define the supported event volume and whether the dashboard promises full retained-history queries before choosing the mechanism. |
 
-**Severity**: Low (latent; not hit by any built-in workflow – custom-workflow trap)
-**Found**: 2026-07-04 S03 (execution-envelope finalization) quick-review, Critic finding 3
-**Affects**: `packages/dartclaw_workflow/lib/src/workflow/prompt_augmenter.dart` (`finalizerHandlesOutputs` early-return), `execution_envelope_schema.dart` (`stepNeedsFinalizer` / `_isPromptOptOut`)
+**0.26 candidates (flagged 2026-08-07)**: the UI-canon rows above (C01, C02, C08, C10, C11) touch the same surfaces and canon that 0.26 Chat & Session Experience reworks — decide take-or-defer at 0.26 PRD time, alongside the decided items below.
 
-**Context**: `stepNeedsFinalizer` is true when *any* declared output is a model-derived finalizer output, so `finalizerHandlesOutputs` suppresses the entire main-prompt output contract. A `format: json` + `outputMode: prompt` output is excluded from the finalizer envelope (`_isPromptOptOut`) yet, on a step that also declares a finalizer-eligible output, its legacy main-prompt contract section is suppressed too – the model is never told how to emit it, and it resolves to `''`. This contradicts the ratified `outputmode-prompt-opt-out-fate` decision that prompt-opt-out outputs keep their legacy main-prompt contract. No shipped built-in mixes the two on one step.
+### Decided 2026-08-07 (operator) – awaiting scheduling, raise at 0.26 planning
 
-**Related facet — envelope-excluded `*_source` keys (same root cause)**: `isModelDerivedFinalizerOutput` also excludes every `key.endsWith('_source')` output as a host-owned canonical default (the `*_source → synthesized` default in `context_output_defaults.dart`). But `spec_source` in the shipped `spec-and-implement.yaml` is a *model-authored* narrative decision (`existing` vs `synthesized`) that gates the `spec` step (`entryGate: spec_source == synthesized`). On the (finalizer-eligible) `detect-spec-input` step, `spec_source` is excluded from the envelope *and* its main-prompt contract is suppressed, so the only channel left is the legacy inline `<workflow-context>` fallback (`context_extractor` layer 2). If the model omits it there, the `*_source` canonical default forces `synthesized`, misclassifying a reused existing spec as needing synthesis. The two candidate fixes mirror this entry's: (a) per-key main-prompt-contract filtering keeps `spec_source`'s instruction, or reverse the blanket `*_source` finalizer exclusion so the envelope carries model-authored `*_source` values — the latter reverses the ratified `S03 Structural Criterion` that canonical defaults stay host-owned, so it is itself a decision. Surfaced by the codex mixed-review (F2), 2026-07-05; deferred here as the same root cause rather than fixed speculatively.
+| Ledger | Decision |
+|---|---|
+| D13 | Link-style chips never carry a selected state. Switch the knowledge-hub layer filter from `a.chip` + unstyled `aria-current` to the canon tabs pattern (as the workflow-list status filter already does). Zero canon change; selection vocabulary belongs to tabs and toggle chips. |
+| D14 | Add a muted/disabled status-dot variant to the canon status ladder; stop mapping disabled to idle. |
+| C06 | Dedupe repeated-poll outage feedback to one persistent toast per failing poll source, cleared on recovery. Polling cadence unchanged. |
+| C09 | Amend canon with a keyboard/ARIA disclosure primitive (native button/details-summary + `aria-expanded`), aligned with the tool-call disclosure card, and apply it to workflow-step disclosure. |
 
-**Blocker**: design decision required – either (a) render the output-contract section only for envelope-excluded (opt-out / `*_source`) outputs while suppressing finalizer-handled ones (per-key section filtering in `PromptAugmenter`, which must learn per-output finalizer eligibility), or (b) reject/warn at validation when a single agent step mixes finalizer-eligible and `outputMode: prompt` outputs (and separately decide whether model-authored `*_source` keys belong in the envelope, which touches the ADR-041 host-ownership boundary).
+## TD-118 – Inline remediation loop halts on `maxIterations` before the verify-fix gate
 
-**Fix**: Pick (a) or (b) above; add a `prompt_augmenter`/validator test pinning that a mixed step retains the prompt-opt-out output's contract (or is rejected), plus a `spec-and-implement` canary/test proving a reused existing spec conveys `spec_source: existing` and suppresses the `spec` step.
+**Status**: Open – deferred as the deterministic floor under ADR-044 (orchestration agent); needs loop-control integration decision
+**Severity**: Medium (remediation can stop with unverified fixes and report loop exhaustion as completion)
+**Found**: during 0.19 workflow hardening; recorded 2026-08-07 (memory graduation)
+**Affects**: built-in review-and-remediate inline loop YAMLs, workflow loop control
 
-**Source**: S03 phase (b) Critic review (finding 3), 2026-07-04; codex mixed-review F2 (`spec_source`), 2026-07-05.
+**Context**: The inline review/remediate loop keys its exit on `gating_findings_count == 0` and halts on `maxIterations` without consuming AndThen's `Auto-Remediation`/convergence signal, so it can terminate before the deterministic verify-fix gate runs. Engine-side gap, not an AndThen bug.
 
-**Spec (approach (a) ratified)**: `dev/bundle/docs/specs/0.20/per-key-main-prompt-output-contract-filtering.md` (2026-07-05) — per-key main-prompt output-contract filtering; option (a) chosen over (b) as smaller/safer/more-complete. Landed 2026-07-05 (see Status above).
+## TD-117 – Working-directory / project-template resolution re-derived at ≥4 sites
 
-Last reviewed: 2026-07-05
+**Status**: Open – needs an architecture decision (consolidate into one resolved-once value)
+**Severity**: Low (individual sites are patched; duplication invites regressions)
+**Found**: during 0.18/0.19 standalone fixes; recorded 2026-08-07 (memory graduation)
+**Affects**: workspace-root, session-binding, and artifact-commit template-resolve sites; task-executor preflight
 
----
+**Context**: Effective working directory / project-template resolution is derived independently at four-plus sites with subtly different fallback logic (unset `{{PROJECT}}` null-resolution was fixed site-by-site). Structural consolidation is needed to stop whack-a-mole fixes.
 
-## TD-113 – Replace S01 turn-monitor real-time sleeps with controlled timer tests
+## TD-116 – One-shot workflow agents inherit the operator's global MCP set unfiltered
 
-**Status**: Closed 2026-07-08 — resolved by the 0.20 test-suite hardening (CHANGELOG [0.20.0]: "injected test timers into turn wait/stall monitors to remove fixed sleeps from unit coverage"). The controlled-timer seam now exists — `SessionLockManager` takes an injectable `SessionLockTimerFactory` + `SessionLockNow` (`session_lock_manager.dart`), and `TurnRunner` threads `turnMonitorTimerFactory`/`turnMonitorNow` through. The wait/stuck monitor assertions in `turn_runner_test.dart` all drive fake time via the `_TurnMonitorFakeTime` (`FakeAsync`) helper + `monitoredRunner` + `elapseAsync`; a grep confirms zero real-time `Future.delayed` sleeps remain (only `Duration.zero` microtask yields). Backlog entry was stale.
+**Status**: Open – needs a requirements decision on a project-config MCP curation surface
+**Severity**: Medium (security/attack-surface gap)
+**Found**: during 0.19 one-shot review runs; recorded 2026-08-07 (memory graduation)
+**Affects**: one-shot codex/claude spawn paths (workflow one-shot runner, provider CLIs)
 
-**Severity**: Low (test determinism – new test harness required)
-**Found**: 2026-06-08 S01 remediation-loop iter 4
-**Affects**: `packages/dartclaw_server/test/turn_runner_test.dart`
-**Target**: Future turn-monitor test harness cleanup
+**Context**: One-shot review/implement agents spawn with no MCP config of their own, so they inherit the operator's full `~/.codex` / `~/.claude` global MCP server set (context7, fetch, etc.). No DartClaw config surface exists to curate or trim MCP servers per project for these spawns.
 
-**Context**: The S01 review flagged multiple wait/stuck monitor assertions that still use short `Future.delayed` sleeps. This pass added targeted recovery-boundary coverage and preserved focused test stability, but fully replacing the existing runner-level sleeps needs a controlled timer seam or fake-async-compatible runner fixture because the current tests compose async storage, harness, lock, event, and timer behavior.
+**Candidate**: 0.27 Phase A (flagged 2026-08-07) — same guarded-MCP theme as TD-110's dispatch-level `GuardChain` seam; decide at 0.27 PRD re-scoping whether the per-project MCP curation surface rides that milestone.
 
-**Blocker**: new test harness required – eliminating these sleeps without weakening coverage requires an injectable timer/clock seam or a fake-async-compatible runner fixture for `TurnRunner` and `SessionLockManager` monitor timers.
+## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
 
-**Fix**: Introduce controlled timer support for turn-monitor tests, then migrate the S01 wait/stuck assertions from real-time sleeps to fake time.
+**Status**: Scheduled 2026-08-07 (owner) – folded into 0.25 story S14 "Instance-local storage hygiene" (`dartclaw-private/docs/specs/0.25/s14-instance-local-storage-hygiene.md`, PRD FR13); close when S14 ships
+**Severity**: Low (conceptual cleanliness; zero operational impact today)
+**Found**: 2026-08-07, owner design discussion during 0.25 rider planning
+**Affects**: `packages/dartclaw_storage/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_storage/lib/src/storage/webhook_delivery_store.dart`, their open sites in `apps/dartclaw_cli/.../storage_wiring.dart` and `packages/dartclaw_server/lib/src/server.dart`
 
-**Source report**: `dev/tools/dartclaw-workflows/.data/workflows/runs/5a5c8177-4f86-4d9c-8c49-9401e1a7ab9d/runtime-artifacts/reviews/s01-stuck-turn-status-and-early-cancel-mixed-review-codex-2026-06-08-4.md` finding 6.
+**Context**: A `database.backend: postgres` deployment still runs embedded SQLite for two instance-local stores – `state.db` (active-turn crash-recovery state, transient) and the webhook delivery ledger (per-instance dedup markers, TTL-purged). The owner flags this three-datastore shape (Postgres + SQLite + files) as an architectural smell. Both stores are touched only by the `serve` process (turn runner/cancellation; webhook routes) – no maintenance-command consumers – so the cross-process-locking argument for SQLite does not actually apply. Both are small, transient, and single-writer, making filesystem alternatives plausible: atomic write-temp-rename JSON for turn state (the `meta.json` pattern), file-per-event-id with `O_CREAT|O_EXCL` plus mtime-based purge for the ledger. That would make PostgreSQL deployments touch SQLite zero times at runtime (the library still ships in the one binary per ADR-045 OQ3 – one binary, no build flavors, a settled decision this item does not reopen; a separate-install SQLite would break the zero-ops default story).
 
-Last reviewed: 2026-06-08
-
----
-
-## TD-111 – Move turn wait-state semantics out of server string fields
-
-**Status**: Closed 2026-07-08 — resolved by the `turn-wait-state-typed-event-contract` FIS (0.20). `enum TurnWaitState` and `enum TurnWaitReason` moved into `dartclaw_core` (`turn_wait_events.dart`), exported via the core barrel `show` clause; `TurnWaitStateChangedEvent.state`/`.waitReason` retyped to the enums so an unknown-state string is now a compile error. `turn_wait_status.dart` keeps a core re-export bridge (server-only types unchanged). The SSE/REST wire JSON stays byte-identical (`state` via `.name`, `wait_reason` via `.jsonName`), pinned by whole-payload SSE tests plus an exhaustive `values`-driven wire-name mapping test.
-
-**Severity**: Medium (architecture / API contract – caller API change required)
-**Found**: 2026-06-08 S01 remediation of aggregated architecture review
-**Affects**: `packages/dartclaw_core/lib/src/events/turn_wait_events.dart`, `packages/dartclaw_server/lib/src/turn_wait_status.dart`, `packages/dartclaw_server/lib/src/api/task_sse_routes.dart`
-**Target**: Future turn-status contract hardening
-
-**Context**: The S01 architecture review flagged that `TurnWaitStateChangedEvent.state` and `.waitReason` are raw strings in `dartclaw_core`, while the typed wait-state/reason model lives server-side. This keeps the current package dependency direction intact, but it leaves core/server/SSE/UI consumers coupled by semantic string names rather than compiler-checked values.
-
-**Blocker**: caller API change required – moving the wait-state and wait-reason semantic types into `dartclaw_core` changes the public event contract and requires coordinated updates across server event emission, SSE serialization, tests, and any downstream event consumers.
-
-**Fix**: Move the semantic wait-state/reason value types or enums into `dartclaw_core`, keep JSON names at the server API/SSE boundary, and add exhaustive serializer/event tests.
-
-**Trigger**: Any future expansion of wait reasons/states, ACP/delegation status integration, or a planned core event contract cleanup.
-
-**References**: `dev/tools/dartclaw-workflows/.data/workflows/runs/5a5c8177-4f86-4d9c-8c49-9401e1a7ab9d/runtime-artifacts/reviews/aggregated-review-aggregate.md` ARCH-002.
-
-Last reviewed: 2026-06-08
-
----
-
-## TD-112 – Decide whether SessionLockManager should keep wait/stuck timer policy
-
-**Status**: Closed 2026-07-08 — decision made: **keep status quo, do not extract now.** The two-threshold wait/stuck policy on `SessionLockManager.acquire()` is acceptable at current scope; extracting a `TurnWaitMonitor` today would be the speculative abstraction the project's KISS/YAGNI mandate forbids (the entry itself notes it "risks broadening a narrow remediation"). Extraction is warranted only if a trigger fires — new wait categories, per-provider wait policy, or further operator-facing monitor behavior — at which point this becomes a live design task again. Recorded as a made decision, not a re-deferral (owner-endorsed 2026-07-08).
-
-**Severity**: Low (architecture / cohesion – decision needed)
-**Found**: 2026-06-08 S01 remediation of aggregated architecture review
-**Affects**: `packages/dartclaw_server/lib/src/concurrency/session_lock_manager.dart`, `packages/dartclaw_server/lib/src/turn_runner.dart`
-**Target**: Future wait-monitor extraction decision
-
-**Context**: The S01 architecture review flagged that `SessionLockManager.acquire()` now accepts wait/stuck thresholds and callbacks, so a low-level queue primitive owns some operator-facing monitor timing. This is acceptable for the current two-threshold S01 scope, but could become a cohesion problem if wait categories or policy grow.
-
-**Blocker**: decision needed – extraction is explicitly conditional on wait policy growth; creating a `TurnWaitMonitor` now would be speculative and risks broadening a narrow remediation.
-
-**Fix**: If wait/stuck policy expands, decide whether to extract a `TurnWaitMonitor` owned by `TurnRunner`/`TurnManager` and leave `SessionLockManager` focused on lock ownership plus queue metadata.
-
-**Trigger**: New wait categories, per-provider wait policy, or further operator-facing monitor behavior lands.
-
-**References**: `dev/tools/dartclaw-workflows/.data/workflows/runs/5a5c8177-4f86-4d9c-8c49-9401e1a7ab9d/runtime-artifacts/reviews/aggregated-review-aggregate.md` ARCH-003.
-
-Last reviewed: 2026-06-08
-
----
-
-## TD-109 – Inbox extraction turn runs tool-capable over untrusted source (least-privilege / excessive agency)
-
-**Status**: Closed 2026-07-08 — resolved and now regression-guarded. The premise ("`TurnManager.startTurn` exposes no per-turn tool scoping; the only levers are process-level mutable state") is stale: `startTurn` now carries per-turn `allowedTools` + `readOnly` (`turn_manager.dart`), and `_runExtractionTurn` dispatches with `allowedTools: ['__knowledge_inbox_no_tools__']` + `readOnly: true`. `TurnRunner` applies that policy **session-scoped** via `TaskToolFilterGuard.setSessionToolFilter`/`setSessionReadOnly` before the harness runs (`turn_runner.dart` :476-481) and clears it in `finally` (:808-813), so restrictions never leak onto concurrent turns on other sessions. Enforcement + the anti-leak property are unit-tested in `task_tool_filter_guard_test.dart`; the caller contract in `knowledge_inbox_service_test.dart`; and the previously-untested TurnRunner apply/clear wiring is now pinned by `turn_runner_test.dart` ("per-turn toolless policy is applied session-scoped during the turn and cleared after (TD-109)", red-checked against a sabotaged apply).
-
-**Severity**: High (security – OWASP LLM06 excessive agency over untrusted input)
-**Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (codex review)
-**Affects**: `packages/dartclaw_server/lib/src/knowledge/knowledge_inbox_service.dart` (`_runExtractionTurn`); `packages/dartclaw_core/lib/src/turn/turn_manager.dart` (`startTurn`); `packages/dartclaw_security/lib/src/task_tool_filter_guard.dart`
-**Target**: 0.18
-
-**Context**: The bounded cron-session extraction turn over an untrusted dropped-in file is dispatched through `TurnManager.startTurn` with no per-turn tool allowlist or read-only constraint, so a prompt-injected source could induce tool use (OWASP LLM06 excessive agency). The parser-side forgery vector (markdown fence escape) was fixed in this pass by JSON-encoding the source; this entry covers the remaining tool-agency aspect only.
-
-**Blocker**: Caller API change required – `TurnManager.startTurn` exposes no per-turn tool scoping; the only levers (`setTaskToolFilter`/`setTaskReadOnly`) are process-level mutable state on the shared `_primary` TurnRunner. Mutating that state from the cron inbox path would apply tool restrictions to concurrent user turns running on the same runner. A safe fix needs a per-turn tool-scope/structured-output dispatch capability that does not exist today.
-
-**Fix**: Add a per-turn tool-scope (or toolless structured-output) dispatch path and route inbox extraction through it.
-
-**Trigger**: Per-turn tool scoping is added to the turn-dispatch API, or untrusted-source ingestion is enabled in a multi-session deployment.
-
-**References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-codex-2026-05-30-7.md` (HIGH "Untrusted inbox files run as unrestricted agent turns").
-
-Last reviewed: 2026-05-31
-
----
+**Resolution (owner, 2026-08-07)**: decided – conceptual cleanliness wins while pre-release. Folded into the existing 0.25 rider story S14 (keeping the plan at 14 stories) rather than a new story: filesystem stores with fault-injection parity against the current suites, Windows rename coverage, tightened sqlite3-import fitness check, and an ADR-045 #3/Q4 mechanism amendment (locality rationale unchanged).
 
 ## TD-110 – KG MCP write tools sit outside the guard pipeline with no audit trail; `kg_invalidate` id is unscoped
 
-**Severity**: Medium (security / auditability – decision needed)
+**Severity**: Medium (security / auditability – decision made, implementation pending)
 **Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (claude review S-1)
 **Affects**: `packages/dartclaw_server/lib/src/mcp/kg_tools.dart`; `service_wiring_mcp_tools.dart`
-**Target**: 0.18
+**Target**: 0.27 (Knowledge Interop & Steward, Phase A – shifted 2026-08-07 from 0.25)
 
 **Context**: `kg_add`/`kg_invalidate` are registered with no `contentGuard` and no audit logging, and MCP `tools/call` dispatch does not traverse `GuardChain`; `kg_invalidate` accepts an arbitrary integer id with no session/ownership check. The PRD claims KG writes are logged via existing audit infrastructure, which is not wired.
 
-**Decision required**: whether MCP write tools should traverse `GuardChain` and which audit sink KG writes/invalidations should use is an architecture decision, not a local defect fix.
+**Decision**: made (operator, 2026-07-29): dispatch-level enforcement – bring MCP `tools/call` dispatch under `GuardChain` at one seam (all write-capable tools, not just KG), wire KG writes/invalidations into the existing audit sink, add an ownership/scope check on `kg_invalidate` ids. ADR to be authored in the 0.27 milestone. Note: the affected wiring files may move under the 0.25 storage refactor – re-verify paths at 0.27 planning.
 
-**Fix**: Decide guard scope for MCP write tools; at minimum wire audit logging for KG writes/invalidations and an ownership/scope check for `kg_invalidate`.
+**Fix**: Implement the dispatch-level guard traversal + audit wiring + `kg_invalidate` ownership check per the decision above.
 
-**Trigger**: MCP tool dispatch is brought under the guard pipeline, or a multi-operator deployment needs auditable KG mutations.
+**Trigger**: scheduled – 0.27 Phase A (this is the enforcement point for the 0.27 steward workflow's human-acceptance invariant).
 
 **References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-claude-2026-05-30-9.md` (S-1, MEDIUM).
 
-Last reviewed: 2026-05-31
+Last reviewed: 2026-07-29
 
 ---
 

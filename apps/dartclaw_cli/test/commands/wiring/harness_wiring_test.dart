@@ -15,6 +15,22 @@ Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
 }
 
+/// Polls [read] until [isReady] holds, then returns that value.
+///
+/// The turn-monitor thresholds under test are milliseconds apart, so a fixed
+/// delay sized just past the threshold loses the race under parallel test load.
+/// The cap stays far below the 120 s default `stuckAfter`, so reaching the state
+/// still proves the configured threshold is the one in effect.
+Future<T> _pollFor<T>(T Function() read, bool Function(T) isReady) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  var value = read();
+  while (!isReady(value) && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    value = read();
+  }
+  return value;
+}
+
 void main() {
   late Directory tempDir;
   late Directory workspaceDir;
@@ -54,10 +70,9 @@ void main() {
 
   tearDown(() async {
     await harnessWiring?.pool.dispose();
+    await security?.dispose();
     await storage?.dispose();
-    if (tempDir.existsSync()) {
-      tempDir.deleteSync(recursive: true);
-    }
+    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
   Future<void> wireStorageAndSecurity() async {
@@ -121,7 +136,19 @@ void main() {
     expect(harnessWiring!.pool.size, 2);
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
-    expect(recordedConfigs.first.guardChain, same(security!.guardChain));
+
+    // Primary and task harnesses each get a layered chain: all base security
+    // guards plus their own per-runner TaskToolFilterGuard.
+    final primaryChain = recordedConfigs.first.guardChain!;
+    final taskChain = recordedConfigs.last.guardChain!;
+    expect(primaryChain, isNot(same(security!.guardChain)));
+    expect(primaryChain.guards.map((g) => g.name), containsAll(security!.guardChain!.guards.map((g) => g.name)));
+    expect(primaryChain.guards.whereType<TaskToolFilterGuard>(), hasLength(1));
+    expect(taskChain.guards.whereType<TaskToolFilterGuard>(), hasLength(1));
+    expect(
+      primaryChain.guards.whereType<TaskToolFilterGuard>().single,
+      isNot(same(taskChain.guards.whereType<TaskToolFilterGuard>().single)),
+    );
     expect(recordedConfigs.first.acpPermissionDecision, isNotNull);
     expect(recordedConfigs.first.acpReverseCallAudit, isNotNull);
 
@@ -146,10 +173,73 @@ void main() {
     expect(taskPrompt.length, lessThan(primaryPrompt.length));
   });
 
+  test('knowledge-inbox no-tools turn policy blocks tool calls on the primary harness chain', () async {
+    await wireStorageAndSecurity();
+
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final primaryChain = recordedConfigs.single.guardChain!;
+    final session = await storage!.sessions.createSession();
+    final turnId = await harnessWiring!.pool.primary.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'extract facts'},
+      ],
+      allowedTools: const ['__knowledge_inbox_no_tools__'],
+      readOnly: true,
+    );
+    final harness = createdHarnesses.single;
+    await harness.turnInvoked;
+
+    // The harness consults its guard chain for every tool call mid-turn; the
+    // turn's session-keyed no-tools policy must block.
+    final midTurn = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
+    expect(midTurn.isBlock, isTrue);
+    expect(midTurn.message, contains('__knowledge_inbox_no_tools__'));
+
+    // Other sessions on the same chain are unaffected.
+    final otherSession = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'other');
+    expect(otherSession.isBlock, isFalse);
+
+    harness.completeSuccess();
+    await harnessWiring!.pool.primary.waitForOutcome(session.id, turnId);
+
+    // The policy is cleared once the turn settles.
+    final postTurn = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
+    expect(postTurn.isBlock, isFalse);
+  });
+
+  test('guards hot-reload keeps the primary tool filter and picks up rebuilt base guards', () async {
+    await wireStorageAndSecurity();
+
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final primaryChain = recordedConfigs.single.guardChain!;
+    final filterBefore = primaryChain.guards.whereType<TaskToolFilterGuard>().single;
+    final sanitizerBefore = primaryChain.guards.whereType<InputSanitizer>().single;
+
+    security!.reconfigure(
+      ConfigDelta(
+        previous: config,
+        current: const DartclawConfig(security: SecurityConfig(guards: GuardConfig(enabled: true, failOpen: false))),
+        changedKeys: const {'security.*'},
+      ),
+    );
+
+    // Base guards were rebuilt (new instances) and reach the primary chain
+    // live; the per-runner filter survives the rebuild as the same instance.
+    expect(primaryChain.guards.whereType<InputSanitizer>().single, isNot(same(sanitizerBefore)));
+    expect(primaryChain.guards.whereType<TaskToolFilterGuard>().single, same(filterBefore));
+
+    filterBefore.setSessionToolFilter('session-1', const ['__knowledge_inbox_no_tools__']);
+    final verdict = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'session-1');
+    expect(verdict.isBlock, isTrue);
+  });
+
   test('provider-specific lazy spawn consumes the requested provider entry', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       providers: ProvidersConfig(
         entries: {
           'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
@@ -162,7 +252,6 @@ void main() {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 2),
     );
 
@@ -188,9 +277,7 @@ void main() {
   });
 
   test('configured ACP agents register provider identity and default pool capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -206,11 +293,6 @@ void main() {
           },
         ),
       ),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -225,9 +307,7 @@ void main() {
   });
 
   test('configured Goose and Vibe ACP agents register without unknown-provider fallback', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -250,16 +330,12 @@ void main() {
           },
         ),
       ),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
       credentials: const CredentialsConfig(
         entries: {
           'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
           'mistral': CredentialEntry(apiKey: 'mistral-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -283,9 +359,7 @@ void main() {
   });
 
   test('guarded ACP agent without runtime probe evidence fails before registration', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -301,11 +375,6 @@ void main() {
           },
         ),
       ),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -356,8 +425,7 @@ void main(List<String> args) async {
   }
 }
 ''');
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    config = config.copyWith(
       agent: const AgentConfig(provider: 'goose'),
       harness: HarnessConfig(
         acp: AcpConfig(
@@ -374,8 +442,7 @@ void main(List<String> args) async {
           },
         ),
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
+      providers: const ProvidersConfig(),
       tasks: const TaskConfig(maxConcurrent: 0),
     );
 
@@ -386,9 +453,7 @@ void main(List<String> args) async {
   });
 
   test('ACP agents are included in task capacity when providers section is absent', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -404,8 +469,7 @@ void main(List<String> args) async {
           },
         ),
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
+      providers: const ProvidersConfig(),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -419,9 +483,7 @@ void main(List<String> args) async {
   });
 
   test('providers pool_size overrides configured ACP agent default capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -443,8 +505,6 @@ void main(List<String> args) async {
           'goose': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 2),
         },
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -467,9 +527,7 @@ void main(List<String> args) async {
   });
 
   test('container-required ACP spawn fails closed when the configured profile is unavailable', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
           agents: {
@@ -482,8 +540,7 @@ void main(List<String> args) async {
           },
         ),
       ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
+      providers: const ProvidersConfig(),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -497,9 +554,7 @@ void main(List<String> args) async {
   });
 
   test('configured providers use effective pool_size with independent capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       providers: ProvidersConfig(
         entries: {
           'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0),
@@ -512,7 +567,6 @@ void main(List<String> args) async {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -536,9 +590,7 @@ void main(List<String> args) async {
   });
 
   test('non-empty provider config missing default still reserves default capacity', () async {
-    config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-      agent: const AgentConfig(provider: 'claude'),
+    config = config.copyWith(
       providers: ProvidersConfig(
         entries: {'codex': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
       ),
@@ -548,7 +600,6 @@ void main(List<String> args) async {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      gateway: const GatewayConfig(authMode: 'none'),
       tasks: const TaskConfig(maxConcurrent: 10),
     );
 
@@ -566,21 +617,14 @@ void main(List<String> args) async {
   });
 
   test('wired runners use configured turn monitor thresholds and worker timeout', () async {
-    config = DartclawConfig(
+    config = config.copyWith(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable, workerTimeout: 3),
-      agent: const AgentConfig(provider: 'claude'),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-      gateway: const GatewayConfig(authMode: 'none'),
       harness: const HarnessConfig(
         turnMonitor: TurnMonitorConfig(
           waitWarningAfter: Duration(milliseconds: 10),
           stuckAfter: Duration(milliseconds: 25),
         ),
       ),
-      tasks: const TaskConfig(maxConcurrent: 1),
     );
 
     await wireStorageAndSecurity();
@@ -600,8 +644,10 @@ void main(List<String> args) async {
     });
     final queuedReserve = harnessWiring!.pool.primary.reserveTurn(session.id);
 
-    await Future<void>.delayed(const Duration(milliseconds: 35));
-    final primaryStatus = harnessWiring!.pool.primary.turnStatus(session.id);
+    final primaryStatus = await _pollFor(
+      () => harnessWiring!.pool.primary.turnStatus(session.id),
+      (status) => status.state.name == 'stuck',
+    );
     expect(primaryStatus.state.name, 'stuck');
     expect(primaryStatus.globalTimeoutAt, isNotNull);
 
@@ -633,8 +679,10 @@ void main(List<String> args) async {
     });
     final taskQueuedReserve = taskRunner.reserveTurn(taskSession.id);
 
-    await Future<void>.delayed(const Duration(milliseconds: 35));
-    final taskStatus = taskRunner.turnStatus(taskSession.id);
+    final taskStatus = await _pollFor(
+      () => taskRunner.turnStatus(taskSession.id),
+      (status) => status.state.name == 'stuck',
+    );
     expect(taskStatus.state.name, 'stuck');
     expect(taskStatus.globalTimeoutAt, isNotNull);
 

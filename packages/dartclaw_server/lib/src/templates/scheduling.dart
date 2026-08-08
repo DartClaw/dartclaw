@@ -20,12 +20,12 @@ String schedulingTemplate({
   List<Map<String, dynamic>> jobs = const [],
   List<String> systemJobNames = const [],
   List<ScheduledTaskDefinition> scheduledTasks = const [],
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(title: 'Scheduling Status');
+  final topbar = pageTopbarTemplate(title: 'Scheduling Status', restartBannerHtml: restartBannerHtml);
 
   // Task-type entries share the unified `scheduling.jobs` list but belong in the
   // Scheduled Tasks table below; exclude them here so they don't render as a
@@ -99,24 +99,29 @@ String schedulingTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('scheduling'), {
     'sidebar': sidebar,
     'topbar': topbar,
+    'pageHeaderHtml': pageHeaderTemplate(
+      subtitle: 'Recurring jobs and scheduled tasks, plus the heartbeat that drives them.',
+    ),
+    'jobsEmptyStateHtml': emptyStateTemplate(
+      title: 'No scheduled jobs',
+      body: 'Add a job to have the agent run a prompt on a cron schedule.',
+    ),
+    'tasksEmptyStateHtml': emptyStateTemplate(
+      title: 'No scheduled tasks',
+      body: 'Add a scheduled task to automate recurring work.',
+    ),
     'pulseClass': heartbeatEnabled ? '' : 'paused',
     'heartbeatBadgeHtml': statusBadgeTemplate(
       variant: heartbeatEnabled ? 'success' : 'muted',
       text: heartbeatEnabled ? 'Active' : 'Disabled',
     ),
-    'intervalDisplay': heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
-    'heartbeatMetricCardsHtml': [
-      metricCardTemplate(
-        color: 'info',
-        value: heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
-        label: 'Interval',
-      ),
-      metricCardTemplate(
-        color: heartbeatEnabled ? 'accent' : 'warning',
-        value: heartbeatEnabled ? 'Active' : 'Disabled',
-        label: 'Status',
-      ),
-    ].join('\n'),
+    // The interval is the block's only numeric KPI, so it is the only thing that
+    // earns the metric tier. Status is already stated once by the header badge —
+    // a second copy at 32px said "Disabled" in the size reserved for numbers.
+    'hasHeartbeatMetrics': heartbeatEnabled,
+    'heartbeatMetricCardsHtml': heartbeatEnabled
+        ? metricCardTemplate(color: 'info', value: '$heartbeatIntervalMinutes', label: 'Interval (min)')
+        : null,
     'heartbeatOn': heartbeatEnabled,
     'hasJobs': jobRows.isNotEmpty,
     'hasUserJobs': jobRows.any((j) => j['isSystem'] != true),
@@ -124,7 +129,6 @@ String schedulingTemplate({
     'hasScheduledTasks': scheduledTasks.isNotEmpty,
     'scheduledTasks': taskRows,
     'taskTypes': TaskType.values.map((t) => t.name).toList(),
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
   return layoutTemplate(title: 'Scheduling', body: body, appName: appName, scripts: standardShellScripts());

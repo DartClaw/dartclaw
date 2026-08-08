@@ -3,13 +3,16 @@ part of 'dartclaw_event.dart';
 /// Intermediate sealed type for compaction lifecycle events.
 sealed class CompactionLifecycleEvent extends DartclawEvent {
   /// Identifier of the SDK session experiencing compaction.
-  String get sessionId;
+  final String sessionId;
 
   /// Trigger source: `"auto"` or `"manual"`.
-  String get trigger;
+  final String trigger;
 
   @override
-  DateTime get timestamp;
+  final DateTime timestamp;
+
+  /// Creates a compaction lifecycle event.
+  CompactionLifecycleEvent({required this.sessionId, required this.trigger, required this.timestamp});
 }
 
 /// Fired when context compaction is about to begin.
@@ -19,16 +22,7 @@ sealed class CompactionLifecycleEvent extends DartclawEvent {
 /// is reduced.
 // NOT_ALERTABLE: lifecycle telemetry — surfaced via SSE only
 final class CompactionStartingEvent extends CompactionLifecycleEvent {
-  @override
-  final String sessionId;
-
-  @override
-  final String trigger;
-
-  @override
-  final DateTime timestamp;
-
-  CompactionStartingEvent({required this.sessionId, required this.trigger, required this.timestamp});
+  CompactionStartingEvent({required super.sessionId, required super.trigger, required super.timestamp});
 
   @override
   String toString() => 'CompactionStartingEvent(session: $sessionId, trigger: $trigger)';
@@ -40,29 +34,20 @@ final class CompactionStartingEvent extends CompactionLifecycleEvent {
 /// binary. When an active task exists in the session, a `TaskEvent` with kind
 /// `Compaction` is also recorded.
 final class CompactionCompletedEvent extends CompactionLifecycleEvent {
-  @override
-  final String sessionId;
-
-  @override
-  final String trigger;
-
   /// Token count before compaction, from `compact_boundary`. May be null if
   /// the wire format omits `pre_tokens`.
   final int? preTokens;
 
-  /// Reserved for future `PostCompact` hook data. Always null in 0.16 —
+  /// Reserved for future `PostCompact` hook data. Always null because
   /// `PostCompact` is not available via JSONL.
   final String? summary;
 
-  @override
-  final DateTime timestamp;
-
   CompactionCompletedEvent({
-    required this.sessionId,
-    required this.trigger,
+    required super.sessionId,
+    required super.trigger,
     this.preTokens,
     this.summary,
-    required this.timestamp,
+    required super.timestamp,
   });
 
   @override

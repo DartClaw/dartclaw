@@ -26,19 +26,18 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep
           dart pub get --enforce-lockfile
           dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
 
+      # Generated asset libraries are not committed; lib/ imports them, so this
+      # must run before format, analyze, and test.
+      - name: Generate embedded assets
+        run: dart run dev/tools/embed_assets.dart
+
       - name: Format check
         run: dart format --line-length=120 --output=none --set-exit-if-changed .
-
-      - name: Embedded asset drift check
-        run: |
-          git ls-files --error-unmatch -- \
-            packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart \
-            packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
-          dart run dev/tools/embed_assets.dart
-          git diff --exit-code -- '**/generated/embedded_assets.g.dart'
 
       - name: Analyze
         run: dart analyze --fatal-infos

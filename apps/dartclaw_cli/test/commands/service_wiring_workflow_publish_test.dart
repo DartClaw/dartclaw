@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/service_wiring.dart';
+import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart' show workflowPushedBranches;
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowPublishStatus, WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowGitPublishResult, WorkflowPublishStatus, WorkflowRun, WorkflowRunStatus;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -140,6 +142,22 @@ void main() {
   });
 
   group('publishWorkflowBranchWithProjectAuth', () {
+    Future<WorkflowGitPublishResult> publish({
+      required ProjectService projectService,
+      required RemotePushService remotePushService,
+      required PrCreator prCreator,
+      String? notes,
+    }) => publishWorkflowBranchWithProjectAuth(
+      runId: 'run-123',
+      projectId: 'workflow-testing',
+      branch: 'dartclaw/workflow/run123',
+      projectService: projectService,
+      taskService: taskService,
+      remotePushService: remotePushService,
+      prCreator: prCreator,
+      notes: notes,
+    );
+
     test('successfully creates a PR and persists the PR URL on the latest workflow task', () async {
       await putWorkflowTask('task-1', 'run-123', DateTime.parse('2026-04-15T10:01:00Z'));
       await putWorkflowTask('task-2', 'run-123', DateTime.parse('2026-04-15T10:02:00Z'));
@@ -152,12 +170,8 @@ void main() {
       final pushService = _FakeRemotePushService(const PushSuccess());
       final prCreator = _FakePrCreator(const PrCreated('https://github.com/acme/workflow-testing/pull/42'));
 
-      final result = await publishWorkflowBranchWithProjectAuth(
-        runId: 'run-123',
-        projectId: 'workflow-testing',
-        branch: 'dartclaw/workflow/run123',
+      final result = await publish(
         projectService: projectService,
-        taskService: taskService,
         remotePushService: pushService,
         prCreator: prCreator,
       );
@@ -176,7 +190,7 @@ void main() {
       expect(branchArtifact.path, 'dartclaw/workflow/run123');
       expect(prArtifact.name, 'Workflow Pull Request');
       expect(prArtifact.path, 'https://github.com/acme/workflow-testing/pull/42');
-      expect(await pushedWorkflowBranches(taskService, [await taskService.get('task-2') as Task]), {
+      expect(await workflowPushedBranches(taskService, [await taskService.get('task-2') as Task]), {
         'dartclaw/workflow/run123',
       });
     });
@@ -192,12 +206,8 @@ void main() {
       final pushService = _FakeRemotePushService(const PushSuccess());
       final prCreator = _FakePrCreator(const PrCreated('https://github.com/acme/workflow-testing/pull/43'));
 
-      final result = await publishWorkflowBranchWithProjectAuth(
-        runId: 'run-123',
-        projectId: 'workflow-testing',
-        branch: 'dartclaw/workflow/run123',
+      final result = await publish(
         projectService: projectService,
-        taskService: taskService,
         remotePushService: pushService,
         prCreator: prCreator,
         notes: "Foreach step 'story-pipeline': 1 item(s) blocked (recoverable): S03",
@@ -221,12 +231,8 @@ void main() {
       final pushService = _FakeRemotePushService(const PushSuccess());
       final prCreator = _FakePrCreator(const PrGhNotFound('Create the PR manually.'));
 
-      final result = await publishWorkflowBranchWithProjectAuth(
-        runId: 'run-123',
-        projectId: 'workflow-testing',
-        branch: 'dartclaw/workflow/run123',
+      final result = await publish(
         projectService: projectService,
-        taskService: taskService,
         remotePushService: pushService,
         prCreator: prCreator,
       );
@@ -252,12 +258,8 @@ void main() {
       final pushService = _FakeRemotePushService(const PushSuccess());
       final prCreator = _FakePrCreator(const PrGhNotFound('Create the PR manually.'));
 
-      final result = await publishWorkflowBranchWithProjectAuth(
-        runId: 'run-123',
-        projectId: 'workflow-testing',
-        branch: 'dartclaw/workflow/run123',
+      final result = await publish(
         projectService: projectService,
-        taskService: taskService,
         remotePushService: pushService,
         prCreator: prCreator,
       );
@@ -281,12 +283,8 @@ void main() {
       final pushService = _FakeRemotePushService(const PushAuthFailure('Authentication denied.'));
       final prCreator = _FakePrCreator(const PrCreated('https://github.com/acme/workflow-testing/pull/42'));
 
-      final result = await publishWorkflowBranchWithProjectAuth(
-        runId: 'run-123',
-        projectId: 'workflow-testing',
-        branch: 'dartclaw/workflow/run123',
+      final result = await publish(
         projectService: projectService,
-        taskService: taskService,
         remotePushService: pushService,
         prCreator: prCreator,
       );
@@ -313,12 +311,8 @@ void main() {
         ),
       );
 
-      final result = await publishWorkflowBranchWithProjectAuth(
-        runId: 'run-123',
-        projectId: 'workflow-testing',
-        branch: 'dartclaw/workflow/run123',
+      final result = await publish(
         projectService: projectService,
-        taskService: taskService,
         remotePushService: pushService,
         prCreator: prCreator,
       );

@@ -1,25 +1,15 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../params/display_params.dart';
 
 /// Describes which top-level sidebar feature groups should render.
-typedef SidebarFeatureVisibility = ({
-  bool showChannels,
-  bool showHealth,
-  bool showMemory,
-  bool showScheduling,
-  bool showTasks,
-});
+typedef SidebarFeatureVisibility = ({bool showChannels, bool showMemory, bool showScheduling, bool showTasks});
 
 /// Computes sidebar [SidebarFeatureVisibility] from active services and configured channels.
 SidebarFeatureVisibility computeSidebarFeatureVisibility({
   DartclawConfig? config,
   required bool hasChannels,
-  GuardChain? guardChain,
-  bool hasHealthService = false,
   bool hasTaskService = false,
-  bool hasPubSubHealth = false,
   HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
   SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
   WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
@@ -30,7 +20,6 @@ SidebarFeatureVisibility computeSidebarFeatureVisibility({
   if (config == null) {
     return (
       showChannels: hasChannels,
-      showHealth: hasHealthService || guardChain != null || hasChannels || hasTaskService || hasPubSubHealth,
       showMemory: workspaceDisplay.path != null,
       showScheduling: showScheduling,
       showTasks: hasTaskService,
@@ -44,7 +33,6 @@ SidebarFeatureVisibility computeSidebarFeatureVisibility({
 
   return (
     showChannels: hasChannels,
-    showHealth: operationalFeaturesActive,
     showMemory: workspaceDisplay.path != null && operationalFeaturesActive,
     showScheduling: showScheduling,
     showTasks: configuredTasks,

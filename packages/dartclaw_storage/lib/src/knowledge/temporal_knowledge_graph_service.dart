@@ -86,14 +86,8 @@ class TemporalKnowledgeGraphService {
     String? asOf,
     bool includeInvalidated = false,
   }) {
-    final normalizedEntity = normalizeKnowledgeEntity(entity);
     final instant = asOf == null || asOf.trim().isEmpty ? null : _parseIso(asOf, 'as_of');
-    final where = <String>['entity = ?'];
-    final args = <Object?>[normalizedEntity];
-    if (predicate != null && predicate.trim().isNotEmpty) {
-      where.add('predicate = ?');
-      args.add(predicate.trim());
-    }
+    final (where, args) = _entityPredicateFilter(entity, predicate);
     if (instant == null && !includeInvalidated) {
       where.add('invalidated_at IS NULL');
     }
@@ -148,13 +142,7 @@ class TemporalKnowledgeGraphService {
 
   /// Returns all facts for [entity] in chronological order.
   List<KnowledgeFact> timeline({required String entity, String? predicate}) {
-    final normalizedEntity = normalizeKnowledgeEntity(entity);
-    final where = <String>['entity = ?'];
-    final args = <Object?>[normalizedEntity];
-    if (predicate != null && predicate.trim().isNotEmpty) {
-      where.add('predicate = ?');
-      args.add(predicate.trim());
-    }
+    final (where, args) = _entityPredicateFilter(entity, predicate);
     return _db
         .select('''
           SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
@@ -164,6 +152,16 @@ class TemporalKnowledgeGraphService {
           ''', args)
         .map(KnowledgeFact.fromRow)
         .toList();
+  }
+
+  (List<String>, List<Object?>) _entityPredicateFilter(String entity, String? predicate) {
+    final where = <String>['entity = ?'];
+    final args = <Object?>[normalizeKnowledgeEntity(entity)];
+    if (predicate != null && predicate.trim().isNotEmpty) {
+      where.add('predicate = ?');
+      args.add(predicate.trim());
+    }
+    return (where, args);
   }
 
   /// Marks a fact invalidated while preserving the original row.

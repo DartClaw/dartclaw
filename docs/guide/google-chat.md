@@ -182,11 +182,16 @@ The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. Dart
 
 This guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
 
+## Message Formatting
+
+Agent responses use Google Chat's native text markup. DartClaw converts standard Markdown headings, emphasis, strikethrough, code, links, lists, quotes, and tables before delivery; Markdown table separator rows are omitted.
+
 ## Testing
 
 - DM the bot directly and verify `dm_access` behaves as configured.
 - Add the bot to a space and verify `group_access` plus `require_mention`.
 - If `typing_indicator: true`, verify the placeholder appears before long replies complete.
+- Ask for a heading, bold text, a code span, and a table; verify native formatting and no Markdown table separator row.
 - Confirm the webhook path you registered matches `channels.google_chat.webhook_path`.
 - Run `/new`, `/reset`, and `/status` from Google Chat after registering the command IDs above.
 

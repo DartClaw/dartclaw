@@ -73,7 +73,7 @@ To verify tokens are active (not hard-coded values), use `evaluate_script`:
 
 ```js
 getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim()
-// Dark: '#1e1e2e'  |  Light: '#eff1f5'
+// Dark: '#1e1e2e'  |  Light: '#e4e7ef'
 ```
 
 If the value is empty or wrong, the design token system is broken for that page.
@@ -85,6 +85,7 @@ CSS found in source does not guarantee it renders as expected. Always verify vis
 - `position: sticky; float: right` on a `::after` pseudo-element — browsers ignore it; the element doesn't render. Use `position: absolute` instead.
 - `overflow: hidden` on an ancestor may clip absolutely-positioned pseudo-elements — verify the stacking context.
 - `getComputedStyle` can return a value for a rule that is syntactically valid but has no visual effect (e.g. a gradient on a zero-height element).
+- JND floors are detection minimums, not design targets — gating a token change on a just-noticeable-difference threshold converges to "barely not flat". Gate on reviewed screenshots against the prescribed target range (audit/spec values), not perceptibility floors.
 
 When a test requires verifying a CSS-driven visual (gradient, animation, overlay), always take a screenshot **and** check `getComputedStyle` — neither alone is sufficient.
 
@@ -93,10 +94,11 @@ When a test requires verifying a CSS-driven visual (gradient, animation, overlay
 Run after loading each page:
 
 ```js
-// No errors expected — any error is a FAIL
+// No errors expected — any error is a FAIL, except TC-12's expected main-document 404
 ```
 
-Use `list_console_messages` and flag any `error`-level entries as P2 issues minimum.
+Use `list_console_messages` and flag any `error`-level entries as P2 issues minimum. TC-12's expected
+main-document 404 entry is the sole exception; subresource, script, API, and all other errors still fail.
 
 ## Report Format
 

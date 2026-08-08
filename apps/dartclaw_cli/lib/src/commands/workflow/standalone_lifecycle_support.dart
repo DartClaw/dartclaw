@@ -11,7 +11,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowContext,
         WorkflowPreflightException,
-        WorkflowRoleDefault,
         WorkflowRoleDefaults,
         WorkflowRun,
         WorkflowStep,
@@ -25,6 +24,7 @@ import '../connected_command_support.dart';
 import '../serve_command.dart' show WriteLine;
 import 'cli_workflow_wiring.dart';
 import 'credential_preflight.dart';
+import 'workflow_config_support.dart';
 
 /// The wired in-process engine plus the loaded run, handed to a standalone
 /// lifecycle action callback.
@@ -203,7 +203,7 @@ Set<String> requiredWorkflowProviders(
   DartclawConfig config, {
   WorkflowContext? context,
 }) {
-  final roleDefaults = _workflowRoleDefaults(config);
+  final roleDefaults = workflowRoleDefaultsFromConfig(config);
   final stepsById = {for (final step in definition.steps) step.id: step};
   final providers = <String>{};
   for (final step in definition.steps) {
@@ -263,29 +263,4 @@ String? _resolveContinueSessionTargetStepId(WorkflowDefinition definition, Workf
   final index = definition.steps.indexWhere((candidate) => candidate.id == step.id);
   if (index <= 0) return null;
   return definition.steps[index - 1].id;
-}
-
-WorkflowRoleDefaults _workflowRoleDefaults(DartclawConfig config) {
-  return WorkflowRoleDefaults(
-    workflow: WorkflowRoleDefault(
-      provider: config.workflow.defaults.workflow.provider,
-      model: config.workflow.defaults.workflow.model,
-      effort: config.workflow.defaults.workflow.effort,
-    ),
-    planner: WorkflowRoleDefault(
-      provider: config.workflow.defaults.planner.provider,
-      model: config.workflow.defaults.planner.model,
-      effort: config.workflow.defaults.planner.effort,
-    ),
-    executor: WorkflowRoleDefault(
-      provider: config.workflow.defaults.executor.provider,
-      model: config.workflow.defaults.executor.model,
-      effort: config.workflow.defaults.executor.effort,
-    ),
-    reviewer: WorkflowRoleDefault(
-      provider: config.workflow.defaults.reviewer.provider,
-      model: config.workflow.defaults.reviewer.model,
-      effort: config.workflow.defaults.reviewer.effort,
-    ),
-  );
 }

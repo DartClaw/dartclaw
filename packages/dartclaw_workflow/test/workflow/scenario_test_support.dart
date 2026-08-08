@@ -10,6 +10,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
+import '_support/workflow_test_paths.dart';
+
 final class ScenarioTaskHarness {
   ScenarioTaskHarness._();
 
@@ -154,7 +156,15 @@ final class ScenarioTaskHarness {
     file.writeAsStringSync(content);
   }
 
-  String readRepoFile(String relativePath) => File(p.join(_scenarioRepoRoot(), relativePath)).readAsStringSync();
+  String readRepoFile(String relativePath) => File(p.join(workflowRepositoryRoot(), relativePath)).readAsStringSync();
+
+  ContextExtractor contextExtractor({WorkflowGitPort? workflowGitPort}) => ContextExtractor(
+    taskService: tasks,
+    messageService: messages,
+    dataDir: tempDir.path,
+    workflowStepExecutionRepository: workflowStepExecutions,
+    workflowGitPort: workflowGitPort,
+  );
 
   StepExecutionContext buildExecutionContext({
     required WorkflowRun run,
@@ -170,13 +180,7 @@ final class ScenarioTaskHarness {
       kvService: kvService,
       repository: workflowRuns,
       gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: tasks,
-        messageService: messages,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutions,
-        workflowGitPort: workflowGitPort,
-      ),
+      contextExtractor: contextExtractor(workflowGitPort: workflowGitPort),
       turnAdapter: turnAdapter,
       outputTransformer: outputTransformer,
       taskRepository: taskRepository,
@@ -297,21 +301,6 @@ final class ScenarioTaskHarness {
   Future<Map<String, dynamic>> readSessionKeyIndex() async {
     final raw = await File('$sessionsDir/.session_keys.json').readAsString();
     return jsonDecode(raw) as Map<String, dynamic>;
-  }
-}
-
-String _scenarioRepoRoot() {
-  var current = Directory.current;
-  while (true) {
-    if (File(p.join(current.path, 'AGENTS.md')).existsSync() &&
-        Directory(p.join(current.path, 'packages', 'dartclaw_workflow')).existsSync()) {
-      return current.path;
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate repository root');
-    }
-    current = parent;
   }
 }
 

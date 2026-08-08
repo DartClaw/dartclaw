@@ -1,20 +1,39 @@
 <div tl:fragment="channel_detail" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
-  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
     <div class="content-inner" data-controller="dc-channel-detail">
 
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+    <!-- Sibling of the shell banner slot, never a child: that div is tl:utext,
+         so nested markup is overwritten, and its tl:if drops the element
+         entirely when no shell banner is set — the common case. -->
+    <div id="channel-restart-banner" class="banner banner-warning" hidden>
+      <span class="icon icon-triangle-alert" aria-hidden="true"></span> Configuration changed. Restart required for changes to take effect.
+    </div>
 
     <div class="channel-detail-page" tl:attr="data-channel-type=${channelType}">
+      <div tl:if="${stateBannerClass}" tl:classappend="${stateBannerClass}" role="status">
+        <span class="icon icon-triangle-alert" aria-hidden="true"></span> <span tl:text="${stateBannerText}">Channel is not running.</span>
+      </div>
+      <div tl:if="${disabledGuidance}" class="banner banner-info channel-enable-guidance" role="status">
+        <span class="icon icon-info" aria-hidden="true"></span>
+        <span tl:text="${disabledGuidance}">Enable this channel in dartclaw.yaml, then restart DartClaw.</span>
+        <a href="/settings#channels">Channel settings</a>
+        <a tl:if="${pairingHref}" tl:attr="href=${pairingHref}">Pairing / Registration</a>
+      </div>
+
       <section class="card channel-detail-hero">
         <div class="channel-detail-hero-row">
           <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${channelType},data-identicon-initials=${channelLabel}"></span>
           <div class="channel-detail-hero-title">
-            <h1 tl:text="${heroTitle}">Channel</h1>
+            <h2 class="t-display" tl:text="${heroTitle}">Channel</h2>
             <p tl:text="${heroSubtitle}">Subtitle</p>
           </div>
-          <span class="status-badge" tl:classappend="${statusClass}" tl:text="${statusLabel}">Status</span>
+          <span class="status-badge" tl:classappend="${statusClass}">
+            <span class="status-dot" tl:classappend="${statusDotClass}" aria-hidden="true"></span>
+            <span tl:text="${statusLabel}">Status</span>
+          </span>
         </div>
         <div class="channel-detail-meta">
           <div tl:if="${phone}" class="channel-meta-pill">
@@ -31,7 +50,7 @@
           </div>
         </div>
         <div class="channel-detail-actions">
-          <a tl:attr="href=${pairingHref}" class="btn btn-sm btn-primary">Pairing / Registration</a>
+          <a tl:if="${pairingHref}" tl:attr="href=${pairingHref}" class="btn btn-sm btn-primary">Pairing / Registration</a>
           <form tl:if="${showDisconnectAction}" tl:attr="action=${disconnectHref}" method="POST">
             <button type="submit" class="btn btn-sm btn-danger">Disconnect</button>
           </form>
@@ -39,21 +58,22 @@
       </section>
 
       <div class="channel-detail-grid">
-        <section class="card panel-accent channel-detail-panel">
+        <section class="card channel-detail-panel">
           <div class="channel-panel-header">
-            <div class="channel-panel-kicker">DM Access</div>
-            <div class="channel-panel-title">Who can start a direct conversation?</div>
+            <div class="section-label">DM Access</div>
+            <div class="channel-panel-title" id="dm-access-question">Who can start a direct conversation?</div>
             <div class="channel-panel-copy">Choose one policy, then manage the queue or allowlist below.</div>
           </div>
 
-          <div class="channel-mode-grid">
+          <div class="channel-mode-grid" role="radiogroup" aria-labelledby="dm-access-question">
               <button
               tl:each="mode : ${dmModeCards}"
               type="button"
+              role="radio"
               class="channel-mode-card"
               tl:classappend="${mode.active} ? 'active' : ''"
               data-mode-select="dm_access"
-              tl:attr="data-mode-value=${mode.value},aria-pressed=${mode.active ? 'true' : 'false'}">
+              tl:attr="data-mode-value=${mode.value},aria-checked=${mode.active ? 'true' : 'false'},tabindex=${mode.active ? '0' : '-1'}">
               <span class="channel-mode-card-label">
                 <span tl:text="${mode.label}">Mode</span>
                 <span tl:if="${mode.active}" class="channel-mode-badge">Active</span>
@@ -61,17 +81,23 @@
               <span class="channel-mode-card-help" tl:text="${mode.help}">Help text</span>
             </button>
           </div>
+          <!-- Value holder for the existing save path only: the radiogroup above
+               is the single control assistive tech sees. -->
           <select
             id="channel-dm-access"
             name="dm_access"
             class="form-select channel-mode-select channel-mode-select-hidden"
             data-field-key="dm_access"
-            aria-label="DM access mode">
+            aria-hidden="true"
+            tabindex="-1">
             <option tl:each="mode : ${dmAccessModes}" tl:attr="value=${mode},selected=${mode == dmAccessMode ? 'selected' : null}" tl:text="${mode}">mode</option>
           </select>
 
-          <div tl:if="${showPairingSection}" class="well well-content channel-sub-card channel-pairing-card" data-section="pairing">
-            <h3>Pending Pairing Requests</h3>
+          <!-- Rendered unconditionally and toggled client-side, so the DM mode
+               change that reveals it does not need a reload. -->
+          <div class="well well-content channel-sub-card channel-pairing-card" data-section="pairing"
+               tl:attr="hidden=${pairingSectionHidden}">
+            <h3 class="section-label">Pending Pairing Requests</h3>
             <div id="pairing-requests-container" class="pairing-requests">
               <div tl:if="${pendingPairings}" class="pairing-list">
                 <div tl:each="pairing : ${pendingPairings}" class="pairing-row">
@@ -89,13 +115,13 @@
                   </div>
                 </div>
               </div>
-              <div tl:unless="${pendingPairings}" class="pairing-empty">No pending pairing requests</div>
+              <div tl:unless="${pendingPairings}" class="text-muted">No pending pairing requests</div>
             </div>
             <div class="channel-hint">This block appears only while DM mode is set to pairing.</div>
           </div>
 
           <div class="well well-content channel-sub-card">
-            <h3>Known DM Allowlist</h3>
+            <h3 class="section-label">Known DM Allowlist</h3>
             <div class="allowlist-section" data-allowlist="dm">
               <div class="allowlist-header">
                 <span class="allowlist-count">Allowlist (<span class="allowlist-count-num" tl:text="${dmAllowlistCount}">0</span> entries)</span>
@@ -108,7 +134,7 @@
                   <span class="entry-state-badge live">Live</span>
                   <button class="btn btn-sm btn-danger allowlist-remove" type="button" tl:attr="data-entry=${entry}">Remove</button>
                 </div>
-                <div tl:unless="${dmAllowlist}" class="allowlist-empty">No entries</div>
+                <div tl:unless="${dmAllowlist}" class="text-muted">No entries</div>
               </div>
               <form class="allowlist-add-form" data-allowlist-type="dm">
                 <label class="sr-only" for="dm-allowlist-entry">Add DM allowlist entry</label>
@@ -122,26 +148,27 @@
                 <button type="submit" class="btn btn-sm btn-primary">Add entry</button>
               </form>
               <div class="allowlist-add-error"></div>
-              <div class="channel-hint">DM allowlist changes take effect immediately.</div>
+              <div tl:if="${dmPolicyHint}" class="channel-hint" tl:text="${dmPolicyHint}">DM allowlist changes take effect immediately.</div>
             </div>
           </div>
         </section>
 
         <div class="channel-detail-side-column">
-          <section class="card panel-info channel-detail-panel">
+          <section class="card channel-detail-panel">
             <div class="channel-panel-header">
-              <div class="channel-panel-kicker">Group Access</div>
-              <div class="channel-panel-title">Who can talk in groups?</div>
+              <div class="section-label">Group Access</div>
+              <div class="channel-panel-title" id="group-access-question">Who can talk in groups?</div>
             </div>
 
-            <div class="channel-mode-grid single-column">
+            <div class="channel-mode-grid single-column" role="radiogroup" aria-labelledby="group-access-question">
               <button
                 tl:each="mode : ${groupModeCards}"
                 type="button"
+                role="radio"
                 class="channel-mode-card"
                 tl:classappend="${mode.active} ? 'active' : ''"
                 data-mode-select="group_access"
-                tl:attr="data-mode-value=${mode.value},aria-pressed=${mode.active ? 'true' : 'false'}">
+                tl:attr="data-mode-value=${mode.value},aria-checked=${mode.active ? 'true' : 'false'},tabindex=${mode.active ? '0' : '-1'}">
                 <span class="channel-mode-card-label">
                   <span tl:text="${mode.label}">Mode</span>
                   <span tl:if="${mode.active}" class="channel-mode-badge">Active</span>
@@ -154,12 +181,13 @@
               name="group_access"
               class="form-select channel-mode-select channel-mode-select-hidden"
               data-field-key="group_access"
-              aria-label="Group access mode">
+              aria-hidden="true"
+              tabindex="-1">
               <option tl:each="mode : ${groupAccessModes}" tl:attr="value=${mode},selected=${mode == groupAccessMode ? 'selected' : null}" tl:text="${mode}">mode</option>
             </select>
 
             <div class="well well-content channel-sub-card">
-              <h3>Allowed Groups</h3>
+              <h3 class="section-label">Allowed Groups</h3>
               <div class="allowlist-section" data-allowlist="group">
                 <div class="allowlist-header">
                   <span class="allowlist-count">Allowlist (<span class="allowlist-count-num" tl:text="${groupAllowlistCount}">0</span> entries)</span>
@@ -172,7 +200,7 @@
                     <span class="entry-state-badge restart">Restart</span>
                     <button class="btn btn-sm btn-danger allowlist-remove" type="button" tl:attr="data-entry=${entry}">Remove</button>
                   </div>
-                  <div tl:unless="${groupAllowlist}" class="allowlist-empty">No entries</div>
+                  <div tl:unless="${groupAllowlist}" class="text-muted">No entries</div>
                 </div>
                 <form class="allowlist-add-form" data-allowlist-type="group">
                   <label class="sr-only" for="group-allowlist-entry">Add allowed group</label>
@@ -191,7 +219,7 @@
             </div>
 
             <div class="well well-content channel-sub-card channel-mention-section" data-section="mention" tl:classappend="${groupAccessDisabled} ? 'channel-mention-disabled' : ''">
-              <h3>Mention Gating</h3>
+              <h3 class="section-label">Mention Gating</h3>
               <label class="channel-checkbox-row" for="require-mention">
                 <input type="checkbox" id="require-mention" class="form-checkbox" tl:attr="checked=${requireMention ? 'checked' : null}">
                 <span>Require @mention in groups</span>
@@ -203,7 +231,7 @@
             </div>
 
             <div class="well well-content channel-sub-card channel-task-trigger-section" data-section="task-trigger">
-              <h3>Task Trigger</h3>
+              <h3 class="section-label">Task Trigger</h3>
               <label class="channel-checkbox-row" for="task-trigger-enabled">
                 <input
                   type="checkbox"
@@ -220,7 +248,7 @@
                 class="well well-content channel-sub-card"
                 data-task-trigger-fields
                 tl:attr="hidden=${taskTriggerEnabled ? null : 'hidden'},aria-hidden=${taskTriggerEnabled ? 'false' : 'true'}">
-                <label class="form-label" for="task-trigger-prefix">Trigger prefix</label>
+                <label class="form-label t-caption tracking-caps" for="task-trigger-prefix">Trigger prefix</label>
                 <input
                   type="text"
                   id="task-trigger-prefix"
@@ -228,7 +256,7 @@
                   tl:attr="value=${taskTriggerPrefix}">
                 <div class="channel-hint">Example: <code>task:</code> or <code>do:</code>.</div>
 
-                <label class="form-label" for="task-trigger-default-type">Default task type</label>
+                <label class="form-label t-caption tracking-caps" for="task-trigger-default-type">Default task type</label>
                 <select id="task-trigger-default-type" class="form-select">
                   <option
                     tl:each="taskType : ${taskTriggerTypes}"
@@ -254,10 +282,8 @@
         </div>
       </div>
 
-      <div id="channel-restart-banner" class="banner banner-warning" hidden>
-        <span class="icon icon-triangle-alert" aria-hidden="true"></span> Configuration changed. Restart required for changes to take effect.
-      </div>
     </div>
     </div>
   </main>
+  </div>
 </div>

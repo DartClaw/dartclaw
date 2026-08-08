@@ -141,7 +141,7 @@ class TasksPage extends DashboardPage {
       statusFilter: params['status'],
       typeFilter: params['type'],
       reviewCount: reviewCount,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
       agentRunners: agentRunners,
       agentPool: agentPool,
@@ -252,7 +252,7 @@ class TasksPage extends DashboardPage {
         messagesHtml = messagesHtmlFragment(messageList);
       } catch (e) {
         _log.warning('Failed to load messages for session ${task.sessionId}: $e');
-        messagesHtml = '<div class="empty-state-text">Failed to load session messages.</div>';
+        messagesHtml = '<div class="text-muted">Failed to load session messages.</div>';
       }
     }
 
@@ -299,7 +299,7 @@ class TasksPage extends DashboardPage {
       turnStatus: task.sessionId == null ? null : context.turns?.turnStatus(task.sessionId!).toJson(),
       messagesHtml: messagesHtml,
       timelineHtml: timelineHtml,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
       defaultProvider: defaultProvider,
       initialTokensUsed: initialTokensUsed,
@@ -372,22 +372,31 @@ class TasksPage extends DashboardPage {
           ..write('<div class="task-diff-file-header">')
           ..write('<strong>${escape.convert(filePath)}</strong>')
           ..write(' <span class="type-badge">${escape.convert(fileStatus)}</span>')
-          ..write(' <span class="empty-state-text">+$additions / -$deletions</span>')
+          ..write(' <span class="text-muted">+$additions / -$deletions</span>')
           ..write('</div>');
 
         if (binary) {
-          buffer.write('<p class="empty-state-text">Binary file content not shown.</p>');
+          buffer.write('<p class="text-muted">Binary file content not shown.</p>');
         } else if (hunks.isEmpty) {
-          buffer.write('<p class="empty-state-text">No textual hunks recorded.</p>');
+          buffer.write('<p class="text-muted">No textual hunks recorded.</p>');
         } else {
           for (final hunkEntry in hunks) {
             final hunk = hunkEntry is Map<String, dynamic> ? hunkEntry : Map<String, dynamic>.from(hunkEntry as Map);
             final lines = hunk['lines'] is List ? hunk['lines'] as List : const [];
             buffer
               ..write('<div class="task-diff-hunk">')
-              ..write('<div class="empty-state-text">${escape.convert(hunk['header']?.toString() ?? '')}</div>')
               ..write('<pre class="task-artifact-raw">')
-              ..write(escape.convert(lines.map((line) => line.toString()).join('\n')))
+              ..write(_diffLineHtml(hunk['header']?.toString() ?? '', 'diff-line--hunk', escape));
+            for (final line in lines) {
+              final text = line.toString();
+              final variant = switch (text.isEmpty ? '' : text[0]) {
+                '+' => 'diff-line--add',
+                '-' => 'diff-line--del',
+                _ => '',
+              };
+              buffer.write(_diffLineHtml(text, variant, escape));
+            }
+            buffer
               ..write('</pre>')
               ..write('</div>');
           }
@@ -400,6 +409,14 @@ class TasksPage extends DashboardPage {
       _log.fine('Failed to render diff HTML: $e');
       return null;
     }
+  }
+
+  /// One `.diff-line` block per source line. Empty text becomes a single space
+  /// because a block-level element with no content collapses to zero height, and
+  /// a diff that silently drops its blank lines misreports the change.
+  static String _diffLineHtml(String text, String variant, HtmlEscape escape) {
+    final classes = variant.isEmpty ? 'diff-line' : 'diff-line $variant';
+    return '<span class="$classes">${escape.convert(text.isEmpty ? ' ' : text)}</span>';
   }
 
   static Map<String, dynamic>? _parseConflictData(String content) {

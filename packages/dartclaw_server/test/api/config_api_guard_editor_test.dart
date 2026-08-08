@@ -170,6 +170,13 @@ workspace:
       expect(deleteResponse.statusCode, 200);
       final yaml = File(configPath).readAsStringSync();
       expect(yaml, isNot(contains('secrets')));
+
+      final state = await readJson(await request(router, 'GET', '/api/config/guards'));
+      final guards = (state['guards'] as List<dynamic>).cast<Map<String, dynamic>>();
+      final command = guards.firstWhere((guard) => guard['guard'] == 'command');
+      final network = guards.firstWhere((guard) => guard['guard'] == 'network');
+      expect((command['fields'] as Map<String, dynamic>)['extra_blocked_patterns'], ['dangerous-command']);
+      expect((network['fields'] as Map<String, dynamic>)['extra_allowed_domains'], ['example.com']);
     });
 
     test('S03 creates a network allowlist extension in YAML', () async {

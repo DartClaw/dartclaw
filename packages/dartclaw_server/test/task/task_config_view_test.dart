@@ -84,15 +84,23 @@ void main() {
 
       expect(TaskConfigView(_task()).effort, isNull);
       expect(TaskConfigView(_task(configJson: {'effort': 1})).effort, isNull);
+      expect(TaskConfigView(_task(configJson: {'effort': '  '})).effort, isNull);
       expect(TaskConfigView(_task(configJson: {'effort': ' high '})).effort, 'high');
 
       expect(TaskConfigView(_task()).pushBackComment, isNull);
       expect(TaskConfigView(_task(configJson: {'pushBackComment': 1})).pushBackComment, isNull);
+      expect(TaskConfigView(_task(configJson: {'pushBackComment': '  '})).pushBackComment, isNull);
       expect(TaskConfigView(_task(configJson: {'pushBackComment': ' revise '})).pushBackComment, 'revise');
       expect(TaskConfigView(_task(configJson: {'lastError': 1})).lastError, isNull);
       expect(TaskConfigView(_task(configJson: {'lastError': 'failed'})).lastError, 'failed');
       expect(TaskConfigView(_task(configJson: {'_continueSessionId': 1})).continueSessionId, isNull);
+      expect(TaskConfigView(_task(configJson: {'_continueSessionId': '  '})).continueSessionId, isNull);
       expect(TaskConfigView(_task(configJson: {'_continueSessionId': ' session-1 '})).continueSessionId, 'session-1');
+
+      expect(TaskConfigView(_task()).requiredInputPath, isNull);
+      expect(TaskConfigView(_task(configJson: {'requiredInputPath': 1})).requiredInputPath, isNull);
+      expect(TaskConfigView(_task(configJson: {'requiredInputPath': '  '})).requiredInputPath, isNull);
+      expect(TaskConfigView(_task(configJson: {'requiredInputPath': ' fis.md '})).requiredInputPath, 'fis.md');
 
       expect(TaskConfigView(_task()).tokenBudget, isNull);
       expect(TaskConfigView(_task(configJson: {'tokenBudget': '100'})).tokenBudget, isNull);

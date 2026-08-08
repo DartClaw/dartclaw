@@ -18,45 +18,12 @@ void main() {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'spec' => StubResponse(
-            assistantContent: contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-              'spec_confidence': 9,
-            }),
-          ),
-          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
-          'integrated-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'remediate' => StubResponse(
-            assistantContent: contextOutput({
-              'remediation_summary': 'No remediation needed',
-              'diff_summary': 'IMPLEMENT_DIFF_MARKER',
-            }),
-          ),
-          're-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'architecture-review' => architectureReviewStub(),
-          'integrated-review-council' => integratedReviewCouncilStub(),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
+      responseForStep: (queued) async => specAndImplementCommonStub(
+        queued,
+        diffSummary: 'IMPLEMENT_DIFF_MARKER',
+        remediationSummary: 'No remediation needed',
+        includeRemediation: true,
+      ),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -70,30 +37,12 @@ void main() {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'dev/specs/test/s01-pre-authored.md', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'spec' => StubResponse(
-            assistantContent: contextOutput({
-              'spec_path': 'dev/specs/test/s01-pre-authored.md',
-              'spec_source': 'existing',
-              'spec_confidence': 0,
-            }),
-          ),
-          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'DIFF'})),
-          'integrated-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'architecture-review' => architectureReviewStub(),
-          'integrated-review-council' => integratedReviewCouncilStub(),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
+      responseForStep: (queued) async => specAndImplementCommonStub(
+        queued,
+        specPath: 'dev/specs/test/s01-pre-authored.md',
+        specSource: 'existing',
+        specConfidence: 0,
+      ),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -108,33 +57,7 @@ void main() {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'A vague feature description', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'spec' => StubResponse(
-            assistantContent: contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-              'spec_confidence': 4,
-            }),
-          ),
-          // revise-spec declares no `outputs:` – it edits the FIS in place.
-          // An empty workflow-context payload is enough to satisfy the protocol.
-          'revise-spec' => StubResponse(assistantContent: contextOutput(const {})),
-          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'DIFF'})),
-          'integrated-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'architecture-review' => architectureReviewStub(),
-          'integrated-review-council' => integratedReviewCouncilStub(),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
+      responseForStep: (queued) async => specAndImplementCommonStub(queued, specConfidence: 4, includeReviseSpec: true),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -153,42 +76,7 @@ void main() {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'Project binding check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'spec' => StubResponse(
-            assistantContent: contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-              'spec_confidence': 9,
-            }),
-          ),
-          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'DIFF'})),
-          'integrated-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'remediate' => StubResponse(
-            assistantContent: contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'architecture-review' => architectureReviewStub(),
-          'integrated-review-council' => integratedReviewCouncilStub(),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
+      responseForStep: (queued) async => specAndImplementCommonStub(queued, includeRemediation: true),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -211,42 +99,7 @@ void main() {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'feature/discovery-baseline'},
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'spec' => StubResponse(
-            assistantContent: contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-              'spec_confidence': 9,
-            }),
-          ),
-          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'DIFF'})),
-          'integrated-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'remediate' => StubResponse(
-            assistantContent: contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          'architecture-review' => architectureReviewStub(),
-          'integrated-review-council' => integratedReviewCouncilStub(),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
+      responseForStep: (queued) async => specAndImplementCommonStub(queued, includeRemediation: true),
     );
 
     // spec opts in to FEATURE via workflowVariables; the spec step's prompt
@@ -454,34 +307,12 @@ void main() {
                 },
               );
             }(),
-            'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
-            'integrated-review' => StubResponse(
-              assistantContent: contextOutput(
-                reviewReportContext(
-                  queued.stepKey,
-                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                  findingsCount: 0,
-                ),
-              ),
+            _ => specAndImplementCommonStub(
+              queued,
+              diffSummary: 'IMPLEMENT_DIFF_MARKER',
+              remediationSummary: 'No remediation needed',
+              includeRemediation: true,
             ),
-            'remediate' => StubResponse(
-              assistantContent: contextOutput({
-                'remediation_summary': 'No remediation needed',
-                'diff_summary': 'IMPLEMENT_DIFF_MARKER',
-              }),
-            ),
-            're-review' => StubResponse(
-              assistantContent: contextOutput(
-                reviewReportContext(
-                  queued.stepKey,
-                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                  findingsCount: 0,
-                ),
-              ),
-            ),
-            'architecture-review' => architectureReviewStub(),
-            'integrated-review-council' => integratedReviewCouncilStub(),
-            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
       );

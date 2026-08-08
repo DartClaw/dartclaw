@@ -3,14 +3,21 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+import 'markdown_formatter.dart';
 import 'signal_config.dart';
 import 'signal_cli_manager.dart';
 import 'signal_dm_access.dart';
 import 'signal_sender_map.dart';
 
+bool _isDirectRecipient(String recipientId) {
+  if (recipientId.contains('@')) return false;
+  return isValidSignalE164(recipientId) || isValidSignalUuid(recipientId);
+}
+
 /// Signal channel implementation via signal-cli subprocess.
 class SignalChannel extends Channel {
   static final _log = Logger('SignalChannel');
+  static const _typingRefreshInterval = Duration(seconds: 10);
 
   @override
   final String name = 'signal';
@@ -25,6 +32,12 @@ class SignalChannel extends Channel {
   final String? _dataDir;
   SignalSenderMap? _senderMap;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
+  final Map<String, int> _typingLeases = {};
+  final Map<String, Timer> _typingRefreshTimers = {};
+  final Map<String, Future<void>> _typingUpdates = {};
+  final Set<String> _typingActive = {};
+  final Set<String> _typingStartRetryUsed = {};
+  bool _disconnecting = false;
 
   SignalChannel({
     required this.sidecar,
@@ -45,8 +58,18 @@ class SignalChannel extends Channel {
       await _senderMap!.load();
     }
     await sidecar.start();
+    _disconnecting = false;
     _eventSub = sidecar.events.listen(_handleEvent);
-    _log.info('Signal channel connected');
+    switch (await sidecar.registrationState()) {
+      case SignalRegistrationState.registered:
+        _log.info('Signal channel started with a registered account');
+      case SignalRegistrationState.unregistered:
+        _log.warning(
+          'Signal channel started, but no account is registered; inbound messages are unavailable until pairing completes',
+        );
+      case SignalRegistrationState.unknown:
+        _log.warning('Signal channel started, but account registration could not be confirmed');
+    }
   }
 
   @override
@@ -55,7 +78,16 @@ class SignalChannel extends Channel {
 
     if (response.text.isNotEmpty) {
       try {
-        await sidecar.sendMessage(recipientId, response.text);
+        final textStyles = switch (response.metadata[signalTextStylesMetadataKey]) {
+          final List<dynamic> values => values.whereType<String>().toList(),
+          _ => const <String>[],
+        };
+        await sidecar.sendMessage(
+          recipientId,
+          response.text,
+          isGroup: !_isDirectRecipient(recipientId),
+          textStyles: textStyles,
+        );
       } catch (e) {
         _log.warning('Failed to send text to $recipientId', e);
         rethrow;
@@ -67,25 +99,124 @@ class SignalChannel extends Channel {
   bool ownsJid(String jid) {
     // Signal identifiers are either E.164 phone numbers (+...) or ACI UUIDs
     // (sealed-sender). Both lack the '@' present in WhatsApp JIDs.
-    if (jid.contains('@')) return false;
-    if (jid.startsWith('+')) return true;
-    // UUID v4 pattern (signal-cli ACI): 8-4-4-4-12 hex
-    return RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(jid);
+    return _isDirectRecipient(jid);
   }
 
   @override
-  List<ChannelResponse> formatResponse(String text) {
-    final chunks = chunkText(text, maxSize: config.maxChunkSize);
-    return [for (final chunk in chunks) ChannelResponse(text: chunk)];
+  Future<void> startTyping(String recipientJid) async {
+    if (_disconnecting || !sidecar.isRunning) return;
+
+    final activeLeases = _typingLeases[recipientJid] ?? 0;
+    _typingLeases[recipientJid] = activeLeases + 1;
+
+    final isGroup = !_isDirectRecipient(recipientJid);
+    if (activeLeases == 0) {
+      _typingStartRetryUsed.remove(recipientJid);
+      _typingRefreshTimers[recipientJid] = Timer.periodic(_typingRefreshInterval, (_) {
+        unawaited(
+          _queueTypingUpdate(recipientJid, isGroup: isGroup, isTyping: true).catchError((
+            Object error,
+            StackTrace stackTrace,
+          ) {
+            _log.warning('Failed to refresh Signal typing for $recipientJid', error, stackTrace);
+          }),
+        );
+      });
+      await _queueTypingUpdate(recipientJid, isGroup: isGroup, isTyping: true);
+      return;
+    }
+
+    final pending = _typingUpdates[recipientJid];
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {}
+    }
+    if (_typingActive.contains(recipientJid) ||
+        _disconnecting ||
+        (_typingLeases[recipientJid] ?? 0) == 0 ||
+        !_typingStartRetryUsed.add(recipientJid)) {
+      return;
+    }
+    await _queueTypingUpdate(recipientJid, isGroup: isGroup, isTyping: true);
   }
+
+  @override
+  Future<void> stopTyping(String recipientJid) async {
+    final activeLeases = _typingLeases[recipientJid] ?? 0;
+    if (activeLeases > 1) {
+      _typingLeases[recipientJid] = activeLeases - 1;
+      return;
+    }
+
+    _typingLeases.remove(recipientJid);
+    _typingStartRetryUsed.remove(recipientJid);
+    _typingRefreshTimers.remove(recipientJid)?.cancel();
+    if (!sidecar.isRunning || activeLeases == 0) return;
+
+    await _queueTypingUpdate(recipientJid, isGroup: !_isDirectRecipient(recipientJid), isTyping: false);
+  }
+
+  @override
+  List<ChannelResponse> formatResponse(String text) => formatSignalMarkdown(text, maxSize: config.maxChunkSize);
 
   @override
   Future<void> disconnect() async {
     _log.info('Disconnecting Signal channel');
+    _disconnecting = true;
+    for (final timer in _typingRefreshTimers.values) {
+      timer.cancel();
+    }
+    _typingRefreshTimers.clear();
+    final activeRecipients = {..._typingLeases.keys, ..._typingActive};
+    _typingLeases.clear();
+    if (sidecar.isRunning) {
+      await Future.wait(
+        activeRecipients.map(
+          (recipientJid) =>
+              _queueTypingUpdate(recipientJid, isGroup: !_isDirectRecipient(recipientJid), isTyping: false).catchError((
+                Object error,
+                StackTrace stackTrace,
+              ) {
+                _log.warning('Failed to stop Signal typing during disconnect for $recipientJid', error, stackTrace);
+              }),
+        ),
+      );
+    }
+    await Future.wait(
+      _typingUpdates.values.toList().map(
+        (update) => update.catchError((Object error, StackTrace stackTrace) {
+          _log.fine('Signal typing update ended during disconnect: $error');
+        }),
+      ),
+    );
+    _typingUpdates.clear();
+    _typingActive.clear();
+    _typingStartRetryUsed.clear();
     await _eventSub?.cancel();
     _eventSub = null;
     await sidecar.reset();
     _log.info('Signal channel disconnected');
+  }
+
+  Future<void> _queueTypingUpdate(String recipientJid, {required bool isGroup, required bool isTyping}) {
+    final previous = _typingUpdates[recipientJid] ?? Future<void>.value();
+    final update = previous.then<void>((_) {}, onError: (Object _, StackTrace _) {}).then((_) async {
+      await sidecar.sendTyping(recipientJid, isGroup: isGroup, isTyping: isTyping);
+      if (isTyping) {
+        _typingActive.add(recipientJid);
+      } else {
+        _typingActive.remove(recipientJid);
+      }
+    });
+    late final Future<void> tracked;
+    tracked = update.whenComplete(() {
+      if (identical(_typingUpdates[recipientJid], tracked)) {
+        _typingUpdates.remove(recipientJid);
+      }
+    });
+    _typingUpdates[recipientJid] = tracked;
+    return tracked;
   }
 
   /// Handle an inbound SSE event from signal-cli daemon.

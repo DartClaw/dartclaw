@@ -37,19 +37,21 @@ typedef _SetupDefaults = ({
   bool inputSanitizerEnabled,
 });
 
+typedef _PreflightRunner =
+    Future<SetupPreflight> Function({
+      required List<String> providers,
+      required int port,
+      required String instanceDir,
+      bool workflowTrack,
+      Future<ProcessResult> Function(String, List<String>)? runProcess,
+    });
+
 abstract class _InitImpl extends Command<void> {
   @override
   String get description => 'Set up a DartClaw instance (config, workspace scaffold, onboarding)';
 
   final Logger _logger;
-  final Future<SetupPreflight> Function({
-    required List<String> providers,
-    required int port,
-    required String instanceDir,
-    bool workflowTrack,
-    Future<ProcessResult> Function(String, List<String>)? runProcess,
-  })
-  _runPreflight;
+  final _PreflightRunner _runPreflight;
   final Future<List<String>> Function(SetupState) _applySetup;
   final void Function(String) _writeLine;
   final bool Function() _hasTerminal;
@@ -59,14 +61,7 @@ abstract class _InitImpl extends Command<void> {
 
   _InitImpl({
     Logger? logger,
-    Future<SetupPreflight> Function({
-      required List<String> providers,
-      required int port,
-      required String instanceDir,
-      bool workflowTrack,
-      Future<ProcessResult> Function(String, List<String>)? runProcess,
-    })?
-    runPreflight,
+    _PreflightRunner? runPreflight,
     Future<List<String>> Function(SetupState)? applySetup,
     void Function(String)? writeLine,
     bool Function()? hasTerminal,
@@ -1078,7 +1073,7 @@ abstract class _InitImpl extends Command<void> {
     final lines = <String>[
       if (state.whatsappEnabled) 'WhatsApp pairing: start the server, then scan the QR code shown in the logs.',
       if (state.signalEnabled)
-        'Signal linking: run `signal-cli link --name dartclaw` after the server is up, then restart DartClaw.',
+        'Signal linking: open http://localhost:${state.port}/signal/pairing after the server is up and scan the QR code.',
       if (state.googleChatEnabled)
         'Google Chat: register the webhook after startup at http://host:${state.port}/integrations/googlechat.',
     ];

@@ -21,7 +21,7 @@ String healthDashboardTemplate({
   AuditPage? auditPage,
   String? verdictFilter,
   String? guardFilter,
-  String bannerHtml = '',
+  String restartBannerHtml = '',
   String appName = 'DartClaw',
   Map<String, dynamic>? pubsubHealth,
 }) {
@@ -36,52 +36,38 @@ String healthDashboardTemplate({
     _ => ('card-featured-error', 'status-badge-error', 'status-dot--error'),
   };
 
-  final workerBadgeClass = switch (workerState) {
-    'running' || 'idle' => 'badge-success',
-    'crashed' => 'badge-error',
-    _ => 'badge-muted',
+  // Status is never carried by the hero copy alone — the badge card below
+  // remains the semantic signal; this is the view's brand moment.
+  final heroHtml = promptHeroTemplate(
+    eyebrow: 'System health',
+    titleHtml: switch (status) {
+      'healthy' => 'All systems <span class="text-gradient">luminous</span>',
+      'degraded' => 'Running degraded',
+      _ => 'Attention needed',
+    },
+  );
+
+  final workerValueClass = switch (workerState) {
+    '' => 'value-absent',
+    'running' || 'idle' => 'text-success',
+    'crashed' => 'text-error',
+    _ => 'text-muted',
   };
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(title: 'System Health');
+  final topbar = pageTopbarTemplate(title: 'System Health', restartBannerHtml: restartBannerHtml);
 
+  // Uptime, session count and DB size live in the KPI row above; the service
+  // cards carry only the facts that row cannot express.
   final cardDefs = <Map<String, dynamic>>[
     {
-      'title': 'Worker',
-      'badgeClass': workerBadgeClass,
-      'badgeText': workerState,
-      'rows': <Map<String, dynamic>>[
-        {'label': 'State', 'value': workerState, 'valueClass': ''},
-        {'label': 'Runtime', 'value': 'claude binary', 'valueClass': ''},
-      ],
-    },
-    {
-      'title': 'Database',
-      'badgeClass': 'badge-success',
-      'badgeText': 'ok',
-      'rows': <Map<String, dynamic>>[
-        {'label': 'Size', 'value': dbSizeStr, 'valueClass': ''},
-        {'label': 'FTS5 Index', 'value': 'active', 'valueClass': 'text-success'},
-        {'label': 'Type', 'value': 'SQLite', 'valueClass': ''},
-      ],
-    },
-    {
-      'title': 'Sessions',
-      'badgeClass': 'badge-muted',
-      'badgeText': '$sessionCount total',
-      'rows': <Map<String, dynamic>>[
-        {'label': 'Total', 'value': '$sessionCount', 'valueClass': ''},
-        {'label': 'Storage', 'value': 'NDJSON files', 'valueClass': ''},
-      ],
-    },
-    {
       'title': 'Storage',
-      'badgeClass': 'badge-success',
+      'variant': 'success',
       'badgeText': 'ok',
       'rows': <Map<String, dynamic>>[
-        {'label': 'Search DB', 'value': dbSizeStr, 'valueClass': ''},
-        {'label': 'Format', 'value': 'file-based', 'valueClass': ''},
+        {'label': 'Database', 'value': 'SQLite', 'valueClass': ''},
+        {'label': 'Sessions', 'value': 'NDJSON files', 'valueClass': ''},
       ],
     },
   ];
@@ -93,18 +79,18 @@ String healthDashboardTemplate({
     final errors = pubsubHealth['consecutive_errors'] as int? ?? 0;
     final activeSubs = pubsubHealth['active_subscriptions'] as int? ?? 0;
 
-    final pubsubBadgeClass = switch (pubsubStatus) {
-      'healthy' => 'badge-success',
-      'degraded' => 'badge-warning',
-      'unavailable' => 'badge-error',
-      _ => 'badge-muted',
+    final pubsubVariant = switch (pubsubStatus) {
+      'healthy' => 'success',
+      'degraded' => 'warning',
+      'unavailable' => 'error',
+      _ => 'muted',
     };
     final pubsubBadgeText = switch (pubsubStatus) {
       'disabled' => 'off',
       _ => pubsubStatus,
     };
 
-    final lastPullDisplay = _formatLastPull(lastPull);
+    final lastPullDisplay = lastPull == null ? 'never' : formatRelativeTimeIso(lastPull);
 
     final pubsubRows = <Map<String, dynamic>>[
       {
@@ -117,17 +103,12 @@ String healthDashboardTemplate({
           _ => '',
         },
       },
-      {'label': 'Last Pull', 'value': lastPullDisplay, 'valueClass': ''},
+      {'label': 'Last Pull', 'value': lastPullDisplay, 'valueClass': lastPullDisplay.isEmpty ? 'value-absent' : ''},
       {'label': 'Subscriptions', 'value': '$activeSubs active', 'valueClass': ''},
       if (errors > 0) {'label': 'Errors', 'value': '$errors consecutive', 'valueClass': 'text-warning'},
     ];
 
-    cardDefs.add({
-      'title': 'Pub/Sub',
-      'badgeClass': pubsubBadgeClass,
-      'badgeText': pubsubBadgeText,
-      'rows': pubsubRows,
-    });
+    cardDefs.add({'title': 'Pub/Sub', 'variant': pubsubVariant, 'badgeText': pubsubBadgeText, 'rows': pubsubRows});
   }
 
   final cardsHtml = cardDefs
@@ -135,7 +116,7 @@ String healthDashboardTemplate({
         (c) => infoCardTemplate(
           title: c['title'] as String,
           badgeText: c['badgeText'] as String,
-          badgeClass: c['badgeClass'] as String,
+          variant: c['variant'] as String,
           rows: (c['rows'] as List).cast<Map<String, dynamic>>(),
         ),
       )
@@ -160,29 +141,15 @@ String healthDashboardTemplate({
     'statusCardClass': statusCardClass,
     'statusBadgeClass': statusBadgeClass,
     'statusDotClass': statusDotClass,
+    'heroHtml': heroHtml,
     'statusLabel': statusLabel,
-    'uptimeStr': uptimeStr,
     'version': version,
     'workerState': workerState,
+    'workerValueClass': workerValueClass,
     'cardsHtml': cardsHtml,
     'metricsHtml': metricsHtml,
     'auditSection': auditSection,
-    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
   return layoutTemplate(title: 'Health', body: body, appName: appName, scripts: standardShellScripts());
-}
-
-String _formatLastPull(String? isoTimestamp) {
-  if (isoTimestamp == null) return 'never';
-  try {
-    final dt = DateTime.parse(isoTimestamp);
-    final diff = DateTime.now().toUtc().difference(dt);
-    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  } catch (e) {
-    return 'unknown';
-  }
 }

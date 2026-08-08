@@ -151,15 +151,18 @@ void main() {
     expect(body, contains('>Tasks<'));
   });
 
-  test('dev config hides non-settings dashboard routes even when services are wired', () async {
-    final fixture = _buildConfiguredServer(DartclawConfig.load(configPath: _exampleConfigPath('dev.yaml')));
+  test('dev config keeps the core Health dashboard available without HealthService', () async {
+    final fixture = _buildConfiguredServer(
+      DartclawConfig.load(configPath: _exampleConfigPath('dev.yaml')),
+      includeHealthService: false,
+    );
     addTearDown(() => _disposeFixture(fixture));
 
     final settings = await fixture.handler(Request('GET', Uri.parse('http://localhost/settings')));
     final settingsBody = await settings.readAsString();
     expect(settings.statusCode, equals(200));
+    expect(settingsBody, contains('href="/health-dashboard" hx-get="/health-dashboard"'));
     expect(settingsBody, contains('href="/settings" hx-get="/settings"'));
-    expect(settingsBody, isNot(contains('href="/health-dashboard" hx-get="/health-dashboard"')));
     expect(settingsBody, isNot(contains('href="/memory" hx-get="/memory"')));
     expect(settingsBody, isNot(contains('href="/scheduling" hx-get="/scheduling"')));
     expect(settingsBody, isNot(contains('href="/tasks" hx-get="/tasks"')));
@@ -168,14 +171,14 @@ void main() {
 
     expect(
       (await fixture.handler(Request('GET', Uri.parse('http://localhost/health-dashboard')))).statusCode,
-      equals(404),
+      equals(200),
     );
     expect((await fixture.handler(Request('GET', Uri.parse('http://localhost/memory')))).statusCode, equals(404));
     expect((await fixture.handler(Request('GET', Uri.parse('http://localhost/scheduling')))).statusCode, equals(404));
     expect((await fixture.handler(Request('GET', Uri.parse('http://localhost/tasks')))).statusCode, equals(404));
   });
 
-  test('personal-assistant config keeps only settings and scheduling even when services are wired', () async {
+  test('personal-assistant config keeps the core Health dashboard and scheduling', () async {
     final fixture = _buildConfiguredServer(
       DartclawConfig.load(configPath: _exampleConfigPath('personal-assistant.yaml')),
     );
@@ -184,9 +187,9 @@ void main() {
     final settings = await fixture.handler(Request('GET', Uri.parse('http://localhost/settings')));
     final settingsBody = await settings.readAsString();
     expect(settings.statusCode, equals(200));
+    expect(settingsBody, contains('href="/health-dashboard" hx-get="/health-dashboard"'));
     expect(settingsBody, contains('href="/settings" hx-get="/settings"'));
     expect(settingsBody, contains('href="/scheduling" hx-get="/scheduling"'));
-    expect(settingsBody, isNot(contains('href="/health-dashboard" hx-get="/health-dashboard"')));
     expect(settingsBody, isNot(contains('href="/memory" hx-get="/memory"')));
     expect(settingsBody, isNot(contains('href="/tasks" hx-get="/tasks"')));
     expect(settingsBody, isNot(contains('class="sidebar-section-label">Channels')));
@@ -194,7 +197,7 @@ void main() {
 
     expect(
       (await fixture.handler(Request('GET', Uri.parse('http://localhost/health-dashboard')))).statusCode,
-      equals(404),
+      equals(200),
     );
     expect((await fixture.handler(Request('GET', Uri.parse('http://localhost/memory')))).statusCode, equals(404));
     expect((await fixture.handler(Request('GET', Uri.parse('http://localhost/tasks')))).statusCode, equals(404));
@@ -236,7 +239,7 @@ typedef _ConfiguredServerFixture = ({
   Directory tempDir,
 });
 
-_ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config) {
+_ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool includeHealthService = true}) {
   final tempDir = Directory.systemTemp.createTempSync('dartclaw_dashboard_config_routes_test_');
   final workspaceDir = p.join(tempDir.path, 'workspace');
   Directory(workspaceDir).createSync(recursive: true);
@@ -260,12 +263,14 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config) {
       runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
     ),
   );
-  final healthService = HealthService(
-    worker: worker,
-    searchDbPath: p.join(tempDir.path, 'search.db'),
-    sessionsDir: p.join(tempDir.path, 'sessions'),
-    tasksDir: p.join(tempDir.path, 'tasks'),
-  );
+  final healthService = includeHealthService
+      ? HealthService(
+          worker: worker,
+          searchDbPath: p.join(tempDir.path, 'search.db'),
+          sessionsDir: p.join(tempDir.path, 'sessions'),
+          tasksDir: p.join(tempDir.path, 'tasks'),
+        )
+      : null;
 
   final server =
       (DartclawServerBuilder()

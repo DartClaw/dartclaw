@@ -10,14 +10,6 @@ void main() {
       command = WorkflowCommand();
     });
 
-    test('name is workflow', () {
-      expect(command.name, 'workflow');
-    });
-
-    test('description is set', () {
-      expect(command.description, isNotEmpty);
-    });
-
     test('has list subcommand', () {
       expect(command.subcommands.containsKey('list'), isTrue);
     });

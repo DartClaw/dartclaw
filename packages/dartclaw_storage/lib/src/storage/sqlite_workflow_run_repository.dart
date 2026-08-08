@@ -129,11 +129,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         run.currentStepIndex,
         _encodeJson(run.definitionJson),
         _encodeJsonNullable(run.executionCursor?.toJson()),
-        _encodeJsonNullable(
-          run.workflowWorktrees.isEmpty
-              ? null
-              : {'items': run.workflowWorktrees.map((binding) => binding.toJson()).toList()},
-        ),
+        _encodeWorkflowWorktreeBindings(run.workflowWorktrees),
       ]);
     } finally {
       stmt.close();
@@ -207,11 +203,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         run.currentStepIndex,
         _encodeJson(run.definitionJson),
         _encodeJsonNullable(run.executionCursor?.toJson()),
-        _encodeJsonNullable(
-          run.workflowWorktrees.isEmpty
-              ? null
-              : {'items': run.workflowWorktrees.map((binding) => binding.toJson()).toList()},
-        ),
+        _encodeWorkflowWorktreeBindings(run.workflowWorktrees),
         run.id,
       ]);
     } finally {
@@ -243,11 +235,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
       WHERE id = ?
     ''');
     try {
-      stmt.execute([
-        jsonEncode({'items': updated.map((candidate) => candidate.toJson()).toList()}),
-        DateTime.now().toIso8601String(),
-        runId,
-      ]);
+      stmt.execute([_encodeWorkflowWorktreeBindings(updated), DateTime.now().toIso8601String(), runId]);
       if (_db.updatedRows == 0) {
         throw ArgumentError('Workflow run not found: $runId');
       }
@@ -268,15 +256,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
     try {
       final rows = stmt.select([runId]);
       if (rows.isEmpty) return const [];
-      final json = _decodeJsonNullable(rows.first['workflow_worktree_json']);
-      if (json == null) return const [];
-      final items = json['items'];
-      if (items is List) {
-        return items
-            .map((item) => WorkflowWorktreeBinding.fromJson(Map<String, dynamic>.from(item as Map)))
-            .toList(growable: false);
-      }
-      return [WorkflowWorktreeBinding.fromJson(json)];
+      return _decodeWorkflowWorktreeBindings(rows.first['workflow_worktree_json']);
     } finally {
       stmt.close();
     }
@@ -316,6 +296,9 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
     final json = _decodeJsonNullable(value);
     return json == null ? null : WorkflowExecutionCursor.fromJson(json);
   }
+
+  String? _encodeWorkflowWorktreeBindings(List<WorkflowWorktreeBinding> bindings) =>
+      bindings.isEmpty ? null : jsonEncode({'items': bindings.map((binding) => binding.toJson()).toList()});
 
   List<WorkflowWorktreeBinding> _decodeWorkflowWorktreeBindings(Object? value) {
     final json = _decodeJsonNullable(value);

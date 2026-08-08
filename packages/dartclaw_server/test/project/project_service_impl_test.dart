@@ -14,6 +14,13 @@ GitRunner _fakeGitRunner({int exitCode = 0, String stderr = '', String stdout = 
   return (args, {environment, workingDirectory}) async => (exitCode: exitCode, stderr: stderr, stdout: stdout);
 }
 
+GitRunner _recordingGitRunner(List<List<String>> commands) {
+  return (args, {environment, workingDirectory}) async {
+    commands.add(args);
+    return (exitCode: 0, stderr: '', stdout: '');
+  };
+}
+
 Future<void> deleteTempDirWithRetries(Directory dir) async {
   for (var attempt = 0; attempt < 5; attempt++) {
     if (!dir.existsSync()) {
@@ -140,13 +147,7 @@ void main() {
         definitions: {'cfg-project': ProjectDefinition(id: 'cfg-project', localPath: gitRepoDir.path)},
       );
 
-      final svc = makeService(
-        projectConfig: config,
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(projectConfig: config, gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       final project = await svc.get('cfg-project');
@@ -251,12 +252,7 @@ void main() {
 
     test('localPath projects are created ready without cloning', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       final project = await svc.create(name: 'live-app', localPath: gitRepoDir.path);
@@ -605,12 +601,7 @@ void main() {
 
     test('fetches when outside cooldown (no lastFetchAt)', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       await svc.ensureFresh(makeReadyProject());
@@ -622,10 +613,7 @@ void main() {
       final commands = <List<String>>[];
       final svc = makeService(
         projectConfig: const ProjectConfig(fetchCooldownMinutes: 5),
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
+        gitRunner: _recordingGitRunner(commands),
       );
       await svc.initialize();
 
@@ -640,10 +628,7 @@ void main() {
       final commands = <List<String>>[];
       final svc = makeService(
         projectConfig: const ProjectConfig(fetchCooldownMinutes: 5),
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
+        gitRunner: _recordingGitRunner(commands),
       );
       await svc.initialize();
 
@@ -656,12 +641,7 @@ void main() {
 
     test('fetch for external project includes branch name', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       await svc.ensureFresh(makeReadyProject());
@@ -672,12 +652,7 @@ void main() {
 
     test('fetch for external project honors explicit ref override', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       await svc.ensureFresh(makeReadyProject(), ref: 'release/0.16', strict: true);
@@ -689,12 +664,7 @@ void main() {
 
     test('rejects option-shaped fetch refs before invoking git', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       await expectLater(
@@ -722,12 +692,7 @@ void main() {
 
     test('named local-path projects no-op without invoking git', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       final localProject = makeReadyProject().copyWith(remoteUrl: '', localPath: gitRepoDir.path);
@@ -738,12 +703,7 @@ void main() {
 
     test('_local project ensureFresh is a no-op', () async {
       final commands = <List<String>>[];
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          commands.add(args);
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
+      final svc = makeService(gitRunner: _recordingGitRunner(commands));
       await svc.initialize();
 
       await svc.ensureFresh(svc.localProject, ref: 'release/0.16', strict: true);

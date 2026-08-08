@@ -1,5 +1,8 @@
 import 'dart:io';
 
+part 'unsupported_service_backend.dart';
+part 'macos_launch_agent_backend_support.dart';
+
 /// Result of a service operation.
 class ServiceResult {
   final bool success;
@@ -58,11 +61,22 @@ String _quotedStderr(ProcessResult result) {
 
 class MacOSLaunchAgentBackend implements ServiceBackend {
   final Future<ProcessResult> Function(String, List<String>) _run;
+  final void Function(String, String) _renameFile;
+  final void Function(String) _deleteFile;
   final String _home;
+  final String _path;
 
-  MacOSLaunchAgentBackend({Future<ProcessResult> Function(String, List<String>)? run, String? home})
-    : _run = run ?? Process.run,
-      _home = home ?? Platform.environment['HOME'] ?? '.';
+  MacOSLaunchAgentBackend({
+    Future<ProcessResult> Function(String, List<String>)? run,
+    String? home,
+    Map<String, String>? environment,
+    void Function(String, String)? renameFile,
+    void Function(String)? deleteFile,
+  }) : _run = run ?? Process.run,
+       _renameFile = renameFile ?? _renameFileSync,
+       _deleteFile = deleteFile ?? _deleteFileSync,
+       _home = home ?? Platform.environment['HOME'] ?? '.',
+       _path = _launchAgentPath(environment ?? Platform.environment);
 
   String get _agentDir => '$_home/Library/LaunchAgents';
 
@@ -82,17 +96,21 @@ class MacOSLaunchAgentBackend implements ServiceBackend {
     Directory('$instanceDir/logs').createSync(recursive: true);
 
     final plistPath = _plistPathFor(instanceDir);
-    File(plistPath).writeAsStringSync(
-      _plistContent(
-        label: _labelFor(instanceDir),
-        binPath: binPath,
-        configPath: configPath,
-        instanceDir: instanceDir,
-        sourceDir: sourceDir,
-      ),
-    );
-
+    final label = _labelFor(instanceDir);
     final uid = await _uid();
+    final plistContent = _plistContent(
+      label: label,
+      binPath: binPath,
+      configPath: configPath,
+      instanceDir: instanceDir,
+      sourceDir: sourceDir,
+    );
+    if (File(plistPath).existsSync()) {
+      return _refreshExistingDefinition(plistPath: plistPath, plistContent: plistContent, label: label, uid: uid);
+    }
+
+    File(plistPath).writeAsStringSync(plistContent);
+
     final result = await _run('launchctl', ['bootstrap', 'gui/$uid', plistPath]);
     if (result.exitCode == 0) {
       return const ServiceResult(success: true, message: 'LaunchAgent installed and loaded.');
@@ -100,7 +118,18 @@ class MacOSLaunchAgentBackend implements ServiceBackend {
 
     final stderrText = _quotedStderr(result);
     if (stderrText.contains('36') || stderrText.contains('already')) {
-      return const ServiceResult(success: true, message: 'LaunchAgent already installed.');
+      final error = await _bootoutLoaded(label: label, uid: uid);
+      if (error != null) {
+        final failure = ServiceResult(success: false, message: 'launchctl bootout failed: $error');
+        return failure;
+      }
+      final retry = await _run('launchctl', ['bootstrap', 'gui/$uid', plistPath]);
+      if (retry.exitCode == 0) {
+        const refreshed = ServiceResult(success: true, message: 'LaunchAgent definition refreshed and loaded.');
+        return refreshed;
+      }
+      final failure = ServiceResult(success: false, message: 'launchctl bootstrap failed: ${_quotedStderr(retry)}');
+      return failure;
     }
     return ServiceResult(success: false, message: 'launchctl bootstrap failed: $stderrText');
   }
@@ -114,10 +143,9 @@ class MacOSLaunchAgentBackend implements ServiceBackend {
 
     final label = _labelFor(instanceDir);
     final uid = await _uid();
-    final result = await _run('launchctl', ['bootout', 'gui/$uid/$label']);
-    final stderrText = result.stderr.toString().trim();
-    if (result.exitCode != 0 && stderrText.isNotEmpty && !stderrText.contains('No such process')) {
-      return ServiceResult(success: false, message: 'launchctl bootout failed: $stderrText');
+    final error = await _bootoutLoaded(label: label, uid: uid);
+    if (error != null) {
+      return ServiceResult(success: false, message: 'launchctl bootout failed: $error');
     }
 
     File(plistPath).deleteSync();
@@ -171,51 +199,26 @@ class MacOSLaunchAgentBackend implements ServiceBackend {
     }
     return ServiceResult(success: false, message: 'launchctl kill failed: ${_quotedStderr(result)}');
   }
-
-  Future<String> _uid() async {
-    final result = await _run('id', ['-u']);
-    return result.stdout.toString().trim();
-  }
-
-  String _plistContent({
-    required String label,
-    required String binPath,
-    required String configPath,
-    required String instanceDir,
-    String? sourceDir,
-  }) {
-    final arguments = <String>[
-      binPath,
-      'serve',
-      '--config',
-      configPath,
-      if (sourceDir != null) ...['--source-dir', sourceDir],
-    ];
-    final programArguments = arguments.map((arg) => '    <string>$arg</string>').join('\n');
-
-    return '''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>$label</string>
-  <key>ProgramArguments</key>
-  <array>
-$programArguments
-  </array>
-  <key>KeepAlive</key>
-  <true/>
-  <key>RunAtLoad</key>
-  <false/>
-  <key>StandardOutPath</key>
-  <string>$instanceDir/logs/dartclaw.log</string>
-  <key>StandardErrorPath</key>
-  <string>$instanceDir/logs/dartclaw.err.log</string>
-</dict>
-</plist>
-''';
-  }
 }
+
+String _launchAgentPath(Map<String, String> environment) {
+  final entries = (environment['PATH'] ?? '')
+      .split(':')
+      .where((entry) => entry.startsWith('/'))
+      .toList(growable: false);
+  return entries.isEmpty ? '/usr/bin:/bin:/usr/sbin:/sbin' : entries.join(':');
+}
+
+String _xmlEscape(String value) => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+
+void _renameFileSync(String source, String target) => File(source).renameSync(target);
+
+void _deleteFileSync(String path) => File(path).deleteSync();
 
 class LinuxSystemdUserBackend implements ServiceBackend {
   final Future<ProcessResult> Function(String, List<String>) _run;
@@ -366,36 +369,6 @@ NoNewPrivileges=true
 WantedBy=default.target
 ''';
   }
-}
-
-class UnsupportedPlatformBackend implements ServiceBackend {
-  static const _hint =
-      'Automatic service management is not supported on this platform.\n'
-      'Start DartClaw manually: dartclaw serve';
-
-  @override
-  Future<ServiceResult> install({
-    required String binPath,
-    required String configPath,
-    required int port,
-    required String instanceDir,
-    String? sourceDir,
-  }) async => const ServiceResult(success: false, message: _hint);
-
-  @override
-  Future<ServiceResult> uninstall({required String instanceDir}) async =>
-      const ServiceResult(success: false, message: _hint);
-
-  @override
-  Future<ServiceStatus> status({required String instanceDir}) async => ServiceStatus.unknown;
-
-  @override
-  Future<ServiceResult> start({required String instanceDir}) async =>
-      const ServiceResult(success: false, message: _hint);
-
-  @override
-  Future<ServiceResult> stop({required String instanceDir}) async =>
-      const ServiceResult(success: false, message: _hint);
 }
 
 ServiceBackend createPlatformBackend({Future<ProcessResult> Function(String, List<String>)? run, String? home}) {

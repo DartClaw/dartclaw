@@ -69,6 +69,66 @@ void main() {
       expect(html, contains('Provider ID: codex'));
       expect(html, contains('Task Workers busy'));
     });
+
+    test('the tab strip is a real tab widget and the topbar keeps the only h1', () async {
+      final html = await _renderHtml(page, sessions);
+
+      expect(html, contains('role="tablist"'));
+      // Ten controls, ten panel groups: every card is a panel, and the four
+      // that share the Server tab are named on one aria-controls list.
+      expect(html, _hasMatchCount('role="tab"', 10));
+      expect(html, _hasMatchCount('role="tabpanel"', 16));
+      expect(
+        html,
+        contains('aria-controls="panel-server-config panel-server-auth panel-server-health panel-server-workspace"'),
+      );
+      // Every aria-controls token resolves to an element that exists.
+      for (final id in RegExp(r'aria-controls="([^"]*)"').allMatches(html).expand((m) => m.group(1)!.split(' '))) {
+        expect(html, contains('id="$id"'), reason: 'aria-controls names a panel that is not rendered: $id');
+      }
+      // The topbar owns the page title; the in-page head carries the subtitle.
+      expect(html, _hasMatchCount('<h1', 1));
+      expect(html, contains('Configuration and system status'));
+    });
+
+    test('settings states what it does not know instead of faking it', () async {
+      final html = await _renderHtml(page, sessions);
+
+      // No field advertises loading through its own text or placeholder; the
+      // in-flight treatment is a skeleton the controller swaps out on populate.
+      expect(html, isNot(contains('Loading...')));
+      expect(html, contains('data-field-skeleton'));
+      // agent.effort declares no allowed values, so the control is not
+      // presented as a picker whose only row is a bare em dash.
+      expect(html, isNot(contains('<option value="">—</option>')));
+      expect(html, contains('<option value="">Default</option>'));
+    });
+
+    test('the guard editor renders from the canonical tab and table components', () async {
+      final html = await _renderHtml(page, sessions);
+
+      expect(html, contains('class="data-table guard-editor-table"'));
+      expect(html, isNot(contains('guard-editor-tab"')));
+      expect(html, contains('<div class="tabs" role="tablist" aria-label="Guard types" data-guard-editor-tabs='));
+    });
+
+    test('related fields read as labelled groups and short numerics are capped', () async {
+      final html = await _renderHtml(page, sessions);
+
+      // Grouping, not decoration: each well is a role pair or a named cluster
+      // with its own accessible name.
+      expect(RegExp('class="well ').allMatches(html).length, greaterThanOrEqualTo(8));
+      expect(RegExp('role="group"').allMatches(html).length, greaterThanOrEqualTo(8));
+      for (final field in ['field-port', 'field-agent-max-turns', 'field-sessions-reset-hour']) {
+        expect(
+          RegExp('form-input--num[^>]*id="$field"').hasMatch(html),
+          isTrue,
+          reason: '$field spans the card measure for a two-character value',
+        );
+      }
+      // The width scale is canon's; settings applies it and declares none.
+      expect(html, isNot(contains('max-width')));
+    });
   });
 }
 

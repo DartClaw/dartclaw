@@ -36,6 +36,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../task/task_service.dart';
 import '../task/workflow_start_precondition_exception.dart';
+import '../workflow_approval_metadata.dart';
 import 'api_helpers.dart';
 import 'sse_broadcast.dart';
 
@@ -546,19 +547,7 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
     if (step.taskType == WorkflowTaskType.approval) {
       final approvalStatus = run.contextJson['${step.id}.approval.status'];
       if (approvalStatus != null) {
-        stepEntry['approval'] = {
-          'status': approvalStatus,
-          'message': run.contextJson['${step.id}.approval.message'],
-          'requestedAt': run.contextJson['${step.id}.approval.requested_at'],
-          if (run.contextJson['${step.id}.approval.resolved_at'] != null)
-            'resolvedAt': run.contextJson['${step.id}.approval.resolved_at'],
-          if (run.contextJson['${step.id}.approval.feedback'] != null)
-            'feedback': run.contextJson['${step.id}.approval.feedback'],
-          if (run.contextJson['${step.id}.approval.timeout_deadline'] != null)
-            'timeoutDeadline': run.contextJson['${step.id}.approval.timeout_deadline'],
-          if (run.contextJson['${step.id}.approval.cancel_reason'] != null)
-            'cancelReason': run.contextJson['${step.id}.approval.cancel_reason'],
-        };
+        stepEntry['approval'] = workflowApprovalMetadata(run.contextJson, step.id, approvalStatus);
       }
     }
     steps.add(stepEntry);

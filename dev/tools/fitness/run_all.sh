@@ -3,8 +3,8 @@
 # Exits non-zero on the first failure so CI surfaces it.
 #
 # Prerequisites: workspace dependencies must be installed (`dart pub get` from
-# the repo root). CI runs `dart pub get` before invoking this script; locally,
-# run it manually if you haven't yet.
+# the repo root) and ripgrep (`rg`) must be on PATH. CI installs both before
+# invoking this script.
 #
 # Working dir: the script resolves the repo root from its own location, so it
 # can be invoked from anywhere. The `--source` and `--allowlist` paths handed
@@ -14,6 +14,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "fitness suite: missing required command: rg (ripgrep)" >&2
+  exit 2
+fi
+
 echo "==> fitness: check_no_workflow_private_config"
 bash dev/tools/fitness/check_no_workflow_private_config.sh
 
@@ -22,6 +27,12 @@ bash dev/tools/fitness/check_no_framework_coupling.sh
 
 echo "==> fitness: check_design_system_sync"
 bash dev/tools/fitness/check_design_system_sync.sh
+
+echo "==> fitness: check_css_comment_state"
+bash dev/tools/fitness/check_css_comment_state.sh
+
+echo "==> fitness: check_no_external_origins"
+bash dev/tools/fitness/check_no_external_origins.sh
 
 echo "==> fitness: check_task_executor_workflow_refs"
 dart run dev/tools/fitness/check_task_executor_workflow_refs.dart \

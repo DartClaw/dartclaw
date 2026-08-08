@@ -8,24 +8,36 @@ import 'search_provider.dart';
 /// Shared `McpTool` implementation for web-search providers.
 ///
 /// Owns the provider-agnostic surface: input JSON schema, query validation,
-/// count clamping, [ContentGuard] scan, and result formatting. Subclasses
-/// supply only the provider-specific seams via [name], [providerId],
-/// [providerLabel], and [maxCount]; the HTTP call itself is abstracted behind
-/// the injected [SearchProvider].
+/// count clamping, [ContentGuard] scan, and result formatting. The HTTP call
+/// itself is abstracted behind the injected [SearchProvider].
 abstract class SearchMcpTool implements McpTool {
   final SearchProvider provider;
   final ContentGuard? contentGuard;
 
-  SearchMcpTool({required this.provider, this.contentGuard});
+  SearchMcpTool({
+    required this.provider,
+    required this.name,
+    required this.description,
+    required this.providerId,
+    required this.providerLabel,
+    required this.maxCount,
+    this.contentGuard,
+  });
+
+  @override
+  final String name;
+
+  @override
+  final String description;
 
   /// Lowercase provider id emitted in the result payload (e.g. `brave`).
-  String get providerId;
+  final String providerId;
 
   /// Human-facing provider label used in error messages (e.g. `Brave`).
-  String get providerLabel;
+  final String providerLabel;
 
   /// Upper bound for the `count` parameter (clamp ceiling + schema maximum).
-  int get maxCount;
+  final int maxCount;
 
   @override
   Map<String, dynamic> get inputSchema => {

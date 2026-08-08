@@ -81,16 +81,18 @@ DartClaw's implementation addresses the known weaknesses of OpenClaw's `BOOTSTRA
 | **One-shot** — BOOTSTRAP.md deleted after first run, no re-trigger | **Re-triggerable**: `dartclaw setup --personalize` re-seeds ONBOARDING.md. Web UI "Personalize" button does the same via `POST /api/onboarding/reset` |
 | **Skipped if first message is a task** — identity files remain blank permanently | **Persistent with graceful deferral**: ONBOARDING.md includes a priority instruction to acknowledge the user's task first, then propose personalization. User can say "skip" or "later". File persists until personalization completes or user explicitly dismisses. Auto-expires after configurable period (default 14 days) with log warning |
 | **Prompt bloat** — sentinel loaded every turn until deleted (~1K tokens) | **Scoped injection**: ONBOARDING.md only injected in web UI sessions (not task/cron/channel sessions). Adds ~800 tokens to system prompt — acceptable for a temporary, bounded period |
-| **No file safety** — agent writes directly to SOUL.md, USER.md | **Draft-review for reruns**: First-run writes are direct (the files are stubs — nothing to clobber). Reruns via `--personalize` generate `.draft` files with diff preview. See [File Mutation Semantics](#file-mutation-semantics) |
+| **No file safety** — agent writes directly to SOUL.md, USER.md | **Draft-review whenever content may pre-exist**: Direct writes are limited to a workspace where init created both fresh stubs. Any pre-existing behavior file and every `--personalize` rerun generate `.draft` files with diff preview. See [File Mutation Semantics](#file-mutation-semantics) |
 
 #### File Mutation Semantics
 
 USER.md and SOUL.md are durable behavior inputs that users edit manually over time. The onboarding process handles first-run and rerun differently:
 
-**First run** (files are stubs from `WorkspaceService.scaffold()`):
+**Fresh first run** (both files were absent and init created the stubs):
 - Agent writes directly to USER.md and SOUL.md during the conversation. No draft step needed — the files contain only default scaffolding content, nothing to preserve.
 
-**Reruns** (files contain user-curated content):
+**Pre-existing files and reruns** (either file may contain user-curated content):
+- Ordinary init selects draft mode when either USER.md or SOUL.md existed before scaffolding
+- Ordinary init upgrades exact legacy generated direct-mode instructions without replacing surrounding user-authored content
 - Triggered via `dartclaw setup --personalize` (re-seeds ONBOARDING.md with a `rerun: true` flag)
 - ONBOARDING.md instructs the agent to read existing USER.md/SOUL.md first, note what's already there, and propose changes collaboratively
 - Agent generates `.draft` files rather than overwriting directly
@@ -130,7 +132,7 @@ The sentinel file is a behavioral instruction block (~800-1200 words) containing
 - **Re-triggerable.** `dartclaw setup --personalize` re-seeds ONBOARDING.md anytime — not one-shot like OpenClaw. Reruns use draft-review-apply for safe mutation.
 - **Offline-friendly.** Step 1 succeeds in "configured, provider unverified" state when offline. Network verification is deferrable via `--skip-verify`. Step 2 is optional and runs when the user starts their first conversation.
 - **CI/CD native.** Step 1 supports `--non-interactive`. Step 2 is skippable — don't seed ONBOARDING.md, or set `onboarding.skip: true` in config. For automated personalization, pre-write USER.md/SOUL.md directly (no agent needed).
-- **Safe file mutation.** First-run writes directly (stubs have nothing to preserve). Reruns generate `.draft` files with diff preview. Section-level merge preserves user-authored content.
+- **Safe file mutation.** Only newly created stubs are written directly. Pre-existing behavior files and reruns generate `.draft` files with diff preview. Section-level merge preserves user-authored content.
 - **Low implementation effort.** Step 1: new `SetupCommand` with TUI prompts (~3-4 stories). Step 2: ONBOARDING.md template + scoped injection in `BehaviorFileService` + `onboarding_complete` tool + re-trigger command (~2-3 stories).
 
 ### Negative
@@ -177,7 +179,7 @@ The sentinel file is a behavioral instruction block (~800-1200 words) containing
 
 - **Estimated effort:** 5-7 stories total. TUI wizard: 3-4 stories. ONBOARDING.md template + BehaviorFileService integration + re-trigger + draft-apply: 2-3 stories. Documentation: 0.5 story
 - **TUI library:** `mason_logger` (preferred, 593K downloads) or thin `dart:io` stdin layer (~200 LOC)
-- **ONBOARDING.md template location:** shipped as embedded content in `WorkspaceService`, written to `<workspace>/ONBOARDING.md` during `dartclaw setup` step 5
+- **ONBOARDING.md template location:** built by `SetupApply`, written to `<workspace>/ONBOARDING.md` during `dartclaw init`
 - **BehaviorFileService integration:** Add to `_loadCoreParts()` with session-scope filter (web UI only). ~50 LOC
 - **`onboarding_complete` MCP tool:** Registered alongside existing workspace tools. Deletes ONBOARDING.md + emits `OnboardingCompleteEvent` on EventBus. ~30 LOC
 - **Re-trigger:** `dartclaw setup --personalize` re-seeds ONBOARDING.md from template, with `rerun: true` marker. ~20 LOC in SetupCommand

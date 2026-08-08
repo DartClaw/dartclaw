@@ -145,13 +145,21 @@ context. Packaged installs need no source path because their assets are embedded
     <string>--source-dir</string>
     <string>/path/to/dartclaw-public</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/Users/you/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>KeepAlive</key><true/>
   <key>RunAtLoad</key><false/>
 </dict>
 </plist>
 ```
 
-The agent runs as your user — no `sudo` or dedicated OS user needed. To have it start at login, set `RunAtLoad` to `true` in the plist.
+The agent runs as your user — no `sudo` or dedicated OS user needed. Installation snapshots the absolute entries from
+the current shell's `PATH` into the plist, so provider CLIs and channel sidecars resolve the same way during verification
+and service startup. If that PATH changes, run `dartclaw service install` again to refresh the loaded definition. To have
+it start at login, set `RunAtLoad` to `true` in the plist.
 
 ## Linux (systemd --user)
 

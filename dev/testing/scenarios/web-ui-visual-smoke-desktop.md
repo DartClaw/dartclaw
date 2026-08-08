@@ -145,7 +145,7 @@ This sub-scenario checks the remaining major dashboard pages that are often omit
 
 ## S7: Verify Channel UI Surfaces In Disconnected State
 
-This sub-scenario checks that the channel-related pages render correctly when channels are enabled in config but not paired. The `visual` profile enables WhatsApp, Signal, and Google Chat with placeholder/unavailable backends so all channel surfaces render their unconfigured/disconnected look without depending on real hardware. Hardware-driven pairing flows belong to the `channels` profile and are out of scope here.
+This sub-scenario checks that the channel-related pages render correctly when channels are enabled in config but not paired. The `visual` profile keeps WhatsApp, Signal, and Google Chat configured for UI rendering while its runner disables automatic channel startup, so all channel surfaces render their unconfigured/disconnected look without depending on real hardware. Hardware-driven pairing flows belong to the `channels` profile and are out of scope here.
 
 ### Steps
 

@@ -84,6 +84,45 @@ StubResponse integratedReviewCouncilStub({int findingsCount = 0, int? gatingFind
   }),
 );
 
+StubResponse specAndImplementCommonStub(
+  QueuedStep queued, {
+  String specPath = 'docs/specs/test/spec.md',
+  String specSource = 'synthesized',
+  int specConfidence = 9,
+  String diffSummary = 'DIFF',
+  String remediationSummary = 'none',
+  bool includeReviseSpec = false,
+  bool includeRemediation = false,
+}) {
+  return switch (queued.stepKey) {
+    'spec' => StubResponse(
+      assistantContent: contextOutput({
+        'spec_path': specPath,
+        'spec_source': specSource,
+        'spec_confidence': specConfidence,
+      }),
+    ),
+    'revise-spec' when includeReviseSpec => StubResponse(assistantContent: contextOutput(const {})),
+    'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': diffSummary})),
+    'integrated-review' => StubResponse(
+      assistantContent: contextOutput(
+        reviewReportContext(queued.stepKey, stepArtifactsDir: stepArtifactsDirForTask(queued.task), findingsCount: 0),
+      ),
+    ),
+    'remediate' when includeRemediation => StubResponse(
+      assistantContent: contextOutput({'remediation_summary': remediationSummary, 'diff_summary': diffSummary}),
+    ),
+    're-review' when includeRemediation => StubResponse(
+      assistantContent: contextOutput(
+        reviewReportContext(queued.stepKey, stepArtifactsDir: stepArtifactsDirForTask(queued.task), findingsCount: 0),
+      ),
+    ),
+    'architecture-review' => architectureReviewStub(),
+    'integrated-review-council' => integratedReviewCouncilStub(),
+    _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+  };
+}
+
 StubResponse planAndImplementCommonStub(
   QueuedStep queued, {
   String storyResult = 'Implemented the story.',

@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart' hide GoogleJwtVerifier;
 import 'package:dartclaw_server/src/security/google_jwt_verifier.dart' show GoogleJwtVerifier;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
@@ -40,8 +40,6 @@ class _AlwaysValidJwtVerifier extends GoogleJwtVerifier {
   @override
   Future<bool> verify(String? authHeader) async => true;
 }
-
-// ---------------------------------------------------------------------------
 // Test group
 // ---------------------------------------------------------------------------
 
@@ -205,10 +203,10 @@ void main() {
   });
 
   group('PubSubHealthReporter integration with HealthService', () {
-    late _FakeHarness harness;
+    late FakeAgentHarness harness;
 
     setUp(() {
-      harness = _FakeHarness();
+      harness = FakeAgentHarness(autoTransitionState: false);
     });
 
     test('health service includes pubsub section when reporter is provided', () async {
@@ -257,65 +255,3 @@ void main() {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal fake harness
-// ---------------------------------------------------------------------------
-
-class _FakeHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async => {};
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {}
-}

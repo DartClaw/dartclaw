@@ -76,12 +76,7 @@ abstract final class ClaudeSettingsBuilder {
             try {
               jsonDecode(trimmed);
             } on FormatException {
-              final hostPath = p.isAbsolute(trimmed) ? trimmed : p.normalize(p.join(hostWorkingDirectory, trimmed));
-              final translated = containerManager.containerPathForHostPath(hostPath);
-              if (translated == null) {
-                throw StateError('Claude settings path is not mounted in the container: $hostPath');
-              }
-              return translated;
+              return _containerSettingsPath(containerManager, hostWorkingDirectory, trimmed);
             }
           }
           return trimmed;
@@ -104,11 +99,7 @@ abstract final class ClaudeSettingsBuilder {
             return trimmed;
           } on FormatException {
             if (containerManager != null) {
-              final hostPath = p.isAbsolute(trimmed) ? trimmed : p.normalize(p.join(hostWorkingDirectory, trimmed));
-              final translated = containerManager.containerPathForHostPath(hostPath);
-              if (translated == null) {
-                throw StateError('Claude settings path is not mounted in the container: $hostPath');
-              }
+              final translated = _containerSettingsPath(containerManager, hostWorkingDirectory, trimmed);
               _log.warning(
                 'Claude provider options include settings path "$trimmed" plus structured '
                 '"sandbox"/"permissions"; structured settings are ignored for path-based settings.',
@@ -152,6 +143,19 @@ abstract final class ClaudeSettingsBuilder {
 
     if (settings.isEmpty) return null;
     return jsonEncode(settings);
+  }
+
+  static String _containerSettingsPath(
+    ContainerExecutor containerManager,
+    String hostWorkingDirectory,
+    String rawPath,
+  ) {
+    final hostPath = p.isAbsolute(rawPath) ? rawPath : p.normalize(p.join(hostWorkingDirectory, rawPath));
+    final translated = containerManager.containerPathForHostPath(hostPath);
+    if (translated == null) {
+      throw StateError('Claude settings path is not mounted in the container: $hostPath');
+    }
+    return translated;
   }
 
   /// Translates a coarse DartClaw `sandbox` value into a Claude `sandbox`

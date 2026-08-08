@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannelManager;
+import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -14,7 +16,16 @@ class FakeSignalCliManager extends SignalCliManager {
   bool stopped = false;
   bool wasReset = false;
   final List<(String, String)> sentMessages = [];
+  final List<bool> sentMessageGroups = [];
+  final List<List<String>> sentMessageStyles = [];
+  final List<(String, bool, bool)> typingCalls = [];
+  final List<(String, bool, bool)> typingUpdates = [];
+  final List<String> lifecycleEvents = [];
+  Completer<void>? nextTypingGate;
+  bool failNextTyping = false;
   bool fakeHealthy = true;
+  SignalRegistrationState fakeRegistrationState = SignalRegistrationState.registered;
+  int registrationChecks = 0;
 
   final StreamController<Map<String, dynamic>> _fakeEvents = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -47,11 +58,38 @@ class FakeSignalCliManager extends SignalCliManager {
   @override
   Future<void> reset() async {
     wasReset = true;
+    lifecycleEvents.add('reset');
   }
 
   @override
-  Future<void> sendMessage(String recipient, String text) async {
+  Future<SignalRegistrationState> registrationState() async {
+    registrationChecks++;
+    return fakeRegistrationState;
+  }
+
+  @override
+  Future<void> sendMessage(
+    String recipient,
+    String text, {
+    required bool isGroup,
+    List<String> textStyles = const [],
+  }) async {
     sentMessages.add((recipient, text));
+    sentMessageGroups.add(isGroup);
+    sentMessageStyles.add(textStyles);
+  }
+
+  @override
+  Future<void> sendTyping(String recipient, {required bool isGroup, required bool isTyping}) async {
+    typingCalls.add((recipient, isGroup, isTyping));
+    final gate = nextTypingGate;
+    nextTypingGate = null;
+    final shouldFail = failNextTyping;
+    failNextTyping = false;
+    await gate?.future;
+    if (shouldFail) throw StateError('typing failed');
+    typingUpdates.add((recipient, isGroup, isTyping));
+    lifecycleEvents.add('typing:${isTyping ? 'start' : 'stop'}:$recipient');
   }
 
   /// Simulate an inbound SSE event.
@@ -129,14 +167,55 @@ void main() {
     test('ownsJid matches E.164 phone numbers', () {
       expect(channel.ownsJid('+1234567890'), isTrue);
       expect(channel.ownsJid('+44771234567'), isTrue);
+      expect(channel.ownsJid('12BFCD5A-1234-5678-9ABC-1234567890AB'), isTrue);
       expect(channel.ownsJid('1234567890'), isFalse); // no + prefix
       expect(channel.ownsJid('user@s.whatsapp.net'), isFalse);
       expect(channel.ownsJid('+123@something'), isFalse); // has @
+      expect(channel.ownsJid('+2lnbmFsLWdyb3Vw=='), isFalse); // base64 group ID can start with +
     });
 
     test('connect starts sidecar and subscribes to events', () async {
       await channel.connect();
       expect(sidecar.started, isTrue);
+      expect(sidecar.registrationChecks, 1);
+    });
+
+    test('connect warns instead of claiming readiness without a registered account', () async {
+      sidecar.fakeRegistrationState = SignalRegistrationState.unregistered;
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      await channel.connect();
+
+      expect(records.where((record) => record.message == 'Signal channel connected'), isEmpty);
+      expect(
+        records,
+        contains(
+          isA<LogRecord>()
+              .having((record) => record.level, 'level', Level.WARNING)
+              .having((record) => record.message, 'message', contains('no account is registered')),
+        ),
+      );
+    });
+
+    test('connect reports an indeterminate registration check without claiming no account', () async {
+      sidecar.fakeRegistrationState = SignalRegistrationState.unknown;
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      await channel.connect();
+
+      expect(records.where((record) => record.message.contains('no account is registered')), isEmpty);
+      expect(
+        records,
+        contains(
+          isA<LogRecord>()
+              .having((record) => record.level, 'level', Level.WARNING)
+              .having((record) => record.message, 'message', contains('could not be confirmed')),
+        ),
+      );
     });
 
     test('disconnect resets sidecar for re-pairing', () async {
@@ -148,6 +227,133 @@ void main() {
     test('sendMessage sends text via sidecar', () async {
       await channel.sendMessage('+1234567890', const ChannelResponse(text: 'Hello'));
       expect(sidecar.sentMessages, [('+1234567890', 'Hello')]);
+      expect(sidecar.sentMessageGroups, [false]);
+    });
+
+    test('sendMessage forwards native Signal text styles', () async {
+      await channel.sendMessage(
+        '+1234567890',
+        const ChannelResponse(
+          text: 'Hello',
+          metadata: {
+            'textStyles': ['0:5:BOLD'],
+          },
+        ),
+      );
+
+      expect(sidecar.sentMessageStyles, [
+        ['0:5:BOLD'],
+      ]);
+    });
+
+    test('sendMessage routes group IDs through the group RPC parameter', () async {
+      await channel.sendMessage('+2lnbmFsLWdyb3Vw==', const ChannelResponse(text: 'Hello group'));
+
+      expect(sidecar.sentMessages, [('+2lnbmFsLWdyb3Vw==', 'Hello group')]);
+      expect(sidecar.sentMessageGroups, [true]);
+    });
+
+    test('sendMessage treats mixed-case Signal UUIDs as direct recipients', () async {
+      await channel.sendMessage(
+        '12BFCD5A-1234-5678-9ABC-1234567890AB',
+        const ChannelResponse(text: 'Hello sealed sender'),
+      );
+
+      expect(sidecar.sentMessageGroups, [false]);
+    });
+
+    test('startTyping and stopTyping use direct recipient semantics', () async {
+      await channel.startTyping('+1234567890');
+      await channel.stopTyping('+1234567890');
+
+      expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+    });
+
+    test('startTyping and stopTyping use group semantics for group IDs', () async {
+      await channel.startTyping('+2lnbmFsLWdyb3Vw==');
+      await channel.stopTyping('+2lnbmFsLWdyb3Vw==');
+
+      expect(sidecar.typingUpdates, [('+2lnbmFsLWdyb3Vw==', true, true), ('+2lnbmFsLWdyb3Vw==', true, false)]);
+    });
+
+    test('serializes an in-flight refresh before STOP and prevents later refreshes', () {
+      fakeAsync((async) {
+        unawaited(channel.startTyping('+1234567890'));
+        async.flushMicrotasks();
+
+        final refreshGate = Completer<void>();
+        sidecar.nextTypingGate = refreshGate;
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+
+        expect(sidecar.typingCalls, [('+1234567890', false, true), ('+1234567890', false, true)]);
+        expect(sidecar.typingUpdates, [('+1234567890', false, true)]);
+
+        unawaited(channel.stopTyping('+1234567890'));
+        async.flushMicrotasks();
+
+        expect(sidecar.typingCalls, [('+1234567890', false, true), ('+1234567890', false, true)]);
+
+        refreshGate.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 20));
+        async.flushMicrotasks();
+
+        expect(sidecar.typingUpdates, [
+          ('+1234567890', false, true),
+          ('+1234567890', false, true),
+          ('+1234567890', false, false),
+        ]);
+      });
+    });
+
+    test('keeps shared recipient typing active until every turn settles', () async {
+      final startGate = Completer<void>();
+      sidecar.nextTypingGate = startGate;
+
+      final starts = [
+        channel.startTyping('+1234567890'),
+        channel.startTyping('+1234567890'),
+        channel.startTyping('+1234567890'),
+      ];
+      await pumpEventQueue();
+
+      expect(sidecar.typingCalls, [('+1234567890', false, true)]);
+
+      startGate.complete();
+      await Future.wait(starts);
+      await channel.stopTyping('+1234567890');
+      await channel.stopTyping('+1234567890');
+
+      expect(sidecar.typingUpdates, [('+1234567890', false, true)]);
+
+      await channel.stopTyping('+1234567890');
+      expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+    });
+
+    test('disconnect stops active typing before reset and rejects later starts', () async {
+      await channel.startTyping('+1234567890');
+
+      await channel.disconnect();
+      await channel.startTyping('+1234567890');
+
+      expect(sidecar.typingUpdates, [('+1234567890', false, true), ('+1234567890', false, false)]);
+      expect(sidecar.lifecycleEvents, ['typing:start:+1234567890', 'typing:stop:+1234567890', 'reset']);
+    });
+
+    test('disconnect retries a failed final typing STOP', () async {
+      await channel.startTyping('+1234567890');
+      sidecar.failNextTyping = true;
+
+      await expectLater(channel.stopTyping('+1234567890'), throwsStateError);
+      await channel.disconnect();
+
+      expect(sidecar.typingCalls, [
+        ('+1234567890', false, true),
+        ('+1234567890', false, false),
+        ('+1234567890', false, false),
+      ]);
+      expect(sidecar.lifecycleEvents, ['typing:start:+1234567890', 'typing:stop:+1234567890', 'reset']);
     });
 
     test('sendMessage skips empty text', () async {
@@ -271,6 +477,126 @@ void main() {
       final responses = channel.formatResponse('Hello from agent');
       expect(responses, hasLength(1));
       expect(responses.first.text, 'Hello from agent');
+    });
+
+    test('formatResponse converts Markdown to Signal text and native style ranges', () {
+      const markdown = '''## Summary
+
+Use **bold**, _italic_, ~~old~~, and `code`.
+
+| Item | State |
+| --- | --- |
+| Build | **Pass** |''';
+
+      final response = channel.formatResponse(markdown).single;
+
+      const expected = '''Summary
+
+Use bold, italic, old, and code.
+
+Item | State
+Build | Pass''';
+      expect(response.text, expected);
+      expect(response.metadata['textStyles'], [
+        '${expected.indexOf('Summary')}:7:BOLD',
+        '${expected.indexOf('bold')}:4:BOLD',
+        '${expected.indexOf('italic')}:6:ITALIC',
+        '${expected.indexOf(', old') + 2}:3:STRIKETHROUGH',
+        '${expected.indexOf('code')}:4:MONOSPACE',
+        '${expected.indexOf('Item')}:4:BOLD',
+        '${expected.indexOf('State')}:5:BOLD',
+        '${expected.indexOf('Pass')}:4:BOLD',
+      ]);
+    });
+
+    test('formatResponse measures Signal styles in UTF-16 code units', () {
+      final response = channel.formatResponse('**😀 bold**').single;
+
+      expect(response.text, '😀 bold');
+      expect(response.metadata['textStyles'], ['0:7:BOLD']);
+    });
+
+    test('formatResponse remaps styles across chunk prefixes', () {
+      final smallChunkChannel = _makeChannel(
+        sidecar: sidecar,
+        channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
+      );
+
+      final responses = smallChunkChannel.formatResponse('**${'A' * 120}**');
+
+      expect(responses.map((response) => response.text.length), [50, 50, 38]);
+      expect(responses.map((response) => response.metadata['textStyles']), [
+        ['6:44:BOLD'],
+        ['6:44:BOLD'],
+        ['6:32:BOLD'],
+      ]);
+    });
+
+    test('formatResponse keeps styled emoji intact at a hard chunk boundary', () {
+      final smallChunkChannel = _makeChannel(
+        sidecar: sidecar,
+        channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
+      );
+
+      final responses = smallChunkChannel.formatResponse('**${'a' * 43}😀${'b' * 20}**');
+
+      expect(responses, hasLength(2));
+      expect(responses.first.text, '(1/2) ${'a' * 43}');
+      expect(responses.last.text, '(2/2) 😀${'b' * 20}');
+      expect(responses.map((response) => response.metadata['textStyles']), [
+        ['6:43:BOLD'],
+        ['6:22:BOLD'],
+      ]);
+    });
+
+    test('formatResponse preserves indented code across chunk boundaries', () {
+      final smallChunkChannel = _makeChannel(
+        sidecar: sidecar,
+        channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
+      );
+      final codeLine = '  indented value';
+
+      final responses = smallChunkChannel.formatResponse('```\n${List.filled(8, codeLine).join('\n')}\n```');
+
+      expect(responses, hasLength(greaterThan(1)));
+      expect(responses.map((response) => response.text).join().split(codeLine).length - 1, 8);
+    });
+
+    test('formatResponse renders links, images, nested lists, tasks, quotes, and fenced code', () {
+      const markdown = '''[docs](https://example.com) and ![shot](https://example.com/shot.png)
+
+- parent
+  - child
+- [x] done
+
+> first
+>
+> second
+
+```dart
+final value = 1;
+```''';
+
+      final response = channel.formatResponse(markdown).single;
+
+      expect(response.text, contains('docs (https://example.com)'));
+      expect(response.text, contains('shot (https://example.com/shot.png)'));
+      expect(response.text, contains('• parent'));
+      expect(response.text, contains('  • child'));
+      expect(response.text, contains('[x] done'));
+      expect(response.text, contains('│ first\n\n│ second'));
+      expect(response.text, contains('final value = 1;'));
+      expect(response.metadata['textStyles'], contains(contains('MONOSPACE')));
+    });
+
+    test('formatResponse retains nested bold and italic styles', () {
+      final response = channel.formatResponse('***both***').single;
+
+      expect(response.text, 'both');
+      expect(response.metadata['textStyles'], ['0:4:BOLD', '0:4:ITALIC']);
     });
 
     test('formatResponse chunks long messages', () {

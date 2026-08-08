@@ -288,12 +288,7 @@ class TaskService implements WorkflowTaskService {
           if (!mutableFieldsUpdated) {
             throw const _TaskTransitionConflict();
           }
-          final existing = await agentExecutionRepository.get(nextExecution.id);
-          if (existing == null) {
-            await agentExecutionRepository.create(nextExecution);
-          } else {
-            await agentExecutionRepository.update(nextExecution, trigger: 'system');
-          }
+          await _persistAgentExecution(agentExecutionRepository, nextExecution, trigger: 'system');
         });
         persisted = true;
       } on _TaskTransitionConflict {
@@ -302,12 +297,7 @@ class TaskService implements WorkflowTaskService {
     } else {
       persisted = await _repo.updateMutableFieldsIfStatus(updated, expectedStatus: task.status);
       if (persisted && agentExecutionChanged && nextExecution != null && agentExecutionRepository != null) {
-        final existing = await agentExecutionRepository.get(nextExecution.id);
-        if (existing == null) {
-          await agentExecutionRepository.create(nextExecution);
-        } else {
-          await agentExecutionRepository.update(nextExecution, trigger: 'system');
-        }
+        await _persistAgentExecution(agentExecutionRepository, nextExecution, trigger: 'system');
       }
     }
     if (!persisted) {
@@ -450,12 +440,7 @@ class TaskService implements WorkflowTaskService {
           if (!updated) {
             throw const _TaskTransitionConflict();
           }
-          final existing = await repository.get(nextExecution.id);
-          if (existing == null) {
-            await repository.create(nextExecution);
-          } else {
-            await repository.update(nextExecution, trigger: trigger, timestamp: timestamp);
-          }
+          await _persistAgentExecution(repository, nextExecution, trigger: trigger, timestamp: timestamp);
         });
         return true;
       } on _TaskTransitionConflict {
@@ -467,13 +452,22 @@ class TaskService implements WorkflowTaskService {
     if (!updated) {
       return false;
     }
-    final existing = await repository.get(nextExecution.id);
-    if (existing == null) {
-      await repository.create(nextExecution);
-    } else {
-      await repository.update(nextExecution, trigger: trigger, timestamp: timestamp);
-    }
+    await _persistAgentExecution(repository, nextExecution, trigger: trigger, timestamp: timestamp);
     return true;
+  }
+
+  Future<void> _persistAgentExecution(
+    AgentExecutionRepository repository,
+    AgentExecution execution, {
+    required String trigger,
+    DateTime? timestamp,
+  }) async {
+    final existing = await repository.get(execution.id);
+    if (existing == null) {
+      await repository.create(execution);
+    } else {
+      await repository.update(execution, trigger: trigger, timestamp: timestamp);
+    }
   }
 
   String? _trimmedOrNull(String? value) {

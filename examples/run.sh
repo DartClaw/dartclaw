@@ -28,5 +28,8 @@ if [ ! -f "$CONFIG" ]; then
   exit 1
 fi
 
+# Generated asset libraries are gitignored; emit them before running from source.
+dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
+
 cd "$REPO_ROOT"
 exec dart run dartclaw_cli:dartclaw --config "$CONFIG" serve "$@"

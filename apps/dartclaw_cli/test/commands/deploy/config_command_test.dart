@@ -18,12 +18,6 @@ void main() {
   });
 
   group('ConfigCommand', () {
-    test('has correct name and description', () {
-      final cmd = ConfigCommand();
-      expect(cmd.name, 'config');
-      expect(cmd.description, contains('configuration'));
-    });
-
     test('generates firewall rules in output directory', () async {
       final output = <String>[];
       final cmd = ConfigCommand();

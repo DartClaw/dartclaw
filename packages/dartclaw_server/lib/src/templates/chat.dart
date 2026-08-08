@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'components.dart';
 import 'loader.dart';
-import 'session_info.dart' show sessionTurnStatusView;
+import 'session_info.dart' show sessionTurnStatusMountView;
 
 // Patterns for special assistant messages stored by TurnManager.
 final _guardBlockPattern = RegExp(r'^\[(?:Response )?[Bb]locked by guard: (.+)\]$', dotAll: true);
@@ -92,7 +92,14 @@ ClassifiedMessage classifyMessage({
 ///
 /// Each message should already be classified via [classifyMessage].
 String messagesHtmlFragment(List<ClassifiedMessage> messages) {
-  if (messages.isEmpty) return emptyStateTemplate();
+  if (messages.isEmpty) {
+    return promptHeroTemplate(
+      titleHtml: '<span class="text-gradient">Welcome back</span>',
+      sub: 'Send a message to start the conversation.',
+      modifiers: 'prompt-hero--center prompt-hero--fill',
+      useMascot: true,
+    );
+  }
 
   final src = templateLoader.source('chat');
   final trellis = templateLoader.trellis;
@@ -165,21 +172,25 @@ Object? _tryDecodeJson(String value) {
 }
 
 /// Renders the full chat area, including the messages list and input form.
-/// [bannerHtml] is optional pre-rendered banner HTML placed before the messages.
+/// [chatNoticeHtml] is optional pre-rendered one-shot session-notice HTML
+/// (worker crash, turn recovery) placed before the messages. Restart state is
+/// shell chrome and is rendered into the topbar's restart slot, not here.
 String chatAreaTemplate({
   required String sessionId,
   required String messagesHtml,
   bool isStreaming = false,
   bool hasTitle = false,
-  String bannerHtml = '',
+  String chatNoticeHtml = '',
   bool readOnly = false,
   int? earliestCursor,
   bool hasEarlierMessages = false,
+  bool autofocus = false,
+  bool isNewChatDraft = false,
   Map<String, dynamic>? turnStatus,
 }) {
   final placeholder = isStreaming ? 'Agent is responding...' : 'Type a message...';
   final inputDisabled = isStreaming || readOnly;
-  final turnStatusView = sessionTurnStatusView(turnStatus, fallbackSessionId: sessionId);
+  final turnStatusView = sessionTurnStatusMountView(turnStatus, fallbackSessionId: sessionId);
 
   // Trellis auto-escapes attribute values set via tl:attr, so pass raw sessionId.
   return templateLoader.trellis.renderFragment(
@@ -188,16 +199,18 @@ String chatAreaTemplate({
     context: {
       'sessionId': sessionId,
       'hasTitle': hasTitle ? 'true' : 'false',
+      'newChatDraft': isNewChatDraft ? 'true' : null,
       'earliestCursor': earliestCursor?.toString(),
       'loadEarlierHidden': hasEarlierMessages ? null : true,
-      'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+      'chatNoticeHtml': chatNoticeHtml.isNotEmpty ? chatNoticeHtml : null,
       'messagesHtml': messagesHtml,
       'turnStatus': turnStatusView,
-      'hasTurnStatus': turnStatusView != null,
+      'hasTurnStatus': true,
       'readOnly': readOnly,
       'sendUrl': '/api/sessions/$sessionId/send',
       'placeholder': placeholder,
       'inputDisabled': inputDisabled ? true : null,
+      'autofocus': autofocus && !inputDisabled ? true : null,
     },
   );
 }

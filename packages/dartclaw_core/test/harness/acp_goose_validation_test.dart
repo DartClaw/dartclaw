@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
@@ -25,7 +23,7 @@ void main() {
 
       final result = (await validator.validateConfiguredTargets(
         agents: {'goose': config},
-        commandProbe: _binaryPresent,
+        commandProbe: presentAcpBinary,
         targetProbe: _guardMediatedProbe,
       ))['goose']!;
       expect(result.isGuardMediated, isTrue);
@@ -61,10 +59,6 @@ void main() {
       expect(validator.validateConfig('goose', _withModelProvider(base, 'codex-acp')).join('\n'), contains('relay'));
     });
   });
-}
-
-Future<ProcessResult> _binaryPresent(String executable, List<String> arguments) async {
-  return ProcessResult(1, 0, '$executable 1.0.0', '');
 }
 
 Future<Iterable<AcpTargetOperationEvidence>> _guardMediatedProbe(String providerId, AcpAgentConfig config) async {

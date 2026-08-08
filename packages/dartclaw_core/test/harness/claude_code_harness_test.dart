@@ -1134,7 +1134,7 @@ void main() {
 
     group('SIGKILL escalation', () {
       test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
-        final fake = KillTrackingFakeProcess();
+        final fake = makeKillTrackingClaudeProcess();
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
@@ -1163,7 +1163,7 @@ void main() {
       });
 
       test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
-        final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+        final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
@@ -1183,7 +1183,7 @@ void main() {
       });
 
       test('stop() follows injected Windows hard-termination semantics on a POSIX host', () async {
-        final fake = KillTrackingFakeProcess();
+        final fake = makeKillTrackingClaudeProcess();
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           killGracePeriod: Duration.zero,
@@ -1202,7 +1202,7 @@ void main() {
       });
 
       test('turn timeout completes promptly and drives bounded process teardown', () async {
-        final fake = KillTrackingFakeProcess(completeExitOnKill: true);
+        final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           turnTimeout: Duration.zero,
@@ -1231,8 +1231,8 @@ void main() {
       });
 
       test('turn timeout finishes teardown before an immediate next turn restarts', () async {
-        final timedOut = KillTrackingFakeProcess(completeExitOnKill: true);
-        final recovered = KillTrackingFakeProcess(completeExitOnKill: true);
+        final timedOut = makeKillTrackingClaudeProcess(completeExitOnKill: true);
+        final recovered = makeKillTrackingClaudeProcess(completeExitOnKill: true);
         final processes = [timedOut, recovered];
         var spawnIndex = 0;
         final h = ClaudeCodeHarness(
@@ -1278,7 +1278,8 @@ void main() {
           ],
           systemPrompt: '',
         );
-        expect(result['response'], 'ok');
+        expect(result['is_error'], isFalse);
+        expect(h.state, WorkerState.idle);
         expect(spawnIndex, 2);
       });
     });
@@ -1291,38 +1292,10 @@ void main() {
       test('null processEffort adopts first-use non-null effort without restart', () async {
         var spawnCount = 0;
 
-        Future<Process> makeProcess() async {
-          spawnCount++;
-          final fake = makeCapturingClaudeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          Future.delayed(const Duration(milliseconds: 20), () {
-            fake.emitStdout(
-              jsonEncode({
-                'type': 'result',
-                'result': 'ok',
-                'cost_usd': 0.001,
-                'duration_ms': 10,
-                'duration_api_ms': 5,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 'test-session',
-              }),
-            );
-          });
-          return fake;
-        }
-
         // Harness spawned with no effort (null).
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(effort: null),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
-              makeProcess(),
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          processFactory: resultEmittingFactory(onSpawn: (_) => spawnCount++),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -1347,37 +1320,9 @@ void main() {
       test('non-null -> different non-null effort triggers restart', () async {
         var spawnCount = 0;
 
-        Future<Process> makeProcess() async {
-          spawnCount++;
-          final fake = makeClaudeFakeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          Future.delayed(const Duration(milliseconds: 20), () {
-            fake.emitStdout(
-              jsonEncode({
-                'type': 'result',
-                'result': 'ok',
-                'cost_usd': 0.001,
-                'duration_ms': 10,
-                'duration_api_ms': 5,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 'test-session',
-              }),
-            );
-          });
-          return fake;
-        }
-
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(effort: 'low'),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
-              makeProcess(),
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          processFactory: resultEmittingFactory(onSpawn: (_) => spawnCount++),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -1398,7 +1343,7 @@ void main() {
       });
 
       test('parameter-change restart retains an unconfirmed Windows child', () async {
-        final process = KillTrackingFakeProcess();
+        final process = makeKillTrackingClaudeProcess();
         var spawnCount = 0;
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
@@ -1534,36 +1479,9 @@ void main() {
         final sub = Logger('ClaudeCodeHarness').onRecord.listen(logRecords.add);
         addTearDown(sub.cancel);
 
-        Future<Process> makeProcess() async {
-          final fake = makeClaudeFakeProcess();
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          Future.delayed(const Duration(milliseconds: 20), () {
-            fake.emitStdout(
-              jsonEncode({
-                'type': 'result',
-                'result': 'ok',
-                'cost_usd': 0.001,
-                'duration_ms': 10,
-                'duration_api_ms': 5,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 's1',
-              }),
-            );
-          });
-          return fake;
-        }
-
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(model: 'sonnet'),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
-              makeProcess(),
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          processFactory: resultEmittingFactory(result: const {'session_id': 's1'}),
         );
         addTeardownAsync(() => h.dispose());
 

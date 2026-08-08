@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.22
+**Current through**: 0.23
 
 ---
 
@@ -137,6 +137,10 @@ GuardChain._evaluate(context):
 **Source**: `packages/dartclaw_security/lib/src/guard.dart`
 
 **Package attribution**: `dartclaw_security` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_server`.
+
+**Per-runner chain composition**: serve wiring builds one shared base chain from `guards.*` config, and each runner — the primary interactive harness and every task runner — evaluates a layered chain (`GuardChain.layered`): the base chain plus that runner's own `TaskToolFilterGuard`. The base guard list is read live, so a `guards.*` hot-reload (`replaceGuards`) reaches every runner chain while the per-runner filter survives the rebuild. Turn-scoped tool policies (per-task `allowedTools`, per-turn session policies such as the knowledge-inbox no-tools turn) are enforced by that per-runner filter.
+
+The same composition is the SDK host's responsibility. `DartclawServerBuilder` receives an already-constructed harness, so it cannot retrofit that harness's chain: a host wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and sets the same instance as `builder.taskToolFilterGuard`. The builder never creates one on the host's behalf — a filter outside the chain the harness evaluates is inert, and silently so.
 
 Guards evaluate canonical tool names, not provider-native strings. Provider adapters map raw tool names to the canonical taxonomy before `GuardChain.evaluateBeforeToolCall()` runs. The raw provider name is still retained in `GuardContext` for audit logging and incident forensics.
 
@@ -786,7 +790,7 @@ DartClaw defends against cross-site request forgery in depth rather than relying
 
 - **`SameSite=Strict` session cookies** (primary). The session cookie is not sent on cross-site requests, so a forged cross-origin request arrives unauthenticated. This blocks the common CSRF vector at the browser level without CSRF tokens. It is strong but not absolute — older browsers, some same-site navigation edge cases, and misconfigured intermediaries can weaken the guarantee — so it is backed by an explicit server-side check.
 - **Same-origin Origin/Host guard** (`origin_host_guard.dart`, wired in `server.dart` via `originHostGuardMiddleware`). For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the middleware compares the request's `Origin` authority — scheme, host, effective port — against the request's own `Host` authority (falling back to `Referer` when `Origin` is absent) and returns **403** on mismatch or when neither header is present. Safe methods (GET/HEAD/OPTIONS), Bearer-token (API-client) requests, and no-auth local-admin sessions are exempt.
-- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, inline-script hash + explicit CDN allowlist, `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
+- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, same-origin-only sources — `script-src 'self'` plus the inline-script hash, `style-src 'self'`, `font-src 'self'`, no external origin — `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
 
 ---
 

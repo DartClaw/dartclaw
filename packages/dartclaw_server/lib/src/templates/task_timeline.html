@@ -1,25 +1,14 @@
-<div tl:fragment="timeline" class="task-timeline">
-  <div class="tl-filter-bar">
-    <a class="tl-filter-link" tl:classappend="${filterAll ? 'active' : ''}"
-       tl:attr="href=${filterAllHref}"
-       hx-get="" tl:attr="hx-get=${filterAllHref}"
-       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">All</a>
-    <a class="tl-filter-link" tl:classappend="${filterStatus ? 'active' : ''}"
-       tl:attr="href=${filterStatusHref}"
-       hx-get="" tl:attr="hx-get=${filterStatusHref}"
-       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Status</a>
-    <a class="tl-filter-link" tl:classappend="${filterTools ? 'active' : ''}"
-       tl:attr="href=${filterToolsHref}"
-       hx-get="" tl:attr="hx-get=${filterToolsHref}"
-       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Tools</a>
-    <a class="tl-filter-link" tl:classappend="${filterArtifacts ? 'active' : ''}"
-       tl:attr="href=${filterArtifactsHref}"
-       hx-get="" tl:attr="hx-get=${filterArtifactsHref}"
-       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Artifacts</a>
-    <a class="tl-filter-link" tl:classappend="${filterErrors ? 'active' : ''}"
-       tl:attr="href=${filterErrorsHref}"
-       hx-get="" tl:attr="hx-get=${filterErrorsHref}"
-       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Errors</a>
+<div tl:fragment="timeline" class="card task-timeline">
+  <div id="timeline-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
+    <div class="scan-bar"></div>
+  </div>
+  <div class="tl-filter-bar chip-row" hx-indicator="#timeline-loading">
+    <button tl:each="f : ${filters}" type="button" class="chip"
+            tl:attr="aria-pressed=${f.active ? 'true' : 'false'},hx-get=${f.href}"
+            hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">
+      <span tl:text="${f.label}">All</span>
+      <span class="chip-meta" tl:text="${f.count}">0</span>
+    </button>
   </div>
   <div class="tl-event-list" id="timeline-events" hx-swap="beforeend"
        tl:classappend="${autoScroll ? 'tl-auto-scroll' : ''}"
@@ -42,9 +31,7 @@
         <span class="tl-event-timestamp" tl:attr="title=${event.timestampIso}" tl:text="${event.timestamp}">2m ago</span>
       </div>
     </div>
-    <div tl:unless="${hasEvents}" class="tl-empty-state">
-      <span class="empty-state-text">No timeline events yet. Events will appear when the task runs.</span>
-    </div>
+    <tl:block tl:unless="${hasEvents}" tl:utext="${emptyStateHtml}">empty state</tl:block>
   </div>
 </div>
 

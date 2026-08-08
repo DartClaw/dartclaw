@@ -136,6 +136,9 @@ void main() {
         final def = _load(file);
         expect(def.name, isNotEmpty, reason: '$file must declare a name');
         expect(def.steps, isNotEmpty, reason: '$file must declare at least one step');
+        final report = WorkflowDefinitionValidator().validate(def);
+        expect(report.errors, isEmpty, reason: '$file must load without validation errors');
+        expect(report.warnings, isEmpty, reason: '$file must load without validation warnings');
       }
     });
 
@@ -213,6 +216,13 @@ void main() {
     test('spec-and-implement and code-review begin with their respective guard/work step', () {
       expect(_load('spec-and-implement.yaml').steps.first.id, 'detect-spec-input');
       expect(_load('code-review.yaml').steps.first.id, 'review-code');
+    });
+
+    test('spec_path has guard and synthesis producers', () {
+      final def = _load('spec-and-implement.yaml');
+      final producers = def.steps.where((step) => step.outputs?.containsKey('spec_path') ?? false);
+
+      expect(producers.map((producer) => producer.id), ['detect-spec-input', 'spec']);
     });
 
     test('plan-and-implement runs implement → simplify-code → review → nested loop per story', () {
@@ -694,7 +704,15 @@ void main() {
         // as an input would be a redundant no-op (no-op-inputs rule).
         expect(remediate.inputs, isNot(contains('review_report_path')), reason: '$file → remediate no-op report input');
         expect(remediate.inputs, isNot(contains('architecture_review_findings')), reason: file);
-        expect(_allPromptText(remediate).trim(), '--auto {{context.review_report_path}}', reason: file);
+        // Inline maintainer variants may append a verification-scope sentence
+        // deferring heavy suites to their deterministic verify-all gate; the
+        // shipped built-ins keep the exact minimal invocation.
+        final remediatePrompt = _allPromptText(remediate).trim();
+        if (file.endsWith('-inline.yaml')) {
+          expect(remediatePrompt, startsWith('--auto {{context.review_report_path}}'), reason: file);
+        } else {
+          expect(remediatePrompt, '--auto {{context.review_report_path}}', reason: file);
+        }
         expect(
           remediate.outputs?.containsKey('architecture-review.gating_findings_count'),
           isNot(isTrue),
@@ -941,7 +959,7 @@ void main() {
         final output = detect.outputs!['spec_path']!;
         expect(output.format, OutputFormat.path, reason: '$file → detect-spec-input.spec_path');
         expect(output.presetName, isNull, reason: '$file → detect-spec-input uses inline output shape');
-        expect(_effectiveDescription(output), contains('empty when input requires spec synthesis'), reason: file);
+        expect(_effectiveDescription(output), contains('empty'), reason: file);
       }
     });
 

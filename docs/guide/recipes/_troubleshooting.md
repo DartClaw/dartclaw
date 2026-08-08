@@ -29,7 +29,7 @@ Common issues when running DartClaw as a personal assistant or automation platfo
 
 If/when announce routing is implemented:
 1. **Is a channel connected?** `announce` will need at least one active target. Check `/settings` in the web UI for channel connection status
-2. **Check channel health**: WhatsApp requires the GOWA sidecar to be running and paired. Signal requires `signal-cli` to be running. Google Chat uses webhooks (no sidecar)
+2. **Check channel health**: WhatsApp requires the GOWA sidecar to be running and paired. Signal requires `signal-cli` to be running and an account to be linked. Google Chat uses webhooks (no sidecar)
 3. **Check logs**: Look for "announce" or "delivery" in the logs to see where the result was routed
 
 ## Memory & Consolidation
@@ -63,7 +63,8 @@ If/when announce routing is implemented:
        enabled: true
    ```
 2. **Is the workspace a git repo?** Run `ls -la <data_dir>/workspace/.git` to check. If not: `cd <data_dir>/workspace && git init`
-3. **Are there changes to commit?** Git sync only commits when workspace files change. If nothing changed since the last heartbeat, no commit is created
+3. **Is heartbeat enabled and firing?** Git sync uses the heartbeat timer, but does not require a non-empty `HEARTBEAT.md`
+4. **Are there changes to commit?** Git sync only commits when workspace files change. If nothing changed since the last heartbeat cycle, no commit is created
 
 ### Git push failing
 

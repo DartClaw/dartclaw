@@ -10,6 +10,36 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
   let cachedActiveTasks = [];
   let taskElapsedTimer = null;
   let taskDetailRefreshTimer = null;
+  let turnStatusRefreshGeneration = 0;
+  const activeTurnStates = new Set(['running', 'waiting', 'stuck', 'cancelling']);
+
+  // Mirror of templates/task_event_display.dart#eventIconClass, keyed by the
+  // `kind` the task_event SSE payload already carries. Canonical keys are the
+  // TaskEventKind value names; 'error' is TaskEventKind.fromName's legacy alias
+  // for taskError. A new kind must be added in both places — task_event_icon_map_test
+  // asserts exact map equality, so the omission fails there rather than in the UI.
+  const TASK_EVENT_ICON_CLASSES = {
+    statusChanged: 'icon-circle-check',
+    toolCalled: 'icon-wrench',
+    artifactCreated: 'icon-file-text',
+    structuredOutputFinalizerUsed: 'icon-file-json',
+    structuredOutputInlineUsed: 'icon-file-json',
+    structuredOutputFallbackUsed: 'icon-file-warning',
+    structuredOutputValidationFailed: 'icon-file-warning',
+    pushBack: 'icon-message-circle',
+    tokenUpdate: 'icon-gauge',
+    taskError: 'icon-triangle-alert',
+    compaction: 'icon-layers',
+    error: 'icon-triangle-alert',
+  };
+
+  // Null for an unrecognized kind. The caller then emits neither the base `icon`
+  // class nor a mask, because a masked element with no mask paints a solid block.
+  function taskEventIconClass(kind) {
+    return Object.prototype.hasOwnProperty.call(TASK_EVENT_ICON_CLASSES, kind)
+      ? TASK_EVENT_ICON_CLASSES[kind]
+      : null;
+  }
 
   function workflowPage() {
     return dartclaw.workflowsControllerApi || {};
@@ -123,10 +153,18 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     if (!panel) return;
     const sessionId = panel.getAttribute('data-turn-status-session-id');
     if (!sessionId) return;
+    const generation = ++turnStatusRefreshGeneration;
     fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
       .then((response) => response.ok ? response.json() : null)
       .then((payload) => {
-        if (payload) applyTurnWaitState(payload);
+        const currentPanel = displayedTurnPanel();
+        if (
+          payload &&
+          generation === turnStatusRefreshGeneration &&
+          currentPanel?.getAttribute('data-turn-status-session-id') === sessionId
+        ) {
+          applyTurnWaitState(payload);
+        }
       })
       .catch(() => {});
   }
@@ -135,7 +173,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     const panel = displayedTurnPanel();
     if (!panel || panel.getAttribute('data-turn-status-session-id') !== data.session_id) return;
     const state = data.state || 'idle';
-    const hasActiveTurn = state !== 'idle' && Boolean(data.turn_id);
+    const hasActiveTurn = activeTurnStates.has(state) && Boolean(data.turn_id);
     panel.hidden = !hasActiveTurn;
     if (!hasActiveTurn) {
       panel.removeAttribute('data-turn-status-turn-id');
@@ -146,13 +184,19 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     const stateEl = panel.querySelector('[data-turn-status-state]');
     if (stateEl) stateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
     const reasonEl = panel.querySelector('[data-turn-status-reason]');
-    if (reasonEl) reasonEl.textContent = reason || '\u2014';
-    setPanelText(panel, '[data-turn-status-waiting]', data.waiting_since || '');
-    setPanelText(panel, '[data-turn-status-stuck]', data.stuck_since || '');
-    setPanelText(panel, '[data-turn-status-timeout]', data.global_timeout_at || '');
+    if (reasonEl) {
+      // Same absent treatment the server rendered into this element: canon's
+      // .value-absent supplies the dash from an empty span, so writing one here
+      // would leave the live update and the first paint disagreeing.
+      reasonEl.textContent = reason;
+      reasonEl.classList.toggle('value-absent', reason === '');
+    }
+    setPanelText(panel, '[data-turn-status-waiting]', formatElapsedTimeIso(data.waiting_since));
+    setPanelText(panel, '[data-turn-status-stuck]', formatElapsedTimeIso(data.stuck_since));
+    setPanelText(panel, '[data-turn-status-timeout]', formatRemainingTimeIso(data.global_timeout_at));
     const button = panel.querySelector('[data-turn-cancel]');
     if (button) {
-      button.hidden = !hasActiveTurn;
+      button.hidden = !hasActiveTurn || data.can_cancel !== true;
       button.disabled = !hasActiveTurn || data.can_cancel !== true;
       if (hasActiveTurn) {
         button.setAttribute('data-turn-id', data.turn_id);
@@ -165,6 +209,39 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
   function setPanelText(panel, selector, value) {
     const el = panel.querySelector(selector);
     if (el) el.textContent = value;
+  }
+
+  function formatElapsedTimeIso(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const elapsedMs = Date.now() - parsed.getTime();
+    const days = Math.trunc(elapsedMs / 86400000);
+    if (days > 30) {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const date = parsed.getDate() + ' ' + months[parsed.getMonth()];
+      return parsed.getFullYear() === new Date().getFullYear() ? date : date + ' ' + parsed.getFullYear();
+    }
+    if (days > 0) return days + 'd ago';
+    const hours = Math.trunc(elapsedMs / 3600000);
+    if (hours > 0) return hours + 'h ago';
+    const minutes = Math.trunc(elapsedMs / 60000);
+    if (minutes > 0) return minutes + 'm ago';
+    return 'just now';
+  }
+
+  function formatRemainingTimeIso(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const remainingMs = parsed.getTime() - Date.now();
+    if (remainingMs < 0) return '';
+    const days = Math.trunc(remainingMs / 86400000);
+    if (days > 0) return 'in ' + days + 'd';
+    const hours = Math.trunc(remainingMs / 3600000);
+    if (hours > 0) return 'in ' + hours + 'h';
+    const minutes = Math.trunc(remainingMs / 60000);
+    return minutes > 0 ? 'in ' + minutes + 'm' : 'in under a minute';
   }
 
   function initTurnCancelActions() {
@@ -317,11 +394,16 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       parent.appendChild(eventsEl);
     }
 
+    const maskClass = taskEventIconClass(data.kind);
+    const iconClasses = ['task-event-icon', data.iconClass || '']
+      .concat(maskClass ? ['icon', maskClass] : [])
+      .filter(Boolean)
+      .join(' ');
+
     const eventDiv = document.createElement('div');
     eventDiv.className = 'task-event';
     eventDiv.innerHTML =
-      '<span class="task-event-icon ' + ui.escapeHtml(data.iconClass || '') + '">' +
-      ui.escapeHtml(data.iconChar || '\u25CF') + '</span>' +
+      '<span class="' + ui.escapeHtml(iconClasses) + '" aria-hidden="true"></span>' +
       '<span>' + ui.escapeHtml(data.text || '') + '</span>';
 
     eventsEl.insertBefore(eventDiv, eventsEl.firstChild);
@@ -463,20 +545,23 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       const response = await fetch(window.location.pathname + window.location.search, {
         headers: { 'HX-Request': 'true' },
       });
-      if (!response.ok) return;
+      if (!response.ok) return false;
 
       const html = await response.text();
       const parsed = new DOMParser().parseFromString(html, 'text/html');
       const nextContent = parsed.getElementById('main-content');
       const currentContent = document.getElementById('main-content');
-      if (!nextContent || !currentContent) return;
+      if (!nextContent || !currentContent) return false;
 
       currentContent.replaceWith(nextContent);
       reinitializeTaskUi();
       if (typeof shell.renderMarkdown === 'function') {
         shell.renderMarkdown();
       }
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function applyTaskFilters() {
@@ -613,7 +698,9 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
           body: JSON.stringify({}),
         });
         if (response.ok) {
-          window.location.reload();
+          if (!(await refreshTaskDetailContent())) {
+            ui.showToast('error', 'Task started. Refresh the page to see its status.');
+          }
         } else {
           const data = await response.json().catch(() => ({}));
           ui.showToast('error', data.error?.message || 'Failed to start task');
@@ -812,7 +899,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       badge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
     }
 
-    const errorBanner = card.querySelector('.project-error-banner');
+    const errorBanner = card.querySelector('[data-project-error]');
     if (newStatus === 'ready' && errorBanner) {
       errorBanner.style.display = 'none';
     } else if (newStatus !== 'ready' && newStatus !== 'cloning' && errorBanner) {

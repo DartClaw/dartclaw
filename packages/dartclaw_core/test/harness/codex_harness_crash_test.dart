@@ -26,7 +26,7 @@ CodexHarness _buildHarness({
 void main() {
   group('CodexHarness crash recovery + capabilities', () {
     test('crash transitions to WorkerState.crashed', () async {
-      final process = FakeCodexProcess();
+      final process = FakeCodexProcess(completeExitOnKill: true);
       final harness = _buildHarness(processFactory: () => process);
       addTearDown(() async => harness.dispose());
 
@@ -40,9 +40,9 @@ void main() {
     });
 
     test('crash recovery uses exponential backoff across repeated crashes', () async {
-      final firstProcess = FakeCodexProcess();
-      final secondProcess = FakeCodexProcess();
-      final thirdProcess = FakeCodexProcess();
+      final firstProcess = FakeCodexProcess(completeExitOnKill: true);
+      final secondProcess = FakeCodexProcess(completeExitOnKill: true);
+      final thirdProcess = FakeCodexProcess(completeExitOnKill: true);
       final delays = <Duration>[];
       final processes = <FakeCodexProcess>[firstProcess, secondProcess, thirdProcess];
       var spawnIndex = 0;
@@ -83,7 +83,7 @@ void main() {
     });
 
     test('max retries exceeded throws StateError', () async {
-      final process = FakeCodexProcess();
+      final process = FakeCodexProcess(completeExitOnKill: true);
       final harness = _buildHarness(processFactory: () => process, maxRetries: 0);
       addTearDown(() async => harness.dispose());
 
@@ -107,9 +107,9 @@ void main() {
     });
 
     test('successful turn after crash resets crash count to base backoff', () async {
-      final firstProcess = FakeCodexProcess();
-      final secondProcess = FakeCodexProcess();
-      final thirdProcess = FakeCodexProcess();
+      final firstProcess = FakeCodexProcess(completeExitOnKill: true);
+      final secondProcess = FakeCodexProcess(completeExitOnKill: true);
+      final thirdProcess = FakeCodexProcess(completeExitOnKill: true);
       final delays = <Duration>[];
       final processes = <FakeCodexProcess>[firstProcess, secondProcess, thirdProcess];
       var spawnIndex = 0;
@@ -163,8 +163,8 @@ void main() {
     });
 
     test('new thread is created after a crash recovery turn', () async {
-      final firstProcess = FakeCodexProcess();
-      final secondProcess = FakeCodexProcess();
+      final firstProcess = FakeCodexProcess(completeExitOnKill: true);
+      final secondProcess = FakeCodexProcess(completeExitOnKill: true);
       final harness = _buildHarness(
         processFactory: (() {
           var callCount = 0;
@@ -222,7 +222,7 @@ void main() {
 
     test('confirmed intentional stop does not corrupt restarted state', () async {
       final firstProcess = FakeCodexProcess(completeExitOnKill: true);
-      final secondProcess = FakeCodexProcess();
+      final secondProcess = FakeCodexProcess(completeExitOnKill: true);
       final processes = <FakeCodexProcess>[firstProcess, secondProcess];
       var spawnIndex = 0;
       final harness = _buildHarness(processFactory: () => processes[spawnIndex++]);
@@ -241,8 +241,8 @@ void main() {
 
     test('stop-induced exit while busy does not increase crash backoff', () async {
       final firstProcess = FakeCodexProcess(completeExitOnKill: true);
-      final secondProcess = FakeCodexProcess();
-      final thirdProcess = FakeCodexProcess();
+      final secondProcess = FakeCodexProcess(completeExitOnKill: true);
+      final thirdProcess = FakeCodexProcess(completeExitOnKill: true);
       final delays = <Duration>[];
       final processes = <FakeCodexProcess>[firstProcess, secondProcess, thirdProcess];
       var spawnIndex = 0;

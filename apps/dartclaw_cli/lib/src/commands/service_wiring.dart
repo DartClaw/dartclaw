@@ -13,7 +13,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
-        WorkflowRoleDefault,
         WorkflowRoleDefaults,
         WorkflowSource,
         WorkflowService,
@@ -42,6 +41,7 @@ import 'workflow_materializer.dart';
 import 'workflow/agent_text_scrub.dart';
 import 'workflow/workflow_skill_bootstrap.dart';
 import 'workflow/project_definition_paths.dart';
+import 'workflow/workflow_config_support.dart';
 import 'workflow/workflow_git_support.dart';
 import 'workflow/workflow_local_path_preflight.dart';
 import 'workflow/workflow_skill_preflight_config.dart';
@@ -266,7 +266,7 @@ class ServiceWiring {
     ctx.configNotifier.register(ctx._serverTurns);
     // 7. Tasks (post-server)
     await task.wirePostServer(turns: ctx._serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
-    final workflowRoleDefaults = _buildWorkflowRoleDefaults();
+    final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
     final workflowRegistry = await _wireWorkflowRegistry(ctx, harness, workflowRoleDefaults);
     final (lifecycleManager, pushBackFeedback) = await _wireThreadBinding(ctx, storage, channel);
@@ -507,31 +507,6 @@ class ServiceWiring {
     );
     await providerStatus.probe();
     return providerStatus;
-  }
-
-  WorkflowRoleDefaults _buildWorkflowRoleDefaults() {
-    return WorkflowRoleDefaults(
-      workflow: WorkflowRoleDefault(
-        provider: config.workflow.defaults.workflow.provider,
-        model: config.workflow.defaults.workflow.model,
-        effort: config.workflow.defaults.workflow.effort,
-      ),
-      planner: WorkflowRoleDefault(
-        provider: config.workflow.defaults.planner.provider,
-        model: config.workflow.defaults.planner.model,
-        effort: config.workflow.defaults.planner.effort,
-      ),
-      executor: WorkflowRoleDefault(
-        provider: config.workflow.defaults.executor.provider,
-        model: config.workflow.defaults.executor.model,
-        effort: config.workflow.defaults.executor.effort,
-      ),
-      reviewer: WorkflowRoleDefault(
-        provider: config.workflow.defaults.reviewer.provider,
-        model: config.workflow.defaults.reviewer.model,
-        effort: config.workflow.defaults.reviewer.effort,
-      ),
-    );
   }
 
   WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {

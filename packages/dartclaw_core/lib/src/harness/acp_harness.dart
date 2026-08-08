@@ -358,15 +358,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
       }
     }
     if (process != null) {
-      await _closeStdin(process);
-      final result = await killWithEscalation(
-        process,
-        label: 'acp',
-        gracePeriod: _terminationGracePeriod,
-        log: _log,
-        platformCapabilities: _platformCapabilities,
-      );
-      _completeIntentionalProcessTeardown(process, result);
+      await _terminateProcess(process);
     }
     _state = WorkerState.stopped;
   }
@@ -497,16 +489,20 @@ final class AcpHarness with SequentialLock implements AgentHarness {
       }
     }
     if (process != null) {
-      await _closeStdin(process);
-      final result = await killWithEscalation(
-        process,
-        label: 'acp',
-        gracePeriod: _terminationGracePeriod,
-        log: _log,
-        platformCapabilities: _platformCapabilities,
-      );
-      _completeIntentionalProcessTeardown(process, result);
+      await _terminateProcess(process);
     }
+  }
+
+  Future<void> _terminateProcess(Process process) async {
+    await _closeStdin(process);
+    final result = await killWithEscalation(
+      process,
+      label: 'acp',
+      gracePeriod: _terminationGracePeriod,
+      log: _log,
+      platformCapabilities: _platformCapabilities,
+    );
+    _completeIntentionalProcessTeardown(process, result);
   }
 
   void _beginIntentionalProcessTeardown(Process? process) {

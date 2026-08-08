@@ -322,8 +322,12 @@ void main() {
 
     test('projectDir fallback uses the current cwd when create is called', () async {
       final calls = <({List<String> arguments, String? workingDirectory})>[];
+      // Injected rather than assigned to `Directory.current`: the cwd is
+      // process-wide and would leak into every concurrently running suite.
+      const expectedWorkingDirectory = '/tmp/worktree-manager-cwd';
       final manager = WorktreeManager(
         dataDir: '/tmp/test-data',
+        currentDirectory: () => expectedWorkingDirectory,
         processRunner: (executable, arguments, {String? workingDirectory}) async {
           calls.add((arguments: arguments, workingDirectory: workingDirectory));
           if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
@@ -334,17 +338,7 @@ void main() {
         },
       );
 
-      final savedCwd = Directory.current;
-      final tempCwd = Directory.systemTemp.createTempSync('worktree_manager_cwd_');
-      final expectedWorkingDirectory = tempCwd.resolveSymbolicLinksSync();
-      Directory.current = tempCwd;
-
-      try {
-        await manager.create('task-1');
-      } finally {
-        Directory.current = savedCwd;
-        tempCwd.deleteSync(recursive: true);
-      }
+      await manager.create('task-1');
 
       final gitCalls = calls.where((call) => !call.arguments.contains('--version')).toList();
       for (final call in gitCalls) {

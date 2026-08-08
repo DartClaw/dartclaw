@@ -10,6 +10,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../session/session_display_title.dart';
 import 'api_helpers.dart';
 import 'reference_suggestions.dart';
 import 'session_routes_support.dart';
@@ -143,7 +144,7 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
   final references = <Map<String, dynamic>>[];
   final sessionList = await sessions.listSessions();
   for (final session in sessionList.take(20)) {
-    final label = session.title?.trim().isNotEmpty ?? false ? session.title!.trim() : session.id;
+    final label = displaySessionTitle(session.title, session.type, emptyTitle: session.id);
     if (matches(label) || matches(session.id)) {
       references.add({'type': 'session', 'id': session.id, 'label': label});
     }

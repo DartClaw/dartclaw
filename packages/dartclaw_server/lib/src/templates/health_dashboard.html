@@ -1,16 +1,32 @@
 <div tl:fragment="healthDashboard" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
-  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-    <div class="content-inner"
-         data-controller="dc-health"
-         data-health-refresh
-         hx-get="/health-dashboard"
-         hx-target="this"
-         hx-select=".content-inner"
-         hx-swap="outerHTML"
-         hx-trigger="refresh">
+    <div id="health-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
+      <div class="scan-bar"></div>
+    </div>
+    <div class="content-inner content-inner--wide">
+
+      <!-- The 30s status refresh is scoped to the cards it actually updates.
+           Refreshing the whole .content-inner also replaced the guard audit
+           below, which polls itself: every cycle reset the reader's filter and
+           page to the unfiltered first page and collapsed their open row. -->
+      <div id="health-live"
+           data-controller="dc-health"
+           data-health-refresh
+           hx-get="/health-dashboard"
+           hx-target="this"
+           hx-select="#health-live"
+           hx-swap="outerHTML"
+           hx-indicator="#health-loading"
+           hx-trigger="refresh">
+
+      <tl:block tl:utext="${heroHtml}"><!-- prompt hero --></tl:block>
+
+      <div class="metrics-grid metrics-grid-4">
+        <tl:block tl:utext="${metricsHtml}"><!-- metric cards --></tl:block>
+      </div>
 
       <div class="card" tl:classappend="${statusCardClass}">
         <div class="card-header">
@@ -20,25 +36,24 @@
           </span>
         </div>
         <div class="card-rows">
-          <div class="card-row"><span class="card-row-label">Uptime</span><span class="card-row-value" tl:text="${uptimeStr}">0m</span></div>
-          <div class="card-row"><span class="card-row-label">Version</span><span class="card-row-value" tl:text="${version}">0.0.0</span></div>
-          <div class="card-row"><span class="card-row-label">Worker</span><span class="card-row-value" tl:text="${workerState}">unknown</span></div>
+          <div class="card-row"><span class="card-row-label">Version</span><span class="card-row-value" tl:classappend="${version} ? '' : 'value-absent'"
+            tl:text="${version}">0.0.0</span></div>
+          <div class="card-row"><span class="card-row-label">Worker</span><span class="card-row-value" tl:classappend="${workerValueClass}"
+            tl:text="${workerState}">running</span></div>
         </div>
       </div>
 
-      <h2 class="section-label">Services</h2>
+      <h2 class="section-title">Services</h2>
       <div class="card-grid">
         <tl:block tl:utext="${cardsHtml}"><!-- service info cards --></tl:block>
       </div>
 
-      <h2 class="section-label">Metrics</h2>
-      <div class="metrics-grid">
-        <tl:block tl:utext="${metricsHtml}"><!-- metric cards --></tl:block>
       </div>
 
-      <h2 class="section-label">Guard Activity</h2>
+      <h2 class="section-title">Guard Activity</h2>
       <div class="table-section" tl:utext="${auditSection}"><!-- audit table --></div>
 
     </div>
   </main>
+  </div>
 </div>

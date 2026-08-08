@@ -95,7 +95,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       .catch((error) => {
         if (loadingEl) loadingEl.hidden = true;
         listCards.innerHTML =
-          '<p class="empty-state-text">Failed to load workflows. ' +
+          '<p class="text-muted">Failed to load workflows. ' +
           ui.escapeHtml(error.message) + '</p>';
       });
   }
@@ -154,10 +154,11 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
     if (varsEl) {
       if (!variableNames.length) {
-        varsEl.innerHTML = '<p class="empty-state-text">This workflow has no input variables.</p>';
+        varsEl.innerHTML = '<p class="text-muted">This workflow has no input variables.</p>';
       } else {
-        varsEl.innerHTML = variableNames.map((variableName) => {
+        varsEl.innerHTML = variableNames.map((variableName, index) => {
           const variable = variables[variableName] || {};
+          const controlId = 'workflow-var-' + index;
           const isRequired = variable.required !== false;
           const label = formatVariableName(variableName);
           const placeholder = ui.escapeHtml(variable.description || '');
@@ -166,15 +167,16 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
           const requiredMark = isRequired ? ' <span class="form-required">*</span>' : '';
           const isLongForm = ['FEATURE', 'BUG_DESCRIPTION', 'QUESTION', 'TARGET'].includes(variableName);
           const inputHtml = isLongForm
-            ? '<textarea class="form-input" name="wf-var-' + ui.escapeHtml(variableName) +
+            ? '<textarea class="form-textarea" id="' + controlId + '" name="wf-var-' + ui.escapeHtml(variableName) +
               '" rows="3" placeholder="' + placeholder + '"' + requiredAttr + '>' +
               defaultVal + '</textarea>'
-            : '<input type="text" class="form-input" name="wf-var-' + ui.escapeHtml(variableName) +
+            : '<input type="text" class="form-input" id="' + controlId + '" name="wf-var-' + ui.escapeHtml(variableName) +
               '" value="' + defaultVal + '" placeholder="' + placeholder + '"' +
               requiredAttr + '>';
           return (
-            '<div class="form-group">' +
-              '<label class="form-label">' + label + requiredMark + '</label>' +
+            '<div class="form-field">' +
+              '<label class="form-label t-caption tracking-caps" for="' + controlId + '">' +
+                label + requiredMark + '</label>' +
               inputHtml +
             '</div>'
           );
@@ -276,6 +278,8 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         tabPanels.forEach((panel) => panel.classList.toggle('active', panel.dataset.taskPanel === target));
         if (submitBtn) {
           submitBtn.textContent = target === 'workflow' ? 'Run Workflow' : 'Create Task';
+          submitBtn.classList.toggle('btn-secondary', target === 'workflow');
+          submitBtn.classList.toggle('btn-primary', target !== 'workflow');
         }
         if (target === 'workflow' && !workflowsFetched) {
           workflowsFetched = true;
@@ -296,7 +300,11 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
       tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.taskTab === 'single'));
       tabPanels.forEach((panel) => panel.classList.toggle('active', panel.dataset.taskPanel === 'single'));
 
-      if (submitBtn) submitBtn.textContent = 'Create Task';
+      if (submitBtn) {
+        submitBtn.textContent = 'Create Task';
+        submitBtn.classList.remove('btn-secondary');
+        submitBtn.classList.add('btn-primary');
+      }
 
       const listCards = document.querySelector('.workflow-list-cards');
       if (listCards) listCards.innerHTML = '';
@@ -384,7 +392,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   function _connectedStepsDiffer(steps) {
     if (!Array.isArray(steps)) return false;
     return steps.some((step) => {
-      const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + step.index + '"]');
+      const stepCard = document.querySelector('.pipeline-step[data-step-index="' + step.index + '"]');
       return !stepCard || stepCard.getAttribute('data-step-status') !== step.status;
     });
   }
@@ -403,7 +411,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   }
 
   function updateStepCompleted(data) {
-    const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + data.stepIndex + '"]');
+    const stepCard = document.querySelector('.pipeline-step[data-step-index="' + data.stepIndex + '"]');
     if (!stepCard) return;
 
     const status = _mapStepCompletionStatus(data);
@@ -412,7 +420,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
   function updateStepTaskStatus(data) {
     if (data.stepIndex == null) return;
-    const stepCard = document.querySelector('.workflow-step-card[data-step-index="' + data.stepIndex + '"]');
+    const stepCard = document.querySelector('.pipeline-step[data-step-index="' + data.stepIndex + '"]');
     if (!stepCard) return;
 
     const displayStatus = _mapTaskStatusToStepStatus(data.newStatus);
@@ -421,7 +429,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
 
   function updateLoopIteration(data) {
     document.querySelectorAll('.workflow-loop-badge').forEach((badge) => {
-      const stepCard = badge.closest('.workflow-step-card');
+      const stepCard = badge.closest('.pipeline-step');
       if (stepCard && badge.getAttribute('data-loop-id') === data.loopId) {
         badge.textContent = 'Iteration ' + data.iteration + '/' + data.maxIterations;
       }
@@ -432,7 +440,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     if (data.failureCount > 0) return;
 
     (data.stepIds || []).forEach((stepId) => {
-      const stepCard = document.querySelector('.workflow-step-card[data-step-id="' + stepId + '"]');
+      const stepCard = document.querySelector('.pipeline-step[data-step-id="' + stepId + '"]');
       if (!stepCard) return;
 
       _updateWorkflowStepVisual(stepCard, 'completed');
@@ -440,44 +448,50 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
   }
 
   function _updateWorkflowStepVisual(stepCard, status) {
-    const icon = stepCard.querySelector('.workflow-step-icon');
-    if (icon) {
-      for (const className of [...icon.classList]) {
-        if (className.startsWith('workflow-step-icon--')) icon.classList.remove(className);
-      }
-      icon.classList.add('workflow-step-icon--' + status);
-      icon.textContent = _workflowStepIcon(status);
+    const presentation = _workflowStepPresentation(status);
+    for (const className of [...stepCard.classList]) {
+      if (className.startsWith('pipeline-step--')) stepCard.classList.remove(className);
     }
-    stepCard.classList.toggle('workflow-step-active', status === 'running');
+    stepCard.classList.add(presentation.className);
+    const node = stepCard.querySelector('.pipeline-node');
+    if (node) node.textContent = presentation.icon;
+    const label = stepCard.querySelector('[data-step-status-label]');
+    if (label) label.textContent = presentation.label;
     stepCard.setAttribute('data-step-status', status);
   }
 
-  function _workflowStepIcon(status) {
+  function _workflowStepPresentation(status) {
     switch (status) {
       case 'completed':
-        return '✓';
+      case 'skipped':
+        return { className: 'pipeline-step--done', label: 'Done', icon: '✓' };
       case 'running':
-        return '•';
-      case 'interrupted':
-        return '!';
+        return { className: 'pipeline-step--running', label: 'Running', icon: '•' };
+      case 'awaiting_approval':
+      case 'review':
+        return { className: 'pipeline-step--blocked', label: 'Blocked', icon: '!' };
+      case 'queued':
+      case 'pending':
+        return { className: 'pipeline-step--pending', label: 'Pending', icon: '○' };
       case 'failed':
       case 'rejected':
-        return '✗';
-      case 'awaiting_approval':
-        return '●';
+      case 'interrupted':
+      case 'cancelled':
+      case 'timed_out':
+        return { className: 'pipeline-step--failed', label: 'Failed', icon: '✗' };
       default:
-        return '○';
+        return { className: 'pipeline-step--failed', label: 'Unknown status', icon: '!' };
     }
   }
 
   function updateProgressBar(data) {
-    const section = document.querySelector('.workflow-progress-section');
+    const section = document.querySelector('[data-workflow-progress]');
     const fill = section?.querySelector('.meter-fill');
-    const label = section?.querySelector('.workflow-progress-label');
+    const label = section?.querySelector('[data-workflow-progress-label]');
     const percentage = section?.querySelector('.workflow-progress-pct');
     if (!fill || !data.totalSteps) return;
 
-    const completed = document.querySelectorAll('.workflow-step-card[data-step-status="completed"]').length;
+    const completed = document.querySelectorAll('.pipeline-step[data-step-status="completed"]').length;
     const percent = Math.round((completed / data.totalSteps) * 100);
     fill.style.width = percent + '%';
     if (label) {
@@ -551,12 +565,12 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     document.addEventListener('click', (event) => {
       const stepToggle = event.target.closest('[data-step-toggle]');
       if (stepToggle) {
-        const stepCard = stepToggle.closest('.workflow-step-card');
+        const stepCard = stepToggle.closest('.pipeline-step');
         const detail = stepCard && stepCard.querySelector('.workflow-step-detail');
         if (!detail) return;
         const isHidden = detail.hidden;
         detail.hidden = !isHidden;
-        const icon = stepToggle.querySelector('.workflow-step-expand-icon');
+        const icon = stepToggle.querySelector('.icon');
         if (icon) {
           icon.classList.toggle('icon-chevron-up', isHidden);
           icon.classList.toggle('icon-chevron-down', !isHidden);

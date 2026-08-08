@@ -61,12 +61,7 @@ bool stepNeedsWorktree(
   if (resolvedWorktreeMode == 'per-map-item') return true;
   if (step.isForeachController) return false;
   if (!shouldBindWorkflowProject(definition, step, resolved, effectiveOutputs: effectiveOutputs)) return false;
-  if (stepEmitsArtifactPath(step, effectiveOutputs: effectiveOutputs)) return true;
-  final allowedTools = resolved.allowedTools;
-  if (allowedTools != null) {
-    return _allowsProjectMutation(allowedTools);
-  }
-  return step.taskType == WorkflowTaskType.agent;
+  return _stepNeedsProjectAccess(step, resolved, effectiveOutputs: effectiveOutputs);
 }
 
 /// Returns true when a step should be executed without write tools.
@@ -95,6 +90,14 @@ bool shouldBindWorkflowProject(
 }) {
   if (definition.project == null) return false;
   if (step.isMapStep) return true;
+  return _stepNeedsProjectAccess(step, resolved, effectiveOutputs: effectiveOutputs);
+}
+
+bool _stepNeedsProjectAccess(
+  WorkflowStep step,
+  ResolvedStepConfig resolved, {
+  Map<String, OutputConfig>? effectiveOutputs,
+}) {
   if (stepEmitsArtifactPath(step, effectiveOutputs: effectiveOutputs)) return true;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {

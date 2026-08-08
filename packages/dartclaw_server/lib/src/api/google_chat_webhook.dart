@@ -575,18 +575,6 @@ class GoogleChatWebhookHandler {
   }
 
   Map<String, String> _extractFlatParameters(Object? rawParameters) {
-    if (rawParameters is Map<String, dynamic>) {
-      final parameters = <String, String>{};
-      for (final entry in rawParameters.entries) {
-        final key = entry.key.trim();
-        final value = entry.value;
-        if (key.isEmpty || value is! String || value.isEmpty) {
-          continue;
-        }
-        parameters[key] = value;
-      }
-      return parameters;
-    }
     if (rawParameters is Map) {
       final parameters = <String, String>{};
       for (final entry in rawParameters.entries) {

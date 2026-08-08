@@ -1,6 +1,8 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowStepExecution, WorkflowStepExecutionRepository;
 import 'package:sqlite3/sqlite3.dart';
 
+import 'sqlite_execution_row_mappers.dart';
+
 /// SQLite-backed persistence for [WorkflowStepExecution].
 class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepository {
   final Database _db;
@@ -84,7 +86,7 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
     final stmt = _db.prepare('SELECT * FROM workflow_step_executions WHERE task_id = ?');
     try {
       final rows = stmt.select([taskId]);
-      return rows.isEmpty ? null : _executionFromRow(rows.first);
+      return rows.isEmpty ? null : workflowStepExecutionFromRow(rows.first);
     } finally {
       stmt.close();
     }
@@ -99,7 +101,7 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
       ORDER BY step_index ASC, task_id ASC
     ''');
     try {
-      return stmt.select([workflowRunId]).map(_executionFromRow).toList(growable: false);
+      return stmt.select([workflowRunId]).map(workflowStepExecutionFromRow).toList(growable: false);
     } finally {
       stmt.close();
     }
@@ -161,22 +163,4 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
       stmt.close();
     }
   }
-
-  WorkflowStepExecution _executionFromRow(Row row) => WorkflowStepExecution(
-    taskId: row['task_id'] as String,
-    agentExecutionId: row['agent_execution_id'] as String,
-    workflowRunId: row['workflow_run_id'] as String,
-    stepIndex: row['step_index'] as int,
-    stepId: row['step_id'] as String,
-    stepType: row['step_type'] as String?,
-    gitJson: row['git_json'] as String?,
-    providerSessionId: row['provider_session_id'] as String?,
-    structuredSchemaJson: row['structured_schema_json'] as String?,
-    structuredOutputJson: row['structured_output_json'] as String?,
-    followUpPromptsJson: row['follow_up_prompts_json'] as String?,
-    externalArtifactMount: row['external_artifact_mount'] as String?,
-    mapIterationIndex: row['map_iteration_index'] as int?,
-    mapIterationTotal: row['map_iteration_total'] as int?,
-    stepTokenBreakdownJson: row['step_token_breakdown_json'] as String?,
-  );
 }

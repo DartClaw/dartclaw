@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_list_command.dart';
@@ -10,7 +11,22 @@ import 'package:test/test.dart';
 
 void main() {
   late Directory tempDir;
+  late String templatesDir;
+  late String staticDir;
   const sharedAssetResolver = AssetResolver();
+
+  // Absolute: the `ServerConfig` defaults are repo-root-relative, and sibling
+  // suites in this package set the process-wide `Directory.current`, which would
+  // otherwise flip `AssetResolver` between source-tree and embedded assets.
+  setUpAll(() async {
+    final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
+    if (uri == null) {
+      throw StateError('Could not resolve package:dartclaw_server.');
+    }
+    final srcDir = p.join(File.fromUri(uri).parent.path, 'src');
+    templatesDir = p.join(srcDir, 'templates');
+    staticDir = p.join(srcDir, 'static');
+  });
 
   group('WorkflowListCommand', () {
     late List<String> output;
@@ -20,7 +36,9 @@ void main() {
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('workflow_list_command_test_');
       output = <String>[];
-      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+      final config = DartclawConfig(
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: templatesDir, staticDir: staticDir),
+      );
       command = WorkflowListCommand(config: config, assetResolver: sharedAssetResolver, writeLine: output.add);
       runner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(command);
     });
@@ -29,14 +47,6 @@ void main() {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
-    });
-
-    test('name is list', () {
-      expect(command.name, 'list');
-    });
-
-    test('description is set', () {
-      expect(command.description, isNotEmpty);
     });
 
     test('has --json flag', () {

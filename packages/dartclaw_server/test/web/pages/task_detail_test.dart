@@ -77,7 +77,7 @@ void main() {
     test('returns dialog with form fields', () {
       final html = newTaskFormDialogHtml();
       expect(html, contains('id="new-task-dialog"'));
-      expect(html, contains('class="task-dialog card card-glass"'));
+      expect(html, contains('class="dialog dialog--md card card-glass"'));
       expect(html, contains('id="new-task-form"'));
       expect(html, contains('name="title"'));
       expect(html, contains('name="description"'));
@@ -85,6 +85,7 @@ void main() {
       expect(html, contains('name="acceptanceCriteria"'));
       expect(html, contains('name="goalId"'));
       expect(html, contains('name="autoStart"'));
+      expect(html, contains('<label class="form-field form-field--checkbox">'));
       expect(html, contains('name="model"'));
       expect(html, contains('name="tokenBudget"'));
       expect(html, contains('task-type-guidance'));
@@ -123,7 +124,7 @@ void main() {
   test('uses the canonical glass treatment for the add-project dialog', () {
     final html = addProjectDialogHtml();
 
-    expect(html, contains('class="task-dialog card card-glass"'));
+    expect(html, contains('class="dialog dialog--md card card-glass"'));
   });
 
   group('taskDetailPageTemplate', () {

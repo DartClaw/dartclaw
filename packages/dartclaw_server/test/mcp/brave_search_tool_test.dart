@@ -38,9 +38,10 @@ String _errorMsg(ToolResult r) => (r as ToolResultError).message;
 void main() {
   group('BraveSearchTool', () {
     group('MCP interface', () {
-      test('name is brave_search', () {
-        final tool = BraveSearchTool(provider: _MockProvider());
-        expect(tool.name, 'brave_search');
+      test('name is brave_search — wire contract', () {
+        // The MCP-exposed name — the Claude harness surfaces it as
+        // `mcp__dartclaw__<name>`. No code branches on this literal.
+        expect(BraveSearchTool(provider: _MockProvider()).name, 'brave_search');
       });
 
       test('inputSchema has correct structure', () {

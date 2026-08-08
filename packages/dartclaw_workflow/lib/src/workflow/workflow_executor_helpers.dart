@@ -70,12 +70,16 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       contextJson: {...run.contextJson, outcomeKey: 'skipped', reasonKey: expr},
       updatedAt: now,
     );
-    await _persistContext(run.id, context);
-    await _repository.update(updated);
+    await _persistContextThenRun(updated, context);
     return updated;
   }
 
   // ── Shared helpers ──────────────────────────────────────────────────────────
+
+  Future<void> _persistContextThenRun(WorkflowRun run, WorkflowContext context) async {
+    await _persistContext(run.id, context);
+    await _repository.update(run);
+  }
 
   Future<void> _createWorkflowTaskTriple({
     required String taskId,
@@ -299,6 +303,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     required int tokenCount,
     String? outcome,
     String? reason,
+    String? displayScope,
   }) {
     _eventBus.fire(
       WorkflowStepCompletedEvent(
@@ -312,6 +317,24 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
         outcome: outcome,
         reason: reason,
         tokenCount: tokenCount,
+        timestamp: DateTime.now(),
+        displayScope: displayScope,
+      ),
+    );
+  }
+
+  void _fireRunStatusChangedEvent({
+    required WorkflowRun run,
+    required WorkflowRunStatus newStatus,
+    String? errorMessage,
+  }) {
+    _eventBus.fire(
+      WorkflowRunStatusChangedEvent(
+        runId: run.id,
+        definitionName: run.definitionName,
+        oldStatus: run.status,
+        newStatus: newStatus,
+        errorMessage: errorMessage,
         timestamp: DateTime.now(),
       ),
     );

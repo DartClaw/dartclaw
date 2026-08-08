@@ -70,7 +70,7 @@ steps:
         pathPattern: '**/*.md'
         schema:
           type: string
-        description: Workspace-relative path to the existing implementation specification on disk, or empty when input requires spec synthesis.
+        description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
       spec_source:
         schema: narrative_text
         description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
@@ -92,7 +92,7 @@ steps:
         pathPattern: '**/*.md'
         schema:
           type: string
-        description: Workspace-relative path to the implementation specification on disk.
+        description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
       spec_source:
         schema: narrative_text
         description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."

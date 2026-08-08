@@ -113,7 +113,7 @@ class CommonChannelFields<TGroupAccess extends Enum> {
             field: '$channelName.response_prefix',
             defaultValue: defaultResponsePrefix,
           );
-    final maxChunkSize = _parseInt(
+    final maxChunkSize = _parsePositiveInt(
       yaml['max_chunk_size'],
       warns,
       field: '$channelName.max_chunk_size',
@@ -167,10 +167,10 @@ class CommonChannelFields<TGroupAccess extends Enum> {
     return defaultValue;
   }
 
-  static int _parseInt(Object? raw, List<String> warns, {required String field, required int defaultValue}) {
-    if (raw is int) return raw;
+  static int _parsePositiveInt(Object? raw, List<String> warns, {required String field, required int defaultValue}) {
+    if (raw is int && raw > 0) return raw;
     if (raw != null) {
-      warns.add('Invalid type for $field: "${raw.runtimeType}" — using default');
+      warns.add('Invalid $field: "$raw" – using default');
     }
     return defaultValue;
   }

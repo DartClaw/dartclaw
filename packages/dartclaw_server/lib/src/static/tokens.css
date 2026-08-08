@@ -1,31 +1,46 @@
-/* Synced from dev/design-system/tokens.css on 2026-07-20.
-   sha256: 5951f9bf05a8c51a11bb576d7671fadfeb3d1f36c9248a54c97e4741b983ccda */
+/* Synced from dev/design-system/tokens.css on 2026-08-05.
+   sha256: c0de85cc006538b37b1ee32b090339393572e9a88700535f56ac0934d66e6bc5 */
 /* DartClaw Design Tokens
    Palette: Catppuccin Mocha (dark) / Latte (light) with terminal-green accent
    Toggle: data-theme="light" on <html>, default = dark
 
    Surface ladder: 7 levels from pit (deepest) to surface1 (brightest).
    Shadows: hue-aware (blue-violet tint matching Mocha's ~264° hue).
-   Transitions: snappy deceleration curve. */
+   Transitions: snappy deceleration curve.
+
+   Three plane roles sit on top of the ladder – chrome, page ground and card.
+   They are separate tokens because the two themes map them to different rungs:
+   dark puts chrome below the ground and the card above it, light puts the card
+   above the chrome. A single ladder token cannot express both. */
 
 :root {
   color-scheme: dark;
 
   /* --- Surface ladder (7 levels: deepest → brightest) --- */
-  --bg-pit:      color-mix(in oklab, #11111b 70%, #000000);  /* Below crust — deepest inset */
-  --bg-crust:    #11111b;                                     /* Code blocks, deep wells */
-  --bg-mantle:   #181825;                                     /* Cards, sidebar, topbar */
-  --bg-base:     #1e1e2e;                                     /* Page background, standard wells */
-  --bg-sub-base: color-mix(in oklab, #1e1e2e 50%, #313244);  /* Between base and surface0 */
+  --bg-pit:      color-mix(in oklab, var(--bg-crust) 70%, #000000);  /* Below crust – deepest inset */
+  --bg-crust:    #11111b;                                     /* Chrome plane, code blocks, deep wells */
+  --bg-mantle:   #181825;                                     /* Chat input strip, terminal bar, glass */
+  --bg-base:     #1e1e2e;                                     /* Page ground, standard wells */
+  --bg-sub-base: color-mix(in oklab, var(--bg-base) 27%, var(--bg-surface0));  /* Card plane */
   --bg-surface0: #313244;                                     /* Elevated cards, hover states */
   --bg-surface1: #45475a;                                     /* Active states, strong hover */
   --bg-surface2: #585b70;                                     /* Borders, scrollbar thumb */
+
+  /* --- Plane roles (see header) --- */
+  --bg-chrome:   var(--bg-crust);      /* .sidebar, .topbar */
+  --bg-card:     var(--bg-sub-base);   /* .card rest, and every card-family hover fill */
+  /* Far end of the page-ground gradient. Per-theme because the two themes have
+     very different room to move: dark can spend real luminance, light is boxed
+     between an AA floor and a tinted-card ceiling and stays nearly flat.
+     Dark dives below the crust: the deep band is what buys the aurora washes
+     their luminance headroom while cards keep their contrast floor. */
+  --bg-ground-edge: color-mix(in oklab, var(--bg-crust) 82%, #000000);
 
   /* --- Foreground (brightest → most muted) --- */
   --fg:          #cdd6f4;   /* Primary text */
   --fg-sub1:     #bac2de;   /* Secondary text */
   --fg-sub0:     #a6adc8;   /* Muted text, timestamps */
-  --fg-overlay:  #7f849c;   /* Placeholders, disabled, low-emphasis helper text */
+  --fg-overlay:  #9ea3bb;   /* Placeholders, disabled, low-emphasis helper text – AA on card/ground/crust */
 
   /* --- Accent --- */
   --accent:      #a6e3a1;
@@ -56,33 +71,41 @@
   --chart-5: var(--pink);
   --chart-6: var(--sky);
 
-  /* --- Ambient glows (atmospheric body ground, see components.css body) --- */
-  --ambient-a: color-mix(in srgb, var(--accent) 7%, transparent);
-  --ambient-b: color-mix(in srgb, var(--mauve) 6%, transparent);
-  --ambient-c: color-mix(in srgb, var(--info) 5%, transparent);
+  /* --- Ambient aurora (atmospheric body ground, see components.css body) ---
+     Visible alpha washes at the ui-polish-audit's prescribed strength (12–16%):
+     the ground must READ as coloured light at arm's length, not merely measure
+     as non-flat. The luminance headroom the washes need comes from the deeper
+     ground band below them (see --bg-ground-edge), not from muting the wash.
+     Cool-led per the Phosphor Aurora direction: blue (a) / mauve (b) / teal (c)
+     carry the atmosphere; the green kicker (d) sits top-left by the brand. */
+  --ambient-a: color-mix(in srgb, var(--info) 16%, transparent);
+  --ambient-b: color-mix(in srgb, var(--mauve) 14%, transparent);
+  --ambient-c: color-mix(in srgb, var(--teal) 12%, transparent);
+  --ambient-d: color-mix(in srgb, var(--accent) 10%, transparent);
 
   /* --- Film-grain noise (SVG turbulence) — kills banding on the gradient ground --- */
   --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --noise-opacity: 0.04;
 
   /* --- Typography --- */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
+               'Segoe UI Emoji';
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono',
                'Menlo', 'Consolas', monospace;
-  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --text-xs:   0.75rem;     /* 12px — timestamps, metadata */
-  --text-sm:   0.8125rem;   /* 13px — sidebar, secondary */
   --text-base: 0.875rem;    /* 14px — body, messages */
-  --text-lg:   1rem;         /* 16px — section headings */
-  --text-xl:   1.25rem;     /* 20px — page title */
-  --text-2xl:  1.5rem;      /* 24px — hero/page-level display */
-  --text-3xl:  2rem;        /* 32px — metric values, big numbers */
+  --text-lg:   1rem;        /* 16px — section headings */
+  --text-xl:   1.125rem;    /* 18px — page title */
+  --text-2xl:  1.25rem;     /* 20px — hero/page-level display */
+  --text-3xl:  1.5rem;      /* 24px — metric values, big numbers */
 
-  --leading:       1.6;
+  --leading:       1.5;
   --leading-tight: 1.3;
 
-  --tracking-tight: -0.02em;  /* Display sizes — mono gets airy when large */
-  --tracking-caps:  0.08em;   /* Tiny uppercase labels need extra air */
+  --tracking-tight: -0.015em;  /* Heading, display, metric — page-title opts out */
+  --tracking-caps:  0.04em;    /* Tiny uppercase labels need extra air */
 
   --weight-normal: 400;
   --weight-medium: 500;
@@ -104,11 +127,37 @@
   --topbar-h:      48px;
   --input-h:       80px;
   --container-max: 900px;
+  /* Second container tier for data-dense surfaces. Opt-in only — a surface that
+     does not carry a --wide modifier keeps the 900px reading column. */
+  --container-wide: 1280px;
+  /* Reading measure for running prose inside the 900px tier. */
+  --measure:        65ch;
 
   /* --- Breakpoints (reference only — used in media queries) --- */
   /* --bp-mobile:  640px;  */
   /* --bp-tablet:  768px;  */
   /* --bp-desktop: 1024px; */
+
+  /* --- Stacking order (ascending) ---
+     Named tiers for anything that stacks against the app layers. Pick the tier
+     by role, never a fresh literal. Component-local micro-stacking (one child
+     over its own sibling) stays a literal — it does not compete here.
+
+     A <dialog> opened with showModal() is promoted to the browser top layer,
+     which no z-index can reach, so the dialog frame takes no tier at all.
+     See DESIGN.md § Elevation & Depth for what that costs a toast.
+
+     Each comment below states the ROLE the tier is for, not an inventory of
+     what currently uses it: canon consumes sticky, scrim, sidebar, overlay and
+     toast today, while app-side surfaces still carry their own literals until
+     they are migrated. Read a row as "what belongs here", not "what is here". */
+  --z-base:     0;    /* In-flow content */
+  --z-sticky:   10;   /* Bars that pin while their own content scrolls */
+  --z-scrim:    15;   /* Dimmer behind the mobile sidebar */
+  --z-sidebar:  20;   /* The mobile sidebar drawer itself */
+  --z-dropdown: 25;   /* Menus and popovers anchored to chrome */
+  --z-overlay:  30;   /* Skip link, full-screen blockers, non-modal floats */
+  --z-toast:    100;  /* Top of the ladder — no other tier is above it */
 
   /* --- Effects --- */
   --radius:    4px;
@@ -118,11 +167,18 @@
   --border-active:    1px solid var(--accent);
   --border-highlight: rgba(255, 255, 255, 0.08);  /* Luminous top-edge on cards */
 
+  /* Meter channel — per-theme because the fills invert their value relation:
+     dark fills are light pastels (dark channel gives contrast), light fills
+     are dark Latte hues (a dark channel would swallow the fill's end). */
+  --meter-track:       color-mix(in srgb, #000000 55%, var(--bg-crust));
+  --meter-track-inset: inset 0 1px 3px rgba(0, 0, 0, 0.7);
+
   /* Hue-aware shadows: blue-violet tint (rgba(9,9,26,...)) instead of pure black.
-     Matches Mocha's ~264° hue angle for cohesive depth. */
-  --shadow-sm: 0 1px 3px rgba(9,9,26,0.50), 0 1px 2px rgba(9,9,26,0.30);
-  --shadow-md: 0 4px 12px rgba(9,9,26,0.50), 0 2px 6px rgba(9,9,26,0.30);
-  --shadow-lg: 0 8px 32px rgba(9,9,26,0.55), 0 4px 12px rgba(9,9,26,0.30);
+     Matches Mocha's ~264° hue angle for cohesive depth. Deepened for the aurora
+     ground: cards float on real dark, so the long throw carries the depth. */
+  --shadow-sm: 0 2px 4px rgba(6,7,18,0.55), 0 10px 24px -8px rgba(6,7,18,0.55);
+  --shadow-md: 0 6px 16px rgba(6,7,18,0.55), 0 14px 34px -12px rgba(6,7,18,0.6);
+  --shadow-lg: 0 12px 40px rgba(6,7,18,0.6), 0 6px 16px rgba(6,7,18,0.35);
   --inset-sm:  inset 0 1px 3px rgba(9,9,26,0.45);
 
   /* Glass tier — translucent surface + backdrop blur for true overlays */
@@ -164,19 +220,30 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg-pit:      color-mix(in oklab, #dce0e8 70%, #ffffff);
-  --bg-crust:    #dce0e8;
-  --bg-mantle:   #e6e9ef;
-  --bg-base:     #eff1f5;
-  --bg-sub-base: color-mix(in oklab, #eff1f5 50%, #ccd0da);
+  /* Light maps the planes on its own terms: the card is white, the chrome sits
+     ABOVE the page ground rather than below it, and the ground is tinted away
+     from white so the card can rise off it. Dark's ordering does not transfer –
+     there, chrome is the darkest plane. */
+  --bg-pit:      color-mix(in oklab, var(--bg-crust) 70%, #ffffff);
+  --bg-crust:    #dee1e9;
+  --bg-mantle:   #eceff5;
+  --bg-base:     #e4e7ef;
+  --bg-sub-base: color-mix(in oklab, var(--bg-base) 50%, var(--bg-surface0));
   --bg-surface0: #ccd0da;
   --bg-surface1: #bcc0cc;
   --bg-surface2: #acb0be;
 
-  --fg:          #4c4f69;
-  --fg-sub1:     #5c5f77;
-  --fg-sub0:     #62677d;
-  --fg-overlay:  #7b8094;
+  --bg-chrome:   var(--bg-mantle);
+  --bg-card:     #ffffff;
+  --bg-ground-edge: color-mix(in oklab, var(--bg-base) 98%, var(--bg-crust));
+
+  --fg:          #464a63;
+  --fg-sub1:     #4f546a;
+  --fg-sub0:     #565b71;
+  /* Pinned to the AA floor on card / crust / the strongest ground wash. In
+     light that lands it at fg-sub1's depth rather than above fg-sub0 –
+     de-emphasis here comes from size and weight, not from a lighter grey. */
+  --fg-overlay:  #50556b;
 
   --accent:      #24661c;
   --accent-dim:  #3d7d36;
@@ -186,24 +253,34 @@
   --warning:     #933d00;
   --info:        #0f4ebf;
 
-  /* Extended palette — Latte. Saturated mid-tones so gradients stay visible on light ground. */
+  /* Extended palette – Latte. Saturated mid-tones so gradients stay visible on
+     light ground. --teal and --brand-claude are held darker than that would ask
+     for: they are the only two that render as badge TEXT, and the provider and
+     layer badges tint them into the ground, which costs ~1.5:1 of contrast. */
   --mauve:       #8839ef;
-  --teal:        #179299;
-  --brand-claude: #c05d35;
+  --teal:        #0d686d;
+  --brand-claude: #954727;
   --brand-codex:  var(--teal);
   --sky:         #04a5e5;
   --pink:        #ea76cb;
   --lavender:    #7287fd;
 
-  /* Ambient glows — gentler on light ground (Latte hues are dark; high % reads muddy) */
-  --ambient-a: color-mix(in srgb, #40a02b 6%, transparent);
-  --ambient-b: color-mix(in srgb, var(--mauve) 5%, transparent);
-  --ambient-c: color-mix(in srgb, #1e66f5 5%, transparent);
+  /* Light needs real alpha washes too, but its darker Latte hues spend more
+     luminance than the dark equivalents. The foreground ladder is paired with
+     these centre strengths so muted text stays at or above 4.5:1. */
+  --ambient-a: color-mix(in srgb, #1e66f5 14%, transparent);
+  --ambient-b: color-mix(in srgb, var(--mauve) 13%, transparent);
+  --ambient-c: color-mix(in srgb, #179299 12%, transparent);
+  --ambient-d: color-mix(in srgb, #40a02b 10%, transparent);
 
-  --noise-opacity: 0.03;
+  --glass-bg: color-mix(in srgb, #ffffff 66%, transparent);
+
+  --noise-opacity: 0.008;
 
   --border-highlight: rgba(0,0,0,0.06);
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --meter-track:       color-mix(in oklab, var(--bg-surface2) 85%, var(--fg));
+  --meter-track-inset: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.10), 0 4px 10px -2px rgba(0,0,0,.12);
   --shadow-md: 0 2px 8px rgba(0,0,0,.10);
   --shadow-lg: 0 4px 20px rgba(0,0,0,.12);
   --inset-sm:  inset 0 1px 2px rgba(0,0,0,.06);

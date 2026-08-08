@@ -178,40 +178,23 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     // (`outputMode: prompt` opt-outs, `*_source`, host-owned keys) still renders
     // its contract. Empty on non-finalizer steps, so all keys render.
     final finalizerCoveredKeys = needsFinalizer ? modelDerivedFinalizerKeys(step, effectiveOutputs) : const <String>[];
-    final firstTaskPrompt = step.isMultiPrompt
-        ? _skillPromptBuilder.build(
-            skill: visibleSkill,
-            resolvedPrompt: resolvedFirstPrompt,
-            contextSummary: contextSummary,
-            outputs: effectiveOutputs,
-            outputKeys: effectiveOutputKeys,
-            outputExamples: step.outputExamples,
-            finalizerCoveredKeys: finalizerCoveredKeys,
-            autoFrameContext: step.autoFrameContext,
-            inputs: step.inputs,
-            variables: variableNames,
-            resolvedInputValues: resolvedInputValues,
-            templatePrompt: step.prompts?.first,
-            provider: taskProvider,
-            gatingSeverity: resolved.gatingSeverity,
-          )
-        : _skillPromptBuilder.build(
-            skill: visibleSkill,
-            resolvedPrompt: resolvedFirstPrompt,
-            contextSummary: contextSummary,
-            outputs: effectiveOutputs,
-            outputKeys: effectiveOutputKeys,
-            outputExamples: step.outputExamples,
-            emitStepOutcomeProtocol: emitOutcomeProtocol,
-            finalizerCoveredKeys: finalizerCoveredKeys,
-            autoFrameContext: step.autoFrameContext,
-            inputs: step.inputs,
-            variables: variableNames,
-            resolvedInputValues: resolvedInputValues,
-            templatePrompt: step.prompts?.first,
-            provider: taskProvider,
-            gatingSeverity: resolved.gatingSeverity,
-          );
+    final firstTaskPrompt = _skillPromptBuilder.build(
+      skill: visibleSkill,
+      resolvedPrompt: resolvedFirstPrompt,
+      contextSummary: contextSummary,
+      outputs: effectiveOutputs,
+      outputKeys: effectiveOutputKeys,
+      outputExamples: step.outputExamples,
+      emitStepOutcomeProtocol: !step.isMultiPrompt && emitOutcomeProtocol,
+      finalizerCoveredKeys: finalizerCoveredKeys,
+      autoFrameContext: step.autoFrameContext,
+      inputs: step.inputs,
+      variables: variableNames,
+      resolvedInputValues: resolvedInputValues,
+      templatePrompt: step.prompts?.first,
+      provider: taskProvider,
+      gatingSeverity: resolved.gatingSeverity,
+    );
     final followUpPrompts = _buildOneShotFollowUpPrompts(
       step,
       context,
@@ -405,6 +388,24 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           );
         }
 
+        StepOutcome buildTaskOutcome({
+          required bool success,
+          String? error,
+          String? reason,
+          bool awaitingApproval = false,
+        }) => StepOutcome(
+          step: step,
+          task: finalTask,
+          outputs: outputs,
+          tokenCount: accumulatedTokenCount,
+          success: success,
+          error: error,
+          outcome: effectiveOutcome,
+          outcomeReason: reason,
+          awaitingApproval: awaitingApproval,
+          validationFailure: validationFailure,
+        );
+
         // Teardown interruption bypasses every policy branch: onFailure
         // retry/continue/pause must not re-dispatch or advance past a task the
         // run's own teardown killed. Controllers map this outcome to their
@@ -419,17 +420,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           final interruptionReason = effectiveReason.isEmpty || effectiveReason == finalTask.status.name
               ? "Step '${step.id}' was interrupted by task cancellation and can be resumed."
               : effectiveReason;
-          return StepOutcome(
-            step: step,
-            task: finalTask,
-            outputs: outputs,
-            tokenCount: accumulatedTokenCount,
-            success: false,
-            error: interruptionReason,
-            outcome: effectiveOutcome,
-            outcomeReason: interruptionReason,
-            validationFailure: validationFailure,
-          );
+          return buildTaskOutcome(success: false, error: interruptionReason, reason: interruptionReason);
         }
 
         if (effectiveOutcome == 'needsInput') {
@@ -456,89 +447,37 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
                 timestamp: DateTime.now(),
               ),
             );
-            return StepOutcome(
-              step: step,
-              task: finalTask,
-              outputs: outputs,
-              tokenCount: accumulatedTokenCount,
-              success: true,
-              error: effectiveReason,
-              outcome: effectiveOutcome,
-              outcomeReason: effectiveReason,
-              validationFailure: validationFailure,
-            );
+            return buildTaskOutcome(success: true, error: effectiveReason, reason: effectiveReason);
           }
           if (step.onFailure == OnFailurePolicy.continueWorkflow) {
-            return StepOutcome(
-              step: step,
-              task: finalTask,
-              outputs: outputs,
-              tokenCount: accumulatedTokenCount,
-              success: true,
-              error: effectiveReason,
-              outcome: effectiveOutcome,
-              outcomeReason: effectiveReason,
-              validationFailure: validationFailure,
-            );
+            return buildTaskOutcome(success: true, error: effectiveReason, reason: effectiveReason);
           }
-          return StepOutcome(
-            step: step,
-            task: finalTask,
-            outputs: outputs,
-            tokenCount: accumulatedTokenCount,
+          return buildTaskOutcome(
             success: false,
             error: effectiveReason,
-            outcome: effectiveOutcome,
-            outcomeReason: effectiveReason,
+            reason: effectiveReason,
             awaitingApproval: true,
-            validationFailure: validationFailure,
           );
         }
 
         if (effectiveOutcome == 'failed') {
           switch (step.onFailure) {
             case OnFailurePolicy.continueWorkflow:
-              return StepOutcome(
-                step: step,
-                task: finalTask,
-                outputs: outputs,
-                tokenCount: accumulatedTokenCount,
-                success: true,
-                error: effectiveReason,
-                outcome: effectiveOutcome,
-                outcomeReason: effectiveReason,
-                validationFailure: validationFailure,
-              );
+              return buildTaskOutcome(success: true, error: effectiveReason, reason: effectiveReason);
             case OnFailurePolicy.retry:
               break;
             case OnFailurePolicy.pause:
-              return StepOutcome(
-                step: step,
-                task: finalTask,
-                outputs: outputs,
-                tokenCount: accumulatedTokenCount,
+              return buildTaskOutcome(
                 success: false,
                 error: effectiveReason,
-                outcome: effectiveOutcome,
-                outcomeReason: effectiveReason,
+                reason: effectiveReason,
                 awaitingApproval: true,
-                validationFailure: validationFailure,
               );
             case OnFailurePolicy.fail:
               break;
           }
 
-          return StepOutcome(
-            step: step,
-            task: finalTask,
-            outputs: outputs,
-            tokenCount: accumulatedTokenCount,
-            success: false,
-            error: effectiveReason,
-            outcome: effectiveOutcome,
-            outcomeReason: effectiveReason,
-            validationFailure: validationFailure,
-          );
+          return buildTaskOutcome(success: false, error: effectiveReason, reason: effectiveReason);
         }
 
         if (promoteAfterSuccess) {
@@ -552,30 +491,11 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             promotionStrategy: effectivePromotion,
           );
           if (promotionFailure != null) {
-            return StepOutcome(
-              step: step,
-              task: finalTask,
-              outputs: outputs,
-              tokenCount: accumulatedTokenCount,
-              success: false,
-              error: promotionFailure,
-              outcome: effectiveOutcome,
-              outcomeReason: outcomeReason,
-              validationFailure: validationFailure,
-            );
+            return buildTaskOutcome(success: false, error: promotionFailure, reason: outcomeReason);
           }
         }
 
-        return StepOutcome(
-          step: step,
-          task: finalTask,
-          outputs: outputs,
-          tokenCount: accumulatedTokenCount,
-          success: true,
-          outcome: effectiveOutcome,
-          outcomeReason: outcomeReason,
-          validationFailure: validationFailure,
-        );
+        return buildTaskOutcome(success: true, reason: outcomeReason);
       },
     );
   }

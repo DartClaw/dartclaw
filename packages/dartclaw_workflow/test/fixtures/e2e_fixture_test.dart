@@ -30,6 +30,7 @@ void main() {
     expect(File('${fixture.projectDir}/README.md').existsSync(), isTrue);
     expect(fixture.config.projects.definitions.keys, contains('fixture-project'));
     expect(fixture.config.workflow.workspaceDir, fixture.workflowWorkspaceDir);
+    expect(fixture.config.workflow.defaults.planner.effort, 'medium');
   });
 
   test('fixture config does not emit an unused CODEX_API_KEY warning', () async {
@@ -60,20 +61,20 @@ void main() {
   });
 
   group('default model resolution', () {
-    test('codex preset defaults executor/reviewer to gpt-5.3-codex-spark', () {
+    test('codex preset defaults planner to Sol and executor/reviewer to Luna', () {
       final fixture = E2EFixture(environment: const {});
       expect(fixture.provider, 'codex');
       expect(fixture.workflowModel, 'gpt-5.4');
-      expect(fixture.plannerModel, 'gpt-5.4');
-      expect(fixture.executorModel, 'gpt-5.3-codex-spark');
-      expect(fixture.reviewerModel, 'gpt-5.3-codex-spark');
+      expect(fixture.plannerModel, 'gpt-5.6-sol');
+      expect(fixture.executorModel, 'gpt-5.6-luna');
+      expect(fixture.reviewerModel, 'gpt-5.6-luna');
       expect(fixture.sandbox, 'danger-full-access');
     });
 
     test('per-role env var overrides preset default', () {
       final fixture = E2EFixture(environment: const {'DARTCLAW_TEST_EXECUTOR_MODEL': 'claude-haiku-4-5'});
       expect(fixture.executorModel, 'claude-haiku-4-5');
-      expect(fixture.reviewerModel, 'gpt-5.3-codex-spark');
+      expect(fixture.reviewerModel, 'gpt-5.6-luna');
       expect(fixture.workflowModel, 'gpt-5.4');
     });
 
@@ -87,7 +88,7 @@ void main() {
 
     test('empty-string env var is treated as unset', () {
       final fixture = E2EFixture(environment: const {'DARTCLAW_TEST_EXECUTOR_MODEL': ''});
-      expect(fixture.executorModel, 'gpt-5.3-codex-spark');
+      expect(fixture.executorModel, 'gpt-5.6-luna');
     });
 
     test('claude provider switches preset models, sandbox, and executable', () {
@@ -120,6 +121,7 @@ void main() {
       expect(entry!.executable, 'claude');
       expect(entry.options['permissionMode'], 'dontAsk');
       expect(entry.options.containsKey('approval'), isFalse);
+      expect(fixture.config.workflow.defaults.planner.effort, isNull);
     });
 
     test('withProvider realigns unspecified role models with the new provider preset', () {

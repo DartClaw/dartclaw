@@ -218,6 +218,79 @@ void main() {
       expect(onboarding, contains('.draft'));
     });
 
+    for (final existingFiles in const [
+      ['USER.md'],
+      ['SOUL.md'],
+      ['USER.md', 'SOUL.md'],
+    ]) {
+      test('${existingFiles.join(' and ')} force draft onboarding', () async {
+        final workspace = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
+        for (final name in existingFiles) {
+          File(p.join(workspace.path, name)).writeAsStringSync('curated $name');
+        }
+
+        await SetupApply.apply(state);
+
+        final onboarding = File(p.join(workspace.path, 'ONBOARDING.md')).readAsStringSync();
+        expect(onboarding, contains('Rerun: true'));
+        expect(onboarding, contains('USER.md.draft'));
+        expect(onboarding, contains('SOUL.md.draft'));
+        for (final name in existingFiles) {
+          expect(File(p.join(workspace.path, name)).readAsStringSync(), 'curated $name');
+        }
+      });
+    }
+
+    test('rerun upgrades generated direct-mode behavior instructions without replacing curated content', () async {
+      await SetupApply.apply(state);
+      final workspace = p.join(tempDir.path, 'workspace');
+      final userFile = File(p.join(workspace, 'USER.md'))..writeAsStringSync('curated user');
+      final onboardingFile = File(p.join(workspace, 'ONBOARDING.md'));
+      const customOnboarding = '''
+## Custom note
+- Rerun: false
+- Draft mode: first-run files may be updated directly
+6. On first run, write USER.md and SOUL.md directly. On reruns, read existing USER.md
+   and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.
+6. If Draft mode is enabled, read USER.md and SOUL.md first, then write USER.md.draft
+   and SOUL.md.draft for review. Otherwise, write USER.md and SOUL.md directly.
+6. Write USER.md and SOUL.md directly.
+Keep me.
+''';
+      onboardingFile.writeAsStringSync('${onboardingFile.readAsStringSync()}$customOnboarding');
+      final soulFile = File(p.join(workspace, 'SOUL.md'))
+        ..writeAsStringSync('''
+Curated preface.
+During first-run onboarding you may write this file directly; during
+reruns, propose changes in SOUL.md.draft and wait for the user to apply them.
+Curated suffix.
+''');
+
+      await SetupApply.apply(state);
+
+      final onboarding = onboardingFile.readAsStringSync();
+      final customStart = onboarding.indexOf('## Custom note');
+      final generatedOnboarding = onboarding.substring(0, customStart);
+      expect(generatedOnboarding, contains('Rerun: true'));
+      expect(generatedOnboarding, isNot(contains('first-run files may be updated directly')));
+      expect(generatedOnboarding, isNot(contains('Write USER.md and SOUL.md directly')));
+      expect(onboarding.substring(customStart), customOnboarding);
+      expect(userFile.readAsStringSync(), 'curated user');
+      expect(soulFile.readAsStringSync(), contains('Curated preface.'));
+      expect(soulFile.readAsStringSync(), contains('Curated suffix.'));
+      expect(soulFile.readAsStringSync(), contains('follow its Draft mode'));
+      expect(soulFile.readAsStringSync(), isNot(contains('you may write this file directly')));
+    });
+
+    test('scaffolded SOUL does not authorize direct onboarding writes', () async {
+      await SetupApply.apply(state);
+
+      final soul = File(p.join(tempDir.path, 'workspace', 'SOUL.md')).readAsStringSync();
+      expect(soul, isNot(contains('you may write this file directly')));
+      expect(soul, contains('SOUL.md.draft'));
+      expect(soul, contains('follow its Draft mode'));
+    });
+
     test('personalize re-seeds onboarding without overwriting curated behavior files', () async {
       await SetupApply.apply(state);
       final userFile = File(p.join(tempDir.path, 'workspace', 'USER.md'))..writeAsStringSync('curated user');

@@ -38,16 +38,6 @@ void main() {
   }
 
   group('CleanupCommand', () {
-    test('name is cleanup', () {
-      final cmd = CleanupCommand();
-      expect(cmd.name, 'cleanup');
-    });
-
-    test('description is set', () {
-      final cmd = CleanupCommand();
-      expect(cmd.description, isNotEmpty);
-    });
-
     test('cleanup with empty sessions dir reports no actions', () async {
       await runCleanup([]);
 

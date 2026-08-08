@@ -1,10 +1,11 @@
 <div class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
-  <div tl:utext="${topbar}">topbar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
-    <div class="page-inner" id="tasks-content" data-controller="dc-tasks">
+    <div class="page-inner page-inner--wide" id="tasks-content" data-controller="dc-tasks">
 
-      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+      <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
 
       <div class="task-filter-bar">
         <select id="task-status-filter" class="form-select" data-task-filter="status" data-enhance="custom-select">
@@ -15,23 +16,23 @@
           <option tl:each="opt : ${typeOptions}" tl:text="${opt.label}"
                   tl:attr="value=${opt.value},selected=${opt.selected} ? 'selected' : null">All Types</option>
         </select>
-        <button class="btn btn-primary" type="button" data-task-dialog-open>New Task</button>
       </div>
 
       <div tl:if="${showWorkflowReviewToggle}" class="task-filter-hint">
-        <a class="btn btn-secondary btn-sm"
+        <a class="btn btn-ghost btn-sm"
            tl:attr="href=${workflowReviewToggleHref}"
            tl:text="${includeWorkflowOwned} ? 'Hide workflow artifacts' : 'Show workflow artifacts'">Show workflow artifacts</a>
       </div>
 
       <div tl:if="${agentOverviewHtml}" tl:utext="${agentOverviewHtml}">agent overview</div>
 
-      <div tl:if="${hasTasks}">
-        <div tl:each="group : ${statusGroups}" class="task-status-group">
-          <h3>
+      <div tl:if="${hasTasks}" class="task-status-groups">
+        <section tl:each="group : ${statusGroups}" class="task-status-group"
+          tl:attr="aria-labelledby='task-status-' + ${group.status}">
+          <h2 class="t-heading" tl:attr="id='task-status-' + ${group.status}">
             <span tl:text="${group.statusLabel}">Status</span>
             <span class="task-group-count" tl:text="${group.count}">0</span>
-          </h3>
+          </h2>
 
           <div tl:if="${group.isRunning}" class="task-running-cards">
             <div tl:each="task : ${group.tasks}" class="card task-card-running print-in" tl:classappend="${task.cardTintClass}">
@@ -55,7 +56,8 @@
               </div>
               <div tl:if="${task.hasEvents}" class="task-events" tl:attr="id='task-events-' + ${task.id}">
                 <div tl:each="event : ${task.recentEvents}" class="task-event">
-                  <span class="task-event-icon" tl:classappend="${event.iconClass}" tl:text="${event.iconChar}">*</span>
+                  <span class="task-event-icon icon" aria-hidden="true"
+                        tl:classappend="${event.maskClass} + ' ' + ${event.iconClass}"></span>
                   <span tl:text="${event.text}">Event text</span>
                 </div>
               </div>
@@ -86,30 +88,32 @@
                         Goal: <span tl:text="${task.goalTitle}">Goal title</span>
                       </div>
                     </td>
-                    <td tl:if="${showProjectColumn}" class="task-col-project" tl:text="${task.projectName}">—</td>
+                    <td tl:if="${showProjectColumn}" class="task-col-project"
+                        tl:classappend="${task.projectAbsent} ? 'value-absent' : ''"
+                        tl:text="${task.projectDisplay}">Project</td>
                     <td class="task-col-type"><span class="type-badge" tl:text="${task.typeLabel}">Type</span></td>
                     <td class="task-col-provider"><span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
                               tl:text="${task.providerLabel}">Claude</span></td>
-                    <td class="task-col-created-by" tl:text="${task.createdByDisplay}">—</td>
-                    <td class="task-col-created" tl:text="${task.createdAtDisplay}">1h ago</td>
-                    <td class="task-col-status"><tl:block tl:utext="${task.statusBadgeHtml}">badge</tl:block></td>
-                    <td class="task-col-tokens task-tokens-static" tl:text="${task.finalTokenDisplay}">—</td>
+                    <td class="task-col-created-by" tl:classappend="${task.createdByAbsent} ? 'value-absent' : ''"
+                        tl:text="${task.createdByDisplay}">agent</td>
+                    <td class="task-col-created" tl:attr="title=${task.createdAtIso}"
+                        tl:text="${task.createdAtDisplay}">1h ago</td>
+                    <td class="task-col-status"><tl:block tl:utext="${task.statusPillHtml}">pill</tl:block></td>
+                    <td class="task-col-tokens task-tokens-static" tl:classappend="${task.finalTokenDisplay} ? '' : 'value-absent'"
+                        tl:text="${task.finalTokenDisplay}">1.2K</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
-      <div tl:unless="${hasTasks}" class="empty-state">
-        <div class="empty-state-icon"><span class="claw-mark"></span></div>
-        <p class="empty-state-title">No tasks yet</p>
-        <p class="empty-state-text">Tasks will appear here when created.</p>
-      </div>
+      <tl:block tl:unless="${hasTasks}" tl:utext="${emptyStateHtml}">empty state</tl:block>
 
     </div>
 
     <div tl:if="${newTaskDialogHtml}" tl:utext="${newTaskDialogHtml}">dialog</div>
   </main>
+  </div>
 </div>

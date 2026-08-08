@@ -139,7 +139,7 @@ class ChannelManager {
     for (final channel in _channels) {
       try {
         await channel.connect();
-        _log.info('Connected channel: ${channel.name}');
+        _log.info('Started channel: ${channel.name}');
       } catch (e, st) {
         _log.severe('Failed to connect channel ${channel.name}', e, st);
       }

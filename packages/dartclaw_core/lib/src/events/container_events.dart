@@ -3,33 +3,24 @@ part of 'dartclaw_event.dart';
 /// Intermediate sealed type for container lifecycle events.
 sealed class ContainerLifecycleEvent extends DartclawEvent {
   /// Security profile identifier used for the container.
-  String get profileId;
+  final String profileId;
 
   /// Runtime container name.
-  String get containerName;
+  final String containerName;
 
   @override
   /// Timestamp when the container event occurred.
-  DateTime get timestamp;
+  final DateTime timestamp;
+
+  /// Creates a container lifecycle event.
+  ContainerLifecycleEvent({required this.profileId, required this.containerName, required this.timestamp});
 }
 
 /// Fired when a container starts successfully.
 // NOT_ALERTABLE: normal lifecycle telemetry — no operator action required
 final class ContainerStartedEvent extends ContainerLifecycleEvent {
-  @override
-  /// Security profile identifier used for the container.
-  final String profileId;
-
-  @override
-  /// Name of the started container.
-  final String containerName;
-
-  @override
-  /// Timestamp when the container started.
-  final DateTime timestamp;
-
   /// Creates a container-started event.
-  ContainerStartedEvent({required this.profileId, required this.containerName, required this.timestamp});
+  ContainerStartedEvent({required super.profileId, required super.containerName, required super.timestamp});
 
   @override
   String toString() => 'ContainerStartedEvent(profile: $profileId, container: $containerName)';
@@ -38,20 +29,8 @@ final class ContainerStartedEvent extends ContainerLifecycleEvent {
 /// Fired when a container is gracefully stopped.
 // NOT_ALERTABLE: normal lifecycle telemetry — no operator action required
 final class ContainerStoppedEvent extends ContainerLifecycleEvent {
-  @override
-  /// Security profile identifier used for the container.
-  final String profileId;
-
-  @override
-  /// Name of the stopped container.
-  final String containerName;
-
-  @override
-  /// Timestamp when the container stopped.
-  final DateTime timestamp;
-
   /// Creates a container-stopped event.
-  ContainerStoppedEvent({required this.profileId, required this.containerName, required this.timestamp});
+  ContainerStoppedEvent({required super.profileId, required super.containerName, required super.timestamp});
 
   @override
   String toString() => 'ContainerStoppedEvent(profile: $profileId, container: $containerName)';
@@ -59,27 +38,15 @@ final class ContainerStoppedEvent extends ContainerLifecycleEvent {
 
 /// Fired when a container crash is detected.
 final class ContainerCrashedEvent extends ContainerLifecycleEvent {
-  @override
-  /// Security profile identifier used for the container.
-  final String profileId;
-
-  @override
-  /// Name of the crashed container.
-  final String containerName;
-
   /// Error string or crash reason.
   final String error;
 
-  @override
-  /// Timestamp when the crash was detected.
-  final DateTime timestamp;
-
   /// Creates a container-crashed event.
   ContainerCrashedEvent({
-    required this.profileId,
-    required this.containerName,
+    required super.profileId,
+    required super.containerName,
     required this.error,
-    required this.timestamp,
+    required super.timestamp,
   });
 
   @override

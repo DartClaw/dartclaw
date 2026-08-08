@@ -1,3 +1,4 @@
+import 'package:dartclaw_server/src/templates/helpers.dart';
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/templates/session_info.dart';
@@ -44,8 +45,13 @@ void main() {
     expect(html, contains('data-controller="dc-tasks"'));
     expect(html, contains('No artifacts yet'));
     expect(html, isNot(contains('\ud83d\uddc3')));
-    expect(html, isNot(contains('class="claw-mark"')));
-    expect(html, contains('\ud83d\udcac'));
+    // One claw mark, and it is the sidebar's brand lockup — neither column
+    // empty state carries one of its own.
+    expect(RegExp('class="claw-mark"').allMatches(html), hasLength(1));
+    // Both column empties come from the shared fragment, so neither carries a
+    // page-local emoji of its own any more.
+    expect(html, isNot(contains('\ud83d\udcac')));
+    expect(html, contains('Session not started'));
   });
 
   test('renders session turn status with tasks controller mount', () {
@@ -106,6 +112,78 @@ void main() {
 
     expect(html, contains('class="metric-label" title="$tooltip">Input (fresh)</div>'));
     expect(RegExp(RegExp.escape(tooltip)).allMatches(html), hasLength(1));
+  });
+
+  test('session info consumes shared relative Created rendering', () {
+    const createdAt = '2026-04-15T10:00:00.000';
+    final html = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'Session',
+      messageCount: 2,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      createdAt: createdAt,
+    );
+
+    // The rendering is S16's shared helper, not a formatter of this surface's own.
+    final expected = formatRelativeTime(DateTime.parse(createdAt));
+    expect(html, contains('title="$createdAt"'));
+    expect(html, contains('>$expected<'));
+    expect(html, isNot(contains('>$createdAt<')), reason: 'the raw ISO instant reached the surface');
+  });
+
+  test('session info renders the shared page header and three token cards on one row', () {
+    final html = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'My Session',
+      messageCount: 2,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      inputTokens: 1500,
+      outputTokens: 500,
+    );
+
+    expect(html, contains('<header class="pagehead">'));
+    expect(html, contains('My Session'));
+    expect(html, contains('class="page-subtitle t-body"'));
+    expect(html, isNot(contains('info-title')));
+    expect(html, isNot(contains('info-subtitle')));
+    // The topbar keeps the page's only <h1>.
+    expect(RegExp('<h1').allMatches(html), hasLength(1));
+    for (final section in ['Token Usage', 'Session Details']) {
+      expect(html, contains('<h2 class="section-title">$section</h2>'));
+    }
+    expect(html, contains('class="token-grid"'));
+    expect(RegExp('class="card card-metric').allMatches(html), hasLength(3));
+    // Session info is on the 900px list – it must not pick up the wide modifier.
+    expect(html, contains('class="content-inner"'));
+    expect(html, isNot(contains('content-inner--wide')));
+  });
+
+  test('session info shows the canonical absent treatment for unrecorded token counts', () {
+    final html = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'Session',
+      messageCount: 0,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+    );
+
+    expect(RegExp('metric-value t-metric value-absent').allMatches(html), hasLength(3));
+    expect(html, isNot(contains('—')), reason: 'a hardcoded em dash stands in for the absent treatment');
+
+    // A recorded zero is a value, not an absence.
+    final zeroed = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'Session',
+      messageCount: 0,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      inputTokens: 0,
+      outputTokens: 0,
+    );
+    expect(RegExp('metric-value t-metric value-absent').allMatches(zeroed), hasLength(1));
+    expect(zeroed, contains('>0</div>'));
   });
 
   test('renders provider badge in the task meta grid', () {
@@ -353,7 +431,7 @@ void main() {
     expect(html, contains('class="scan-bar"'));
     expect(html, isNot(contains('budget-bar-fill')));
     expect(RegExp('class="claw-loader"').allMatches(html), hasLength(1));
-    expect(html, isNot(contains('class="claw-mark"')));
+    expect(RegExp('class="claw-mark"').allMatches(html), hasLength(1));
   });
 
   test('renders bound channels section when bindings are present', () {
@@ -454,7 +532,7 @@ void main() {
     expect(html, contains('Cancel Turn'));
   });
 
-  test('does not render idle turn cancel affordance', () {
+  test('keeps an inert turn-status mount for idle sessions', () {
     final html = taskDetailPageTemplate(
       sidebarData: emptySidebar,
       navItems: navItems,
@@ -472,6 +550,38 @@ void main() {
       turnStatus: const {'session_id': 'session-123', 'state': 'idle', 'can_cancel': false},
     );
 
-    expect(html, isNot(contains('data-turn-cancel')));
+    expect(html, contains('class="turn-status-panel" hidden=""'));
+    expect(html, contains('data-turn-status-session-id="session-123"'));
+    expect(html, contains('data-turn-cancel'));
+    expect(html, contains('disabled="disabled"'));
+  });
+
+  test('does not render cached terminal turn status as an active panel', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Done task',
+        'type': 'coding',
+        'status': 'accepted',
+        'description': 'Do work',
+        'sessionId': 'session-123',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+      messagesHtml: '<div>message</div>',
+      turnStatus: const {
+        'session_id': 'session-123',
+        'turn_id': 'turn-completed',
+        'state': 'completed',
+        'can_cancel': false,
+      },
+    );
+
+    expect(html, contains('class="turn-status-panel" hidden=""'));
+    expect(html, contains('data-turn-status-session-id="session-123"'));
+    expect(html, contains('data-turn-cancel'));
+    expect(html, contains('disabled="disabled"'));
   });
 }

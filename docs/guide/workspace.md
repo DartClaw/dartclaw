@@ -16,7 +16,7 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
     wiki/
       README.md      # Wiki conventions and provenance guidance
     HEARTBEAT.md     # Periodic checklist (human-maintained)
-    .gitignore       # Auto-created if git sync enabled
+    .gitignore       # Created or supplemented if git sync enabled
   sessions/          # Per-session message history (NDJSON)
   logs/              # Daily logs and structured logs
   agents/
@@ -118,7 +118,8 @@ as a firehose for unrelated material.
 `dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Web chat receives the onboarding instructions until the agent
 calls `onboarding_complete`, the user defers, or the sentinel expires. Non-web task, cron, channel, advisor, and
 evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
-write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes.
+write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes. Ordinary init also uses draft mode when
+either `USER.md` or `SOUL.md` already exists; direct writes are allowed only when init created both fresh stubs.
 
 ### HEARTBEAT.md -- Periodic Checklist
 Human-maintained. Processed by the heartbeat scheduler at configured intervals (default: 30 minutes).
@@ -128,6 +129,21 @@ Human-maintained. Processed by the heartbeat scheduler at configured intervals (
 - [ ] Review error logs from the last hour
 - [ ] Summarize any new GitHub issues
 ```
+
+## How the Knowledge Layer Fills
+
+Each knowledge store has exactly one write path, and none of them fill from conversations automatically:
+
+| Store | Written by | When |
+|-------|-----------|------|
+| `MEMORY.md` | Agent, via the `memory_save` tool | Only when a turn calls it -- e.g. a scheduled journaling job ([Daily Memory Journal](recipes/02-daily-memory-journal.md)) or an explicit request. Never automatic. |
+| MEMORY.md consolidation | Agent consolidation turn | Heartbeat, when `MEMORY.md` exceeds `memory.max_bytes` (default 32KB) |
+| MEMORY.md pruning | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving entries older than `memory.pruning.archive_after_days` |
+| `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` -- see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
+| Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` -- see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
+| `memory/YYYY-MM-DD.md` | DartClaw, automatically after tool-using turns | Daily turn logs -- an activity record, not part of `MEMORY.md` or the search index |
+
+A fresh instance looks healthy while its knowledge layer is still empty: the inbox job logs successful runs over an empty `inbox/`, and `memory_search` (which covers `MEMORY.md` and `wiki/`) returns nothing without error. To see what has actually accumulated, open the Knowledge Hub (`/knowledge`) or the Memory dashboard (`/memory`). `dartclaw rebuild-index` reporting `No MEMORY.md found` means nothing has called `memory_save` yet.
 
 ## System Prompt Assembly Order
 
@@ -143,4 +159,7 @@ The system prompt is assembled in this order:
 
 ## Git Sync
 
-When enabled (default), DartClaw auto-initializes a git repo in the workspace and commits changes on each heartbeat cycle. Push to a remote if `origin` is configured. See [Configuration](configuration.md) for `workspace.git_sync` options.
+When enabled (default), DartClaw auto-initializes a git repo in the workspace and attempts to commit changes on every
+enabled heartbeat timer cycle, even when `HEARTBEAT.md` is missing or empty. Existing `.gitignore` content is preserved
+while DartClaw adds any missing default exclusions. Push to a remote if `origin` is configured. See
+[Configuration](configuration.md) for `workspace.git_sync` options.

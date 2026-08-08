@@ -1,5 +1,10 @@
 All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_whatsapp`.
 
+## Unreleased
+
+### Added
+- Native typing indication for direct and group turns through GOWA chat presence
+
 ## 0.9.0
 
 ### Added

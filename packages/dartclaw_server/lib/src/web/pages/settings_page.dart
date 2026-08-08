@@ -9,6 +9,7 @@ import '../../health/health_service.dart';
 import '../../params/display_params.dart';
 import '../../provider_status_service.dart';
 import '../../templates/guard_config_summary.dart';
+import '../../templates/helpers.dart';
 import '../../templates/settings.dart';
 import '../dashboard_page.dart';
 import '../page_support.dart';
@@ -73,8 +74,8 @@ class SettingsPage extends DashboardPage {
       navItems: context.navItems(activePage: title),
       uptimeSeconds: status['uptime_s'] as int? ?? 0,
       sessionCount: status['session_count'] as int? ?? 0,
-      workerState: status['worker_state'] as String? ?? 'unknown',
-      version: status['version'] as String? ?? 'unknown',
+      workerState: status['worker_state'] as String? ?? '',
+      version: status['version'] as String? ?? '',
       providers: providerCards,
       providerConfiguredCount: providerSummary.configured,
       providerHealthyCount: providerSummary.healthy,
@@ -94,7 +95,7 @@ class SettingsPage extends DashboardPage {
       guardFailOpen: gc?.failOpen ?? false,
       guardConfigs: guardConfigs,
       workspacePath: workspaceDisplay.path,
-      bannerHtml: context.restartBannerHtml(),
+      restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
     );
 
@@ -139,8 +140,13 @@ Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
     'binaryStatusLabel': provider.binaryFound ? 'Found' : 'Not found',
     'binaryStatusClass': provider.binaryFound ? 'detail-value-ok' : 'detail-value-error',
     'executable': provider.executable,
-    'versionDisplay': provider.binaryFound ? (provider.version ?? 'unknown') : 'Not found',
-    'versionClass': provider.binaryFound ? '' : 'detail-value-error',
+    'versionDisplay': provider.binaryFound ? (absentValue(provider.version).value ?? '') : 'Not found',
+    // An unreported version renders canon's .value-absent through the existing
+    // class hook; "Not found" stays, being a determinate finding rather than
+    // an unknown field.
+    'versionClass': provider.binaryFound
+        ? (absentValue(provider.version).isAbsent ? 'value-absent' : '')
+        : 'detail-value-error',
     'credentialStatusLabel': switch (provider.credentialStatus) {
       'present' => 'Present',
       'oauth' => 'Authenticated',

@@ -14,7 +14,11 @@ void addTeardownAsync(Future<void> Function() fn) => addTearDown(fn);
 
 /// Creates a [CapturingFakeProcess] with a non-broadcast stdout controller so
 /// [scheduleMicrotask] emission before subscription is still delivered.
-CapturingFakeProcess _makeCapturingProcess() => CapturingFakeProcess(stdoutController: StreamController<List<int>>());
+///
+/// `completeExitOnKill` lets harness teardown observe the exit immediately
+/// instead of waiting out the SIGTERM grace period and the SIGKILL follow-up.
+CapturingFakeProcess _makeCapturingProcess() =>
+    CapturingFakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
 
 // ---------------------------------------------------------------------------
 

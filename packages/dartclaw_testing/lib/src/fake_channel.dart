@@ -9,6 +9,7 @@ class FakeChannel extends Channel {
     this.ownedJids = const {},
     this.ownsAllJids = false,
     this.throwOnSend = false,
+    this.responseFormatter,
   });
 
   @override
@@ -25,6 +26,9 @@ class FakeChannel extends Channel {
 
   /// Whether [sendMessage] should throw instead of recording.
   bool throwOnSend;
+
+  /// Optional formatter used to exercise channel-specific delivery paths.
+  final List<ChannelResponse> Function(String text)? responseFormatter;
 
   /// Whether [connect] has been called without a matching [disconnect].
   bool connected = false;
@@ -60,4 +64,7 @@ class FakeChannel extends Channel {
     }
     sentMessages.add((recipientJid, response));
   }
+
+  @override
+  List<ChannelResponse> formatResponse(String text) => responseFormatter?.call(text) ?? super.formatResponse(text);
 }

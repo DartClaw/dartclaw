@@ -12,5 +12,5 @@ String loginPageTemplate({String? error, String? nextPath, String? tokenValue, S
     'tokenValue': tokenValue,
     'appName': appName,
   });
-  return layoutTemplate(title: 'Login', body: body, appName: appName);
+  return layoutTemplate(title: 'Login', body: body, appName: appName, showSkipLink: false);
 }

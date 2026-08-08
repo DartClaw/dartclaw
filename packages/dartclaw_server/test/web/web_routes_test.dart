@@ -5,6 +5,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, Harnes
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/turn_wait_status.dart';
+import 'package:dartclaw_server/src/web/pages/health_page.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
@@ -88,62 +89,345 @@ void main() {
     });
   });
 
+  group('GET /health-dashboard', () {
+    test('registers core Health UI and renders degraded fallback without runtime services', () async {
+      final res = await handler(Request('GET', Uri.parse('http://localhost/health-dashboard')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('href="/health-dashboard"'));
+      expect(body, contains('aria-current="page"'));
+      expect(body, contains('Running degraded'));
+      expect(body, contains('>Degraded<'));
+      expect(body, contains('>unknown<'));
+    });
+  });
+
   group('GET /knowledge/wiki/<source>', () {
-    test('serves an emitted wiki source link read-only', () async {
-      final wikiFile = File('${tempDir.path}/wiki/onboarding.md')
-        ..parent.createSync(recursive: true)
-        ..writeAsStringSync('Merge source material.');
+    /// Builds the wiki handler. A null [workspacePath] reproduces the
+    /// unconfigured-workspace rejection.
+    Handler wikiHandler({String? workspacePath}) {
       final memoryDb = sqlite3.openInMemory();
       final taskDb = sqlite3.openInMemory();
       addTearDown(() {
         memoryDb.close();
         taskDb.close();
       });
-      handler = webRoutes(
+      return webRoutes(
         sessions,
         messages,
         kvService: kvService,
         memoryService: MemoryService(memoryDb),
         kgService: TemporalKnowledgeGraphService(taskDb),
-        workspaceDisplay: WorkspaceDisplayParams(path: tempDir.path),
+        workspaceDisplay: WorkspaceDisplayParams(path: workspacePath),
       ).call;
+    }
 
-      final res = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/onboarding.md')));
+    Request wikiGet(String locator) => Request('GET', Uri.parse('http://localhost/knowledge/wiki/$locator'));
 
-      expect(wikiFile.existsSync(), isTrue);
+    /// Asserts the one opaque rejection: 404, HTML, fixed body, and nothing
+    /// about what was asked for or where it resolved to.
+    Future<String> expectOpaque404(Response res, {String? probed}) async {
+      expect(res.statusCode, 404);
+      expect(res.headers['content-type'], contains('text/html'));
+      final body = await res.readAsString();
+      expect(body, contains('Wiki source not found'));
+      expect(body, isNot(contains(tempDir.path)));
+      if (probed != null) expect(body, isNot(contains(probed)));
+      return body;
+    }
+
+    // The served URL carries the segment twice: the route guard requires the
+    // `wiki/` locator prefix and knowledge_hub_service emits hrefs that already
+    // start with it. A single-segment path hits the reject branch instead.
+    test('renders the document inside the app shell instead of raw text/plain', () async {
+      File('${tempDir.path}/wiki/onboarding.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('# Wiki\n\nMerge `source` material.');
+
+      final res = await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/onboarding.md'));
+      final body = await res.readAsString();
+
       expect(res.statusCode, 200);
-      expect(res.headers['content-type'], contains('text/plain'));
-      expect(await res.readAsString(), contains('Merge source material.'));
+      expect(res.headers['content-type'], contains('text/html'));
+      expect(res.headers['content-type'], isNot(contains('text/plain')));
+      expect(body, contains('<div class="shell">'));
+      expect(body, contains('class="sidebar"'));
+      expect(body, contains('id="topbar"'));
+      // A way back to the hub, and the document title in the topbar.
+      expect(body, contains('href="/knowledge"'));
+      expect(body, contains('onboarding.md'));
+      // Source reaches the page as escaped text for the shared markdown
+      // pipeline, never as pre-rendered markup.
+      expect(body, contains('data-markdown'));
+      expect(body, contains('# Wiki'));
+      expect(body, contains('Merge `source` material.'));
+    });
+
+    // Wiki content is workspace-writable (agents author it), so the document
+    // body is untrusted. It must reach the browser as escaped text inside the
+    // data-markdown container and be rendered client-side by marked+DOMPurify —
+    // never as server-emitted markup. Switching the slot to tl:utext would keep
+    // every other wiki test green, so this pins it directly.
+    test('escapes hostile markdown instead of emitting it as markup', () async {
+      File('${tempDir.path}/wiki/evil.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('# Title\n\n<script>alert(1)</script>\n\n<img src=x onerror="alert(2)">\n');
+
+      final res = await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/evil.md'));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, contains('data-markdown'));
+
+      // Scope the negatives to the document container — the surrounding layout
+      // legitimately contains its own <script> tags.
+      final start = body.indexOf('data-markdown');
+      final container = body.substring(start, body.indexOf('</div>', start));
+
+      // Angle brackets are escaped, so neither payload can form a tag. Quotes
+      // are left as-is, which is correct inside a text node: the payload is
+      // inert because `<` never opens an element.
+      expect(container, contains('&lt;script&gt;alert(1)&lt;/script&gt;'));
+      expect(container, contains('&lt;img src=x onerror='));
+      expect(container, isNot(contains('<script')));
+      expect(container, isNot(contains('<img')));
+    });
+
+    test('rejects a missing workspace', () async {
+      await expectOpaque404(await wikiHandler()(wikiGet('wiki/onboarding.md')));
+    });
+
+    test('rejects a locator missing the wiki/ prefix', () async {
+      File('${tempDir.path}/wiki/onboarding.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('reachable only through the prefixed locator');
+
+      await expectOpaque404(
+        await wikiHandler(workspacePath: tempDir.path)(wikiGet('onboarding.md')),
+        probed: 'onboarding.md',
+      );
+    });
+
+    test('rejects a valid prefix with a non-md locator', () async {
+      File('${tempDir.path}/wiki/notes.txt')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('not markdown');
+
+      await expectOpaque404(
+        await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/notes.txt')),
+        probed: 'notes.txt',
+      );
+    });
+
+    test('rejects a missing file', () async {
+      Directory('${tempDir.path}/wiki').createSync(recursive: true);
+
+      await expectOpaque404(
+        await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/absent.md')),
+        probed: 'absent.md',
+      );
     });
 
     test('rejects path traversal outside the workspace', () async {
       File('${tempDir.path}/secret.md').writeAsStringSync('outside wiki');
-      handler = webRoutes(
-        sessions,
-        messages,
-        kvService: kvService,
-        workspaceDisplay: WorkspaceDisplayParams(path: tempDir.path),
-      ).call;
 
-      final res = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/%2E%2E/secret.md')));
-
-      expect(res.statusCode, 404);
+      await expectOpaque404(
+        await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/%2E%2E/secret.md')),
+        probed: 'secret.md',
+      );
     });
 
     test('rejects wiki symlinks that resolve outside the wiki root', () async {
       File('${tempDir.path}/secret.md').writeAsStringSync('outside wiki');
-      final link = Link('${tempDir.path}/wiki/linked.md')..parent.createSync(recursive: true);
-      link.createSync('../secret.md');
-      handler = webRoutes(
-        sessions,
-        messages,
-        kvService: kvService,
-        workspaceDisplay: WorkspaceDisplayParams(path: tempDir.path),
-      ).call;
+      Link('${tempDir.path}/wiki/linked.md')
+        ..parent.createSync(recursive: true)
+        ..createSync('../secret.md');
 
-      final res = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/linked.md')));
+      await expectOpaque404(
+        await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/linked.md')),
+        probed: 'linked.md',
+      );
+    });
 
-      expect(res.statusCode, 404);
+    test('rejects a FileSystemException on read', () async {
+      final locked = File('${tempDir.path}/wiki/locked.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('unreadable');
+      Process.runSync('chmod', ['000', locked.path]);
+      addTearDown(() => Process.runSync('chmod', ['644', locked.path]));
+
+      await expectOpaque404(
+        await wikiHandler(workspacePath: tempDir.path)(wikiGet('wiki/locked.md')),
+        probed: 'locked.md',
+      );
+    }, testOn: 'mac-os || linux');
+
+    test('all rejection paths return byte-identical responses', () async {
+      File('${tempDir.path}/secret.md').writeAsStringSync('outside wiki');
+      Directory('${tempDir.path}/wiki').createSync(recursive: true);
+      File('${tempDir.path}/wiki/notes.txt').writeAsStringSync('not markdown');
+      Link('${tempDir.path}/wiki/linked.md').createSync('../secret.md');
+
+      final configured = wikiHandler(workspacePath: tempDir.path);
+      final unconfigured = wikiHandler();
+
+      final responses = <String, Response>{
+        'missing workspace': await unconfigured(wikiGet('wiki/onboarding.md')),
+        'malformed prefix': await configured(wikiGet('onboarding.md')),
+        'non-md locator': await configured(wikiGet('wiki/notes.txt')),
+        'missing file': await configured(wikiGet('wiki/absent.md')),
+        'traversal': await configured(wikiGet('wiki/%2E%2E/secret.md')),
+        'symlink escape': await configured(wikiGet('wiki/linked.md')),
+      };
+
+      final bodies = <String, String>{};
+      for (final entry in responses.entries) {
+        expect(entry.value.statusCode, 404, reason: entry.key);
+        expect(entry.value.headers['content-type'], responses.values.first.headers['content-type'], reason: entry.key);
+        bodies[entry.key] = await entry.value.readAsString();
+      }
+      final reference = bodies.values.first;
+      for (final entry in bodies.entries) {
+        expect(entry.value, reference, reason: '${entry.key} is distinguishable from the other rejections');
+      }
+    });
+  });
+
+  group('GET /settings/channels/<type>', () {
+    // An uninjected channel used to fall back to an ad-hoc `Not configured` /
+    // `warn` pair that matched no badge rule. It now resolves through the
+    // shared disabled presentation like every other status.
+    test('a null channel renders the disabled presentation exactly', () async {
+      for (final entry in const {
+        'whatsapp': 'channels.whatsapp.enabled: true',
+        'signal': 'channels.signal.enabled: true',
+        'google_chat': 'channels.google_chat.enabled: true',
+      }.entries) {
+        final type = entry.key;
+        final res = await handler(Request('GET', Uri.parse('http://localhost/settings/channels/$type')));
+        final body = await res.readAsString();
+
+        expect(res.statusCode, 200, reason: type);
+        expect(body, contains('class="status-badge status-badge-muted"'), reason: type);
+        expect(body, contains('class="status-dot status-dot--idle"'), reason: type);
+        expect(body, contains('>Disabled<'), reason: type);
+        // Neither the retired fallbacks nor a state it is not in.
+        expect(body, isNot(contains('Not configured')), reason: type);
+        expect(body, isNot(contains('status-badge-warn"')), reason: type);
+        expect(body, isNot(contains('Policy changes apply when it starts.')), reason: type);
+        expect(body, isNot(contains('DM allowlist changes')), reason: type);
+        expect(body, contains(entry.value), reason: type);
+        expect(body, contains('href="/settings#channels"'), reason: type);
+        if (type == 'google_chat') {
+          expect(body, contains('service account, audience, and webhook'), reason: type);
+          expect(body, isNot(contains('Pairing / Registration')), reason: type);
+        } else {
+          expect(body, contains('href="/$type/pairing"'), reason: type);
+          expect(body, contains('Pairing / Registration'), reason: type);
+        }
+      }
+    });
+
+    test('google chat emits no pairing anchor', () async {
+      final res = await handler(Request('GET', Uri.parse('http://localhost/settings/channels/google_chat')));
+
+      expect(await res.readAsString(), isNot(contains('Pairing / Registration')));
+    });
+
+    test('each channel page exposes exactly one h1, from the topbar', () async {
+      for (final type in ['whatsapp', 'signal', 'google_chat']) {
+        final body = await (await handler(
+          Request('GET', Uri.parse('http://localhost/settings/channels/$type')),
+        )).readAsString();
+
+        expect(RegExp('<h1').allMatches(body), hasLength(1), reason: type);
+        expect(body, contains('class="session-title-static t-page-title"'), reason: type);
+        // The hero title kept its prominence, at a lower heading rank.
+        expect(body, contains('class="t-display"'), reason: type);
+      }
+    });
+  });
+
+  group('GET /health-dashboard/audit', () {
+    late Directory dataDir;
+
+    /// Builds the audit handler over [entryCount] seeded guard events, with the
+    /// health page registered so the non-fragment branch can render inline.
+    Handler auditHandler({int entryCount = 30}) {
+      dataDir = Directory('${tempDir.path}/data')..createSync(recursive: true);
+      final lines = [
+        for (var i = 0; i < entryCount; i++)
+          jsonEncode({
+            'timestamp': DateTime.utc(2026, 1, 1).add(Duration(minutes: i)).toIso8601String(),
+            'guard': i.isEven ? 'file' : 'command',
+            'hook': 'preToolUse',
+            'verdict': 'block',
+            'reason': 'entry-$i',
+          }),
+      ];
+      File('${dataDir.path}/audit.ndjson').writeAsStringSync('${lines.join('\n')}\n');
+
+      final appDisplay = AppDisplayParams(dataDir: dataDir.path);
+      final registry = PageRegistry();
+      registry.register(HealthDashboardPage(auditReader: AuditLogReader(dataDir: dataDir.path)));
+      return webRoutes(sessions, messages, kvService: kvService, appDisplay: appDisplay, pageRegistry: registry).call;
+    }
+
+    Request auditGet(String query, {Map<String, String> headers = const {}}) =>
+        Request('GET', Uri.parse('http://localhost/health-dashboard/audit$query'), headers: headers);
+
+    // The plan rules this route S10's and the response an inline full page: a
+    // redirect to /health-dashboard would drop page, verdict and guard.
+    test('direct navigation renders the full page inline with page and filters kept', () async {
+      // 60 seeded events, 30 of them guard=file, pageSize 25 -> the filtered
+      // set spans two pages, so page 2 is a real page of rows.
+      final res = await auditHandler(entryCount: 60)(auditGet('?page=2&verdict=block&guard=file'));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(res.headers['location'], isNull);
+      expect(body, contains('<div class="shell">'));
+      expect(body, contains('Guard Activity'));
+      // Newest first: entry-58 heads page 1, entry-8..entry-0 are page 2.
+      expect(body, contains('Page 2 of 2'));
+      expect(body, contains('entry-8'));
+      expect(body, contains('entry-0'));
+      expect(body, isNot(contains('entry-58')));
+      expect(body, contains('Showing 26–30 of 30 events'));
+      // Page and both filters survive the hand-off into the poll URL, which is
+      // what a redirect to /health-dashboard would have dropped.
+      expect(body, contains('hx-get="/health-dashboard/audit?guard=file&amp;verdict=block&amp;page=2" hx-trigger'));
+    });
+
+    test('direct navigation shows the second page of rows when the filter spans two pages', () async {
+      final res = await auditHandler(entryCount: 30)(auditGet('?page=2'));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, contains('<div class="shell">'));
+      // Newest first: entry-29 heads page 1, entry-4 heads page 2.
+      expect(body, contains('entry-4'));
+      expect(body, isNot(contains('entry-29')));
+    });
+
+    test('HTMX request still returns the bare audit fragment', () async {
+      final res = await auditHandler()(auditGet('?page=2&verdict=block&guard=file', headers: {'HX-Request': 'true'}));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, 200);
+      expect(body, isNot(contains('<div class="shell">')));
+      expect(body, isNot(contains('<html')));
+      expect(res.headers['vary'], contains('HX-Request'));
+    });
+
+    test('an HTMX history restore gets the full page, not the fragment', () async {
+      final res = await auditHandler()(
+        auditGet('?page=2', headers: {'HX-Request': 'true', 'HX-History-Restore-Request': 'true'}),
+      );
+
+      expect(res.statusCode, 200);
+      expect(await res.readAsString(), contains('<div class="shell">'));
     });
   });
 
@@ -168,6 +452,39 @@ void main() {
       expect(body, anyOf(contains('class="shell"'), contains('class="sidebar"'), contains('class="chat-area"')));
     });
 
+    test('main workspace renders the fixed Agent identity instead of its persisted title', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.updateTitle(session.id, 'Renamed Session E2E');
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('<title>Agent - DartClaw</title>'));
+      expect(body, contains('<h1 class="session-title-static t-page-title">Agent</h1>'));
+      expect(body, isNot(contains('id="session-title"')));
+
+      final infoRes = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final infoBody = await infoRes.readAsString();
+      expect(infoBody, contains('<h2 class="t-page-title">Agent</h2>'));
+      expect(infoBody, isNot(contains('Renamed Session E2E')));
+
+      final fragmentRes = await handler(
+        Request('GET', Uri.parse('http://localhost/sessions/${session.id}'), headers: {'HX-Request': 'true'}),
+      );
+      final fragmentBody = await fragmentRes.readAsString();
+      expect(fragmentBody, contains('<title>Agent - DartClaw</title>'));
+      expect(fragmentBody, isNot(contains('<!DOCTYPE html>')));
+    });
+
+    test('main workspace opts out of automatic chat-title mutation', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('data-session-id="${session.id}" data-has-title="true"'));
+    });
+
     test('response body escapes XSS in session title', () async {
       final session = await sessions.createSession();
       await sessions.updateTitle(session.id, '<script>alert(1)</script>');
@@ -187,6 +504,20 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
       final body = await res.readAsString();
       expect(body, anyOf(contains('msg-user'), contains('msg-assistant')));
+    });
+
+    test('blank chats emit autofocus while established chats do not', () async {
+      final blank = await sessions.createSession();
+      final blankResponse = await handler(Request('GET', Uri.parse('http://localhost/sessions/${blank.id}')));
+      final blankBody = await blankResponse.readAsString();
+      final blankTextarea = RegExp(r'<textarea id="message-input"[^>]*>').firstMatch(blankBody)!.group(0)!;
+      expect(blankTextarea, contains('autofocus'));
+
+      await messages.insertMessage(sessionId: blank.id, role: 'user', content: 'Existing thread');
+      final establishedResponse = await handler(Request('GET', Uri.parse('http://localhost/sessions/${blank.id}')));
+      final establishedBody = await establishedResponse.readAsString();
+      final establishedTextarea = RegExp(r'<textarea id="message-input"[^>]*>').firstMatch(establishedBody)!.group(0)!;
+      expect(establishedTextarea, isNot(contains('autofocus')));
     });
 
     test('response contains data-session-id attribute', () async {
@@ -251,6 +582,33 @@ void main() {
       expect(body, contains('session lock'));
     });
 
+    test('main chat surface keeps cached terminal status inert for live updates', () async {
+      final session = await sessions.createSession();
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        turns: _StatusTurns(
+          TurnStatusSnapshot(
+            sessionId: session.id,
+            turnId: 'turn-completed',
+            provider: 'codex',
+            state: TurnWaitState.completed,
+            canCancel: false,
+          ),
+        ),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('class="turn-status-panel" hidden=""'));
+      expect(body, contains('data-turn-status-session-id="${session.id}"'));
+      expect(body, contains('data-turn-cancel'));
+      expect(body, contains('disabled="disabled"'));
+    });
+
     test('initial session page renders tail-window pagination state', () async {
       final session = await sessions.createSession();
       for (var i = 1; i <= 250; i++) {
@@ -284,11 +642,12 @@ void main() {
       expect(res.statusCode, equals(404));
     });
 
-    test('returns empty state for no messages', () async {
+    test('returns prompt-hero greeting for no messages', () async {
       final session = await sessions.createSession();
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
       final body = await res.readAsString();
-      expect(body, contains('empty-state'));
+      expect(body, contains('prompt-hero'));
+      expect(body, contains('Welcome back'));
     });
 
     test('returns message list when messages exist', () async {
@@ -527,7 +886,7 @@ void main() {
         sessions,
         messages,
         signalChannel: SignalChannel(
-          sidecar: FakeSignalCliManager(fakeHealthy: true, fakeRegistered: false),
+          sidecar: FakeSignalCliManager(fakeHealthy: true),
           config: const SignalConfig(enabled: true),
           dmAccess: DmAccessController(mode: DmAccessMode.open),
           mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: const [], ownNumber: ''),
@@ -697,12 +1056,14 @@ void main() {
 
     test('HX-Request: true returns fragment without DOCTYPE', () async {
       final session = await sessions.createSession();
+      await sessions.updateTitle(session.id, 'Editable conversation');
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/sessions/${session.id}'), headers: {'HX-Request': 'true'}),
       );
       expect(res.statusCode, equals(200));
       final body = await res.readAsString();
       expect(body, isNot(contains('<!DOCTYPE html>')));
+      expect(body, contains('<title>Editable conversation - DartClaw</title>'));
       expect(body, contains('id="main-content"'));
     });
   });

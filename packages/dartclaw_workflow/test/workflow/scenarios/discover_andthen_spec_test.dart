@@ -5,7 +5,6 @@ import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        ContextExtractor,
         OutputConfig,
         OutputFormat,
         TaskStatus,
@@ -190,12 +189,7 @@ Future<Map<String, dynamic>> _extractDetectSpecOutputs(
   );
   await harness.tasks.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': projectRoot});
   final taskWithSession = (await harness.tasks.get(task.id))!;
-  final extractor = ContextExtractor(
-    taskService: harness.tasks,
-    messageService: harness.messages,
-    dataDir: harness.tempDir.path,
-    workflowStepExecutionRepository: harness.workflowStepExecutions,
-  );
+  final extractor = harness.contextExtractor();
   return extractor.extract(
     const WorkflowStep(
       id: 'detect-spec-input',

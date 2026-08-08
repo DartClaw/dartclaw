@@ -41,32 +41,40 @@ Router signalPairingRoutes({
     String? templateError = error;
 
     var showReconnecting = false;
+    var showStatusUnavailable = false;
 
-    try {
-      final reachable = await signalChannel.sidecar.healthCheck();
-      if (reachable) {
-        final registered = await signalChannel.sidecar.isAccountRegistered();
-        if (registered) {
-          isConnected = true;
-          connectedPhone = signalChannel.sidecar.registeredPhone ?? phone;
-          templateError = null;
-        } else {
-          linkDeviceUri = await signalChannel.sidecar.getLinkDeviceUri();
+    if (!signalChannel.sidecar.isRunning && signalChannel.sidecar.wasPaired && signalChannel.sidecar.restartCount > 0) {
+      showReconnecting = true;
+    } else if (signalChannel.sidecar.isRunning) {
+      try {
+        final reachable = await signalChannel.sidecar.healthCheck();
+        if (reachable) {
+          switch (await signalChannel.sidecar.registrationState()) {
+            case SignalRegistrationState.registered:
+              isConnected = true;
+              connectedPhone = signalChannel.sidecar.registeredPhone ?? phone;
+              templateError = null;
+            case SignalRegistrationState.unregistered:
+              linkDeviceUri = await signalChannel.sidecar.getLinkDeviceUri();
+            case SignalRegistrationState.unknown:
+              showStatusUnavailable = true;
+          }
+        } else if (signalChannel.sidecar.wasPaired && signalChannel.sidecar.restartCount > 0) {
+          showReconnecting = true;
         }
-      } else if (signalChannel.sidecar.wasPaired && signalChannel.sidecar.restartCount > 0) {
-        showReconnecting = true;
+      } catch (e) {
+        // Sidecar unreachable / status probe failed — fall through to the clean
+        // "signal-cli Not Reachable" setup card (templateError stays as the
+        // request's ?error= value, if any) rather than leaking the raw exception
+        // into the UI. Log server-side for diagnosability.
+        _log.fine('signal-cli status check failed: $e');
       }
-    } catch (e) {
-      // Sidecar unreachable / status probe failed — fall through to the clean
-      // "signal-cli Not Reachable" setup card (templateError stays as the
-      // request's ?error= value, if any) rather than leaking the raw exception
-      // into the UI. Log server-side for diagnosability.
-      _log.fine('signal-cli status check failed: $e');
     }
 
     final html = signalPairingTemplate(
       isConnected: isConnected,
       showReconnecting: showReconnecting,
+      showStatusUnavailable: showStatusUnavailable,
       connectedPhone: connectedPhone,
       linkDeviceUri: linkDeviceUri,
       error: templateError,
@@ -87,7 +95,7 @@ Router signalPairingRoutes({
   router.get('/pairing/poll', (Request request) async {
     try {
       final reachable = await signalChannel.sidecar.healthCheck();
-      if (!reachable || !await signalChannel.sidecar.isAccountRegistered()) {
+      if (!reachable || await signalChannel.sidecar.registrationState() != SignalRegistrationState.registered) {
         return Response(204);
       }
     } catch (e) {

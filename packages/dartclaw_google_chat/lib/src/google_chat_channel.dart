@@ -6,7 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ChannelType,
         DmAccessController,
         MentionGating,
-        chunkText,
+        chunkNativeChatMarkup,
         sourceMessageIdMetadataKey;
 import 'package:logging/logging.dart';
 
@@ -262,7 +262,7 @@ class GoogleChatChannel extends Channel {
 
   @override
   List<ChannelResponse> formatResponse(String text) {
-    final chunks = chunkText(markdownToGoogleChat(text.trimLeft()), maxSize: 4000);
+    final chunks = chunkNativeChatMarkup(markdownToGoogleChat(text.trimLeft()), maxSize: 4000);
     return [
       for (final entry in chunks.asMap().entries)
         ChannelResponse(text: entry.value, metadata: {_firstChunkMetadataKey: entry.key == 0}),

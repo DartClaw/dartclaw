@@ -9,10 +9,6 @@ import 'package:test/test.dart';
 String _auditFilePathForDate(Directory dir, DateTime timestamp) =>
     '${dir.path}/audit-${timestamp.toIso8601String().substring(0, 10)}.ndjson';
 
-Future<void> _flushAuditLogger(GuardAuditLogger logger) async {
-  await logger.cleanOldFiles(0);
-}
-
 List<Map<String, dynamic>> _readAuditEntries(File file) {
   return file
       .readAsLinesSync()
@@ -25,6 +21,74 @@ DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.da
 
 void main() {
   group('GuardAuditLogger', () {
+    group('flush()', () {
+      test('drains queued appends so the entry is on disk', () async {
+        final dir = Directory.systemTemp.createTempSync('guard_audit_flush_');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final logger = GuardAuditLogger(dataDir: dir.path);
+        // One sample: the write and read paths must name the same partition.
+        final now = DateTime.now();
+
+        logger.logVerdict(
+          verdict: const GuardBlock('nope'),
+          guardName: 'command',
+          guardCategory: 'shell',
+          hookPoint: 'beforeToolCall',
+          timestamp: now,
+        );
+        await logger.flush();
+
+        final file = File(_auditFilePathForDate(dir, now));
+        expect(file.existsSync(), isTrue);
+        expect(_readAuditEntries(file), hasLength(1));
+      });
+
+      test('does not throw when a strict append failed', () async {
+        final dir = Directory.systemTemp.createTempSync('guard_audit_flush_err_');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        // A path whose parent is a file cannot be created — poisons the chain.
+        final blocker = File('${dir.path}/blocker')..writeAsStringSync('x');
+        final logger = GuardAuditLogger(dataDir: '${blocker.path}/nested');
+
+        await expectLater(
+          logger.writeEntry(
+            AuditEntry(timestamp: DateTime.now(), guard: 'command', hook: 'beforeToolCall', verdict: 'block'),
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+
+        // A caller shutting down must not have dispose() aborted by this.
+        await expectLater(logger.flush(), completes);
+      });
+
+      test('appends resume on a healthy logger after a strict write failed', () async {
+        final dir = Directory.systemTemp.createTempSync('guard_audit_recover_');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final logger = GuardAuditLogger(dataDir: dir.path);
+        // One sample: a midnight crossing between samples would desync the
+        // blocked partition, the written entry, and the asserted read path.
+        final now = DateTime.now();
+
+        // A directory where the NDJSON partition belongs makes the append fail.
+        final partition = Directory(_auditFilePathForDate(dir, now))..createSync();
+        await expectLater(
+          logger.writeEntry(AuditEntry(timestamp: now, guard: 'command', hook: 'beforeToolCall', verdict: 'block')),
+          throwsA(isA<FileSystemException>()),
+        );
+        partition.deleteSync();
+
+        logger.logVerdict(
+          verdict: const GuardWarn('ok'),
+          guardName: 'command',
+          guardCategory: 'shell',
+          hookPoint: 'beforeToolCall',
+          timestamp: now,
+        );
+        await logger.flush();
+
+        expect(_readAuditEntries(File(_auditFilePathForDate(dir, now))), hasLength(1));
+      });
+    });
     late GuardAuditLogger logger;
     late List<LogRecord> records;
 
@@ -130,7 +194,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       expect(file.existsSync(), isTrue);
     });
@@ -151,7 +215,7 @@ void main() {
         peerId: '+1234567890',
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(file.existsSync(), isTrue);
@@ -187,7 +251,7 @@ void main() {
         peerId: 'user-42',
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;
@@ -229,7 +293,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;
@@ -251,7 +315,7 @@ void main() {
         peerId: '+9876',
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;
@@ -274,7 +338,7 @@ void main() {
         );
       }
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(_readAuditEntries(file), hasLength(5));
@@ -312,7 +376,7 @@ void main() {
         timestamp: secondDate,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final firstFile = File(_auditFilePathForDate(tmpDir, firstDate));
       final secondFile = File(_auditFilePathForDate(tmpDir, secondDate));
@@ -359,7 +423,7 @@ void main() {
       expect(retainedFile.existsSync(), isTrue);
     });
 
-    test('cleanOldFiles ignores non-matching filenames', () async {
+    test('cleanOldFiles keeps recent legacy and ignores unrelated filenames', () async {
       final logger = GuardAuditLogger(dataDir: tmpDir.path);
       final today = _dateOnly(DateTime.now());
       final expiredFile = File(_auditFilePathForDate(tmpDir, today.subtract(const Duration(days: 10))));
@@ -381,7 +445,7 @@ void main() {
       expect(unrelatedFile.existsSync(), isTrue);
     });
 
-    test('migration redistributes legacy audit.ndjson by entry date and deletes the old file', () async {
+    test('legacy audit.ndjson remains readable alongside new date partitions', () async {
       final logger = GuardAuditLogger(dataDir: tmpDir.path);
       final firstDate = DateTime.utc(2026, 3, 4, 10, 0);
       final secondDate = DateTime.utc(2026, 3, 5, 11, 30);
@@ -402,17 +466,27 @@ void main() {
         timestamp: newDate,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final firstPartition = File(_auditFilePathForDate(tmpDir, firstDate));
-      final secondPartition = File(_auditFilePathForDate(tmpDir, secondDate));
 
-      expect(legacyFile.existsSync(), isFalse);
-      expect(_readAuditEntries(firstPartition).map((entry) => entry['guard']).toList(), ['legacy-a', 'new-entry']);
-      expect(_readAuditEntries(secondPartition).single['guard'], 'legacy-b');
+      expect(_readAuditEntries(legacyFile).map((entry) => entry['guard']).toList(), ['legacy-a', 'legacy-b']);
+      expect(_readAuditEntries(firstPartition).single['guard'], 'new-entry');
+      expect(File(_auditFilePathForDate(tmpDir, secondDate)).existsSync(), isFalse);
     });
 
-    test('migration is skipped when no legacy file exists', () async {
+    test('cleanOldFiles ages out a legacy audit file by modification date', () async {
+      final logger = GuardAuditLogger(dataDir: tmpDir.path);
+      final legacyFile = File('${tmpDir.path}/audit.ndjson')..writeAsStringSync('{"guard":"legacy"}\n');
+      legacyFile.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 10)));
+
+      final deletedCount = await logger.cleanOldFiles(7);
+
+      expect(deletedCount, 1);
+      expect(legacyFile.existsSync(), isFalse);
+    });
+
+    test('appends partition entries in order when no legacy file exists', () async {
       final logger = GuardAuditLogger(dataDir: tmpDir.path);
       final timestamp = DateTime.utc(2026, 4, 1, 9, 0);
 
@@ -431,7 +505,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(logger);
+      await logger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(_readAuditEntries(file).map((entry) => entry['guard']).toList(), ['entry-1', 'entry-2']);
@@ -518,7 +592,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      await _flushAuditLogger(fileLogger);
+      await fileLogger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       expect(file.existsSync(), isTrue);
@@ -546,7 +620,7 @@ void main() {
 
       fileLogger.logPermissionDenied(toolName: 'Read', timestamp: timestamp);
 
-      await _flushAuditLogger(fileLogger);
+      await fileLogger.flush();
 
       final file = File(_auditFilePathForDate(tmpDir, timestamp));
       final entry = _readAuditEntries(file).first;

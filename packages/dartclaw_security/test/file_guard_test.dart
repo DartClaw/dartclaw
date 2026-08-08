@@ -3,12 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:test/test.dart';
 
-GuardContext _bash(String command) => GuardContext(
-  hookPoint: 'beforeToolCall',
-  toolName: 'shell',
-  toolInput: {'command': command},
-  timestamp: DateTime.now(),
-);
+import 'guard_test_support.dart';
 
 GuardContext _tool(String toolName, Map<String, dynamic> input) =>
     GuardContext(hookPoint: 'beforeToolCall', toolName: toolName, toolInput: input, timestamp: DateTime.now());
@@ -23,40 +18,40 @@ void main() {
   group('FileGuard — no_access paths', () {
     test('blocks access to sensitive credential paths', () async {
       // .ssh and .aws are representative of the no_access category
-      final ssh = await guard.evaluate(_bash('cat ~/.ssh/id_rsa'));
+      final ssh = await guard.evaluate(bashGuardContext('cat ~/.ssh/id_rsa'));
       expect(ssh.isBlock, isTrue);
       expect(ssh.message, contains('no_access'));
 
-      expect((await guard.evaluate(_bash('cat ~/.aws/credentials'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('cat ~/.aws/credentials'))).isBlock, isTrue);
     });
   });
 
   group('FileGuard — read_only paths', () {
     test('allows reading .env but blocks writing', () async {
-      expect((await guard.evaluate(_bash('cat .env'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('cat .env'))).isPass, isTrue);
 
-      final write = await guard.evaluate(_bash('echo SECRET=x > .env'));
+      final write = await guard.evaluate(bashGuardContext('echo SECRET=x > .env'));
       expect(write.isBlock, isTrue);
       expect(write.message, contains('read_only'));
     });
 
     test('blocks deleting and in-place editing .env', () async {
-      expect((await guard.evaluate(_bash('rm .env'))).isBlock, isTrue);
-      expect((await guard.evaluate(_bash("sed -i 's/old/new/' .env"))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('rm .env'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext("sed -i 's/old/new/' .env"))).isBlock, isTrue);
     });
 
     test('blocks writing to credential file types', () async {
       // .pem, .key, .kube/config all share the same read_only mechanism
-      expect((await guard.evaluate(_bash('echo cert > server.pem'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo cert > server.pem'))).isBlock, isTrue);
     });
   });
 
   group('FileGuard — no_delete paths', () {
     test('allows reading and writing .bashrc but blocks deleting', () async {
-      expect((await guard.evaluate(_bash('cat ~/.bashrc'))).isPass, isTrue);
-      expect((await guard.evaluate(_bash('echo alias >> ~/.bashrc'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('cat ~/.bashrc'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo alias >> ~/.bashrc'))).isPass, isTrue);
 
-      final del = await guard.evaluate(_bash('rm ~/.bashrc'));
+      final del = await guard.evaluate(bashGuardContext('rm ~/.bashrc'));
       expect(del.isBlock, isTrue);
       expect(del.message, contains('no_delete'));
     });
@@ -64,9 +59,9 @@ void main() {
 
   group('FileGuard — safe paths', () {
     test('allows safe path operations', () async {
-      expect((await guard.evaluate(_bash('cat README.md'))).isPass, isTrue);
-      expect((await guard.evaluate(_bash('echo hello > /tmp/test'))).isPass, isTrue);
-      expect((await guard.evaluate(_bash('rm /tmp/test'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('cat README.md'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo hello > /tmp/test'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('rm /tmp/test'))).isPass, isTrue);
     });
   });
 
@@ -125,21 +120,21 @@ void main() {
 
   group('FileGuard — redirect parsing', () {
     test('blocks redirect to protected paths, allows redirect to /dev/null', () async {
-      expect((await guard.evaluate(_bash('echo secret > .env'))).isBlock, isTrue);
-      expect((await guard.evaluate(_bash('cmd >> server.key'))).isBlock, isTrue);
-      expect((await guard.evaluate(_bash('cmd 2> /dev/null'))).isPass, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo secret > .env'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('cmd >> server.key'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('cmd 2> /dev/null'))).isPass, isTrue);
     });
   });
 
   group('FileGuard — compound commands and cp/mv', () {
     test('blocks protected path access in compound command', () async {
       final home = Platform.environment['HOME'] ?? '/home/user';
-      final v = await guard.evaluate(_bash('cat file && rm $home/.ssh/key'));
+      final v = await guard.evaluate(bashGuardContext('cat file && rm $home/.ssh/key'));
       expect(v.isBlock, isTrue);
     });
 
     test('blocks cp with protected destination', () async {
-      final v = await guard.evaluate(_bash('cp secrets.txt .env'));
+      final v = await guard.evaluate(bashGuardContext('cp secrets.txt .env'));
       expect(v.isBlock, isTrue);
     });
   });
@@ -176,7 +171,7 @@ void main() {
             rules: [FileGuardRule(pattern: '${targetDir.path}/id_rsa', level: FileAccessLevel.noAccess)],
           ),
         );
-        final v = await customGuard.evaluate(_bash('cat ${link.path}'));
+        final v = await customGuard.evaluate(bashGuardContext('cat ${link.path}'));
         expect(v.isBlock, isTrue);
       } finally {
         tempDir.deleteSync(recursive: true);
@@ -210,13 +205,13 @@ void main() {
 
   group('FileGuard — glob matching', () {
     test('**/.env matches .env and subdir/.env', () async {
-      expect((await guard.evaluate(_bash('echo x > .env'))).isBlock, isTrue);
-      expect((await guard.evaluate(_bash('echo x > subdir/.env'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo x > .env'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo x > subdir/.env'))).isBlock, isTrue);
     });
 
     test('**/*.pem matches cert.pem at root and in subdirs', () async {
-      expect((await guard.evaluate(_bash('echo x > cert.pem'))).isBlock, isTrue);
-      expect((await guard.evaluate(_bash('echo x > dir/cert.pem'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo x > cert.pem'))).isBlock, isTrue);
+      expect((await guard.evaluate(bashGuardContext('echo x > dir/cert.pem'))).isBlock, isTrue);
     });
   });
 }

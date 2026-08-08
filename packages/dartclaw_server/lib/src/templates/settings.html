@@ -1,295 +1,379 @@
 <div tl:fragment="settings" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
-  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
   <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
     <div class="content-inner" data-controller="dc-settings">
 
-    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-
-    <div class="settings-header">
-      <h1>Settings</h1>
-      <p>Configuration and system status</p>
-    </div>
-    <nav class="settings-tabs" aria-label="Settings sections">
-      <a href="#agent" class="settings-tab">Agent</a>
-      <a href="#workflow" class="settings-tab">Workflows</a>
-      <a href="#server" class="settings-tab">Server</a>
-      <a href="#sessions" class="settings-tab">Sessions</a>
-      <a href="#memory" class="settings-tab">Memory</a>
-      <a href="#context" class="settings-tab">Context</a>
-      <a href="#scheduling" class="settings-tab">Scheduling</a>
-      <a href="#channels" class="settings-tab">Channels</a>
-      <a href="#providers" class="settings-tab">Providers</a>
-      <a href="#security" class="settings-tab">Security</a>
+    <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
+    <nav class="tabs tabs--sticky" role="tablist" aria-label="Settings sections" data-settings-tabs>
+      <a href="#agent" id="tab-agent" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-agent">Agent</a>
+      <a href="#workflow" id="tab-workflow" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-workflow">Workflows</a>
+      <a href="#server" id="tab-server" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-server-config panel-server-auth panel-server-health panel-server-workspace">Server</a>
+      <a href="#sessions" id="tab-sessions" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-sessions">Sessions</a>
+      <a href="#memory" id="tab-memory" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-memory">Memory</a>
+      <a href="#context" id="tab-context" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-context">Context</a>
+      <a href="#scheduling" id="tab-scheduling" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-scheduling">Scheduling</a>
+      <a href="#channels" id="tab-channels" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-channel-whatsapp panel-channel-signal panel-channel-googlechat">Channels</a>
+      <a href="#providers" id="tab-providers" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-providers">Providers</a>
+      <a href="#security" id="tab-security" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         aria-controls="panel-security">Security</a>
     </nav>
     <div class="settings-grid">
 
       <!-- Agent Configuration (editable, restart-required) -->
-      <div class="card settings-card" data-tab="agent">
+      <div class="card settings-card" id="panel-agent" role="tabpanel" aria-labelledby="tab-agent" data-tab="agent">
         <div class="card-header">
-          <span class="card-title">Agent Configuration</span>
+          <span class="card-title t-heading">Agent Configuration</span>
         </div>
         <form class="settings-form" data-section="agent">
-          <div class="form-group" data-field="agent.provider">
-            <label class="form-label" for="field-agent-provider">Provider</label>
-            <input type="text" class="form-input" id="field-agent-provider" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-agent-model">
+            <span class="t-caption tracking-caps" id="cluster-agent-model">Provider and model</span>
+            <div class="form-row">
+              <div class="form-field" data-field="agent.provider">
+                <label class="form-label t-caption tracking-caps" for="field-agent-provider">Provider</label>
+                <input type="text" class="form-input form-input--short t-body" id="field-agent-provider" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="agent.model">
+                <label class="form-label t-caption tracking-caps" for="field-agent-model">Model</label>
+                <input type="text" class="form-input t-body" id="field-agent-model" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Accepts either a bare model or shorthand like <code>claude/opus</code> or <code>codex/gpt-5.4</code>.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
-          <div class="form-group" data-field="agent.model">
-            <label class="form-label" for="field-agent-model">Model</label>
-            <input type="text" class="form-input" id="field-agent-model" placeholder="Loading..." disabled>
-            <p class="form-hint">Accepts either a bare model or shorthand like <code>claude/opus</code> or <code>codex/gpt-5.4</code>.</p>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="agent.max_turns">
-            <label class="form-label" for="field-agent-max-turns">Max Turns</label>
-            <input type="number" class="form-input" id="field-agent-max-turns" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="agent.effort">
-            <label class="form-label" for="field-agent-effort">Effort</label>
-            <select class="form-select" id="field-agent-effort" disabled>
-              <option value="">—</option>
-            </select>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-agent-execution">
+            <span class="t-caption tracking-caps" id="cluster-agent-execution">Execution</span>
+            <div class="form-row">
+              <div class="form-field" data-field="agent.max_turns">
+                <label class="form-label t-caption tracking-caps" for="field-agent-max-turns">Max Turns</label>
+                <input type="number" class="form-input form-input--num t-body" id="field-agent-max-turns" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Leave empty to use the server default.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="agent.effort">
+                <label class="form-label t-caption tracking-caps" for="field-agent-effort">Effort</label>
+                <select class="form-select t-body" id="field-agent-effort" disabled hidden>
+                  <option value="">Default</option>
+                </select>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Workflow Configuration (editable, restart-required) -->
-      <div class="card settings-card" data-tab="workflow">
+      <div class="card settings-card" id="panel-workflow" role="tabpanel" aria-labelledby="tab-workflow" data-tab="workflow">
         <div class="card-header">
-          <span class="card-title">Workflow Defaults</span>
+          <span class="card-title t-heading">Workflow Defaults</span>
         </div>
         <form class="settings-form" data-section="workflow">
-          <div class="form-group" data-field="workflow.workspace_dir">
-            <label class="form-label" for="field-workflow-workspace-dir">Workflow Workspace Dir</label>
-            <input type="text" class="form-input" id="field-workflow-workspace-dir" placeholder="Loading..." disabled>
-            <p class="form-hint">Optional override for the shared workflow workspace directory.</p>
-            <div class="form-error"></div>
+          <div class="form-field" data-field="workflow.workspace_dir">
+            <label class="form-label t-caption tracking-caps" for="field-workflow-workspace-dir">Workflow Workspace Dir</label>
+            <input type="text" class="form-input t-body" id="field-workflow-workspace-dir" disabled hidden>
+            <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+            <p class="form-hint t-caption">Optional override for the shared workflow workspace directory.</p>
+            <div class="form-error t-caption"></div>
           </div>
-          <div class="form-group" data-field="workflow.defaults.workflow.provider">
-            <label class="form-label" for="field-workflow-default-provider">Default Provider</label>
-            <input type="text" class="form-input" id="field-workflow-default-provider" placeholder="Loading..." disabled>
-            <p class="form-hint">Used by steps that reference <code>@workflow</code>.</p>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-workflow-default">
+            <span class="t-caption tracking-caps" id="cluster-workflow-default">Default role</span>
+            <div class="form-row">
+              <div class="form-field" data-field="workflow.defaults.workflow.provider">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-default-provider">Default Provider</label>
+                <input type="text" class="form-input form-input--short t-body" id="field-workflow-default-provider" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Used by steps that reference <code>@workflow</code>.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="workflow.defaults.workflow.model">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-default-model">Default Model</label>
+                <input type="text" class="form-input t-body" id="field-workflow-default-model" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Accepts either a bare model or shorthand like <code>claude/opus</code>.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
-          <div class="form-group" data-field="workflow.defaults.workflow.model">
-            <label class="form-label" for="field-workflow-default-model">Default Model</label>
-            <input type="text" class="form-input" id="field-workflow-default-model" placeholder="Loading..." disabled>
-            <p class="form-hint">Accepts either a bare model or shorthand like <code>claude/opus</code>.</p>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-workflow-planner">
+            <span class="t-caption tracking-caps" id="cluster-workflow-planner">Planner role</span>
+            <div class="form-row">
+              <div class="form-field" data-field="workflow.defaults.planner.provider">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-planner-provider">Planner Provider</label>
+                <input type="text" class="form-input form-input--short t-body" id="field-workflow-planner-provider" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Blank values inherit from the default workflow provider/model.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="workflow.defaults.planner.model">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-planner-model">Planner Model</label>
+                <input type="text" class="form-input t-body" id="field-workflow-planner-model" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Examples: <code>claude/opusplan</code>, <code>codex/gpt-5.4</code>.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
-          <div class="form-group" data-field="workflow.defaults.planner.provider">
-            <label class="form-label" for="field-workflow-planner-provider">Planner Provider</label>
-            <input type="text" class="form-input" id="field-workflow-planner-provider" placeholder="Loading..." disabled>
-            <p class="form-hint">Blank values inherit from the default workflow provider/model.</p>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-workflow-executor">
+            <span class="t-caption tracking-caps" id="cluster-workflow-executor">Executor role</span>
+            <div class="form-row">
+              <div class="form-field" data-field="workflow.defaults.executor.provider">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-executor-provider">Executor Provider</label>
+                <input type="text" class="form-input form-input--short t-body" id="field-workflow-executor-provider" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="workflow.defaults.executor.model">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-executor-model">Executor Model</label>
+                <input type="text" class="form-input t-body" id="field-workflow-executor-model" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Examples: <code>claude/sonnet</code>, <code>codex/gpt-5.4-mini</code>.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
-          <div class="form-group" data-field="workflow.defaults.planner.model">
-            <label class="form-label" for="field-workflow-planner-model">Planner Model</label>
-            <input type="text" class="form-input" id="field-workflow-planner-model" placeholder="Loading..." disabled>
-            <p class="form-hint">Examples: <code>claude/opusplan</code>, <code>codex/gpt-5.4</code>.</p>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="workflow.defaults.executor.provider">
-            <label class="form-label" for="field-workflow-executor-provider">Executor Provider</label>
-            <input type="text" class="form-input" id="field-workflow-executor-provider" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="workflow.defaults.executor.model">
-            <label class="form-label" for="field-workflow-executor-model">Executor Model</label>
-            <input type="text" class="form-input" id="field-workflow-executor-model" placeholder="Loading..." disabled>
-            <p class="form-hint">Examples: <code>claude/sonnet</code>, <code>codex/gpt-5.4-mini</code>.</p>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="workflow.defaults.reviewer.provider">
-            <label class="form-label" for="field-workflow-reviewer-provider">Reviewer Provider</label>
-            <input type="text" class="form-input" id="field-workflow-reviewer-provider" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="workflow.defaults.reviewer.model">
-            <label class="form-label" for="field-workflow-reviewer-model">Reviewer Model</label>
-            <input type="text" class="form-input" id="field-workflow-reviewer-model" placeholder="Loading..." disabled>
-            <p class="form-hint">Examples: <code>claude/opus</code>, <code>codex/gpt-5-codex</code>.</p>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-workflow-reviewer">
+            <span class="t-caption tracking-caps" id="cluster-workflow-reviewer">Reviewer role</span>
+            <div class="form-row">
+              <div class="form-field" data-field="workflow.defaults.reviewer.provider">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-reviewer-provider">Reviewer Provider</label>
+                <input type="text" class="form-input form-input--short t-body" id="field-workflow-reviewer-provider" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="workflow.defaults.reviewer.model">
+                <label class="form-label t-caption tracking-caps" for="field-workflow-reviewer-model">Reviewer Model</label>
+                <input type="text" class="form-input t-body" id="field-workflow-reviewer-model" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Examples: <code>claude/opus</code>, <code>codex/gpt-5-codex</code>.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Server Configuration (editable, restart-required) -->
-      <div class="card settings-card" data-tab="server">
+      <div class="card settings-card" id="panel-server-config" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
         <div class="card-header">
-          <span class="card-title">Server Configuration</span>
+          <span class="card-title t-heading">Server Configuration</span>
         </div>
         <form class="settings-form" data-section="server">
-          <div class="form-group" data-field="port">
-            <label class="form-label" for="field-port">Port</label>
-            <input type="number" class="form-input" id="field-port" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-server-bind">
+            <span class="t-caption tracking-caps" id="cluster-server-bind">Bind address</span>
+            <div class="form-row">
+              <div class="form-field" data-field="port">
+                <label class="form-label t-caption tracking-caps" for="field-port">Port</label>
+                <input type="number" class="form-input form-input--num t-body" id="field-port" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="host">
+                <label class="form-label t-caption tracking-caps" for="field-host">Host</label>
+                <input type="text" class="form-input form-input--short t-body" id="field-host" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
-          <div class="form-group" data-field="host">
-            <label class="form-label" for="field-host">Host</label>
-            <input type="text" class="form-input" id="field-host" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
+          <div class="form-field" data-field="worker_timeout">
+            <label class="form-label t-caption tracking-caps" for="field-worker-timeout">Worker Timeout (s)</label>
+            <input type="number" class="form-input form-input--num t-body" id="field-worker-timeout" disabled hidden>
+            <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+            <div class="form-error t-caption"></div>
           </div>
-          <div class="form-group" data-field="worker_timeout">
-            <label class="form-label" for="field-worker-timeout">Worker Timeout (s)</label>
-            <input type="number" class="form-input" id="field-worker-timeout" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="logging.level">
-            <label class="form-label" for="field-logging-level">Logging Level</label>
-            <select class="form-select" id="field-logging-level" disabled>
-              <option value="">Loading...</option>
-            </select>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="logging.format">
-            <label class="form-label" for="field-logging-format">Logging Format</label>
-            <select class="form-select" id="field-logging-format" disabled>
-              <option value="">Loading...</option>
-            </select>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-server-logging">
+            <span class="t-caption tracking-caps" id="cluster-server-logging">Logging</span>
+            <div class="form-row">
+              <div class="form-field" data-field="logging.level">
+                <label class="form-label t-caption tracking-caps" for="field-logging-level">Logging Level</label>
+                <select class="form-select t-body" id="field-logging-level" disabled hidden></select>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="logging.format">
+                <label class="form-label t-caption tracking-caps" for="field-logging-format">Logging Format</label>
+                <select class="form-select t-body" id="field-logging-format" disabled hidden></select>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Sessions (editable, restart-required) -->
-      <div class="card settings-card" data-tab="sessions">
+      <div class="card settings-card" id="panel-sessions" role="tabpanel" aria-labelledby="tab-sessions" data-tab="sessions">
         <div class="card-header">
-          <span class="card-title">Sessions</span>
+          <span class="card-title t-heading">Sessions</span>
         </div>
         <form class="settings-form" data-section="sessions">
-          <div class="form-group" data-field="sessions.reset_hour">
-            <label class="form-label" for="field-sessions-reset-hour">Reset Hour</label>
-            <input type="number" class="form-input" id="field-sessions-reset-hour" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-sessions-lifecycle">
+            <span class="t-caption tracking-caps" id="cluster-sessions-lifecycle">Lifecycle</span>
+            <div class="form-row">
+              <div class="form-field" data-field="sessions.reset_hour">
+                <label class="form-label t-caption tracking-caps" for="field-sessions-reset-hour">Reset Hour</label>
+                <input type="number" class="form-input form-input--num t-body" id="field-sessions-reset-hour" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="sessions.idle_timeout_minutes">
+                <label class="form-label t-caption tracking-caps" for="field-sessions-idle-timeout">Idle Timeout (min)</label>
+                <input type="number" class="form-input form-input--num t-body" id="field-sessions-idle-timeout" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
-          <div class="form-group" data-field="sessions.idle_timeout_minutes">
-            <label class="form-label" for="field-sessions-idle-timeout">Idle Timeout (min)</label>
-            <input type="number" class="form-input" id="field-sessions-idle-timeout" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="sessions.dm_scope">
-            <label class="form-label" for="field-sessions-dm-scope">DM Session Scope</label>
-            <select class="form-select" id="field-sessions-dm-scope" disabled>
-              <option value="">Loading...</option>
-            </select>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="sessions.group_scope">
-            <label class="form-label" for="field-sessions-group-scope">Group Session Scope</label>
-            <select class="form-select" id="field-sessions-group-scope" disabled>
-              <option value="">Loading...</option>
-            </select>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-sessions-scope">
+            <span class="t-caption tracking-caps" id="cluster-sessions-scope">Session scope</span>
+            <div class="form-row">
+              <div class="form-field" data-field="sessions.dm_scope">
+                <label class="form-label t-caption tracking-caps" for="field-sessions-dm-scope">DM Session Scope</label>
+                <select class="form-select t-body" id="field-sessions-dm-scope" disabled hidden></select>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="sessions.group_scope">
+                <label class="form-label t-caption tracking-caps" for="field-sessions-group-scope">Group Session Scope</label>
+                <select class="form-select t-body" id="field-sessions-group-scope" disabled hidden></select>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Memory Configuration (editable, restart-required) -->
-      <div class="card settings-card" data-tab="memory">
+      <div class="card settings-card" id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" data-tab="memory">
         <div class="card-header">
-          <span class="card-title">Memory Configuration</span>
+          <span class="card-title t-heading">Memory Configuration</span>
         </div>
         <form class="settings-form" data-section="memory">
-          <div class="form-group" data-field="memory.max_bytes">
-            <label class="form-label" for="field-memory-max-bytes">Max Bytes</label>
-            <input type="number" class="form-input" id="field-memory-max-bytes" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
+          <div class="form-field" data-field="memory.max_bytes">
+            <label class="form-label t-caption tracking-caps" for="field-memory-max-bytes">Max Bytes</label>
+            <input type="number" class="form-input form-input--num t-body" id="field-memory-max-bytes" disabled hidden>
+            <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+            <div class="form-error t-caption"></div>
           </div>
-          <div class="form-group" data-field="search.backend">
-            <label class="form-label" for="field-search-backend">Search Backend</label>
-            <select class="form-select" id="field-search-backend" disabled>
-              <option value="">Loading...</option>
-            </select>
-            <div class="form-error"></div>
+          <div class="form-field" data-field="search.backend">
+            <label class="form-label t-caption tracking-caps" for="field-search-backend">Search Backend</label>
+            <select class="form-select t-body" id="field-search-backend" disabled hidden></select>
+            <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+            <div class="form-error t-caption"></div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Context (editable, restart-required) -->
-      <div class="card settings-card" data-tab="context">
+      <div class="card settings-card" id="panel-context" role="tabpanel" aria-labelledby="tab-context" data-tab="context">
         <div class="card-header">
-          <span class="card-title">Context</span>
+          <span class="card-title t-heading">Context</span>
         </div>
         <form class="settings-form" data-section="context">
-          <div class="form-group" data-field="context.compact_instructions">
-            <label class="form-label" for="field-compact-instructions">Compact Instructions</label>
-            <textarea class="form-input form-textarea" id="field-compact-instructions"
-                      rows="6" placeholder="Loading..." disabled></textarea>
-            <p class="form-hint">Guides auto-compaction on what to preserve in long sessions. Leave empty for defaults.</p>
-            <div class="form-error"></div>
+          <div class="form-field" data-field="context.compact_instructions">
+            <label class="form-label t-caption tracking-caps" for="field-compact-instructions">Compact Instructions</label>
+            <textarea class="form-textarea t-body" id="field-compact-instructions" rows="6" disabled hidden></textarea>
+            <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+            <p class="form-hint t-caption">Guides auto-compaction on what to preserve in long sessions. Leave empty for defaults.</p>
+            <div class="form-error t-caption"></div>
           </div>
-          <div class="form-group" data-field="context.warning_threshold">
-            <label class="form-label" for="field-warning-threshold">Warning Threshold <span class="live-badge">live</span></label>
-            <input class="form-input" type="number" id="field-warning-threshold"
-                   min="50" max="99" placeholder="Loading..." disabled />
-            <p class="form-hint">Percentage of context window used before a warning banner is shown (50–99).</p>
-            <div class="form-error"></div>
-          </div>
-          <div class="form-group" data-field="context.exploration_summary_threshold">
-            <label class="form-label" for="field-exploration-threshold">Exploration Summary Threshold</label>
-            <input class="form-input" type="number" id="field-exploration-threshold"
-                   min="1000" placeholder="Loading..." disabled />
-            <p class="form-hint">Token count above which large file output gets structural summaries instead of head+tail truncation.</p>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-context-thresholds">
+            <span class="t-caption tracking-caps" id="cluster-context-thresholds">Thresholds</span>
+            <div class="form-row">
+              <div class="form-field" data-field="context.warning_threshold">
+                <label class="form-label t-caption tracking-caps" for="field-warning-threshold">Warning Threshold <span class="live-badge">live</span></label>
+                <input class="form-input form-input--num t-body" type="number" id="field-warning-threshold"
+                       min="50" max="99" disabled hidden />
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Percentage of context window used before a warning banner is shown (50–99).</p>
+                <div class="form-error t-caption"></div>
+              </div>
+              <div class="form-field" data-field="context.exploration_summary_threshold">
+                <label class="form-label t-caption tracking-caps" for="field-exploration-threshold">Exploration Summary Threshold</label>
+                <input class="form-input form-input--num t-body" type="number" id="field-exploration-threshold"
+                       min="1000" disabled hidden />
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <p class="form-hint t-caption">Token count above which large file output gets structural summaries instead of head+tail truncation.</p>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
       </div>
 
       <!-- Scheduling (mixed: live toggles + restart fields) -->
-      <div class="card settings-card" data-tab="scheduling">
+      <div class="card settings-card" id="panel-scheduling" role="tabpanel" aria-labelledby="tab-scheduling" data-tab="scheduling">
         <div class="card-header">
-          <span class="card-title">Scheduling</span>
+          <span class="card-title t-heading">Scheduling</span>
         </div>
         <form class="settings-form" data-section="scheduling">
-          <div class="form-group form-group-toggle" data-field="scheduling.heartbeat.enabled">
-            <label class="form-label">Heartbeat <span class="live-badge">live</span></label>
-            <label class="toggle-switch">
-              <input type="checkbox" aria-label="Enable heartbeat" disabled>
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-          <div class="form-group" data-field="scheduling.heartbeat.interval_minutes">
-            <label class="form-label" for="field-heartbeat-interval">Heartbeat Interval (min)</label>
-            <input type="number" class="form-input" id="field-heartbeat-interval" placeholder="Loading..." disabled>
-            <div class="form-error"></div>
+          <div class="well form-field" role="group" aria-labelledby="cluster-scheduling-heartbeat">
+            <span class="t-caption tracking-caps" id="cluster-scheduling-heartbeat">Heartbeat</span>
+            <div class="form-row">
+              <div class="form-field form-field--inline" data-field="scheduling.heartbeat.enabled">
+                <label class="form-label t-caption tracking-caps">Heartbeat <span class="live-badge">live</span></label>
+                <label class="form-toggle">
+                  <input type="checkbox" aria-label="Enable heartbeat" disabled>
+                  <span class="form-toggle-slider"></span>
+                </label>
+              </div>
+              <div class="form-field" data-field="scheduling.heartbeat.interval_minutes">
+                <label class="form-label t-caption tracking-caps" for="field-heartbeat-interval">Heartbeat Interval (min)</label>
+                <input type="number" class="form-input form-input--num t-body" id="field-heartbeat-interval" disabled hidden>
+                <div class="skeleton skeleton-text" data-field-skeleton aria-hidden="true"></div>
+                <div class="form-error t-caption"></div>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-form-cancel>Cancel</button>
           </div>
         </form>
         <p class="section-note" data-mutability-summary hidden></p>
@@ -299,9 +383,9 @@
       </div>
 
       <!-- WhatsApp Channel (read-only, server-rendered) -->
-      <div class="card settings-card" data-tab="channels">
+      <div class="card settings-card" id="panel-channel-whatsapp" role="tabpanel" aria-labelledby="tab-channels" data-tab="channels">
         <div class="card-header">
-          <span class="card-title">WhatsApp Channel</span>
+          <span class="card-title t-heading">WhatsApp Channel</span>
           <tl:block tl:utext="${whatsAppStatusBadgeHtml}">badge</tl:block>
           <span tl:if="${whatsAppHasPending}" class="pairing-badge" tl:text="${whatsAppPendingCount}">0</span>
         </div>
@@ -315,9 +399,9 @@
       </div>
 
       <!-- Signal Channel (read-only, server-rendered) -->
-      <div class="card settings-card" data-tab="channels">
+      <div class="card settings-card" id="panel-channel-signal" role="tabpanel" aria-labelledby="tab-channels" data-tab="channels">
         <div class="card-header">
-          <span class="card-title">Signal Channel</span>
+          <span class="card-title t-heading">Signal Channel</span>
           <tl:block tl:utext="${signalStatusBadgeHtml}">badge</tl:block>
           <span tl:if="${signalHasPending}" class="pairing-badge" tl:text="${signalPendingCount}">0</span>
         </div>
@@ -331,9 +415,9 @@
       </div>
 
       <!-- Google Chat Channel (read-only, server-rendered) -->
-      <div class="card settings-card" data-tab="channels">
+      <div class="card settings-card" id="panel-channel-googlechat" role="tabpanel" aria-labelledby="tab-channels" data-tab="channels">
         <div class="card-header">
-          <span class="card-title">Google Chat Channel</span>
+          <span class="card-title t-heading">Google Chat Channel</span>
           <tl:block tl:utext="${googleChatStatusBadgeHtml}">badge</tl:block>
           <span tl:if="${googleChatHasPending}" class="pairing-badge" tl:text="${googleChatPendingCount}">0</span>
         </div>
@@ -343,7 +427,7 @@
         <div tl:unless="${googleChatEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
       </div>
 
-      <section class="provider-section" data-tab="providers">
+      <section class="provider-section" id="panel-providers" role="tabpanel" aria-labelledby="tab-providers" data-tab="providers">
         <div class="provider-summary">
           <div class="card card-metric card-metric--info">
             <div class="metric-value" tl:text="${providerConfiguredCount}">0</div>
@@ -421,8 +505,8 @@
           </article>
         </div>
 
-        <div tl:unless="${hasProviders}" class="card provider-empty-state">
-          No provider runtime status is available for this server yet.
+        <div tl:unless="${hasProviders}" class="card empty-state">
+          <p>No provider runtime status is available for this server yet.</p>
         </div>
 
         <p class="section-note provider-section-note">
@@ -431,9 +515,9 @@
       </section>
 
       <!-- Authentication (read-only, server-rendered) -->
-      <div class="card settings-card" data-tab="server">
+      <div class="card settings-card" id="panel-server-auth" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
         <div class="card-header">
-          <span class="card-title">Authentication</span>
+          <span class="card-title t-heading">Authentication</span>
           <span class="mode-badge">Token-based</span>
         </div>
         <div class="card-detail">Token:</div>
@@ -446,9 +530,9 @@
       </div>
 
       <!-- System Health (read-only, server-rendered) -->
-      <div class="card settings-card" data-tab="server">
+      <div class="card settings-card" id="panel-server-health" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
         <div class="card-header">
-          <span class="card-title">System Health</span>
+          <span class="card-title t-heading">System Health</span>
           <tl:block tl:utext="${healthBadgeHtml}">badge</tl:block>
         </div>
         <div class="card-detail">
@@ -458,7 +542,7 @@
           Sessions: <span class="card-detail-value" tl:text="${sessionCount}">0</span>
         </div>
         <div class="card-detail">
-          Version: <span class="card-detail-value" tl:text="${version}">0.0.0</span>
+          Version: <span class="card-detail-value" tl:classappend="${versionClass}" tl:text="${version}">0.0.0</span>
         </div>
         <div class="card-actions">
           <a href="/health-dashboard" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Full Dashboard</a>
@@ -466,7 +550,7 @@
       </div>
 
       <!-- Security & Guards (read-only, server-rendered — unchanged) -->
-      <div class="guard-detail-section" data-tab="security">
+      <div class="guard-detail-section" id="panel-security" role="tabpanel" aria-labelledby="tab-security" data-tab="security">
         <div class="guard-detail-header">
           <h2>Security &amp; Guards</h2>
           <span class="mode-badge">Editable extensions</span>
@@ -478,11 +562,11 @@
           class="card guard-editor-shell"
           data-guard-editor>
           <div class="card-header">
-            <span class="card-title">Guard Extensions</span>
+            <span class="card-title t-heading">Guard Extensions</span>
           </div>
-          <div class="guard-editor-tabs" data-guard-editor-tabs></div>
-          <div class="table-scroll">
-            <table class="guard-editor-table">
+          <div class="tabs" role="tablist" aria-label="Guard types" data-guard-editor-tabs></div>
+          <div class="table-scroll" id="guard-editor-panel" role="tabpanel">
+            <table class="data-table guard-editor-table">
               <thead>
                 <tr>
                   <th>#</th>
@@ -492,13 +576,13 @@
                 </tr>
               </thead>
               <tbody data-guard-editor-rows>
-                <tr><td colspan="4" class="guard-editor-message">Loading guard extensions...</td></tr>
+                <tr><td colspan="4"><div class="skeleton skeleton-text"></div></td></tr>
               </tbody>
             </table>
           </div>
           <form class="guard-editor-form-row" data-guard-editor-add>
             <select class="form-select" data-guard-editor-field aria-label="Guard extension field"></select>
-            <input class="form-input font-mono" data-guard-editor-value placeholder="Pattern, domain, or file glob">
+            <input class="form-input" data-guard-editor-value placeholder="Pattern, domain, or file glob">
             <select class="form-select" data-guard-editor-level aria-label="File access level" hidden>
               <option value="no_access">No access</option>
               <option value="read_only">Read only</option>
@@ -507,7 +591,7 @@
             <button type="submit" class="btn btn-primary btn-sm">Add</button>
           </form>
           <form class="guard-tester-row" data-guard-editor-test>
-            <input class="form-input font-mono" data-guard-editor-test-input placeholder="Test command, path, URL, or message">
+            <input class="form-input" data-guard-editor-test-input placeholder="Test command, path, URL, or message">
             <select class="form-select" data-guard-editor-test-mode aria-label="File operation" hidden>
               <option value="read">Read</option>
               <option value="write" selected>Write</option>
@@ -545,9 +629,9 @@
       </div>
 
       <!-- Workspace (path + git sync toggles) -->
-      <div class="card settings-card" data-tab="server">
+      <div class="card settings-card" id="panel-server-workspace" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
         <div class="card-header">
-          <span class="card-title">Workspace</span>
+          <span class="card-title t-heading">Workspace</span>
         </div>
         <div class="card-detail card-detail-mono" tl:text="${workspacePathDisplay}">~/.dartclaw/workspace/</div>
         <div class="file-tags">
@@ -559,19 +643,22 @@
           <span class="file-tag">HEARTBEAT.md</span>
         </div>
         <form class="settings-form" data-section="workspace">
-          <div class="form-group form-group-toggle" data-field="workspace.git_sync.enabled">
-            <label class="form-label">Git Sync <span class="live-badge">live</span></label>
-            <label class="toggle-switch">
-              <input type="checkbox" aria-label="Enable git sync" disabled>
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-          <div class="form-group form-group-toggle" data-field="workspace.git_sync.push_enabled">
-            <label class="form-label">Git Sync Push <span class="live-badge">live</span></label>
-            <label class="toggle-switch">
-              <input type="checkbox" aria-label="Enable git sync push" disabled>
-              <span class="toggle-slider"></span>
-            </label>
+          <div class="well form-field" role="group" aria-labelledby="cluster-workspace-git-sync">
+            <span class="t-caption tracking-caps" id="cluster-workspace-git-sync">Git sync</span>
+            <div class="form-field form-field--inline" data-field="workspace.git_sync.enabled">
+              <label class="form-label t-caption tracking-caps">Git Sync <span class="live-badge">live</span></label>
+              <label class="form-toggle">
+                <input type="checkbox" aria-label="Enable git sync" disabled>
+                <span class="form-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="form-field form-field--inline" data-field="workspace.git_sync.push_enabled">
+              <label class="form-label t-caption tracking-caps">Git Sync Push <span class="live-badge">live</span></label>
+              <label class="form-toggle">
+                <input type="checkbox" aria-label="Enable git sync push" disabled>
+                <span class="form-toggle-slider"></span>
+              </label>
+            </div>
           </div>
         </form>
       </div>
@@ -579,4 +666,5 @@
     </div>
     </div>
   </main>
+  </div>
 </div>

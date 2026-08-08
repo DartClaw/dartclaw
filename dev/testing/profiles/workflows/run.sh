@@ -23,6 +23,9 @@ if [ ! -d "${REPO_ROOT}/apps/dartclaw_cli" ]; then
   exit 1
 fi
 
+# Generated asset libraries are gitignored; emit them before running from source.
+dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
+
 # The workflows profile keeps state across runs by default (sessions, tasks,
 # the workflow fixture checkout under data/projects/, etc.). Override with
 # DARTCLAW_WORKFLOWS_DATA_DIR to redirect to a fresh location.

@@ -96,8 +96,10 @@ void main() {
 
     final html = await _renderHtml(tempDir, sessions, memory, kg, path: '/knowledge?layer=inbox');
 
-    expect(html, contains('Inbox is clear.'));
-    expect(html, contains('knowledge-search-form'));
+    expect(html, contains('class="empty-state-title t-label">Inbox is clear<'));
+    expect(html, contains('Captured items awaiting triage appear here.'));
+    expect(html, contains('class="list-toolbar"'));
+    expect(html, contains('class="form-input form-input--search"'));
     expect(html, contains('knowledge-summary-strip'));
   });
 
@@ -123,8 +125,8 @@ void main() {
   test('S07 no-match search renders broaden query empty state', () async {
     final html = await _renderHtml(tempDir, sessions, memory, kg, path: '/knowledge?q=zzznomatch');
 
-    expect(html, contains('No results for this filter'));
-    expect(html, contains('Broaden the query'));
+    expect(html, contains('class="empty-state-title t-label">No results<'));
+    expect(html, contains('Broaden it or switch layers.'));
     expect(html, isNot(contains('Merge memory keeps durable context.')));
   });
 }

@@ -43,7 +43,22 @@ ALLOWED_FILES=(
   'packages/dartclaw_workflow/lib/src/workflow/workflow_approval_policy.dart'
 )
 
-matches="$(rg -n "['\"]_workflow" packages/*/lib 2>/dev/null || true)"
+rg_scan() {
+  local description="$1" output rc
+  shift
+  output="$(rg "$@" 2>&1)" && rc=0 || rc=$?
+  case "$rc" in
+    0) printf '%s' "$output" ;;
+    1) ;;
+    *)
+      echo "Fitness function failed: rg scan error (exit $rc): $description" >&2
+      [[ -z "$output" ]] || echo "$output" >&2
+      return 2
+      ;;
+  esac
+}
+
+matches="$(rg_scan 'workflow-private key references' -n "['\"]_workflow" packages/*/lib)"
 for allowed in "${ALLOWED_FILES[@]}"; do
   matches="$(printf '%s\n' "$matches" | { grep -v "^${allowed}:" || true; })"
 done

@@ -176,34 +176,34 @@ export default class DcSchedulingController extends Stimulus.Controller {
     this.updateJobCronPreview();
   }
 
-  confirmDeleteJob(event) {
-    const button = event?.currentTarget;
-    const jobName = button?.dataset?.jobName;
+  // Row-scoped destructive confirmation: the row stays its own context instead of
+  // being hidden behind a modal asking about it. Serves both scheduling tables.
+  insertDeleteConfirmRow(button, message, confirmAction, confirmData) {
     const row = button?.closest('tr');
-    if (!row || !jobName) return;
+    if (!row) return;
 
     const confirmRow = document.createElement('tr');
     confirmRow.className = 'delete-confirm-row';
 
     const td = document.createElement('td');
-    td.colSpan = 5;
+    td.colSpan = row.cells.length;
 
     const bar = document.createElement('div');
     bar.className = 'delete-confirm-bar';
 
     const msg = document.createElement('span');
     msg.className = 'confirm-msg';
-    msg.textContent = "Delete '" + jobName + "'?";
+    msg.textContent = message;
 
     const confirmBtn = document.createElement('button');
     confirmBtn.className = 'btn btn-danger-fill btn-sm';
-    confirmBtn.dataset.action = 'click->dc-scheduling#executeDeleteJob';
-    confirmBtn.dataset.jobName = jobName;
+    confirmBtn.dataset.action = 'click->dc-scheduling#' + confirmAction;
+    Object.assign(confirmBtn.dataset, confirmData);
     confirmBtn.textContent = 'Confirm Delete';
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-ghost btn-sm';
-    cancelBtn.dataset.action = 'click->dc-scheduling#cancelDeleteJob';
+    cancelBtn.dataset.action = 'click->dc-scheduling#cancelDelete';
     cancelBtn.textContent = 'Cancel';
 
     bar.append(msg, confirmBtn, cancelBtn);
@@ -211,6 +211,18 @@ export default class DcSchedulingController extends Stimulus.Controller {
     confirmRow.appendChild(td);
     row.parentNode.insertBefore(confirmRow, row.nextSibling);
     row.style.display = 'none';
+    const tableWrap = button.closest('.table-wrap');
+    if (tableWrap) {
+      bar.style.width = tableWrap.clientWidth + 'px';
+      tableWrap.scrollLeft = 0;
+    }
+  }
+
+  confirmDeleteJob(event) {
+    const button = event?.currentTarget;
+    const jobName = button?.dataset?.jobName;
+    if (!jobName) return;
+    this.insertDeleteConfirmRow(button, "Delete '" + jobName + "'?", 'executeDeleteJob', { jobName });
   }
 
   async executeDeleteJob(event) {
@@ -230,16 +242,23 @@ export default class DcSchedulingController extends Stimulus.Controller {
         this.refreshSchedulingPage();
       } else {
         this.showToast('error', data.error?.message || 'Failed to delete job');
-        this.cancelDeleteJob(event);
+        this.restoreDeleteConfirmRow(button);
       }
     } catch (_) {
       this.showToast('error', 'Network error');
-      this.cancelDeleteJob(event);
+      this.restoreDeleteConfirmRow(button);
     }
   }
 
-  cancelDeleteJob(event) {
-    const confirmRow = event?.currentTarget?.closest('.delete-confirm-row');
+  cancelDelete(event) {
+    this.restoreDeleteConfirmRow(event?.currentTarget);
+  }
+
+  // Takes the element, not the event: `event.currentTarget` is null once dispatch
+  // completes, so the post-await failure paths would otherwise restore nothing and
+  // leave the row hidden behind a spent confirm bar.
+  restoreDeleteConfirmRow(source) {
+    const confirmRow = source?.closest('.delete-confirm-row');
     if (!confirmRow) return;
 
     const prevRow = confirmRow.previousElementSibling;
@@ -398,9 +417,26 @@ export default class DcSchedulingController extends Stimulus.Controller {
     }
   }
 
-  async deleteScheduledTask(event) {
-    const taskId = event?.currentTarget?.dataset?.taskId;
-    if (!taskId || !window.confirm('Delete scheduled task "' + taskId + '"?')) return;
+  deleteScheduledTask(event) {
+    const button = event?.currentTarget;
+    const taskId = button?.dataset?.taskId;
+    // The title is required, not preferred: the confirmation names the task the
+    // way the Title column does, and substituting the id would ask the operator
+    // to confirm against a UUID they never read.
+    const taskTitle = button?.dataset?.taskTitle;
+    if (!taskId || !taskTitle) return;
+    this.insertDeleteConfirmRow(button, "Delete scheduled task '" + taskTitle + "'?", 'executeDeleteScheduledTask', {
+      taskId,
+    });
+  }
+
+  async executeDeleteScheduledTask(event) {
+    const button = event?.currentTarget;
+    const taskId = button?.dataset?.taskId;
+    if (!button || !taskId) return;
+
+    button.textContent = 'Deleting...';
+    button.disabled = true;
 
     try {
       const response = await fetch('/api/scheduling/tasks/' + encodeURIComponent(taskId) + this.apiQs, {
@@ -412,9 +448,11 @@ export default class DcSchedulingController extends Stimulus.Controller {
       } else {
         const data = await response.json().catch(() => ({}));
         this.showToast('error', data.error?.message || 'Failed to delete scheduled task');
+        this.restoreDeleteConfirmRow(button);
       }
     } catch (_) {
       this.showToast('error', 'Failed to reach server');
+      this.restoreDeleteConfirmRow(button);
     }
   }
 

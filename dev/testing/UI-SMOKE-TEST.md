@@ -8,7 +8,7 @@ See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and s
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.22.0
+**Last refreshed for**: DartClaw 0.23
 
 ---
 
@@ -41,7 +41,8 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 ### Cross-cutting setup
 
 - **Viewports**: desktop 1280px and mobile 375px unless a TC says otherwise.
-- **Console errors**: any `error`-level message during a TC fails it.
+- **Console errors**: any `error`-level message during a TC fails it, except the expected
+  main-document 404 entry in TC-12. Subresource, script, API, and all other errors still fail.
 - **Provider badges**: every session/task/channel/workflow surface in the sidebar may render a
   `provider-badge-{claude|codex}` chip after the title — that's expected, not a layout glitch.
 
@@ -95,13 +96,13 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 4. **Workflows** (only if a workflow run is live) — run rows with `N/M` step progress
 5. **Chats** (always) — `New Chat` button, then chat rows; "No chats yet" placeholder when empty
 6. **Archived** (collapsible — only if any archived chats exist)
-7. **SYSTEM** nav (always — see TC-17 for full enumeration)
+7. **System** disclosure (always — fixed at the rail bottom; see TC-17 for full enumeration)
 
 **Fail:** sections render in wrong order; `New Chat` button labeled `+ New Session` (legacy);
-`Workspace` section missing when a main session exists; SYSTEM nav absent
+`Workspace` section missing when a main session exists; System disclosure absent or permanently expanded
 
 **Note:** The sidebar's exact content depends on configuration — Channels needs an enabled channel;
-Workspace needs a main session. The plain profile shows: Workspace + Chats + SYSTEM.
+Workspace needs a main session. The plain profile shows: Workspace + Chats + System.
 
 ---
 
@@ -114,20 +115,20 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 
 **Pass:**
 - Sidebar visible at desktop with sections per TC-04
-- Chat area: empty state illustration, "No messages yet" heading, subtext
+- Chat area: centered prompt hero with mascot, "Welcome back" heading, and start-conversation subtext
 - Input fixed at bottom; Send button disabled while textarea is empty
 - Mobile (375px): hamburger visible, sidebar hidden behind it
 
-**Fail:** No system nav in sidebar; no empty-state illustration; sidebar visible at mobile
+**Fail:** No system nav in sidebar; prompt hero or mascot missing; sidebar visible at mobile
 
 ---
 
 ### TC-06: Chat Page — Layout & Topbar
 **Steps:**
-1. Open a session at `/sessions/<id>` (Agent in Workspace works)
+1. Open Agent in Workspace, then open a user-created chat at `/sessions/<id>`
 
 **Pass:**
-- Editable title input in topbar
+- Agent keeps the fixed Workspace identity; the user-created chat has an editable title input
 - **ℹ button** in topbar links to `/sessions/<id>/info`
 - Theme toggle and (desktop) Reset button in topbar
 - Sidebar shows the active session with accent left-border (Workspace/Agent stays highlighted for the main session)
@@ -178,7 +179,8 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 
 **Pass:**
 - Status hero: status icon + uptime + version
-- Service cards: WORKER, DATABASE, SESSIONS, STORAGE with colored badges
+- KPI row: UPTIME, SESSIONS, DB SIZE, TASK ARTIFACTS
+- Status panel includes Worker state; the Storage service card reports Database and Sessions storage, with optional Pub/Sub status when configured
 - Audit table renders (rows or "no events"); expandable rows for entries with detail
 - SYSTEM nav: **Health (active)** highlighted
 - No console errors
@@ -241,6 +243,7 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 1. Navigate to `/nonexistent-page`
 
 **Pass:**
+- Main-document response status is `404`
 - Themed page (NOT plain text "Route not found")
 - Large `404` in `--fg-overlay`
 - "Page Not Found" heading in `--fg`
@@ -302,36 +305,54 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 
 ### TC-16: New Chat
 **Steps:**
-1. Click the **`New Chat`** button in the sidebar Chats section
+1. From an established chat, activate **`New Chat`** and note the new chat ID and Chats count
+2. After navigation settles, activate **`New Chat`** again
+3. Return to the established chat, activate **`New Chat`**, and confirm the noted draft reopens
+4. Send a message in that draft; after it becomes an established chat, activate **`New Chat`** again
+5. Confirm the new draft composer has focus without clicking it; established-chat composers do not autofocus
 
 **Pass:**
-- New session created; navigates to `/sessions/<new-id>`
+- The first activation creates one draft and navigates to `/sessions/<new-id>`
+- Sequential activation on that draft does not navigate, reload, or increase the Chats count
+- Activation elsewhere reuses the same untouched draft, including across rapid or concurrent activation
+- Once the draft contains a message, the next activation creates exactly one fresh draft
 - New session at top of `Chats` list
-- Empty chat state in main area; topbar input shows "New Chat"
+- Empty chat state in main area; topbar input and chat row show "Untitled draft"
+- New-chat composer receives focus; established-chat composer does not
 - ℹ button present in topbar
 
-**Fail:** No navigation; session missing from sidebar; ℹ button missing on a new session
+**Fail:** Blank chats accumulate; current draft reloads; wrong draft reopens; session missing from sidebar; focus behavior wrong; ℹ button missing on a new session
 
 ---
 
 ### TC-17: System Navigation (Cross-Page)
 **Steps:**
-1. From any page, walk through every SYSTEM nav link in order
-2. Confirm each lands on the correct page and the correct nav item is highlighted
+1. From any page, activate the bottom-left **System** disclosure
+2. Walk through every System nav link in order, reopening the disclosure after each navigation
+3. Confirm each lands on the correct page, its nav item is highlighted, and the collapsed trigger names it
+4. Include a chat → dashboard → chat round trip and watch the browser's right edge during each entry transition
 
 **Pass — full SYSTEM nav (registration order, conditional items in italic):**
-Health → Settings → Memory → Knowledge → Timeline → Scheduling → Tasks → *Projects* → *Workflows*
+Health → Settings → *Memory* → Knowledge → *Scheduling* → *Tasks* → *Projects* → *Workflows*
 
-The knowledge pages share the nested `/knowledge` prefix: Knowledge → `/knowledge` and
-Timeline → `/knowledge/timeline` — two separate nav items, not one.
+Timeline is nested under Knowledge: Knowledge → `/knowledge`, then its Timeline tab → `/knowledge/timeline`.
+It does not render as a separate SYSTEM nav item.
 
 Conditional items appear when:
+- Memory — a workspace and an operational feature are configured
+- Scheduling — heartbeat, a job, or a scheduled task is configured
+- Tasks — a container, scheduled task, or channel task trigger is configured
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
-Plain profile typically shows all 9.
+Plain profile typically shows all 8. The closed trigger reads `System` on chat pages and `System · <active page>` on a
+System page. The popup opens above the footer and does not cover Extensions when that region exists.
 
-**Fail:** Any link missing when its service is configured; wrong page loads; active state not updated
+The browser root stays exactly viewport-sized throughout the transition: no transient root scrollbar or horizontal
+layout jump. Long dashboards continue to scroll inside `#main-content`.
+
+**Fail:** Any link missing when its service is configured; wrong page loads; active state not updated; root scrollbar or
+layout-width jump appears during navigation; dashboard content no longer scrolls internally
 
 ---
 
@@ -390,7 +411,8 @@ content directly (NDJSON file or SQLite).
 
 ### TC-21: Task Detail Progression *(requires a task to start)*
 **Steps:**
-1. Create or open a draft task at `/tasks/<id>`
+1. Plain profile: create a **Research** draft task at `/tasks/<id>`; Coding tasks instead require
+   a registered, ready Git project
 2. Click **Start Task** (or equivalent transition); do not manually reload afterwards
 
 **Pass:**
@@ -521,6 +543,12 @@ immediately after success (not on the next 30s poll)
 
 ---
 
+### TC-30: Retired — Canvas Admin
+
+**N/A:** Canvas Admin was removed in v0.23. The ID remains reserved so later case references stay stable.
+
+---
+
 ### TC-31: Channel Detail (Unpaired State)
 **Steps:**
 1. From `/settings`, click the WhatsApp / Signal / Google Chat channel card
@@ -554,6 +582,39 @@ Previously fixed issues. Flag immediately if any regress.
 | R-10 | Sidebar new-chat button mislabelled | Button reads `New Chat`, not legacy `+ New Session` |
 | R-11 | Workspace section missing | Main session always rendered under Workspace, not buried in Chats |
 | R-12 | Workflow step expansion full-page reload | Step row expansion is HTMX-driven, no full reload |
+| R-13 | External runtime dependency returns | Embedded fallback serves fully offline — run § R-13 protocol below |
+
+### R-13 protocol
+
+Every runtime dependency (htmx, marked, JetBrains Mono) is vendored and served same-origin. A re-introduced CDN
+reference degrades silently — the UI still renders, just in system monospace — so this check runs against the release
+binary's embedded fallback with the network cut, not against a dev server.
+
+1. `bash dev/tools/build.sh`, then resolve `BIN="$PWD/build/bin/dartclaw"` as an absolute path.
+2. Create a temporary directory outside the checkout and copy the visual seed into it:
+   `R13_DATA="$(mktemp -d)" && cp -R dev/testing/profiles/visual/data/. "$R13_DATA"`.
+3. Launch `(cd "$R13_DATA" && "$BIN" --config "$R13_DATA/dartclaw.yaml" serve --data-dir "$R13_DATA" --port 3338)`.
+   The launched process arguments must contain `--port 3338` and must contain neither `--dev` nor `--source-dir`, so
+   source-tree assets cannot satisfy the check. Confirm with `ps -o args= -p <pid>`.
+4. Start the browser with every non-`localhost` origin unreachable, e.g. Chromium with
+   `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost"`. Block uniformly rather than per-domain, so a future
+   CDN host nobody predicted is blocked too.
+5. Load `/`, navigate to `/tasks` through an `hx-get` interaction, and open the seeded chat session.
+6. For each weight 400, 500 and 600, evaluate `document.fonts.load('<weight> 16px "JetBrains Mono"', 'DartClaw 0123')`
+   and the same call with latin-ext text `'Pchnąć w tę łódź jeża'`. Each must resolve to a **non-empty** array whose
+   matching `FontFace` entries report `status === 'loaded'`, `family === 'JetBrains Mono'` and the requested weight.
+   `document.fonts.check(...)` may supplement this but cannot replace it — it returns `true` for a system fallback.
+7. Confirm the network log records same-origin `200` loads for `htmx.min.js`, `marked.min.js` and both `font/woff2`
+   subsets, that the `hx-get` swapped `#main-content` without a full page load, that the seeded assistant message
+   rendered as HTML rather than literal `**markdown**`, that **zero** requests went to a non-`localhost` origin, and
+   that the console recorded no `error`-level entries.
+8. Confirm the preloaded font is actually consumed: `jetbrains-mono-latin.woff2` appears **once** in the network log,
+   and no "preloaded using link preload but not used" warning is logged. A preload missing its `crossorigin`
+   attribute fetches the font twice and only warns, so neither a `200` nor a clean error log would catch it.
+9. Confirm the weight axis really renders. The subsets are variable fonts, so all three weights come from one file
+   and a broken axis would still report three loaded `FontFace`s at the right descriptors. Draw the same glyphs to a
+   canvas at weight 400 and at 600 and require materially more ink at 600 (~1.2x opaque pixels); equal ink means the
+   weights collapsed. Monospace advance width is weight-invariant, so width comparison cannot substitute.
 
 ---
 

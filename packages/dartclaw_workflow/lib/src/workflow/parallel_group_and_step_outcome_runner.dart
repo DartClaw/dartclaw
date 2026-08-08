@@ -172,16 +172,7 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-    _eventBus.fire(
-      WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: run.status,
-        newStatus: WorkflowRunStatus.awaitingApproval,
-        errorMessage: reason,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.awaitingApproval, errorMessage: reason);
     return awaitingApprovalRun;
   }
 }

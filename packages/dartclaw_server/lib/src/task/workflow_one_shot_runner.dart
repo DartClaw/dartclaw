@@ -120,6 +120,21 @@ final class WorkflowOneShotRunner {
         ? await _readSessionUsageBaseline(sessionId)
         : const WorkflowCliUsageBaseline();
 
+    Future<void> accumulateUsage(WorkflowCliTurnResult turnResult) async {
+      final usage = _workflowCliUsage(turnResult);
+      providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
+      inputTokens += usage.inputTokens;
+      outputTokens += usage.outputTokens;
+      cacheReadTokens += usage.cacheReadTokens;
+      cacheWriteTokens += usage.cacheWriteTokens;
+      await _trackWorkflowSessionUsage(
+        sessionId,
+        provider: provider,
+        usage: usage,
+        totalCostUsd: turnResult.totalCostUsd,
+      );
+    }
+
     final prompts = <String>[pendingMessage, ...followUps];
     for (final prompt in prompts) {
       final (budgetVerdict, budgetWarningMessage) = await _budgetPolicy.checkBudget(task, sessionId);
@@ -161,18 +176,7 @@ final class WorkflowOneShotRunner {
       if (turnResult.cancelled) {
         return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
       }
-      final usage = _workflowCliUsage(turnResult);
-      providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
-      inputTokens += usage.inputTokens;
-      outputTokens += usage.outputTokens;
-      cacheReadTokens += usage.cacheReadTokens;
-      cacheWriteTokens += usage.cacheWriteTokens;
-      await _trackWorkflowSessionUsage(
-        sessionId,
-        provider: provider,
-        usage: usage,
-        totalCostUsd: turnResult.totalCostUsd,
-      );
+      await accumulateUsage(turnResult);
       final assistantText = turnResult.structuredOutput != null
           ? jsonEncode(turnResult.structuredOutput)
           : turnResult.responseText;
@@ -214,18 +218,7 @@ final class WorkflowOneShotRunner {
         usageBaseline: sessionUsageBaseline,
       );
       if (turnResult.cancelled) return turnResult;
-      final usage = _workflowCliUsage(turnResult);
-      providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
-      inputTokens += usage.inputTokens;
-      outputTokens += usage.outputTokens;
-      cacheReadTokens += usage.cacheReadTokens;
-      cacheWriteTokens += usage.cacheWriteTokens;
-      await _trackWorkflowSessionUsage(
-        sessionId,
-        provider: provider,
-        usage: usage,
-        totalCostUsd: turnResult.totalCostUsd,
-      );
+      await accumulateUsage(turnResult);
       await _messages.insertMessage(
         sessionId: sessionId,
         role: 'assistant',
@@ -234,6 +227,12 @@ final class WorkflowOneShotRunner {
             : turnResult.responseText,
       );
       return turnResult;
+    }
+
+    TurnOutcome? cancelledStructuredTurn(WorkflowCliTurnResult? result) {
+      return result != null && result.cancelled
+          ? _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt)
+          : null;
     }
 
     Map<String, dynamic>? structuredPayload;
@@ -252,9 +251,8 @@ final class WorkflowOneShotRunner {
       } else {
         final finalizerPrompt = buildFinalizerPrompt(structuredSchema);
         var turnResult = await runStructuredTurn(finalizerPrompt, noTools: true);
-        if (turnResult != null && turnResult.cancelled) {
-          return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
-        }
+        final cancelledFirstFinalizer = cancelledStructuredTurn(turnResult);
+        if (cancelledFirstFinalizer != null) return cancelledFirstFinalizer;
         structuredPayload = turnResult?.structuredOutput;
         if (structuredPayload == null) {
           // One same-session re-ask before charging the workflow retry budget.
@@ -263,9 +261,8 @@ final class WorkflowOneShotRunner {
             'Output ONLY the JSON object now.',
             noTools: true,
           );
-          if (turnResult != null && turnResult.cancelled) {
-            return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
-          }
+          final cancelledRetry = cancelledStructuredTurn(turnResult);
+          if (cancelledRetry != null) return cancelledRetry;
           structuredPayload = turnResult?.structuredOutput;
         }
       }
@@ -317,9 +314,8 @@ final class WorkflowOneShotRunner {
           'Output ONLY the JSON object. Do NOT use any tools.',
           noTools: false,
         );
-        if (turnResult != null && turnResult.cancelled) {
-          return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
-        }
+        final cancelledExtraction = cancelledStructuredTurn(turnResult);
+        if (cancelledExtraction != null) return cancelledExtraction;
         structuredPayload = turnResult?.structuredOutput;
       }
     }

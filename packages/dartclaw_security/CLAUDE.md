@@ -7,7 +7,7 @@
 - **Built-in guards** — `CommandGuard` (regex policy on shell commands; quote-stripping, subshell-aware), `FileGuard` (glob policy on resolved paths; symlink-aware; self-protection mode), `NetworkGuard` (URL allowlist/blocklist), `InputSanitizer` (prompt-injection patterns), `ContentGuard` (classifier-driven), `TaskToolFilterGuard` (provider tool gating).
 - **Classifiers** — pluggable content scanners. `ContentClassifier` (interface), `AnthropicApiClassifier`, `ClaudeBinaryClassifier`, `CloudflareDetector`. Throws are the caller's contract — `ContentGuard` decides fail-open vs fail-closed.
 - **Redaction** — `MessageRedactor` (proportional redaction at the agent boundary; preserves shape for audit).
-- **Audit trail** — `GuardAuditLogger` (NDJSON appender; fire-and-forget) + `AuditEntry` (record schema).
+- **Audit trail** — `GuardAuditLogger` (NDJSON appender; appends are fire-and-forget, so hosts must `await flush()` at shutdown or lose queued entries — it drains only what is queued at call time, so quiesce producers first; it is not a global barrier and never throws) + `AuditEntry` (record schema).
 - **Process safety** — `SafeProcess` (the only sanctioned subprocess spawner), `EnvPolicy.sanitize()` (env allowlist + sensitive-name strip), `defaultBashStepEnvAllowlist` / `defaultGitEnvAllowlist` / `defaultSensitivePatterns` (defaults).
 
 ## Boundaries
@@ -24,7 +24,8 @@
 
 ## Gotchas
 - Guards evaluate the **canonical** tool name (`shell`, `file_write`, etc.); the provider-native string is preserved on `GuardContext.rawProviderToolName` for audit only. Don't write policy against raw names.
-- `GuardChain.replaceGuards` is the hot-reload entry point — it captures the list reference per-evaluation so concurrent reloads don't corrupt in-flight evaluations. Don't replace the internal list in-place.
+- `GuardChain.replaceGuards` is the hot-reload entry point — it captures the list reference(s) per-evaluation so concurrent reloads don't corrupt in-flight evaluations. Don't replace the internal list in-place.
+- `GuardChain.layered` composes a per-runner chain on a base chain: the base guard list is read live (a base `replaceGuards` propagates to every layered chain), while the layer's own guards survive the rebuild. `onVerdict`/`failOpen` are inherited from the base.
 - First **block** wins and short-circuits; warns accumulate as the worst non-block verdict. Guard order matters — cheap/decisive guards first.
 - `CommandGuard` strips single-quoted strings before scanning to defeat `'rm' '-rf'` bypass, but `$(...)` subshells are intentionally not blocked (their inner command is rescanned). Don't add subshell blocking — container isolation handles the variable-expansion class.
 - `FileGuard` resolves symlinks (e.g. `/var` → `/private/var` on macOS); rules use globs against the **resolved** path. Use `FileGuardConfig.withSelfProtection(configPath)` so the agent cannot rewrite its own `dartclaw.yaml`.

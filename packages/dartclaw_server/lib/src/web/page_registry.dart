@@ -28,13 +28,14 @@ class PageRegistry {
   List<NavItem> navItems({required String activePage}) {
     return [
       for (final page in _pages.values)
-        (
-          label: page.title,
-          href: page.route,
-          active: page.title == activePage,
-          navGroup: page.navGroup,
-          icon: page.icon,
-        ),
+        if (page is! DashboardNavigationExclusion)
+          (
+            label: page.title,
+            href: page.route,
+            active: page.title == activePage,
+            navGroup: page.navGroup,
+            icon: page.icon,
+          ),
     ];
   }
 }
@@ -53,6 +54,7 @@ final _reservedRoutePatterns = <({String label, _RouteMatcher matches})>[
     matches: (route) => _matchesReservedPath(route, '/settings/channels/google_chat'),
   ),
   (label: '/memory/content', matches: (route) => _matchesReservedPath(route, '/memory/content')),
+  (label: '/knowledge/wiki', matches: (route) => _matchesReservedPath(route, '/knowledge/wiki')),
   (label: '/health', matches: (route) => route == '/health'),
   (label: '/static/', matches: (route) => _matchesReservedPrefixOnly(route, '/static/')),
   (label: '/whatsapp/', matches: (route) => _matchesReservedPrefixOnly(route, '/whatsapp/')),

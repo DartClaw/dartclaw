@@ -163,7 +163,7 @@ Future<void> _cleanupWorkflowGitRun(
   final runTasks = (await w.taskService.list()).where((task) => task.workflowRunId == runId).toList();
   final cleanupPlan = buildWorkflowCleanupPlan(runId, runTasks);
   final pushedBranches = w.config.workflow.cleanup.deleteRemoteBranchOnFailure && terminalStatus == 'failed'
-      ? await _pushedWorkflowBranches(w, runTasks)
+      ? await workflowPushedBranches(w.taskService, runTasks)
       : const <String>{};
   await _runWorkflowGitCleanupPlan(
     w,
@@ -214,19 +214,6 @@ Future<void> _cleanupTrackedWorkflowGit(CliWorkflowWiring w) async {
       );
     }
   }
-}
-
-Future<Set<String>> _pushedWorkflowBranches(CliWorkflowWiring w, List<Task> runTasks) async {
-  final branches = <String>{};
-  for (final task in runTasks) {
-    final artifacts = await w.taskService.listArtifacts(task.id);
-    for (final artifact in artifacts) {
-      if (artifact.kind == ArtifactKind.branch && artifact.path.trim().isNotEmpty) {
-        branches.add(artifact.path.trim());
-      }
-    }
-  }
-  return branches;
 }
 
 Future<void> _runWorkflowGitCleanupPlan(

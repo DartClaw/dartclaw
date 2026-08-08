@@ -45,9 +45,10 @@ WebFetchTool _noSsrfTool({
 void main() {
   group('WebFetchTool', () {
     group('MCP interface', () {
-      test('name is web_fetch', () {
-        final tool = WebFetchTool();
-        expect(tool.name, 'web_fetch');
+      test('name is web_fetch — wire contract', () {
+        // NetworkGuard branches on this exact literal (`network_guard.dart` `toolName == 'web_fetch'`)
+        // and ADR-009 pins it in `disallowedTools`; a rename must fail here.
+        expect(WebFetchTool().name, 'web_fetch');
       });
 
       test('inputSchema has correct structure', () {

@@ -12,16 +12,13 @@ guards:
 # Channels are enabled in unpaired/disconnected state so the channel UI
 # surfaces (sidebar entry, /settings cards, /settings/channels/<type> detail
 # pages, /whatsapp/pairing, /signal/pairing) render their unconfigured/
-# disconnected look. The underlying binaries (gowa, signal-cli) and
-# Google Chat credentials are intentionally unavailable - channel
-# construction succeeds (constructors are pure data), but connect() fails
-# under ChannelManager.connectAll() try/catch and the channels remain
-# disconnected. Do NOT use this profile for actual channel E2E - that is
-# what the `channels` profile is for.
+# disconnected look. The profile disables automatic channel startup, so the
+# underlying binaries are not spawned when the server starts. Do NOT use this
+# profile for actual channel E2E – that is what the `channels` profile is for.
 channels:
   whatsapp:
     enabled: true
-    gowa_executable: whatsapp           # placeholder; binary intentionally absent
+    gowa_executable: whatsapp           # registered for UI only; startup disabled by run.sh
     gowa_host: 127.0.0.1
     gowa_port: 3001
     dm_access: pairing
@@ -34,7 +31,7 @@ channels:
 
   signal:
     enabled: true
-    executable: signal-cli              # placeholder; binary intentionally absent
+    executable: signal-cli              # registered for UI only; startup disabled by run.sh
     host: 127.0.0.1
     port: 8080
     phone_number: "+15551234567"        # placeholder; not used until pairing
@@ -67,16 +64,14 @@ scheduling:
       type: prompt
       delivery: announce
       prompt: Daily test prompt
-
-automation:
-  scheduled_tasks:
     - id: visual-review-seed
       schedule: "0 9 * * 1-5"
+      type: task
       enabled: true
       task:
         title: Visual review seed task
         description: Keep the task system visible for visual validation.
-        type: research
+        task_type: research
         acceptance_criteria: The task detail page renders a stable seeded review flow.
         auto_start: false
 

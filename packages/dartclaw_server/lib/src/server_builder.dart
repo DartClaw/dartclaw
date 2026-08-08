@@ -68,6 +68,21 @@ class DartclawServerBuilder {
   TokenService? tokenService;
   SessionResetService? resetService;
   GuardChain? guardChain;
+
+  /// Per-runner tool policy filter for the non-pool [buildTurns] path.
+  ///
+  /// Must be the *same instance* the injected [worker]'s own guard chain
+  /// evaluates: build it before the harness, layer it over the base chain with
+  /// `GuardChain.layered(base: guardChain, guards: [filter])`, and hand that
+  /// layered chain to the harness. The builder receives an already-constructed
+  /// [worker] and cannot retrofit its chain, so a filter that is absent from
+  /// that chain silently leaves session and turn tool policies
+  /// (`startTurn(allowedTools:)`, `readOnly`) unenforced.
+  ///
+  /// Leave null when the host has no turn-scoped tool policies. Ignored when
+  /// [pool] is set — pool runners carry their own filters.
+  TaskToolFilterGuard? taskToolFilterGuard;
+
   KvService? kv;
   MessageRedactor? redactor;
   SelfImprovementService? selfImprovement;
@@ -162,7 +177,7 @@ class DartclawServerBuilder {
             sessions: sessionsForTurns ?? s,
             kv: kv,
             guardChain: guardChain,
-            taskToolFilterGuard: TaskToolFilterGuard(),
+            taskToolFilterGuard: taskToolFilterGuard,
             lockManager: lockManager,
             resetService: resetService,
             contextMonitor: contextMonitor,
@@ -278,10 +293,7 @@ class DartclawServerBuilder {
     final visibility = computeServerSidebarVisibility(
       config: config,
       hasChannels: whatsAppChannel != null || signalChannel != null || googleChatWebhookHandler?.channel != null,
-      guardChain: guardChain,
-      hasHealthService: healthService != null,
       hasTaskService: taskService != null,
-      hasPubSubHealth: healthService?.pubsubHealth != null,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
       workspaceDisplay: workspaceDisplay,

@@ -201,14 +201,8 @@ class TaskExecutor {
   Future<bool> _pollOnceInner() async {
     // Pool mode: dispatch as many queued tasks as there are compatible idle runners.
     if (_pool.maxConcurrentTasks > 0) {
-      final queued = await _tasks.list(status: TaskStatus.queued);
+      final queued = await _queuedTasks();
       if (queued.isEmpty) return false;
-
-      queued.sort((a, b) {
-        final createdAtCompare = a.createdAt.compareTo(b.createdAt);
-        if (createdAtCompare != 0) return createdAtCompare;
-        return a.id.compareTo(b.id);
-      });
 
       String? requestedProviderId;
       for (final task in queued) {
@@ -260,14 +254,8 @@ class TaskExecutor {
       return false;
     }
 
-    final queued = await _tasks.list(status: TaskStatus.queued);
+    final queued = await _queuedTasks();
     if (queued.isEmpty) return false;
-
-    queued.sort((a, b) {
-      final createdAtCompare = a.createdAt.compareTo(b.createdAt);
-      if (createdAtCompare != 0) return createdAtCompare;
-      return a.id.compareTo(b.id);
-    });
 
     var didWork = false;
     for (final task in queued) {
@@ -296,6 +284,16 @@ class TaskExecutor {
     }
 
     return didWork;
+  }
+
+  Future<List<Task>> _queuedTasks() async {
+    final queued = await _tasks.list(status: TaskStatus.queued);
+    queued.sort((a, b) {
+      final createdAtCompare = a.createdAt.compareTo(b.createdAt);
+      if (createdAtCompare != 0) return createdAtCompare;
+      return a.id.compareTo(b.id);
+    });
+    return queued;
   }
 
   String? _effectivePoolProviderForTask(Task task) {
@@ -586,16 +584,7 @@ class TaskExecutor {
           );
           return;
         }
-        _observer?.recordTurn(
-          runnerIndex,
-          inputTokens: outcome.inputTokens,
-          outputTokens: outcome.outputTokens,
-          isError: outcome.status != TurnStatus.completed,
-          turnDuration: outcome.turnDuration,
-          cacheReadTokens: outcome.cacheReadTokens,
-          cacheWriteTokens: outcome.cacheWriteTokens,
-          toolCalls: outcome.toolCalls,
-        );
+        _recordTurn(runnerIndex, outcome);
         if (outcome.status == TurnStatus.cancelled) {
           final current = await _tasks.get(task.id);
           if (current != null && !current.status.terminal) {
@@ -662,28 +651,24 @@ class TaskExecutor {
       final turnDirectory = worktreeInfo?.path ?? projectDirForTask;
 
       // Create task-scoped BehaviorFileService for workflow tasks first.
-      BehaviorFileService? taskBehavior;
       final workflowWorkspaceDir = _worktreeBinder.workflowWorkspaceDir(task);
       final workspaceRoot = _workspaceRoot;
-      if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
-        taskBehavior = BehaviorFileService(
-          workspaceDir: workflowWorkspaceDir,
-          projectDir: projectDirForTask,
-          maxMemoryBytes: _maxMemoryBytes,
-          compactInstructions: _compactInstructions,
-          identifierPreservation: _identifierPreservation,
-          identifierInstructions: _identifierInstructions,
-        );
-      } else if (projectDirForTask != null && workspaceRoot != null) {
-        taskBehavior = BehaviorFileService(
-          workspaceDir: workspaceRoot,
-          projectDir: projectDirForTask,
-          maxMemoryBytes: _maxMemoryBytes,
-          compactInstructions: _compactInstructions,
-          identifierPreservation: _identifierPreservation,
-          identifierInstructions: _identifierInstructions,
-        );
-      }
+      final workflowWorkspace = workflowWorkspaceDir?.trim();
+      final taskWorkspaceDir = workflowWorkspace != null && workflowWorkspace.isNotEmpty
+          ? workflowWorkspaceDir
+          : projectDirForTask != null
+          ? workspaceRoot
+          : null;
+      final taskBehavior = taskWorkspaceDir == null
+          ? null
+          : BehaviorFileService(
+              workspaceDir: taskWorkspaceDir,
+              projectDir: projectDirForTask,
+              maxMemoryBytes: _maxMemoryBytes,
+              compactInstructions: _compactInstructions,
+              identifierPreservation: _identifierPreservation,
+              identifierInstructions: _identifierInstructions,
+            );
 
       setTaskToolFilter?.call(_allowedTools(task));
       setTaskReadOnly?.call(_isReadOnlyTask(task));
@@ -711,16 +696,7 @@ class TaskExecutor {
       );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
-      _observer?.recordTurn(
-        runnerIndex,
-        inputTokens: outcome.inputTokens,
-        outputTokens: outcome.outputTokens,
-        isError: outcome.status != TurnStatus.completed,
-        turnDuration: outcome.turnDuration,
-        cacheReadTokens: outcome.cacheReadTokens,
-        cacheWriteTokens: outcome.cacheWriteTokens,
-        toolCalls: outcome.toolCalls,
-      );
+      _recordTurn(runnerIndex, outcome);
 
       // Record synchronous token update + tool call events for durability.
       // Must execute before the fire-and-forget trace write.
@@ -848,6 +824,19 @@ class TaskExecutor {
       setTaskToolFilter?.call(null);
       setTaskReadOnly?.call(false);
     }
+  }
+
+  void _recordTurn(int runnerIndex, TurnOutcome outcome) {
+    _observer?.recordTurn(
+      runnerIndex,
+      inputTokens: outcome.inputTokens,
+      outputTokens: outcome.outputTokens,
+      isError: outcome.status != TurnStatus.completed,
+      turnDuration: outcome.turnDuration,
+      cacheReadTokens: outcome.cacheReadTokens,
+      cacheWriteTokens: outcome.cacheWriteTokens,
+      toolCalls: outcome.toolCalls,
+    );
   }
 }
 

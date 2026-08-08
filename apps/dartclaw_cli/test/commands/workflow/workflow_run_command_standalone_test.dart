@@ -79,6 +79,31 @@ HarnessFactory _harnessFactoryForProviders(Iterable<String> providers, AgentHarn
   return factory;
 }
 
+WorkflowRunCommand _standaloneCommand({
+  required DartclawConfig config,
+  List<String>? stdoutOutput,
+  List<String>? stderrOutput,
+  HarnessFactory? harnessFactory,
+  DartclawApiClient? apiClient,
+  Map<String, String>? environment,
+  FakeProviderAuthPreflight? providerAuthPreflight,
+  FakeSkillIntrospector? skillIntrospector,
+  bool runWorkflowSkillsBootstrap = false,
+}) => WorkflowRunCommand(
+  config: config,
+  apiClient: apiClient,
+  environment: environment,
+  harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
+  searchDbFactory: (_) => sqlite3.openInMemory(),
+  taskDbFactory: (_) => sqlite3.openInMemory(),
+  stdoutLine: stdoutOutput?.add ?? (_) {},
+  stderrLine: stderrOutput?.add ?? (_) {},
+  exitFn: fakeExit,
+  runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
+  providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
+  skillIntrospector: skillIntrospector ?? FakeSkillIntrospector({}),
+);
+
 void main() {
   group('WorkflowRunCommand standalone mode', () {
     late Directory tempDir;
@@ -112,18 +137,8 @@ steps:
 
     test('standalone json mode emits structured events and exits 0', () async {
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -142,6 +157,7 @@ steps:
       // The settle-time digest is emitted as a single structured object (S04).
       expect(output.last, contains('"type":"workflow_run_digest"'));
       expect(output.last, contains('"nextActions"'));
+      expect(errors, isEmpty);
     });
 
     test('bash-only workflow neither probes nor starts the logged-out default provider', () async {
@@ -154,17 +170,13 @@ steps:
         });
       final preflight = FakeProviderAuthPreflight(unauthenticated: {'claude'});
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final errors = <String>[];
+      final command = _standaloneCommand(
         config: config,
+        stdoutOutput: output,
+        stderrOutput: errors,
         harnessFactory: factory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: preflight,
-        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -176,6 +188,7 @@ steps:
       expect(preflight.probed, isEmpty, reason: 'a deterministic workflow has no provider auth dependency');
       expect(harnesses.every((harness) => !harness.startCalled), isTrue);
       expect(output.any((line) => line.contains('[workflow] Completed')), isTrue);
+      expect(errors, isEmpty);
     });
 
     test('standalone json failed step payload forwards reason and stays additive (S01/TI04)', () async {
@@ -193,18 +206,8 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(() => runner.run(['run', 'failing', '--standalone', '--json']), throwsA(isA<FakeExit>()));
@@ -222,6 +225,7 @@ steps:
       expect(failed.keys, containsAll(['type', 'runId', 'stepId', 'stepIndex', 'success', 'tokenCount']));
       // A structured digest settles the run.
       expect(output.last, contains('"type":"workflow_run_digest"'));
+      expect(errors, isEmpty);
     });
 
     test('standalone --inline overrides an integration-branch git strategy to inline (S01)', () async {
@@ -241,18 +245,8 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -263,6 +257,7 @@ steps:
       final gitStrategy = _runStartedGitStrategy(output);
       expect(gitStrategy['integrationBranch'], isFalse);
       expect(gitStrategy['worktree'], equals('inline'));
+      expect(errors, isEmpty);
     });
 
     test('standalone run without --inline keeps the authored git strategy (S04 regression)', () async {
@@ -282,18 +277,8 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -304,6 +289,7 @@ steps:
       final gitStrategy = _runStartedGitStrategy(output);
       expect(gitStrategy['integrationBranch'], isTrue);
       expect(gitStrategy['worktree'], equals('shared'));
+      expect(errors, isEmpty);
     });
 
     test('standalone run with no config exits with init workflow guidance', () async {
@@ -342,21 +328,14 @@ steps:
         ),
       );
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final command = _standaloneCommand(
         config: config,
+        stderrOutput: output,
         apiClient: DartclawApiClient(
           baseUri: Uri.parse('http://localhost:3333'),
           transport: FakeApiTransport(sendResponses: [_response(503)]),
         ),
         environment: const {},
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -383,17 +362,13 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final errors = <String>[];
+      final command = _standaloneCommand(
         config: config,
+        stdoutOutput: output,
+        stderrOutput: errors,
         environment: {'HOME': p.join(tempDir.path, 'empty-home')},
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
+        runWorkflowSkillsBootstrap: true,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -410,6 +385,7 @@ steps:
               'dartclaw-discover-andthen-spec. Available: 0 skills.',
         ]),
       );
+      expect(errors, isEmpty);
     });
 
     test('no-skill-bootstrap rejects skill missing from the effective provider root', () async {
@@ -431,20 +407,18 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final errors = <String>[];
+      final command = _standaloneCommand(
         config: config,
+        stdoutOutput: output,
+        stderrOutput: errors,
         environment: {'HOME': fakeHome},
         harnessFactory: _harnessFactoryForProviders(['codex', 'claude'], () => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({
           'claude': {'dartclaw-discover-andthen-spec'},
           'codex': {},
         }),
+        runWorkflowSkillsBootstrap: true,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -461,6 +435,7 @@ steps:
               'dartclaw-discover-andthen-spec. Available: 0 skills.',
         ]),
       );
+      expect(errors, isEmpty);
     });
 
     test('suppresses --no-skill-bootstrap hint when a different reason was already surfaced', () async {
@@ -480,16 +455,11 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final command = _standaloneCommand(
         config: config,
+        stderrOutput: output,
         environment: {'HOME': p.join(tempDir.path, 'empty-home')},
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
+        runWorkflowSkillsBootstrap: true,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -514,17 +484,7 @@ steps:
       File(p.join(workflowsDir.path, 'mybroken.yaml')).writeAsStringSync('name: : broken syntax {{{');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final command = _standaloneCommand(config: config, stderrOutput: output);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -545,17 +505,7 @@ steps:
       File(p.join(workflowsDir.path, 'broken-sibling.yaml')).writeAsStringSync('name: : broken syntax {{{');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final command = _standaloneCommand(config: config, stderrOutput: output);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -589,17 +539,7 @@ steps:
 ''');
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final command = _standaloneCommand(config: config, stderrOutput: output);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -684,17 +624,13 @@ steps:
         });
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final errors = <String>[];
+      final command = _standaloneCommand(
         config: config,
+        stdoutOutput: output,
+        stderrOutput: errors,
         harnessFactory: factory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(unauthenticated: {'claude'}),
-        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -704,9 +640,9 @@ steps:
       );
 
       expect(
-        output.any((line) => line.contains('claude') && line.contains('not authenticated')),
+        errors.any((line) => line.contains('claude') && line.contains('not authenticated')),
         isTrue,
-        reason: 'provider-named remediation expected: $output',
+        reason: 'provider-named remediation expected: $errors',
       );
       expect(created.every((harness) => !harness.startCalled), isTrue, reason: 'no harness.start() reached');
       expect(output.every((line) => !line.contains('[workflow] Starting')), isTrue, reason: 'no workflow step ran');
@@ -749,17 +685,13 @@ steps:
       final preflight = FakeProviderAuthPreflight(unauthenticated: {'claude'});
 
       final output = <String>[];
-      final command = WorkflowRunCommand(
+      final errors = <String>[];
+      final command = _standaloneCommand(
         config: config,
+        stdoutOutput: output,
+        stderrOutput: errors,
         harnessFactory: factory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: preflight,
-        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -773,6 +705,7 @@ steps:
         isTrue,
         reason: 'codex agent path reached; output=$output probed=${preflight.probed}',
       );
+      expect(errors, isEmpty);
     });
 
     test('S02 provider derivation reuses continueSession root provider instead of default provider', () {
@@ -822,18 +755,8 @@ steps:
       // Mirrors the happy-path json-mode test but asserts the auth preflight
       // adds no stdout/stderr noise and the exit code is unchanged.
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        config: config,
-        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: fakeExit,
-        runWorkflowSkillsBootstrap: false,
-        providerAuthPreflight: FakeProviderAuthPreflight(),
-        skillIntrospector: FakeSkillIntrospector({}),
-      );
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
@@ -842,11 +765,8 @@ steps:
       );
 
       expect(output.any((line) => line.contains('[workflow] Completed')), isTrue, reason: '$output');
-      expect(
-        output.every((line) => !line.contains('not authenticated')),
-        isTrue,
-        reason: 'no auth output on happy path',
-      );
+      expect(output.every((line) => !line.contains('not authenticated')), isTrue, reason: '$output');
+      expect(errors, isEmpty, reason: 'no diagnostics on happy path');
     });
   });
 }

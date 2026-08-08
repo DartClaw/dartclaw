@@ -1,5 +1,6 @@
 # Temp files
 .agent_temp/
+.deslop/
 
 # Review files
 dev/bundle/docs/specs/**/*-review*.md
@@ -9,8 +10,6 @@ dev/bundle/docs/specs/**/*-review*.md
 .dart-tool/
 build/
 *.g.dart
-!packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
-!packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
 pubspec.lock
 !/pubspec.lock
 !/dev/tools/mascot_favicon/pubspec.lock
@@ -47,7 +46,6 @@ dev/tools/dartclaw-workflows/.data/
 # Workflows test profile runtime data (materialized skills, markers, workspace
 # output). Curated seed files already tracked under this dir stay tracked.
 dev/testing/profiles/workflows/data/
-dev/state/STATE.local.md
 storages
 statics
 
@@ -56,3 +54,10 @@ statics
 .claude/skills/dartclaw-*
 notes/
 examples/sdk/*/.dartclaw-sdk-example/
+
+# Generated embedded asset libraries — emitted by dev/tools/embed_assets.dart.
+# Not committed: they are large, churn on every template/skill edit, and go
+# stale silently. CI and dev/tools/build.sh generate them; run the generator
+# once after cloning (see dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md).
+packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
+packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart

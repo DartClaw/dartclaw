@@ -70,7 +70,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Topic | Location | When to read |
 |-------|----------|--------------|
 | Current state | `dev/state/STATE.md` | Current version, phase, active stories, blockers, and session continuity notes. Check what's in flight before starting work |
-| Learnings | `dev/state/LEARNINGS.md` | Before debugging unfamiliar subsystems; append non-obvious discoveries |
+| Learnings | `dev/state/LEARNINGS.md` (bounded index, ≤150 lines) + topic shards in `dev/state/learnings/` | Before debugging unfamiliar subsystems: read the index whole, open only task-relevant shards (`→ learnings/<topic>.md` pointers). Add discoveries via `andthen:ops update-learnings` (owns the ceiling and shard graduation) |
 | Product (summary) | `dev/state/PRODUCT.md` | Vision and principles |
 | Roadmap (current + next) | `dev/state/ROADMAP.md` | Active milestone and what's after |
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
@@ -128,9 +128,6 @@ To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – see `dev/to
 ### Development Guidelines
 Read relevant guidelines before coding, architecture, UX/UI, or review work:
 
-- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md`_ when doing development work (coding, architecture, etc.)
-- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/UX-UI-GUIDELINES.md`_ when doing UX/UI related work
-- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/WEB-DEV-GUIDELINES.md`_ when doing web development work
 - _`dev/guidelines/DART-EFFECTIVE-GUIDELINES.md`_ – Effective Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config
 - _`dev/guidelines/DART-PACKAGE-GUIDELINES.md`_ – Package creation: structure, pubspec, versioning, pub.dev scoring, publishing workflow, automated publishing
 - _`dev/guidelines/HTMX-GUIDELINES.md`_ – HTMX usage patterns, attributes, server-side rendering best practices, streaming updates, error handling, security considerations
@@ -200,6 +197,10 @@ Specify a config: `bash examples/run.sh production --port 8080`
 - **ripgrep (rg)**: Fast recursive search. Example: `rg "createServerSupabaseClient"`. _Use instead of grep_ for better search performance.
 - **ast-grep**: Search by AST node types. Example: `ast-grep 'import { $X } from "supabase"' routes/`
 - **tree**: Directory structure visualization. Example: `tree -L 2 routes/`
+- **Deslop**: Before adding non-trivial code, search for an existing implementation. For duplicate cleanup, run
+  `deslop . --output .deslop/deslop-report --no-fail-over`, inspect worst-first clusters by stable `id` in the JSON
+  report, refactor one semantically valid cluster at a time, test, and rescan. Never hide owned code or distort code to
+  silence a finding; reserve `exclude` for unowned code and `report_hide` for generated code.
 
 ### Context7 MCP / Fetch MCP
 Both used **only** via the _`andthen:documentation-lookup`_ sub-agent. Context7 fetches version-specific library docs; Fetch converts web pages to markdown.
@@ -209,7 +210,7 @@ Not active. Use Bash for Dart CLI commands (see `KEY_DEVELOPMENT_COMMANDS.md`). 
 
 ### Dart LSP Plugin (`https://github.com/tolo/coding-agent-toolkit/tree/main/plugins/dart-lsp`)
 Spawns `dart language-server` – diagnostics, hover, goToDefinition, findReferences, call hierarchy across workspace packages.
-**Fix all diagnostics immediately** – run `dart analyze` before declaring work done.
+**Fix all diagnostics immediately** – run `dart analyze` before declaring work done. In a fresh checkout or git worktree, run `dart run dev/tools/embed_assets.dart` first: the embedded asset libraries are generated, not committed, and `lib/` imports them.
 
 ### Parallels Windows VM Automation
 

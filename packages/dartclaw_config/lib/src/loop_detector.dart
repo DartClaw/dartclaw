@@ -66,9 +66,7 @@ class LoopDetector {
     final timestamp = now ?? DateTime.now();
     final events = _tokenVelocityWindow.putIfAbsent(sessionId, () => []);
     events.add((timestamp: timestamp, tokens: tokens));
-    // Lazy eviction of entries older than the window.
-    final cutoff = timestamp.subtract(Duration(minutes: _config.velocityWindowMinutes));
-    events.removeWhere((e) => e.timestamp.isBefore(cutoff));
+    _removeExpiredTokenEvents(events, timestamp);
   }
 
   /// Checks if token velocity exceeds the threshold for [sessionId].
@@ -81,8 +79,7 @@ class LoopDetector {
     final events = _tokenVelocityWindow[sessionId];
     if (events == null || events.isEmpty) return null;
 
-    final cutoff = timestamp.subtract(Duration(minutes: _config.velocityWindowMinutes));
-    events.removeWhere((e) => e.timestamp.isBefore(cutoff));
+    _removeExpiredTokenEvents(events, timestamp);
 
     final totalTokens = events.fold<int>(0, (sum, e) => sum + e.tokens);
     final windowMinutes = _config.velocityWindowMinutes;
@@ -100,6 +97,11 @@ class LoopDetector {
       );
     }
     return null;
+  }
+
+  void _removeExpiredTokenEvents(List<({DateTime timestamp, int tokens})> events, DateTime timestamp) {
+    final cutoff = timestamp.subtract(Duration(minutes: _config.velocityWindowMinutes));
+    events.removeWhere((event) => event.timestamp.isBefore(cutoff));
   }
 
   // ── Tool-call fingerprinting (Mechanism 3) ──

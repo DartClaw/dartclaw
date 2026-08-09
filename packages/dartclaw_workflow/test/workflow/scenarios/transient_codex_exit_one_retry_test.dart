@@ -59,14 +59,17 @@ void main() {
       stepId: 'quick-review',
     );
 
-    await executor.pollOnce();
-    final afterFirst = await harness.tasks.get('task-transient-codex');
-    expect(afterFirst?.status, TaskStatus.queued);
-    expect(afterFirst?.retryCount, 1);
+    final afterFirst = await harness.pollOnceAndWaitForTaskStatus(executor, 'task-transient-codex', const {
+      TaskStatus.queued,
+    }, trigger: 'retry');
+    expect(afterFirst.task.status, TaskStatus.queued);
+    expect(afterFirst.task.retryCount, 1);
 
-    await executor.pollOnce();
-    final afterSecond = await harness.tasks.get('task-transient-codex');
+    final afterSecond = await harness.pollOnceAndWaitForTaskStatus(executor, 'task-transient-codex', const {
+      TaskStatus.review,
+      TaskStatus.accepted,
+    });
     expect(invocations, 2);
-    expect(afterSecond?.status, anyOf(TaskStatus.review, TaskStatus.accepted));
+    expect(afterSecond.task.status, anyOf(TaskStatus.review, TaskStatus.accepted));
   });
 }

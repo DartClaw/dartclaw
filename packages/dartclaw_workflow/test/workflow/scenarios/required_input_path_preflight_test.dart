@@ -45,13 +45,14 @@ void main() {
       mapIterationIndex: 0,
     );
 
-    final processed = await executor.pollOnce();
+    final result = await harness.pollOnceAndWaitForTaskStatus(executor, 'task-missing-required-input-scenario', const {
+      TaskStatus.failed,
+    });
 
-    expect(processed, isTrue);
+    expect(result.processed, isTrue);
     expect(processStarted, isFalse);
 
-    final updated = await harness.tasks.get('task-missing-required-input-scenario');
-    expect(updated?.status, TaskStatus.failed);
-    expect(updated?.configJson['errorSummary'], contains('required input path "fis/s01.md" is missing'));
+    expect(result.task.status, TaskStatus.failed);
+    expect(result.task.configJson['errorSummary'], contains('required input path "fis/s01.md" is missing'));
   });
 }

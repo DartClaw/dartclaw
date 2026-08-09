@@ -103,6 +103,9 @@ final class AcpHarness with SequentialLock implements AgentHarness {
   WorkerState get state => _state;
 
   @override
+  bool get isRootProcessTerminationConfirmed => _process == null;
+
+  @override
   Stream<BridgeEvent> get events => _eventsController.stream;
 
   @override

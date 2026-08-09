@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show ensureDartclawGoogleChatRegistered;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -70,7 +70,7 @@ class WiringResult {
   final AgentExecutionRepository agentExecutionRepository;
   final TaskService taskService;
   final AgentHarness harness;
-  final HarnessPool pool;
+  final ExecutionCoordinator executions;
   final HeartbeatScheduler? heartbeat;
   final ScheduleService? scheduleService;
   final KvService kvService;
@@ -83,6 +83,7 @@ class WiringResult {
   final EventBus eventBus;
   final Map<String, ContainerManager> containerManagers;
   final Future<void> Function() shutdownExtras;
+  final Future<void> Function()? prepareExecutionShutdown;
   final ProjectService projectService;
   final ConfigNotifier configNotifier;
   final OutboundMcpPool? outboundMcpPool;
@@ -99,7 +100,7 @@ class WiringResult {
     required this.agentExecutionRepository,
     required this.taskService,
     required this.harness,
-    required this.pool,
+    required this.executions,
     required this.heartbeat,
     required this.scheduleService,
     required this.kvService,
@@ -112,6 +113,7 @@ class WiringResult {
     required this.eventBus,
     required this.containerManagers,
     required this.shutdownExtras,
+    this.prepareExecutionShutdown,
     required this.projectService,
     required this.configNotifier,
     this.outboundMcpPool,
@@ -265,12 +267,7 @@ class ServiceWiring {
     await ctx._serverTurns.detectAndCleanOrphanedTurns();
     ctx.configNotifier.register(ctx._serverTurns);
     // 7. Tasks (post-server)
-    await task.wirePostServer(
-      turns: ctx._serverTurns,
-      pool: harness.pool,
-      onSpawnNeeded: harness.onSpawnNeeded,
-      workerPoolCoordinator: harness.workerPoolCoordinator,
-    );
+    await task.wirePostServer(turns: ctx._serverTurns, executions: harness.executions);
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
     final workflowRegistry = await _wireWorkflowRegistry(ctx, harness, workflowRoleDefaults);
@@ -455,13 +452,13 @@ class ServiceWiring {
       budgetEnforcer: harness.budgetEnforcer,
     );
     _configureBudgetWarningNotifiers(
-      pool: harness.pool,
+      executions: harness.executions,
       sessions: storage.sessions,
       taskService: storage.taskService,
       channelManager: channel.channelManager,
     );
     _configureLoopDetectionNotifiers(
-      pool: harness.pool,
+      executions: harness.executions,
       sessions: storage.sessions,
       taskService: storage.taskService,
       channelManager: channel.channelManager,
@@ -508,7 +505,7 @@ class ServiceWiring {
       providers: ProvidersConfig(entries: harness.providerStatusEntries),
       registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
       defaultProvider: config.agent.provider,
-      pool: harness.pool,
+      executions: harness.executions,
     );
     await providerStatus.probe();
     return providerStatus;
@@ -591,10 +588,7 @@ class ServiceWiring {
     HarnessWiring harness,
     WorkflowRoleDefaults workflowRoleDefaults,
   ) async {
-    final continuityProviders = harness.pool.runners
-        .where((r) => r.harness.supportsSessionContinuity)
-        .map((r) => r.providerId)
-        .toSet();
+    final continuityProviders = harness.continuityProviders;
     final resolvedWorkflowsDir = ctx.resolvedAssets.workflowsDir;
     await WorkflowMaterializer.materialize(
       dataDir: ctx.dataDir,

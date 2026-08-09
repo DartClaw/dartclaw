@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
@@ -178,6 +178,7 @@ class SchedulingWiring {
         maxBytes: inboxConfig.maxBytes,
         retryAttempts: inboxConfig.retryAttempts,
         processedRetentionDays: inboxConfig.processedRetentionDays,
+        workerProviderId: config.agent.provider,
       );
       _scheduledJobs.add(
         knowledgeInbox.scheduledJob(
@@ -305,6 +306,7 @@ class SchedulingWiring {
         type: SessionType.cron,
         source: 'heartbeat',
         agentName: 'heartbeat',
+        providerId: config.agent.provider,
       );
     }
 
@@ -335,6 +337,7 @@ class SchedulingWiring {
         delivery: deliveryService,
         consolidator: _memoryConsolidator!,
         eventBus: _eventBus,
+        workerProviderId: config.agent.provider,
       );
       _scheduleService!.start();
     }
@@ -412,8 +415,14 @@ class SchedulingWiring {
     required SessionType type,
     required String source,
     String? agentName,
+    String? providerId,
   }) async {
-    final session = await sessions.getOrCreateByKey(sessionKey, type: type);
+    final session = await sessions.getOrCreateByKey(
+      sessionKey,
+      type: type,
+      provider: providerId,
+      securityProfile: providerId == null ? null : 'workspace',
+    );
     final userMsg = <String, dynamic>{'role': 'user', 'content': message};
     final srv = serverRef();
     final turnId = await srv.turns.startTurn(session.id, [userMsg], source: source, agentName: agentName ?? 'main');

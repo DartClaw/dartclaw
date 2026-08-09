@@ -55,6 +55,11 @@ abstract class AgentHarness {
   /// Current lifecycle state of the harness.
   WorkerState get state;
 
+  /// Whether no managed root process has an unconfirmed termination.
+  ///
+  /// Harnesses that do not manage a root process must return `true` explicitly.
+  bool get isRootProcessTerminationConfirmed;
+
   /// Persistent broadcast stream of bridge events (survives restarts).
   Stream<BridgeEvent> get events;
 

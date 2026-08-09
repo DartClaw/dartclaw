@@ -57,7 +57,7 @@ Each provider binary is spawned as a subprocess. The Dart host manages its lifec
 
 Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
 
-In a mixed deployment, the `HarnessPool` contains provider-scoped workers — for example, a Claude primary harness for interactive chat, Codex workers for background tasks, and ACP workers for Goose or Vibe. Each provider identity has default pool size `1`; override capacity with `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
+In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user/channel turns. Tasks, cron/system/advisor work, and logical agents acquire hard per-provider worker leases; each provider defaults to capacity `1`, overridden by `providers.<id>.pool_size`. Workflow one-shots consume capacity-only leases without creating an unused streaming harness. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
 `AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
 
@@ -213,18 +213,18 @@ For more detail on memory configuration, see the [Search guide](search.md).
 
 A "turn" is a single round-trip: user message in, agent response out. The Dart host manages turns through several layers:
 
-1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
+1. **TurnManager** — receives a routed turn, acquires the appropriate execution lease, delegates to a TurnRunner
 2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, progress-aware stall handling, cost tracking, crash recovery
 3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude), `CodexHarness` (OpenAI), and `AcpHarness` (ACP agents) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
-4. **HarnessPool** — manages provider-scoped harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are workers shared by task execution and logical-agent sessions
+4. **ExecutionCoordinator** — owns one serialized primary lane and hard per-provider worker leases, constructs workers lazily, and exposes lease-derived capacity/runner snapshots
 
 ```
-User message (web / channel / cron / task)
+Turn request (web / channel / cron / task / logical agent)
     │
     ▼
-TurnManager ──→ HarnessPool.primary (interactive)
+TurnManager ──→ ExecutionCoordinator primary lease (main user/channel)
     │               or
-    │           HarnessPool.tryAcquire() (background task)
+    │           provider worker lease (background execution)
     │
     ▼
 TurnRunner (per-harness)
@@ -238,6 +238,10 @@ TurnRunner (per-harness)
 ```
 
 Each runner owns a layered guard chain: shared reloadable base guards plus that runner's tool filter. The harness evaluates this combined chain, so config reloads do not discard per-turn or per-task policy. SDK hosts that construct harnesses own this same composition boundary.
+
+Released workers are only eligible for reuse when healthy and compatible by provider, security profile, and runtime
+configuration fingerprint; exact-session reuse is preferred. Capacity is lease-based, so cached process count never
+changes the hard limit. Container managers have an independent lifecycle and can be shared across workers.
 
 Since 0.14.4, `TurnRunner` treats text deltas and tool events as forward progress. That keeps session idle timers fresh during long-running tool execution and lets governance stall timers warn or cancel only when the provider event stream actually goes silent, instead of after a fixed wall-clock timeout.
 
@@ -284,10 +288,10 @@ draft → queued → running → review → accepted
 Key components:
 
 - **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_server`
-- **TaskExecutor** — polls for queued tasks, acquires a harness from the pool, executes the task, collects artifacts
+- **TaskExecutor** — polls for queued tasks, acquires a provider worker lease, executes the task, collects artifacts
 - **WorktreeManager** — for coding tasks, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
-- **RunnerObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
+- **RunnerObserver** — derives runtime runner state and capacity metrics from coordinator lease events and snapshots
 - **TaskEventRecorder** — records structured task events (status changes, tool calls, artifacts, token usage) to the task timeline, visible on the task detail page
 
 Channel-originated task creation and review do not call the service directly from `dartclaw_core`. `ChannelManager` stays in `dartclaw_core`, but it now uses injected `TaskCreator`, `TaskLister`, and review-handler callbacks supplied by `dartclaw_server`.
@@ -318,7 +322,7 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 | `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, channels |
 | `restricted` | No workspace | `none` | Search agent, research tasks |
 
-Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). This keeps the container count small (2-4) regardless of task parallelism (up to 10 concurrent).
+Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). Container count therefore stays tied to configured profiles rather than `pool_size`; worker lease capacity and container lifecycle are independent.
 
 Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The current credential-proxy path covers Claude/Anthropic container traffic via a Unix socket, so Anthropic keys never exist inside that container environment.
 

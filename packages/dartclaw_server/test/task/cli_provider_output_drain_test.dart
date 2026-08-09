@@ -82,6 +82,7 @@ void main() {
       final stdoutController = StreamController<List<int>>();
       final stderrController = StreamController<List<int>>();
       late FakeProcess process;
+      bool? rootTerminationConfirmed;
       final implementation = switch (provider) {
         'claude' => ClaudeCliProvider(outputDrainGracePeriod: Duration.zero),
         _ => CodexCliProvider(outputDrainGracePeriod: Duration.zero),
@@ -104,6 +105,7 @@ void main() {
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
         profileId: 'workspace',
+        onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
       await pumpEventQueue();
 
@@ -116,6 +118,7 @@ void main() {
       final result = await turn;
 
       expect(result.responseText, 'done');
+      expect(rootTerminationConfirmed, isTrue);
       await stdoutController.close();
       await stderrController.close();
     });
@@ -157,6 +160,7 @@ void main() {
       addTearDown(stdoutController.close);
       addTearDown(stderrController.close);
       late _CloseFailsAfterKillProcess process;
+      bool? rootTerminationConfirmed;
       final capabilities = PlatformCapabilities(operatingSystem: 'linux');
       final implementation = switch (provider) {
         'claude' => ClaudeCliProvider(
@@ -190,9 +194,11 @@ void main() {
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
         profileId: 'workspace',
+        onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
 
       expect(result.cancelled, isTrue);
+      expect(rootTerminationConfirmed, isFalse);
       expect(process.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
       await runner.cancelInflight();
       expect(process.killSignals, [
@@ -210,6 +216,7 @@ void main() {
       addTearDown(stdoutController.close);
       addTearDown(stderrController.close);
       late FakeProcess process;
+      bool? rootTerminationConfirmed;
       final capabilities = PlatformCapabilities(operatingSystem: 'windows');
       final implementation = switch (provider) {
         'claude' => ClaudeCliProvider(
@@ -243,6 +250,7 @@ void main() {
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
         profileId: 'workspace',
+        onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
       await pumpEventQueue();
 
@@ -250,6 +258,7 @@ void main() {
       final result = await turn;
 
       expect(result.cancelled, isTrue);
+      expect(rootTerminationConfirmed, isTrue);
       expect(process.killSignals, [ProcessSignal.sigterm]);
       expect(implementation.cancellationRequestedFor(process), isFalse);
       await runner.cancelInflight();

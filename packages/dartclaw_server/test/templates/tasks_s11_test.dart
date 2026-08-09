@@ -104,7 +104,7 @@ void main() {
             'errorCount': 0,
           },
         ],
-        harnessPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentWorkers': 2},
+        executionCapacity: const {'effective': 2, 'active': 1, 'available': 1},
       );
 
       expect(html, contains('task-agent-badge'));
@@ -130,7 +130,7 @@ void main() {
             'errorCount': 0,
           },
         ],
-        harnessPool: const {'size': 1, 'activeCount': 1, 'availableCount': 0, 'maxConcurrentWorkers': 1},
+        executionCapacity: const {'effective': 1, 'active': 1, 'available': 0},
       );
 
       expect(html, contains('task-agent-badge'));
@@ -154,7 +154,7 @@ void main() {
             'errorCount': 0,
           },
         ],
-        harnessPool: const {'size': 1, 'activeCount': 0, 'availableCount': 1, 'maxConcurrentWorkers': 1},
+        executionCapacity: const {'effective': 1, 'active': 0, 'available': 1},
       );
 
       expect(html, isNot(contains('task-agent-badge')));

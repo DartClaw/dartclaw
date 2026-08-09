@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/task/cli_process_supervisor.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
@@ -95,6 +95,20 @@ void main() {
       expect(result.inputTokens, 10);
       expect(result.cacheReadTokens, 3);
       expect(result.newInputTokens, 10);
+    });
+
+    test('derives structured-turn limits at the provider adapter boundary', () {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude'),
+          'codex': WorkflowCliProviderConfig(executable: 'codex'),
+        },
+      );
+
+      expect(runner.maxTurnsForStructuredTurn(provider: 'claude', noTools: false), 5);
+      expect(runner.maxTurnsForStructuredTurn(provider: 'claude', noTools: true), 2);
+      expect(runner.maxTurnsForStructuredTurn(provider: 'codex', noTools: false), isNull);
+      expect(runner.maxTurnsForStructuredTurn(provider: 'codex', noTools: true), isNull);
     });
 
     test('forwards appendSystemPrompt to Claude when provided', () async {
@@ -294,6 +308,7 @@ void main() {
 
         expect(exitCode, 0);
         expect(supervisor.postTerminalResultExitUnconfirmed, isTrue);
+        expect(supervisor.rootProcessTerminationConfirmed, isFalse);
         expect(fake.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
         supervisor.stop();
       });

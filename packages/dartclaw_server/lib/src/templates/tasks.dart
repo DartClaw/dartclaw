@@ -25,7 +25,7 @@ String tasksPageTemplate({
   String restartBannerHtml = '',
   String appName = 'DartClaw',
   List<Map<String, dynamic>>? runners,
-  Map<String, dynamic>? harnessPool,
+  Map<String, dynamic>? executionCapacity,
   List<Map<String, String>> goalOptions = const [],
   String defaultProvider = 'claude',
   Map<String, String> projectNames = const {},
@@ -199,9 +199,8 @@ String tasksPageTemplate({
     ].map((t) => {'value': t, 'label': t[0].toUpperCase() + t.substring(1), 'selected': typeFilter == t}),
   ];
 
-  // Harness overview section data.
-  final hasHarnessPool = runners != null && harnessPool != null;
-  final isSingleRunner = hasHarnessPool && (harnessPool['maxConcurrentWorkers'] as int? ?? 0) == 0;
+  final hasExecutionCapacity = runners != null && executionCapacity != null;
+  final isPrimaryOnly = hasExecutionCapacity && (executionCapacity['configured'] as int? ?? 0) == 0;
 
   final body = templateLoader.trellis.render(templateLoader.source('tasks'), {
     'sidebar': sidebar,
@@ -229,13 +228,20 @@ String tasksPageTemplate({
     'includeWorkflowOwned': includeWorkflowOwned,
     'workflowReviewToggleHref': workflowReviewToggleHref,
     'newTaskDialogHtml': newTaskFormDialogHtml(goalOptions: goalOptions, projectOptions: projectOptions),
-    'hasHarnessPool': hasHarnessPool,
-    'isSingleRunner': isSingleRunner,
+    'hasExecutionCapacity': hasExecutionCapacity,
+    'isPrimaryOnly': isPrimaryOnly,
     'runners': runners,
-    'harnessPool': harnessPool,
-    'harnessPoolBarHtml': hasHarnessPool && !isSingleRunner ? _buildPoolBarHtml(harnessPool) : null,
-    'harnessOverviewHtml': hasHarnessPool
-        ? _buildHarnessOverviewHtml(runners, harnessPool, isSingleRunner, defaultProvider: normalizedDefaultProvider)
+    'executionCapacity': executionCapacity,
+    'executionCapacityBarHtml': hasExecutionCapacity && !isPrimaryOnly
+        ? _buildCapacityBarHtml(executionCapacity)
+        : null,
+    'executionOverviewHtml': hasExecutionCapacity
+        ? _buildExecutionOverviewHtml(
+            runners,
+            executionCapacity,
+            isPrimaryOnly,
+            defaultProvider: normalizedDefaultProvider,
+          )
         : null,
     'showProjectColumn': showProjectColumn,
   });
@@ -248,9 +254,9 @@ String _classSuffix(String value) {
   return sanitized.isEmpty ? 'claude' : sanitized;
 }
 
-String _buildPoolBarHtml(Map<String, dynamic> pool) {
-  final size = pool['maxConcurrentWorkers'] as int? ?? 0;
-  final active = pool['activeCount'] as int? ?? 0;
+String _buildCapacityBarHtml(Map<String, dynamic> capacity) {
+  final size = capacity['effective'] as int? ?? 0;
+  final active = capacity['active'] as int? ?? 0;
   final activePercent = size > 0 ? (active / size * 100).round() : 0;
   // A full-strength track at 0% reads as a solid rule asserting a measurement,
   // so nothing-active takes canon's unfilled treatment.
@@ -273,27 +279,28 @@ String _buildPoolBarHtml(Map<String, dynamic> pool) {
   };
 }
 
-String _buildHarnessOverviewHtml(
+String _buildExecutionOverviewHtml(
   List<Map<String, dynamic>>? runners,
-  Map<String, dynamic> pool,
-  bool isSingleRunner, {
+  Map<String, dynamic> capacity,
+  bool isPrimaryOnly, {
   String defaultProvider = 'claude',
 }) {
-  if (isSingleRunner) {
-    return '<div class="harness-overview" id="harness-overview">'
-        '<h3 class="t-heading">Harness Pool</h3>'
+  if (isPrimaryOnly) {
+    return '<div class="execution-overview" id="execution-overview">'
+        '<h2 class="t-heading">Execution Capacity</h2>'
         '<div class="text-muted">'
-        'Single runner mode. Primary runner handles all sessions sequentially.<br>'
-        '<small>Configure providers.&lt;id&gt;.pool_size to enable parallel execution.</small>'
+        'Primary-only mode. Interactive execution is serialized.<br>'
+        '<small>Configure providers.&lt;id&gt;.pool_size to enable worker execution.</small>'
         '</div>'
         '</div>';
   }
 
   final buf = StringBuffer()
-    ..write('<div class="harness-overview" id="harness-overview">')
-    ..write('<h3 class="t-heading">Harness Pool</h3>')
-    ..write(_buildPoolBarHtml(pool))
-    ..write('<div class="harness-pool-runners">');
+    ..write('<div class="execution-overview" id="execution-overview">')
+    ..write('<h2 class="t-heading">Execution Capacity</h2>')
+    ..write(_buildCapacityBarHtml(capacity))
+    ..write(_buildCapacityDetailsHtml(capacity))
+    ..write('<div class="execution-runners">');
 
   for (final runner in runners ?? <Map<String, dynamic>>[]) {
     final runnerId = runner['runnerId'] as int? ?? 0;
@@ -344,6 +351,15 @@ String _buildHarnessOverviewHtml(
     ..write('</div>')
     ..write('</div>');
   return buf.toString();
+}
+
+String _buildCapacityDetailsHtml(Map<String, dynamic> capacity) {
+  final queued = capacity['queued'] as int? ?? 0;
+  final cached = capacity['cached'] as int? ?? 0;
+  final quarantined = capacity['quarantined'] as int? ?? 0;
+  return '<div class="text-muted"><small>'
+      '$queued queued · $cached warm · $quarantined quarantined'
+      '</small></div>';
 }
 
 String _formatTokens(int tokens) {

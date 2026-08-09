@@ -1,0 +1,47 @@
+{
+  "runners": [
+    {
+      "runnerId": 0,
+      "role": "primary",
+      "providerId": "claude",
+      "state": "idle",
+      "currentTaskId": null,
+      "currentSessionId": null,
+      "tokensConsumed": 0,
+      "turnsCompleted": 0,
+      "errorCount": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "totalTurnDurationMs": 0,
+      "totalToolCalls": 0,
+      "failedToolCalls": 0
+    },
+    {
+      "runnerId": 1,
+      "role": "worker",
+      "providerId": "claude",
+      "state": "busy",
+      "currentTaskId": "task-1",
+      "currentSessionId": "worker",
+      "tokensConsumed": 0,
+      "turnsCompleted": 0,
+      "errorCount": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "totalTurnDurationMs": 0,
+      "totalToolCalls": 0,
+      "failedToolCalls": 0
+    }
+  ],
+  "capacity": {
+    "runnerCount": 2,
+    "configured": 1,
+    "effective": 1,
+    "active": 1,
+    "available": 0,
+    "queued": 0,
+    "cached": 0,
+    "quarantined": 0,
+    "primaryActive": false
+  }
+}

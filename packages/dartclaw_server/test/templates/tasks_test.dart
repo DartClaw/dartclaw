@@ -156,7 +156,7 @@ void main() {
             'currentTaskId': 'task-running',
           },
         ],
-        harnessPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentWorkers': 2},
+        executionCapacity: const {'configured': 2, 'effective': 2, 'active': 1, 'available': 1},
       );
 
       expect(html, contains('Provider'));
@@ -164,7 +164,8 @@ void main() {
       expect(html, contains('provider-badge-claude'));
       expect(html, contains('Run codex worker'));
       expect(html, contains('Review claude output'));
-      expect(html, contains('Harness Pool'));
+      expect(html, contains('Execution Capacity'));
+      expect(html, contains('<h2 class="t-heading">Execution Capacity</h2>'));
       expect(html, contains('1/2 workers active'));
       expect(html, contains('Worker #1'));
     });
@@ -185,11 +186,11 @@ void main() {
             'errorCount': 0,
           },
         ],
-        harnessPool: const {'size': 1, 'activeCount': 0, 'availableCount': 0, 'maxConcurrentWorkers': 0},
+        executionCapacity: const {'configured': 0, 'effective': 0, 'active': 0, 'available': 0},
       );
 
-      expect(html, contains('Harness Pool'));
-      expect(html, contains('Single runner mode'));
+      expect(html, contains('Execution Capacity'));
+      expect(html, contains('Primary-only mode'));
     });
   });
 }

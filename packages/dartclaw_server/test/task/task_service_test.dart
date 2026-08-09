@@ -71,6 +71,18 @@ void main() {
       expect(task.configJson, isEmpty);
     });
 
+    test('normalizes provider overrides to the canonical ID', () async {
+      final task = await service.create(
+        id: 'task-provider',
+        title: 'Task',
+        description: 'Describe the work',
+        type: TaskType.research,
+        provider: ' CoDeX ',
+      );
+
+      expect(task.agentExecution?.provider, 'codex');
+    });
+
     test('reuses an existing agent execution without overwriting its richer fields', () async {
       await agentExecutions.create(
         AgentExecution(

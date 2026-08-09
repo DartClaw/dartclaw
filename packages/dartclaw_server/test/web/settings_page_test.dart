@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/web/pages/settings_page.dart';
@@ -67,8 +67,10 @@ void main() {
       expect(html, contains('credential-dot-ok'));
       expect(html, contains('credential-dot-missing'));
       expect(html, contains('Provider ID: codex'));
-      expect(html, contains('workers busy'));
+      expect(html, contains('worker leases active'));
       expect(html, contains('Worker Capacity'));
+      expect(html, contains('class="meter meter--empty"'));
+      expect(html, isNot(contains('pool-bar')));
     });
 
     test('the tab strip is a real tab widget and the topbar keeps the only h1', () async {

@@ -13,11 +13,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunRepository, WorkflowRunStatus;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -95,7 +95,6 @@ final class TaskExecutorTestHarness {
     KvService? kvService,
     EventBus? eventBus,
     TurnManager? turnManager,
-    SpawnWorker? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
     Duration pollInterval = const Duration(milliseconds: 10),
@@ -117,7 +116,6 @@ final class TaskExecutorTestHarness {
       ),
       runners: TaskExecutorRunners(turns: turnManager ?? turns, workflowCliRunner: workflowCliRunner),
       limits: limits,
-      onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );
@@ -502,6 +500,9 @@ class FakeTaskWorker implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -663,44 +664,67 @@ class StaticPathWorktreeManager extends WorktreeManager {
 /// Captures the prompt scope / behavior override / directory the executor
 /// routed a turn with, without driving a real harness.
 class CapturingTurnManager extends TurnManager {
-  CapturingTurnManager(MessageService messages, AgentHarness worker)
+  CapturingTurnManager(MessageService messages, AgentHarness worker) : this._(_CapturingTurnRunner(messages, worker));
+
+  CapturingTurnManager._(this._runner)
+    : super.fromCoordinator(
+        coordinator: ExecutionCoordinator(
+          providerCapacities: const {},
+          primary: _runner,
+          allowPrimaryBackgroundFallback: true,
+          admitExecution: (request) => _runner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+          releaseAdmission: _runner.releaseAdmission,
+          createWorker: (_) => throw StateError('Worker execution is disabled'),
+        ),
+      );
+
+  final _CapturingTurnRunner _runner;
+
+  PromptScope? get lastPromptScope => _runner.lastPromptScope;
+  BehaviorFileService? get lastBehaviorOverride => _runner.lastBehaviorOverride;
+  String? get lastTaskId => _runner.lastTaskId;
+  String? get lastDirectory => _runner.lastDirectory;
+  List<String>? get lastAllowedTools => _runner.lastAllowedTools;
+  bool get lastReadOnly => _runner.lastReadOnly;
+}
+
+final class _CapturingTurnRunner extends TurnRunner {
+  _CapturingTurnRunner(MessageService messages, AgentHarness worker)
     : super(
         messages: messages,
-        worker: worker,
+        harness: worker,
         behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-scope-test'),
       );
 
   PromptScope? lastPromptScope;
-
   BehaviorFileService? lastBehaviorOverride;
   String? lastTaskId;
-
   String? lastDirectory;
+  List<String>? lastAllowedTools;
+  bool lastReadOnly = false;
 
   @override
-  Iterable<String> get activeSessionIds => const <String>[];
-
-  @override
-  Future<String> reserveTurn(
+  Future<String> reserveAdmittedTurn(
     String sessionId, {
     String agentName = 'main',
     String? directory,
     String? model,
     String? effort,
     String? systemPromptOverride,
-    String? workerProfile,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     lastDirectory = directory;
     lastPromptScope = promptScope;
     lastBehaviorOverride = behaviorOverride;
     lastTaskId = taskId;
+    lastAllowedTools = allowedTools;
+    lastReadOnly = readOnly;
     return 'scope-turn';
   }
 
@@ -715,15 +739,16 @@ class CapturingTurnManager extends TurnManager {
   }) {}
 
   @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
-    return TurnOutcome(
-      turnId: turnId,
-      sessionId: sessionId,
-      status: TurnStatus.completed,
-      responseText: 'Done.',
-      completedAt: DateTime.now(),
-    );
-  }
+  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async => TurnOutcome(
+    turnId: turnId,
+    sessionId: sessionId,
+    status: TurnStatus.completed,
+    responseText: 'Done.',
+    completedAt: DateTime.now(),
+  );
+
+  @override
+  Future<void> waitForExecutionSettled(String sessionId, String turnId) async {}
 }
 
 /// A [TurnManager] that throws [BusyTurnException] on its first reserve and

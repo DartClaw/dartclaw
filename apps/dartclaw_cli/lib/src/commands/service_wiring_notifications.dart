@@ -3,14 +3,14 @@ part of 'service_wiring.dart';
 final _notificationsLog = Logger('ServiceWiring');
 
 void _configureBudgetWarningNotifiers({
-  required HarnessPool pool,
+  required ExecutionCoordinator executions,
   required SessionService sessions,
   required TaskService taskService,
   required ChannelManager? channelManager,
 }) {
   if (channelManager == null) return;
 
-  for (final runner in pool.runners.cast<TurnRunner>()) {
+  void configure(TurnRunner runner) {
     runner.budgetWarningNotifier = (sessionId, result) async {
       await _notifyChannelBudgetWarning(
         sessionId: sessionId,
@@ -21,6 +21,8 @@ void _configureBudgetWarningNotifiers({
       );
     };
   }
+
+  _configureCurrentAndFutureRunners(executions, configure);
 }
 
 Future<void> _notifyChannelBudgetWarning({
@@ -124,14 +126,14 @@ Future<({ChannelType channelType, String recipientId})?> _resolveChannelRoute({
 }
 
 void _configureLoopDetectionNotifiers({
-  required HarnessPool pool,
+  required ExecutionCoordinator executions,
   required SessionService sessions,
   required TaskService taskService,
   required ChannelManager? channelManager,
 }) {
   if (channelManager == null) return;
 
-  for (final runner in pool.runners.cast<TurnRunner>()) {
+  void configure(TurnRunner runner) {
     runner.loopDetectionNotifier = (sessionId, detection, action) async {
       await _notifyChannelLoopDetection(
         sessionId: sessionId,
@@ -143,6 +145,18 @@ void _configureLoopDetectionNotifiers({
       );
     };
   }
+
+  _configureCurrentAndFutureRunners(executions, configure);
+}
+
+void _configureCurrentAndFutureRunners(ExecutionCoordinator executions, void Function(TurnRunner runner) configure) {
+  for (final runner in executions.runners) {
+    configure(runner);
+  }
+  executions.events.where((event) => event.kind == ExecutionEventKind.runnerCreated).listen((event) {
+    final runner = event.runner;
+    if (runner != null) configure(runner);
+  });
 }
 
 Future<void> _notifyChannelLoopDetection({

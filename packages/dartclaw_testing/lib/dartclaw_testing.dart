@@ -19,7 +19,6 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         EventBus,
         ExecutionRepositoryTransactor,
         GoogleJwtVerifier,
-        HarnessPool,
         PromptStrategy,
         ProjectService,
         SessionKey,

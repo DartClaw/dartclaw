@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.23
+**Current through**: 0.24 worker-capacity execution architecture
 
 ---
 
@@ -25,6 +25,8 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 | **Rate abuse** | Flooding via channel messages overwhelming the agent with requests | Per-sender rate limiting, global turn rate limiting (SlidingWindowRateLimiter) |
 | **Runaway agent loops** | Agent stuck in repetitive tool-call patterns or unbounded turn chains | LoopDetector (3 mechanisms: turn chain depth, token velocity, tool fingerprinting) |
 | **Provider-specific tool bypass** | Provider-native tool names slipping past provider-specific interception or bypassing a guard path entirely | Canonical Tool Taxonomy, fail-closed guard evaluation, provider interception hardening |
+| **Cross-execution state reuse** | Reusing a process built for a different session, provider configuration, or security profile | Canonical construction fingerprints, exact-session-first compatible reuse, unknown=fresh |
+| **Overlapping replacement** | Starting a replacement while the previous managed root process may still be alive | Confirmed root teardown or provider-capacity quarantine |
 
 ---
 
@@ -138,11 +140,13 @@ GuardChain._evaluate(context):
 
 **Package attribution**: `dartclaw_security` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_server`.
 
-**Per-runner chain composition**: serve wiring builds one shared base chain from `guards.*` config, and each runner – the primary interactive harness and every pool worker – evaluates a layered chain (`GuardChain.layered`): the base chain plus that runner's own `TaskToolFilterGuard`. The base guard list is read live, so a `guards.*` hot-reload (`replaceGuards`) reaches every runner chain while the per-runner filter survives the rebuild. Turn-scoped tool policies (per-task `allowedTools`, per-turn session policies such as the knowledge-inbox no-tools turn) are enforced by that per-runner filter.
+**Per-execution chain composition**: serve wiring builds one shared base chain from `guards.*` config. The fixed primary harness and every coordinator-created worker evaluate a layered chain (`GuardChain.layered`): the live base chain plus the worker's `TaskToolFilterGuard`. A `guards.*` hot-reload (`replaceGuards`) reaches every chain while the execution-scoped filter remains authoritative for per-task `allowedTools` and session policies such as no-tools turns. Reuse cannot weaken this boundary: construction-affecting security inputs participate in the canonical worker fingerprint, while turn-scoped policy is rebound from the active lease/request.
 
 The same composition is the SDK host's responsibility. `DartclawServerBuilder` receives an already-constructed harness, so it cannot retrofit that harness's chain: a host wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and sets the same instance as `builder.taskToolFilterGuard`. The builder never creates one on the host's behalf — a filter outside the chain the harness evaluates is inert, and silently so.
 
 Guards evaluate canonical tool names, not provider-native strings. Provider adapters map raw tool names to the canonical taxonomy before `GuardChain.evaluateBeforeToolCall()` runs. The raw provider name is still retained in `GuardContext` for audit logging and incident forensics.
+
+Provider branching is confined to protocol adapters and composition/wiring. Security, scheduling, task, logical-agent, capacity, and observability code consume normalized provider identity plus capability contracts; they do not switch on provider names.
 
 ### Guard Summary
 
@@ -403,7 +407,7 @@ LLM-based content classification at inter-agent boundaries. Fires only at the `b
 
 A tool passes only if it is not in global deny, not in agent deny, and is in the agent's allow set when that set is non-empty. Empty or absent allow sets impose no sandbox restriction. Known provider-native policy entries are canonicalized at construction; unknown entries remain exact literals. Denying `mcp_call` also denies semantically remapped own-MCP calls, but allowing `mcp_call` does not grant them.
 
-Example: the search agent's canonical sandbox is `{web_search, web_fetch}`, so `ToolPolicyGuard` blocks other intercepted tools on logical-agent turns. It also requests the provider-independent `restricted` worker profile; where container profiles are unavailable, the tool policy remains the only host boundary. Claude's unfiltered `PreToolUse` hook covers built-ins and dynamic MCP names. Codex requires an approval request: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses this guard. ACP enforcement covers only host reverse file calls and permission requests.
+Example: the search agent's canonical sandbox is `{web_search, web_fetch}`, so `ToolPolicyGuard` blocks other intercepted tools on logical-agent turns. It also requests the provider-independent `restricted` worker profile and an exact provider capacity lease; it never falls back to the primary-interactive lane or a weaker profile. Where container profiles are unavailable, the tool policy remains the only host boundary. Claude's unfiltered `PreToolUse` hook covers built-ins and dynamic MCP names. Codex requires an approval request: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses this guard. ACP enforcement covers only host reverse file calls and permission requests.
 
 **Source**: `packages/dartclaw_core/lib/src/agents/tool_policy_cascade.dart`
 
@@ -463,6 +467,16 @@ custom    → workspace
 ```
 
 **Source**: `packages/dartclaw_server/lib/src/container/container_manager.dart`, `packages/dartclaw_server/lib/src/container/security_profile.dart`, `packages/dartclaw_server/lib/src/container/container_dispatcher.dart`
+
+### Execution Capacity and Process Isolation
+
+Global governance runs before `ExecutionCoordinator`. After admission, the coordinator is the only authority that selects the fixed primary-interactive lane or acquires a provider worker lease. Main-agent user/channel turns serialize on the primary lane. Cron/system jobs, advisor turns, tasks, and logical agents consume worker capacity; workflow one-shots consume capacity-only leases.
+
+`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries a canonical construction fingerprint containing normalized provider, security profile, and the canonical identity of every other construction-only input. Reuse order is exact session within that fingerprint, then a healthy compatible fingerprint, otherwise fresh. Unknown compatibility or health is treated as fresh.
+
+Released unhealthy workers are stopped and disposed. No replacement is created until teardown of the managed root process is confirmed. If confirmation is unavailable, the slot is quarantined and effective provider capacity decreases. This prevents a failed termination from turning one configured capacity slot into multiple live security principals.
+
+The reusable harness cache is opportunistic and has no security-relaxing knobs. Workflow one-shots never enter it. Containers are amortized independently: a profile container may outlive multiple subprocesses and leases, but it neither carries conversation identity nor changes provider capacity. Lease state, not runner callbacks or cached process presence, is authoritative for active execution and emergency cancellation.
 
 ### Multi-Provider Sandbox Interaction
 
@@ -854,13 +868,15 @@ Sliding window rate limit on inbound channel messages, keyed by sender JID. Enfo
 
 ### Global Turn Rate Limiting
 
-Sliding window rate limit on turn reservations across all sessions and senders combined. Enforced in `TurnRunner.reserveTurn()`.
+Sliding window rate limit on turn requests across all sessions and senders combined. Enforced by `TurnGovernanceEnforcer` before coordinator acquisition.
 
 **Behavior**:
 - Defers turn reservation (waits for window capacity) rather than rejecting — ensures messages are eventually processed
 - Emits SSE `rate_limit_warning` event at 80% usage; resets hysteresis below 60%
 
 **Configuration**: `governance.rate_limits.global.turns` (max turns) + `governance.rate_limits.global.window_minutes` (sliding window). 0 turns = disabled.
+
+Global governance admission precedes execution allocation. A passing governance check is handed to `ExecutionCoordinator`; no surface may bypass that sequence by acquiring a runner or starting a provider process directly. Provider `pool_size` is the later hard execution boundary, not a substitute for governance.
 
 ### Rate Limiter Design
 
@@ -919,8 +935,8 @@ Aborts all active turns and cancels all running/queued tasks in a single best-ef
 
 ```
 EmergencyStopHandler.execute():
-  1. Cancel all active turns across all runners in the harness pool
-     (iterates HarnessPool.runners, calls cancelTurn for each active session)
+  1. Cancel all active executions from the coordinator lease registry
+     (including the primary lane, worker runners, and capacity-only one-shots)
   2. Transition all running and queued tasks to cancelled
      (review/draft/accepted/rejected are left for manual resolution)
   3. Fire EmergencyStopEvent on EventBus
@@ -928,6 +944,8 @@ EmergencyStopHandler.execute():
 ```
 
 Individual failures during the sequence are logged but do not halt execution — remaining turns and tasks are still cancelled. Returns `EmergencyStopResult` with counts of cancelled turns and tasks.
+
+Cancellation retains each lease until the managed root process has exited or the slot is quarantined. Releasing capacity on cancellation request alone would permit an overlapping replacement.
 
 **Source**: `packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`
 
@@ -1122,6 +1140,8 @@ gateway:
 | `mcp/web_fetch_tool.dart` | `dartclaw_server` | SSRF-hardened URL fetcher |
 | `task/task_file_guard.dart` | `dartclaw_server` | Per-task worktree path containment |
 | `container/container_health_monitor.dart` | `dartclaw_server` | Periodic container health checks |
+| `execution_coordinator.dart` | `dartclaw_server` | Post-governance lanes, capacity leases, fingerprinted reuse, quarantine |
+| `worker_capacity_gate.dart` | `dartclaw_server` | Hard per-provider worker execution capacity |
 | `harness/tool_policy.dart` | `dartclaw_core` | Control protocol tool approval/hook responses |
 | `governance_config.dart` | `dartclaw_config` | GovernanceConfig, RateLimitsConfig, BudgetConfig, LoopDetectionConfig |
 | `sliding_window_rate_limiter.dart` | `dartclaw_config` | In-memory sliding window rate limiter |

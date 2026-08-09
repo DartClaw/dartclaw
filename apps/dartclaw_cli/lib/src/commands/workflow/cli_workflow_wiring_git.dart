@@ -58,10 +58,6 @@ Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   }
 }
 
-int _standaloneWorkerCapacity(DartclawConfig config) {
-  return _effectiveWorkflowProviderEntries(config).values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
-}
-
 Map<String, String> _providerEnvironment(DartclawConfig config, String providerId, CredentialRegistry registry) {
   final executable = _resolveProviderExecutable(config, providerId);
   return buildWorkflowProviderEnvironment(

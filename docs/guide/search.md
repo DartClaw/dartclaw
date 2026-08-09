@@ -11,7 +11,7 @@ The search agent's canonical default allowlist is `{web_search, web_fetch}`. No 
 ### How It Works
 
 1. Main agent calls `sessions_spawn` with the `search` agent and a query
-2. DartClaw acquires or spawns a provider-matched worker and starts a hidden logical-agent session
+2. DartClaw acquires provider worker capacity, lazily creating or compatibly reusing a worker, and starts a hidden logical-agent session
 3. Search agent uses mapped search/fetch tools to find information
 4. Content-guard scans the result at the agent boundary
 5. Result returned to main agent (or blocked if unsafe)
@@ -35,9 +35,9 @@ agent:
       max_response_bytes: 5242880  # 5MB cap
 ```
 
-With no explicit `model` or `effort`, search inherits the selected provider's defaults. Set either in the agent entry when the search profile needs a fixed override. Search sessions require worker-pool capacity; an unavailable pool returns an inline configuration error instead of using the caller's primary harness.
+With no explicit `model` or `effort`, search inherits the selected provider's defaults. Set either in the agent entry when the search profile needs a fixed override. Search sessions require a provider worker lease; exhausted capacity returns an inline configuration error instead of using the caller's primary lane.
 
-Execution capacity comes from the selected provider's worker pool. See [Agents](agents.md#capacity-boundary).
+Execution capacity comes from the selected provider's `pool_size` lease limit. See [Agents](agents.md#capacity-boundary).
 
 Provider-native config spellings remain compatible through startup normalization. For portable policies, prefer canonical names. `web_search` and `web_fetch` are separate grants, so older task or step policies naming only `web_fetch` must add `web_search` if search is intended.
 

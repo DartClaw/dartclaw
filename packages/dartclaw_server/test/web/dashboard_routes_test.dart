@@ -1,15 +1,15 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
+import '../execution_coordinator_test_support.dart';
 
 String _staticDir() {
   const fromPkg = 'lib/src/static';
@@ -53,9 +53,7 @@ void main() {
     final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
     mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
     runnerObserver = RunnerObserver(
-      pool: HarnessPool(
-        runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
-      ),
+      executions: coordinatorForRunners([TurnRunner(harness: worker, messages: messages, behavior: behavior)]),
     );
 
     server =
@@ -258,9 +256,7 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
   final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
   final mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
   final runnerObserver = RunnerObserver(
-    pool: HarnessPool(
-      runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
-    ),
+    executions: coordinatorForRunners([TurnRunner(harness: worker, messages: messages, behavior: behavior)]),
   );
   final healthService = includeHealthService
       ? HealthService(

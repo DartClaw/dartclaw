@@ -116,18 +116,23 @@ class TasksPage extends DashboardPage {
       includeWorkflowOwned: !includeWorkflowOwned,
     );
 
-    // Runner metrics for the harness pool section.
+    // Runner metrics and lease-derived worker capacity.
     final observer = context.runnerObserver;
     List<Map<String, dynamic>>? runners;
-    Map<String, dynamic>? harnessPool;
+    Map<String, dynamic>? executionCapacity;
     if (observer != null) {
       runners = observer.metrics.map((m) => m.toJson()).toList();
-      final pool = observer.poolStatus;
-      harnessPool = {
-        'size': pool.size,
-        'activeCount': pool.activeCount,
-        'availableCount': pool.availableCount,
-        'maxConcurrentWorkers': pool.maxConcurrentWorkers,
+      final capacity = observer.capacityStatus;
+      executionCapacity = {
+        'runnerCount': capacity.runnerCount,
+        'configured': capacity.configured,
+        'effective': capacity.effective,
+        'active': capacity.active,
+        'available': capacity.available,
+        'queued': capacity.queued,
+        'cached': capacity.cached,
+        'quarantined': capacity.quarantined,
+        'primaryActive': capacity.primaryActive,
       };
     }
 
@@ -144,7 +149,7 @@ class TasksPage extends DashboardPage {
       restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
       runners: runners,
-      harnessPool: harnessPool,
+      executionCapacity: executionCapacity,
       goalOptions: goals.map((goal) => <String, String>{'value': goal.id, 'label': goal.title}).toList(growable: false),
       defaultProvider: defaultProvider,
       projectNames: projectNames,

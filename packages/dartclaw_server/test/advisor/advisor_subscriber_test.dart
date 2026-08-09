@@ -2,15 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/advisor/advisor_subscriber.dart' as advisor;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_server/src/turn_wait_status.dart' show TurnCancelReason;
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show FakeChannel, FakeGoogleChatRestClient, InMemoryTaskRepository;
 import 'package:test/test.dart';
+
+import '../execution_coordinator_test_support.dart';
+import '../turn_runner_test_support.dart';
 
 void main() {
   group('advisor support classes', () {
@@ -64,7 +67,7 @@ void main() {
     late EventBus eventBus;
     late FakeChannel channel;
     late ChannelManager channelManager;
-    late HarnessPool pool;
+    late ExecutionCoordinator executions;
     late AdvisorSubscriber subscriber;
     late _AdvisorHarness primaryHarness;
     late _AdvisorHarness secondaryHarness;
@@ -91,16 +94,14 @@ void main() {
       secondaryHarness = _AdvisorHarness(
         '{"status":"stuck","observation":"The group is blocked","suggestion":"Pick one failing path"}',
       );
-      pool = HarnessPool(
-        runners: [
-          _makeRunner(messages: messages, sessions: sessions, harness: primaryHarness),
-          _makeRunner(messages: messages, sessions: sessions, harness: secondaryHarness),
-        ],
-        maxConcurrentWorkers: 1,
-      );
+      executions = coordinatorForRunners([
+        _makeRunner(messages: messages, sessions: sessions, harness: primaryHarness),
+        _makeRunner(messages: messages, sessions: sessions, harness: secondaryHarness),
+      ]);
 
       subscriber = AdvisorSubscriber(
-        pool: pool,
+        executions: executions,
+        providerId: 'claude',
         sessions: sessions,
         taskService: TaskService(InMemoryTaskRepository()),
         channelManager: channelManager,
@@ -113,7 +114,7 @@ void main() {
     tearDown(() async {
       await subscriber.dispose();
       await eventBus.dispose();
-      await pool.dispose();
+      await executions.dispose();
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
@@ -146,6 +147,59 @@ void main() {
       expect(insights, hasLength(1));
       expect(insights.single.status, 'stuck');
       expect(secondaryHarness.lastMaxTurns, 1);
+    });
+
+    test('advisor keeps its lease until accepted-cancel recovery settles', () async {
+      final localBus = EventBus();
+      final delayedHarness = DelayedCancelHarness();
+      final delayedRunner = _makeRunner(messages: messages, sessions: sessions, harness: delayedHarness);
+      final localExecutions = coordinatorForRunners([
+        _makeRunner(messages: messages, sessions: sessions, harness: _AdvisorHarness('{}')),
+        delayedRunner,
+      ]);
+      final localSubscriber = AdvisorSubscriber(
+        executions: localExecutions,
+        providerId: 'claude',
+        sessions: sessions,
+        taskService: TaskService(InMemoryTaskRepository()),
+        channelManager: channelManager,
+        eventBus: localBus,
+        triggers: const ['explicit'],
+      );
+      localSubscriber.subscribe();
+      addTearDown(() async {
+        await localSubscriber.dispose();
+        await localBus.dispose();
+        await localExecutions.dispose();
+      });
+
+      localBus.fire(
+        AdvisorMentionEvent(
+          senderJid: 'sender@s.whatsapp.net',
+          channelType: 'whatsapp',
+          recipientId: 'group@g.us',
+          threadId: 'group@g.us',
+          messageText: '@advisor inspect this',
+          sessionKey: 'agent:main:group:whatsapp:group@g.us',
+          timestamp: DateTime.now(),
+        ),
+      );
+      await delayedHarness.turnInvoked;
+      final sessionId = delayedRunner.activeSessionIds.single;
+      final turnId = delayedRunner.activeTurnId(sessionId)!;
+
+      await delayedRunner.cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false);
+      await delayedHarness.cancelStarted.future;
+      await pumpEventQueue();
+
+      expect(localExecutions.snapshot.activeWorkers, 1);
+
+      delayedHarness.completeSuccess();
+      delayedHarness.allowCancelReturn.complete();
+      await delayedRunner.waitForExecutionSettled(sessionId, turnId);
+      await pumpEventQueue();
+
+      expect(localExecutions.snapshot.activeWorkers, 0);
     });
 
     test('Google advisor output keeps cards and formats Markdown fallback text', () async {
@@ -214,7 +268,7 @@ void main() {
 TurnRunner _makeRunner({
   required MessageService messages,
   required SessionService sessions,
-  required _AdvisorHarness harness,
+  required AgentHarness harness,
 }) {
   return TurnRunner(
     harness: harness,
@@ -257,6 +311,9 @@ class _AdvisorHarness implements AgentHarness {
 
   @override
   WorkerState get state => WorkerState.idle;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
 
   @override
   Stream<BridgeEvent> get events => _events.stream;

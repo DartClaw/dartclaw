@@ -2,18 +2,18 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'test_utils.dart';
+import 'execution_coordinator_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // FakeWorkerService
@@ -53,6 +53,9 @@ class FakeWorkerService implements AgentHarness {
 
   @override
   WorkerState get state => WorkerState.idle;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
 
   @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
@@ -140,7 +143,7 @@ RunnerObserver _buildRunnerObserver(FakeWorkerService worker, MessageService mes
     messages: messages,
     behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
   );
-  return RunnerObserver(pool: HarnessPool(runners: [runner]));
+  return RunnerObserver(executions: coordinatorForRunners([runner]));
 }
 
 // ---------------------------------------------------------------------------

@@ -1379,22 +1379,21 @@ done.<span class="streaming"></span></code></pre>
     <p class="use-case"><code>--syntax-*</code> tokens theme highlight.js output and server-rendered diffs. Categorical, like the chart ramp &mdash; only the diff wash means anything.</p>
     <h3>Highlighted code (in a terminal frame)</h3>
     <div class="terminal-frame" style="margin-bottom:var(--sp-4)">
-      <div class="terminal-frame-bar"><span class="terminal-frame-dots"></span>harness_pool.dart</div>
-      <div class="terminal-frame-body"><pre><code class="hljs"><span class="hljs-comment">/// Spawns a harness for [provider], reusing warm pool slots.</span>
-<span class="hljs-keyword">Future</span>&lt;<span class="hljs-type">AgentHarness</span>&gt; <span class="hljs-title">acquire</span>(<span class="hljs-type">ProviderId</span> provider) <span class="hljs-keyword">async</span> {
-  <span class="hljs-keyword">final</span> slot = _pool.<span class="hljs-built_in">firstWhere</span>((s) =&gt; s.idle, orElse: () =&gt; <span class="hljs-literal">null</span>);
-  <span class="hljs-keyword">if</span> (slot != <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> slot.harness;
-  <span class="hljs-keyword">return</span> _spawn(provider, timeout: <span class="hljs-keyword">const</span> <span class="hljs-type">Duration</span>(seconds: <span class="hljs-number">30</span>),
-      label: <span class="hljs-string">'pool-${_pool.length}'</span>);
+      <div class="terminal-frame-bar"><span class="terminal-frame-dots"></span>execution_coordinator.dart</div>
+      <div class="terminal-frame-body"><pre><code class="hljs"><span class="hljs-comment">/// Acquires bounded execution capacity with compatible warm reuse.</span>
+<span class="hljs-keyword">Future</span>&lt;<span class="hljs-type">ExecutionLease</span>&gt; <span class="hljs-title">acquire</span>(<span class="hljs-type">ExecutionRequest</span> request) <span class="hljs-keyword">async</span> {
+  <span class="hljs-keyword">final</span> permit = <span class="hljs-keyword">await</span> _gate.<span class="hljs-built_in">acquire</span>();
+  <span class="hljs-keyword">final</span> worker = _takeCompatible(request) ?? <span class="hljs-keyword">await</span> _createWorker(request);
+  <span class="hljs-keyword">return</span> <span class="hljs-type">ExecutionLease</span>(permit: permit, runner: worker);
 }</code></pre></div>
     </div>
     <h3>Diff (server-rendered)</h3>
-    <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code><span class="diff-line diff-line--hunk">@@ -12,6 +12,8 @@ class HarnessPool {</span>
-<span class="diff-line">  final _pool = &lt;PoolSlot&gt;[];</span>
+    <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code><span class="diff-line diff-line--hunk">@@ -12,6 +12,8 @@ class ExecutionCoordinator {</span>
+<span class="diff-line">  final _cached = &lt;CachedWorker&gt;[];</span>
 <span class="diff-line diff-line--del">-  Duration get timeout =&gt; const Duration(seconds: 10);</span>
 <span class="diff-line diff-line--add">+  Duration get timeout =&gt; _config.spawnTimeout;</span>
-<span class="diff-line diff-line--add">+  bool get hasIdle =&gt; _pool.any((s) =&gt; s.idle);</span>
-<span class="diff-line">  int get size =&gt; _pool.length;</span></code></pre></div>
+<span class="diff-line diff-line--add">+  bool get hasReusable =&gt; _cached.any((worker) =&gt; worker.healthy);</span>
+<span class="diff-line">  int get size =&gt; _cached.length;</span></code></pre></div>
 
 
     <!-- COMPOSITION EXAMPLE -->

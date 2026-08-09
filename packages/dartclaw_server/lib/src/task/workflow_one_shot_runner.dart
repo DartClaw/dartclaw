@@ -69,6 +69,7 @@ final class WorkflowOneShotRunner {
     required Duration stallTimeout,
     required TurnProgressAction stallAction,
     required Duration? defaultStepTimeout,
+    RootProcessTerminationObserver? onRootProcessTerminationConfirmed,
   }) async {
     final runner = _runner;
     if (runner == null) {
@@ -116,6 +117,13 @@ final class WorkflowOneShotRunner {
     var outputTokens = 0;
     var cacheReadTokens = 0;
     var cacheWriteTokens = 0;
+    var allRootProcessTerminationsConfirmed = true;
+    Future<void> observeRootProcessTermination(bool confirmed) async {
+      allRootProcessTerminationsConfirmed = allRootProcessTerminationsConfirmed && confirmed;
+      final observer = onRootProcessTerminationConfirmed;
+      if (observer != null) await observer(allRootProcessTerminationsConfirmed);
+    }
+
     final sessionUsageBaseline = providerSessionId != null && providerSessionId.isNotEmpty
         ? await _readSessionUsageBaseline(sessionId)
         : const WorkflowCliUsageBaseline();
@@ -172,6 +180,7 @@ final class WorkflowOneShotRunner {
         sandboxOverride: sandboxOverride,
         extraEnvironment: extraEnvironment,
         usageBaseline: sessionUsageBaseline,
+        onRootProcessTerminationConfirmed: observeRootProcessTermination,
       );
       if (turnResult.cancelled) {
         return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
@@ -210,12 +219,13 @@ final class WorkflowOneShotRunner {
         // surfaces as error_max_turns and fails the whole step.
         allowedTools: noTools ? const <String>[] : allowedTools,
         readOnly: noTools ? true : readOnly,
-        maxTurns: provider == 'claude' ? (noTools ? 2 : 5) : null,
+        maxTurns: runner.maxTurnsForStructuredTurn(provider: provider, noTools: noTools),
         jsonSchema: structuredSchema,
         appendSystemPrompt: null,
         sandboxOverride: sandboxOverride,
         extraEnvironment: extraEnvironment,
         usageBaseline: sessionUsageBaseline,
+        onRootProcessTerminationConfirmed: observeRootProcessTermination,
       );
       if (turnResult.cancelled) return turnResult;
       await accumulateUsage(turnResult);

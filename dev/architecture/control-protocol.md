@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.21
+**Current through**: 0.24 worker-capacity execution architecture
 
 ---
 
@@ -25,10 +25,15 @@ Workflow-owned bounded agent steps now always use the one-shot execution path. I
 
 This is intentionally a workflow-only exception:
 
-- Interactive chat, channels, cron, and ordinary task turns remain on the long-lived streaming harnesses.
+- The one-shot remains inside the common post-governance execution authority. It acquires a capacity-only lease from the selected provider's `pool_size`, runs the direct CLI process, then releases the lease. It never enters the reusable harness cache.
+- Main-agent user and channel turns use the fixed serialized primary-interactive lane. Cron/system jobs, advisor turns, ordinary tasks, and logical-agent turns use provider worker capacity and may use compatible long-lived harnesses.
 - Workflow YAML step types are preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`); the workflow runtime dispatches every workflow step through the coding-task path and expresses write intent through `readOnly` (set on the task config when `step_config_policy.stepIsReadOnly()` holds).
 - `format: json` with `schema` defaults to native structured output. The heuristic JSON parser is retained only as a post-failure fallback.
 - **One-shot stdout is streamed, not buffered** – and this is load-bearing for operability, not cosmetic. Both providers emit incremental NDJSON on stdout for the duration of the turn: `claude -p --output-format stream-json --verbose --include-partial-messages` (the terminal `type: "result"` event carries the result text, `session_id`, cost, and the `usage.{input_tokens,output_tokens,cache_read_input_tokens,cache_creation_input_tokens}` counts) and `codex exec --json`. The CLI stall monitor (FR00/TD-062) resets its silence timer on each stdout line, so the older buffered single-object mode (`claude -p --output-format json`, which emits one object only at completion) starved it of any liveness signal and false-tripped on every turn longer than `governance.turn_progress.stall_timeout` – even while the provider was actively working. Streaming restores the per-line liveness that keeps stall detection meaningful for long claude turns (e.g. the opus review council).
+
+### Execution allocation boundary
+
+Global turn governance runs before execution allocation. After it admits a request, `ExecutionCoordinator` is the sole authority for lane selection, queue/fail-fast admission, per-provider capacity permits, reusable worker lookup, worker creation, replacement, quarantine, and release. Callers never inspect provider identity to choose an execution mechanism; provider-specific behavior is confined to adapters and composition/wiring.
 
 ```
 ┌─────────────────────────────────────┐
@@ -554,8 +559,17 @@ A complete turn flows through multiple layers. The following diagram shows the f
 User (Web/Channel/Cron/Task)
   │
   ▼
-TurnManager.startTurn(sessionId, messages)
-  │ routes to the primary runner, or a provider-matched pool worker for tasks and logical-agent sessions
+TurnGovernanceEnforcer admits the turn globally
+  │
+  ▼
+ExecutionCoordinator.acquire(request)
+  │ fixed primary lease for main user/channel turns
+  │ provider worker lease for cron/system/advisor/task/logical-agent turns
+  ├─ capacity-only provider lease ──► WorkflowCliRunner (workflow one-shots)
+  │
+  │ runner-backed lease
+  ▼
+TurnManager.startTurn(sessionId, messages) on the leased runner
   ▼
 TurnRunner.reserveTurn(sessionId)
   │ ① Acquire session lock (SessionLockManager)
@@ -632,6 +646,7 @@ Finally block
   │ ㉔ Delete turn-state row from TurnStateStore
   │ ㉕ Cache TurnOutcome (TTL: 30s)
   │ ㉖ Complete _outcomePending completer
+  │ ㉗ Release the execution lease; cache, dispose, or quarantine the worker
   ▼
 TurnOutcome { turnId, sessionId, status, responseText?, inputTokens, outputTokens,
               turnDuration, cacheReadTokens, cacheWriteTokens, toolCalls }
@@ -700,7 +715,9 @@ TurnOutcome
 └── toolCalls: List<ToolCallRecord> – correlated from stream events
 ```
 
-Downstream consumers (`RunnerObserver.recordTurn()`, `TurnTraceService`, `TaskEventRecorder`) consume these enriched fields directly. Cache token normalization happening at the adapter layer means these consumers are fully provider-agnostic.
+At runner settlement, `ExecutionCoordinator` forwards the enriched outcome to `RunnerObserver`; `TurnTraceService` and
+`TaskEventRecorder` consume the same normalized fields for task-specific persistence. Cache token normalization at the
+adapter layer keeps every consumer provider-agnostic.
 
 ---
 
@@ -803,7 +820,7 @@ Three concrete implementations exist today:
 - `CodexHarness` – Codex JSON-RPC app-server protocol (see [Codex JSON-RPC Protocol](#codex-json-rpc-protocol))
 - `AcpHarness` – ACP stdio JSON-RPC protocol for configured ACP agents such as Goose and Vibe
 
-`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries, and `HarnessPool` manages reusable runners. Each provider identity has its own worker allocation with default capacity `1`; `providers.<id>.pool_size` is the capacity override. Logical-agent sessions acquire or lazily spawn an exact provider/security-profile worker; the primary runner is never eligible. The pool owns execution capacity, not conversation state. Exhausted capacity returns an inline error. ACP agent registration controls spawn and security classification, not custom capacity.
+`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries. `ExecutionCoordinator` owns post-governance allocation; reusable runners are only its opportunistic process cache. Each provider identity has worker capacity from `providers.<id>.pool_size`. Logical-agent sessions acquire an exact provider lease and never use the primary-interactive lane. ACP agent registration controls spawn and security classification, not custom capacity. Provider selection changes the factory/adapter used by wiring, never orchestration semantics.
 
 #### ClaudeCodeHarness
 
@@ -1036,51 +1053,52 @@ Codex app-server is treated as ephemeral. If the process exits unexpectedly, Dar
 
 This keeps continuity under DartClaw's control and avoids depending on provider-managed session storage after a crash.
 
-## 11. Harness Pool
+## 11. Execution Coordination and Harness Reuse
 
-The `HarnessPool` manages bounded `TurnRunner` capacity shared by background tasks and logical-agent sessions.
+`ExecutionCoordinator` is the single post-governance execution authority. It separates three concerns that must not be inferred from one another:
 
-### Pool structure
+- **lane** – which product surfaces may execute together;
+- **capacity lease** – whether a provider execution may run now;
+- **harness cache** – whether a healthy compatible subprocess happens to be reusable.
 
-```
-HarnessPool
-  ├── runners[0]  – PRIMARY (main chat, cron, channel turns)
-  ├── runners[1]  – Worker (profile: workspace)
-  ├── runners[2]  – Worker (profile: restricted)
-  └── runners[N]  – ...
-```
-
-**Primary runner** (index 0): Reserved exclusively for interactive use via `TurnManager`. Never acquired by `TaskExecutor`. Always available for chat, cron, and channel-initiated turns.
-
-**Workers** (indices 1..N): Acquired by `TaskExecutor` for background tasks or by `TurnManager` for logical-agent sessions. `WorkerPoolCoordinator` acquires or lazily provisions an exact provider/security-profile match and never uses the primary runner. Workers return to the pool after the turn completes and carry no authoritative conversation state.
-
-### Acquisition and release
-
-```dart
-class HarnessPool {
-  TurnRunner get primary;                           // Always index 0
-  TurnRunner? tryAcquire();                         // Any available worker
-  TurnRunner? tryAcquireForProfile(String profile); // Matching security profile
-  TurnRunner? tryAcquireForProvider(String provider); // Matching provider
-  void release(TurnRunner runner);                  // Return to pool
-}
-```
-
-When all workers are busy, background tasks remain queued. A logical-agent turn provisions another provider/profile-matched worker when capacity remains; exhausted or failed provisioning returns an inline MCP error naming the provider/profile and capacity setting.
-
-### Capacity configuration
-
-Configured providers each default to one worker; `providers.<id>.pool_size` is that provider's hard capacity. Workers spawn lazily and are shared by background tasks and logical-agent sessions. Startup rejects capacity too small to cover required security profiles. Nested logical-agent calls use the same capacity boundary; acquisition fails immediately when the pool is exhausted, so a child cannot wait on a worker held by its caller.
-
-### Single-harness fallback
-
-SDK consumers may construct a pool with `maxConcurrentWorkers == 0`; in that single-harness mode, background tasks may use the idle primary runner. Logical-agent sessions never use this fallback and return an inline capacity error instead.
+### Lanes and surfaces
 
 ```
-TaskExecutor.pollOnce()
-  └─► if _turns.activeSessionIds.isNotEmpty → skip (primary is busy)
-  └─► otherwise → execute task on primary runner directly
+ExecutionCoordinator
+  ├── primary-interactive gate (fixed capacity 1)
+  │     └── main-agent user + channel turns
+  └── provider worker gates (`providers.<id>.pool_size` each)
+        ├── worker: cron/system jobs, advisor, tasks, logical agents
+        └── capacity-only: workflow one-shot provider invocations
 ```
+
+The primary-interactive lane is fixed, serialized, and tied to the configured primary provider. It is outside `pool_size`. Worker and capacity-only requests consume one lease from the selected provider. Ordinary worker surfaces may queue; nested logical-agent requests fail fast to avoid waiting on a slot held by their caller.
+
+### Capacity is not a process count
+
+`providers.<id>.pool_size` is a hard ceiling on concurrent worker and capacity-only executions for that provider. Idle cached harnesses consume no lease. A capacity-only one-shot has a lease but no `TurnRunner`. Container count and container lifetime do not affect the limit.
+
+The coordinator returns an idempotent `ExecutionLease`. The lease is released exactly once on every success, failure, cancellation, or setup-error path. Its active set is the source of truth for runtime busy/free/current-work observability.
+
+### Canonical construction fingerprint and lookup
+
+Each worker request carries an `ExecutionFingerprint`: normalized provider ID, security profile ID, and a canonical configuration identity covering all remaining construction-only inputs. The cache lookup order is:
+
+1. healthy exact-session worker within the requested canonical construction fingerprint;
+2. any healthy worker with a compatible canonical construction fingerprint;
+3. create a fresh worker through provider wiring.
+
+Compatibility must be known, not inferred from missing fields. Unknown compatibility or health means fresh creation. The cache is opportunistic and has no size, TTL, prewarm, or reuse-policy configuration.
+
+### Release, replacement, and quarantine
+
+An idle healthy released worker may return to the cache. Any other worker is stopped and disposed. Replacement is permitted only after the harness confirms teardown of its managed root process. If termination cannot be confirmed, the capacity permit is quarantined: effective provider capacity decreases and DartClaw does not spawn an overlapping replacement. Cached excess is scavenged with the same rule.
+
+Containers are amortized independently. A profile container may remain alive while harness processes are disposed or recreated, and multiple leases may execute through it subject to provider capacity. It owns neither conversation continuity nor execution admission.
+
+### SDK single-harness compatibility
+
+An SDK composition that provides only one harness may serialize ordinary background tasks on that harness when no multi-worker coordinator is present. This is a compatibility exception, not a server routing mode. Logical-agent sessions and production server worker surfaces do not fall back to the primary-interactive lane.
 
 ---
 
@@ -1088,23 +1106,19 @@ TaskExecutor.pollOnce()
 
 ### TurnManager
 
-Thin orchestration wrapper that delegates all turn operations to the appropriate `TurnRunner`.
+Turn-lifecycle wrapper that runs a turn on the `TurnRunner` supplied by an execution lease. It does not select providers, inspect cache state, or own capacity.
 
 ```dart
 class TurnManager {
   TurnManager({required AgentHarness worker, ...});  // Single-runner convenience
-  TurnManager.fromPool({required HarnessPool pool}); // Multi-runner mode
 
-  HarnessPool get pool;               // For TaskExecutor
-  TurnRunner get primary;             // Via pool.primary
-
-  Future<String> reserveTurn(...);     // Primary, or provider/profile-matched worker for a pinned session
-  void executeTurn(...);               // Uses the runner selected during reservation
-  Future<void> cancelTurn(...);        // Searches all runners
+  Future<String> reserveTurn(...);     // Uses the coordinator-leased runner
+  void executeTurn(...);
+  Future<void> cancelTurn(...);
 }
 ```
 
-`cancelTurn` and outcome lookup search across all pool runners – a session could be active on any runner. Task sessions and provider-pinned logical-agent sessions run on pool workers, not the primary.
+The server's coordinator registry supplies cross-runner cancellation and outcome lookup because a session can be active on any leased runner. Task sessions and provider-pinned logical-agent sessions use provider worker leases, never the primary-interactive lane.
 
 Caller cancellation does not yet cascade to a `sessions_spawn` or `sessions_send` child. The inbound MCP call carries no caller-turn identity, and its 120-second `Future.timeout` does not cancel the underlying child future. A caller-aware MCP context and exact parent-to-child registry are scheduled with the 0.27 dispatch-level guard/audit seam; global “active child” cancellation would be unsafe with concurrent callers.
 
@@ -1161,17 +1175,22 @@ String resolveProfile(TaskType taskType) {
 | `coding`, `writing`, `general` | `workspace` | Full workspace mount at `/project`, read-write access |
 | `research` | `restricted` | No workspace mount, no project filesystem access |
 
-The `TaskExecutor` acquires runners matching the target profile:
+The caller resolves the provider-neutral security profile, then submits it as part of an `ExecutionRequest`. Provider identity is data; only provider composition/wiring selects the concrete adapter or factory.
 
 ```dart
-TurnRunner? _acquirePoolRunner(String profile) {
-  if (_pool.hasWorkerForProfile(profile))
-    return _pool.tryAcquireForProfile(profile);
-  if (_pool.workerProfiles.length <= 1)
-    return _pool.tryAcquire();     // Single-profile fallback
-  return null;
-}
+ExecutionRequest(
+  surface: ExecutionSurface.task,
+  providerId: normalizedProviderId,
+  sessionId: durableSessionId,
+  fingerprint: ExecutionFingerprint(
+    providerId: normalizedProviderId,
+    profileId: profile,
+    configurationId: canonicalConstructionId,
+  ),
+)
 ```
+
+There is no profile or provider fallback. Containers are created and retained per profile independently from execution leases and cached harnesses; keeping a container warm neither reserves provider capacity nor makes it conversation state.
 
 ### Container naming
 
@@ -1217,6 +1236,8 @@ Attempt 4: 40s delay
 Attempt 5: 80s delay
 Attempt 6: throws StateError('Harness unavailable: max retries exceeded')
 ```
+
+An in-place restart and a coordinator replacement both require confirmed exit of the managed root process. If exit cannot be confirmed, the harness is not reusable and the coordinator quarantines its provider capacity slot instead of starting a second root process against the same logical capacity.
 
 ### Turn-level recovery (`state.db`)
 
@@ -1296,6 +1317,8 @@ Future<void> cancel() async {
 ```
 
 The turn is marked as cancelled in `_cancelledTurns` so the error handler can distinguish cancellation from failure.
+
+The coordinator treats teardown confirmation as a replacement gate, not merely a log signal. A worker whose root exit is unconfirmed is disposed as far as safely possible, omitted from the cache, and leaves its capacity permit quarantined.
 
 ### Lifecycle lock
 
@@ -1400,7 +1423,7 @@ StreamChannel<String> ndjsonChannel(
 
 | Diagram | Contents |
 |---|---|
-| `docs/diagrams/harness-architecture.excalidraw` | Harness pool, runner, container dispatch |
+| `docs/diagrams/harness-architecture.excalidraw` | Worker capacity, runner, container dispatch |
 | `docs/diagrams/turn-lifecycle.excalidraw` | Full turn flow from user message to stored response |
 | `docs/diagrams/dartclaw-architecture.excalidraw` | High-level 2-layer architecture |
 | `docs/diagrams/security-architecture.excalidraw` | Defense-in-depth layers, credential isolation |
@@ -1424,10 +1447,11 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_server/lib/src/container/container_dispatcher.dart` | `resolveProfile()` – task type → security profile |
 | `packages/dartclaw_server/lib/src/turn_manager.dart` | `TurnManager` – orchestration wrapper |
 | `packages/dartclaw_server/lib/src/turn_runner.dart` | `TurnRunner` – per-harness turn execution |
-| `packages/dartclaw_server/lib/src/harness_pool.dart` | `HarnessPool` – concurrent runner management |
+| `packages/dartclaw_server/lib/src/execution_coordinator.dart` | `ExecutionCoordinator`, execution requests/leases, fingerprinted reuse, quarantine, lease snapshots |
+| `packages/dartclaw_server/lib/src/worker_capacity_gate.dart` | Hard per-provider execution-capacity permits |
 | `packages/dartclaw_server/lib/src/mcp/mcp_server.dart` | `McpProtocolHandler` – JSON-RPC 2.0 handler |
 | `packages/dartclaw_server/lib/src/mcp/mcp_router.dart` | `/mcp` shelf route with auth/validation |
-| `packages/dartclaw_server/lib/src/task/task_executor.dart` | `TaskExecutor` – pool-aware task dispatch |
+| `packages/dartclaw_server/lib/src/task/task_executor.dart` | `TaskExecutor` – coordinator-aware task dispatch |
 | `packages/dartclaw_server/lib/src/container/container_health_monitor.dart` | Container health polling |
 | `packages/dartclaw_core/lib/src/channel/channel_manager.dart` | `ChannelManager` – inbound routing entry point |
 | `packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart` | `ChannelTaskBridge` – routing precedence logic |

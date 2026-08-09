@@ -43,6 +43,7 @@ import 'api/task_sse_routes.dart';
 import 'api/trace_routes.dart';
 import 'api/webhook_routes.dart';
 import 'audit/audit_log_reader.dart';
+import 'execution_coordinator.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/auth_rate_limiter.dart';
 import 'auth/origin_host_guard.dart';
@@ -229,13 +230,14 @@ class DartclawServer {
     for (final sessionId in _turn.turns.activeSessionIds.toList()) {
       await _turn.turns.cancelTurn(sessionId);
     }
+    await _tasks.executionDrainer?.call();
     await _channels.spaceEventsWiring?.dispose();
     await _observability.eventBusSseBridge?.cancel();
     await _observability.sseBroadcast?.dispose();
     await _channels.channelManager?.dispose();
-    final pool = _turn.pool;
-    if (pool != null) {
-      await pool.dispose();
+    final executions = _turn.executions;
+    if (executions != null) {
+      await executions.dispose();
     } else {
       await _core.worker.dispose();
     }

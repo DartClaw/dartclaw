@@ -113,7 +113,7 @@ and context-specific remediation text.
 │  ┌──────────┐  ┌──────────────▼───────────────┐  ┌────────────────────┐ │
 │  │ Event    │  │ Turn Orchestration            │  │ Task Orchestrator  │ │
 │  │ Bus      │◄─┤ TurnManager · TurnRunner     │  │ TaskExecutor       │ │
-│  │          │  │ HarnessPool · SessionLock     │  │ WorktreeManager    │ │
+│  │          │  │ ExecutionCoordinator · locks │  │ WorktreeManager    │ │
 │  └────┬─────┘  └──────────────┬───────────────┘  │ DiffGenerator      │ │
 │       │                       │                   │ MergeExecutor      │ │
 │       │        ┌──────────────▼───────────────┐   └────────┬───────────┘ │
@@ -220,15 +220,21 @@ Turn orchestration coordinates message flow from user input through guard evalua
 
 | Component | File | Role |
 |-----------|------|------|
-| `TurnManager` | `turn_manager.dart` | Entry point for interactive turns (web, channels, cron). Delegates to `TurnRunner` |
-| `TurnRunner` | `turn_runner.dart` | Per-harness turn engine: guard evaluation, message persistence, SSE event streaming, progress-aware stall handling, cost tracking, crash recovery. One per harness in the pool |
+| `TurnManager` | `turn_manager.dart` | Entry point for turns after routing. Acquires an execution lease and delegates to `TurnRunner` |
+| `TurnRunner` | `turn_runner.dart` | Per-harness turn engine: guard evaluation, message persistence, SSE event streaming, progress-aware stall handling, cost tracking, crash recovery |
 | `TurnProgressMonitor` | `turn_progress_monitor.dart` | Resettable stall timer used by `TurnRunner`. Watches forward-progress events (`DeltaEvent`, `ToolUseEvent`, `ToolResultEvent`) and triggers warn/cancel/ignore actions when a turn goes silent |
-| `HarnessPool` | `harness_pool.dart` | Pool of `TurnRunner` instances. Index 0 = primary (interactive use), indices 1..N = shared workers. Configurable per provider |
+| `ExecutionCoordinator` | `execution_coordinator.dart` | Post-governance authority: one fixed serialized primary lane for main user/channel turns; hard per-provider worker leases for tasks, scheduled/system/advisor work, and logical agents; capacity-only leases for workflow one-shots |
 | `SessionLockManager` | `concurrency/session_lock_manager.dart` | Per-session FIFO lock to serialize concurrent turns to the same session |
 | `ContextMonitor` | `context/context_monitor.dart` | Tracks context window usage; suppresses heuristic flush when deterministic compaction signals exist; deduplicates pre-compaction flushes per cycle; emits SSE `context_warning` when usage exceeds configurable threshold (one-shot per session) |
 | `ResultTrimmer` | `context/result_trimmer.dart` | Head+tail truncation for oversized tool results (fallback for `ExplorationSummarizer`) |
 | `ExplorationSummarizer` | `context/exploration_summarizer.dart` | Type-aware structural summaries for large tool output (JSON schema, CSV columns, source code declarations); falls back to `ResultTrimmer` for unrecognized types or parse failures |
 | `CompactionTaskEventSubscriber` | `task/compaction_task_event_subscriber.dart` | Listens for `CompactionCompletedEvent` and records a `compaction` task-timeline event when the compacted session belongs to an active running task |
+
+`providers.<id>.pool_size` is the hard concurrent worker-lease limit for that provider, not a target runner count.
+Workers are created on demand. After release, a healthy idle worker may be retained and reused only when its
+provider, security profile, and runtime-configuration fingerprint match; the exact prior session is preferred. Reuse is
+an optimization, never the capacity authority. Provider/profile containers have their own lifecycle and may be shared by
+multiple workers, so container count and worker capacity are independent.
 
 **Context management strategy** (0.10): Layered mechanisms preserve useful context in long-running sessions:
 1. **Compact instructions** — `BehaviorFileService.composeSystemPrompt()` appends a `# Compact instructions` section for long-running session types (web, DM, group, cron), guiding the binary on what to preserve during auto-compaction. Configurable via `context.compact_instructions`.
@@ -330,7 +336,7 @@ The task orchestrator transforms DartClaw from a single-session assistant into a
 | `MergeExecutor` | `task/merge_executor.dart` | Squash/merge worktree back to main branch, conflict detection |
 | `TaskFileGuard` | `task/task_file_guard.dart` | Path containment via `p.isWithin()` — coding tasks restricted to worktree directory |
 | `ArtifactCollector` | `task/artifact_collector.dart` | Collects task outputs as typed artifacts (`diff`, `document`, `data`, `log`) |
-| `RunnerObserver` | `task/runner_observer.dart` | Per-runner metrics: busy/idle tracking, turn counts, harness status |
+| `RunnerObserver` | `task/runner_observer.dart` | Current runner lifecycle and cumulative turn metrics derived from coordinator events |
 | `TaskReviewService` | `task/task_review_service.dart` | Shared accept/reject/push-back lifecycle for both HTTP and channel review paths. Owns state transition, merge execution (coding tasks), conflict artifact persistence, worktree cleanup, and `TaskStatusChangedEvent` firing. Single shared instance wired into both `task_routes.dart` and `ChannelManager` |
 | `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions (queued, running, review, accepted, rejected, failed). Notification text is conditioned on task type — worktree-backed tasks include merge outcome language; non-coding tasks do not. When thread binding is enabled and the origin channel is Google Chat, the initial `running` notification is sent in a new thread (via `sendMessageWithThread`); the returned `thread.name` is used to create a `ThreadBinding`, and subsequent notifications for that task are threaded into the same conversation |
 | `AdvisorSubscriber` | `advisor/advisor_subscriber.dart` | EventBus-driven crowd-coding observer. Accumulates a bounded normalized context window, evaluates triggers (`periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`), acquires a pooled runner for an advisory turn, parses structured output, then routes the result to bound channels and the event bus |
@@ -720,9 +726,9 @@ The `dartclaw` umbrella package re-exports `dartclaw_core`, `dartclaw_storage`, 
 | `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends on config + core – Signal-specific logic isolated |
 | `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Depends on config + core – Google auth + HTTP isolated from core |
 | `dartclaw_storage` | `MemoryService` (FTS5), `SearchDb`, `TaskDb`, `TurnStateStore`, `SqliteTaskRepository`, `SqliteGoalRepository`, `MemoryPruner`, `TurnTraceService`, `TaskEventService`, search backends (FTS5, QMD) | sqlite3 dependency isolated here |
-| `dartclaw_server` | `DartclawServer`, `TurnManager`, `TurnRunner`, `HarnessPool`, `TaskService`, `TaskExecutor`, `ProjectService`, `TaskEventRecorder`, `AlertRouter`, container orchestration, scheduling, behavior/workspace/maintenance/observability services, project API routes, trace query API, workflow HTTP routes, MCP server, web routes, templates, auth | shelf, http, workflow — server-only, not Flutter-compatible |
+| `dartclaw_server` | `DartclawServer`, `TurnManager`, `TurnRunner`, `ExecutionCoordinator`, `TaskService`, `TaskExecutor`, `ProjectService`, `TaskEventRecorder`, `AlertRouter`, container orchestration, scheduling, behavior/workspace/maintenance/observability services, project API routes, trace query API, workflow HTTP routes, MCP server, web routes, templates, auth | shelf, http, workflow — server-only, not Flutter-compatible |
 | `dartclaw_testing` | Shared test doubles and in-memory test helpers (`FakeAgentHarness`, `FakeGuard`, `InMemorySessionService`, `InMemoryTaskRepository`, `TestEventBus`) | Test-only support package; keep production code free of test helpers |
-| `dartclaw_cli` | CLI runner, `DartclawApiClient`, connected command groups (`workflow`, `tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, `jobs`), plus local lifecycle/maintenance commands (`serve`, `status`, `init`, `service`, `deploy`, `token`, `rebuild-index`, `sessions cleanup`) | args — application entry point and loopback operations surface |
+| `dartclaw_cli` | CLI runner, `DartclawApiClient`, connected command groups (`workflow`, `tasks`, `config`, `projects`, `sessions`, `runners`, `traces`, `jobs`), plus local lifecycle/maintenance commands (`serve`, `status`, `init`, `service`, `deploy`, `token`, `rebuild-index`, `sessions cleanup`) | args — application entry point and loopback operations surface |
 | `dartclaw` | Umbrella re-export of `dartclaw_core`, `dartclaw_storage`, `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat` | Lean SDK entry point; prefer direct packages for narrower dependency graphs |
 
 ### Why These Boundaries?
@@ -971,9 +977,9 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 6.  Memory services (MemoryFileService, MemoryService, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `InputSanitizer`, `MessageRedactor`, and `GuardAuditLogger` from `dartclaw_security`; guard config + `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_server`)
 8.  Container managers (per-profile: workspace, restricted)
-9.  Configured provider harnesses and provider-scoped pools
-10. Turn runners (TurnRunner × harness count)
-11. Harness pool (HarnessPool wrapping turn runners)
+9.  Primary provider harness and `TurnRunner`
+10. Execution coordinator (primary lane + per-provider capacity gates; workers remain lazy)
+11. Execution observers derived from coordinator leases and snapshots
 12. Event bus + subscribers
 13. Channels (dartclaw_whatsapp, dartclaw_signal, dartclaw_google_chat — if configured)
 14. Scheduling (HeartbeatScheduler, ScheduleService)
@@ -996,7 +1002,7 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 
 | Document | Path | Content |
 |----------|------|---------|
-| Control protocol & harness | [`dev/architecture/control-protocol.md`](control-protocol.md) | JSONL protocol spec, multi-provider comparison, harness pool lifecycle |
+| Control protocol & harness | [`dev/architecture/control-protocol.md`](control-protocol.md) | JSONL protocol spec, multi-provider comparison, harness lifecycle |
 | Security architecture | [`dev/architecture/security-architecture.md`](security-architecture.md) | Defense-in-depth model, guard pipeline, container isolation, credential security |
 | Data model & persistence | [`dev/architecture/data-model.md`](data-model.md) | Entity models, storage zones, write safety, rotation |
 | Workflow architecture | [`dev/architecture/workflow-architecture.md`](workflow-architecture.md) | Workflow engine deep-dive: parser, executor, skill system, map/fan-out |

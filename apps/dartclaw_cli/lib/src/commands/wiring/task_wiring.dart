@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
 import 'package:logging/logging.dart';
@@ -100,6 +100,7 @@ class TaskWiring {
   late TaskCancellationSubscriber _taskCancellationSubscriber;
   late ContainerTaskFailureSubscriber _containerTaskFailureSubscriber;
   late CompactionTaskEventSubscriber _compactionTaskEventSubscriber;
+  Future<void>? _prepareShutdownFuture;
 
   WorktreeManager get worktreeManager => _worktreeManager;
   MergeExecutor get mergeExecutor => _mergeExecutor;
@@ -158,13 +159,8 @@ class TaskWiring {
   /// Wires task services that require a live [TurnManager].
   ///
   /// Must be called after server construction. [turns] comes from the
-  /// newly-built server, [pool] from [HarnessWiring].
-  Future<void> wirePostServer({
-    required TurnManager turns,
-    required HarnessPool pool,
-    SpawnWorker? onSpawnNeeded,
-    WorkerPoolCoordinator? workerPoolCoordinator,
-  }) async {
+  /// newly-built server, [executions] from [HarnessWiring].
+  Future<void> wirePostServer({required TurnManager turns, required ExecutionCoordinator executions}) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
       tasks: _storage.taskService,
@@ -189,7 +185,7 @@ class TaskWiring {
     );
     _compactionTaskEventSubscriber.subscribe(_eventBus);
 
-    _runnerObserver = RunnerObserver(pool: pool, eventBus: _eventBus);
+    _runnerObserver = RunnerObserver(executions: executions, eventBus: _eventBus);
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _workflowCliRunner = WorkflowCliRunner(
       providers: {
@@ -223,7 +219,7 @@ class TaskWiring {
         kvService: _storage.kvService,
         eventBus: _eventBus,
       ),
-      runners: TaskExecutorRunners(turns: turns, observer: _runnerObserver, workflowCliRunner: _workflowCliRunner),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _workflowCliRunner),
       limits: TaskExecutorLimits(
         maxMemoryBytes: config.memory.maxBytes,
         compactInstructions: config.context.compactInstructions,
@@ -235,8 +231,6 @@ class TaskWiring {
         stallAction: config.governance.turnProgress.stallAction,
         defaultStepTimeout: config.governance.turnProgress.maxDuration,
       ),
-      onSpawnNeeded: onSpawnNeeded,
-      workerPoolCoordinator: workerPoolCoordinator,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
         reviewTask: (taskId) => _taskReviewService.review(taskId, 'accept', trigger: 'auto_accept'),
@@ -276,9 +270,17 @@ class TaskWiring {
     );
   }
 
-  Future<void> dispose() async {
+  Future<void> prepareExecutionShutdown() => _prepareShutdownFuture ??= Future(() async {
+    _taskExecutor.stopPolling();
     await _workflowCliRunner.cancelInflight(cancelFutureProcesses: true);
-    await _taskExecutor.stop();
+  });
+
+  Future<void> drainExecutions() => _taskExecutor.drain();
+
+  Future<void> dispose() async {
+    await prepareExecutionShutdown();
+    await drainExecutions();
+    await _runnerObserver.dispose();
     await _taskCancellationSubscriber.dispose();
     await _containerTaskFailureSubscriber.dispose();
     await _compactionTaskEventSubscriber.dispose();

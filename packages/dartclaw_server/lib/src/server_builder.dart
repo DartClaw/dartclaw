@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show MemoryPruner, MemoryService, TaskEventService, TemporalKnowledgeGraphService, TurnTraceService;
@@ -17,7 +17,7 @@ import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
-import 'harness_pool.dart' show HarnessPool;
+import 'execution_coordinator.dart' show ExecutionCoordinator;
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'observability/usage_tracker.dart';
@@ -33,7 +33,6 @@ import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_event_recorder.dart';
 import 'task/task_progress_tracker.dart';
-import 'worker_pool_coordinator.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
@@ -57,7 +56,7 @@ class DartclawServerBuilder {
   BehaviorFileService? behavior;
 
   // Turn management (optional — if not set, uses sessions/worker/behavior)
-  HarnessPool? pool;
+  ExecutionCoordinator? executions;
   SessionService? sessionsForTurns;
   SessionLockManager? lockManager;
   ContextMonitor? contextMonitor;
@@ -81,7 +80,7 @@ class DartclawServerBuilder {
   /// (`startTurn(allowedTools:)`, `readOnly`) unenforced.
   ///
   /// Leave null when the host has no turn-scoped tool policies. Ignored when
-  /// [pool] is set — pool runners carry their own filters.
+  /// [executions] is set — managed runners carry their own filters.
   TaskToolFilterGuard? taskToolFilterGuard;
 
   KvService? kv;
@@ -127,6 +126,7 @@ class DartclawServerBuilder {
   WorktreeManager? worktreeManager;
   TaskFileGuard? taskFileGuard;
   RunnerObserver? runnerObserver;
+  Future<void> Function()? executionDrainer;
   MergeExecutor? mergeExecutor;
   String? mergeStrategy;
   String? baseRef;
@@ -151,7 +151,6 @@ class DartclawServerBuilder {
   AppDisplayParams appDisplay = const AppDisplayParams();
 
   TurnManager? _cachedTurns;
-  WorkerPoolCoordinator? workerPoolCoordinator;
 
   /// Returns the [TurnManager] that will be used by the built server.
   ///
@@ -169,12 +168,8 @@ class DartclawServerBuilder {
     final m = messages ?? (throw StateError('messages is required'));
     final w = worker ?? (throw StateError('worker is required'));
     final b = behavior ?? (throw StateError('behavior is required'));
-    _cachedTurns = pool != null
-        ? TurnManager.fromPool(
-            pool: pool!,
-            sessions: sessionsForTurns ?? s,
-            workerPoolCoordinator: workerPoolCoordinator,
-          )
+    _cachedTurns = executions != null
+        ? TurnManager.fromCoordinator(coordinator: executions!, sessions: sessionsForTurns ?? s)
         : TurnManager(
             messages: m,
             worker: w,
@@ -246,7 +241,7 @@ class DartclawServerBuilder {
         guardChain: guardChain,
         webhookSecret: webhookSecret,
       ),
-      turn: ServerTurnDeps(pool: pool, turns: turns),
+      turn: ServerTurnDeps(executions: executions, turns: turns),
       channels: ServerChannelDeps(
         channelManager: channelManager,
         whatsAppChannel: whatsAppChannel,
@@ -270,6 +265,7 @@ class DartclawServerBuilder {
         taskEventService: taskEventService,
         taskEventRecorder: eventRecorder,
         progressTracker: progressTracker,
+        executionDrainer: executionDrainer,
       ),
       observability: ServerObservabilityDeps(
         eventBus: eventBus,

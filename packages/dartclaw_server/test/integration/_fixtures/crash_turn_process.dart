@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' as server_pool;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
@@ -42,7 +41,11 @@ Future<void> main(List<String> args) async {
     ..behavior = BehaviorFileService(workspaceDir: dataDir)
     ..staticDir = 'packages/dartclaw_server/lib/src/static'
     ..kv = kv
-    ..pool = server_pool.HarnessPool(runners: [runner], maxConcurrentWorkers: 0)
+    ..executions = ExecutionCoordinator(
+      providerCapacities: const {},
+      primary: runner,
+      createWorker: (_) => throw StateError('Worker execution is disabled'),
+    )
     ..sessionsForTurns = sessions
     ..authEnabled = false;
   final turns = builder.buildTurns();

@@ -11,7 +11,14 @@ import 'cli_provider.dart';
 import 'claude_cli_provider.dart';
 import 'codex_cli_provider.dart';
 
-export 'cli_provider.dart' show CliProvider, CliTurnRequest, ProcessBackedCliProvider, WorkflowCliUsageBaseline;
+export 'cli_provider.dart'
+    show
+        CliProvider,
+        CliTurnRequest,
+        ProcessBackedCliProvider,
+        RootProcessTerminationObserver,
+        StructuredTurnLimitProvider,
+        WorkflowCliUsageBaseline;
 
 /// Starts a CLI provider subprocess and returns the long-lived [Process].
 typedef WorkflowCliProcessStarter =
@@ -183,6 +190,26 @@ class WorkflowCliRunner {
        _uuid = uuid ?? const Uuid(),
        _providerImpls = providerImpls ?? {'claude': ClaudeCliProvider(), 'codex': CodexCliProvider()};
 
+  int? maxTurnsForStructuredTurn({required String provider, required bool noTools}) {
+    final providerConfig = providers[provider];
+    if (providerConfig == null) {
+      throw StateError('No workflow CLI provider config for "$provider"');
+    }
+    final providerFamily = ProviderIdentity.resolveFamily(
+      provider,
+      options: providerConfig.options,
+      executable: providerConfig.executable,
+    );
+    final impl = _providerImpls[providerFamily];
+    if (impl == null) {
+      throw UnsupportedError(
+        'Workflow one-shot CLI is not implemented for provider "$provider" (family "$providerFamily")',
+      );
+    }
+    if (impl is! StructuredTurnLimitProvider) return null;
+    return (impl as StructuredTurnLimitProvider).maxTurnsForStructuredTurn(noTools: noTools);
+  }
+
   @visibleForTesting
   (String, List<String>) buildCodexCommandForTesting({
     required String prompt,
@@ -231,6 +258,7 @@ class WorkflowCliRunner {
     List<String>? allowedTools,
     bool readOnly = false,
     int? maxTurns,
+    RootProcessTerminationObserver? onRootProcessTerminationConfirmed,
     Map<String, dynamic>? jsonSchema,
     String? appendSystemPrompt,
     String? sandboxOverride,
@@ -252,6 +280,8 @@ class WorkflowCliRunner {
         'Workflow one-shot CLI is not implemented for provider "$provider" (family "$providerFamily")',
       );
     }
+    var rootProcessTerminationReported = false;
+    final observer = onRootProcessTerminationConfirmed;
     final req = CliTurnRequest(
       prompt: prompt,
       workingDirectory: workingDirectory,
@@ -268,6 +298,12 @@ class WorkflowCliRunner {
       allowedTools: allowedTools,
       readOnly: readOnly,
       maxTurns: maxTurns,
+      onRootProcessTerminationConfirmed: observer == null
+          ? null
+          : (confirmed) async {
+              rootProcessTerminationReported = true;
+              await observer(confirmed);
+            },
       jsonSchema: jsonSchema,
       appendSystemPrompt: appendSystemPrompt,
       sandboxOverride: sandboxOverride,
@@ -280,7 +316,11 @@ class WorkflowCliRunner {
       uuid: _uuid,
       log: Logger('WorkflowCliRunner'),
     );
-    return impl.run(req);
+    try {
+      return await impl.run(req);
+    } finally {
+      if (observer != null && !rootProcessTerminationReported) await observer(false);
+    }
   }
 
   /// Requests cancellation of all in-flight CLI subprocesses.

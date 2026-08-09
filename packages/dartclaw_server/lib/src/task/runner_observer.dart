@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-/// Runtime state of a single harness runner.
+import '../execution_coordinator.dart';
+
 enum RunnerState { idle, busy, stopped, crashed }
 
-/// Immutable snapshot of per-runner metrics.
 class RunnerMetrics {
   final int runnerId;
   final String role;
@@ -55,104 +57,187 @@ class RunnerMetrics {
   };
 }
 
-/// Tracks per-runner runtime metrics for all runners in a [HarnessPool].
-///
-/// Uses a callback pattern: [TaskExecutor] calls [markBusy]/[markIdle] on
-/// acquire/release, and [recordTurn] after each completed turn.
-/// Metrics are in-memory and reset on restart.
+final class ExecutionCapacityMetrics {
+  const ExecutionCapacityMetrics({
+    required this.runnerCount,
+    required this.configured,
+    required this.effective,
+    required this.active,
+    required this.available,
+    required this.queued,
+    required this.cached,
+    required this.quarantined,
+    required this.primaryActive,
+  });
+
+  final int runnerCount;
+  final int configured;
+  final int effective;
+  final int active;
+  final int available;
+  final int queued;
+  final int cached;
+  final int quarantined;
+  final bool primaryActive;
+
+  Map<String, dynamic> toJson() => {
+    'runnerCount': runnerCount,
+    'configured': configured,
+    'effective': effective,
+    'active': active,
+    'available': available,
+    'queued': queued,
+    'cached': cached,
+    'quarantined': quarantined,
+    'primaryActive': primaryActive,
+  };
+}
+
+/// Derives runner lifecycle from execution leases and retains aggregate turn metrics.
 class RunnerObserver {
-  final HarnessPool _pool;
+  RunnerObserver({required ExecutionCoordinator executions, EventBus? eventBus})
+    : _executions = executions,
+      _eventBus = eventBus {
+    for (final runner in executions.runners) {
+      final runnerId = identical(runner, executions.primary) ? 0 : null;
+      if (runnerId != null) {
+        _ensureRunner(runnerId, runner.providerId, role: 'primary');
+      }
+    }
+    _subscription = executions.events.listen(_onExecutionEvent);
+  }
+
+  final ExecutionCoordinator _executions;
   final EventBus? _eventBus;
-  final List<_MutableMetrics> _metrics;
+  final Map<int, _MutableMetrics> _metrics = {};
+  final StreamController<ExecutionCapacityMetrics> _capacityChanges =
+      StreamController<ExecutionCapacityMetrics>.broadcast();
+  late final StreamSubscription<ExecutionEvent> _subscription;
 
-  RunnerObserver({required HarnessPool pool, EventBus? eventBus})
-    : _pool = pool,
-      _eventBus = eventBus,
-      _metrics = List.generate(pool.size, (i) => _MutableMetrics(runnerId: i, providerId: pool.runners[i].providerId));
+  void _onExecutionEvent(ExecutionEvent event) {
+    final runnerId = event.runnerId;
+    final runner = event.runner;
+    if (runnerId != null && runner != null) {
+      final metrics = _ensureRunner(
+        runnerId,
+        event.request.providerId,
+        role: event.lane == ExecutionLane.primary ? 'primary' : 'worker',
+      );
+      switch (event.kind) {
+        case ExecutionEventKind.capacityChanged:
+          break;
+        case ExecutionEventKind.acquired:
+          _markBusy(metrics, taskId: event.request.taskId, sessionId: event.request.sessionId);
+        case ExecutionEventKind.cached:
+          _markIdle(metrics);
+        case ExecutionEventKind.disposed:
+          _markTerminal(metrics, runner.harness.state);
+          _metrics.remove(runnerId);
+        case ExecutionEventKind.quarantined:
+          _setState(metrics, RunnerState.crashed);
+        case ExecutionEventKind.released:
+          if (runner.harness.state == WorkerState.idle) {
+            _markIdle(metrics);
+          } else {
+            _markTerminal(metrics, runner.harness.state);
+          }
+        case ExecutionEventKind.runnerCreated:
+          break;
+        case ExecutionEventKind.turnSettled:
+          final outcome = event.outcome;
+          if (outcome != null) _recordTurn(metrics, outcome);
+      }
+    }
+    if (!_capacityChanges.isClosed) _capacityChanges.add(capacityStatus);
+  }
 
-  /// Mark a runner as busy with an optional task/session ID.
-  void markBusy(int runnerId, {String? taskId, String? sessionId}) {
-    if (runnerId < 0) return;
-    _ensureCapacity(runnerId);
-    final m = _metrics[runnerId];
-    m.state = RunnerState.busy;
-    m.currentTaskId = taskId;
-    m.currentSessionId = sessionId;
+  void _recordTurn(_MutableMetrics metrics, TurnOutcome outcome) {
+    metrics.tokensConsumed += outcome.inputTokens + outcome.outputTokens;
+    metrics.turnsCompleted++;
+    if (outcome.status != TurnStatus.completed) metrics.errorCount++;
+    metrics.cacheReadTokens += outcome.cacheReadTokens;
+    metrics.cacheWriteTokens += outcome.cacheWriteTokens;
+    metrics.totalTurnDurationMs += outcome.turnDuration.inMilliseconds;
+    metrics.totalToolCalls += outcome.toolCalls.length;
+    metrics.failedToolCalls += outcome.toolCalls.where((call) => !call.success).length;
+  }
+
+  List<RunnerMetrics> get metrics {
+    final ids = _metrics.keys.toList()..sort();
+    return ids.map((id) => _metrics[id]!.toSnapshot()).toList(growable: false);
+  }
+
+  RunnerMetrics? metricsFor(int runnerId) => _metrics[runnerId]?.toSnapshot();
+
+  ExecutionCapacityMetrics get capacityStatus {
+    final snapshot = _executions.snapshot;
+    return ExecutionCapacityMetrics(
+      runnerCount: _metrics.length,
+      configured: snapshot.configuredWorkers,
+      effective: snapshot.effectiveWorkers,
+      active: snapshot.activeWorkers,
+      available: snapshot.availableWorkers,
+      queued: snapshot.queuedWorkers,
+      cached: snapshot.cachedWorkers,
+      quarantined: snapshot.quarantinedWorkers,
+      primaryActive: snapshot.primaryActive,
+    );
+  }
+
+  Stream<ExecutionCapacityMetrics> get capacityChanges => _capacityChanges.stream;
+
+  Future<void> dispose() async {
+    await _subscription.cancel();
+    await _capacityChanges.close();
+  }
+
+  _MutableMetrics _ensureRunner(int runnerId, String providerId, {required String role}) {
+    return _metrics.putIfAbsent(
+      runnerId,
+      () => _MutableMetrics(runnerId: runnerId, providerId: providerId, role: role),
+    );
+  }
+
+  void _markBusy(_MutableMetrics metrics, {String? taskId, String? sessionId}) {
+    metrics.state = RunnerState.busy;
+    metrics.currentTaskId = taskId;
+    metrics.currentSessionId = sessionId;
+    _fireState(metrics);
+  }
+
+  void _markIdle(_MutableMetrics metrics) {
+    metrics.state = RunnerState.idle;
+    metrics.currentTaskId = null;
+    metrics.currentSessionId = null;
+    _fireState(metrics);
+  }
+
+  void _markTerminal(_MutableMetrics metrics, WorkerState state) {
+    _setState(metrics, state == WorkerState.crashed ? RunnerState.crashed : RunnerState.stopped);
+  }
+
+  void _setState(_MutableMetrics metrics, RunnerState state) {
+    metrics.state = state;
+    metrics.currentTaskId = null;
+    metrics.currentSessionId = null;
+    _fireState(metrics);
+  }
+
+  void _fireState(_MutableMetrics metrics) {
     _eventBus?.fire(
       RunnerStateChangedEvent(
-        runnerId: runnerId,
-        state: RunnerState.busy.name,
-        currentTaskId: taskId,
+        runnerId: metrics.runnerId,
+        state: metrics.state.name,
+        currentTaskId: metrics.currentTaskId,
         timestamp: DateTime.now(),
       ),
     );
-  }
-
-  /// Mark a runner as idle, clearing task/session references.
-  void markIdle(int runnerId) {
-    if (runnerId < 0 || runnerId >= _metrics.length) return; // Don't grow on idle-only calls.
-    final m = _metrics[runnerId];
-    m.state = RunnerState.idle;
-    m.currentTaskId = null;
-    m.currentSessionId = null;
-    _eventBus?.fire(
-      RunnerStateChangedEvent(runnerId: runnerId, state: RunnerState.idle.name, timestamp: DateTime.now()),
-    );
-  }
-
-  /// Record a completed turn for a runner, updating token and error counters.
-  void recordTurn(
-    int runnerId, {
-    required int inputTokens,
-    required int outputTokens,
-    required bool isError,
-    Duration? turnDuration,
-    int cacheReadTokens = 0,
-    int cacheWriteTokens = 0,
-    List<ToolCallRecord> toolCalls = const [],
-  }) {
-    if (runnerId < 0) return;
-    _ensureCapacity(runnerId);
-    final m = _metrics[runnerId];
-    m.tokensConsumed += inputTokens + outputTokens;
-    m.turnsCompleted++;
-    if (isError) m.errorCount++;
-    m.cacheReadTokens += cacheReadTokens;
-    m.cacheWriteTokens += cacheWriteTokens;
-    m.totalTurnDurationMs += turnDuration?.inMilliseconds ?? 0;
-    m.totalToolCalls += toolCalls.length;
-    m.failedToolCalls += toolCalls.where((t) => !t.success).length;
-  }
-
-  /// Current metrics snapshot for all runners.
-  List<RunnerMetrics> get metrics => _metrics.map((m) => m.toSnapshot()).toList();
-
-  /// Metrics for a specific runner by index, or null if out of range.
-  RunnerMetrics? metricsFor(int runnerId) {
-    if (runnerId < 0 || runnerId >= _metrics.length) return null;
-    return _metrics[runnerId].toSnapshot();
-  }
-
-  /// Pool-level summary.
-  ({int size, int activeCount, int availableCount, int maxConcurrentWorkers}) get poolStatus => (
-    size: _pool.size,
-    activeCount: _pool.activeCount,
-    availableCount: _pool.availableCount,
-    maxConcurrentWorkers: _pool.maxConcurrentWorkers,
-  );
-
-  /// Grows [_metrics] to cover [runnerId] when the pool adds runners lazily.
-  void _ensureCapacity(int runnerId) {
-    while (runnerId >= _metrics.length) {
-      final i = _metrics.length;
-      final providerId = i < _pool.runners.length ? _pool.runners[i].providerId : 'unknown';
-      _metrics.add(_MutableMetrics(runnerId: i, providerId: providerId));
-    }
   }
 }
 
 class _MutableMetrics {
   final int runnerId;
+  final String role;
   final String providerId;
   RunnerState state = RunnerState.idle;
   String? currentTaskId;
@@ -166,11 +251,11 @@ class _MutableMetrics {
   int totalToolCalls = 0;
   int failedToolCalls = 0;
 
-  _MutableMetrics({required this.runnerId, required this.providerId});
+  _MutableMetrics({required this.runnerId, required this.role, required this.providerId});
 
   RunnerMetrics toSnapshot() => RunnerMetrics(
     runnerId: runnerId,
-    role: runnerId == 0 ? 'primary' : 'worker',
+    role: role,
     providerId: providerId,
     state: state,
     currentTaskId: currentTaskId,

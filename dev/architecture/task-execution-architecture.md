@@ -1,14 +1,14 @@
 # Task Execution Architecture
 
-How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through harness pool dispatch, turn execution, artifact collection, and review lifecycle.
+How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.21
+**Current through**: 0.24 worker-capacity execution architecture
 
 ---
 
 ## Audience & Scope
 
-This is the **contributor reference**. It documents how the task subsystem is built: the domain model, the execution pipeline and `TaskExecutor`/`_executeCore` internals, the `HarnessPool` acquisition strategies, turn execution and trace persistence, coding-task worktree + merge + PR plumbing, the review concurrency model, and how task events flow through observability. Use it when modifying the orchestrator, worktree lifecycle, or review/merge code paths — or when writing tests against any of those.
+This is the **contributor reference**. It documents how the task subsystem is built: the domain model, the execution pipeline and `TaskExecutor`/`_executeCore` internals, coordinator leases and worker reuse, turn execution and trace persistence, coding-task worktree + merge + PR plumbing, the review concurrency model, and how task events flow through observability. Use it when modifying the orchestrator, worktree lifecycle, or review/merge code paths — or when writing tests against any of those.
 
 For **using tasks** (creating tasks from the Web UI/API, container profile routing in practice, per-task budget overrides, the review user flow, automation and scheduling examples), read [`docs/guide/tasks.md`](../../docs/guide/tasks.md) and [`docs/guide/agents.md`](../../docs/guide/agents.md). Where subjects overlap with those guides (TaskType list, simplified state diagram, container profile mapping), this doc keeps the implementation contract — exact enum values, full state machine including failure/cancel terminals, dispatch routing code paths — rather than re-explaining the user-facing concepts.
 
@@ -23,7 +23,8 @@ Tasks flow through a well-defined state machine, are executed by harness runners
 Key design principles:
 - **Decoupled creation and execution** — tasks are queued, not executed inline
 - **Optimistic locking** — version-based concurrency control prevents lost updates
-- **Pool-based dispatch** — heterogeneous harness pool with lazy growth
+- **One post-governance execution authority** — task code requests a provider-neutral lease and never manages pool/cache state
+- **Capacity independent from reuse** — per-provider leases bound execution; harnesses and containers are opportunistically amortized
 - **Fail-safe budgets** — budget enforcement defaults to open (proceed) on error
 - **Best-effort observability** — event recording never blocks the execution path
 
@@ -201,8 +202,9 @@ This prevents concurrent transitions from corrupting task state without requirin
   TaskEventRecorder                                (waiting/error/ready)
                                                            |
                                                            v
-                                                   Acquire runner from
-                                                   HarnessPool
+                                                   Global governance,
+                                                   then acquire worker lease
+                                                   from ExecutionCoordinator
                                                            |
                                                            v
                                                    Checkout: queued -> running
@@ -227,8 +229,8 @@ This prevents concurrent transitions from corrupting task state without requirin
                                               └────────────────────────────┘
                                                            |
                                                            v
-                                                   Release runner
-                                                   back to pool
+                                                   Release execution lease;
+                                                   cache/dispose/quarantine
 ```
 
 ### 3.2 TaskService
@@ -247,25 +249,25 @@ On entering `review` status, `TaskService` asynchronously fires `TaskReviewReady
 
 ### 3.3 TaskExecutor
 
-Central orchestrator at `dartclaw_server/lib/src/task/task_executor.dart`. Runs a 2-second poll timer that dispatches queued tasks to available harness runners.
+Central task orchestrator at `dartclaw_server/lib/src/task/task_executor.dart`. Runs a 2-second poll timer that dispatches queued tasks through the shared post-governance execution authority.
 
 Two execution paths:
 
 | Mode | Condition | Behavior |
 |------|-----------|----------|
-| **Pool mode** | `pool.maxConcurrentWorkers > 0` | Acquires workers from the shared pool; concurrent execution |
-| **Single-harness** | `pool.maxConcurrentWorkers == 0` | Uses primary runner when idle; sequential execution |
+| **Server coordinator** | `ExecutionCoordinator` is wired | Acquires a provider worker lease; execution is bounded by `providers.<id>.pool_size` |
+| **SDK single-harness compatibility** | No multi-worker coordinator and one harness supplied | Serializes ordinary background tasks on that harness; never used for server logical-agent execution |
 
 Poll cycle (`_pollOnceInner`):
 1. List all queued tasks, sort by `createdAt` (FIFO)
 2. For each task: check project readiness (`cloning` = wait, `error` = fail)
 3. Resolve security profile from task type
-4. Acquire matching runner (by provider and/or profile)
+4. After global governance, request a provider-neutral worker lease with the exact provider/profile fingerprint
 5. Transition task to `running` (checkout)
-6. Execute asynchronously (`unawaited` in pool mode)
-7. On completion: release runner back to pool
+6. Execute asynchronously (`unawaited` in server coordinator mode)
+7. On completion: release the lease; the coordinator alone decides whether to cache, dispose, or quarantine the worker
 
-Lazy pool growth: if tasks are waiting but no runners are available and the pool has capacity, `_triggerSpawn()` invokes the `onSpawnNeeded` callback to spawn a new harness process.
+Queued tasks may wait for provider capacity. `TaskExecutor` does not count processes, inspect cache compatibility, or trigger provider-specific spawning. `ExecutionCoordinator` creates a worker only after a lease is available and no healthy compatible cached worker exists.
 
 ### 3.4 Execution Core (`_executeCore`)
 
@@ -276,11 +278,12 @@ The shared execution logic for both pool and single-harness paths:
 3. **Session management** — creates task session via `SessionKey.taskSession(taskId:)`, or reuses a continued session (`_continueSessionId` from workflow)
 4. **Budget check** — resolves effective budget (task > goal > global), checks cumulative tokens against threshold; warns at configurable % (default 80%), fails at 100%
 5. **Prompt composition** — builds the pending prompt with goal context, retry context, acceptance criteria, and working directory
-6. **Workflow one-shot branch** — every workflow-owned task dispatches through the one-shot CLI runner after the pre-turn budget check, records the transcript in the task session, persists token/cost accounting, and stores any native structured payload back onto the task config for workflow extraction
+6. **Workflow one-shot branch** — every workflow-owned task acquires a capacity-only lease from the selected provider after the pre-turn governance/budget checks, dispatches through the one-shot CLI runner, records the transcript in the task session, persists token/cost accounting, stores any native structured payload back onto the task config, and releases the lease; no reusable harness is created or cached
 7. **Task-scoped behavior** — creates `BehaviorFileService` override for project-specific `CLAUDE.md`/`AGENTS.md`
 8. **Tool filter** — applies per-task `allowedTools` from `configJson`
 9. **Turn execution** — reserves turn, executes via runner, waits for outcome
-10. **Metrics recording** — `RunnerObserver.recordTurn()`, `TaskEventRecorder` for token updates and tool calls, `TurnTraceService` for persistent traces
+10. **Metrics recording** — coordinator settlement updates `RunnerObserver`; `TaskEventRecorder` records task token/tool
+    events and `TurnTraceService` persists task traces
 11. **Artifact collection** — `ArtifactCollector.collect()` gathers type-specific artifacts
 12. **Status transition** — transitions to `review` or `accepted` based on review mode
 13. **Auto-accept** — optional callback for automatic acceptance after review transition
@@ -301,71 +304,51 @@ Non-retryable failures (loop detection, budget exceeded, missing project) skip t
 
 ---
 
-## 4. Harness Pool Management
+## 4. Execution Coordination
 
-### 4.1 Architecture
+### 4.1 Authority and lanes
 
-`HarnessPool` at `dartclaw_server/lib/src/harness_pool.dart` manages a heterogeneous collection of `TurnRunner` instances.
+`ExecutionCoordinator` at `dartclaw_server/lib/src/execution_coordinator.dart` is the sole execution allocator after global governance. Task code uses only the worker lane. The complete surface map is:
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                       HarnessPool                          │
-│                                                            │
-│  Index 0: PRIMARY RUNNER                                   │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  Reserved for interactive use:                       │  │
-│  │  - Web UI chat                                       │  │
-│  │  - Channel messages                                  │  │
-│  │  - Cron/scheduled jobs (via ScheduleService)         │  │
-│  │  Never acquired by TaskExecutor                      │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                            │
-│  Indices 1..N: SHARED WORKERS (lazily added)               │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────┐  │
-│  │ Runner 1        │ │ Runner 2        │ │ Runner N    │  │
-│  │ provider: claude│ │ provider: codex │ │ provider: ? │  │
-│  │ profile: workspace│ profile: restricted│ ...         │  │
-│  │ state: idle     │ │ state: busy     │ │             │  │
-│  └─────────────────┘ └─────────────────┘ └─────────────┘  │
-│                                                            │
-│  Available set:  {Runner 1, Runner N}                      │
-│  Busy set:       {Runner 2}                                │
-│  Max concurrent: configurable (default: runners.length-1)  │
-└────────────────────────────────────────────────────────────┘
-```
+| Lane | Surfaces | Limit |
+|---|---|---|
+| Primary interactive | Main-agent user and channel turns | Fixed serialized capacity 1, outside provider `pool_size` |
+| Worker | Cron/system jobs, advisor, tasks, logical agents | Selected provider's `pool_size` |
+| Capacity-only | Workflow one-shot provider invocations | Selected provider's `pool_size`; no reusable runner |
 
-### 4.2 Acquisition Strategies
+`providers.<id>.pool_size` is a hard ceiling on concurrent worker and capacity-only executions for that provider. It is not a harness-process count. No task, agent, cache, or container setting adds capacity.
 
-| Method | Match Criteria | Use Case |
-|--------|----------------|----------|
-| `tryAcquire()` | Any idle runner | Default acquisition |
-| `tryAcquireForProfile(id)` | Matching `profileId` | Security profile routing |
-| `tryAcquireForProvider(id)` | Matching `providerId` | Provider-specific tasks |
-| `tryAcquireForProviderAndProfile(provider, profile)` | Both match | Full constraint matching |
+### 4.2 Task acquisition
 
-All acquisition methods return `null` if no matching idle runner exists or if `busy.length >= maxConcurrentWorkers`.
+A task request contains normalized provider identity, session ID, task ID, admission behavior, and a canonical construction fingerprint. The fingerprint includes provider, security profile, and the canonical identity of all other construction-only inputs. Task scheduling remains provider-neutral: concrete provider factories and adapter differences exist only in composition/wiring.
 
-### 4.3 Lazy Growth
+Ordinary queued tasks wait for a lease. Nested logical-agent calls use fail-fast admission to avoid waiting on capacity held by their caller. There is no provider or security-profile fallback.
 
-The pool starts with only the primary runner. Workers are added on demand:
+### 4.3 Opportunistic worker reuse
 
-1. `TaskExecutor.pollOnce()` finds queued tasks but no available runners
-2. Checks `pool.spawnableCount > 0` (capacity remaining)
-3. Calls `_triggerSpawn()` which invokes `onSpawnNeeded` callback
-4. Callback spawns a new harness process and calls `pool.addRunner()`
-5. New runner is immediately available for acquisition
+After the lease is granted, reusable-worker lookup prefers:
 
-### 4.4 Release-After-Use
+1. the exact session within the requested canonical construction fingerprint;
+2. any healthy worker with a compatible fingerprint;
+3. a fresh worker.
 
-Workers are released back to the pool after each task completes (success or failure). This ensures fairness – no worker is monopolized by long-running tasks when other work is waiting.
+Unknown compatibility or health means fresh creation. Cache behavior has no configuration knobs. An idle healthy worker may be cached after release; an unhealthy worker is disposed.
 
-### 4.5 Shutdown Ownership
+### 4.4 Replacement and quarantine
 
-`HarnessPool.dispose()` stops and disposes every harness in its runner list; it owns no workflow CLI or channel-sidecar
-processes. Workflow CLI providers and channel managers reap their own children at their respective lifecycle boundaries.
-All use `killWithEscalation`, whose decision comes from `PlatformCapabilities.posixSignalsAvailable`: POSIX retains
-SIGTERM-to-SIGKILL escalation, while Windows uses one unconditional hard termination. An exit that cannot be confirmed
-within the bounded wait produces a lifecycle warning rather than a graceful-shutdown claim.
+Worker replacement requires confirmed teardown of the harness's managed root process. An unconfirmed exit is not a recoverable idle state: the worker is omitted from the cache and its capacity slot is quarantined, reducing effective provider capacity. DartClaw never starts an overlapping replacement against that slot.
+
+Workflow one-shots are capacity-only. Their direct provider process is lifecycle-owned by the workflow CLI provider, but the common lease remains held until the root exits or the failure path quarantines as required.
+
+### 4.5 Containers and shutdown
+
+Containers are independently amortized per security profile. A container may stay alive across harness disposal and multiple leases; it does not own session state, reserve provider capacity, or participate in cache matching.
+
+Coordinator shutdown stops admission, drains active leases, disposes cached harnesses, then tears down the fixed primary harness. Workflow CLI providers and channel managers still reap their own children. Root-process termination confirmation is a replacement invariant, not merely an operational warning.
+
+### 4.6 SDK compatibility
+
+SDK hosts that supply a single harness without multi-worker coordination may serialize ordinary background tasks on it. The production server and logical-agent routing never select this fallback.
 
 ---
 
@@ -414,10 +397,16 @@ Result of a completed turn:
 
 ### 5.4 Turn Pipeline
 
-The `TurnRunner` orchestrates the following pipeline for each turn:
+Global governance and execution admission precede the `TurnRunner` pipeline:
 
 ```
-reserveTurn()
+TurnGovernanceEnforcer
+    |
+    v
+ExecutionCoordinator.acquire()
+    |
+    v
+reserveTurn() on leased runner
     |
     v
 TurnContext created
@@ -429,12 +418,6 @@ Guard evaluation (TurnGuardEvaluator)
     |
     v
 Message persistence (MessageService)
-    |
-    v
-Governance checks (TurnGovernanceEnforcer)
-  - Rate limiting (SlidingWindowRateLimiter)
-  - Budget enforcement (BudgetEnforcer)
-  - Loop detection (turn depth, token velocity, tool fingerprinting)
     |
     v
 Harness.turn() — streaming JSONL over stdin/stdout
@@ -460,7 +443,7 @@ TurnOutcome returned to caller
 
 ### 5.5 TurnManager
 
-Routes session-level turn requests to the appropriate runner in the `HarnessPool`. For interactive use (web, channel, cron), it always uses the primary runner (index 0). For task execution, `TaskExecutor` calls `reserveTurn` directly on the acquired pool runner.
+Runs session-level turn lifecycle on the runner supplied by an execution lease. It does not select providers, count capacity, or choose cached workers. Main user/channel turns arrive on the fixed primary lease; cron/system jobs, advisor turns, tasks, and logical agents arrive on worker leases.
 
 ---
 
@@ -725,11 +708,13 @@ SSE clients subscribe to the broadcast stream for live `task_progress` events.
 
 Per-runner runtime metrics at `dartclaw_server/lib/src/task/runner_observer.dart`.
 
-Tracks per-runner: state (idle/busy/stopped/crashed), current task/session, tokens consumed, turns completed, error count, cache tokens, turn duration, tool call stats.
+Tracks per-runner cumulative turn metrics: tokens, completed turns, errors, cache tokens, duration, and tool-call stats.
+`TurnRunner` reports each terminal outcome once through `ExecutionCoordinator`, so primary and worker turns share one
+metrics path. Current busy/free/task/session state also comes from coordinator lease events and snapshots, not independent
+lifecycle authority. Disposed workers are removed from current metrics after their disposal event; capacity-only workflow
+executions have an execution ID and provider lease but no runner ID.
 
-Uses callback pattern: `TaskExecutor` calls `markBusy()`/`markIdle()` on acquire/release, and `recordTurn()` after each completed turn. Metrics are in-memory and reset on restart. Fires `RunnerStateChangedEvent` on the `EventBus`.
-
-Pool-level summary: `poolStatus` returns `(size, activeCount, availableCount, maxConcurrentWorkers)`.
+Provider summaries expose configured, effective, active, queued, cached, and quarantined counts. Available worker capacity is `effective - active`; cached process count never changes it. Metrics are in-memory and reset on restart. Lease transitions fire `RunnerStateChangedEvent` or its execution-capacity equivalent for SSE propagation.
 
 ---
 
@@ -848,7 +833,7 @@ Credential values never appear in task config, container environment, or log out
 
 Time-based job executor at `dartclaw_server/lib/src/scheduling/schedule_service.dart`.
 
-Uses single-shot `Timer` + reschedule pattern for accurate cron intervals. Jobs run in isolated sessions (`SessionKey.cronSession`).
+Uses single-shot `Timer` + reschedule pattern for accurate cron intervals. Jobs run in isolated sessions (`SessionKey.cronSession`) on provider worker leases; cron/system execution never occupies the primary-interactive lane.
 
 ### 11.2 ScheduledTaskRunner
 

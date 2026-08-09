@@ -1,7 +1,7 @@
 import 'package:dartclaw_cli/src/commands/wiring/reserved_command_handler.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide ReservedCommandHandler;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:test/test.dart';
 
 void main() {

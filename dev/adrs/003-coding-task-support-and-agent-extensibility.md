@@ -152,7 +152,7 @@ Phase 0 eliminated the Deno worker layer. Dart now spawns the native `claude` bi
 
 The programmatic `agents` initialize payload and reliance on Claude's native Task tool are superseded. They created a second, Claude-only delegation model with no durable DartClaw session identity and no equivalent contract across Codex or ACP.
 
-DartClaw now owns logical-agent identity, durable conversation history, provider selection, tool policy, and content guarding. `sessions_spawn` creates a logical-agent session and `sessions_send` continues it by handle. Provider-specific continuity stays inside harness adapters; the orchestration contract does not vary by provider. Worker-pool capacity is the single execution-capacity boundary for logical-agent sessions and structured background tasks.
+DartClaw now owns logical-agent identity, durable conversation history, provider selection, tool policy, and content guarding. `sessions_spawn` creates a logical-agent session and `sessions_send` continues it by handle. Provider-specific continuity stays inside harness adapters; the orchestration contract does not vary by provider. Per-provider worker capacity is the single execution-capacity boundary for logical-agent sessions and structured background tasks.
 
 ### Superseded "what we don't do" entries
 

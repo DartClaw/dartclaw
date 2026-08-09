@@ -24,6 +24,10 @@ abstract class CliProvider {
   Future<void> cancelInflight({bool cancelFutureProcesses = false});
 }
 
+abstract interface class StructuredTurnLimitProvider {
+  int? maxTurnsForStructuredTurn({required bool noTools});
+}
+
 /// Shared process ownership for CLI providers backed by one-shot subprocesses.
 abstract class ProcessBackedCliProvider implements CliProvider {
   ProcessBackedCliProvider({
@@ -244,6 +248,8 @@ final class WorkflowCliUsageBaseline {
   });
 }
 
+typedef RootProcessTerminationObserver = FutureOr<void> Function(bool confirmed);
+
 /// Value object bundling all per-turn inputs a [CliProvider] implementation needs.
 ///
 /// The runner resolves all fields from [WorkflowCliRunner.executeTurn] parameters
@@ -301,6 +307,9 @@ final class CliTurnRequest {
   /// Maximum number of agentic turns (Claude-specific).
   final int? maxTurns;
 
+  /// Reports whether this invocation's managed root process definitely exited.
+  final RootProcessTerminationObserver? onRootProcessTerminationConfirmed;
+
   /// JSON schema for structured output enforcement, if requested.
   final Map<String, dynamic>? jsonSchema;
 
@@ -350,6 +359,7 @@ final class CliTurnRequest {
     this.allowedTools,
     this.readOnly = false,
     this.maxTurns,
+    this.onRootProcessTerminationConfirmed,
     this.jsonSchema,
     this.appendSystemPrompt,
     this.sandboxOverride,

@@ -20,13 +20,13 @@ class EmergencyStopResult {
 
 /// Orchestrates the emergency stop sequence.
 ///
-/// Cancels all active turns across all runners in the harness pool, then
+/// Cancels all active turns managed by the execution coordinator, then
 /// transitions all running and queued tasks to cancelled. Fires an
 /// [EmergencyStopEvent] on the EventBus and broadcasts an SSE event for
 /// web UI awareness.
 ///
 /// Best-effort: individual failures are logged but do not halt the stop
-/// sequence — remaining turns and tasks are still cancelled.
+/// sequence – remaining turns and tasks are still cancelled.
 class EmergencyStopHandler {
   static final _log = Logger('EmergencyStopHandler');
 
@@ -47,7 +47,7 @@ class EmergencyStopHandler {
 
   /// Execute the emergency stop sequence.
   ///
-  /// 1. Cancel all active turns across all runners in the pool.
+  /// 1. Cancel all active turns.
   /// 2. Transition all running and queued tasks to [TaskStatus.cancelled].
   /// 3. Fire [EmergencyStopEvent] and an `emergency_stop` SSE broadcast.
   ///
@@ -57,14 +57,12 @@ class EmergencyStopHandler {
 
     // Phase 1: Cancel all active turns.
     var turnsCancelled = 0;
-    for (final runner in _turnManager.pool.runners) {
-      for (final sessionId in runner.activeSessionIds.toList()) {
-        try {
-          await runner.cancelTurn(sessionId);
-          turnsCancelled++;
-        } catch (e, st) {
-          _log.warning('Failed to cancel turn for session $sessionId', e, st);
-        }
+    for (final sessionId in _turnManager.activeSessionIds.toList()) {
+      try {
+        await _turnManager.cancelTurn(sessionId);
+        turnsCancelled++;
+      } catch (e, st) {
+        _log.warning('Failed to cancel turn for session $sessionId', e, st);
       }
     }
 

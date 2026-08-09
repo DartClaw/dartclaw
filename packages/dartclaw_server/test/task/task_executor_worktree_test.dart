@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ContextExtractor,
@@ -26,6 +27,7 @@ void main() {
   late TaskService tasks;
   late SqliteWorkflowRunRepository workflowRuns;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late TurnManager workflowTurns;
 
   setUp(() async {
     worker = FakeTaskWorker();
@@ -35,6 +37,23 @@ void main() {
     tasks = ctx.tasks;
     workflowRuns = ctx.workflowRuns;
     workflowStepExecutions = ctx.workflowStepExecutions;
+    final primary = ctx.turns.executions.primary!;
+    workflowTurns = TurnManager.fromCoordinator(
+      coordinator: ExecutionCoordinator(
+        providerCapacities: const {'claude': 1, 'codex': 1},
+        primary: primary,
+        admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primary.releaseAdmission,
+        createWorker: (request) async => TurnRunner(
+          harness: worker,
+          messages: messages,
+          behavior: BehaviorFileService(workspaceDir: ctx.workspaceDir),
+          sessions: ctx.sessions,
+          providerId: request.providerId,
+          profileId: request.profileId,
+        ),
+      ),
+    );
   });
 
   tearDown(() async {
@@ -61,10 +80,26 @@ void main() {
     providerSessionId: providerSessionId,
   );
 
+  TaskExecutor buildWorkflowExecutor({
+    ProjectService? projectService,
+    WorktreeManager? worktreeManager,
+    WorkflowCliRunner? workflowCliRunner,
+    SqliteWorkflowRunRepository? workflowRunRepository,
+    SqliteWorkflowStepExecutionRepository? workflowStepExecutionRepository,
+  }) => ctx.harness.buildWorkflowExecutor(
+    turnManager: workflowTurns,
+    projectService: projectService,
+    worktreeManager: worktreeManager,
+    workflowCliRunner: workflowCliRunner,
+    workflowRunRepository: workflowRunRepository ?? workflowRuns,
+    workflowStepExecutionRepository: workflowStepExecutionRepository ?? workflowStepExecutions,
+    kvService: ctx.kvService,
+  );
+
   test('keeps project-backed tasks queued while the project is still cloning', () async {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(cloningProject());
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       workflowStepExecutionRepository: workflowStepExecutions,
     );
@@ -87,15 +122,16 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
     expect((await tasks.get('task-project'))!.status, TaskStatus.queued);
-    expect((await tasks.get('task-ready'))!.status, TaskStatus.review);
+    expect((await waitForTaskStatus(tasks, 'task-ready', until: const {TaskStatus.review}))?.status, TaskStatus.review);
   });
 
   test('fails queued project-backed tasks when the project clone has errored', () async {
     final projectService = fakeProjectServiceFor(erroredProject());
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       workflowStepExecutionRepository: workflowStepExecutions,
     );
@@ -111,9 +147,10 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
-    final failed = await tasks.get('task-project-failed');
+    final failed = await waitForTaskStatus(tasks, 'task-project-failed', until: const {TaskStatus.failed});
     expect(failed!.status, TaskStatus.failed);
     expect(failed.configJson['errorSummary'], contains('failed to clone'));
     expect(failed.configJson['errorSummary'], contains('Authentication denied'));
@@ -123,7 +160,7 @@ void main() {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(readyProject());
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -149,6 +186,7 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
     final ensureFreshCall = projectService.ensureFreshCalls.single;
@@ -179,7 +217,7 @@ void main() {
       defaultProjectId: '_local',
     );
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -203,6 +241,7 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
     final ensureFreshCall = projectService.ensureFreshCalls.single;
@@ -215,7 +254,7 @@ void main() {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(readyProject());
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -242,6 +281,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final first = await tasks.get('task-shared-1');
     expect(worktreeManager.lastCreateBranch, isFalse);
@@ -266,6 +306,7 @@ void main() {
       git: const {'worktree': 'shared'},
     );
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
     final second = await tasks.get('task-shared-2');
     expect(worktreeManager.createCallCount, 1, reason: 'shared workflow must reuse the same workflow worktree');
     expect(second?.worktreeJson?['path'], first?.worktreeJson?['path']);
@@ -275,7 +316,7 @@ void main() {
   test('shared workflow worktree binding persists on the workflow run', () async {
     worker.responseText = 'Done.';
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       worktreeManager: worktreeManager,
       workflowRunRepository: workflowRuns,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -301,6 +342,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final binding = await workflowRuns.getWorktreeBinding(workflowRunId);
     expect(binding, isNotNull);
@@ -313,7 +355,7 @@ void main() {
   test('hydrated shared workflow worktree binding reuses the persisted worktree without create()', () async {
     worker.responseText = 'Done.';
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       worktreeManager: worktreeManager,
       workflowRunRepository: workflowRuns,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -359,6 +401,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final task = await tasks.get('task-shared-hydrated');
     expect(worktreeManager.createCallCount, 0);
@@ -381,7 +424,7 @@ void main() {
 
     final projectService = fakeProjectServiceFor(readyProject(remoteUrl: '', localPath: localRepo.path));
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -407,6 +450,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final task = await tasks.get('task-inline-workflow');
     final head = await Process.run('git', [
@@ -441,7 +485,7 @@ void main() {
         'result': '<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
       }),
     );
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowCliRunner: cliRunner,
@@ -473,6 +517,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final task = (await tasks.get('task-inline-path'))!;
     final extractor = ContextExtractor(
@@ -499,7 +544,7 @@ void main() {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(readyProject());
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -526,6 +571,7 @@ void main() {
       mapIterationIndex: 0,
     );
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
     expect(worktreeManager.lastCreateBranch, isTrue);
 
     await tasks.create(
@@ -546,6 +592,7 @@ void main() {
       git: const {'worktree': 'per-map-item'},
     );
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
     final postMap = await tasks.get('task-post-map');
     expect(worktreeManager.lastCreateBranch, isFalse);
     expect(postMap?.worktreeJson?['branch'], integrationBranch);
@@ -555,7 +602,7 @@ void main() {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(readyProject());
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowCliRunner: successCliRunner(),
@@ -584,6 +631,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final implement = await tasks.get('task-story-implement');
     expect(worktreeManager.createCallCount, 1);
@@ -609,6 +657,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final verify = await tasks.get('task-story-verify');
     expect(worktreeManager.createCallCount, 1, reason: 'story follow-up steps should reuse the same worktree');
@@ -620,7 +669,7 @@ void main() {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(readyProject());
     final worktreeManager = CapturingWorktreeManager();
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: worktreeManager,
       workflowCliRunner: successCliRunner(),
@@ -649,6 +698,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
     final implement = await tasks.get('task-story-implement-analysis-prelude');
     expect(worktreeManager.createCallCount, 1);
 
@@ -673,6 +723,7 @@ void main() {
     );
 
     await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     final review = await tasks.get('task-story-review-analysis');
     expect(worktreeManager.createCallCount, 1, reason: 'analysis follow-up should reuse the same worktree');
@@ -683,7 +734,7 @@ void main() {
   test('workflow read-only tasks skip strict freshness fetch for local workflow-owned refs', () async {
     worker.responseText = 'Done.';
     final projectService = fakeProjectServiceFor(readyProject());
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       workflowCliRunner: successCliRunner(),
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -711,10 +762,14 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
     expect(projectService.ensureFreshCalls, isEmpty);
-    expect((await tasks.get('task-readonly-workflow-ref'))!.status, TaskStatus.review);
+    expect(
+      (await waitForTaskStatus(tasks, 'task-readonly-workflow-ref', until: const {TaskStatus.review}))?.status,
+      TaskStatus.review,
+    );
   });
 
   test('read-only project task fails when the repo becomes dirty during the turn', () async {
@@ -734,7 +789,7 @@ void main() {
     };
 
     final projectService = fakeProjectServiceFor(readyProject(localPath: projectDir.path));
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(projectService: projectService);
+    final projectExecutor = buildWorkflowExecutor(projectService: projectService);
     addTearDown(projectExecutor.stop);
 
     await tasks.create(
@@ -748,9 +803,10 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
-    final failed = await tasks.get('task-readonly-dirty');
+    final failed = await waitForTaskStatus(tasks, 'task-readonly-dirty', until: const {TaskStatus.failed});
     expect(failed!.status, TaskStatus.failed);
     expect(failed.configJson['errorSummary'], contains('Read-only task modified project files'));
     expect(failed.configJson['errorSummary'], contains('notes/leak.md'));
@@ -776,7 +832,7 @@ void main() {
     File(p.join(notesDir.path, 'artifact.md')).writeAsStringSync('# Artifact\n\n- mutation from implement\n');
 
     final projectService = fakeProjectServiceFor(readyProject(localPath: projectDir.path));
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       projectService: projectService,
       worktreeManager: StaticPathWorktreeManager(worktreeDir.path),
       workflowCliRunner: successCliRunner(),
@@ -804,9 +860,14 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
-    final updated = await tasks.get('task-readonly-inherited-worktree');
+    final updated = await waitForTaskStatus(
+      tasks,
+      'task-readonly-inherited-worktree',
+      until: const {TaskStatus.review},
+    );
     expect(updated, isNotNull);
     expect(updated!.status, TaskStatus.review);
     expect(updated.configJson['errorSummary'], isNull);
@@ -822,7 +883,7 @@ void main() {
       (_) => jsonEncode({'session_id': 'cli-session', 'result': 'Done.'}),
       onArgs: (_, _) => processStarted = true,
     );
-    final projectExecutor = ctx.harness.buildWorkflowExecutor(
+    final projectExecutor = buildWorkflowExecutor(
       worktreeManager: StaticPathWorktreeManager(worktreeDir.path),
       workflowCliRunner: runner,
       workflowRunRepository: workflowRuns,
@@ -850,10 +911,11 @@ void main() {
     );
 
     final processed = await projectExecutor.pollOnce();
+    await projectExecutor.drain();
 
     expect(processed, isTrue);
     expect(processStarted, isFalse);
-    final updated = await tasks.get('task-missing-required-input');
+    final updated = await waitForTaskStatus(tasks, 'task-missing-required-input', until: const {TaskStatus.failed});
     expect(updated?.status, TaskStatus.failed);
     expect(updated?.configJson['errorSummary'], contains('required input path "fis/s01.md" is missing'));
   });
@@ -878,7 +940,7 @@ void main() {
     );
     // No projectService and no worktreeManager → project and worktree both
     // resolve to null, exactly as in a standalone/inline run.
-    final standaloneExecutor = ctx.harness.buildWorkflowExecutor(
+    final standaloneExecutor = buildWorkflowExecutor(
       workflowCliRunner: runner,
       workflowRunRepository: workflowRuns,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -906,6 +968,7 @@ void main() {
     );
 
     final processed = await standaloneExecutor.pollOnce();
+    await standaloneExecutor.drain();
     final updated = await waitForTaskStatus(tasks, 'task-standalone-required-input');
 
     expect(processed, isTrue);

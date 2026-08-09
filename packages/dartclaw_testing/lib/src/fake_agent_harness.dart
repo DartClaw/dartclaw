@@ -15,6 +15,9 @@ class FakeAgentHarness extends AgentHarness {
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvokedCompleter = Completer<void>();
 
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
+
   /// Creates a fake harness with optional lifecycle and prompt configuration.
   FakeAgentHarness({
     PromptStrategy promptStrategy = PromptStrategy.replace,

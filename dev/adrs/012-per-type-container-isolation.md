@@ -17,7 +17,7 @@ DartClaw's container isolation (S21, 0.6) uses a single shared Docker container 
 
 **We will use per-security-profile containers**, where each distinct security profile gets its own Docker container, and multiple concurrent tasks/sessions of the same profile share one container via `docker exec`.
 
-Container = security boundary (mounts, network, capabilities). Harness = execution context (one claude process per `docker exec`).
+Container = security boundary (mounts, network, capabilities). Harness = provider protocol/process context launched through that boundary.
 
 ### Security Profiles (0.8)
 
@@ -31,15 +31,15 @@ Container naming: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>`. Deterministic, 
 ### Dispatch Model
 
 ```
-HarnessPool (5 concurrent tasks, 2 containers)
-  ├── coding task      → workspace container  (docker exec ... claude --worktree ...)
-  ├── writing task     → workspace container  (docker exec ... claude ...)
-  ├── research task    → restricted container (docker exec ... claude ...)
-  ├── search query     → restricted container (docker exec ... claude ...)
-  └── cron job         → workspace container  (docker exec ... claude ...)
+ExecutionCoordinator (5 worker leases)
+  ├── coding task      → workspace profile   → long-lived workspace container
+  ├── writing task     → workspace profile   → long-lived workspace container
+  ├── research task    → restricted profile  → long-lived restricted container
+  ├── logical agent    → configured profile  → matching long-lived container
+  └── cron job         → workspace profile   → long-lived workspace container
 ```
 
-The Dart host mediates all routing: `task type → security profile → container`. Containers never communicate directly. `sessions_send` dispatches to the target agent type's container.
+The Dart host mediates all routing: `execution request → security profile → container`. Containers never communicate directly. Container lifetime is independent from worker leases and harness-process caching: the profile container is started once and may serve many compatible harness processes without carrying conversation identity or changing `pool_size` accounting.
 
 ### Future Profiles (when needed)
 

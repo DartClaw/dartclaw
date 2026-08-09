@@ -1,5 +1,6 @@
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnManager;
+import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
 
 /// Handles reserved channel commands: `/stop`, `/pause`, `/resume`, `/bind`, `/unbind`.
@@ -14,7 +15,7 @@ class ReservedCommandHandler {
     ChannelMessage message,
     Channel channel, {
     required GovernanceConfig governance,
-    required TurnManager Function() turnManagerGetter,
+    required core.TurnManager Function() turnManagerGetter,
     required TaskService taskService,
     required EventBus eventBus,
     required SseBroadcast sseBroadcast,
@@ -274,7 +275,7 @@ class ReservedCommandHandler {
   static Future<void> drainPauseQueue({
     required Map<String, String> collapsed,
     required SessionService sessions,
-    required TurnManager Function() turnManagerGetter,
+    required core.TurnManager Function() turnManagerGetter,
   }) async {
     final turns = turnManagerGetter();
     for (final MapEntry(key: sessionKey, value: text) in collapsed.entries) {

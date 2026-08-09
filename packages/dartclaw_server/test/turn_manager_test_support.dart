@@ -40,6 +40,9 @@ class FakeWorkerService implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -134,6 +137,9 @@ class AppendStrategyWorker implements AgentHarness {
 
   @override
   WorkerState get state => WorkerState.idle;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
 
   @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;

@@ -1,27 +1,48 @@
 part of 'task_executor.dart';
 
 extension _TaskExecutorHelpers on TaskExecutor {
-  void _trackPoolTask(Future<void> task) {
-    _activePoolTasks.add(task);
+  void _trackExecutionTask(Future<void> task) {
+    _activeExecutionTasks.add(task);
     unawaited(
       task.whenComplete(() {
-        _activePoolTasks.remove(task);
+        _activeExecutionTasks.remove(task);
       }),
     );
   }
 
-  Future<void> _runPoolTask(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
+  Future<void> _runLeasedTask(Task runningTask, ExecutionLease lease) async {
+    var rootProcessTerminationConfirmed = true;
     try {
-      await _executeWithRunner(runningTask, runner, runnerIndex: runnerIndex);
+      final runner = lease.runner;
+      if (runner == null) {
+        await _executeCapacityOnly(
+          runningTask,
+          lease,
+          onRootProcessTerminationConfirmed: (confirmed) {
+            rootProcessTerminationConfirmed = rootProcessTerminationConfirmed && confirmed;
+          },
+        );
+      } else {
+        await _executeWithRunner(
+          runningTask,
+          runner,
+          runnerIndex: lease.runnerId ?? -1,
+          admissionOwned: lease.admissionOwned,
+        );
+      }
     } finally {
-      _observer?.markIdle(runnerIndex);
-      _pool.release(runner);
+      if (rootProcessTerminationConfirmed) {
+        await lease.release();
+      } else {
+        await lease.quarantine();
+      }
     }
   }
 
   Future<Task?> _checkout(Task queuedTask) async {
     try {
-      return await _tasks.transition(queuedTask.id, TaskStatus.running, trigger: 'system');
+      final running = await _tasks.transition(queuedTask.id, TaskStatus.running, trigger: 'system');
+      return running.copyWith(workflowStepExecution: queuedTask.workflowStepExecution);
     } on StateError {
       return null;
     }
@@ -37,6 +58,30 @@ extension _TaskExecutorHelpers on TaskExecutor {
     if (execution == null) return task;
 
     return task.copyWith(workflowStepExecution: execution);
+  }
+
+  Future<Task?> _prepareExecutionSession(Task task) async {
+    final continueSessionId = TaskConfigView(task, log: TaskExecutor._log).continueSessionId;
+    final Session session;
+    if (continueSessionId != null) {
+      final existing = await _sessions.getSession(continueSessionId);
+      if (existing == null || existing.type == SessionType.archive) {
+        await _failureHandler.markFailedOrRetry(
+          task,
+          errorSummary:
+              'continueSession: session "$continueSessionId" not found or archived. '
+              'Ensure the preceding step completed successfully before this step runs.',
+          retryable: false,
+        );
+        return null;
+      }
+      session = existing;
+    } else {
+      session = await _sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+    }
+    if (task.sessionId == session.id) return task;
+    final updated = await _tasks.updateFields(task.id, sessionId: session.id);
+    return updated.copyWith(workflowStepExecution: task.workflowStepExecution);
   }
 
   Future<_QueuedTaskDisposition> _prepareQueuedTask(Task task) async {
@@ -63,7 +108,12 @@ extension _TaskExecutorHelpers on TaskExecutor {
     return _QueuedTaskDisposition.ready;
   }
 
-  Future<void> _executeWithRunner(Task runningTask, TurnRunner runner, {required int runnerIndex}) {
+  Future<void> _executeWithRunner(
+    Task runningTask,
+    TurnRunner runner, {
+    required int runnerIndex,
+    required bool admissionOwned,
+  }) {
     return _executeCore(
       runningTask,
       runnerIndex: runnerIndex,
@@ -77,79 +127,67 @@ extension _TaskExecutorHelpers on TaskExecutor {
             String? effort,
             String? taskId,
             BehaviorFileService? behaviorOverride,
+            required List<String>? allowedTools,
+            required bool readOnly,
             PromptScope? promptScope,
-          }) => runner.reserveTurn(
-            sessionId,
-            agentName: 'task',
-            directory: directory,
-            model: model,
-            effort: effort,
-            taskId: taskId,
-            behaviorOverride: behaviorOverride,
-            promptScope: promptScope,
-          ),
+          }) => admissionOwned
+          ? runner.reserveAdmittedTurn(
+              sessionId,
+              agentName: 'task',
+              directory: directory,
+              model: model,
+              effort: effort,
+              taskId: taskId,
+              behaviorOverride: behaviorOverride,
+              allowedTools: allowedTools,
+              readOnly: readOnly,
+              promptScope: promptScope,
+            )
+          : runner.reserveTurn(
+              sessionId,
+              agentName: 'task',
+              directory: directory,
+              model: model,
+              effort: effort,
+              taskId: taskId,
+              behaviorOverride: behaviorOverride,
+              allowedTools: allowedTools,
+              readOnly: readOnly,
+              promptScope: promptScope,
+            ),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
-      setTaskToolFilter: runner.setTaskToolFilter,
-      setTaskReadOnly: runner.setTaskReadOnly,
+      waitForExecutionSettled: runner.waitForExecutionSettled,
     );
   }
 
-  Future<void> _execute(Task runningTask) {
+  Future<void> _executeCapacityOnly(
+    Task runningTask,
+    ExecutionLease lease, {
+    required RootProcessTerminationObserver onRootProcessTerminationConfirmed,
+  }) {
+    Never unavailable() => throw StateError('Capacity-only execution cannot drive a reusable harness');
     return _executeCore(
       runningTask,
-      runnerIndex: 0,
-      runnerProfileId: resolveProfile(runningTask.type),
+      runnerIndex: -1,
+      provider: lease.request.providerId,
+      runnerProfileId: lease.request.profileId,
       reserveTurn:
           (
-            sessionId, {
+            _, {
             String? directory,
             String? model,
             String? effort,
             String? taskId,
             BehaviorFileService? behaviorOverride,
+            required List<String>? allowedTools,
+            required bool readOnly,
             PromptScope? promptScope,
-          }) => _reserveSharedTurn(
-            sessionId,
-            directory: directory,
-            model: model,
-            effort: effort,
-            taskId: taskId,
-            behaviorOverride: behaviorOverride,
-            promptScope: promptScope,
-          ),
-      executeTurn: _turns.executeTurn,
-      waitForOutcome: _turns.waitForOutcome,
-      setTaskToolFilter: _turns.setTaskToolFilter,
-      setTaskReadOnly: _turns.setTaskReadOnly,
+          }) async => unavailable(),
+      executeTurn: (_, _, _, {String? source, String agentName = 'task'}) => unavailable(),
+      waitForOutcome: (_, _) async => unavailable(),
+      onRootProcessTerminationConfirmed: onRootProcessTerminationConfirmed,
     );
-  }
-
-  Future<String> _reserveSharedTurn(
-    String sessionId, {
-    String? directory,
-    String? model,
-    String? effort,
-    String? taskId,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-  }) async {
-    while (true) {
-      try {
-        return await _turns.reserveTurn(
-          sessionId,
-          agentName: 'task',
-          directory: directory,
-          model: model,
-          effort: effort,
-          taskId: taskId,
-          behaviorOverride: behaviorOverride,
-          promptScope: promptScope,
-        );
-      } on BusyTurnException {
-        await Future<void>.delayed(pollInterval);
-      }
-    }
   }
 
   Future<String?> _composePendingMessage(Task task, String sessionId, {String? workingDirectory}) async {

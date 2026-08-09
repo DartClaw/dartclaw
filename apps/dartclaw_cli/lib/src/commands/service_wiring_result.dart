@@ -25,7 +25,7 @@ WiringResult _assembleWiringResult(
     agentExecutionRepository: storage.agentExecutionRepository,
     taskService: storage.taskService,
     harness: harness.harness,
-    pool: harness.pool,
+    executions: harness.executions,
     heartbeat: scheduling.heartbeat,
     scheduleService: scheduling.scheduleService,
     kvService: storage.kvService,
@@ -41,6 +41,7 @@ WiringResult _assembleWiringResult(
     configNotifier: ctx.configNotifier,
     outboundMcpPool: outboundMcpPool,
     workflowRegistry: workflowRegistry,
+    prepareExecutionShutdown: task.prepareExecutionShutdown,
     shutdownExtras: () async {
       try {
         lifecycleManager?.dispose();

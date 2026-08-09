@@ -120,7 +120,7 @@ scheduling:
 ## Customization Tips
 
 - **Choose the search model explicitly**: Set `agent.agents.search.model` when you need a fixed model instead of the selected provider's default
-- **Increase logical-agent concurrency**: Raise the selected provider's `pool_size`; the worker pool is the single execution-capacity boundary
+- **Increase logical-agent concurrency**: Raise the selected provider's `pool_size`; provider worker capacity is the single execution boundary
 - **Add topic focus**: Edit SOUL.md's "Research Process" to prioritize certain source types (e.g., "prefer peer-reviewed papers" or "focus on official documentation")
 - **Enable QMD hybrid search**: Add `search.backend: qmd` for semantic memory retrieval -- better for finding conceptually related previous research
 - **Add research templates**: Include structured templates in TOOLS.md for common research formats (comparison tables, literature reviews, technical evaluations)

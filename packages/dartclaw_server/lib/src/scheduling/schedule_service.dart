@@ -56,6 +56,8 @@ class ScheduleService implements Reconfigurable {
   final List<ScheduledJob> _jobs;
   final DeliveryService _delivery;
   final MemoryConsolidator? _consolidator;
+  final String? _workerProviderId;
+  final String _workerProfileId;
 
   final Map<String, Timer> _timers = {};
   final Set<String> _running = {};
@@ -70,12 +72,16 @@ class ScheduleService implements Reconfigurable {
     DeliveryService? delivery,
     MemoryConsolidator? consolidator,
     EventBus? eventBus,
+    String? workerProviderId,
+    String workerProfileId = 'workspace',
   }) : _turns = turns,
        _sessions = sessions,
        _jobs = jobs,
        _delivery = delivery ?? _defaultDeliveryService(sessions),
        _consolidator = consolidator,
-       _eventBus = eventBus;
+       _eventBus = eventBus,
+       _workerProviderId = workerProviderId,
+       _workerProfileId = workerProfileId;
 
   /// Schedule all jobs. Calculates next fire time for each and sets timers.
   void start() {
@@ -276,7 +282,12 @@ class ScheduleService implements Reconfigurable {
     }
 
     // Create isolated session for this cron job
-    final session = await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
+    final session = await _sessions.getOrCreateByKey(
+      sessionKey,
+      type: SessionType.cron,
+      provider: _workerProviderId,
+      securityProfile: _workerProviderId == null ? null : _workerProfileId,
+    );
 
     final userMessage = <String, dynamic>{'role': 'user', 'content': job.prompt};
 

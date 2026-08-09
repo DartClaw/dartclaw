@@ -78,6 +78,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect((await h.tasks.get('task-no-budget'))!.status, TaskStatus.review);
     });
@@ -104,6 +105,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
+      await executor.drain();
 
       final result = await h.tasks.get('task-exceeded');
       expect(result!.status, TaskStatus.failed);
@@ -131,6 +133,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 1000, turnCount: 3);
 
       await executor.pollOnce();
+      await executor.drain();
 
       final artifacts = await h.tasks.listArtifacts('task-artifact');
       expect(artifacts, hasLength(1));
@@ -172,6 +175,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 850);
 
       await executor.pollOnce();
+      await executor.drain();
 
       // Task should still proceed (warning, not failure).
       expect((await h.tasks.get('task-warning'))!.status, TaskStatus.review);
@@ -209,9 +213,11 @@ void main() {
 
       // Poll twice — warning should only fire once.
       await executor.pollOnce();
+      await executor.drain();
       // Re-queue the task for second poll.
       await h.tasks.transition('task-dedup', TaskStatus.queued, trigger: 'test');
       await executor.pollOnce();
+      await executor.drain();
 
       expect(warningEvents, hasLength(1));
     });
@@ -238,6 +244,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await executor.drain();
 
       // Task proceeds normally despite KV read failure.
       expect((await h.tasks.get('task-failsafe'))!.status, TaskStatus.review);
@@ -265,6 +272,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 700);
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect((await h.tasks.get('task-override'))!.status, TaskStatus.failed);
     });
@@ -299,6 +307,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 640);
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect(warningEvents, hasLength(1));
       expect(warningEvents[0].limit, 750);
@@ -324,6 +333,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect((await h.tasks.get('task-config-default'))!.status, TaskStatus.failed);
     });
@@ -357,6 +367,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 850);
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect((await h.tasks.get('task-default-warn'))!.status, TaskStatus.review);
       expect(warningEvents, hasLength(1));
@@ -398,6 +409,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect((await h.tasks.get('task-legacy'))!.status, TaskStatus.failed);
     });
@@ -417,6 +429,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await executor.drain();
 
       // No cost data = no enforcement = task proceeds.
       expect((await h.tasks.get('task-first-turn'))!.status, TaskStatus.review);
@@ -443,6 +456,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 1000);
 
       await executor.pollOnce();
+      await executor.drain();
 
       expect((await h.tasks.get('task-exact-100'))!.status, TaskStatus.failed);
     });
@@ -468,6 +482,7 @@ void main() {
       await seedSessionCost(session.id, totalTokens: 999999);
 
       await executor.pollOnce();
+      await executor.drain();
 
       // Zero maxTokens = no budget = runs normally.
       expect((await h.tasks.get('task-zero-budget'))!.status, TaskStatus.review);

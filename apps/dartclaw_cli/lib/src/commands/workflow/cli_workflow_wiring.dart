@@ -21,7 +21,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         ArtifactCollector,
         BehaviorFileService,
         DiffGenerator,
-        HarnessPool,
+        ExecutionCoordinator,
         ProjectServiceImpl,
         PromptScope,
         RemotePushService,
@@ -164,7 +164,7 @@ class CliWorkflowWiring {
   late final Database taskDb;
   late final TaskService taskService;
   late final WorktreeManager worktreeManager;
-  late final HarnessPool pool;
+  late final ExecutionCoordinator executions;
   late final TaskExecutor taskExecutor;
   late final TaskCancellationSubscriber taskCancellationSubscriber;
   late final WorkflowRegistry registry;
@@ -187,7 +187,7 @@ class CliWorkflowWiring {
   _CliWorkflowWiringCtx? _preludeCtx;
   _TaskHandles? _taskHandles;
   bool _preHarnessWired = false;
-  bool _harnessStarted = false;
+  bool _executionsWired = false;
   bool _workflowServiceWired = false;
 
   CliWorkflowWiring({
@@ -226,8 +226,8 @@ class CliWorkflowWiring {
     );
   }
 
-  /// Constructs all services needed for headless workflow execution, starting
-  /// harnesses for the configured default provider.
+  /// Constructs all services needed for headless workflow execution and
+  /// configures capacity for the default provider.
   ///
   /// Does not start an HTTP server, initialize templates, connect channels,
   /// or wire scheduling. Call [dispose] when done.
@@ -246,7 +246,7 @@ class CliWorkflowWiring {
   /// workflow registry — without starting any harness.
   ///
   /// [registry] is usable after this returns; [startHarnesses] must run before
-  /// [workflowService]/[pool]/[taskExecutor] are touched. Idempotent guard:
+  /// [workflowService]/[executions]/[taskExecutor] are touched. Idempotent guard:
   /// safe to follow with [dispose] even if [startHarnesses] never runs.
   Future<void> wirePreHarness() async {
     final ctx = await _wirePrelude();
@@ -258,13 +258,10 @@ class CliWorkflowWiring {
     _preHarnessWired = true;
   }
 
-  /// Starts provider harnesses for [providers] and builds the turn/task/workflow
-  /// services that depend on them.
+  /// Configures execution capacity for [providers] and builds the dependent services.
   ///
-  /// The pool primary is drawn from [providers] (preferring the configured
-  /// default when it is referenced), not an unconditional `config.agent.provider`
-  /// start — so a logged-out default provider a run never references is never
-  /// started. Workers are provisioned for every entry in [providers].
+  /// Harnesses are created lazily only when the coordinator receives a worker
+  /// request. Workflow one-shots acquire capacity-only leases and create none.
   /// Requires [wirePreHarness] to have run.
   Future<void> startHarnesses(Set<String> providers) async {
     final ctx = _preludeCtx;
@@ -278,15 +275,14 @@ class CliWorkflowWiring {
       _workflowServiceWired = true;
       return;
     }
-    final wiredCtx = await _wireHarness(ctx, taskHandles, canonicalProviders);
+    final wiredCtx = await _wireExecutions(ctx, taskHandles, canonicalProviders);
     await _wireWorkflowService(
       wiredCtx,
       taskHandles,
       hydrateBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
     );
     _workflowServiceWired = true;
-    _harnessStarted = true;
-    await ensureWorkersForProviders(canonicalProviders);
+    _executionsWired = true;
   }
 
   Future<void> wireLifecycleOnly() async {
@@ -404,29 +400,20 @@ class CliWorkflowWiring {
     );
   }
 
-  Future<_CliWorkflowWiringCtx> _wireHarness(
+  Future<_CliWorkflowWiringCtx> _wireExecutions(
     _CliWorkflowWiringCtx ctx,
     _TaskHandles taskHandles,
     Set<String> providers,
   ) async {
-    final wiringLog = Logger('CliWorkflowWiring');
-    final primaryProviderId = _selectPrimaryProvider(providers);
-    final providerEntry = config.providers[primaryProviderId];
-    wiringLog.info(
-      'Primary provider "$primaryProviderId": entry=${providerEntry != null ? providerEntry.toString() : "null"}, '
-      'options=${providerEntry?.options}',
-    );
-    final harness = _harnessFactory.create(
-      primaryProviderId,
-      HarnessFactoryConfig(
-        cwd: runtimeCwd,
-        executable: _resolveProviderExecutable(config, primaryProviderId),
-        harnessConfig: _harnessConfig,
-        providerOptions: _providerOptions(config, primaryProviderId),
-        environment: _providerEnvironment(config, primaryProviderId, _credentialRegistry),
-      ),
-    );
-    await harness.start();
+    final providerEntries = _effectiveWorkflowProviderEntries(config);
+    final capacities = <String, int>{};
+    for (final providerId in providers) {
+      final providerEntry = providerEntries[providerId];
+      if (providerEntry == null) {
+        throw StateError('Provider "$providerId" is not configured for standalone workflow execution');
+      }
+      capacities[providerId] = providerEntry.effectivePoolSize;
+    }
     behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
@@ -435,23 +422,11 @@ class CliWorkflowWiring {
       identifierPreservation: config.context.identifierPreservation,
       identifierInstructions: config.context.identifierInstructions,
     );
-    final primaryRunner = TurnRunner(
-      harness: harness,
-      messages: messageService,
-      behavior: behavior,
-      sessions: sessionService,
-      kv: kvService,
-      eventBus: eventBus,
-      providerId: primaryProviderId,
+    executions = ExecutionCoordinator(
+      providerCapacities: capacities,
+      createWorker: (request) => _buildWorker(request.providerId),
     );
-    final maxConcurrentWorkers = _standaloneWorkerCapacity(config);
-    // Pool starts with only the primary runner; per-provider workers
-    // (including the primary's configured `pool_size`) are filled by
-    // [startHarnesses] via [ensureWorkersForProviders] over the explicit
-    // provider set, so harness startup is scoped to the run's referenced
-    // providers rather than eagerly spawning the configured default's pool.
-    pool = HarnessPool(runners: [primaryRunner], maxConcurrentWorkers: maxConcurrentWorkers);
-    final turns = TurnManager.fromPool(pool: pool, sessions: sessionService);
+    final turns = TurnManager.fromCoordinator(coordinator: executions, sessions: sessionService);
     taskCancellationSubscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns);
     taskCancellationSubscriber.subscribe(eventBus);
     final artifactCollector = ArtifactCollector(
@@ -564,8 +539,7 @@ class CliWorkflowWiring {
   Future<void> _wireWorkflowRegistry() async {
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     // Source continuity capability from unstarted harness probes (cwd:'/', no
-    // spawn) rather than `pool.runners`, so the registry loads in the
-    // pre-harness phase before any provider harness starts.
+    // spawn), so the registry loads before execution capacity is configured.
     final continuityProviders = _harnessFactory.probeContinuityProviders();
     registry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
@@ -587,13 +561,13 @@ class CliWorkflowWiring {
   /// Tears down all services in reverse construction order.
   ///
   /// Resilient to a pre-harness-only run: when [startHarnesses] never ran (e.g.
-  /// an auth preflight aborted the run), the harness-phase teardown is skipped
+  /// an auth preflight aborted the run), execution teardown is skipped
   /// and only the storage/task layer is closed. A no-op when nothing wired.
   Future<void> dispose() async {
     if (_workflowServiceWired) {
       await workflowService.dispose();
     }
-    if (_harnessStarted) {
+    if (_executionsWired) {
       await workflowCliRunner.cancelInflight(cancelFutureProcesses: true);
       await taskExecutor.stop();
       await _cleanupTrackedWorkflowGit(this);
@@ -601,7 +575,7 @@ class CliWorkflowWiring {
     }
     if (!_preHarnessWired) return;
     await taskService.dispose();
-    if (_harnessStarted) await pool.dispose();
+    if (_executionsWired) await executions.dispose();
     await kvService.dispose();
     remotePushService.dispose();
     await projectService.dispose();
@@ -614,8 +588,8 @@ class CliWorkflowWiring {
   /// the first unauthenticated provider.
   ///
   /// Mirrors the executor-level `_preflightProviderAuth`, but at the CLI wiring
-  /// boundary so a standalone run can gate referenced-provider auth *before*
-  /// [startHarnesses] reaches any `harness.start()`. Defaults to the same
+  /// boundary so a standalone run can gate referenced-provider auth before
+  /// configuring execution. Defaults to the same
   /// [CliProviderAuthPreflight] the workflow service would build. Requires
   /// [wirePreHarness] to have run (uses the credential registry).
   Future<void> preflightProviderAuth(Set<String> providers) async {
@@ -645,53 +619,6 @@ class CliWorkflowWiring {
   /// layer), so resume/retry lifecycle paths can derive a run's referenced
   /// providers and preflight auth before [startHarnesses].
   Future<WorkflowRun?> loadRun(String runId) => _workflowRunRepository.getById(runId);
-
-  /// Picks the pool primary from [providers]: the configured default when it is
-  /// referenced, otherwise the lowest-sorted referenced provider (deterministic).
-  ///
-  /// Falls back to `config.agent.provider` only when [providers] is empty. In
-  /// headless workflow mode the primary serves no chat/cron/channel traffic, so
-  /// drawing it from the referenced set (rather than an unconditional default
-  /// start) keeps a logged-out default provider out of an unrelated run.
-  String _selectPrimaryProvider(Set<String> providers) {
-    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
-    if (providers.isEmpty) return defaultProviderId;
-    final normalizedProviders = providers.map(ProviderIdentity.normalize).toSet();
-    if (normalizedProviders.contains(defaultProviderId)) return defaultProviderId;
-    final sorted = normalizedProviders.toList()..sort();
-    return sorted.first;
-  }
-
-  /// Ensures the pool contains workers for every [providerIds] entry.
-  ///
-  /// Standalone workflow execution relies on workers for agent-backed
-  /// steps; without them, queued tasks never start in pool mode.
-  Future<void> ensureWorkersForProviders(Set<String> providerIds) async {
-    final providerEntries = _effectiveWorkflowProviderEntries(config);
-    final resolved = <String, ProviderEntry>{};
-    for (final providerId in providerIds.map(ProviderIdentity.normalize).toSet()) {
-      final providerEntry = providerEntries[providerId];
-      if (providerEntry == null) {
-        throw StateError('Provider "$providerId" is not configured for standalone workflow execution');
-      }
-      resolved[providerId] = providerEntry;
-    }
-    for (final entry in resolved.entries) {
-      final providerId = entry.key;
-      final targetCount = entry.value.effectivePoolSize;
-      while (pool.workerCountForProvider(providerId) < targetCount) {
-        pool.addRunner(await _buildWorker(providerId));
-      }
-      workflowCliRunner.providers.putIfAbsent(
-        providerId,
-        () => WorkflowCliProviderConfig(
-          executable: _resolveProviderExecutable(config, providerId),
-          environment: _providerEnvironment(config, providerId, _credentialRegistry),
-          options: _providerOptions(config, providerId),
-        ),
-      );
-    }
-  }
 
   Future<TurnRunner> _buildWorker(String providerId) async {
     final harness = _harnessFactory.create(

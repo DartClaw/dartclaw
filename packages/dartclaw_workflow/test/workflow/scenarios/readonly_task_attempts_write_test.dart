@@ -33,12 +33,13 @@ void main() {
       configJson: const {'readOnly': true},
     );
 
-    final processed = await executor.pollOnce();
-    final task = await harness.tasks.get('task-readonly-dirty');
+    final result = await harness.pollOnceAndWaitForTaskStatus(executor, 'task-readonly-dirty', const {
+      TaskStatus.failed,
+    });
 
-    expect(processed, isTrue);
-    expect(task?.status, TaskStatus.failed);
-    expect(task?.configJson['errorSummary'], contains('Read-only task modified project files'));
-    expect(task?.configJson['errorSummary'], contains('notes/leak.md'));
+    expect(result.processed, isTrue);
+    expect(result.task.status, TaskStatus.failed);
+    expect(result.task.configJson['errorSummary'], contains('Read-only task modified project files'));
+    expect(result.task.configJson['errorSummary'], contains('notes/leak.md'));
   });
 }

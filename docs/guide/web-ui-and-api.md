@@ -126,7 +126,8 @@ Returns the persisted session metadata for a single session.
 POST /api/sessions
 ```
 
-No body required. Returns the new session.
+No body required. Returns the new session. Interactive session creation does not accept a provider override; sends use
+the fixed primary lane and global `agent.provider`.
 
 ```json
 {
@@ -602,6 +603,9 @@ GET /api/tasks/events
 ```
 
 Task/dashboard clients receive JSON Server-Sent Events. Existing event types include `connected`, `task_status_changed`, `runner_state`, `project_status`, `task_progress`, `task_event`, and `workflow_sidebar_update`. Turn monitor updates are delivered on the same stream as `turn_wait_state`, using the same authoritative `wait_reason` and `can_cancel` semantics as `GET /api/sessions/:id/turn-status`:
+
+`runner_state` reflects coordinator lease events and currently observed runners. Worker IDs are runtime identities, not
+static pool slots; configured/effective/active/queued/cached/quarantined counts come from the same lease snapshot.
 
 ```json
 {

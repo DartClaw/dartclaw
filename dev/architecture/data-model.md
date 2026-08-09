@@ -765,7 +765,7 @@ dartclaw_server     (shelf, http)       TaskService (wraps repository),
      │
 dartclaw_cli        (args)              CLI runner, loopback API client, connected
                                         operations (`workflow`, `tasks`, `config`,
-                                        `projects`, `sessions`, `agents`, `traces`,
+                                        `projects`, `sessions`, `runners`, `traces`,
                                         `jobs`), plus local lifecycle/maintenance
                                         commands
 ```

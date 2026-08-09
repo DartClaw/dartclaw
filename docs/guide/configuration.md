@@ -436,7 +436,7 @@ workflow:
 providers:
   claude:
     executable: claude           # path or binary name
-    pool_size: 2                 # 2 shared task/logical-agent workers, plus the primary
+    pool_size: 2                 # hard limit: 2 concurrent background worker leases
     inherit_user_settings: true  # default: load user + project + local Claude settings; false = project-only
   #   approval: on-request       # on-request | unless-allow-listed | never (prompt-gating axis)
   #   sandbox: workspace-write   # read-only | workspace-write | danger-full-access (OS-isolation axis)
@@ -447,7 +447,7 @@ providers:
   #                              #   refused under the restricted container profile (fail-closed).
   # codex:                       # uncomment to enable Codex (OpenAI models)
   #   executable: codex          # path to codex binary
-  #   pool_size: 2               # 2 shared task/logical-agent workers
+  #   pool_size: 2               # hard limit: 2 concurrent background worker leases
   #   sandbox: workspace-write   # workspace-write | danger-full-access
   #   approval: on-request       # on-request | unless-allow-listed | never
   #                              # IMPORTANT: on-request is the broadest host interception;
@@ -580,9 +580,9 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Logical agents under `agent.agents` can override the model individually. Background tasks also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
 
-**Note on `agent.provider`:** When set, the default provider applies to all sessions and tasks unless overridden. Logical agents may also select a provider-independent `security_profile` (`workspace` or `restricted`). Per-task provider overrides are supported via `configJson.provider` at task creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
+**Note on `agent.provider`:** This is the fixed provider for the serialized primary lane used by main user/channel sessions, and the default provider for background routing. Interactive session creation does not accept a provider override. Logical agents may select a provider and provider-independent `security_profile` (`workspace` or `restricted`); tasks may select a provider at creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
 
-**Note on `providers` section:** When omitted, DartClaw creates the selected default provider using its normal executable and one shared worker. Add an explicit `providers:` section for multi-provider deployments or to customize worker capacity, executables, or provider-specific options. Provider IDs are trimmed and lowercased across provider maps and agent references; normalization collisions are rejected instead of creating ambiguous routing. `pool_size: 0` means the default of one worker. `pool_size` is a hard limit: when container isolation enables both `workspace` and `restricted`, each non-container-pinned provider needs at least `2` so both profiles have a worker; startup rejects a smaller value instead of weakening isolation or silently expanding capacity. For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
+**Note on `providers` section:** When omitted, DartClaw configures the selected default provider with its normal executable and worker capacity `1`. Add an explicit `providers:` section for multi-provider deployments or to customize capacity, executables, or provider-specific options. Provider IDs are trimmed and lowercased across provider maps and agent references; normalization collisions are rejected instead of creating ambiguous routing. `pool_size: 0` means the default of one. `pool_size` is the hard concurrent worker-lease limit for that provider across tasks, schedules, system/advisor work, logical agents, and capacity-only workflow one-shots. Workers start lazily; healthy compatible workers may be cached, but cache size does not define capacity. Container/profile lifecycle is independent, so enabling both `workspace` and `restricted` does not require reserved worker capacity for each profile. For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
 
 **Claude `approval` and `sandbox` (two orthogonal axes).** Mirroring the Codex provider's vocabulary, the Claude provider accepts two independent trusted-run knobs, both defaulting OFF:
 
@@ -599,7 +599,7 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 - Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, `required_builtins`, `container_isolation_required`, and `container_profile`.
 - Missing `topology` defaults to `unverified`; unverified and relay ACP agents are container-isolation-only until verification proves reverse-call guard mediation.
 - Guarded Goose registrations require the `developer` builtin.
-- Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default pool size `1`.
+- Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default worker-lease capacity `1`.
 
 **Note on `mcp_servers`:** Each entry configures one external MCP server for hosts that instantiate the outbound MCP
 client. Use `command` for stdio servers or `url` for HTTP servers; exactly one transport is required. The default
@@ -823,7 +823,7 @@ The following configuration keys are deprecated. They still work but will be rem
 | Removed Key | Use Instead |
 |---|---|
 | `delegation.*` | Define logical agents under `agent.agents`; start them with `sessions_spawn` and continue them with `sessions_send` |
-| `tasks.max_concurrent` | `providers.<id>.pool_size` – shared capacity for background tasks and logical-agent sessions |
+| `tasks.max_concurrent` | `providers.<id>.pool_size` – per-provider worker-lease capacity for background execution |
 
 ## Network Exposure Warning
 

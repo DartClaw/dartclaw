@@ -410,6 +410,10 @@ Workflow agent steps default to a one-shot execution path for bounded workflow w
 
 There is no longer a workflow-level or per-step `executionMode` switch. Workflow agent steps always use the one-shot path; interactive chat/tasks still use the long-lived streaming harnesses.
 
+Each running one-shot acquires a capacity-only lease against its provider's `pool_size`. This gives workflows the same
+hard background limit as other execution without starting an unused long-lived worker harness. The lease is the
+authority; an availability snapshot may guide parallel dispatch but cannot expand capacity.
+
 Workflow agent steps default to `type: agent` when `type:` is omitted. Read-only behavior is now derived from `allowedTools`: if a step declares an allowlist and omits `file_write`, DartClaw marks the task read-only and blocks file mutations. File-backed review steps that must write report artifacts include `file_write`; ordinary inspection-only review steps leave it out.
 
 JSON outputs now support two output modes, with `format: json` + `schema` defaulting to native structured output:

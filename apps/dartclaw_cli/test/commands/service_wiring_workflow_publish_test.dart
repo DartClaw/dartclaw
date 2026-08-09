@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/service_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart' show workflowPushedBranches;
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowGitPublishResult, WorkflowPublishStatus, WorkflowRun, WorkflowRunStatus;
 import 'package:path/path.dart' as p;

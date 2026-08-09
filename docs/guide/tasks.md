@@ -109,12 +109,12 @@ The web UI's **New Task** dialog exposes these as "Advanced" fields.
 
 ## Execution Model
 
-Tasks run on workers from the shared `HarnessPool`, separate from the primary harness used for interactive chat, cron, and channels. For a full comparison of background tasks and logical-agent sessions, see [Agents](agents.md).
+Tasks acquire per-provider worker leases from the execution coordinator, separate from the fixed primary lane used for main user/channel turns. For a full comparison of background tasks and logical-agent sessions, see [Agents](agents.md).
 
-- `providers.<id>.pool_size` controls worker capacity for background tasks and logical-agent sessions
-- the primary interactive chat runner (index 0) is never acquired by the task executor
+- `providers.<id>.pool_size` is a hard concurrent lease limit shared with other background execution
+- the primary lane is never acquired by the task executor
 - each task type maps to a container security profile (see below)
-- `/tasks` shows execution state through the harness pool and worker metrics panels
+- `/tasks` shows execution state through lease-derived worker metrics
 
 ### Container Profile Routing
 
@@ -132,7 +132,7 @@ behavior but cannot activate these container profiles; enabling containers fails
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
 
-In pool mode, the task executor matches a task's profile to a runner started with that profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally get a `workspace` runner with filesystem access.
+The task executor requests a worker whose execution fingerprint matches the task's provider and profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; containers are managed independently and may be shared by multiple compatible workers.
 
 ## Coding Tasks and Worktrees
 
@@ -214,7 +214,7 @@ See [Scheduling](scheduling.md) for the broader scheduler model.
 ## Goals and Observability
 
 - Tasks can be grouped under goals for planning and reporting
-- `/tasks` shows review counts and runner utilization
+- `/tasks` shows review counts and lease-derived worker utilization
 - task detail pages expose recent session messages plus artifacts for operator review
 
 ## Configuration Summary

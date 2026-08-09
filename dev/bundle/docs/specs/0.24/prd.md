@@ -1,10 +1,10 @@
 # PRD – 0.24 Logical-Agent Correctness and Scheduling Operability
 
-> **Durable milestone record.** This PRD is the persistent plan-bundle record of the requirements, decisions, discovered requirements, and delivered outcomes for 0.24. `plan.json`, story FIS files, and review reports supported execution and may retain superseded implementation-time terminology; they are transient and are not authoritative after the milestone closes. Execution repo: `dartclaw-public`; branch: `feat/0.24`. Originally authored 2026-08-05; reconciled to the delivered design 2026-08-09.
+> **Durable milestone record.** This PRD is the sole persistent plan-bundle record of the requirements, decisions, discovered requirements, implementation, and acceptance evidence for 0.24. `plan.json`, story FIS files, and review reports supported execution and may retain superseded implementation-time terminology; they are transient and are not authoritative after the milestone closes. Execution repo: `dartclaw-public`; branch: `feat/0.24`.
 
 ## Status
 
-Implemented and verified on 2026-08-09. The milestone delivered four planned features and a post-implementation consolidation of the logical-agent/session architecture uncovered while validating the original delegation design.
+Implemented and verified. The four planned features, logical-agent/session consolidation, and final execution-authority, worker-capacity, reuse, and lifecycle correction are complete.
 
 ## Problem and Goal
 
@@ -15,7 +15,7 @@ Implemented and verified on 2026-08-09. The milestone delivered four planned fea
 3. Daily turn logs lacked an opt-in process for curating durable memory.
 4. Scheduled prompt jobs could not be triggered immediately through normal operator surfaces.
 
-Implementation exposed a deeper design error: `sessions_send` mixed conversation creation and continuation, while `delegate_to_agent` duplicated the same use case through provider-specific machinery. The final goal therefore became one provider-independent logical-agent model with durable DartClaw sessions, host-owned policy, and bounded state-free execution capacity.
+Implementation exposed a deeper design error: `sessions_send` mixed conversation creation and continuation, while `delegate_to_agent` duplicated the same use case through provider-specific machinery. Subsequent convergence also found that idle harness objects, capacity, and routing authority were still conflated. The final goal therefore became one provider-independent logical-agent model with durable DartClaw sessions, host-owned policy, one post-governance execution authority, and bounded execution capacity independent from opportunistic process reuse.
 
 ## Product Requirements
 
@@ -44,6 +44,7 @@ Implementation exposed a deeper design error: `sessions_send` mixed conversation
 ### R3 – Provider-neutral continuity with adapter-local mechanics
 
 - Every provider exposes the same DartClaw logical-session contract. Product orchestration must not branch on provider identity.
+- Provider branching is confined to provider adapters and composition/wiring. Scheduling, task, logical-agent, governance, and observability code consume provider-neutral execution contracts.
 - Provider-specific handling is limited to external protocol mechanics required to preserve the contract:
   - Codex associates its native threads with DartClaw session IDs.
   - Claude's stateful process restarts when a reused worker switches logical sessions, then receives only the selected session's persisted history.
@@ -52,11 +53,17 @@ Implementation exposed a deeper design error: `sessions_send` mixed conversation
 
 ### R4 – Shared bounded worker capacity
 
-- Logical-agent sessions never acquire the primary runner. Background tasks and logical-agent sessions share a bounded pool of additional workers; the existing single-harness task mode may use an idle primary only when worker capacity is disabled.
-- `providers.<id>.pool_size` is the only worker-capacity setting. The value is a hard ceiling, including initially supplied and lazily provisioned workers. `tasks.max_concurrent` and agent-specific concurrency quotas are removed.
-- A worker is execution capacity only. It may be matched by provider and security profile, but it owns no durable conversation, agent identity, or delegation lifecycle.
-- Pool provisioning coalesces concurrent requests, respects exact provider/profile requirements, and never silently grows beyond configured capacity.
-- The separate global `max_parallel_turns` setting remains a server admission boundary, not a worker-capacity control.
+- After global turn governance admits a request, one execution coordinator is the sole authority for lane selection, admission, capacity leases, worker reuse, replacement, and release.
+- The configured primary provider has one fixed serialized primary-interactive lane for main-agent user and channel turns. Cron and other system jobs, advisor turns, background tasks, and logical-agent sessions never use this lane.
+- `providers.<id>.pool_size` is the sole worker-capacity setting and a hard per-provider ceiling on concurrent worker executions. It excludes the fixed primary-interactive lane. `tasks.max_concurrent`, agent-specific quotas, cached process count, and container count do not affect the ceiling.
+- Worker surfaces acquire a provider capacity lease before execution. Ordinary worker turns may wait; nested logical-agent acquisition remains fail-fast so a child cannot wait on capacity held by its caller.
+- Workflow one-shots acquire the same provider capacity lease but are capacity-only executions: they spawn their bounded CLI process directly and never enter the reusable harness cache.
+- Reusable harnesses are an opportunistic cache, not capacity. There are no cache-size, TTL, prewarm, or reuse-policy knobs. Lookup prefers the exact session within the requested canonical construction fingerprint, then any healthy worker with a compatible fingerprint; an unknown compatibility or health state requires a fresh worker.
+- A released unhealthy worker is disposed, not cached. Replacement requires confirmed teardown of the managed root process; if confirmation is unavailable, the capacity slot is quarantined instead of spawning a potentially overlapping replacement.
+- Containers are amortized independently from harness processes and capacity leases. A long-lived profile container may serve multiple executions without becoming conversation state or changing `pool_size` accounting.
+- Runtime busy/free/current-work state is derived from coordinator leases. Cached harness state may enrich diagnostics but is not execution authority.
+- SDK compositions that supply only one harness retain a compatibility exception: absent multi-worker coordination, ordinary background tasks may serialize on that harness. The server runtime and logical-agent routing do not use this exception.
+- The separate global `max_parallel_turns` setting remains a pre-coordinator server admission boundary, not a worker-capacity control.
 
 ### R5 – Human-conversation onboarding scope
 
@@ -96,9 +103,9 @@ Implementation exposed a deeper design error: `sessions_send` mixed conversation
 
 1. **Host-owned orchestration.** DartClaw owns logical-agent identity, lifecycle, persistence, guards, and routing. Provider-native agent features are not a second orchestration API. This supersedes the initial two-tier native-subagent decision and is recorded in `dev/state/DECISIONS.md` and the 2026-08-09 addendum to ADR-003.
 2. **Sessions are canonical; workers are replaceable.** Durable DartClaw state is replayed or resumed through adapter capabilities. A pooled harness is never the record of a conversation.
-3. **One capacity boundary.** Provider worker pools cover logical-agent turns and structured background tasks. Duplicate task and delegation quotas were removed.
+3. **One capacity boundary and one authority.** A post-governance execution coordinator owns the fixed primary lane and per-provider worker leases. `pool_size` limits concurrent worker execution; cached harnesses and containers are independently amortized resources.
 4. **Security fails closed.** Exact provider/profile routing, provider-ID normalization, closed tool semantics, and loopback-only unauthenticated MCP avoid convenience fallbacks that weaken policy.
-5. **Adapter differences require evidence.** Provider-specific code is acceptable only where an external protocol demands it and tests prove the common continuity/isolation contract.
+5. **Adapter differences require evidence.** Provider-specific code is acceptable only in adapters and composition/wiring where an external protocol demands it and tests prove the common continuity/isolation contract.
 6. **Breaking cleanup over compatibility scaffolding.** The project is pre-alpha; obsolete APIs and configuration are removed, with targeted parser/documentation warnings rather than parallel legacy runtime paths.
 
 ## Changes from the Initial Plan
@@ -113,6 +120,8 @@ The original F2 design treated `sessions_send` as both spawn and send, retained 
 - narrowed the pool from task/delegation state machinery to shared bounded worker capacity;
 - renamed agent-process observability to runner/worker terminology;
 - added exact normalization, hard-cap, fail-closed profile, reconstruction, and cross-session continuity requirements.
+
+The implemented final correction separates admission, execution capacity, and process reuse: one coordinator owns all post-governance execution; the primary-interactive lane is fixed and serialized; worker `pool_size` is lease capacity rather than a process-count target; workflow one-shots consume capacity without entering the cache; reuse is fingerprinted and opportunistic; and unconfirmed teardown quarantines capacity.
 
 These are accepted requirement and design changes, not compatibility defects against the transient FIS wording.
 
@@ -129,16 +138,20 @@ These are accepted requirement and design changes, not compatibility defects aga
 
 Removed configuration keys are recognized only to produce migration warnings. They do not create runtime state or widen policy.
 
-## Acceptance and Evidence
+## Acceptance Evidence
 
-- Full workspace verification passed: format, fatal static analysis, every package/application suite, 8/8 architecture checks, 31/31 fitness checks, and `git diff --check`.
-- Provider continuity tests prove Claude A→B→A process isolation and replay, Codex per-session thread identity, and ACP bounded replay on fresh provider sessions.
-- Reconstruction tests prove a logical-agent handle retains exact provider, profile, and history after service and worker reconstruction.
-- Capacity tests prove constructor, lazy growth, profile-specific acquisition, nested exhaustion, and provider-specific acquisition cannot exceed the hard ceiling.
-- Security tests prove exact own-MCP semantic mapping, deny-union behavior, network overrides, restricted-profile fail-close, auth-enabled bearer enforcement, and auth-disabled loopback-only MCP exposure.
-- A production Claude smoke created a logical-agent worker while the primary caller remained active, applied persona/model configuration, returned the guarded result, and released the worker.
-- Production memory-journal smokes proved authenticated and auth-disabled-loopback `memory_save`, categorized `MEMORY.md` persistence, exact `ToolSearch` discovery, and denial of sibling memory capabilities.
-- Desktop and mobile visual validation passed for Tasks, Settings provider capacity, New Task, and active SYSTEM job states with no layout overflow or browser errors.
+- A throwaway runnable spike separated capacity from caching and measured the actual reuse envelope. A capacity-one gate queued for about 64 ms and recovered after an exception; a workflow one-shot held the former worker lease for about 293 ms without invoking its harness. Claude 2.1.226 measured 1,075 ms startup, 3,011 ms cold execution, 1,150 ms exact-session warm execution, and 4,050 ms after a session switch. Codex 0.146.0 kept one App Server across A→B→A; ACP kept one initialized process while creating fresh provider sessions. Container lifecycle was independently amortized.
+- Structural checks prove production execution surfaces use the single post-governance coordinator, obsolete pool/coordinator constructs are removed, and provider identity branching remains confined to adapters and composition/wiring.
+- Routing tests prove the coordinator derives the lane from the execution surface: clients cannot choose one. Main user/channel turns serialize on the fixed primary lane while retaining distinct execution provenance; cron/system jobs, advisor turns, tasks, and logical-agent sessions use the selected provider's worker capacity. The SDK single-harness background compatibility path serializes and cannot serve server logical-agent execution.
+- Gate and coordinator tests prove FIFO queueing, prompt failure of queued/future waiters after final-slot quarantine, fail-fast acquisition, release after success/error/cancellation, hard per-provider capacity, capacity-only one-shots without unused harness construction, exact provider/profile isolation, exact-session affinity before compatible-fingerprint reuse, fresh construction for incompatibility, cache scavenging, and truthful lease events/snapshots.
+- Lifecycle tests prove turn-token-owned guard reset, lease release only after provider cleanup, paired admission callbacks, single-owner session admission, fail-closed continuity reset during active and pending acquisition, rejection and teardown of non-idle factory results, disposal after failed cancellation recovery even when the harness later reports idle, independent stop/dispose cleanup after failed startup, confirmed replacement, unconfirmed-root quarantine, capacity health degradation, shutdown draining of delayed worker creation, idempotent concurrent shutdown, and no cross-session lock or provider-state leakage.
+- Observability tests prove busy/free/current-work state comes only from leases; terminal outcomes update primary and worker metrics exactly once at the shared runner-settlement seam; disposed workers leave current runner registries; and fingerprint churn cannot accumulate stale runner rows or references.
+- Provider-routing tests prove mixed-case task overrides are normalized before persistence and exact runtime-map lookup.
+- Provider continuity tests prove Claude A→B→A process isolation and bounded replay, Codex per-session thread identity, and ACP bounded replay through fresh provider sessions on a compatible initialized process.
+- Reconstruction and security tests prove logical-agent handles retain exact provider, profile, and history; exact own-MCP semantic mapping, deny-union behavior, network overrides, primary/worker ACP permission-callback parity with isolated runner policies, restricted-profile fail-close, authenticated bearer enforcement, and auth-disabled loopback-only MCP exposure remain intact.
+- Terminal-outcome tests prove polling, waiting, status lookup, SSE reconnect, and idempotent cancellation remain available through the configured TTL after an opportunistic worker is disposed, without retaining that runner; reset and exact expiry remove the retained outcome.
+- Full workspace verification passes formatting, fatal static analysis, every package/application suite, 8/8 architecture checks, fitness checks, and `git diff --check`.
+- Desktop and mobile visual validation passes for Tasks execution capacity and Settings provider capacity with canonical meters, zero scoped accessibility violations, no horizontal overflow, and no browser console/page errors.
 
 ## Deferred
 
@@ -149,6 +162,8 @@ Removed configuration keys are recognized only to produce migration warnings. Th
 
 - A second provider-native logical-agent API or provider-specific orchestration contract.
 - Per-agent capacity quotas, independent delegation budgets, or unbounded process spawning.
+- Cache tuning, prewarming, TTLs, or coupling process/container counts to execution capacity.
+- Provider-specific routing or observability behavior outside adapters and composition/wiring.
 - Making provider-local conversation state authoritative.
 - Silent security-profile fallback or automatic pool expansion.
 - Memory-journal delivery/model/prompt knobs, deterministic empty-day prechecks, or changes to consolidation/pruning.
@@ -157,7 +172,7 @@ Removed configuration keys are recognized only to produce migration warnings. Th
 ## Story Traceability
 
 - **S01:** Live agent tool/network policy enforcement and exact cross-provider semantic mapping.
-- **S02:** Persona/model/onboarding application, reachable background execution, and the logical-agent/session consolidation described above.
+- **S02:** Persona/model/onboarding application, reachable background execution, logical-agent/session consolidation, and the final execution-authority correction described above.
 - **S03:** Opt-in built-in memory journal, exact closed tool boundary, loopback MCP availability, and live persistence proof.
 - **S04:** Generic on-demand scheduled prompt jobs through CLI, API, and Web UI.
 

@@ -98,7 +98,10 @@ extension TurnRunnerCancellation on TurnRunner {
           })
           .catchError((Object _) {}),
     );
-    return const TurnCancelResult(status: TurnWaitState.cancelled, releasedSessionLock: true);
+    return TurnCancelResult(
+      status: TurnWaitState.cancelled,
+      releasedSessionLock: !_externallyAdmittedTurns.contains(turnId),
+    );
   }
 
   Future<void> _restartWorkerAfterAcceptedCancel(String turnId) async {
@@ -203,9 +206,8 @@ extension TurnRunnerCancellation on TurnRunner {
     _cancellingTurns.remove(turnId);
     _turnProgressSnapshots.remove(sessionId);
     _runtimeWaits.remove(sessionId)?.dispose();
-    _lockManager.release(sessionId);
-    _taskToolFilterGuard?.setSessionToolFilter(sessionId, null);
-    _taskToolFilterGuard?.setSessionReadOnly(sessionId, false);
+    if (!_externallyAdmittedTurns.contains(turnId)) _lockManager.release(sessionId);
+    _clearTurnPolicy(sessionId, turnId);
     final turnState = _turnState;
     if (turnState != null) {
       unawaited(
@@ -269,18 +271,23 @@ extension TurnRunnerCancellation on TurnRunner {
   }
 
   void _rememberRecentOutcome(TurnOutcome outcome, {String? taskId, DateTime? cachedAt}) {
+    final firstSettlement = !_recentOutcomes.containsKey(outcome.turnId);
     _recentOutcomes[outcome.turnId] = (outcome: outcome, expiresAt: (cachedAt ?? DateTime.now()).add(_outcomeTtl));
     if (taskId != null) {
       _recentTaskIds[outcome.turnId] = taskId;
     } else {
       _recentTaskIds.remove(outcome.turnId);
     }
+    if (firstSettlement) _outcomeObserver?.call(outcome);
   }
 
   void _evictExpiredOutcomes() {
     final now = DateTime.now();
     _recentOutcomes.removeWhere((_, v) => v.expiresAt.isBefore(now));
     _recentTaskIds.removeWhere((turnId, _) => !_recentOutcomes.containsKey(turnId));
+    _executionSettledPending.removeWhere(
+      (turnId, pending) => pending.completer.isCompleted && !_recentOutcomes.containsKey(turnId),
+    );
   }
 }
 

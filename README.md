@@ -25,11 +25,11 @@ _Agentic powers. No supply-chain roulette. Secure by design._
 - **Your AI, on your phone** – WhatsApp, Signal, and Google Chat channels with DM/group access control, mention gating, and thread-bound task sessions. **Crowd coding**: a group chat collaboratively steers a shared agent session.
 - **It remembers** – the Context Engine maintains an LLM-curated wiki, a temporal knowledge graph, and long-term memory, synthesized into compact citation-backed packets served to agents over MCP (`context_research`) – browsable in the web UI's read-only Knowledge Hub with a point-in-time timeline. Hybrid FTS5/QMD search across all of it.
 - **A software factory** – built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows take work from spec to reviewed code, plus custom workflows triggered from chat, web forms, or GitHub PR webhooks. Run server-backed or fully server-less, with approval gates, live CLI progress, and per-step token accounting.
-- **Task orchestration** – background tasks with review queues, task types, goals, git worktrees, and per-task provider overrides; heterogeneous worker pools run mixed providers in parallel.
+- **Task orchestration** – background tasks with review queues, task types, goals, git worktrees, and per-task provider overrides; bounded per-provider worker capacity runs mixed providers in parallel.
 - **Scheduled autonomy** – heartbeat and cron jobs with configurable delivery: morning briefings, nightly reflection, a knowledge inbox – see the [recipes](docs/guide/recipes/README.md).
 - **Runtime governance** – admin senders, per-sender rate limits, daily token budgets, loop detection, and `/stop` / `/pause` / `/resume` emergency controls.
 - **Agent conversations & outbound MCP** – agents start or continue provider-independent logical-agent sessions through `sessions_spawn` and `sessions_send`, while external MCP traffic crosses a guard-mediated, audited egress boundary.
-- **Operable from anywhere** – full web UI (HTMX, SSE streaming), REST API, and a CLI covering serve, sessions, tasks, agents, workflow, jobs, projects, service, and more ([CLI reference](docs/guide/cli-reference.md)).
+- **Operable from anywhere** – full web UI (HTMX, SSE streaming), REST API, and a CLI covering serve, sessions, tasks, runners, workflow, jobs, projects, service, and more ([CLI reference](docs/guide/cli-reference.md)).
 
 ## Installation
 
@@ -189,7 +189,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 
 ```
 apps/
-  dartclaw_cli/                 AOT-compilable CLI app – serve, workflow, tasks, sessions, agents,
+  dartclaw_cli/                 AOT-compilable CLI app – serve, workflow, tasks, sessions, runners,
                                 jobs, projects, service, deploy, and more (see CLI reference)
 packages/
   dartclaw/                     Published umbrella – re-exports core + models + storage

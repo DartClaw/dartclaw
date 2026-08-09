@@ -12,7 +12,7 @@ The data-layer decomposition that makes that boundary tractable is already in pl
 
 What is still missing is a named behavioral contract. Three code-level realities currently look like they could be accidental coupling unless the intent is recorded:
 
-- `TaskExecutor` branches on `_isWorkflowOrchestrated(task)` and routes workflow-orchestrated tasks through `_executeWorkflowOneShotTask()` via `WorkflowCliRunner` instead of the interactive harness-pool path.
+- `TaskExecutor` branches on `_isWorkflowOrchestrated(task)` and routes workflow-orchestrated tasks through `_executeWorkflowOneShotTask()` via `WorkflowCliRunner` instead of a reusable worker harness.
 - `dartclaw_workflow` writes a `Task` row directly through `TaskRepository.insert()` rather than going through `TaskService.create()`.
 - Host-executed steps (`bash`, `approval`) run entirely inside the workflow engine and never materialize a `Task`. The `foreach` controller is also host-executed and zero-task, but it dispatches child steps that do compile to tasks whenever those children are agent steps.
 
@@ -24,7 +24,7 @@ Formalize three behavioral commitments that define the workflow–task boundary.
 
 1. **Workflows compile to tasks.** Every workflow agent step creates a `Task`. The workflow engine does not own a parallel execution stack for agent work. Host-executed steps `bash` and `approval` are zero-task by design. The `foreach` controller is also host-executed and zero-task, but that is a statement about the controller itself: its child steps still compile to tasks whenever those children are agent steps, so a `foreach` scope can and routinely does materialize tasks through its children.
 
-2. **`TaskExecutor` is aware of workflow orchestration and routes deliberately.** The `_isWorkflowOrchestrated(task)` branch and the `_executeWorkflowOneShotTask()` path (via `WorkflowCliRunner`) are intentional, not a refactor target. Workflow-orchestrated tasks execute as a one-shot CLI invocation rather than via the interactive harness pool because a workflow step is a bounded prompt-chain, not a long-lived conversation. The interactive path remains the default for everything else.
+2. **`TaskExecutor` is aware of workflow orchestration and routes deliberately.** The `_isWorkflowOrchestrated(task)` branch and the `_executeWorkflowOneShotTask()` path (via `WorkflowCliRunner`) are intentional, not a refactor target. Workflow-orchestrated tasks execute as a one-shot CLI invocation under a capacity-only execution lease because a workflow step is a bounded prompt-chain, not a long-lived conversation. Reusable worker execution remains the default for other background tasks.
 
 3. **`dartclaw_workflow` may write to `TaskRepository` directly.** `TaskService.create()` is intentionally bypassed for the narrow purpose of atomically inserting the three-row chain (`Task` + `AgentExecution` + `WorkflowStepExecution`) in a single transaction. All reads and lifecycle transitions still go through the narrow `WorkflowTaskService` interface defined in `dartclaw_core`. The direct-insert affordance is scoped to creation and must not be widened.
 
@@ -38,7 +38,7 @@ Formalize three behavioral commitments that define the workflow–task boundary.
 
 ### Negative
 
-- `TaskExecutor` carries two execution paths (interactive harness pool vs. workflow one-shot) that must stay synchronized for cross-cutting concerns such as cancellation, timeout, artifact capture, and progress events.
+- `TaskExecutor` carries two execution paths (reusable worker vs. workflow one-shot) that must stay synchronized for cross-cutting concerns such as cancellation, timeout, artifact capture, and progress events.
 - New contributors need to learn both paths before touching task execution. The branch on `_isWorkflowOrchestrated` is load-bearing and not self-explanatory at the call site.
 - The direct-insert affordance in `dartclaw_workflow` is a narrow exception to the usual rule that domain packages go through services. It needs a fitness function to stay narrow.
 

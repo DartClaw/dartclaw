@@ -5,22 +5,18 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../task/runner_observer.dart';
 
-/// Creates a [Router] with harness-runner REST API endpoints.
+/// Creates a [Router] with execution-runner REST API endpoints.
 ///
-/// `GET /api/runners` — all runners with metrics and pool status.
-/// `GET /api/runners/<id>` — single runner metrics by pool index.
+/// `GET /api/runners` — all runners with metrics and capacity status.
+/// `GET /api/runners/<id>` — single runner metrics by stable runtime ID.
 Router runnerRoutes(RunnerObserver observer) {
   final router = Router();
 
   router.get('/api/runners', (Request request) {
+    final capacity = observer.capacityStatus;
     final body = jsonEncode({
       'runners': observer.metrics.map((m) => m.toJson()).toList(),
-      'pool': {
-        'size': observer.poolStatus.size,
-        'activeCount': observer.poolStatus.activeCount,
-        'availableCount': observer.poolStatus.availableCount,
-        'maxConcurrentWorkers': observer.poolStatus.maxConcurrentWorkers,
-      },
+      'capacity': capacity.toJson(),
     });
     return Response.ok(body, headers: {'Content-Type': 'application/json'});
   });

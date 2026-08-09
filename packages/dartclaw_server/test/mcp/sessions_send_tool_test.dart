@@ -53,7 +53,7 @@ void main() {
     test('logical-agent session failure returns ToolResultError', () async {
       final sessions = LogicalAgentSessionService(
         dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
-          throw StateError('Provider "claude" worker pool unavailable; increase providers.claude.pool_size');
+          throw StateError('Provider "claude" worker capacity unavailable; increase providers.claude.pool_size');
         },
         agents: {'search': searchAgent},
       );

@@ -115,6 +115,11 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
           return;
         }
 
+        if (data.type === 'execution_capacity') {
+          refreshTasksPageContent();
+          return;
+        }
+
         if (data.type === 'project_status') {
           updateProjectStatusBadge(data.projectId, data.newStatus);
           updateProjectSelectorOption(data.projectId, data.newStatus);

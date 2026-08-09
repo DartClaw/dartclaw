@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../execution_coordinator_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -43,6 +44,10 @@ class _FakeHarness implements AgentHarness {
   PromptStrategy get promptStrategy => PromptStrategy.replace;
   @override
   WorkerState get state => WorkerState.idle;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
+
   @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
   @override
@@ -150,6 +155,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-default', TaskStatus.review);
 
       expect((await tasks.get('task-default'))!.status, TaskStatus.review);
     });
@@ -168,6 +174,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-mandatory', TaskStatus.review);
 
       expect((await tasks.get('task-mandatory'))!.status, TaskStatus.review);
     });
@@ -186,6 +193,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-auto-accept', TaskStatus.accepted);
 
       expect((await tasks.get('task-auto-accept'))!.status, TaskStatus.accepted);
     });
@@ -204,6 +212,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-coding-review', TaskStatus.review);
 
       expect((await tasks.get('task-coding-review'))!.status, TaskStatus.review);
     });
@@ -222,6 +231,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-coding-only-research', TaskStatus.accepted);
 
       expect((await tasks.get('task-coding-only-research'))!.status, TaskStatus.accepted);
     });
@@ -240,6 +250,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-unknown-mode', TaskStatus.review);
 
       // Falls back to default behavior: goes to review.
       expect((await tasks.get('task-unknown-mode'))!.status, TaskStatus.review);
@@ -261,9 +272,9 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: workspaceDir),
         sessions: sessions,
         taskToolFilterGuard: filter,
+        profileId: 'restricted',
       );
-      final pool = HarnessPool(runners: [runner]);
-      final poolTurns = TurnManager.fromPool(pool: pool);
+      final poolTurns = turnManagerForRunners([turns.executions.primary!, runner]);
 
       final executor = buildExecutor(turnManager: poolTurns);
       addTearDown(executor.stop);
@@ -281,6 +292,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-filter', TaskStatus.review);
 
       // Guard should be cleared after the turn (null for cleanup).
       expect(filter.allowedTools, isNull);
@@ -343,8 +355,7 @@ void main() {
         sessions: sessions,
         taskToolFilterGuard: filter,
       );
-      final pool = HarnessPool(runners: [runner]);
-      final poolTurns = TurnManager.fromPool(pool: pool);
+      final poolTurns = turnManagerForRunners([runner]);
 
       poolTurns.setTaskToolFilter(['web_fetch']);
       expect(filter.allowedTools, ['web_fetch']);
@@ -361,9 +372,9 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: workspaceDir),
         sessions: sessions,
         taskToolFilterGuard: filter,
+        profileId: 'restricted',
       );
-      final pool = HarnessPool(runners: [runner]);
-      final poolTurns = TurnManager.fromPool(pool: pool);
+      final poolTurns = turnManagerForRunners([turns.executions.primary!, runner]);
 
       final executor = buildExecutor(turnManager: poolTurns);
       addTearDown(executor.stop);
@@ -379,6 +390,7 @@ void main() {
       );
 
       await executor.pollOnce();
+      await _waitForStatus(tasks, 'task-malformed-filter', TaskStatus.review);
 
       // Task should still complete — malformed allowedTools is fail-safe.
       expect((await tasks.get('task-malformed-filter'))!.status, TaskStatus.review);
@@ -433,4 +445,13 @@ void main() {
       expect(verdict.message, contains('read-only'));
     });
   });
+}
+
+Future<void> _waitForStatus(TaskService tasks, String taskId, TaskStatus expected) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 2));
+  while (DateTime.now().isBefore(deadline)) {
+    if ((await tasks.get(taskId))?.status == expected) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw StateError('Task $taskId did not reach ${expected.name}');
 }

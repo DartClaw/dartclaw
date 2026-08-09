@@ -9,5 +9,5 @@ _FakeHarness  # existing duplicate AgentHarness fake; migrate to FakeAgentHarnes
 _FakeSessionService  # existing duplicate session-service fake; migrate to InMemorySessionService or package-local support
 _FakeWorkerService  # existing duplicate AgentHarness fake; migrate to FakeAgentHarness or package-local support
 _MockProvider  # existing duplicate MCP search provider mock; migrate to shared MCP provider test support
-_StubHarness  # existing duplicate harness-pool stub; migrate to package-local harness pool test support
+_StubHarness  # existing duplicate harness stub; migrate to package-local harness test support
 _StubSessionService  # existing duplicate web page session stub; migrate to shared web page test support

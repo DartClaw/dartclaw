@@ -625,7 +625,7 @@ The default 600s timeout means a single stuck turn blocks the shared session for
 - **Empty `admin_senders` = all are admins**: Convenient for small trusted groups, but anyone can run `/stop` in a larger workshop. Add specific user IDs before public events
 - **Budget enforcement is pre-turn**: The token budget check happens before a turn starts. An in-flight turn may overshoot the budget by the cost of that single turn
 - **Pause queue has a 200-message hard cap**: Messages sent while paused are queued up to 200. Messages beyond that cap are acknowledged with a "queue full" notice and not processed. Use `/stop` instead if you need to halt processing entirely
-- **Advisor turns use worker-pool capacity**: when every worker is busy, the advisor skips that trigger instead of queueing behind active work
+- **Advisor turns use worker capacity**: when every worker lease is active, the advisor skips that trigger instead of queueing behind active work
 - **Rate limit state resets on server restart**: Per-sender and global counters are in-memory only. A restart clears all rate limit history -- useful for resetting between sessions, but unexpected during rolling restarts
 - **`push back` transitions task to running**: When a participant sends `push back: <feedback>`, the task moves from `review` back to `running` -- it is not a new task. The agent revises the existing work and resubmits for review
 - **Project clone happens on first task**: When using `projects:`, the repo is cloned on first use (or server start). Large repos may take time -- verify the clone completes before the workshop starts by creating a test task

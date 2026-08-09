@@ -1,15 +1,10 @@
-import '../harness/harness_pool.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
 import 'turn_outcome.dart';
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
 ///
-/// Uses [HarnessPool.primary] for ordinary sessions and provider-matched task
-/// runners for sessions pinned to a specific provider.
+/// Host-owned agent turn lifecycle boundary.
 abstract interface class TurnManager {
-  /// The pool backing this manager.
-  HarnessPool get pool;
-
   /// Number of runners currently available to accept a new task.
   int get availableRunnerCount;
 

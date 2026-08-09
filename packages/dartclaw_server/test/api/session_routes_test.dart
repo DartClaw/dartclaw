@@ -1203,7 +1203,7 @@ void main() {
           stuckAfter: Duration(milliseconds: 25),
         ),
       );
-      addTearDown(realTurns.pool.dispose);
+      addTearDown(realTurns.executions.dispose);
       final realHandler = localAdminMiddleware()(sessionRoutes(sessions, messages, realTurns, failingWorker).call);
       final session = await sessions.createSession();
       final turnId = await realTurns.startTurn(session.id, [
@@ -1224,7 +1224,7 @@ void main() {
 
       expect(res.statusCode, 200);
       expect(body['status'], 'cancelled');
-      expect(body['released_session_lock'], isTrue);
+      expect(body['released_session_lock'], isFalse, reason: 'the coordinator holds admission through recovery');
       expect(failingWorker.cancelCalled, isTrue);
       expect(failingWorker.stopCalled, isTrue);
       expect(realTurns.activeTurnId(session.id), isNull);

@@ -5,7 +5,7 @@
 **DartClaw** is an experimental, security-conscious AI agent runtime built with Dart. A single AOT-compiled Dart binary orchestrates multiple agent harnesses (Claude Code, Codex, more planned) via a 2-layer architecture (Dart host → native agent binaries via control protocols), providing persistent memory, real-time streaming, and defense-in-depth isolation — all with zero npm/Node.js at runtime.
 
 ## Architecture
-Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. DartClaw is **multi-harness by design** — Claude Code (JSONL over stdin/stdout) and Codex (JSON-RPC) are both first-class primary harnesses; the `HarnessFactory` creates provider-specific harness instances, and the `HarnessPool` manages a heterogeneous pool of runners with different providers and security profiles. Each harness type has its own binary, protocol adapter, and native conventions.
+Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. DartClaw is **multi-harness by design** — Claude Code (JSONL over stdin/stdout), Codex (JSON-RPC), and ACP adapters share one host-owned execution contract. An execution coordinator serializes the primary interactive lane, enforces per-provider worker capacity, and opportunistically reuses only compatible healthy harnesses. Each harness type retains its own binary, protocol adapter, and native conventions.
 
 ## Development Stage
 

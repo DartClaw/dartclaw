@@ -1,12 +1,10 @@
 import '../turn_manager.dart' show TurnManager;
-import 'runner_observer.dart';
 import 'workflow_cli_runner.dart';
 
 /// Turn-management and orchestration dependencies for [TaskExecutor].
 class TaskExecutorRunners {
-  const TaskExecutorRunners({required this.turns, this.observer, this.workflowCliRunner});
+  const TaskExecutorRunners({required this.turns, this.workflowCliRunner});
 
   final TurnManager turns;
-  final RunnerObserver? observer;
   final WorkflowCliRunner? workflowCliRunner;
 }

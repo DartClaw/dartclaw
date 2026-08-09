@@ -8,7 +8,7 @@ import '../../fixtures/e2e_fixture.dart';
 // scenario-types: foreach, parallel
 
 void main() {
-  test('pool_size 1 constrains availableCount to 1 (regression: always-pool-of-3 bug)', () async {
+  test('pool_size 1 configures one worker lease without eager harness creation', () async {
     final fixture = await E2EFixture()
         .withProject('fixture-project', remote: 'https://example.invalid/fixture-project.git', credentials: null)
         .withProvider(value: 'claude', workflowModel: 'claude-opus-4')
@@ -20,9 +20,10 @@ void main() {
     final wiring = await fixture.wire(harnessFactory: harnessFactory);
     addTearDown(wiring.dispose);
 
-    // If always-pool-of-3 bug were present, availableCount would be 3.
-    // A correctly configured pool_size=1 must report availableCount=1.
-    expect(wiring.pool.availableCount, 1);
-    expect(wiring.pool.availableCount, isNot(3));
+    final capacity = wiring.executions.snapshot.providers['claude']!;
+    expect(capacity.configured, 1);
+    expect(capacity.active, 0);
+    expect(capacity.cached, 0);
+    expect(wiring.executions.runners, isEmpty);
   });
 }

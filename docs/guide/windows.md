@@ -1,6 +1,6 @@
 # Windows
 
-DartClaw targets the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
+DartClaw targets the core runtime on native Windows x64: the server, Web UI, worker execution, sessions, and FTS5-backed
 storage/search. The 0.21 support contract and validation path are described below. Unix-coupled security and sidecar
 features do not have full Windows parity; the matrix is the support contract.
 

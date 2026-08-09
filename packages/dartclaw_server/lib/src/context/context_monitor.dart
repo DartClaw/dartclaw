@@ -12,8 +12,8 @@ final _log = Logger('ContextMonitor');
 /// needed. Check [checkThreshold] with a session ID to emit a one-shot context
 /// warning per session when usage exceeds [warningThreshold]%.
 ///
-/// This monitor is typically shared across all [TurnRunner] instances in the
-/// harness pool. Warning state is tracked per session via [_warnedSessions].
+/// This monitor is typically shared across all [TurnRunner] instances.
+/// Warning state is tracked per session via [_warnedSessions].
 class ContextMonitor implements Reconfigurable {
   int reserveTokens;
 

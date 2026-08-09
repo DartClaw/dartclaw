@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
+
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/runners/runners_command.dart';
 import 'package:dartclaw_cli/src/commands/runners/runners_list_command.dart';
@@ -14,17 +18,8 @@ void main() {
       expect(command.subcommands.keys, containsAll(['list', 'show']));
     });
 
-    test('list renders runner rows and a pool footer', () async {
-      final transport = FakeApiTransport(
-        sendResponses: [
-          jsonResponse(200, {
-            'runners': [
-              {'runnerId': 0, 'providerId': 'claude', 'state': 'idle', 'turnsCompleted': 4, 'tokensConsumed': 1234},
-            ],
-            'pool': {'size': 3, 'activeCount': 1, 'availableCount': 2, 'maxConcurrentWorkers': 3},
-          }),
-        ],
-      );
+    test('list renders runner roles and execution capacity', () async {
+      final transport = FakeApiTransport(sendResponses: [jsonResponse(200, await _runnerApiListFixture())]);
       final output = <String>[];
       final command = RunnersListCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
@@ -34,8 +29,17 @@ void main() {
 
       await runner.run(['list']);
 
-      expect(output.join('\n'), contains('claude'));
-      expect(output.join('\n'), contains('Pool: 3 runners, 1 active, 2 available'));
+      final rendered = output.join('\n');
+      expect(rendered, contains('primary'));
+      expect(rendered, contains('worker'));
+      expect(rendered, contains('Observed runners: 2'));
+      expect(rendered, contains('Primary lane: idle'));
+      expect(
+        rendered,
+        contains(
+          'Worker capacity: 1 configured, 1 effective, 1 active, 0 available, 0 queued, 0 cached, 0 quarantined',
+        ),
+      );
     });
 
     test('show prints runner details', () async {
@@ -57,4 +61,10 @@ void main() {
       expect(transport.requests.single.uri.path, '/api/runners/1');
     });
   });
+}
+
+Future<Map<String, dynamic>> _runnerApiListFixture() async {
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_testing/fixtures/runner_api_list.json'));
+  if (uri == null) throw StateError('Runner API fixture is unavailable.');
+  return jsonDecode(await File.fromUri(uri).readAsString()) as Map<String, dynamic>;
 }

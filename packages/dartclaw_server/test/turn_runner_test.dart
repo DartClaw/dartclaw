@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/concurrency/session_lock_manager.dart' show SessionLockTimerFactory;
-import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner, TurnRunnerExecution;
 import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
@@ -115,7 +115,12 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  TurnRunner monitoredRunner(AgentHarness harness, {EventBus? eventBus, SelfImprovementService? selfImprovement}) {
+  TurnRunner monitoredRunner(
+    AgentHarness harness, {
+    EventBus? eventBus,
+    SelfImprovementService? selfImprovement,
+    TaskToolFilterGuard? taskToolFilterGuard,
+  }) {
     return _buildRunner(
       harness: harness,
       messages: messages,
@@ -131,6 +136,7 @@ void main() {
       turnMonitorNow: turnMonitorTime.now,
       eventBus: eventBus,
       selfImprovement: selfImprovement,
+      taskToolFilterGuard: taskToolFilterGuard,
     );
   }
 
@@ -697,11 +703,15 @@ void main() {
 
     final cancelFuture = runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
     await raceWorker.cancelStarted.future;
+    final settlementFuture = runner.waitForExecutionSettled(session.id, turnId);
+    var settlementCompleted = false;
+    unawaited(settlementFuture.then((_) => settlementCompleted = true));
     var nextReserveCompleted = false;
     final nextReserve = runner.reserveTurn(session.id);
     unawaited(nextReserve.then((_) => nextReserveCompleted = true));
     await pumpEventQueue();
     expect(nextReserveCompleted, isTrue);
+    expect(settlementCompleted, isFalse);
 
     raceWorker.emit(DeltaEvent('late completion'));
     raceWorker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
@@ -718,6 +728,7 @@ void main() {
       );
     });
     final outcome = await outcomeFuture;
+    await settlementFuture;
     final storedMessages = await messages.getMessages(session.id);
     var thirdReserveCompleted = false;
     final thirdReserve = runner.reserveTurn(session.id);
@@ -729,6 +740,7 @@ void main() {
     expect(raceWorker.stopCalled, isTrue);
     expect(raceWorker.startCalled, isTrue);
     expect(outcome.status, TurnStatus.cancelled);
+    expect(settlementCompleted, isTrue);
     expect(runner.activeTurnId(session.id), nextTurnId);
     expect(thirdReserveCompleted, isFalse);
     expect(storedMessages.where((message) => message.role == 'assistant'), isEmpty);
@@ -747,6 +759,56 @@ void main() {
     });
     runner.releaseTurn(session.id, thirdTurnId);
     await thirdOutcome;
+  });
+
+  test('late cancelled-turn teardown cannot clear the successor turn policy', () async {
+    final guard = TaskToolFilterGuard();
+    final raceWorker = DelayedCancelHarness();
+    addTearDown(raceWorker.dispose);
+    runner = monitoredRunner(raceWorker, taskToolFilterGuard: guard);
+    final session = await sessions.getOrCreateMainSession();
+    Future<GuardVerdict> probeFetch() => guard.evaluate(
+      GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'web_fetch',
+        sessionId: session.id,
+        timestamp: DateTime.now(),
+      ),
+    );
+    final firstTurnId = await runner.startTurn(
+      session.id,
+      const [
+        {'role': 'user', 'content': 'First'},
+      ],
+      allowedTools: const ['first_tool'],
+    );
+    await raceWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
+
+    await runner.cancelTurnById(session.id, firstTurnId, TurnCancelReason.operatorCancel);
+    await raceWorker.cancelStarted.future;
+    final secondTurnId = await runner.startTurn(
+      session.id,
+      const [
+        {'role': 'user', 'content': 'Second'},
+      ],
+      allowedTools: const ['second_tool'],
+      readOnly: true,
+    );
+    await pumpEventQueue();
+    expect((await probeFetch()).isBlock, isTrue, reason: 'successor policy must apply during provider recovery');
+
+    raceWorker.completeSuccess(turnResult());
+    await pumpEventQueue();
+    expect((await probeFetch()).isBlock, isTrue, reason: 'stale first-turn finally must not clear successor policy');
+
+    raceWorker.allowCancelReturn.complete();
+    await raceWorker.turnInvoked;
+    expect((await probeFetch()).isBlock, isTrue);
+    raceWorker.completeSuccess(turnResult());
+    expect((await runner.waitForOutcome(session.id, secondTurnId)).status, TurnStatus.completed);
+    await runner.waitForExecutionSettled(session.id, secondTurnId);
+    expect((await probeFetch()).isPass, isTrue);
   });
 
   test('accepted cancel cleanup failure force-completes and releases the session', () async {

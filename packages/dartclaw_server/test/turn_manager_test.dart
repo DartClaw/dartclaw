@@ -1,19 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'turn_manager_test_support.dart';
+import 'execution_coordinator_test_support.dart';
 
 void main() {
   late Directory tempDir;
@@ -54,31 +54,26 @@ void main() {
 
     test('uses a provider-matched pooled runner for provider-pinned sessions', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final session = await sessionService.createSession(provider: 'codex');
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
       final codexWorker = FakeWorkerService();
-      final providerTurns = TurnManager.fromPool(
-        pool: HarnessPool(
-          runners: [
-            TurnRunner(
-              harness: primaryWorker,
-              messages: messages,
-              behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-              sessions: sessionService,
-              providerId: 'claude',
-            ),
-            TurnRunner(
-              harness: codexWorker,
-              messages: messages,
-              behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-              sessions: sessionService,
-              providerId: 'codex',
-            ),
-          ],
+      final providerTurns = turnManagerForRunners([
+        TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+          sessions: sessionService,
+          providerId: 'claude',
         ),
-        sessions: sessionService,
-      );
-      addTearDown(providerTurns.pool.dispose);
+        TurnRunner(
+          harness: codexWorker,
+          messages: messages,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+          sessions: sessionService,
+          providerId: 'codex',
+        ),
+      ], sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
       final turnId = await providerTurns.startTurn(session.id, []);
       await codexWorker.turnInvoked;
@@ -92,44 +87,32 @@ void main() {
 
     test('provisions a provider runner on demand for a provider-pinned session', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final session = await sessionService.createSession(provider: 'codex');
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
       final codexWorker = FakeWorkerService();
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
-      late final HarnessPool pool;
-      final coordinator = WorkerPoolCoordinator(
-        pool: pool = HarnessPool(
-          runners: [
-            TurnRunner(
-              harness: primaryWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'claude',
-            ),
-          ],
-          maxConcurrentWorkers: 1,
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'codex': 1},
+        primary: TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'claude',
         ),
-        onSpawnNeeded: (provider) async {
-          expect(provider, 'codex');
-          pool.addRunner(
-            TurnRunner(
-              harness: codexWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: provider!,
-            ),
+        createWorker: (request) async {
+          expect(request.providerId, 'codex');
+          return TurnRunner(
+            harness: codexWorker,
+            messages: messages,
+            behavior: behavior,
+            sessions: sessionService,
+            providerId: request.providerId,
           );
-          return true;
         },
       );
-      final providerTurns = TurnManager.fromPool(
-        pool: pool,
-        sessions: sessionService,
-        workerPoolCoordinator: coordinator,
-      );
-      addTearDown(providerTurns.pool.dispose);
+      final providerTurns = TurnManager.fromCoordinator(coordinator: coordinator, sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
       final turnId = await providerTurns.startTurn(session.id, []);
       await codexWorker.turnInvoked;
@@ -140,45 +123,71 @@ void main() {
       await providerTurns.waitForOutcome(session.id, turnId);
     });
 
+    test('SDK single-harness mode runs cron sessions on the serialized primary lane', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(type: SessionType.cron, provider: 'codex');
+      final sdkTurns = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        sessions: sessionService,
+      );
+      addTearDown(sdkTurns.executions.dispose);
+
+      final turnId = await sdkTurns.startTurn(session.id, const []);
+      await worker.turnInvoked;
+      worker.completeSuccess();
+
+      expect((await sdkTurns.waitForOutcome(session.id, turnId)).status, TurnStatus.completed);
+      expect(worker.turnCalls, 1);
+    });
+
+    test('SDK single-harness mode fails closed for logical-agent sessions', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
+      final sdkTurns = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        sessions: sessionService,
+      );
+      addTearDown(sdkTurns.executions.dispose);
+
+      await expectLater(sdkTurns.startTurn(session.id, const []), throwsStateError);
+      expect(worker.turnCalls, 0);
+    });
+
     test('concurrent turns for one provider-pinned session share one runner', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final session = await sessionService.createSession(provider: 'codex');
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
       final firstCodexWorker = FakeWorkerService();
       final secondCodexWorker = FakeWorkerService();
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
-      final pool = HarnessPool(
-        runners: [
-          TurnRunner(
-            harness: primaryWorker,
-            messages: messages,
-            behavior: behavior,
-            sessions: sessionService,
-            providerId: 'claude',
-          ),
-          TurnRunner(
-            harness: firstCodexWorker,
-            messages: messages,
-            behavior: behavior,
-            sessions: sessionService,
-            providerId: 'codex',
-          ),
-          TurnRunner(
-            harness: secondCodexWorker,
-            messages: messages,
-            behavior: behavior,
-            sessions: sessionService,
-            providerId: 'codex',
-          ),
-        ],
-        maxConcurrentWorkers: 2,
-      );
-      final providerTurns = TurnManager.fromPool(
-        pool: pool,
-        sessions: sessionService,
-        workerPoolCoordinator: WorkerPoolCoordinator(pool: pool),
-      );
-      addTearDown(providerTurns.pool.dispose);
+      final providerTurns = turnManagerForRunners([
+        TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'claude',
+        ),
+        TurnRunner(
+          harness: firstCodexWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'codex',
+        ),
+        TurnRunner(
+          harness: secondCodexWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'codex',
+        ),
+      ], sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
       final firstFuture = providerTurns.startTurn(session.id, []);
       var secondReserved = false;
@@ -212,33 +221,30 @@ void main() {
 
     test('provider-pinned session reports capacity configuration without using primary runner', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final session = await sessionService.createSession(provider: 'codex');
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
-      final pool = HarnessPool(
-        runners: [
-          TurnRunner(
-            harness: primaryWorker,
-            messages: messages,
-            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-            sessions: sessionService,
-            providerId: 'claude',
-          ),
-        ],
-        maxConcurrentWorkers: 0,
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {},
+        primary: TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+          sessions: sessionService,
+          providerId: 'claude',
+        ),
+        createWorker: (_) => throw StateError('Worker execution disabled'),
       );
-      final providerTurns = TurnManager.fromPool(
-        pool: pool,
-        sessions: sessionService,
-        workerPoolCoordinator: WorkerPoolCoordinator(pool: pool),
-      );
-      addTearDown(providerTurns.pool.dispose);
+      final providerTurns = TurnManager.fromCoordinator(coordinator: coordinator, sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
       await expectLater(
         () => providerTurns.startTurn(session.id, []),
         throwsA(
-          isA<BusyTurnException>()
-              .having((error) => error.message, 'message', contains('worker pool unavailable'))
-              .having((error) => error.message, 'message', contains('providers.codex.pool_size')),
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('not configured for worker execution'),
+          ),
         ),
       );
       expect(primaryWorker.turnCalls, 0);
@@ -246,82 +252,63 @@ void main() {
 
     test('provider-pinned session reports unavailable pool when provisioning fails', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final session = await sessionService.createSession(provider: 'codex');
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
-      final pool = HarnessPool(
-        runners: [
-          TurnRunner(
-            harness: primaryWorker,
-            messages: messages,
-            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-            sessions: sessionService,
-            providerId: 'claude',
-          ),
-        ],
-        maxConcurrentWorkers: 1,
-      );
       var spawnCalls = 0;
-      final providerTurns = TurnManager.fromPool(
-        pool: pool,
-        sessions: sessionService,
-        workerPoolCoordinator: WorkerPoolCoordinator(
-          pool: pool,
-          onSpawnNeeded: (_) async {
-            spawnCalls++;
-            return false;
-          },
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'codex': 1},
+        primary: TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+          sessions: sessionService,
+          providerId: 'claude',
         ),
+        createWorker: (_) async {
+          spawnCalls++;
+          throw const WorkerCreationException('spawn failed');
+        },
       );
-      addTearDown(providerTurns.pool.dispose);
+      final providerTurns = TurnManager.fromCoordinator(coordinator: coordinator, sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
-      await expectLater(
-        () => providerTurns.startTurn(session.id, []),
-        throwsA(
-          isA<BusyTurnException>().having((error) => error.message, 'message', contains('providers.codex.pool_size')),
-        ),
-      );
+      await expectLater(() => providerTurns.startTurn(session.id, []), throwsA(isA<WorkerCreationException>()));
       expect(spawnCalls, 1);
       expect(primaryWorker.turnCalls, 0);
     });
 
     test('busy provider-pinned session does not block another provider session', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final claudeSession = await sessionService.createSession(provider: 'claude');
-      final codexSession = await sessionService.createSession(provider: 'codex');
+      final claudeSession = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'claude');
+      final codexSession = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
       final claudeWorker = FakeWorkerService();
       final codexWorker = FakeWorkerService();
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
-      final providerTurns = TurnManager.fromPool(
-        pool: HarnessPool(
-          runners: [
-            TurnRunner(
-              harness: primaryWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'claude',
-            ),
-            TurnRunner(
-              harness: claudeWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'claude',
-            ),
-            TurnRunner(
-              harness: codexWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'codex',
-            ),
-          ],
-          maxConcurrentWorkers: 2,
+      final providerTurns = turnManagerForRunners([
+        TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'claude',
         ),
-        sessions: sessionService,
-      );
-      addTearDown(providerTurns.pool.dispose);
+        TurnRunner(
+          harness: claudeWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'claude',
+        ),
+        TurnRunner(
+          harness: codexWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'codex',
+        ),
+      ], sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
       final claudeTurnId = await providerTurns.startTurn(claudeSession.id, []);
       await claudeWorker.turnInvoked;
@@ -351,8 +338,9 @@ void main() {
         providerId: 'claude',
       );
       final taskRunner = TurnRunner(harness: taskWorker, messages: messages, behavior: behavior, providerId: 'codex');
-      final pooledTurns = TurnManager.fromPool(pool: HarnessPool(runners: [primaryRunner, taskRunner]));
-      addTearDown(pooledTurns.pool.dispose);
+      final pooledTurns = turnManagerForRunners([primaryRunner, taskRunner]);
+      addTearDown(pooledTurns.executions.dispose);
+      await _primeWorker(pooledTurns.executions, providerId: 'codex');
       final session = await SessionService(baseDir: tempDir.path).createSession();
       final sessionId = session.id;
 
@@ -375,44 +363,39 @@ void main() {
 
     test('unknown provider-pinned session fails without acquiring configured providers', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
-      final session = await sessionService.createSession(provider: 'goose');
+      final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'goose');
       final primaryWorker = FakeWorkerService();
       final claudeWorker = FakeWorkerService();
       final codexWorker = FakeWorkerService();
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
-      final providerTurns = TurnManager.fromPool(
-        pool: HarnessPool(
-          runners: [
-            TurnRunner(
-              harness: primaryWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'claude',
-            ),
-            TurnRunner(
-              harness: claudeWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'claude',
-            ),
-            TurnRunner(
-              harness: codexWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessionService,
-              providerId: 'codex',
-            ),
-          ],
+      final providerTurns = turnManagerForRunners([
+        TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'claude',
         ),
-        sessions: sessionService,
-      );
-      addTearDown(providerTurns.pool.dispose);
+        TurnRunner(
+          harness: claudeWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'claude',
+        ),
+        TurnRunner(
+          harness: codexWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessionService,
+          providerId: 'codex',
+        ),
+      ], sessions: sessionService);
+      addTearDown(providerTurns.executions.dispose);
 
       await expectLater(
         () => providerTurns.startTurn(session.id, []),
-        throwsA(isA<BusyTurnException>().having((error) => error.message, 'message', contains('Provider "goose"'))),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "goose"'))),
       );
       expect(primaryWorker.turnCalls, 0);
       expect(claudeWorker.turnCalls, 0);
@@ -788,7 +771,9 @@ void main() {
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
       final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior);
       final taskRunner = TurnRunner(harness: taskWorker, messages: messages, behavior: behavior);
-      final pooledTurns = TurnManager.fromPool(pool: HarnessPool(runners: [primaryRunner, taskRunner]));
+      final pooledTurns = turnManagerForRunners([primaryRunner, taskRunner]);
+      addTearDown(pooledTurns.executions.dispose);
+      await _primeWorker(pooledTurns.executions, providerId: 'claude');
 
       final session = await SessionService(baseDir: tempDir.path).createSession();
       final sessionId = session.id;
@@ -812,8 +797,9 @@ void main() {
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
       final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
       final taskRunner = TurnRunner(harness: taskWorker, messages: messages, behavior: behavior);
-      final pooledTurns = TurnManager.fromPool(pool: HarnessPool(runners: [primaryRunner, taskRunner]));
-      addTearDown(pooledTurns.pool.dispose);
+      final pooledTurns = turnManagerForRunners([primaryRunner, taskRunner]);
+      addTearDown(pooledTurns.executions.dispose);
+      await _primeWorker(pooledTurns.executions, providerId: 'claude');
       final session = await SessionService(baseDir: tempDir.path).createSession();
       final sessionId = session.id;
 
@@ -1042,19 +1028,15 @@ void main() {
       turnStateDb = sqlite3.openInMemory();
       turnState = TurnStateStore(turnStateDb);
       buildTurns = ({TurnStateStore? turnStateStore, KvService? kv}) {
-        return TurnManager.fromPool(
-          pool: HarnessPool(
-            runners: [
-              TurnRunner(
-                harness: worker,
-                messages: messages,
-                behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-                turnState: turnStateStore,
-                kv: kv,
-              ),
-            ],
+        return turnManagerForRunners([
+          TurnRunner(
+            harness: worker,
+            messages: messages,
+            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+            turnState: turnStateStore,
+            kv: kv,
           ),
-        );
+        ]);
       };
     });
 
@@ -1168,6 +1150,18 @@ void main() {
       expect(() => turns.reconfigure(delta), returnsNormally);
     });
   });
+}
+
+Future<void> _primeWorker(ExecutionCoordinator executions, {required String providerId}) async {
+  final lease = await executions.acquire(
+    ExecutionRequest(
+      surface: ExecutionSurface.task,
+      providerId: providerId,
+      sessionId: 'prime-$providerId',
+      fingerprint: executions.fingerprintFor(providerId, 'workspace'),
+    ),
+  );
+  await lease!.release();
 }
 
 class _ThrowingTurnStateStore implements TurnStateStore {

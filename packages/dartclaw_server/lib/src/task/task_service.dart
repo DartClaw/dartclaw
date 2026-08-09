@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecution,
@@ -78,10 +79,11 @@ class TaskService implements WorkflowTaskService {
     String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
-    final persistedProvider = _trimmedOrNull(
+    final rawProvider = _trimmedOrNull(
       provider ??
           ((configJson['provider'] as String?)?.trim().isEmpty ?? true ? null : configJson['provider'] as String?),
     );
+    final persistedProvider = rawProvider == null ? null : ProviderIdentity.normalize(rawProvider);
     final persistedModel = _trimmedOrNull(model) ?? _trimmedOrNull(configJson['model'] as String?);
     final persistedSessionId = _trimmedOrNull(sessionId);
     final normalizedMaxTokens = maxTokens != null && maxTokens > 0 ? maxTokens : null;

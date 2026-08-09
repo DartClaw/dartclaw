@@ -178,7 +178,7 @@ class HarnessFactory {
   ///
   /// Creates lightweight, unstarted harness instances to probe their capability
   /// flags — no process is spawned. Useful for offline validation (e.g.,
-  /// `workflow validate`) where a live [HarnessPool] is not available.
+  /// `workflow validate`) where a live execution coordinator is not available.
   Set<String> probeContinuityProviders() {
     final result = <String>{};
     for (final entry in _factories.entries) {

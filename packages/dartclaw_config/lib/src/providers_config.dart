@@ -10,7 +10,7 @@ class ProviderEntry {
   /// Path to the provider binary.
   final String executable;
 
-  /// Number of pool workers for this provider. 0 = use default.
+  /// Hard ceiling on concurrent worker executions for this provider. 0 = use default.
   final int poolSize;
 
   /// Provider-specific options for forward compatibility.

@@ -1,6 +1,6 @@
 # ADR-016: Multi-Provider Agent Harness Architecture
 
-**Status:** Accepted (Implemented in 0.13) — **partially amended by [ADR-037](037-universal-acp-harness.md)** (2026-06-05): the "one `ProtocolAdapter` per provider" assumption is superseded for the ACP family by a single universal `AcpHarness`. The canonical tool taxonomy, `HarnessFactory`, and heterogeneous-pool model below remain in force.
+**Status:** Accepted. Implemented in 0.13; **partially amended by [ADR-037](037-universal-acp-harness.md)** for the ACP adapter family; execution-routing amendment implemented in 0.24.
 **Date:** 2026-03-22 (validated 2026-03-24)
 **Deciders:** DartClaw team
 **Research:** [Research appendix](research/016-multi-provider-harness-architecture.md)
@@ -61,12 +61,14 @@ Unmapped tools pass through with `provider:name` prefix (e.g., `codex:reasoning`
 
 **We will allow mixed-provider workers in a single `HarnessPool`.**
 
+This is the 0.13 baseline. Part 4 retains heterogeneous provider execution but supersedes runner-count capacity and direct pool-acquisition semantics.
+
 `HarnessFactory` creates workers based on per-provider pool size config. Pool acquisition gains provider affinity (`tryAcquireForProvider()`). Primary worker always uses the default provider.
 
 ```yaml
 providers:
   claude:
-    pool_size: 2    # primary + 1 task worker
+    pool_size: 2    # 2 worker executions; primary lane is separate
   codex:
     pool_size: 2    # 2 task workers
 ```
@@ -86,6 +88,34 @@ abstract class ProtocolAdapter {
 }
 ```
 
+### Part 4: One Execution Authority, Capacity Leases, and Opportunistic Reuse
+
+The heterogeneous pool decision is refined as follows. After global turn governance, one execution coordinator is the only authority that selects a lane, admits execution, issues capacity leases, reuses or creates harnesses, and releases or quarantines capacity.
+
+There are three execution lanes:
+
+| Lane | Surfaces | Capacity contract |
+|---|---|---|
+| Primary interactive | Main-agent user and channel turns | One fixed serialized lane on the configured primary provider; outside `pool_size` |
+| Worker | Cron/system jobs, advisor turns, background tasks, logical-agent sessions | One lease from the selected provider's `pool_size`; reusable harness permitted |
+| Capacity-only | Workflow one-shot provider invocations | One lease from the selected provider's `pool_size`; no reusable harness |
+
+`providers.<id>.pool_size` is therefore a hard ceiling on concurrent worker and capacity-only executions for that provider, not a target number of live processes. Cached harnesses and long-lived profile containers do not consume capacity while idle. The global turn-governance limit remains an earlier admission boundary and does not replace provider capacity.
+
+Reusable harnesses form a small opportunistic cache with no operator knobs. A worker request carries a canonical construction fingerprint consisting of the normalized provider, security profile, and canonical identity of all other construction-only configuration. Lookup order is:
+
+1. a healthy cached worker for the exact session within the requested canonical construction fingerprint;
+2. any healthy cached worker with a compatible canonical construction fingerprint;
+3. a fresh worker.
+
+Unknown compatibility or health means fresh creation, never speculative reuse. A released unhealthy worker is disposed. Before a worker is replaced, DartClaw must confirm termination of the managed root process. If confirmation is unavailable, the lease's capacity slot is quarantined and effective provider capacity decreases; no overlapping replacement is spawned.
+
+Container amortization is independent. Profile containers may remain alive across process disposal and multiple leases, but they carry no session identity and do not alter capacity accounting.
+
+The server derives runner activity and capacity observability from active leases rather than mutable idle/busy callbacks. This includes capacity-only workflow executions that have no reusable runner. Provider-specific branching is confined to protocol adapters and composition/wiring; coordinator clients use provider-neutral requests and leases.
+
+SDK consumers that construct only one harness retain a compatibility exception: ordinary background tasks may serialize on that harness when no multi-worker coordinator exists. Server logical-agent execution never uses this exception.
+
 ## Consequences
 
 ### Positive
@@ -93,18 +123,21 @@ abstract class ProtocolAdapter {
 - **Security**: Single set of guard rules evaluated consistently across all providers. No risk of provider tool names slipping through unmapped.
 - **Extensibility**: Adding a third provider (Pi, DirectApi, ACP) means implementing one `ProtocolAdapter` + one tool name mapping table. No guard changes, no pool changes.
 - **Per-task flexibility**: Heterogeneous pool enables "Claude for chat, Codex for coding tasks" in a single deployment.
+- **Bounded execution**: Per-provider leases bound all worker surfaces, including one-shots, independently from process reuse.
+- **Safe reuse**: Canonical fingerprints and teardown confirmation prevent cross-session/configuration leakage and overlapping replacements.
 - **SDK clarity**: Canonical tool names and `ProtocolAdapter` interface are clean SDK surface for consumers building custom harnesses.
 - **Auditability**: Shared contracts (adapter interface, canonical taxonomy) make the multi-provider architecture self-documenting.
 
 ### Negative
 
 - **Upfront taxonomy design**: Canonical tool categories must be defined before a third provider validates the taxonomy. Risk of premature abstraction mitigated by `unknown` fallback.
-- **Pool complexity**: Heterogeneous pool adds provider tracking per worker, affinity matching in acquisition, and per-provider pool sizing config. ~50-80 LOC added to `HarnessPool`.
+- **Coordinator lifecycle complexity**: one authority must couple admission ownership, leases, cache health, confirmed teardown, and quarantine without conflating those states.
+- **Quarantine reduces availability**: An unconfirmed process teardown intentionally reduces effective capacity until operator recovery or restart.
+- **Harness contract evolution**: Every `AgentHarness` implementation must explicitly report managed-root termination confirmation. Processless implementations return `true`; unknown ownership cannot fail open.
 - **Interface evolution**: `ProtocolAdapter` may need breaking changes when a third provider reveals new interaction patterns. Acceptable: `dartclaw_core` is pre-1.0.
 
 ### Neutral
 
-- `AgentHarness` interface unchanged — existing abstraction remains the primary contract
 - `BridgeEvent` sealed class unchanged — protocol adapters emit the same event types
 - Guard chain architecture unchanged — only the input (canonical vs raw names) changes
 - Existing `ClaudeCodeHarness` tests continue to pass — extraction is refactoring, not behavior change
@@ -171,7 +204,7 @@ One Codex thread per DartClaw session (or task). First turn creates the thread (
 
 ### Pool Worker Lifecycle
 
-Workers are **pre-created at startup** based on per-provider `pool_size` config. No lazy binding — `tryAcquireForProvider()` returns a pre-existing worker of the requested provider type. If the requested provider has no idle workers, the request is rejected (not queued, not fallen back to a different provider).
+Superseded by Part 4. `pool_size` bounds leases, not pre-created workers. Harnesses are created lazily, reused only through canonical fingerprint matching, and never fall back to another provider or weaker profile. Admission may wait for ordinary worker surfaces; nested logical-agent acquisition is fail-fast to avoid waiting on capacity held by the caller.
 
 ### config.toml Scope
 
@@ -203,17 +236,21 @@ Some mappings are not one-to-one and require semantic inference:
 - Codex exec adapter: `../../packages/dartclaw_core/lib/src/harness/codex_exec_protocol_adapter.dart` _(removed in 0.17 — `codex-exec` provider consolidated into `codex` app-server mode)_
 - Codex config generation: `../../packages/dartclaw_core/lib/src/harness/codex_config_generator.dart` and `../../packages/dartclaw_core/lib/src/harness/codex_environment.dart`
 - Harness factory and provider registration: `../../packages/dartclaw_core/lib/src/harness/harness_factory.dart`
+- Post-governance execution authority and leases: `../../packages/dartclaw_server/lib/src/execution_coordinator.dart`
+- Per-provider capacity gate: `../../packages/dartclaw_server/lib/src/worker_capacity_gate.dart`
 - Credential resolution: `../../packages/dartclaw_core/lib/src/config/credential_registry.dart`
 - Guard evaluation: update the canonical-name mapping used by `../../packages/dartclaw_core/lib/src/agents/tool_policy_cascade.dart`, `../../packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, and `../../packages/dartclaw_core/lib/src/harness/codex_harness.dart`
 - Fallback: unmapped tools use `provider:name` prefix with `ToolPolicyGuard` evaluation
 
-## Post-Implementation Validation (0.13 shipped, 2026-03-24)
+## Post-Implementation Validation (0.13 baseline)
 
 All three decisions validated by the 0.13 implementation:
 
 - **D1 (Canonical Taxonomy)**: `CanonicalTool` enum with 6 categories works cleanly for both Claude and Codex. The `unknown` fallback + provider-prefix pass-through was exercised for Codex's `reasoning` tool. No guard changes were needed to support the second provider — confirming the maintainability thesis.
 - **D2 (Heterogeneous Pool)**: Mixed-provider `HarnessPool` works as designed. Per-task provider override (F14) ships as specced. Pool sizing via `providers.*.pool_size` config is intuitive.
 - **D3 (ProtocolAdapter)**: Three concrete adapters (Claude JSONL, Codex JSON-RPC, Codex exec JSON) confirm the interface shape is viable. The `ProtocolMessage` sealed class hierarchy (`TextDelta`, `ToolUse`, `ToolResult`, `ControlRequest`, `TurnComplete`, `SystemInit`) covers all three protocols without leaky abstractions.
+
+Part 4 was implemented in 0.24. Structural checks prove production execution surfaces use the post-governance coordinator and provider branching stays at adapter/wiring boundaries. Tests cover serialized primary execution; per-provider hard capacity and queue release; capacity-only one-shots; exact-session then compatible-fingerprint reuse; profile isolation; turn-local guard reset; unhealthy disposal, confirmed replacement, and quarantine; shutdown; SDK fallback; and lease-derived API/SSE/UI observability. Provider continuity suites retain Claude session/fingerprint restart behavior, Codex session-thread affinity, and ACP initialized-process reuse with fresh provider sessions.
 
 **Lessons for next provider (Pi)**: The adapter interface held without modification across three implementations. Pi's JSONL RPC protocol (`--mode rpc`) maps even more naturally than Codex's JSON-RPC, since Pi uses the same spawn+NDJSON pattern as Claude. Main concern remains runtime dependency (Node.js/Bun) and bus factor (solo developer). See the research appendix.
 

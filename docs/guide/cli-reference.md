@@ -48,6 +48,9 @@ dartclaw status
 
 ## Runners
 
+Runner output is derived from active execution leases plus healthy cached workers. IDs identify observed runtime runners,
+not preallocated pool slots; workers are created lazily and may disappear after release or failed health checks.
+
 ### `runners list`
 
 ```bash

@@ -40,6 +40,7 @@ void main() {
 
         // First poll: fails, retries (no lastError yet to compare against)
         await executor.pollOnce();
+        await executor.drain();
         final afterFirst = await h.tasks.get('task-1');
         expect(afterFirst!.status, TaskStatus.queued);
         expect(afterFirst.retryCount, 1);
@@ -47,7 +48,8 @@ void main() {
 
         // Second poll: same error class (both "turn execution failed") → permanent failure
         await executor.pollOnce();
-        final afterSecond = await h.tasks.get('task-1');
+        await executor.drain();
+        final afterSecond = await waitForTaskStatus(h.tasks, 'task-1', until: const {TaskStatus.failed});
         expect(afterSecond!.status, TaskStatus.failed);
         expect(afterSecond.retryCount, 1); // no increment on permanent failure
       });
@@ -68,13 +70,15 @@ void main() {
 
         // First poll: fails → retried (no lastError yet)
         await executor.pollOnce();
+        await executor.drain();
         final afterFirst = await h.tasks.get('task-2');
         expect(afterFirst!.status, TaskStatus.queued);
         expect(afterFirst.retryCount, 1);
 
         // Second poll: succeeds
         await executor.pollOnce();
-        final afterSecond = await h.tasks.get('task-2');
+        await executor.drain();
+        final afterSecond = await waitForTaskStatus(h.tasks, 'task-2', until: const {TaskStatus.review});
         expect(afterSecond!.status, TaskStatus.review);
       });
     });
@@ -93,7 +97,8 @@ void main() {
         );
 
         await executor.pollOnce();
-        final failed = await h.tasks.get('task-3');
+        await executor.drain();
+        final failed = await waitForTaskStatus(h.tasks, 'task-3', until: const {TaskStatus.failed});
         expect(failed!.status, TaskStatus.failed);
         expect(failed.retryCount, 0);
       });
@@ -112,6 +117,7 @@ void main() {
 
         // First attempt
         await executor.pollOnce();
+        await executor.drain();
         final afterFirst = await h.tasks.get('task-4');
         expect(afterFirst!.status, TaskStatus.queued);
         // sessionId should be null after retry (cleared for fresh session)
@@ -120,7 +126,8 @@ void main() {
 
         // Second attempt (gets new session)
         await executor.pollOnce();
-        final afterSecond = await h.tasks.get('task-4');
+        await executor.drain();
+        final afterSecond = await waitForTaskStatus(h.tasks, 'task-4', until: const {TaskStatus.review});
         expect(afterSecond!.status, TaskStatus.review);
         expect(afterSecond.sessionId, isNotNull);
       });
@@ -179,13 +186,15 @@ void main() {
         );
 
         await retryExecutor.pollOnce();
+        await retryExecutor.drain();
         final afterFirst = await h.tasks.get('task-worktree-retry');
         expect(afterFirst!.status, TaskStatus.queued);
         expect(afterFirst.retryCount, 1);
         expect(afterFirst.worktreeJson, isNotNull);
 
         await retryExecutor.pollOnce();
-        final afterSecond = await h.tasks.get('task-worktree-retry');
+        await retryExecutor.drain();
+        final afterSecond = await waitForTaskStatus(h.tasks, 'task-worktree-retry', until: const {TaskStatus.review});
         expect(afterSecond!.status, TaskStatus.review);
         expect(worktreeAddCalls, 1);
       });
@@ -204,12 +213,14 @@ void main() {
 
         // First attempt fails, retry queued
         await executor.pollOnce();
+        await executor.drain();
 
         // Second attempt — check what message is sent
         final capturedMessages = <List<Map<String, dynamic>>>[];
         worker.onTurn = (_, msgs) => capturedMessages.add(msgs);
 
         await executor.pollOnce();
+        await executor.drain();
 
         expect(capturedMessages, hasLength(1));
         final userMessages = capturedMessages.first.where((m) => m['role'] == 'user').toList();
@@ -238,12 +249,14 @@ void main() {
 
         // First failure → retry 1 queued (no lastError to compare)
         await executor.pollOnce();
+        await executor.drain();
         expect((await h.tasks.get('task-6'))!.retryCount, 1);
         expect((await h.tasks.get('task-6'))!.status, TaskStatus.queued);
 
         // Second failure → same error class as lastError → permanent failure
         await executor.pollOnce();
-        final final_ = await h.tasks.get('task-6');
+        await executor.drain();
+        final final_ = await waitForTaskStatus(h.tasks, 'task-6', until: const {TaskStatus.failed});
         expect(final_!.status, TaskStatus.failed);
         expect(final_.retryCount, 1); // loop detection fired, no increment
       });
@@ -261,6 +274,7 @@ void main() {
         );
 
         await executor.pollOnce();
+        await executor.drain();
         final retried = await h.tasks.get('task-7');
         expect(retried!.status, TaskStatus.queued);
         expect(retried.configJson['lastError'], isNotNull);
@@ -293,13 +307,15 @@ void main() {
 
         // First attempt: fails → retried (no lastError yet)
         await executor.pollOnce();
+        await executor.drain();
         final afterFirst = await h.tasks.get('task-diff-class');
         expect(afterFirst!.status, TaskStatus.queued);
         expect(afterFirst.retryCount, 1);
 
         // Second attempt: succeeds (simulates a different approach working)
         await executor.pollOnce();
-        final afterSecond = await h.tasks.get('task-diff-class');
+        await executor.drain();
+        final afterSecond = await waitForTaskStatus(h.tasks, 'task-diff-class', until: const {TaskStatus.review});
         expect(afterSecond!.status, TaskStatus.review);
         expect(afterSecond.retryCount, 1); // stayed at 1, success does not increment
       });
@@ -321,7 +337,8 @@ void main() {
         );
 
         await executor.pollOnce();
-        final failed = await h.tasks.get('task-budget');
+        await executor.drain();
+        final failed = await waitForTaskStatus(h.tasks, 'task-budget', until: const {TaskStatus.failed});
         expect(failed!.status, TaskStatus.failed);
         expect(failed.retryCount, 0); // no retries attempted
         expect(failed.configJson['errorSummary'], contains('Token budget exceeded'));
@@ -386,6 +403,10 @@ class _CountingWorker implements AgentHarness {
   PromptStrategy get promptStrategy => PromptStrategy.replace;
   @override
   WorkerState get state => WorkerState.idle;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
+
   @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
   @override

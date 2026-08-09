@@ -6,8 +6,8 @@ import 'turn_outcome.dart';
 ///
 /// Encapsulates the turn lifecycle for a single [AgentHarness]: guard
 /// evaluation, message persistence, event streaming, cost tracking, and crash
-/// recovery. Multiple [TurnRunner] instances execute concurrently — one per
-/// harness in the harness pool.
+/// recovery. Multiple [TurnRunner] instances execute concurrently – one per
+/// acquired harness.
 abstract interface class TurnRunner {
   /// Security profile this runner's harness executes in.
   String get profileId;

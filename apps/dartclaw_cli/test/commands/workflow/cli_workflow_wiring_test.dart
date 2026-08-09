@@ -4,14 +4,16 @@ import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
+import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart' show CliWorkflowWiring;
 import 'package:dartclaw_cli/src/commands/workflow/workflow_skill_bootstrap.dart' show bootstrapWorkflowSkills;
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
     show restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowStartPreconditionException;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show ExecutionAdmission, ExecutionLease, ExecutionRequest, ExecutionSurface, WorkflowStartPreconditionException;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowStepExecutionRepository;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable;
 import 'package:logging/logging.dart';
@@ -416,7 +418,7 @@ steps:
       agent: const AgentConfig(provider: 'codex'),
       providers: const ProvidersConfig(
         entries: {
-          'codex': ProviderEntry(executable: 'codex', poolSize: 0),
+          'codex': ProviderEntry(executable: 'codex', poolSize: 1),
           'claude': ProviderEntry(executable: 'claude', poolSize: 1),
         },
       ),
@@ -430,11 +432,15 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
-    await wired.ensureWorkersForProviders({'claude'});
+    await wired.wirePreHarness();
+    await wired.startHarnesses({'codex', 'claude'});
+    expect(capturedByProvider, isEmpty, reason: 'capacity wiring must not create harnesses');
+
+    final codexLease = await acquireWorker(wired, 'codex');
+    final claudeLease = await acquireWorker(wired, 'claude');
 
     final codexConfigs = capturedByProvider['codex']!;
-    expect(codexConfigs, hasLength(2), reason: 'primary harness + default standalone worker');
+    expect(codexConfigs, hasLength(1));
     for (final harnessConfig in codexConfigs) {
       expect(harnessConfig.environment['CODEX_API_KEY'], 'openai-key');
       expect(harnessConfig.environment['OPENAI_API_KEY'], 'openai-key');
@@ -443,15 +449,11 @@ steps:
     final claudeConfigs = capturedByProvider['claude']!;
     expect(claudeConfigs, hasLength(1));
     expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
+    await codexLease.release();
+    await claudeLease.release();
   });
 
-  test('reserves a pool slot for each non-default provider when default pool_size saturates the floor', () async {
-    // Regression: with codex (default, pool_size: 3) + claude (pool_size: 1)
-    // the eager spawn previously filled the 3-slot minimum capacity, then the
-    // first ensureWorkersForProviders({'claude'}) threw `Pool already at
-    // capacity (3/3)` because no slot was reserved for the non-default
-    // provider that workflow steps pin (e.g. plan-and-implement-inline's
-    // plan-review-council pins provider: claude).
+  test('configures independent provider capacities without constructing harnesses', () async {
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = capturingHarnessFactory(capturedByProvider, ['codex', 'claude']);
 
@@ -467,17 +469,17 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
-    await wired.ensureWorkersForProviders({'codex', 'claude'});
+    await wired.wirePreHarness();
+    await wired.startHarnesses({'codex', 'claude'});
 
-    // Pool now holds the primary Codex harness, three Codex workers, and the
-    // on-demand claude runner. addRunner must not have thrown.
-    expect(capturedByProvider['codex'], hasLength(4), reason: 'primary harness + 3 eager Codex workers');
-    expect(capturedByProvider['claude'], hasLength(1), reason: 'on-demand Claude worker');
-    expect(wired.pool.hasWorkerForProvider('claude'), isTrue);
+    expect(capturedByProvider, isEmpty);
+    expect(wired.executions.primary, isNull);
+    expect(wired.executions.snapshot.providers['codex']!.configured, 3);
+    expect(wired.executions.snapshot.providers['claude']!.configured, 1);
+    expect(wired.executions.snapshot.cachedWorkers, 0);
   });
 
-  test('standalone single-provider pool_size one creates exactly one worker', () async {
+  test('standalone single-provider wiring creates no primary or worker', () async {
     final captured = <HarnessFactoryConfig>[];
     final factory = HarnessFactory()
       ..register('claude', (config) {
@@ -495,13 +497,13 @@ steps:
 
     await wired.wire();
 
-    expect(captured, hasLength(2), reason: 'primary harness plus one worker');
-    expect(wired.pool.maxConcurrentWorkers, 1);
-    expect(wired.pool.availableCount, 1);
-    expect(wired.pool.workerCountForProvider('claude'), 1);
+    expect(captured, isEmpty);
+    expect(wired.executions.primary, isNull);
+    expect(wired.executions.snapshot.providers['claude']!.configured, 1);
+    expect(wired.executions.snapshot.availableWorkers, 1);
   });
 
-  test('standalone non-empty provider config missing default still reserves default capacity', () async {
+  test('standalone capacity is scoped to referenced providers', () async {
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = capturingHarnessFactory(capturedByProvider, ['claude', 'goose']);
 
@@ -511,15 +513,15 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
-    await wired.ensureWorkersForProviders({'goose'});
+    await wired.wirePreHarness();
+    await wired.startHarnesses({'goose'});
 
-    expect(wired.pool.maxConcurrentWorkers, 2);
-    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus default worker');
-    expect(capturedByProvider['goose'], hasLength(1));
+    expect(capturedByProvider, isEmpty);
+    expect(wired.executions.snapshot.providers.keys, {'goose'});
+    expect(wired.executions.snapshot.providers['goose']!.configured, 1);
   });
 
-  test('standalone configured fake provider gets its own pool without ACP subprocess behavior', () async {
+  test('standalone configured fake provider creates a worker only on worker acquisition', () async {
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = capturingHarnessFactory(capturedByProvider, ['claude', 'goose']);
 
@@ -534,15 +536,15 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
-    await wired.ensureWorkersForProviders({'goose'});
+    await wired.wirePreHarness();
+    await wired.startHarnesses({'goose'});
 
-    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus one Claude worker');
+    expect(capturedByProvider, isEmpty);
+    final gooseLease = await acquireWorker(wired, 'goose');
     expect(capturedByProvider['goose'], hasLength(1));
-    final gooseRunner = wired.pool.tryAcquireForProvider('goose');
-    expect(gooseRunner, isNotNull);
-    expect(gooseRunner!.providerId, 'goose');
-    expect(wired.pool.tryAcquireForProvider('claude')!.providerId, 'claude');
+    expect(capturedByProvider['claude'], isNull);
+    expect(gooseLease.runner!.providerId, 'goose');
+    await gooseLease.release();
   });
 
   test('standalone unknown provider fails without default-provider fallback', () async {
@@ -563,14 +565,13 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
+    await wired.wirePreHarness();
 
     await expectLater(
-      () => wired.ensureWorkersForProviders({'goose'}),
+      () => wired.startHarnesses({'goose'}),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "goose"'))),
     );
-    expect(capturedByProvider['claude'], 2, reason: 'primary harness plus one configured Claude worker only');
-    expect(wired.pool.hasWorkerForProvider('goose'), isFalse);
+    expect(capturedByProvider, isEmpty);
   });
 
   test('standalone built-in provider also requires configured capacity', () async {
@@ -580,17 +581,15 @@ steps:
     );
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
+    await wired.wirePreHarness();
 
     await expectLater(
-      () => wired.ensureWorkersForProviders({'codex'}),
+      () => wired.startHarnesses({'codex'}),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "codex"'))),
     );
-    expect(wired.pool.maxConcurrentWorkers, 1);
-    expect(wired.pool.hasWorkerForProvider('codex'), isFalse);
   });
 
-  test('defaults standalone harness cwd to the process cwd when runtime cwd is omitted', () async {
+  test('defaults lazy standalone worker cwd to the process cwd when runtime cwd is omitted', () async {
     final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final captured = <HarnessFactoryConfig>[];
     final factory = HarnessFactory()
@@ -601,12 +600,20 @@ steps:
 
     final cfg = fixture.config();
 
-    await fixture.withWiredCurrentDirectory(launchDir, cfg, harnessFactory: factory, body: (_) async {});
+    await fixture.withWiredCurrentDirectory(
+      launchDir,
+      cfg,
+      harnessFactory: factory,
+      body: (wired) async {
+        final lease = await acquireWorker(wired, 'claude');
+        await lease.release();
+      },
+    );
 
     expect(captured.map((config) => config.cwd).toSet(), {launchDir.resolveSymbolicLinksSync()});
   });
 
-  test('uses injected runtime cwd for primary and worker harnesses', () async {
+  test('uses injected runtime cwd for a lazy worker harness', () async {
     final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
@@ -625,7 +632,7 @@ steps:
       providers: const ProvidersConfig(
         entries: {
           'codex': ProviderEntry(executable: 'codex', poolSize: 2),
-          'claude': ProviderEntry(executable: 'claude', poolSize: 0),
+          'claude': ProviderEntry(executable: 'claude', poolSize: 1),
         },
       ),
       credentials: const CredentialsConfig(
@@ -641,14 +648,18 @@ steps:
       cfg,
       runtimeCwd: runtimeCwd.path,
       harnessFactory: factory,
-      body: (wired) => wired.ensureWorkersForProviders({'claude'}),
+      body: (wired) async {
+        expect(capturedByProvider, isEmpty);
+        final codexLease = await acquireWorker(wired, 'codex');
+        await codexLease.release();
+      },
     );
 
     final captured = [
       ...capturedByProvider['codex'] ?? const <HarnessFactoryConfig>[],
       ...capturedByProvider['claude'] ?? const <HarnessFactoryConfig>[],
     ];
-    expect(captured, hasLength(4), reason: 'primary, two default workers, and one added provider worker');
+    expect(captured, hasLength(1));
     expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 
@@ -1065,7 +1076,7 @@ steps:
     expect((workflowBranchResult.stdout as String).trim(), workflowBranch);
   });
 
-  test('standalone approval teardown records in-flight sibling one-shot task as cancelled', () async {
+  test('standalone capacity-only one-shot teardown records in-flight sibling task as cancelled', () async {
     final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = fixture.seedGitRepo('runtime-cwd', readme: '# runtime\n');
     final processStarterEntered = Completer<void>();
@@ -1083,6 +1094,7 @@ steps:
       config,
       runtimeCwd: runtimeCwd.path,
       autoDispose: false,
+      harnessFactory: throwOnStartHarnessFactory(const ['claude']),
       workflowCliProcessStarter: (exe, args, {workingDirectory, environment}) async {
         if (!processStarterEntered.isCompleted) {
           processStarterEntered.complete();
@@ -1263,4 +1275,18 @@ steps:
       },
     );
   });
+}
+
+Future<ExecutionLease> acquireWorker(CliWorkflowWiring wiring, String providerId) async {
+  final lease = await wiring.executions.acquire(
+    ExecutionRequest(
+      surface: ExecutionSurface.task,
+      providerId: providerId,
+      sessionId: 'test-$providerId',
+      fingerprint: wiring.executions.fingerprintFor(providerId, 'workspace'),
+      admission: ExecutionAdmission.failFast,
+    ),
+  );
+  expect(lease, isNotNull);
+  return lease!;
 }

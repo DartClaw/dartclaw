@@ -402,7 +402,7 @@ content directly (NDJSON file or SQLite).
 - Status and type filters visible
 - "New Task" button opens the create-task dialog
 - Existing tasks grouped by status with clickable titles (or empty-state card "No tasks yet" when none)
-- Agent pool / providers section renders without console errors
+- Execution Capacity / providers section renders without console errors
 - SYSTEM nav: **Tasks (active)**
 
 **Fail:** Filters or dialog missing; broken task links; console errors

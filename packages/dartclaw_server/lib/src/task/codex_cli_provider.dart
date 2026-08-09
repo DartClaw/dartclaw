@@ -126,7 +126,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       } catch (_) {
         if (cancellationRequestedFor(process)) {
           final termination = await waitForInflightTermination(process);
-          final exitCode = termination?.exitConfirmed == true ? await process.exitCode : -1;
+          final exitCode = await supervisor.waitForTerminationResult(termination);
           await waitForCliOutputDrain(
             supervisor: supervisor,
             stdoutDone: stdoutDone.future,
@@ -179,6 +179,10 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       final activeProcess = process;
       if (activeProcess != null) {
         finishInflightRun(activeProcess);
+      }
+      final observer = req.onRootProcessTerminationConfirmed;
+      if (observer != null) {
+        await observer(activeProcess == null || supervisor?.rootProcessTerminationConfirmed == true);
       }
       if (tempSchemaPath != null) {
         try {

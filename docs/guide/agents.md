@@ -9,7 +9,7 @@ Logical agents are named execution profiles that the main agent starts through M
 ### How Logical-Agent Sessions Work
 
 ```
-Main agent turn (primary harness)
+Main agent turn (primary lane)
     │
     ├── sessions_spawn("search", "Find recent Dart changes")
     │       │
@@ -108,7 +108,7 @@ Each entry under `agent.agents.<id>` supports:
 
 Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, and `memory_save`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Unmapped tools keep their exact provider-native spelling; for example Claude `Glob` evaluates under the `claude:Glob` canonical fallback. DartClaw's own MCP fetch, configured search, and memory-save tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
 
-Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary harness. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's enforced container profile when present, otherwise `workspace`. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
+Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary lane. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's enforced container profile when present, otherwise `workspace`. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
 
 Caller cancellation does not currently propagate into an in-flight `sessions_spawn` or `sessions_send` turn. The MCP gateway's 120-second tool timeout also returns without cancelling the underlying child turn, so its worker remains occupied until that turn completes or its harness timeout fires. Causal parent-to-child cancellation is planned with the caller-aware MCP dispatch work in 0.27.
 
@@ -124,7 +124,9 @@ The active turn's agent identity is threaded through each provider interception 
 
 ### Capacity Boundary
 
-The provider worker pool is the single execution-capacity boundary for logical-agent conversations and background tasks. Configure it with `providers.<id>.pool_size`. It exists so a primary turn can wait for child work without trying to re-enter its own busy harness, and so background execution remains bounded. It does not own conversation state – durable DartClaw sessions do. Container-enabled deployments require enough configured capacity for each enabled security profile; startup fails instead of silently expanding the pool or weakening isolation. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted capacity fails immediately instead of waiting on a worker held by its caller.
+The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system/advisor work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller.
+
+Workers are created lazily. After a lease is released, a healthy idle worker may be retained and reused only when its provider, security profile, and runtime configuration fingerprint match; the exact prior session is preferred. Reuse is optional and owns no conversation state – durable DartClaw sessions do. Containers have a separate lifecycle and may serve multiple workers, so the number of security profiles or containers does not consume or enlarge worker lease capacity.
 
 Migration note: `web_search` is now distinct from `web_fetch`. Policies that intended to permit both must list both; naming only `web_fetch` no longer permits search.
 
@@ -146,21 +148,22 @@ Background tasks are a separate execution model for structured, reviewable work.
 |---|-----------|-------------|
 | **Triggered by** | Main agent via `sessions_spawn` / `sessions_send` | Task queue (API, web UI, automation schedule) |
 | **Execution** | Within the caller's turn | Independent background execution |
-| **Harness** | Provider-matched worker from the shared pool | Worker from the shared pool |
+| **Harness** | Provider-matched leased worker | Provider-matched leased worker |
 | **Tool access** | Optional closed allowlist; empty means unrestricted | Full agent tools (same as main chat) |
 | **Review** | None — result returned inline | Review workflow (accept/reject/push-back) |
 | **Artifacts** | None | Structured diffs, files, logs |
 | **Config** | `agent.agents.<id>` in YAML | `tasks.*` in YAML + per-task `configJson` at creation |
 | **Lifecycle** | Synchronous wait | State machine (draft → queued → running → review → accepted) |
 
-### Shared Worker Pool
+### Execution Capacity
 
-The `HarnessPool` manages reusable execution capacity:
+The execution coordinator manages admission and optional reuse:
 
-- **Runner 0** (primary) — reserved for interactive chat, cron jobs, and channel messages. Never acquired by the task executor.
-- **Runners 1..N** (worker pool) – acquired by background tasks and logical-agent sessions. Workers spawn lazily and are never replaced by the busy primary runner. They carry no authoritative conversation state.
+- **Primary lane** – exactly one serialized runner for main user and channel conversations. It always uses `agent.provider` and is never loaned to background work.
+- **Worker leases** – hard per-provider capacity shared by tasks, cron/system/advisor execution, and logical-agent sessions. Workers spawn lazily and never fall back to the busy primary lane.
+- **Workflow capacity-only leases** – one-shot workflow steps consume provider capacity without creating a redundant long-lived harness.
 
-Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets one worker.
+Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets worker-lease capacity `1`.
 
 ```yaml
 providers:
@@ -169,7 +172,7 @@ providers:
     pool_size: 3
 ```
 
-With `pool_size: 3`, the deployment keeps its one primary runner and can lazily spawn up to three workers for that provider. The value is a hard ceiling, not a hint.
+With `pool_size: 3`, the deployment keeps its one primary lane and permits at most three concurrent worker leases for that provider. The value is a hard ceiling, not a target process count.
 
 ### Container Profile Routing
 
@@ -184,7 +187,7 @@ Each task type maps to a security profile that determines which container the ta
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` | General-purpose automation |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` | Default for untyped work |
 
-In pool mode, `TaskExecutor` matches a task's profile to a runner started with that profile via `HarnessPool.tryAcquireForProfile()`. A `research` task will only execute on a `restricted`-profile runner.
+`TaskExecutor` requests a lease whose fingerprint includes the task's provider and profile. A `research` task will only execute on a `restricted`-profile runner. A cached `workspace` worker is incompatible and cannot be substituted.
 
 ### Per-Task Overrides
 
@@ -293,18 +296,18 @@ Content-Type: application/json
 }
 ```
 
-This acquires a harness from the Codex pool regardless of the global `agent.provider` setting.
+This acquires Codex worker capacity regardless of the global `agent.provider` setting.
 
 ### Provider Routing
 
 | Scope | Config | Behavior |
 |-------|--------|----------|
-| **Global default** | `agent.provider: claude` | All sessions and tasks use Claude unless overridden |
+| **Global default** | `agent.provider: claude` | Fixed provider for primary interactive sessions; default for background routing |
 | **Per-agent** | `agent.agents.<id>.provider` | Logical-agent conversations use the configured provider |
 | **Per-task** | `provider` field on task creation | Task acquires a harness from the specified provider's pool |
-| **Pool allocation** | `providers.<id>.pool_size` | Controls how many concurrent workers each provider gets |
+| **Worker capacity** | `providers.<id>.pool_size` | Hard concurrent worker-lease limit for each provider |
 
-The primary harness (Runner 0, for interactive chat) always uses the global default provider. Background tasks and logical-agent conversations can mix providers; every logical-agent session remains pinned to the provider resolved when it was created.
+The primary lane always uses the global default provider. Interactive session creation has no provider override. Background tasks and logical-agent conversations can mix providers; every logical-agent session remains pinned to the provider resolved when it was created.
 
 ### Codex Approval Policy & Sandbox Mode
 
@@ -377,7 +380,7 @@ Check provider health at `GET /api/providers` or on the Settings page. DartClaw 
 - Whether the binary was found on `$PATH` (or at the configured executable path)
 - Detected version (from `--version` probe at startup)
 - Credential status (API key present/missing)
-- Current pool allocation and worker states
+- Lease-derived configured/effective/active/queued/cached/quarantined worker counts
 
 ## Choosing the Right Model
 
@@ -387,6 +390,6 @@ Check provider health at `GET /api/providers` or on the Settings page. DartClaw 
 | Summarize a document for the main agent | Custom logical agent (`summarizer`) | Restricted tools, inline result, no review needed |
 | Write and test a new feature | Task (`coding`) | Needs full tool access, worktree isolation, code review |
 | Background research report | Task (`research`) | Independent work, restricted container, reviewable output |
-| Recurring maintenance check | Cron job (not an agent) | Lightweight, no review, runs on primary harness |
+| Recurring maintenance check | Cron job (not an agent) | Lightweight, no review, uses bounded background capacity |
 
-Note: cron jobs and heartbeat are **not** separate agents — they run as regular turns on the primary harness using the global `agent.model`. See [Scheduling](scheduling.md).
+Note: cron jobs and heartbeat are **not** separate agents. They use the global `agent.model` by default but acquire worker capacity rather than occupying the primary lane. See [Scheduling](scheduling.md).

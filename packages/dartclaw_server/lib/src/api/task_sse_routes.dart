@@ -83,15 +83,10 @@ Router taskSseRoutes(
         )).map(sidebarActiveWorkflowToJson).toList(),
     };
     if (observer != null) {
-      final pool = observer.poolStatus;
+      final capacity = observer.capacityStatus;
       connectedPayload['runners'] = {
         'runners': observer.metrics.map((m) => m.toJson()).toList(),
-        'pool': {
-          'size': pool.size,
-          'activeCount': pool.activeCount,
-          'availableCount': pool.availableCount,
-          'maxConcurrentWorkers': pool.maxConcurrentWorkers,
-        },
+        'capacity': capacity.toJson(),
       };
     }
     if (projects != null) {
@@ -137,6 +132,12 @@ Router taskSseRoutes(
       });
       if (!controller.isClosed) {
         controller.add(sseDataFrame(data));
+      }
+    });
+
+    final capacitySub = observer?.capacityChanges.listen((capacity) {
+      if (!controller.isClosed) {
+        controller.add(sseDataFrame(jsonEncode({'type': 'execution_capacity', 'capacity': capacity.toJson()})));
       }
     });
 
@@ -253,6 +254,7 @@ Router taskSseRoutes(
     controller.onCancel = () {
       taskSub.cancel();
       runnerSub.cancel();
+      capacitySub?.cancel();
       projectSub.cancel();
       progressSub?.cancel();
       taskEventSub.cancel();

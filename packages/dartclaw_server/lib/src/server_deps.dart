@@ -50,10 +50,10 @@ class ServerCoreDeps {
 }
 
 class ServerTurnDeps {
-  final HarnessPool? pool;
+  final ExecutionCoordinator? executions;
   final TurnManager turns;
 
-  const ServerTurnDeps({required this.pool, required this.turns});
+  const ServerTurnDeps({required this.executions, required this.turns});
 }
 
 class ServerChannelDeps {
@@ -89,6 +89,7 @@ class ServerTaskDeps {
   final TaskEventService? taskEventService;
   final TaskEventRecorder? taskEventRecorder;
   final TaskProgressTracker? progressTracker;
+  final Future<void> Function()? executionDrainer;
 
   const ServerTaskDeps({
     required this.projectService,
@@ -105,6 +106,7 @@ class ServerTaskDeps {
     required this.taskEventService,
     required this.taskEventRecorder,
     required this.progressTracker,
+    required this.executionDrainer,
   });
 }
 

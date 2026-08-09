@@ -138,6 +138,8 @@ class KnowledgeInboxService {
   final int processedRetentionDays;
   final DateTime Function() now;
   final IngestFailureHook? failureHook;
+  final String? workerProviderId;
+  final String workerProfileId;
 
   KnowledgeInboxService({
     required this.workspaceDir,
@@ -152,6 +154,8 @@ class KnowledgeInboxService {
     this.processedRetentionDays = 30,
     DateTime Function()? now,
     this.failureHook,
+    this.workerProviderId,
+    this.workerProfileId = 'workspace',
   }) : now = now ?? DateTime.now;
 
   ScheduledJob scheduledJob({
@@ -378,7 +382,12 @@ class KnowledgeInboxService {
   Future<KnowledgeExtraction> _runExtractionTurn(File file, String text, {required String jobId}) async {
     final attemptId = const Uuid().v4();
     final sessionKey = core.SessionKey.cronSession(jobId: '$jobId:extract:${p.basename(file.path)}:$attemptId');
-    final session = await sessions.getOrCreateByKey(sessionKey, type: core.SessionType.cron);
+    final session = await sessions.getOrCreateByKey(
+      sessionKey,
+      type: core.SessionType.cron,
+      provider: workerProviderId,
+      securityProfile: workerProviderId == null ? null : workerProfileId,
+    );
     final turnId = await turns.startTurn(
       session.id,
       [

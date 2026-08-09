@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../execution_coordinator_test_support.dart';
 
 class _PromptInjectionClassifier implements ContentClassifier {
   @override
@@ -88,6 +91,9 @@ class _KnowledgeInboxWorker implements AgentHarness {
 
   @override
   WorkerState get state => WorkerState.idle;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
 
   @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
@@ -243,20 +249,24 @@ void main() {
       ],
     );
 
-    turns = TurnManager(
-      messages: messages,
-      worker: worker,
-      behavior: BehaviorFileService(workspaceDir: workspaceDir.path),
-      memoryFile: memoryFile,
-      sessions: sessions,
-      guardChain: guardChain,
-    );
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir.path);
+    turns = turnManagerForRunners([
+      TurnRunner(harness: FakeAgentHarness(), messages: messages, behavior: behavior, sessions: sessions),
+      TurnRunner(
+        harness: worker,
+        messages: messages,
+        behavior: behavior,
+        memoryFile: memoryFile,
+        sessions: sessions,
+        guardChain: guardChain,
+      ),
+    ], sessions: sessions);
 
-    schedule = ScheduleService(turns: turns, sessions: sessions, jobs: const []);
+    schedule = ScheduleService(turns: turns, sessions: sessions, jobs: const [], workerProviderId: 'claude');
   });
 
   tearDown(() async {
-    await worker.dispose();
+    await turns.executions.dispose();
     await messages.dispose();
     await memoryFile.dispose();
     db.close();

@@ -9,6 +9,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/request_auth_context.dart';
+import '../execution_coordinator.dart';
 import '../session/session_display_title.dart';
 import '../templates/chat.dart' show richInputHtmlFromMetadataMap;
 import '../templates/loader.dart';
@@ -62,7 +63,7 @@ void registerSessionMessageRoutes(
     try {
       // 1. Look up session
       final session = await sessions.getSession(id);
-      final sessionValidation = _validateSessionForSend(session, turns.pool);
+      final sessionValidation = _validateSessionForSend(session, turns.executions);
       if (sessionValidation != null) return sessionValidation;
 
       // 2. Parse + validate message
@@ -83,7 +84,7 @@ void registerSessionMessageRoutes(
       if (messageValidation != null) return messageValidation;
       final ({String? turnId, Response? response}) turnResult = await sessionMutations.run(id, () async {
         final current = await sessions.getSession(id);
-        final currentValidation = _validateSessionForSend(current, turns.pool);
+        final currentValidation = _validateSessionForSend(current, turns.executions);
         if (currentValidation != null) return (turnId: null, response: currentValidation);
 
         final commandHandler = chatCommandHandler;
@@ -97,7 +98,7 @@ void registerSessionMessageRoutes(
         try {
           turnId = await turns.reserveTurn(id, isHumanInput: true, promptScope: PromptScope.conversational);
         } on BusyTurnException {
-          if (current!.provider != null) {
+          if (current!.type == SessionType.logicalAgent || current.type == SessionType.cron) {
             return (
               turnId: null,
               response: errorResponse(409, 'AGENT_BUSY_PROVIDER', 'No idle ${current.provider} workers available', {
@@ -585,11 +586,15 @@ List<Map<String, dynamic>> _availableCommands(
   ];
 }
 
-Response? _validateSessionProviderForSend(String? provider, HarnessPool pool) {
-  if (provider == null) {
+Response? _validateSessionProviderForSend(Session session, ExecutionCoordinator executions) {
+  if (session.type != SessionType.logicalAgent && session.type != SessionType.cron) {
     return null;
   }
-  if (pool.hasWorkerForProvider(provider)) {
+  final provider = session.provider;
+  if (provider == null) {
+    return errorResponse(409, 'PROVIDER_UNAVAILABLE', 'Worker session has no pinned provider');
+  }
+  if (executions.snapshot.providers.containsKey(provider)) {
     return null;
   }
   return errorResponse(409, 'PROVIDER_UNAVAILABLE', 'Provider "$provider" is not available for session overrides', {
@@ -597,7 +602,7 @@ Response? _validateSessionProviderForSend(String? provider, HarnessPool pool) {
   });
 }
 
-Response? _validateSessionForSend(Session? session, HarnessPool pool) {
+Response? _validateSessionForSend(Session? session, ExecutionCoordinator executions) {
   if (session == null) {
     return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
   }
@@ -607,5 +612,5 @@ Response? _validateSessionForSend(Session? session, HarnessPool pool) {
   if (session.type == SessionType.task) {
     return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
   }
-  return _validateSessionProviderForSend(session.provider, pool);
+  return _validateSessionProviderForSend(session, executions);
 }

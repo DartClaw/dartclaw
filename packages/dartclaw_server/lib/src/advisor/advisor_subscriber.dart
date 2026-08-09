@@ -6,6 +6,7 @@ import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
+import '../execution_coordinator.dart';
 import '../task/task_service.dart';
 
 /// Identifies why an advisor evaluation was scheduled.
@@ -483,7 +484,8 @@ class AdvisorSubscriber {
   static final _log = Logger('AdvisorSubscriber');
 
   final EventBus _eventBus;
-  final HarnessPool _pool;
+  final ExecutionCoordinator _executions;
+  final String _providerId;
   final SessionService _sessions;
   final TaskService _taskService;
   final TurnTraceService? _traceService;
@@ -504,7 +506,8 @@ class AdvisorSubscriber {
   String? _lastSessionKey;
 
   AdvisorSubscriber({
-    required HarnessPool pool,
+    required ExecutionCoordinator executions,
+    required String providerId,
     required SessionService sessions,
     required TaskService taskService,
     required EventBus eventBus,
@@ -518,7 +521,8 @@ class AdvisorSubscriber {
     String? model,
     String? effort,
     ChatCardBuilder? googleChatCardBuilder,
-  }) : _pool = pool,
+  }) : _executions = executions,
+       _providerId = providerId,
        _eventBus = eventBus,
        _sessions = sessions,
        _taskService = taskService,
@@ -634,27 +638,50 @@ class AdvisorSubscriber {
   }
 
   Future<void> _runAdvisor(AdvisorTriggerContext trigger) async {
-    final runner = _pool.tryAcquire();
-    if (runner == null) {
-      _log.info('Advisor skipped for ${trigger.type.wireName}: no worker available');
-      return;
-    }
-
+    ExecutionLease? lease;
+    String? executionSessionId;
+    String? executionTurnId;
     try {
       final tasks = await _loadTasks(trigger.taskIds);
       final prompt = await _buildPrompt(trigger, tasks);
       final advisorSession = await _sessions.getOrCreateByKey(
         SessionKey.cronSession(jobId: 'advisor:${trigger.sessionKey}'),
         type: SessionType.cron,
+        provider: _providerId,
+        securityProfile: 'workspace',
       );
+      lease = await _executions.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.advisor,
+          providerId: _providerId,
+          sessionId: advisorSession.id,
+          fingerprint: _executions.fingerprintFor(_providerId, 'workspace'),
+          admission: ExecutionAdmission.failFast,
+        ),
+      );
+      final runner = lease?.runner;
+      if (runner == null) {
+        _log.info('Advisor skipped for ${trigger.type.wireName}: no worker capacity available');
+        return;
+      }
 
-      final turnId = await runner.reserveTurn(
-        advisorSession.id,
-        agentName: 'advisor',
-        model: _model,
-        effort: _effort,
-        maxTurns: 1,
-      );
+      final turnId = lease!.admissionOwned
+          ? await runner.reserveAdmittedTurn(
+              advisorSession.id,
+              agentName: 'advisor',
+              model: _model,
+              effort: _effort,
+              maxTurns: 1,
+            )
+          : await runner.reserveTurn(
+              advisorSession.id,
+              agentName: 'advisor',
+              model: _model,
+              effort: _effort,
+              maxTurns: 1,
+            );
+      executionSessionId = advisorSession.id;
+      executionTurnId = turnId;
       runner.executeTurn(
         advisorSession.id,
         turnId,
@@ -681,7 +708,16 @@ class AdvisorSubscriber {
     } catch (error, stackTrace) {
       _log.warning('Advisor execution failed for ${trigger.type.wireName}', error, stackTrace);
     } finally {
-      _pool.release(runner);
+      final runner = lease?.runner;
+      try {
+        if (runner != null && executionSessionId != null && executionTurnId != null) {
+          await runner.waitForExecutionSettled(executionSessionId, executionTurnId);
+        }
+      } catch (error, stackTrace) {
+        _log.warning('Advisor execution settlement failed for ${trigger.type.wireName}', error, stackTrace);
+      } finally {
+        await lease?.release();
+      }
     }
   }
 

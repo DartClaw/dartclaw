@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessConfig;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -8,18 +8,9 @@ import '../serve_command.dart' show ExitFn, mcpDisallowedTools;
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
 
-typedef _SpawnPlanEntry = ({
-  String providerId,
-  String profileId,
-  String executable,
-  String credentialProviderId,
-  Map<String, dynamic> options,
-  bool requiresContainer,
-});
-
 /// Constructs and exposes harness-layer services.
 ///
-/// Owns agent definitions, primary + worker harnesses, harness pool, token service,
+/// Owns agent definitions, primary + worker harnesses, execution capacity, token service,
 /// usage tracker, health service, context management, logical-agent sessions, behavior
 /// service, self-improvement, SSE broadcast, and auth state.
 class HarnessWiring {
@@ -59,7 +50,7 @@ class HarnessWiring {
 
   late AgentHarness _harness;
   late GuardChain _primaryGuardChain;
-  late HarnessPool _pool;
+  late ExecutionCoordinator _executions;
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
@@ -83,15 +74,13 @@ class HarnessWiring {
   })
   _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
-  SpawnWorker? _onSpawnNeeded;
-  late WorkerPoolCoordinator _workerPoolCoordinator;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
   TokenService? _tokenService;
   String? _resolvedGatewayToken;
 
   AgentHarness get harness => _harness;
-  HarnessPool get pool => _pool;
+  ExecutionCoordinator get executions => _executions;
   HarnessConfig get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
@@ -114,9 +103,8 @@ class HarnessWiring {
   })
   get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
-  SpawnWorker? get onSpawnNeeded => _onSpawnNeeded;
-  WorkerPoolCoordinator get workerPoolCoordinator => _workerPoolCoordinator;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
+  Set<String> get continuityProviders => _harnessFactory.probeContinuityProviders();
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
@@ -231,39 +219,22 @@ class HarnessWiring {
     // allowedTools enforcement is isolated across concurrent runners.
     final primaryFilter = TaskToolFilterGuard();
     _primaryGuardChain = _buildRunnerGuardChain(_security.guardChain, primaryFilter, _security.toolPolicyCascade);
-    late final List<_SpawnPlanEntry> spawnPlan;
-    late final int maxConcurrent;
+    late final Map<String, ProviderEntry> providerEntries;
+    late final Map<String, List<String>> providerProfiles;
+    late final Map<String, int> providerCapacities;
     try {
       final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
-      final providerEntries = _effectiveWorkerProviderEntries(config, acpValidationResults);
+      providerEntries = _effectiveWorkerProviderEntries(config, acpValidationResults);
       _providerStatusEntries = providerEntries;
-      spawnPlan = <_SpawnPlanEntry>[];
-      for (final providerEntry in providerEntries.entries) {
-        final providerId = providerEntry.key;
-        final entry = providerEntry.value;
-        final acpEntry = config.harness.acp[providerId];
-        final planProfiles = _profilesForProvider(config, providerId, profileIds);
-        final workerCount = entry.effectivePoolSize;
-        if (workerCount < planProfiles.length) {
-          throw StateError(
-            'providers.$providerId.pool_size must be at least ${planProfiles.length} '
-            'to cover the required worker profiles: ${planProfiles.join(', ')}',
-          );
-        }
-        for (var i = 0; i < workerCount; i++) {
-          spawnPlan.add((
-            providerId: providerId,
-            profileId: planProfiles[i % planProfiles.length],
-            executable: entry.executable,
-            credentialProviderId: _credentialProviderIdForProvider(config, providerId),
-            options: entry.options,
-            requiresContainer: acpEntry?.containerIsolationRequired ?? false,
-          ));
-        }
-      }
-      maxConcurrent = spawnPlan.length;
-      if (maxConcurrent > 0) {
-        _log.info('Worker pool: lazy, up to $maxConcurrent worker(s) + 1 primary');
+      providerProfiles = {
+        for (final providerId in providerEntries.keys) providerId: _profilesForProvider(config, providerId, profileIds),
+      };
+      providerCapacities = {
+        for (final providerEntry in providerEntries.entries) providerEntry.key: providerEntry.value.effectivePoolSize,
+      };
+      final totalCapacity = providerCapacities.values.fold(0, (sum, capacity) => sum + capacity);
+      if (totalCapacity > 0) {
+        _log.info('Worker capacity: up to $totalCapacity execution(s) + 1 primary-interactive lane');
       }
 
       final validationProviders = ProvidersConfig(
@@ -299,7 +270,7 @@ class HarnessWiring {
           containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
           guardChain: _primaryGuardChain,
           ownMcpToolCanonicals: _ownMcpToolCanonicals,
-          acpPermissionDecision: _acpPermissionDecision,
+          acpPermissionDecision: (request) => _acpPermissionDecision(_primaryGuardChain, request),
           acpReverseCallAudit: _auditAcpReverseCall,
           environment: _providerEnvironment(
             config,
@@ -511,99 +482,104 @@ class HarnessWiring {
       providerId: providerId,
     );
 
-    // Build the primary TurnRunner and lazily populated worker pool.
+    // Build the primary lane and on-demand worker authority.
     final primaryRunner = buildRunner(
       harness: _harness,
       guardChain: _primaryGuardChain,
       toolFilter: primaryFilter,
       providerId: defaultProviderId,
     );
-    _pool = HarnessPool(runners: [primaryRunner], maxConcurrentWorkers: maxConcurrent);
-
-    // Lazy spawn callback shared by task execution and logical-agent sessions.
-    final consumedSpawnPlanIndexes = <int>{};
-    _onSpawnNeeded = spawnPlan.isEmpty
-        ? null
-        : (requestedProviderId) async {
-            if (_pool.spawnableCount <= 0) return false;
-            final planIndex = _nextSpawnPlanIndex(
-              spawnPlan,
-              consumedSpawnPlanIndexes,
-              requestedProviderId: requestedProviderId,
-            );
-            if (planIndex == null) {
-              _log.warning(
-                requestedProviderId == null
-                    ? 'No worker spawn-plan entry remains'
-                    : 'No worker spawn-plan entry remains for provider "$requestedProviderId"',
-              );
-              return false;
-            }
-            final plan = spawnPlan[planIndex];
-            final containerManager = _security.containerManagers[plan.profileId];
-            if (plan.requiresContainer && containerManager == null) {
-              _log.warning(
-                'ACP provider "${plan.providerId}" requires unavailable container profile "${plan.profileId}"',
-              );
-              return false;
-            }
-            try {
-              // Each worker gets its own TaskToolFilterGuard so per-task
-              // allowedTools enforcement is isolated across concurrent runners.
-              final workerFilter = TaskToolFilterGuard();
-              final workerGuardChain = _buildRunnerGuardChain(
-                _security.guardChain,
-                workerFilter,
-                _security.toolPolicyCascade,
-              );
-              final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
-              final workerHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: workerPrompt);
-              final workerHarness = _harnessFactory.create(
-                plan.providerId,
-                HarnessFactoryConfig(
-                  cwd: Directory.current.path,
-                  executable: plan.executable,
-                  turnTimeout: Duration(seconds: config.server.workerTimeout),
-                  onMemorySave: _memoryHandlers.onSave,
-                  onMemorySearch: _memoryHandlers.onSearch,
-                  onMemoryRead: _memoryHandlers.onRead,
-                  onPermissionDenied: (toolName, reason) {
-                    _eventBus.fire(
-                      ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()),
-                    );
-                  },
-                  harnessConfig: workerHarnessConfig,
-                  historyConfig: config.agent.history,
-                  providerOptions: plan.options,
-                  containerManager: containerManager,
-                  guardChain: workerGuardChain,
-                  ownMcpToolCanonicals: _ownMcpToolCanonicals,
-                  environment: _providerEnvironment(
-                    config,
-                    plan.providerId,
-                    plan.credentialProviderId,
-                    credentialRegistry,
-                  ),
-                ),
-              );
-              _wireCompactionCallbacks(workerHarness);
-              await workerHarness.start();
-              final runner = buildRunner(
-                harness: workerHarness,
-                guardChain: workerGuardChain,
-                toolFilter: workerFilter,
-                profileId: plan.profileId,
-                providerId: plan.providerId,
-              );
-              _pool.addRunner(runner);
-              consumedSpawnPlanIndexes.add(planIndex);
-              return true;
-            } catch (e) {
-              _log.warning('Failed to spawn worker: $e');
-              return false;
-            }
-          };
-    _workerPoolCoordinator = WorkerPoolCoordinator(pool: _pool, onSpawnNeeded: _onSpawnNeeded);
+    _executions = ExecutionCoordinator(
+      primary: primaryRunner,
+      providerCapacities: providerCapacities,
+      admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+      releaseAdmission: primaryRunner.releaseAdmission,
+      resolveFingerprint: (providerId, profileId) {
+        final allowedProfiles = providerProfiles[providerId];
+        if (allowedProfiles == null || !allowedProfiles.contains(profileId)) {
+          throw StateError('Provider "$providerId" cannot execute in security profile "$profileId"');
+        }
+        return ExecutionFingerprint(providerId: providerId, profileId: profileId, configurationId: 'serve-composition');
+      },
+      createWorker: (request) async {
+        final entry = providerEntries[request.providerId];
+        final allowedProfiles = providerProfiles[request.providerId];
+        if (entry == null || allowedProfiles == null || !allowedProfiles.contains(request.profileId)) {
+          throw WorkerCreationException(
+            'Provider "${request.providerId}" cannot execute in security profile "${request.profileId}"',
+          );
+        }
+        final containerManager = _security.containerManagers[request.profileId];
+        final requiresContainer = config.harness.acp[request.providerId]?.containerIsolationRequired ?? false;
+        if (requiresContainer && containerManager == null) {
+          throw WorkerCreationException(
+            'ACP provider "${request.providerId}" requires unavailable container profile "${request.profileId}"',
+          );
+        }
+        final workerFilter = TaskToolFilterGuard();
+        final workerGuardChain = _buildRunnerGuardChain(
+          _security.guardChain,
+          workerFilter,
+          _security.toolPolicyCascade,
+        );
+        final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
+        final workerHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: workerPrompt);
+        final workerHarness = _harnessFactory.create(
+          request.providerId,
+          HarnessFactoryConfig(
+            cwd: Directory.current.path,
+            executable: entry.executable,
+            turnTimeout: Duration(seconds: config.server.workerTimeout),
+            onMemorySave: _memoryHandlers.onSave,
+            onMemorySearch: _memoryHandlers.onSearch,
+            onMemoryRead: _memoryHandlers.onRead,
+            onPermissionDenied: (toolName, reason) {
+              _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
+            },
+            harnessConfig: workerHarnessConfig,
+            historyConfig: config.agent.history,
+            providerOptions: entry.options,
+            containerManager: containerManager,
+            guardChain: workerGuardChain,
+            ownMcpToolCanonicals: _ownMcpToolCanonicals,
+            acpPermissionDecision: (permissionRequest) => _acpPermissionDecision(workerGuardChain, permissionRequest),
+            acpReverseCallAudit: _auditAcpReverseCall,
+            environment: _providerEnvironment(
+              config,
+              request.providerId,
+              _credentialProviderIdForProvider(config, request.providerId),
+              credentialRegistry,
+            ),
+          ),
+        );
+        _wireCompactionCallbacks(workerHarness);
+        try {
+          await workerHarness.start();
+          return buildRunner(
+            harness: workerHarness,
+            guardChain: workerGuardChain,
+            toolFilter: workerFilter,
+            profileId: request.profileId,
+            providerId: request.providerId,
+          );
+        } catch (error) {
+          try {
+            await workerHarness.stop();
+          } catch (cleanupError) {
+            _log.warning('Failed to stop worker after startup failure: $cleanupError');
+          }
+          try {
+            await workerHarness.dispose();
+          } catch (cleanupError) {
+            _log.warning('Failed to dispose worker after startup failure: $cleanupError');
+          }
+          throw WorkerCreationException(
+            'Failed to start ${request.providerId} worker: $error',
+            quarantineSlot: !workerHarness.isRootProcessTerminationConfirmed,
+          );
+        }
+      },
+    );
   }
 
   static bool _isLoopbackHost(String host) => host == 'localhost' || host == '127.0.0.1' || host == '::1';
@@ -649,12 +625,9 @@ class HarnessWiring {
     }
   }
 
-  Future<AcpPermissionResult> _acpPermissionDecision(AcpPermissionRequest request) async {
-    if (_security.guardChain == null) {
-      return const AcpPermissionResult(granted: false, reason: 'Guard chain unavailable');
-    }
+  Future<AcpPermissionResult> _acpPermissionDecision(GuardChain runnerGuardChain, AcpPermissionRequest request) async {
     try {
-      final verdict = await _primaryGuardChain.evaluateBeforeToolCall(
+      final verdict = await runnerGuardChain.evaluateBeforeToolCall(
         request.operation,
         request.params,
         sessionId: request.sessionId,
@@ -927,17 +900,4 @@ String _logicalAgentWorkerProfile(
 
   final providerProfile = config.harness.acp[providerId]?.containerProfile;
   return providerProfile == null ? 'workspace' : _containerProfileId(providerProfile);
-}
-
-int? _nextSpawnPlanIndex(
-  List<_SpawnPlanEntry> spawnPlan,
-  Set<int> consumedIndexes, {
-  required String? requestedProviderId,
-}) {
-  for (var i = 0; i < spawnPlan.length; i++) {
-    if (consumedIndexes.contains(i)) continue;
-    if (requestedProviderId != null && spawnPlan[i].providerId != requestedProviderId) continue;
-    return i;
-  }
-  return null;
 }

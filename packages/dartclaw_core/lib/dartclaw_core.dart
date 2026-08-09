@@ -270,8 +270,5 @@ export 'src/turn/turn_outcome.dart' show TurnOutcome;
 export 'src/turn/turn_runner.dart' show TurnRunner;
 export 'src/turn/turn_status.dart' show TurnStatus;
 
-// Harness pool interface
-export 'src/harness/harness_pool.dart' show HarnessPool;
-
 // Auth abstractions
 export 'src/auth/google_jwt_verifier.dart' show GoogleJwtVerifier;

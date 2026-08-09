@@ -39,6 +39,9 @@ class FastFakeWorker extends AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _events.stream;
 
   @override
@@ -76,14 +79,14 @@ class FastFakeWorker extends AgentHarness {
 }
 
 /// Minimal real-[TurnRunner] subclass with no-op collaborators, for tests that
-/// only need a `TurnRunner` instance (e.g. harness-pool metrics / agent routes).
+/// only need a `TurnRunner` instance (e.g. runner metrics / agent routes).
 ///
 /// [providerId] defaults to `claude`; pass another to exercise per-provider
 /// metric grouping.
 class FakeTurnRunner extends TurnRunner {
-  FakeTurnRunner({super.providerId = 'claude'})
+  FakeTurnRunner({super.providerId = 'claude', super.profileId = 'workspace', bool supportsCachedTokens = false})
     : super(
-        harness: FakeAgentHarness(autoTransitionState: false),
+        harness: FakeAgentHarness(autoTransitionState: false, supportsCachedTokens: supportsCachedTokens),
         messages: NoOpMessages(),
         behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-turn-runner-test'),
         sessions: NoOpSessions(),
@@ -93,11 +96,30 @@ class FakeTurnRunner extends TurnRunner {
 /// No-op [MessageService] for tests that never read messages.
 class NoOpMessages implements MessageService {
   @override
+  Future<Message> insertMessage({
+    required String sessionId,
+    required String role,
+    required String content,
+    String? metadata,
+  }) async => Message(
+    cursor: 1,
+    id: 'message',
+    sessionId: sessionId,
+    role: role,
+    content: content,
+    metadata: metadata,
+    createdAt: DateTime.now(),
+  );
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 /// No-op [SessionService] for tests that never touch sessions.
 class NoOpSessions implements SessionService {
+  @override
+  Future<void> touchUpdatedAt(String id) async {}
+
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
@@ -205,6 +227,22 @@ class FailingStartAfterCancelHarness extends FakeAgentHarness {
   Future<void> start() async {
     startCalled = true;
     throw StateError('start failed');
+  }
+}
+
+class IdleAfterFailedCancelRecoveryHarness extends FakeAgentHarness {
+  IdleAfterFailedCancelRecoveryHarness({this.terminationConfirmed = true})
+    : super(promptStrategy: PromptStrategy.append);
+
+  final bool terminationConfirmed;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => terminationConfirmed;
+
+  @override
+  Future<void> cancel() async {
+    cancelCalled = true;
+    throw StateError('cancel failed');
   }
 }
 

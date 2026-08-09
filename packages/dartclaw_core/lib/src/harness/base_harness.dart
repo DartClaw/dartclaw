@@ -70,6 +70,9 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   WorkerState get state => _state;
 
   @override
+  bool get isRootProcessTerminationConfirmed => currentProcess == null;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override

@@ -4,9 +4,9 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:dartclaw_cli/src/commands/service_wiring.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -461,7 +461,9 @@ steps:
         'memory_save',
         if (searchEnabled) 'brave_search',
       };
-      expect(factoryConfigs.single.ownMcpToolCanonicals.keys.toSet(), expected);
+      final runtimeConfigs = factoryConfigs.where((config) => config.guardChain != null);
+      expect(runtimeConfigs, isNotEmpty);
+      expect(runtimeConfigs.map((config) => config.ownMcpToolCanonicals.keys.toSet()), everyElement(expected));
       expect(result.server.mcpHandler.toolNames.toSet().intersection(expected), expected);
       expect(result.server.mcpHandler.toolNames.contains('brave_search'), searchEnabled);
     }, tags: ['slow']);
@@ -514,11 +516,15 @@ steps:
     ]);
     expect(result.server.mcpHandler.toolNames, contains('memory_save'));
 
-    final guardChain = factoryConfigs.single.guardChain!;
     final sessionId = worker.lastSessionId!;
+    final guardChains = factoryConfigs.map((config) => config.guardChain).nonNulls.toList();
+    final shellVerdicts = await Future.wait(
+      guardChains.map((guardChain) => guardChain.evaluateBeforeToolCall('shell', {}, sessionId: sessionId)),
+    );
+    expect(shellVerdicts.where((verdict) => verdict.isBlock), hasLength(1));
+    final guardChain = guardChains[shellVerdicts.indexWhere((verdict) => verdict.isBlock)];
     expect((await guardChain.evaluateBeforeToolCall('file_read', {}, sessionId: sessionId)).isBlock, isFalse);
     expect((await guardChain.evaluateBeforeToolCall('memory_save', {}, sessionId: sessionId)).isBlock, isFalse);
-    expect((await guardChain.evaluateBeforeToolCall('shell', {}, sessionId: sessionId)).isBlock, isTrue);
 
     worker.emit(DeltaEvent('Journal complete'));
     worker.completeSuccess({'stop_reason': 'end_turn'});

@@ -554,7 +554,7 @@ steps:
       expect(output.every((line) => !line.startsWith('Unknown workflow:')), isTrue);
     });
 
-    test('standalone run provisions an explicitly configured provider worker before starting the workflow', () async {
+    test('standalone run configures referenced provider capacity without starting a harness', () async {
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
         providers: const ProvidersConfig(
@@ -598,20 +598,18 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
       );
-      await wiring.wire();
+      await wiring.wirePreHarness();
+      await wiring.startHarnesses({'claude'});
       addTearDown(wiring.dispose);
 
-      expect(wiring.pool.hasWorkerForProvider('claude'), isFalse);
+      expect(createdHarnesses.values.expand((harnesses) => harnesses).every((harness) => !harness.startCalled), isTrue);
+      expect(wiring.executions.primary, isNull);
+      expect(wiring.executions.snapshot.providers.keys, {'claude'});
+      expect(wiring.executions.snapshot.providers['claude']!.configured, 1);
       expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
-
-      await wiring.ensureWorkersForProviders({'claude'});
-
-      expect(wiring.pool.hasWorkerForProvider('claude'), isTrue);
-      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
-      expect(createdHarnesses['claude'], isNotEmpty);
     });
 
-    test('standalone harness startup canonicalizes referenced provider IDs once', () async {
+    test('standalone capacity wiring canonicalizes referenced provider IDs once', () async {
       const configuredProviderId = 'OpenAI-Work';
       const providerId = 'openai-work';
       config = DartclawConfig(
@@ -641,12 +639,10 @@ steps:
 
       await wiring.startHarnesses({configuredProviderId});
 
-      expect(
-        createdHarnesses.where((harness) => harness.startCalled),
-        hasLength(2),
-        reason: 'one primary plus one provider worker',
-      );
-      expect(wiring.pool.workerCountForProvider(providerId), 1);
+      expect(createdHarnesses.every((harness) => !harness.startCalled), isTrue);
+      expect(wiring.executions.primary, isNull);
+      expect(wiring.executions.snapshot.providers.keys, {providerId});
+      expect(wiring.executions.snapshot.providers[providerId]!.configured, 1);
       expect(wiring.workflowCliRunner.providers.keys, contains(providerId));
       expect(wiring.workflowCliRunner.providers.keys, isNot(contains(configuredProviderId)));
     });

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
@@ -60,6 +61,7 @@ void main() {
   late TaskService tasks;
   late KvService kvService;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late TurnManager workflowTurns;
 
   setUp(() async {
     worker = FakeTaskWorker();
@@ -71,6 +73,16 @@ void main() {
     tasks = ctx.tasks;
     kvService = ctx.kvService;
     workflowStepExecutions = ctx.workflowStepExecutions;
+    final primary = ctx.turns.executions.primary!;
+    workflowTurns = TurnManager.fromCoordinator(
+      coordinator: ExecutionCoordinator(
+        providerCapacities: const {'claude': 1, 'codex': 1},
+        primary: primary,
+        admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primary.releaseAdmission,
+        createWorker: (_) => throw StateError('Workflow one-shot tests must not create reusable workers'),
+      ),
+    );
   });
 
   tearDown(() async {
@@ -82,10 +94,14 @@ void main() {
     WorkflowCliRunner? workflowCliRunner,
     TaskEventRecorder? eventRecorder,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
-  }) => ctx.buildExecutor(
+  }) => ctx.harness.buildWorkflowExecutor(
+    turnManager: workflowTurns,
     projectService: projectService,
     workflowCliRunner: workflowCliRunner,
+    workflowRunRepository: ctx.workflowRuns,
+    workflowStepExecutionRepository: workflowStepExecutions,
     eventRecorder: eventRecorder,
+    kvService: kvService,
     limits: limits,
   );
 
@@ -174,8 +190,9 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
-    final updated = await tasks.get('task-oneshot');
+    final updated = await waitForTaskStatus(tasks, 'task-oneshot', until: const {TaskStatus.review});
     expect(updated?.status, TaskStatus.review);
     expect(updated?.configJson['_workflowInputTokensNew'], 600);
     expect(updated?.configJson['_workflowCacheReadTokens'], 400);
@@ -187,6 +204,81 @@ void main() {
       'outputTokens': 500,
     });
     expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.structuredOutput, isA<Map<Object?, Object?>>());
+  });
+
+  test('unreported root termination across prompt turns quarantines capacity and blocks the next task', () async {
+    final provider = _ConfirmationSequenceCliProvider([true, null]);
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      providerImpls: {'claude': provider},
+    );
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    var workerCreations = 0;
+    final executions = ExecutionCoordinator(
+      providerCapacities: const {'claude': 1},
+      primary: primaryRunner,
+      createWorker: (_) async {
+        workerCreations++;
+        throw StateError('capacity-only workflow must not create a reusable worker');
+      },
+    );
+    final turns = TurnManager.fromCoordinator(coordinator: executions);
+    final oneShotExecutor = ctx.harness.buildWorkflowExecutor(
+      turnManager: turns,
+      workflowCliRunner: cliRunner,
+      workflowRunRepository: ctx.workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      limits: const TaskExecutorLimits(defaultProviderId: 'claude'),
+    );
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-unconfirmed-root',
+      title: 'Unconfirmed root termination',
+      description: 'Quarantine capacity after any unconfirmed CLI turn.',
+      type: TaskType.research,
+      provider: 'claude',
+      autoStart: true,
+      agentExecutionId: 'ae-task-unconfirmed-root',
+      workflowRunId: 'wf-unconfirmed-root',
+    );
+    await seedWorkflowExecution(
+      'task-unconfirmed-root',
+      agentExecutionId: 'ae-task-unconfirmed-root',
+      workflowRunId: 'wf-unconfirmed-root',
+      followUpPrompts: ['second turn'],
+    );
+
+    await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
+
+    expect((await tasks.get('task-unconfirmed-root'))!.status, TaskStatus.review);
+    expect(provider.runCount, 2);
+    expect(executions.snapshot.providers['claude']?.effective, 0);
+    expect(executions.snapshot.providers['claude']?.quarantined, 1);
+    expect(workerCreations, 0);
+
+    await tasks.create(
+      id: 'task-after-quarantine',
+      title: 'Blocked after quarantine',
+      description: 'No replacement CLI root may start in the quarantined slot.',
+      type: TaskType.research,
+      provider: 'claude',
+      autoStart: true,
+      agentExecutionId: 'ae-task-after-quarantine',
+      workflowRunId: 'wf-unconfirmed-root',
+    );
+    await seedWorkflowExecution(
+      'task-after-quarantine',
+      agentExecutionId: 'ae-task-after-quarantine',
+      workflowRunId: 'wf-unconfirmed-root',
+    );
+
+    expect(await oneShotExecutor.pollOnce(), isFalse);
+    expect((await tasks.get('task-after-quarantine'))!.status, TaskStatus.queued);
+    expect(provider.runCount, 2);
+    expect(workerCreations, 0);
   });
 
   test(
@@ -223,6 +315,7 @@ void main() {
       );
 
       await oneShotExecutor.pollOnce();
+      await oneShotExecutor.drain();
 
       expect(capturedEnv, isNotNull);
       // Host-computed step artifacts dir reaches the spawn env, scoped to this task.
@@ -263,8 +356,9 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
-    final updated = await tasks.get('task-oneshot-cancelled');
+    final updated = await waitForTaskStatus(tasks, 'task-oneshot-cancelled', until: const {TaskStatus.cancelled});
     expect(updated?.status, TaskStatus.cancelled);
     final events = eventService.listForTask('task-oneshot-cancelled');
     expect(events.any((event) => event.kind == TaskEventKind.taskError), isFalse);
@@ -299,8 +393,9 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
-    final updated = await tasks.get('task-oneshot-failed');
+    final updated = await waitForTaskStatus(tasks, 'task-oneshot-failed', until: const {TaskStatus.failed});
     expect(updated?.status, TaskStatus.failed);
     final events = eventService.listForTask('task-oneshot-failed');
     final taskErrors = events.where((event) => event.kind == TaskEventKind.taskError).toList();
@@ -342,8 +437,13 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
-    final updated = await tasks.get('task-oneshot-cancelled-then-failed');
+    final updated = await waitForTaskStatus(
+      tasks,
+      'task-oneshot-cancelled-then-failed',
+      until: const {TaskStatus.failed},
+    );
     expect(updated?.status, TaskStatus.failed);
     final events = eventService.listForTask('task-oneshot-cancelled-then-failed');
     final taskErrors = events.where((event) => event.kind == TaskEventKind.taskError).toList();
@@ -402,7 +502,7 @@ void main() {
     ]);
   });
 
-  test('provider-less workflow oneshot uses configured default provider instead of pool runner provider', () async {
+  test('provider-less workflow oneshot uses the configured default provider', () async {
     String? executable;
     final cliRunner = echoCliRunner(
       (_) => jsonEncode({'session_id': 'default-provider-session', 'result': 'Done.'}),
@@ -430,10 +530,14 @@ void main() {
     );
 
     final processed = await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
     expect(processed, isTrue);
     expect(executable, 'codex');
-    expect((await tasks.get('task-oneshot-default-provider'))!.status, TaskStatus.review);
+    expect(
+      (await waitForTaskStatus(tasks, 'task-oneshot-default-provider', until: const {TaskStatus.review}))?.status,
+      TaskStatus.review,
+    );
   });
 
   test('workflow oneshot resolves step timeout from task config before global default', () async {
@@ -462,6 +566,7 @@ void main() {
       );
       await seedWorkflowExecution(id, agentExecutionId: 'ae-$id', workflowRunId: 'wf-timeout');
       await oneShotExecutor.pollOnce();
+      await oneShotExecutor.drain();
     }
 
     await createAndPoll('task-global-timeout');
@@ -500,6 +605,7 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
     expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
     expect(arguments, isNot(contains('--dangerously-skip-permissions')));
@@ -596,7 +702,7 @@ void main() {
     );
 
     final pollFuture = oneShotExecutor.pollOnce();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await waitForTaskStatus(tasks, 'task-oneshot-race', until: const {TaskStatus.running});
     final current = await tasks.get('task-oneshot-race');
     await tasks.updateFields(
       'task-oneshot-race',
@@ -604,8 +710,9 @@ void main() {
     );
 
     await pollFuture;
+    await oneShotExecutor.drain();
 
-    final updated = await tasks.get('task-oneshot-race');
+    final updated = await waitForTaskStatus(tasks, 'task-oneshot-race', until: const {TaskStatus.review});
     expect(updated?.status, TaskStatus.review);
     expect(updated?.configJson['_tokenBudgetWarningFired'], isTrue);
     expect(updated?.configJson['_workflowInputTokensNew'], 600);
@@ -679,6 +786,7 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
     final raw = await kvService.get('session_cost:${session.id}');
     expect(raw, isNotNull);
@@ -796,13 +904,14 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
     expect(invocation, 3);
     expect(capturedArgs[0].contains('resume'), isFalse);
     expect(capturedArgs[1], containsAll(<String>['resume', 'codex-thread-resume']));
     expect(capturedArgs[2], containsAll(<String>['resume', 'codex-thread-resume']));
 
-    final updated = await tasks.get('task-codex-cumulative-deltas');
+    final updated = await waitForTaskStatus(tasks, 'task-codex-cumulative-deltas', until: const {TaskStatus.review});
     expect(updated?.status, TaskStatus.review);
     expect(updated?.configJson['_workflowInputTokensNew'], 50);
     expect(updated?.configJson['_workflowCacheReadTokens'], 120);
@@ -885,8 +994,9 @@ void main() {
     );
 
     await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
 
-    final updated = await tasks.get('task-codex-session-baseline');
+    final updated = await waitForTaskStatus(tasks, 'task-codex-session-baseline', until: const {TaskStatus.review});
     expect(updated?.sessionId, continuedSession.id);
     expect(updated?.configJson['_workflowInputTokensNew'], 30);
     expect(updated?.configJson['_workflowCacheReadTokens'], 40);
@@ -959,6 +1069,7 @@ void main() {
     );
 
     await inlineExecutor.pollOnce();
+    await inlineExecutor.drain();
 
     expect(capturedArgs, hasLength(1), reason: 'extraction turn must be skipped when inline is valid');
     expect((await workflowStepExecutions.getByTaskId('task-inline'))?.structuredOutput, inlinePayload);
@@ -1023,6 +1134,7 @@ void main() {
     );
 
     await fallbackExecutor.pollOnce();
+    await fallbackExecutor.drain();
 
     expect(capturedArgs, hasLength(2), reason: 'extraction turn must run when inline is missing');
     expect((await workflowStepExecutions.getByTaskId('task-fallback'))?.structuredOutput, {
@@ -1076,6 +1188,7 @@ void main() {
     );
 
     await partialExecutor.pollOnce();
+    await partialExecutor.drain();
 
     expect(capturedArgs, hasLength(2), reason: 'partial inline payload must not suppress extraction turn');
     expect((await workflowStepExecutions.getByTaskId('task-partial-inline'))?.structuredOutput, {
@@ -1173,6 +1286,7 @@ void main() {
     );
 
     await fallbackExecutor.pollOnce();
+    await fallbackExecutor.drain();
 
     expect(invocation, 2, reason: 'fallback extraction turn must run when inline is missing');
     expect(progressEvents, hasLength(2), reason: 'both main and fallback turns must emit progress events');
@@ -1234,6 +1348,7 @@ void main() {
     );
 
     await appendExecutor.pollOnce();
+    await appendExecutor.drain();
 
     expect(capturedArgs, hasLength(2));
     final mainArgs = capturedArgs[0];
@@ -1283,6 +1398,7 @@ void main() {
     );
 
     await finalizerExecutor.pollOnce();
+    await finalizerExecutor.drain();
 
     final stored = (await workflowStepExecutions.getByTaskId('task-finalizer-inline'))?.structuredOutput;
     expect(stored, isNotNull, reason: 'finalizer envelope must be persisted');
@@ -1330,6 +1446,7 @@ void main() {
     );
 
     await finalizerExecutor.pollOnce();
+    await finalizerExecutor.drain();
 
     final finalizerArgs = capturedArgs.firstWhere((a) => a.contains('--json-schema'));
     final maxTurnsIndex = finalizerArgs.indexOf('--max-turns');
@@ -1394,8 +1511,9 @@ void main() {
     );
 
     await finalizerExecutor.pollOnce();
+    await finalizerExecutor.drain();
 
-    final updated = await tasks.get('task-finalizer-tokens');
+    final updated = await waitForTaskStatus(tasks, 'task-finalizer-tokens', until: const {TaskStatus.review});
     expect(updated?.status, TaskStatus.review);
     // main (200/50/50) + finalizer (600/400/300): input 800, cacheRead 350, output 450.
     expect(updated?.configJson['_workflowInputTokensNew'], 450);
@@ -1438,8 +1556,9 @@ void main() {
     );
 
     await finalizerExecutor.pollOnce();
+    await finalizerExecutor.drain();
 
-    final updated = await tasks.get('task-finalizer-nosession');
+    final updated = await waitForTaskStatus(tasks, 'task-finalizer-nosession', until: const {TaskStatus.failed});
     expect(updated?.status, TaskStatus.failed);
     final events = eventService.listForTask('task-finalizer-nosession');
     final failedEvents = events.where((e) => e.kind.name == 'structuredOutputValidationFailed').toList();
@@ -1492,6 +1611,7 @@ void main() {
     );
 
     await finalizerExecutor.pollOnce();
+    await finalizerExecutor.drain();
 
     expect(finalizerCalls, 2, reason: 'one re-ask after the first empty finalizer turn');
     final stored = (await workflowStepExecutions.getByTaskId('task-finalizer-reask'))?.structuredOutput;
@@ -1544,8 +1664,9 @@ void main() {
     );
 
     await finalizerExecutor.pollOnce();
+    await finalizerExecutor.drain();
 
-    final updated = await tasks.get('task-finalizer-malformed');
+    final updated = await waitForTaskStatus(tasks, 'task-finalizer-malformed', until: const {TaskStatus.failed});
     expect(updated?.status, TaskStatus.failed);
     final events = eventService.listForTask('task-finalizer-malformed');
     final failedEvents = events.where((e) => e.kind.name == 'structuredOutputValidationFailed').toList();
@@ -1568,12 +1689,31 @@ final class _RecordingTimeoutCliProvider implements CliProvider {
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    await request.onRootProcessTerminationConfirmed?.call(true);
     stepTimeouts.add(request.stepTimeout);
     return WorkflowCliTurnResult(
       providerSessionId: 'recording-timeout-session',
       responseText: 'Done.',
       newInputTokens: 0,
     );
+  }
+}
+
+final class _ConfirmationSequenceCliProvider implements CliProvider {
+  _ConfirmationSequenceCliProvider(this._confirmations);
+
+  final List<bool?> _confirmations;
+  int runCount = 0;
+
+  @override
+  Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    final confirmation = _confirmations[runCount];
+    if (confirmation != null) await request.onRootProcessTerminationConfirmed?.call(confirmation);
+    runCount++;
+    return WorkflowCliTurnResult(providerSessionId: 'confirmation-session', responseText: 'Done.', newInputTokens: 0);
   }
 }
 
@@ -1584,7 +1724,10 @@ final class _CancellingCliProvider implements CliProvider {
   Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
 
   @override
-  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async => WorkflowCliTurnResult.cancelled();
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    await request.onRootProcessTerminationConfirmed?.call(true);
+    return WorkflowCliTurnResult.cancelled();
+  }
 }
 
 final class _FailingCliProvider implements CliProvider {
@@ -1595,6 +1738,7 @@ final class _FailingCliProvider implements CliProvider {
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    await request.onRootProcessTerminationConfirmed?.call(true);
     throw StateError('Workflow one-shot claude command failed with exit code 1');
   }
 }
@@ -1609,6 +1753,7 @@ final class _CancelsThenFailsCliProvider implements CliProvider {
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    await request.onRootProcessTerminationConfirmed?.call(true);
     await cancelTask();
     throw StateError('Workflow one-shot claude command failed with exit code 17');
   }

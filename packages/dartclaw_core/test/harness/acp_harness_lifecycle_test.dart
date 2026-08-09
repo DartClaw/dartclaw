@@ -403,8 +403,10 @@ void main() {
       await process.respondTo('initialize', {'protocolVersion': 1});
       await start;
 
+      expect(harness.isRootProcessTerminationConfirmed, isFalse);
       await harness.stop();
       expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(harness.isRootProcessTerminationConfirmed, isTrue);
       final restart = harness.start();
       await retryProcess.respondTo('initialize', {'protocolVersion': 1});
       await restart;
@@ -427,10 +429,12 @@ void main() {
       await expectLater(start, throwsA(isA<AcpHarnessException>()));
 
       expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(harness.isRootProcessTerminationConfirmed, isFalse);
       await expectLater(harness.start(), throwsStateError);
 
       process.exit(1);
       await pumpEventQueue();
+      expect(harness.isRootProcessTerminationConfirmed, isTrue);
     });
   });
 }

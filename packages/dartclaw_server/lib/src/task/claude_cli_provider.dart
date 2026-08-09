@@ -16,7 +16,7 @@ import 'cli_process_supervisor.dart';
 /// Owns command construction, Claude stream-JSON parsing, live token-progress
 /// emission, and interactive permission-mode rejection for the non-interactive
 /// workflow path.
-class ClaudeCliProvider extends ProcessBackedCliProvider {
+class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTurnLimitProvider {
   static final _log = Logger('ClaudeCliProvider');
 
   ClaudeCliProvider({
@@ -27,6 +27,9 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
   });
 
   final int maxOutputBytes;
+
+  @override
+  int maxTurnsForStructuredTurn({required bool noTools}) => noTools ? 2 : 5;
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -119,7 +122,7 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
       } catch (_) {
         if (cancellationRequestedFor(process)) {
           final termination = await waitForInflightTermination(process);
-          final exitCode = termination?.exitConfirmed == true ? await process.exitCode : -1;
+          final exitCode = await supervisor.waitForTerminationResult(termination);
           await waitForCliOutputDrain(
             supervisor: supervisor,
             stdoutDone: stdoutDone.future,
@@ -173,6 +176,10 @@ class ClaudeCliProvider extends ProcessBackedCliProvider {
       final activeProcess = process;
       if (activeProcess != null) {
         finishInflightRun(activeProcess);
+      }
+      final observer = req.onRootProcessTerminationConfirmed;
+      if (observer != null) {
+        await observer(activeProcess == null || supervisor?.rootProcessTerminationConfirmed == true);
       }
     }
   }

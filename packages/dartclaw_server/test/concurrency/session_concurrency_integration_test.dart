@@ -45,6 +45,9 @@ class FakeWorkerService implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -122,26 +125,30 @@ void main() {
   });
 
   group('session concurrency integration', () {
-    test('two different sessions can be active concurrently', () async {
+    test('different sessions serialize on the primary harness', () async {
       final turns = TurnManager(
         messages: messages,
         worker: worker,
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
       );
 
-      // Start both sessions — lock manager should allow both
       final turnId1 = await turns.startTurn('s1', []);
       await worker.turnInvoked;
-      final turnId2 = await turns.startTurn('s2', []);
+      var secondStarted = false;
+      final secondFuture = turns.startTurn('s2', []).then((turnId) {
+        secondStarted = true;
+        return turnId;
+      });
 
-      // Both sessions active simultaneously
-      expect(turns.activeSessionIds, containsAll(['s1', 's2']));
+      await pumpEventQueue();
+      expect(secondStarted, isFalse);
       expect(turns.isActive('s1'), isTrue);
-      expect(turns.isActive('s2'), isTrue);
+      expect(turns.isActive('s2'), isFalse);
 
-      // Cleanup
       worker.completeSession('s1');
       await turns.waitForOutcome('s1', turnId1);
+      final turnId2 = await secondFuture;
+      expect(secondStarted, isTrue);
       await worker.turnInvoked;
       worker.completeSession('s2');
       await turns.waitForOutcome('s2', turnId2);

@@ -1,7 +1,7 @@
 // Fitness function: enforces that dartclaw_testing production lib has no
 // dartclaw_server dependency.
 //
-// Why: after S11, TurnManager/HarnessPool/GoogleJwtVerifier abstract interfaces
+// Why: after S11, TurnManager/GoogleJwtVerifier abstract interfaces
 // live in dartclaw_core. dartclaw_testing fakes implement the core interfaces
 // directly, so dartclaw_server is no longer a production dependency of this
 // package. This test catches any accidental re-introduction.

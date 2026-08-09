@@ -93,15 +93,14 @@ void main() {
                 ..worker = harnessWiring!.harness
                 ..staticDir = tempDir.path
                 ..behavior = harnessWiring!.behavior
-                ..pool = harnessWiring!.pool
+                ..executions = harnessWiring!.executions
                 ..sessionsForTurns = storage!.sessions
-                ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
                 ..config = config)
               .build();
     }
 
     addTearDown(() async {
-      await harnessWiring?.pool.dispose();
+      await harnessWiring?.executions.dispose();
       await security?.dispose();
       await storage?.dispose();
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -123,7 +122,7 @@ void main() {
     expect(storedSession?.provider, 'claude');
     expect(storedSession?.securityProfile, 'workspace');
 
-    await harnessWiring!.pool.dispose();
+    await harnessWiring!.executions.dispose();
     harnessWiring = null;
     await security!.dispose();
     security = null;

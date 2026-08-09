@@ -10,8 +10,10 @@
 |------|-----------|-------------------|-----------------|
 | Turn | Single round of agent reasoning, tool execution, and response generation. Atomic work unit | iteration, cycle, pass | Server orchestration |
 | Worker | Agent subprocess executing turns. Lifecycle: `idle`, `busy`, `crashed`, `stopped` | agent process, execution context | Server execution |
-| Harness | Bridge between Dart host and native LLM binary. Implements protocol parsing, lifecycle, stream translation. Abstract: `AgentHarness`; concrete: `ClaudeCodeHarness`, `CodexHarness` | bridge, connector, wrapper | Harness pool |
-| Harness Pool | Bounded, reusable execution capacity shared by background tasks and logical-agent sessions. Matches provider/security profile but owns no conversation state | thread pool | Server orchestration |
+| Harness | Bridge between Dart host and native LLM binary. Implements protocol parsing, lifecycle, stream translation. Abstract: `AgentHarness`; concrete: `ClaudeCodeHarness`, `CodexHarness` | bridge, connector, wrapper | Execution coordinator |
+| Execution Coordinator | Post-governance execution authority. Owns one serialized primary lane plus hard per-provider worker lease capacity, lazy worker construction, compatible reuse, and lease-derived snapshots | pool coordinator | Server orchestration |
+| Execution Lease | Temporary admission to the primary lane, a provider worker, or capacity-only workflow execution. Releasing it returns capacity and may cache a healthy compatible worker | worker slot | Server orchestration |
+| Execution Fingerprint | Provider, security profile, and runtime configuration identity required for safe worker reuse | pool key | Server orchestration |
 | Provider | LLM provider (claude, codex). Determines harness implementation and credentials | model, backend, endpoint | Configuration |
 | Logical Agent | Named execution profile under `agent.agents`: prompt, provider, model/effort overrides, and tool policy. Started with `sessions_spawn` and continued with `sessions_send` | subagent, native agent | Agent orchestration |
 | Logical-Agent Session | Durable hidden session created for one Logical Agent. Pinned to its provider and security profile, then continued only by the handle returned from `sessions_spawn` | delegated conversation, provider thread | Agent orchestration |
@@ -164,7 +166,7 @@
 |------|-----------|-----------|-----------|-----------|
 | Session | Storage | Conversation container with messages | Channel | Messaging platform's concept of a chat thread |
 | Thread | Channels | Google Chat thread within a Space | Coding | Not used — DartClaw is single-threaded (Dart isolate) |
-| Worker | Harness Pool | Agent subprocess executing turns | General | Not used for Dart isolates |
+| Worker | Execution Coordinator | Lazily created agent subprocess executing leased background turns | General | Not used for Dart isolates |
 | Provider | Agent Runtime | LLM provider (claude, codex) | Google Chat | Google Cloud service account |
 | Guard | Security | Policy evaluator in defense chain | UI | Not used |
 | Bridge | Protocol | Harness-to-host event translation | Channels | `ChannelTaskBridge` (channel-to-task routing) |
@@ -175,7 +177,7 @@
 
 ## Changelog
 
-- 2026-08-09: Added Logical Agent and Logical-Agent Session; defined Harness Pool as shared worker capacity rather than a task-only pool.
+- 2026-08-09: Replaced legacy pool terminology with Execution Coordinator, Execution Lease, and Execution Fingerprint; capacity is lease-based and independent from optional worker reuse.
 - 2026-04-04: Added Workflows section (10 terms) for 0.15 milestone: Workflow, Workflow Run, Workflow Step, Workflow Context, Workflow Definition, Loop Iteration, Parallel Group, Exit Gate, WorkflowExecutor, WorkflowRegistry
 - 2026-04-11: Added 0.16 terms for alert routing, compaction observability, and reconfigurable service; aligned glossary with current runtime governance and workflow observability language
 - 2026-04-17: Clarified that workflow-authored step types remain observability metadata while workflow runtime dispatch uses coding tasks plus `readOnly` for non-mutating steps

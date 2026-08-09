@@ -116,8 +116,7 @@ class FakeTurnManager implements TurnManager {
     this.turnIdPrefix = 'fake-turn',
   }) : _activeSessionIds = {...activeSessionIds, ...activeTurns.keys},
        _activeTurns = Map<String, String>.from(activeTurns),
-       _recentOutcomes = Map<String, TurnOutcome>.from(recentOutcomes),
-       _pool = _FakeHarnessPool(profileId: profileId, providerId: providerId);
+       _recentOutcomes = Map<String, TurnOutcome>.from(recentOutcomes);
 
   final Duration? waitDelay;
   final FakeReserveTurnCallback? onReserveTurn;
@@ -138,7 +137,6 @@ class FakeTurnManager implements TurnManager {
   final Map<String, String> _activeTurns;
   final Map<String, TurnOutcome> _recentOutcomes;
   final Map<String, Completer<TurnOutcome>> _pendingOutcomes = {};
-  final _FakeHarnessPool _pool;
 
   int reserveTurnCallCount = 0;
   int executeTurnCallCount = 0;
@@ -198,10 +196,7 @@ class FakeTurnManager implements TurnManager {
   }
 
   @override
-  HarnessPool get pool => _pool..attach(this);
-
-  @override
-  int get availableRunnerCount => _pool.availableCount;
+  int get availableRunnerCount => 0;
 
   @override
   Iterable<String> get activeSessionIds => _activeSessionIds;
@@ -454,142 +449,4 @@ class FakeTurnManager implements TurnManager {
   List<Map<String, dynamic>> _cloneMessages(List<Map<String, dynamic>> messages) {
     return messages.map((message) => Map<String, dynamic>.from(message)).toList(growable: false);
   }
-}
-
-class _FakeHarnessPool implements HarnessPool {
-  _FakeHarnessPool({required this.profileId, required this.providerId})
-    : _primary = _FakeTurnRunner(profileId: profileId, providerId: providerId);
-
-  final String profileId;
-  final String providerId;
-  final _FakeTurnRunner _primary;
-
-  void attach(FakeTurnManager manager) {
-    _primary.manager = manager;
-  }
-
-  @override
-  TurnRunner get primary => _primary;
-
-  @override
-  List<TurnRunner> get runners => [_primary];
-
-  @override
-  void addRunner(TurnRunner runner) {
-    throw StateError('FakeTurnManager pool does not support workers.');
-  }
-
-  @override
-  int get spawnableCount => 0;
-
-  @override
-  TurnRunner? tryAcquire() => null;
-
-  @override
-  TurnRunner? tryAcquireForProfile(String profileId) => null;
-
-  @override
-  TurnRunner? tryAcquireForProvider(String providerId) => null;
-
-  @override
-  TurnRunner? tryAcquireForProviderAndProfile(String providerId, String profileId) => null;
-
-  @override
-  void release(TurnRunner runner) {}
-
-  @override
-  int get activeCount => 0;
-
-  @override
-  int get availableCount => 0;
-
-  @override
-  int get size => 1;
-
-  @override
-  int get maxConcurrentWorkers => 0;
-
-  @override
-  int indexOf(TurnRunner runner) => identical(runner, _primary) ? 0 : -1;
-
-  @override
-  bool hasWorkerForProfile(String profileId) => false;
-
-  @override
-  bool hasWorkerForProvider(String providerId) => false;
-
-  @override
-  int workerCountForProvider(String providerId) => 0;
-
-  @override
-  Set<String> get workerProfiles => {};
-
-  @override
-  Set<String> get workerProviders => {};
-
-  @override
-  Future<void> dispose() async {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _FakeTurnRunner implements TurnRunner {
-  _FakeTurnRunner({required this.profileId, required this.providerId});
-
-  FakeTurnManager? manager;
-
-  @override
-  final String profileId;
-
-  @override
-  final String providerId;
-
-  @override
-  AgentHarness get harness => throw UnsupportedError('_FakeTurnRunner has no harness');
-
-  FakeTurnManager get _manager {
-    final current = manager;
-    if (current == null) {
-      throw StateError('FakeTurnRunner is not attached to a FakeTurnManager.');
-    }
-    return current;
-  }
-
-  @override
-  Iterable<String> get activeSessionIds => _manager.activeSessionIds;
-
-  @override
-  bool isActive(String sessionId) => _manager.isActive(sessionId);
-
-  @override
-  String? activeTurnId(String sessionId) => _manager.activeTurnId(sessionId);
-
-  @override
-  bool isActiveTurn(String sessionId, String turnId) => _manager.isActiveTurn(sessionId, turnId);
-
-  @override
-  TurnOutcome? recentOutcome(String sessionId, String turnId) => _manager.recentOutcome(sessionId, turnId);
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) => _manager.resetSessionContinuity(sessionId);
-
-  @override
-  Future<void> cancelTurn(String sessionId) => _manager.cancelTurn(sessionId);
-
-  @override
-  Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)}) =>
-      _manager.waitForCompletion(sessionId, timeout: timeout);
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _manager.waitForOutcome(sessionId, turnId);
-
-  @override
-  void setTaskToolFilter(List<String>? allowedTools) {}
-
-  @override
-  void setTaskReadOnly(bool readOnly) {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

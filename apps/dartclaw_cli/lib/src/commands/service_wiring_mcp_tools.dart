@@ -66,7 +66,8 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
   AdvisorSubscriber? advisorSubscriber;
   if (config.advisor.enabled) {
     advisorSubscriber = AdvisorSubscriber(
-      pool: harness.pool,
+      executions: harness.executions,
+      providerId: config.agent.provider,
       sessions: storage.sessions,
       taskService: storage.taskService,
       channelManager: channel.channelManager,

@@ -6,7 +6,13 @@ import 'package:dartclaw_cli/src/commands/wiring/storage_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessConfig;
 import 'package:dartclaw_server/dartclaw_server.dart'
-    show DartclawServer, DartclawServerBuilder, TurnRunnerCancellation;
+    show
+        DartclawServer,
+        DartclawServerBuilder,
+        ExecutionAdmission,
+        ExecutionRequest,
+        ExecutionSurface,
+        WorkerCreationException;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -70,7 +76,7 @@ void main() {
   });
 
   tearDown(() async {
-    await harnessWiring?.pool.dispose();
+    await harnessWiring?.executions.dispose();
     await security?.dispose();
     await storage?.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -91,6 +97,20 @@ void main() {
       agentDefs: config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()],
     );
   }
+
+  ExecutionRequest executionRequest({
+    required String providerId,
+    required String sessionId,
+    String profileId = 'workspace',
+    ExecutionSurface surface = ExecutionSurface.task,
+    ExecutionAdmission admission = ExecutionAdmission.wait,
+  }) => ExecutionRequest(
+    surface: surface,
+    providerId: providerId,
+    sessionId: sessionId,
+    fingerprint: harnessWiring!.executions.fingerprintFor(providerId, profileId),
+    admission: admission,
+  );
 
   Future<void> wireHarness(HarnessFactory factory) async {
     harnessWiring = HarnessWiring(
@@ -162,17 +182,23 @@ void main() {
   }
 
   test('primary runner keeps interactive prompt while spawned worker gets lean task prompt', () async {
+    config = config.copyWith(
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 2)},
+      ),
+    );
     await wireStorageAndSecurity();
 
     final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
     await wireHarness(factory);
 
-    expect(harnessWiring!.pool.size, 1);
-    expect(harnessWiring!.onSpawnNeeded, isNotNull);
+    expect(harnessWiring!.executions.runners, hasLength(1));
+    expect(createdHarnesses, hasLength(1));
 
-    await harnessWiring!.onSpawnNeeded!(null);
-
-    expect(harnessWiring!.pool.size, 2);
+    final workerLease = await harnessWiring!.executions.acquire(
+      executionRequest(providerId: 'claude', sessionId: 'task-session'),
+    );
+    expect(harnessWiring!.executions.runners, hasLength(2));
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
     expect(recordedConfigs.first.harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
@@ -192,6 +218,8 @@ void main() {
     );
     expect(recordedConfigs.first.acpPermissionDecision, isNotNull);
     expect(recordedConfigs.first.acpReverseCallAudit, isNotNull);
+    expect(recordedConfigs.last.acpPermissionDecision, isNotNull);
+    expect(recordedConfigs.last.acpReverseCallAudit, isNotNull);
 
     final primaryPrompt = recordedConfigs.first.harnessConfig.appendSystemPrompt ?? '';
     final taskPrompt = recordedConfigs.last.harnessConfig.appendSystemPrompt ?? '';
@@ -212,6 +240,80 @@ void main() {
     expect(taskPrompt, isNot(contains('## Recent error')));
     expect(taskPrompt, isNot(contains('## Recent learning')));
     expect(taskPrompt.length, lessThan(primaryPrompt.length));
+
+    final secondWorkerLease = await harnessWiring!.executions.acquire(
+      executionRequest(providerId: 'claude', sessionId: 'other-session'),
+    );
+    final firstRunner = workerLease!.runner;
+    await secondWorkerLease!.release();
+    await workerLease.release();
+    final reusedLease = await harnessWiring!.executions.acquire(
+      executionRequest(providerId: 'claude', sessionId: 'task-session'),
+    );
+    addTearDown(reusedLease!.release);
+    expect(reusedLease.runner, same(firstRunner));
+  });
+
+  test('lazy worker ACP decisions use that worker identity and active tool policy', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(id: 'shell-worker', description: 'Shell worker', prompt: 'Work', allowedTools: {'shell'}),
+        ],
+      ),
+      harness: HarnessConfig(
+        acp: AcpConfig(
+          agents: {
+            'goose': AcpAgentConfig(
+              binary: Platform.resolvedExecutable,
+              topology: AcpAgentTopology.direct,
+              modelProvider: 'anthropic',
+              verification: 'a0_1_goose_direct',
+              requiresGuardMediation: false,
+              requiredBuiltins: const ['developer'],
+            ),
+          },
+        ),
+      ),
+      providers: ProvidersConfig(
+        entries: {
+          'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
+          'goose': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 2),
+        },
+      ),
+    );
+    await wireStorageAndSecurity();
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+    factory.register('goose', (factoryConfig) {
+      recordedConfigs.add(factoryConfig);
+      final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append);
+      createdHarnesses.add(harness);
+      return harness;
+    });
+
+    final readOnlyLease = await harnessWiring!.executions.acquire(
+      executionRequest(providerId: 'goose', sessionId: 'read-only-task'),
+    );
+    final shellLease = await harnessWiring!.executions.acquire(
+      executionRequest(providerId: 'goose', sessionId: 'shell-task'),
+    );
+    addTearDown(() => readOnlyLease?.release());
+    addTearDown(() => shellLease?.release());
+    readOnlyLease!.runner!.setTaskToolFilter(const ['file_read']);
+    shellLease!.runner!.setTaskToolFilter(const ['shell']);
+
+    final readOnlyDecision = recordedConfigs[1].acpPermissionDecision!;
+    final shellDecision = recordedConfigs[2].acpPermissionDecision!;
+    const shellRequest = AcpPermissionRequest(operation: 'shell', params: {'command': 'pwd'}, agentId: 'shell-worker');
+
+    expect((await readOnlyDecision(shellRequest)).granted, isFalse);
+    expect((await shellDecision(shellRequest)).granted, isTrue);
+    final identityDenied = await shellDecision(
+      const AcpPermissionRequest(operation: 'file_read', params: {'path': 'README.md'}, agentId: 'shell-worker'),
+    );
+    expect(identityDenied.granted, isFalse);
   });
 
   test('warns when sandboxed agents use Codex without broad approval interception', () async {
@@ -428,9 +530,8 @@ void main() {
               ..worker = harnessWiring!.harness
               ..staticDir = tempDir.path
               ..behavior = harnessWiring!.behavior
-              ..pool = harnessWiring!.pool
+              ..executions = harnessWiring!.executions
               ..sessionsForTurns = storage!.sessions
-              ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
               ..config = config)
             .build();
 
@@ -463,6 +564,8 @@ void main() {
         'message': 'Continue this',
       });
       await logicalAgentHarness.turnInvoked;
+      expect(createdHarnesses, hasLength(2));
+      expect(createdHarnesses.last, same(logicalAgentHarness));
       expect(logicalAgentHarness.lastSessionId, internalSessionId);
       expect(logicalAgentHarness.lastMessages, [
         {'role': 'user', 'content': 'Handle this'},
@@ -584,9 +687,8 @@ void main() {
               ..worker = harnessWiring!.harness
               ..staticDir = tempDir.path
               ..behavior = harnessWiring!.behavior
-              ..pool = harnessWiring!.pool
+              ..executions = harnessWiring!.executions
               ..sessionsForTurns = storage!.sessions
-              ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
               ..config = config)
             .build();
 
@@ -650,9 +752,8 @@ void main() {
               ..worker = harnessWiring!.harness
               ..staticDir = tempDir.path
               ..behavior = harnessWiring!.behavior
-              ..pool = harnessWiring!.pool
+              ..executions = harnessWiring!.executions
               ..sessionsForTurns = storage!.sessions
-              ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
               ..config = config)
             .build();
 
@@ -673,40 +774,45 @@ void main() {
     expect(await storage!.sessions.listSessions(type: SessionType.archive), hasLength(1));
   });
 
-  test('knowledge-inbox no-tools turn policy blocks tool calls on the primary harness chain', () async {
+  test('knowledge-inbox no-tools turn policy blocks tool calls on the acquired worker chain', () async {
     await wireStorageAndSecurity();
 
     final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
     await wireHarness(factory);
 
-    final primaryChain = recordedConfigs.single.guardChain!;
     final session = await storage!.sessions.createSession();
-    final turnId = await harnessWiring!.pool.primary.startTurn(
-      session.id,
-      [
-        {'role': 'user', 'content': 'extract facts'},
-      ],
-      allowedTools: const ['__knowledge_inbox_no_tools__'],
-      readOnly: true,
-    );
-    final harness = createdHarnesses.single;
-    await harness.turnInvoked;
+    final existingConfigCount = recordedConfigs.length;
+    final workerLease = await harnessWiring!.executions
+        .acquire(executionRequest(providerId: 'claude', sessionId: session.id))
+        .timeout(const Duration(seconds: 2));
+    addTearDown(() => workerLease?.release());
+    final workerChain = recordedConfigs.skip(existingConfigCount).single.guardChain!;
+    final workerRunner = workerLease!.runner!;
+    final turnId = await workerRunner
+        .reserveAdmittedTurn(session.id, allowedTools: const ['__knowledge_inbox_no_tools__'], readOnly: true)
+        .timeout(const Duration(seconds: 2));
+    workerRunner.executeTurn(session.id, turnId, [
+      {'role': 'user', 'content': 'extract facts'},
+    ]);
+    final harness = workerRunner.harness as FakeAgentHarness;
+    await harness.turnInvoked.timeout(const Duration(seconds: 2));
 
     // The harness consults its guard chain for every tool call mid-turn; the
     // turn's session-keyed no-tools policy must block.
-    final midTurn = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
+    final midTurn = await workerChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
     expect(midTurn.isBlock, isTrue);
     expect(midTurn.message, contains('__knowledge_inbox_no_tools__'));
 
     // Other sessions on the same chain are unaffected.
-    final otherSession = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'other');
+    final otherSession = await workerChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'other');
     expect(otherSession.isBlock, isFalse);
 
     harness.completeSuccess();
-    await harnessWiring!.pool.primary.waitForOutcome(session.id, turnId);
+    await workerRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 2));
+    await workerLease.release().timeout(const Duration(seconds: 2));
 
     // The policy is cleared once the turn settles.
-    final postTurn = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
+    final postTurn = await workerChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
     expect(postTurn.isBlock, isFalse);
   });
 
@@ -765,14 +871,15 @@ void main() {
     );
     await wireHarness(factory);
 
-    await harnessWiring!.onSpawnNeeded!('codex');
-
+    expect(harnessWiring!.executions.snapshot.cachedWorkers, 0);
+    final codexLease = await harnessWiring!.executions.acquire(
+      executionRequest(providerId: 'codex', sessionId: 'codex-task'),
+    );
+    addTearDown(() => codexLease?.release());
     expect(createdProviderIds, ['claude', 'codex']);
-    expect(harnessWiring!.pool.hasWorkerForProvider('codex'), isTrue);
-    expect(harnessWiring!.pool.hasWorkerForProvider('claude'), isFalse);
-
-    await harnessWiring!.onSpawnNeeded!('missing');
-    expect(createdProviderIds, ['claude', 'codex']);
+    expect(codexLease!.runner!.providerId, 'codex');
+    expect(codexLease.runner!.profileId, 'workspace');
+    expect(harnessWiring!.executions.runners.where((runner) => runner.providerId == 'claude'), hasLength(1));
   });
 
   test('configured ACP agents register provider identity and default pool capacity', () async {
@@ -803,8 +910,7 @@ void main() {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
-    expect(harnessWiring!.onSpawnNeeded, isNotNull);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 2);
     expect(
       records.map((record) => record.message),
       contains(contains('Tool-restricted agent or job turns are configured for an ACP')),
@@ -980,7 +1086,7 @@ void main(List<String> args) async {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 2);
   });
 
   test('providers pool_size overrides configured ACP agent default capacity', () async {
@@ -1014,7 +1120,7 @@ void main(List<String> args) async {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.pool.maxConcurrentWorkers, 3);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 3);
     final gooseHarness = factory.create(
       'goose',
       const HarnessFactoryConfig(cwd: '/', executable: '/wrong/provider/executable'),
@@ -1048,153 +1154,18 @@ void main(List<String> args) async {
     final factory = fakeFactory(['claude']);
     await wireHarness(factory);
 
-    expect(await harnessWiring!.onSpawnNeeded!('goose'), isFalse);
-    expect(harnessWiring!.pool.hasWorkerForProvider('goose'), isFalse);
-  });
-
-  test('configured providers use effective pool_size with independent capacity', () async {
-    config = config.copyWith(
-      providers: ProvidersConfig(
-        entries: {
-          'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0),
-          'codex': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
-        },
+    await expectLater(
+      harnessWiring!.executions.acquire(
+        executionRequest(providerId: 'goose', sessionId: 'goose-task', profileId: 'restricted'),
       ),
-      credentials: const CredentialsConfig(
-        entries: {
-          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
-          'openai': CredentialEntry(apiKey: 'openai-key'),
-        },
-      ),
-    );
-
-    await wireStorageAndSecurity();
-
-    final factory = fakeFactory(['claude', 'codex']);
-    await wireHarness(factory);
-
-    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
-
-    await harnessWiring!.onSpawnNeeded!('claude');
-    await harnessWiring!.onSpawnNeeded!('codex');
-
-    final claudeRunner = harnessWiring!.pool.tryAcquireForProvider('claude');
-    final codexRunner = harnessWiring!.pool.tryAcquireForProvider('codex');
-
-    expect(claudeRunner, isNotNull);
-    expect(codexRunner, isNotNull);
-    expect(harnessWiring!.pool.tryAcquireForProvider('claude'), isNull);
-    expect(harnessWiring!.pool.tryAcquireForProvider('codex'), isNull);
-  });
-
-  test('non-empty provider config missing default still reserves default capacity', () async {
-    config = config.copyWith(
-      providers: ProvidersConfig(
-        entries: {'codex': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
-      ),
-      credentials: const CredentialsConfig(
-        entries: {
-          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
-          'openai': CredentialEntry(apiKey: 'openai-key'),
-        },
-      ),
-    );
-
-    await wireStorageAndSecurity();
-
-    final factory = fakeFactory(['claude', 'codex']);
-    await wireHarness(factory);
-
-    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
-    await harnessWiring!.onSpawnNeeded!('claude');
-    await harnessWiring!.onSpawnNeeded!('codex');
-
-    expect(harnessWiring!.pool.hasWorkerForProvider('claude'), isTrue);
-    expect(harnessWiring!.pool.hasWorkerForProvider('codex'), isTrue);
-  });
-
-  test('wired runners use configured turn monitor thresholds and worker timeout', () async {
-    config = config.copyWith(
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable, workerTimeout: 3),
-      harness: const HarnessConfig(
-        turnMonitor: TurnMonitorConfig(
-          waitWarningAfter: Duration(milliseconds: 10),
-          stuckAfter: Duration(milliseconds: 25),
+      throwsA(
+        isA<WorkerCreationException>().having(
+          (error) => error.message,
+          'message',
+          contains('unavailable container profile'),
         ),
       ),
     );
-
-    await wireStorageAndSecurity();
-
-    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
-    await wireHarness(factory);
-
-    final session = await storage!.sessions.createSession();
-    final firstTurnId = await harnessWiring!.pool.primary.reserveTurn(session.id);
-    final firstOutcome = harnessWiring!.pool.primary.waitForOutcome(session.id, firstTurnId).catchError((_) {
-      return TurnOutcome(
-        turnId: firstTurnId,
-        sessionId: session.id,
-        status: TurnStatus.cancelled,
-        completedAt: DateTime.now(),
-      );
-    });
-    final queuedReserve = harnessWiring!.pool.primary.reserveTurn(session.id);
-
-    final primaryStatus = await _pollFor(
-      () => harnessWiring!.pool.primary.turnStatus(session.id),
-      (status) => status.state.name == 'stuck',
-    );
-    expect(primaryStatus.state.name, 'stuck');
-    expect(primaryStatus.globalTimeoutAt, isNotNull);
-
-    harnessWiring!.pool.primary.releaseTurn(session.id, firstTurnId);
-    await firstOutcome;
-    final secondTurnId = await queuedReserve.timeout(const Duration(seconds: 1));
-    final secondOutcome = harnessWiring!.pool.primary.waitForOutcome(session.id, secondTurnId).catchError((_) {
-      return TurnOutcome(
-        turnId: secondTurnId,
-        sessionId: session.id,
-        status: TurnStatus.cancelled,
-        completedAt: DateTime.now(),
-      );
-    });
-    harnessWiring!.pool.primary.releaseTurn(session.id, secondTurnId);
-    await secondOutcome;
-
-    await harnessWiring!.onSpawnNeeded!(null);
-    final taskRunner = harnessWiring!.pool.runners.last;
-    final taskSession = await storage!.sessions.createSession();
-    final taskFirstTurnId = await taskRunner.reserveTurn(taskSession.id);
-    final taskFirstOutcome = taskRunner.waitForOutcome(taskSession.id, taskFirstTurnId).catchError((_) {
-      return TurnOutcome(
-        turnId: taskFirstTurnId,
-        sessionId: taskSession.id,
-        status: TurnStatus.cancelled,
-        completedAt: DateTime.now(),
-      );
-    });
-    final taskQueuedReserve = taskRunner.reserveTurn(taskSession.id);
-
-    final taskStatus = await _pollFor(
-      () => taskRunner.turnStatus(taskSession.id),
-      (status) => status.state.name == 'stuck',
-    );
-    expect(taskStatus.state.name, 'stuck');
-    expect(taskStatus.globalTimeoutAt, isNotNull);
-
-    taskRunner.releaseTurn(taskSession.id, taskFirstTurnId);
-    await taskFirstOutcome;
-    final taskSecondTurnId = await taskQueuedReserve.timeout(const Duration(seconds: 1));
-    final taskSecondOutcome = taskRunner.waitForOutcome(taskSession.id, taskSecondTurnId).catchError((_) {
-      return TurnOutcome(
-        turnId: taskSecondTurnId,
-        sessionId: taskSession.id,
-        status: TurnStatus.cancelled,
-        completedAt: DateTime.now(),
-      );
-    });
-    taskRunner.releaseTurn(taskSession.id, taskSecondTurnId);
-    await taskSecondOutcome;
+    expect(harnessWiring!.executions.runners.where((runner) => runner.providerId == 'goose'), isEmpty);
   });
 }

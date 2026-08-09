@@ -23,7 +23,7 @@ class GuardContext {
   /// Non-null for 'messageReceived' and 'beforeAgentSend' hooks.
   final String? messageContent;
 
-  /// Active agent ID when evaluating in sub-agent context (null = main agent).
+  /// Active logical-agent ID when evaluating its context (null = main agent).
   final String? agentId;
 
   /// Message origin: 'channel', 'web', 'cron', 'heartbeat', or null.

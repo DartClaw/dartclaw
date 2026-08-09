@@ -264,7 +264,7 @@ class CliWorkflowWiring {
   /// The pool primary is drawn from [providers] (preferring the configured
   /// default when it is referenced), not an unconditional `config.agent.provider`
   /// start — so a logged-out default provider a run never references is never
-  /// started. Task runners are provisioned for every entry in [providers].
+  /// started. Workers are provisioned for every entry in [providers].
   /// Requires [wirePreHarness] to have run.
   Future<void> startHarnesses(Set<String> providers) async {
     final ctx = _preludeCtx;
@@ -272,12 +272,13 @@ class CliWorkflowWiring {
     if (ctx == null || taskHandles == null) {
       throw StateError('startHarnesses called before wirePreHarness');
     }
-    if (providers.isEmpty) {
+    final canonicalProviders = providers.map(ProviderIdentity.normalize).toSet();
+    if (canonicalProviders.isEmpty) {
       await _wireWorkflowService(ctx, taskHandles);
       _workflowServiceWired = true;
       return;
     }
-    final wiredCtx = await _wireHarness(ctx, taskHandles, providers);
+    final wiredCtx = await _wireHarness(ctx, taskHandles, canonicalProviders);
     await _wireWorkflowService(
       wiredCtx,
       taskHandles,
@@ -285,7 +286,7 @@ class CliWorkflowWiring {
     );
     _workflowServiceWired = true;
     _harnessStarted = true;
-    await ensureTaskRunnersForProviders(providers);
+    await ensureWorkersForProviders(canonicalProviders);
   }
 
   Future<void> wireLifecycleOnly() async {
@@ -443,13 +444,13 @@ class CliWorkflowWiring {
       eventBus: eventBus,
       providerId: primaryProviderId,
     );
-    final maxConcurrentTasks = _standaloneTaskRunnerCapacity(config);
-    // Pool starts with only the primary runner; per-provider task runners
+    final maxConcurrentWorkers = _standaloneWorkerCapacity(config);
+    // Pool starts with only the primary runner; per-provider workers
     // (including the primary's configured `pool_size`) are filled by
-    // [startHarnesses] via [ensureTaskRunnersForProviders] over the explicit
+    // [startHarnesses] via [ensureWorkersForProviders] over the explicit
     // provider set, so harness startup is scoped to the run's referenced
     // providers rather than eagerly spawning the configured default's pool.
-    pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrentTasks);
+    pool = HarnessPool(runners: [primaryRunner], maxConcurrentWorkers: maxConcurrentWorkers);
     final turns = TurnManager.fromPool(pool: pool, sessions: sessionService);
     taskCancellationSubscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns);
     taskCancellationSubscriber.subscribe(eventBus);
@@ -464,7 +465,7 @@ class CliWorkflowWiring {
     );
     workflowCliRunner = WorkflowCliRunner(
       providers: {
-        for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
+        for (final providerId in _effectiveWorkflowProviderEntries(config).keys)
           providerId: WorkflowCliProviderConfig(
             executable: _resolveProviderExecutable(config, providerId),
             environment: _providerEnvironment(config, providerId, _credentialRegistry),
@@ -624,7 +625,7 @@ class CliWorkflowWiring {
           credentials: _credentialRegistry,
           environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
         );
-    for (final provider in providers) {
+    for (final provider in providers.map(ProviderIdentity.normalize).toSet()) {
       final result = await preflight.evaluate(
         provider: provider,
         executable: _resolveProviderExecutable(config, provider),
@@ -653,42 +654,33 @@ class CliWorkflowWiring {
   /// drawing it from the referenced set (rather than an unconditional default
   /// start) keeps a logged-out default provider out of an unrelated run.
   String _selectPrimaryProvider(Set<String> providers) {
-    if (providers.isEmpty) return config.agent.provider;
-    if (providers.contains(config.agent.provider)) return config.agent.provider;
-    final sorted = providers.toList()..sort();
+    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
+    if (providers.isEmpty) return defaultProviderId;
+    final normalizedProviders = providers.map(ProviderIdentity.normalize).toSet();
+    if (normalizedProviders.contains(defaultProviderId)) return defaultProviderId;
+    final sorted = normalizedProviders.toList()..sort();
     return sorted.first;
   }
 
-  /// Ensures the pool contains task runners for every [providerIds] entry.
+  /// Ensures the pool contains workers for every [providerIds] entry.
   ///
-  /// Standalone workflow execution relies on task runners for agent-backed
+  /// Standalone workflow execution relies on workers for agent-backed
   /// steps; without them, queued tasks never start in pool mode.
-  Future<void> ensureTaskRunnersForProviders(Set<String> providerIds) async {
+  Future<void> ensureWorkersForProviders(Set<String> providerIds) async {
     final providerEntries = _effectiveWorkflowProviderEntries(config);
-    // Resolve each requested provider to an entry. A workflow step may request a
-    // built-in provider (claude/codex) that isn't the configured default; for
-    // those, synthesize a default entry from the resolved executable rather than
-    // refusing. Genuinely unknown providers still fail closed.
     final resolved = <String, ProviderEntry>{};
-    var additionalRunners = 0;
-    for (final providerId in providerIds) {
-      final providerEntry = providerEntries[providerId] ?? _builtInProviderEntry(providerId);
+    for (final providerId in providerIds.map(ProviderIdentity.normalize).toSet()) {
+      final providerEntry = providerEntries[providerId];
       if (providerEntry == null) {
         throw StateError('Provider "$providerId" is not configured for standalone workflow execution');
       }
       resolved[providerId] = providerEntry;
-      final have = pool.taskRunnerCountForProvider(providerId);
-      final want = providerEntry.effectivePoolSize;
-      if (want > have) additionalRunners += want - have;
     }
-    // Initial pool capacity is sized from config; grow it to fit runners for any
-    // additional workflow-required providers before adding them.
-    pool.ensureCapacity(pool.taskRunnerCount + additionalRunners);
     for (final entry in resolved.entries) {
       final providerId = entry.key;
       final targetCount = entry.value.effectivePoolSize;
-      while (pool.taskRunnerCountForProvider(providerId) < targetCount) {
-        pool.addRunner(await _buildTaskRunner(providerId));
+      while (pool.workerCountForProvider(providerId) < targetCount) {
+        pool.addRunner(await _buildWorker(providerId));
       }
       workflowCliRunner.providers.putIfAbsent(
         providerId,
@@ -701,18 +693,7 @@ class CliWorkflowWiring {
     }
   }
 
-  /// Synthesizes a default [ProviderEntry] for a built-in provider family
-  /// (claude/codex) requested by a workflow but absent from config; returns null
-  /// for unknown providers so they fail closed.
-  ProviderEntry? _builtInProviderEntry(String providerId) {
-    final family = ProviderIdentity.family(providerId);
-    if (family != ProviderIdentity.claude && family != ProviderIdentity.codex) {
-      return null;
-    }
-    return ProviderEntry(executable: _resolveProviderExecutable(config, providerId));
-  }
-
-  Future<TurnRunner> _buildTaskRunner(String providerId) async {
+  Future<TurnRunner> _buildWorker(String providerId) async {
     final harness = _harnessFactory.create(
       providerId,
       HarnessFactoryConfig(
@@ -737,10 +718,18 @@ class CliWorkflowWiring {
 }
 
 Map<String, ProviderEntry> _effectiveWorkflowProviderEntries(DartclawConfig config) {
-  final entries = Map<String, ProviderEntry>.from(config.providers.entries);
+  final entries = <String, ProviderEntry>{};
+  for (final entry in config.providers.entries.entries) {
+    final providerId = ProviderIdentity.normalize(entry.key);
+    if (entries.containsKey(providerId)) {
+      throw StateError('Configured provider IDs collide after normalization to "$providerId"');
+    }
+    entries[providerId] = entry.value;
+  }
+  final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
   entries.putIfAbsent(
-    config.agent.provider,
-    () => ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
+    defaultProviderId,
+    () => ProviderEntry(executable: _resolveProviderExecutable(config, defaultProviderId)),
   );
   return entries;
 }

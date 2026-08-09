@@ -34,22 +34,6 @@ Future<T> _pollFor<T>(T Function() read, bool Function(T) isReady) async {
 }
 
 void main() {
-  group('provider-aware delegated model defaults', () {
-    final search = AgentDefinition.searchAgent();
-    const custom = AgentDefinition(id: 'summarizer', description: 'Summarize', prompt: 'Summarize');
-    const explicit = AgentDefinition(id: 'search', description: 'Search', prompt: 'Search', model: 'custom-model');
-
-    test('resolves omitted search model by provider family', () {
-      expect(resolveAgentModel(search, 'claude'), 'sonnet');
-      expect(resolveAgentModel(search, 'codex'), 'gpt-5.6-luna');
-    });
-
-    test('preserves explicit and non-search model behavior', () {
-      expect(resolveAgentModel(explicit, 'codex'), 'custom-model');
-      expect(resolveAgentModel(custom, 'claude'), isNull);
-    });
-  });
-
   late Directory tempDir;
   late Directory workspaceDir;
   late DartclawConfig config;
@@ -70,7 +54,6 @@ void main() {
       ),
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
       gateway: const GatewayConfig(authMode: 'none'),
-      tasks: const TaskConfig(maxConcurrent: 1),
     );
 
     workspaceDir = Directory(config.workspaceDir)..createSync(recursive: true);
@@ -178,7 +161,7 @@ void main() {
     );
   }
 
-  test('primary runner keeps interactive prompt while spawned task runner gets lean task prompt', () async {
+  test('primary runner keeps interactive prompt while spawned worker gets lean task prompt', () async {
     await wireStorageAndSecurity();
 
     final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
@@ -192,7 +175,7 @@ void main() {
     expect(harnessWiring!.pool.size, 2);
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
-    expect(recordedConfigs.first.harnessConfig.mcpServerUrl, isNull);
+    expect(recordedConfigs.first.harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
     expect(recordedConfigs.first.harnessConfig.mcpGatewayToken, isNull);
 
     // Primary and task harnesses each get a layered chain: all base security
@@ -302,10 +285,33 @@ void main() {
     );
     final messages = await wireAndCollectHarnessMessages(['claude']);
 
-    expect(messages, contains(contains('security guards are disabled')));
+    expect(messages, contains(contains('Security guards are disabled')));
   });
 
-  test('translates agent tool grants and scopes own MCP names by semantic grant', () async {
+  test('configured tool policy remains active when optional security guards are disabled', () async {
+    config = config.copyWith(
+      security: const SecurityConfig(guards: GuardConfig(enabled: false)),
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(id: 'search', description: 'Search', prompt: 'Search', deniedTools: {'sessions_spawn'}),
+        ],
+      ),
+    );
+
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
+
+    final verdict = await recordedConfigs.single.guardChain!.evaluateBeforeToolCall(
+      'sessions_spawn',
+      const {'agent': 'search', 'message': 'nested'},
+      agentId: 'search',
+      rawProviderToolName: 'mcp__dartclaw__sessions_spawn',
+    );
+    expect(verdict, isA<GuardBlock>());
+  });
+
+  test('logical agents are not forwarded as provider-native agents', () async {
     config = config.copyWith(
       gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
       search: const SearchConfig(providers: {'brave': SearchProviderEntry(enabled: true, apiKey: 'brave-key')}),
@@ -332,17 +338,7 @@ void main() {
     await wireStorageAndSecurity();
     await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
 
-    final agents = recordedConfigs.single.harnessConfig.agents!;
-    final search = agents['search'] as Map<String, dynamic>;
-    expect(search['model'], 'sonnet');
-    expect(
-      search['tools'],
-      containsAll(['WebSearch', 'WebFetch', 'mcp__dartclaw__web_fetch', 'mcp__dartclaw__brave_search']),
-    );
-    expect(search['tools'], isNot(contains('mcp__dartclaw__memory_save')));
-    final worker = agents['worker'] as Map<String, dynamic>;
-    expect(worker['tools'], ['Bash', 'Read', 'Grep']);
-    expect((agents['unrestricted'] as Map<String, dynamic>), isNot(contains('tools')));
+    expect(recordedConfigs.single.harnessConfig.toInitializeFields(), isNot(contains('agents')));
   });
 
   test('token-authenticated harness reaches the server on its bound loopback host', () async {
@@ -356,33 +352,13 @@ void main() {
     expect(recordedConfigs.single.harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
   });
 
-  test('authentication-disabled journal advertises exact own MCP tools', () async {
-    config = config.copyWith(
-      memory: const MemoryConfig(journalEnabled: true),
-      search: const SearchConfig(providers: {'brave': SearchProviderEntry(enabled: true, apiKey: 'brave-key')}),
-      agent: AgentConfig(
-        provider: 'claude',
-        definitions: const [
-          AgentDefinition(
-            id: 'search',
-            description: 'Search',
-            prompt: 'Search',
-            allowedTools: {'web_search', 'web_fetch', 'memory_save'},
-          ),
-        ],
-      ),
-    );
-
+  test('authentication-disabled loopback harness uses the standard MCP endpoint', () async {
     await wireStorageAndSecurity();
     await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
 
     final harnessConfig = recordedConfigs.single.harnessConfig;
     expect(harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
     expect(harnessConfig.mcpGatewayToken, isNull);
-    expect(
-      (harnessConfig.agents!['search'] as Map<String, dynamic>)['tools'],
-      containsAll(['mcp__dartclaw__web_fetch', 'mcp__dartclaw__brave_search', 'mcp__dartclaw__memory_save']),
-    );
   });
 
   test('unknown search providers do not suppress the native search tool', () async {
@@ -408,14 +384,19 @@ void main() {
     expect(recordedConfigs.single.harnessConfig.mcpServerUrl, isNull);
   });
 
-  test('wired session delegation applies configured persona, model, and effort', () async {
-    final builtInSearch = AgentDefinition.searchAgent();
+  test('wired logical-agent sessions apply configured persona, model, and effort', () async {
     config = config.copyWith(
-      agent: AgentConfig(
+      agent: const AgentConfig(
         provider: 'claude',
         definitions: [
-          builtInSearch,
-          const AgentDefinition(
+          AgentDefinition(
+            id: 'search',
+            description: 'Search',
+            prompt: 'SEARCH PERSONA',
+            securityProfile: 'workspace',
+            allowedTools: {'web_search', 'web_fetch'},
+          ),
+          AgentDefinition(
             id: 'summarizer',
             description: 'Summarize',
             prompt: 'SUMMARY PERSONA',
@@ -424,7 +405,6 @@ void main() {
           ),
         ],
       ),
-      tasks: const TaskConfig(maxConcurrent: 2),
     );
     await wireStorageAndSecurity();
     final factory = fakeFactory(['claude']);
@@ -450,77 +430,102 @@ void main() {
               ..behavior = harnessWiring!.behavior
               ..pool = harnessWiring!.pool
               ..sessionsForTurns = storage!.sessions
-              ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+              ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
               ..config = config)
             .build();
 
-    Future<void> expectDelegation({
+    Future<void> expectLogicalAgentSession({
       required String agent,
       required String persona,
-      required String model,
+      required String? model,
       required String? effort,
     }) async {
-      final resultFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+      final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
         'agent': agent,
-        'message': 'Delegate this',
+        'message': 'Handle this',
       });
       await _pollFor(() => createdHarnesses.length, (length) => length == 2);
-      final delegatedHarness = createdHarnesses.last;
-      await delegatedHarness.turnInvoked;
-      final internalSessionId = delegatedHarness.lastSessionId;
-      expect(delegatedHarness.lastAgentId, agent);
-      expect(delegatedHarness.lastSystemPrompt, contains(persona));
-      expect(delegatedHarness.lastModel, model);
-      expect(delegatedHarness.lastEffort, effort);
-      delegatedHarness.emit(DeltaEvent('$agent result'));
-      delegatedHarness.completeSuccess();
+      final logicalAgentHarness = createdHarnesses.last;
+      await logicalAgentHarness.turnInvoked;
+      final internalSessionId = logicalAgentHarness.lastSessionId;
+      expect(logicalAgentHarness.lastAgentId, agent);
+      expect(logicalAgentHarness.lastSystemPrompt, contains(persona));
+      expect(logicalAgentHarness.lastModel, model);
+      expect(logicalAgentHarness.lastEffort, effort);
+      logicalAgentHarness.emit(DeltaEvent('$agent result'));
+      logicalAgentHarness.completeSuccess();
       final result = await resultFuture;
       expect(result['isError'], isNull);
       expect(result['content'], contains(containsPair('text', '$agent result')));
-
       final sessionId = result['sessionId'] as String;
-      final followUpFuture = harnessWiring!.sessionDelegate.handleSessionsSend({
+      final followUpFuture = harnessWiring!.logicalAgentSessions.handleSessionsSend({
         'session_id': sessionId,
         'message': 'Continue this',
       });
-      await delegatedHarness.turnInvoked;
-      expect(delegatedHarness.lastSessionId, internalSessionId);
-      expect(delegatedHarness.lastMessages, [
-        {'role': 'user', 'content': 'Delegate this'},
+      await logicalAgentHarness.turnInvoked;
+      expect(logicalAgentHarness.lastSessionId, internalSessionId);
+      expect(logicalAgentHarness.lastMessages, [
+        {'role': 'user', 'content': 'Handle this'},
         {'role': 'assistant', 'content': '$agent result'},
         {'role': 'user', 'content': 'Continue this'},
       ]);
-      delegatedHarness.emit(DeltaEvent('$agent follow-up'));
-      delegatedHarness.completeSuccess();
+      logicalAgentHarness.emit(DeltaEvent('$agent follow-up'));
+      logicalAgentHarness.completeSuccess();
       final followUp = await followUpFuture;
       expect(followUp['isError'], isNull);
       expect(followUp['content'], contains(containsPair('text', '$agent follow-up')));
     }
 
-    await expectDelegation(agent: 'search', persona: builtInSearch.prompt, model: 'sonnet', effort: null);
-    await expectDelegation(agent: 'summarizer', persona: 'SUMMARY PERSONA', model: 'custom-model', effort: 'low');
-
-    final sessionsBefore = await storage!.sessions.listSessions(type: SessionType.delegated);
+    await expectLogicalAgentSession(agent: 'search', persona: 'SEARCH PERSONA', model: null, effort: null);
+    await expectLogicalAgentSession(
+      agent: 'summarizer',
+      persona: 'SUMMARY PERSONA',
+      model: 'custom-model',
+      effort: 'low',
+    );
+    final sessionsBefore = await storage!.sessions.listSessions(type: SessionType.logicalAgent);
     expect(sessionsBefore, hasLength(2));
     expect(
       (await storage!.sessions.listSessions()).map((session) => session.type),
-      isNot(contains(SessionType.delegated)),
+      isNot(contains(SessionType.logicalAgent)),
     );
     for (final session in sessionsBefore) {
-      expect(session.type, SessionType.delegated);
+      expect(session.type, SessionType.logicalAgent);
       expect(session.provider, 'claude');
       expect(await storage!.messages.getMessages(session.id), isNotEmpty);
     }
-    final unknown = await harnessWiring!.sessionDelegate.handleSessionsSend({
-      'session_id': 'agent:search:delegated:missing',
+    final unknown = await harnessWiring!.logicalAgentSessions.handleSessionsSend({
+      'session_id': 'agent:search:logical:missing',
       'message': 'Do not create this',
     });
     expect(unknown['isError'], isTrue);
-    expect((unknown['content'] as List).first['text'], contains('Unknown delegated session'));
-    expect(await storage!.sessions.listSessions(type: SessionType.delegated), hasLength(sessionsBefore.length));
+    expect((unknown['content'] as List).first['text'], contains('Unknown logical-agent session'));
+    expect(await storage!.sessions.listSessions(type: SessionType.logicalAgent), hasLength(sessionsBefore.length));
   });
 
-  test('delegated session resumes persisted history after storage and worker reconstruction', () async {
+  test('logical-agent restricted profile fails closed when container isolation is unavailable', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(id: 'search', description: 'Search', prompt: 'SEARCH PERSONA', securityProfile: 'restricted'),
+        ],
+      ),
+    );
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude']));
+    final result = await harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
+      'agent': 'search',
+      'message': 'Search safely',
+    });
+    expect(result['isError'], isTrue);
+    expect((result['content'] as List).first['text'], contains('unavailable security profile "restricted"'));
+    expect(createdHarnesses, hasLength(1));
+  });
+
+  test('wired logical-agent sessions use the configured provider and trim unset overrides', () async {
+    const configuredProviderId = 'OpenAI-Work';
+    const providerId = 'openai-work';
     config = config.copyWith(
       agent: const AgentConfig(
         provider: 'claude',
@@ -529,104 +534,26 @@ void main() {
             id: 'search',
             description: 'Search',
             prompt: 'SEARCH PERSONA',
-            model: 'sonnet',
-            effort: 'low',
+            provider: configuredProviderId,
           ),
-        ],
-      ),
-    );
-
-    Future<void> wireRuntime() async {
-      final factory = fakeFactory(['claude']);
-      late DartclawServer server;
-      harnessWiring = HarnessWiring(
-        config: config,
-        dataDir: tempDir.path,
-        port: 3333,
-        harnessFactory: factory,
-        exitFn: _unexpectedExit,
-        storage: storage!,
-        security: security!,
-        messageRedactor: MessageRedactor(),
-        eventBus: eventBus,
-      );
-      await harnessWiring!.wire(serverRefGetter: () => server);
-      server =
-          (DartclawServerBuilder()
-                ..sessions = storage!.sessions
-                ..messages = storage!.messages
-                ..worker = harnessWiring!.harness
-                ..staticDir = tempDir.path
-                ..behavior = harnessWiring!.behavior
-                ..pool = harnessWiring!.pool
-                ..sessionsForTurns = storage!.sessions
-                ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
-                ..config = config)
-              .build();
-    }
-
-    await wireStorageAndSecurity();
-    await wireRuntime();
-
-    final spawnFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
-      'agent': 'search',
-      'message': 'Remember amber',
-    });
-    await _pollFor(() => createdHarnesses.length, (length) => length == 2);
-    final firstWorker = createdHarnesses.last;
-    await firstWorker.turnInvoked;
-    firstWorker.emit(DeltaEvent('Amber remembered'));
-    firstWorker.completeSuccess();
-    final spawned = await spawnFuture;
-    final handle = spawned['sessionId'] as String;
-
-    await harnessWiring!.pool.dispose();
-    harnessWiring = null;
-    await security!.dispose();
-    security = null;
-    await storage!.dispose();
-    storage = null;
-    createdHarnesses.clear();
-
-    await wireStorageAndSecurity();
-    await wireRuntime();
-
-    final sendFuture = harnessWiring!.sessionDelegate.handleSessionsSend({
-      'session_id': handle,
-      'message': 'What did I ask you to remember?',
-    });
-    await _pollFor(() => createdHarnesses.length, (length) => length == 2);
-    final reconstructedWorker = createdHarnesses.last;
-    await reconstructedWorker.turnInvoked;
-    expect(reconstructedWorker.lastAgentId, 'search');
-    expect(reconstructedWorker.lastSystemPrompt, contains('SEARCH PERSONA'));
-    expect(reconstructedWorker.lastModel, 'sonnet');
-    expect(reconstructedWorker.lastEffort, 'low');
-    expect(reconstructedWorker.lastMessages, [
-      {'role': 'user', 'content': 'Remember amber'},
-      {'role': 'assistant', 'content': 'Amber remembered'},
-      {'role': 'user', 'content': 'What did I ask you to remember?'},
-    ]);
-    reconstructedWorker.emit(DeltaEvent('Amber'));
-    reconstructedWorker.completeSuccess();
-    final sent = await sendFuture;
-    expect(sent['isError'], isNull);
-    expect(sent['content'], contains(containsPair('text', 'Amber')));
-  });
-
-  test('wired delegation resolves a Codex provider alias and trims unset overrides', () async {
-    const providerId = 'openai-work';
-    config = config.copyWith(
-      agent: const AgentConfig(
-        provider: providerId,
-        definitions: [
-          AgentDefinition(id: 'search', description: 'Search', prompt: 'SEARCH PERSONA'),
-          AgentDefinition(id: 'blank', description: 'Blank', prompt: '   ', model: '   ', effort: '   '),
+          AgentDefinition(
+            id: 'blank',
+            description: 'Blank',
+            prompt: '   ',
+            provider: configuredProviderId,
+            model: '   ',
+            effort: '   ',
+          ),
         ],
       ),
       providers: ProvidersConfig(
         entries: {
-          providerId: ProviderEntry(
+          'claude': ProviderEntry(
+            executable: Platform.resolvedExecutable,
+            poolSize: 1,
+            options: const {'credentials_required': false},
+          ),
+          configuredProviderId: ProviderEntry(
             executable: Platform.resolvedExecutable,
             poolSize: 1,
             options: const {'family': 'codex', 'approval': 'on-request', 'credentials_required': false},
@@ -636,7 +563,7 @@ void main() {
       credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: 'openai-key')}),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory([providerId]);
+    final factory = fakeFactory(['claude', providerId]);
     late DartclawServer wiredServer;
     harnessWiring = HarnessWiring(
       config: config,
@@ -659,44 +586,47 @@ void main() {
               ..behavior = harnessWiring!.behavior
               ..pool = harnessWiring!.pool
               ..sessionsForTurns = storage!.sessions
-              ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+              ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
               ..config = config)
             .build();
 
-    Future<void> completeDelegation(String agentId) async {
-      final resultFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+    Future<void> completeLogicalAgentSession(String agentId) async {
+      final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
         'agent': agentId,
-        'message': 'Delegate this',
+        'message': 'Handle this',
       });
       await _pollFor(() => createdHarnesses.length, (length) => length == 2);
-      final delegatedHarness = createdHarnesses.last;
-      await delegatedHarness.turnInvoked;
+      final logicalAgentHarness = createdHarnesses.last;
+      await logicalAgentHarness.turnInvoked;
       if (agentId == 'search') {
-        expect(delegatedHarness.lastSystemPrompt, contains('SEARCH PERSONA'));
-        expect(delegatedHarness.lastModel, 'gpt-5.6-luna');
-        expect(delegatedHarness.lastEffort, isNull);
+        expect(logicalAgentHarness.lastSystemPrompt, contains('SEARCH PERSONA'));
+        expect(logicalAgentHarness.lastModel, isNull);
+        expect(logicalAgentHarness.lastEffort, isNull);
       } else {
-        expect(delegatedHarness.lastSystemPrompt, isNot('   '));
-        expect(delegatedHarness.lastModel, isNull);
-        expect(delegatedHarness.lastEffort, isNull);
+        expect(logicalAgentHarness.lastSystemPrompt, isNot('   '));
+        expect(logicalAgentHarness.lastModel, isNull);
+        expect(logicalAgentHarness.lastEffort, isNull);
       }
-      delegatedHarness.emit(DeltaEvent('$agentId result'));
-      delegatedHarness.completeSuccess();
+      logicalAgentHarness.emit(DeltaEvent('$agentId result'));
+      logicalAgentHarness.completeSuccess();
       expect((await resultFuture)['isError'], isNull);
     }
 
-    await completeDelegation('search');
-    await completeDelegation('blank');
+    await completeLogicalAgentSession('search');
+    await completeLogicalAgentSession('blank');
+    expect(
+      (await storage!.sessions.listSessions(type: SessionType.logicalAgent)).map((session) => session.provider),
+      everyElement(providerId),
+    );
   });
 
-  test('wired delegation applies the configured content guard', () async {
+  test('wired logical-agent sessions apply the configured content guard', () async {
     config = config.copyWith(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: '/bin/echo'),
       agent: const AgentConfig(
         provider: 'claude',
         definitions: [AgentDefinition(id: 'search', description: 'Search', prompt: 'Search')],
       ),
-      tasks: const TaskConfig(maxConcurrent: 1),
     );
     await wireStorageAndSecurity();
     final factory = fakeFactory(['claude']);
@@ -722,24 +652,24 @@ void main() {
               ..behavior = harnessWiring!.behavior
               ..pool = harnessWiring!.pool
               ..sessionsForTurns = storage!.sessions
-              ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+              ..workerPoolCoordinator = harnessWiring!.workerPoolCoordinator
               ..config = config)
             .build();
 
-    final resultFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+    final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
       'agent': 'search',
-      'message': 'Delegate this',
+      'message': 'Handle this',
     });
     await _pollFor(() => createdHarnesses.length, (length) => length == 2);
-    final delegatedHarness = createdHarnesses.last;
-    await delegatedHarness.turnInvoked;
-    delegatedHarness.emit(DeltaEvent('unsafe result'));
-    delegatedHarness.completeSuccess();
+    final logicalAgentHarness = createdHarnesses.last;
+    await logicalAgentHarness.turnInvoked;
+    logicalAgentHarness.emit(DeltaEvent('unsafe result'));
+    logicalAgentHarness.completeSuccess();
 
     final result = await resultFuture;
     expect(result['isError'], isTrue);
     expect((result['content'] as List).first['text'], contains('content-guard'));
-    expect(await storage!.sessions.listSessions(type: SessionType.delegated), isEmpty);
+    expect(await storage!.sessions.listSessions(type: SessionType.logicalAgent), isEmpty);
     expect(await storage!.sessions.listSessions(type: SessionType.archive), hasLength(1));
   });
 
@@ -822,7 +752,6 @@ void main() {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      tasks: const TaskConfig(maxConcurrent: 2),
     );
 
     await wireStorageAndSecurity();
@@ -839,8 +768,8 @@ void main() {
     await harnessWiring!.onSpawnNeeded!('codex');
 
     expect(createdProviderIds, ['claude', 'codex']);
-    expect(harnessWiring!.pool.hasTaskRunnerForProvider('codex'), isTrue);
-    expect(harnessWiring!.pool.hasTaskRunnerForProvider('claude'), isFalse);
+    expect(harnessWiring!.pool.hasWorkerForProvider('codex'), isTrue);
+    expect(harnessWiring!.pool.hasWorkerForProvider('claude'), isFalse);
 
     await harnessWiring!.onSpawnNeeded!('missing');
     expect(createdProviderIds, ['claude', 'codex']);
@@ -866,7 +795,6 @@ void main() {
           },
         ),
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -875,7 +803,7 @@ void main() {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.pool.maxConcurrentTasks, 2);
+    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
     expect(harnessWiring!.onSpawnNeeded, isNotNull);
     expect(
       records.map((record) => record.message),
@@ -913,7 +841,6 @@ void main() {
           'mistral': CredentialEntry(apiKey: 'mistral-key'),
         },
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -952,7 +879,6 @@ void main() {
           },
         ),
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -1020,7 +946,6 @@ void main(List<String> args) async {
         ),
       ),
       providers: const ProvidersConfig(),
-      tasks: const TaskConfig(maxConcurrent: 0),
     );
 
     await wireStorageAndSecurity();
@@ -1047,7 +972,6 @@ void main(List<String> args) async {
         ),
       ),
       providers: const ProvidersConfig(),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -1056,7 +980,7 @@ void main(List<String> args) async {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.pool.maxConcurrentTasks, 2);
+    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
   });
 
   test('providers pool_size overrides configured ACP agent default capacity', () async {
@@ -1082,7 +1006,6 @@ void main(List<String> args) async {
           'goose': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 2),
         },
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -1091,7 +1014,7 @@ void main(List<String> args) async {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.pool.maxConcurrentTasks, 3);
+    expect(harnessWiring!.pool.maxConcurrentWorkers, 3);
     final gooseHarness = factory.create(
       'goose',
       const HarnessFactoryConfig(cwd: '/', executable: '/wrong/provider/executable'),
@@ -1118,7 +1041,6 @@ void main(List<String> args) async {
         ),
       ),
       providers: const ProvidersConfig(),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -1127,7 +1049,7 @@ void main(List<String> args) async {
     await wireHarness(factory);
 
     expect(await harnessWiring!.onSpawnNeeded!('goose'), isFalse);
-    expect(harnessWiring!.pool.hasTaskRunnerForProvider('goose'), isFalse);
+    expect(harnessWiring!.pool.hasWorkerForProvider('goose'), isFalse);
   });
 
   test('configured providers use effective pool_size with independent capacity', () async {
@@ -1144,7 +1066,6 @@ void main(List<String> args) async {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -1152,7 +1073,7 @@ void main(List<String> args) async {
     final factory = fakeFactory(['claude', 'codex']);
     await wireHarness(factory);
 
-    expect(harnessWiring!.pool.maxConcurrentTasks, 2);
+    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
 
     await harnessWiring!.onSpawnNeeded!('claude');
     await harnessWiring!.onSpawnNeeded!('codex');
@@ -1177,7 +1098,6 @@ void main(List<String> args) async {
           'openai': CredentialEntry(apiKey: 'openai-key'),
         },
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     await wireStorageAndSecurity();
@@ -1185,12 +1105,12 @@ void main(List<String> args) async {
     final factory = fakeFactory(['claude', 'codex']);
     await wireHarness(factory);
 
-    expect(harnessWiring!.pool.maxConcurrentTasks, 2);
+    expect(harnessWiring!.pool.maxConcurrentWorkers, 2);
     await harnessWiring!.onSpawnNeeded!('claude');
     await harnessWiring!.onSpawnNeeded!('codex');
 
-    expect(harnessWiring!.pool.hasTaskRunnerForProvider('claude'), isTrue);
-    expect(harnessWiring!.pool.hasTaskRunnerForProvider('codex'), isTrue);
+    expect(harnessWiring!.pool.hasWorkerForProvider('claude'), isTrue);
+    expect(harnessWiring!.pool.hasWorkerForProvider('codex'), isTrue);
   });
 
   test('wired runners use configured turn monitor thresholds and worker timeout', () async {

@@ -723,7 +723,7 @@ void main() {
         expect(capturedArgs, isNot(contains('--append-system-prompt')));
       });
 
-      test('delegated persona and model restart once, then empty restores defaults once', () async {
+      test('logical-agent persona and model restart once, then empty restores defaults once', () async {
         final spawns = <List<String>>[];
         final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(model: 'opus', appendSystemPrompt: 'DEFAULT'),
@@ -733,7 +733,7 @@ void main() {
 
         await h.start();
         await h.turn(
-          sessionId: 'delegated',
+          sessionId: 'logical-agent',
           messages: const [
             {'role': 'user', 'content': 'search'},
           ],
@@ -754,7 +754,7 @@ void main() {
         expect(spawns[2], containsAllInOrder(['--append-system-prompt', 'DEFAULT']));
       });
 
-      test('delegated model and effort restart even when persona matches the configured prompt', () async {
+      test('logical-agent model and effort restart even when persona matches the configured prompt', () async {
         final spawns = <List<String>>[];
         final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
@@ -764,7 +764,7 @@ void main() {
 
         await h.start();
         await h.turn(
-          sessionId: 'delegated',
+          sessionId: 'logical-agent',
           agentId: 'search',
           messages: const [
             {'role': 'user', 'content': 'search'},
@@ -865,7 +865,7 @@ void main() {
         );
       });
 
-      test('PreToolUse blocks with the delegated turn identity and DartClaw session id', () async {
+      test('PreToolUse blocks with the logical-agent identity and DartClaw session id', () async {
         final guard = RecordingGuard(verdict: GuardVerdict.block('blocked'));
         late CapturingFakeProcess fake;
         List<String>? capturedArgs;
@@ -969,7 +969,7 @@ void main() {
         expect(guard.contexts.last.agentId, isNull);
       });
 
-      test('PreToolUse blocks a closed-set delegated agent from its ungranted own-MCP tool', () async {
+      test('PreToolUse blocks a closed-set logical agent from its ungranted own-MCP tool', () async {
         late CapturingFakeProcess fake;
         final guard = ToolPolicyGuard(
           cascade: ToolPolicyCascade(
@@ -999,7 +999,7 @@ void main() {
           sessionId: 's-mcp',
           agentId: 'search',
           messages: const [
-            {'role': 'user', 'content': 'delegate again'},
+            {'role': 'user', 'content': 'continue agent session'},
           ],
           systemPrompt: '',
         );

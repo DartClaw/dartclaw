@@ -78,7 +78,7 @@ Use the binary's built-in `web_search`/`web_fetch`. Apply ContentGuard via `Post
 
 Option C wins on the three criteria with the highest combined weight: ContentGuard boundary (9 vs 7 over A), SDK extensibility (9 vs 6 over A), long-term scalability (9 vs 6 over A). The 1.29 point gap over the nearest alternative (A: 6.99) reflects a decisive alignment with DartClaw's medium-term goals.
 
-**Staged deployment:** Option A (`McpToolRegistry`) remains correct until Phase G (0.5). Phase G implements Option C and retires `McpToolRegistry`. The migration is atomic and clean — `sessions_send` moves from `sdkMcpServers` interception to a standard `McpTool` implementation.
+**Staged deployment:** Option A (`McpToolRegistry`) remains correct until Phase G (0.5). Phase G implements Option C and retires `McpToolRegistry`. The migration is atomic and clean – the session tools move from `sdkMcpServers` interception to standard `McpTool` implementations.
 
 The tool extension mechanism becomes: implement `McpTool` and call `server.registerTool(tool)`. All registered tools are served via the `/mcp` endpoint. The `claude` binary harness config includes the internal MCP server URL.
 
@@ -95,7 +95,8 @@ ContentGuard auth is resolved separately (F12) via `ContentClassifier` interface
 │  /mcp              MCP server (HTTP/SSE)  ◄── claude │
 │                                                     │
 │  Tool registry (all in-process):                    │
-│    sessions_send   → SessionDelegate                │
+│    sessions_spawn  ┐                                 │
+│    sessions_send   ┴→ LogicalAgentSessionService    │
 │    web_fetch       → ContentGuard → HttpFetch       │
 │    brave_search    → BraveClient                    │
 │    [user tools]    → SDK extensions                 │
@@ -135,7 +136,7 @@ Communication channels:
 2. **`McpTool` interface:** `name`, `description`, `inputSchema` (JSON Schema), `Future<String> call(Map<String, dynamic> args)`. Intentionally minimal — no MCP knowledge required from implementers.
 3. **Auth:** Gateway token written to a temp file (`chmod 0600`) at harness startup; deleted on stop. Passed as `--mcp-config <path>` flag.
 4. **Built-in conflict:** When `web_fetch` is registered on the internal server, add `HarnessConfig.disallowedTools: ['web_fetch']` to prevent the binary's built-in from competing.
-5. **`McpToolRegistry` retirement:** Remove `sdkMcpServers` initialization path in `_sendInitialize`. Delete `McpToolRegistry`, `McpToolDef`, `McpServerEntry`. Migrate memory tools and `sessions_send` to `McpTool` implementations registered at `DartclawServer` level.
+5. **`McpToolRegistry` retirement:** Remove `sdkMcpServers` initialization path in `_sendInitialize`. Delete `McpToolRegistry`, `McpToolDef`, `McpServerEntry`. Migrate memory and session tools to `McpTool` implementations registered at `DartclawServer` level.
 6. **Integration test:** Cover crash recovery → harness respawn → MCP reconnect to validate circular topology behavior under failure.
 
 ## References

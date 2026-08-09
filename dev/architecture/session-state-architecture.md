@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.18.0
+**Current through**: 0.24
 
 ---
 
@@ -89,6 +89,7 @@ Session
   +-- type: SessionType       (classification enum)
   +-- channelKey: String?     (deterministic routing key)
   +-- provider: String?       (optional provider override)
+  +-- securityProfile: String? (optional worker isolation profile)
   +-- createdAt: DateTime
   +-- updatedAt: DateTime
 ```
@@ -102,6 +103,7 @@ Session
 | `cron`    | Started by a scheduled task or cron trigger         |
 | `user`    | User-initiated interactive session (web, CLI)       |
 | `task`    | Associated with a tracked task execution            |
+| `logicalAgent` | Hidden logical-agent conversation created by `sessions_spawn` |
 | `archive` | Read-only historical session retained for archival  |
 
 Protected types (`main`, `channel`, `cron`, `task`) cannot be deleted through
@@ -165,7 +167,7 @@ Message
   +-- createdAt: DateTime
 ```
 
-Sessions carry an explicit type. `delegated` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across pooled-worker replacement or process restart. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
+Sessions carry an explicit type. `logicalAgent` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across pooled-worker replacement or process restart. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
 
 
 ## 3. Session Scoping Model
@@ -448,8 +450,8 @@ DartclawEvent (sealed)
   |     +-- CompactionStartingEvent
   |     +-- CompactionCompletedEvent
   |
-  +-- AgentLifecycleEvent (sealed)
-  |     +-- AgentStateChangedEvent
+  +-- RunnerLifecycleEvent (sealed)
+  |     +-- RunnerStateChangedEvent
   |
   +-- ProjectLifecycleEvent (sealed)
   |     +-- ProjectStatusChangedEvent

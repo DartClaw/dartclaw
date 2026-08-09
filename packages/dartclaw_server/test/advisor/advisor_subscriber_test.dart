@@ -96,7 +96,7 @@ void main() {
           _makeRunner(messages: messages, sessions: sessions, harness: primaryHarness),
           _makeRunner(messages: messages, sessions: sessions, harness: secondaryHarness),
         ],
-        maxConcurrentTasks: 1,
+        maxConcurrentWorkers: 1,
       );
 
       subscriber = AdvisorSubscriber(

@@ -120,7 +120,7 @@ void main() {
       expect(html, contains('href="/tasks/task-1"'));
     });
 
-    test('renders provider badges in running cards, table rows, and agent overview', () {
+    test('renders provider badges in running cards, table rows, and harness overview', () {
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
@@ -144,10 +144,10 @@ void main() {
             'createdAt': '2026-03-10T10:00:00Z',
           },
         ],
-        agentRunners: const [
+        runners: const [
           {
             'runnerId': 1,
-            'role': 'task',
+            'role': 'worker',
             'state': 'busy',
             'providerId': 'codex',
             'tokensConsumed': 120,
@@ -156,7 +156,7 @@ void main() {
             'currentTaskId': 'task-running',
           },
         ],
-        agentPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentTasks': 2},
+        harnessPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentWorkers': 2},
       );
 
       expect(html, contains('Provider'));
@@ -164,15 +164,17 @@ void main() {
       expect(html, contains('provider-badge-claude'));
       expect(html, contains('Run codex worker'));
       expect(html, contains('Review claude output'));
-      expect(html, contains('Agent Pool'));
+      expect(html, contains('Harness Pool'));
+      expect(html, contains('1/2 workers active'));
+      expect(html, contains('Worker #1'));
     });
 
-    test('renders agent overview when pool data is present', () {
+    test('renders harness overview when pool data is present', () {
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [],
-        agentRunners: const [
+        runners: const [
           {
             'runnerId': 0,
             'role': 'primary',
@@ -183,10 +185,10 @@ void main() {
             'errorCount': 0,
           },
         ],
-        agentPool: const {'size': 1, 'activeCount': 0, 'availableCount': 0, 'maxConcurrentTasks': 0},
+        harnessPool: const {'size': 1, 'activeCount': 0, 'availableCount': 0, 'maxConcurrentWorkers': 0},
       );
 
-      expect(html, contains('Agent Pool'));
+      expect(html, contains('Harness Pool'));
       expect(html, contains('Single runner mode'));
     });
   });

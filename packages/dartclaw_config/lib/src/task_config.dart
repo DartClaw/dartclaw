@@ -34,9 +34,6 @@ class TaskBudgetConfig {
 
 /// Configuration for the task subsystem.
 class TaskConfig {
-  /// maxConcurrent.
-  final int maxConcurrent;
-
   /// artifactRetentionDays.
   final int artifactRetentionDays;
 
@@ -57,7 +54,6 @@ class TaskConfig {
 
   /// Creates a [TaskConfig] value.
   const TaskConfig({
-    this.maxConcurrent = 3,
     this.artifactRetentionDays = 0,
     this.completionAction = 'review',
     this.worktreeBaseRef = 'main',
@@ -73,7 +69,6 @@ class TaskConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is TaskConfig &&
-          maxConcurrent == other.maxConcurrent &&
           artifactRetentionDays == other.artifactRetentionDays &&
           completionAction == other.completionAction &&
           worktreeBaseRef == other.worktreeBaseRef &&
@@ -83,7 +78,6 @@ class TaskConfig {
 
   @override
   int get hashCode => Object.hash(
-    maxConcurrent,
     artifactRetentionDays,
     completionAction,
     worktreeBaseRef,

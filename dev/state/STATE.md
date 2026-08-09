@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-09 08:24 CEST
+Last Updated: 2026-08-09 14:54 CEST
 
 ## Current Phase
 
@@ -23,7 +23,7 @@ Last Updated: 2026-08-09 08:24 CEST
 
 ## Recently Completed
 
-- **0.24 implementation** (2026-08-09): live agent tool policy, provider-pinned persona delegation, the opt-in memory journal, and on-demand scheduled-job execution completed with final convergence review and full CI gates.
+- **0.24 implementation** (2026-08-09): live logical-agent tool policy and provider-pinned sessions, the opt-in memory journal, and on-demand scheduled-job execution completed with final convergence review and full CI gates.
 - **0.23 implementation** (2026-07-30): all 16 planned stories completed at `b08941af`; subsequent session,
   deployment, onboarding, channel, and visual refinements remain unreleased.
 

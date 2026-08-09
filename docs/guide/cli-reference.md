@@ -13,7 +13,7 @@ dartclaw --server localhost:4000 workflow runs
 
 Top-level command families:
 
-- `agents`
+- `runners`
 - `config`
 - `deploy`
 - `google-auth`
@@ -46,20 +46,20 @@ dartclaw serve --port 3333
 dartclaw status
 ```
 
-## Agents
+## Runners
 
-### `agents list`
+### `runners list`
 
 ```bash
-dartclaw agents list
-dartclaw agents list --json
+dartclaw runners list
+dartclaw runners list --json
 ```
 
-### `agents show`
+### `runners show`
 
 ```bash
-dartclaw agents show 0
-dartclaw agents show 0 --json
+dartclaw runners show 0
+dartclaw runners show 0 --json
 ```
 
 ## Config
@@ -82,7 +82,7 @@ dartclaw config get alerts.enabled
 
 ```bash
 dartclaw config set alerts.enabled false
-dartclaw config set tasks.max_concurrent 3
+dartclaw config set tasks.artifact_retention_days 30
 dartclaw config set alerts.enabled false --json
 ```
 

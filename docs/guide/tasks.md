@@ -109,12 +109,12 @@ The web UI's **New Task** dialog exposes these as "Advanced" fields.
 
 ## Execution Model
 
-Tasks run on dedicated harness instances from the `HarnessPool`, separate from the primary harness used for interactive chat, cron, and channels. For a full comparison of task runners vs subagents (the other agent model), see [Agents](agents.md).
+Tasks run on workers from the shared `HarnessPool`, separate from the primary harness used for interactive chat, cron, and channels. For a full comparison of background tasks and logical-agent sessions, see [Agents](agents.md).
 
-- `tasks.max_concurrent` controls how many background task runners are started (each is an independent claude binary subprocess)
+- `providers.<id>.pool_size` controls worker capacity for background tasks and logical-agent sessions
 - the primary interactive chat runner (index 0) is never acquired by the task executor
 - each task type maps to a container security profile (see below)
-- `/tasks` shows runner state through the agent pool and runner metrics panels
+- `/tasks` shows execution state through the harness pool and worker metrics panels
 
 ### Container Profile Routing
 
@@ -170,8 +170,12 @@ Coding tasks typically attach a structured diff artifact for review. If the fina
 Recurring tasks are scheduled using `type: task` jobs under `scheduling.jobs`. This is the unified model — both prompt-based jobs and task-based jobs live in the same `scheduling.jobs` list.
 
 ```yaml
+providers:
+  claude:
+    executable: claude
+    pool_size: 3
+
 tasks:
-  max_concurrent: 3
   worktree:
     base_ref: main
     stale_timeout_hours: 24
@@ -217,7 +221,7 @@ See [Scheduling](scheduling.md) for the broader scheduler model.
 
 These task-specific runtime keys come from `DartclawConfig`:
 
-- `tasks.max_concurrent`
+- `providers.<id>.pool_size`
 - `tasks.worktree.base_ref`
 - `tasks.worktree.stale_timeout_hours`
 - `tasks.worktree.merge_strategy`

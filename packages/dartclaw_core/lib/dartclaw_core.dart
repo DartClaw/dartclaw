@@ -178,9 +178,8 @@ export 'package:dartclaw_config/dartclaw_config.dart'
         SearchBackend;
 
 // Agents
-export 'src/agents/session_delegate.dart' show SessionDelegate;
+export 'src/agents/logical_agent_session_service.dart' show LogicalAgentSessionService;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
-export 'src/agents/subagent_limits.dart' show SubagentLimits;
 
 // Tasks
 export 'src/task/goal.dart' show Goal;
@@ -228,8 +227,8 @@ export 'src/events/dartclaw_event.dart'
         ContainerStartedEvent,
         ContainerStoppedEvent,
         ContainerCrashedEvent,
-        AgentLifecycleEvent,
-        AgentStateChangedEvent,
+        RunnerLifecycleEvent,
+        RunnerStateChangedEvent,
         AdvisorInsightEvent,
         AdvisorMentionEvent,
         LoopDetectedEvent,

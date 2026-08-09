@@ -72,6 +72,19 @@ void main() {
   });
 
   group('initIfNeeded', () {
+    test('creates a missing workspace before initializing git', () async {
+      final workspace = Directory('${tmpDir.path}/missing/workspace');
+      runner.setResult('git --version', _ok());
+      runner.setResult('git init', _ok());
+      final sync = WorkspaceGitSync(workspaceDir: workspace.path, commandRunner: runner.run);
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+
+      expect(workspace.existsSync(), isTrue);
+      expect(runner.calls.where((call) => call.$2.first == 'init').single.$3, workspace.path);
+    });
+
     test('initializes repo when .git missing', () async {
       runner.setResult('git --version', _ok());
       runner.setResult('git init', _ok());

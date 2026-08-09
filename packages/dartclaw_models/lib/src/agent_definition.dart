@@ -1,28 +1,29 @@
-/// Configuration for a sub-agent (e.g. search agent).
+import 'package:collection/collection.dart';
+
+/// Configuration for a logical agent (e.g. search agent).
 ///
-/// Defines the agent's identity, tool sandbox, concurrency, and session
-/// isolation. Serializes to the `agents` field in the initialize handshake.
+/// Defines the agent's identity, execution provider, prompt, and tool policy.
 class AgentDefinition {
-  /// Stable agent identifier referenced by delegation tools.
+  /// Stable agent identifier accepted by the session tools.
   final String id;
 
-  /// Human-readable description provided to the runtime.
+  /// Human-readable description exposed in the spawn tool schema.
   final String description;
 
-  /// System prompt used when the agent is spawned.
+  /// System prompt used for this agent's turns.
   final String prompt;
+
+  /// Optional harness provider. Null inherits the deployment's primary provider.
+  final String? provider;
+
+  /// Optional worker security profile. Null uses the provider or host default.
+  final String? securityProfile;
 
   /// Explicit allowlist of tools available to the agent.
   final Set<String> allowedTools;
 
   /// Explicit denylist of tools blocked for the agent.
   final Set<String> deniedTools;
-
-  /// Contribution to the global host-dispatched delegation concurrency cap.
-  final int maxConcurrent;
-
-  /// Relative session-store path used by the runtime.
-  final String sessionStorePath;
 
   /// Maximum response size returned to the caller in bytes.
   final int maxResponseBytes;
@@ -33,28 +34,23 @@ class AgentDefinition {
   /// Optional reasoning effort override for this agent.
   final String? effort;
 
-  /// Extra initialize payload fields preserved from configuration.
-  final Map<String, dynamic> extra;
-
-  /// Creates a sub-agent definition.
+  /// Creates a logical-agent definition.
   const AgentDefinition({
     required this.id,
     required this.description,
     required this.prompt,
+    this.provider,
+    this.securityProfile,
     this.allowedTools = const {},
     this.deniedTools = const {},
-    this.maxConcurrent = 1,
-    this.sessionStorePath = '',
     this.maxResponseBytes = 5 * 1024 * 1024,
     this.model,
     this.effort,
-    this.extra = const {},
   });
 
   /// Default search agent with web_search + web_fetch only.
   factory AgentDefinition.searchAgent({
     String prompt = _defaultSearchPrompt,
-    int maxConcurrent = 2,
     int maxResponseBytes = 5 * 1024 * 1024,
     String? model,
   }) {
@@ -64,10 +60,9 @@ class AgentDefinition {
           'Web search agent with restricted tool access. '
           'Can only use web_search and web_fetch.',
       prompt: prompt,
+      securityProfile: 'restricted',
       allowedTools: const {'web_search', 'web_fetch'},
       deniedTools: const {},
-      maxConcurrent: maxConcurrent,
-      sessionStorePath: 'agents/search/sessions',
       maxResponseBytes: maxResponseBytes,
       model: model,
     );
@@ -93,61 +88,66 @@ class AgentDefinition {
     if (resolvedTools.isEmpty && id != 'search') {
       warns.add('Agent "$id" has no tools configured – no sandbox allowlist will be enforced');
     }
-    for (final key in const ['max_spawn_depth', 'max_children_per_agent']) {
-      if (yaml.containsKey(key)) {
-        warns.add('agents.$id.$key is not enforced – ignored');
-      }
+    final profile = yaml['security_profile'];
+    String? securityProfile;
+    if (profile == null) {
+      securityProfile = id == 'search' ? 'restricted' : null;
+    } else if (profile is String && const {'workspace', 'restricted'}.contains(profile)) {
+      securityProfile = profile;
+    } else {
+      warns.add('Invalid agents.$id.security_profile: "$profile" – using the default');
+      securityProfile = id == 'search' ? 'restricted' : null;
     }
+    final providerValue = yaml['provider'];
+    String? provider;
+    if (providerValue is String && providerValue.trim().isNotEmpty) {
+      provider = providerValue.trim().toLowerCase();
+    } else if (providerValue != null) {
+      warns.add('Invalid agents.$id.provider: "$providerValue" – using agent.provider');
+    }
+
     return AgentDefinition(
       id: id,
       description: yaml['description'] as String? ?? 'Agent: $id',
-      prompt: yaml['prompt'] as String? ?? _defaultSearchPrompt,
+      prompt: yaml['prompt'] as String? ?? (id == 'search' ? _defaultSearchPrompt : ''),
       allowedTools: resolvedTools,
       deniedTools: deniedTools,
-      maxConcurrent: yaml['max_concurrent'] as int? ?? 1,
-      sessionStorePath: yaml['session_store_path'] as String? ?? 'agents/$id/sessions',
       maxResponseBytes: yaml['max_response_bytes'] as int? ?? 5 * 1024 * 1024,
       model: yaml['model'] as String?,
       effort: yaml['effort'] as String?,
-      extra: _extractExtra(yaml),
+      provider: provider,
+      securityProfile: securityProfile,
     );
   }
 
-  /// Serializes to the claude binary's `agents` initialize handshake format.
-  Map<String, dynamic> toInitializePayload() {
-    return {
-      'description': description,
-      'prompt': prompt,
-      if (model != null) 'model': model,
-      if (effort != null) 'effort': effort,
-      if (allowedTools.isNotEmpty) 'tools': allowedTools.toList(),
-      if (deniedTools.isNotEmpty) 'disallowedTools': deniedTools.toList(),
-      ...extra,
-    };
-  }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AgentDefinition &&
+          id == other.id &&
+          description == other.description &&
+          prompt == other.prompt &&
+          provider == other.provider &&
+          securityProfile == other.securityProfile &&
+          const SetEquality<String>().equals(allowedTools, other.allowedTools) &&
+          const SetEquality<String>().equals(deniedTools, other.deniedTools) &&
+          maxResponseBytes == other.maxResponseBytes &&
+          model == other.model &&
+          effort == other.effort;
 
-  static Map<String, dynamic> _extractExtra(Map<String, dynamic> yaml) {
-    const reserved = {
-      'tools',
-      'denied_tools',
-      'description',
-      'prompt',
-      'model',
-      'effort',
-      'max_spawn_depth',
-      'max_concurrent',
-      'max_children_per_agent',
-      'session_store_path',
-      'max_response_bytes',
-    };
-    final extra = <String, dynamic>{};
-    for (final entry in yaml.entries) {
-      if (!reserved.contains(entry.key)) {
-        extra[entry.key] = entry.value;
-      }
-    }
-    return extra;
-  }
+  @override
+  int get hashCode => Object.hash(
+    id,
+    description,
+    prompt,
+    provider,
+    securityProfile,
+    const SetEquality<String>().hash(allowedTools),
+    const SetEquality<String>().hash(deniedTools),
+    maxResponseBytes,
+    model,
+    effort,
+  );
 
   static const _defaultSearchPrompt =
       'You are a web search assistant. Search the web for information and '

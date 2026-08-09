@@ -210,8 +210,7 @@ The first exchange after spawning. Dart sends an `initialize` control request; t
     },
     "disallowedTools": ["WebSearch"],
     "maxTurns": 25,
-    "model": "sonnet",
-    "agents": { "reviewer": { "description": "...", "prompt": "...", "tools": ["Read", "Grep"] } }
+    "model": "sonnet"
   }
 }
 ```
@@ -224,7 +223,6 @@ Key fields in the `request` object:
 | `disallowedTools` | `HarnessConfig.disallowedTools` | Tool blocklist enforced by the binary |
 | `maxTurns` | `HarnessConfig.maxTurns` | Safety cap on agentic loops |
 | `model` | `HarnessConfig.model` | Model override (supports `[1m]` suffix for extended context, e.g. `opus[1m]`) |
-| `agents` | `HarnessConfig.agents` | Subagent definitions; each entry has `description`/`prompt` and an optional exact provider-native `tools` allowlist |
 | `sdkMcpServers` | Fallback only | In-protocol MCP tools (used when no HTTP MCP server is configured) |
 
 **claude → Dart:**
@@ -277,11 +275,11 @@ For harnesses using `PromptStrategy.replace`, a `system_prompt` field is include
 {
   "type": "user",
   "message": { "role": "user", "content": "What is 2+2?" },
-  "system_prompt": "You are DartClaw, a security-hardened agent..."
+  "system_prompt": "You are DartClaw, a security-conscious agent..."
 }
 ```
 
-`AgentHarness.turn.systemPrompt` is a scoped per-turn contract independent of prompt strategy: a non-empty value is authoritative; an empty value selects the harness's configured default. `ClaudeCodeHarness` uses `PromptStrategy.append`, so ordinary turns omit `system_prompt`. A non-empty delegated persona or conversational onboarding prompt participates in the process desired-state comparison and is applied by a single restart with `--append-system-prompt` together with any model or effort change. Switching the pooled process to a different logical session also restarts it, preventing conversation leakage; persisted history is replayed after that restart. The next empty turn restores the configured append prompt.
+`AgentHarness.turn.systemPrompt` is a scoped per-turn contract independent of prompt strategy: a non-empty value is authoritative; an empty value selects the harness's configured default. `ClaudeCodeHarness` uses `PromptStrategy.append`, so ordinary turns omit `system_prompt`. A non-empty logical-agent persona or conversational onboarding prompt participates in the process desired-state comparison and is applied by a single restart with `--append-system-prompt` together with any model or effort change. Switching the pooled process to a different logical session also restarts it, preventing conversation leakage; persisted history is replayed after that restart. The next empty turn restores the configured append prompt.
 
 For resumed sessions, a `"resume": true` field is added.
 
@@ -557,7 +555,7 @@ User (Web/Channel/Cron/Task)
   │
   ▼
 TurnManager.startTurn(sessionId, messages)
-  │ delegates to the primary runner, or a provider-matched pool runner for tasks and delegated sessions
+  │ routes to the primary runner, or a provider-matched pool worker for tasks and logical-agent sessions
   ▼
 TurnRunner.reserveTurn(sessionId)
   │ ① Acquire session lock (SessionLockManager)
@@ -573,7 +571,7 @@ _runTurn()
   │   └─ block → insert "[Blocked by guard: ...]" → return failed outcome
   │
   │ ⑤ Resolve system prompt
-  │   ├─ Non-empty per-turn override is authoritative (delegated persona or onboarding)
+  │   ├─ Non-empty per-turn override is authoritative (logical-agent persona or onboarding)
   │   └─ Otherwise compose BehaviorFileService prompt for the request scope
   │
   │ ⑥ Subscribe to harness.events stream
@@ -702,7 +700,7 @@ TurnOutcome
 └── toolCalls: List<ToolCallRecord> – correlated from stream events
 ```
 
-Downstream consumers (`AgentObserver.recordTurn()`, `TurnTraceService`, `TaskEventRecorder`) consume these enriched fields directly. Cache token normalization happening at the adapter layer means these consumers are fully provider-agnostic.
+Downstream consumers (`RunnerObserver.recordTurn()`, `TurnTraceService`, `TaskEventRecorder`) consume these enriched fields directly. Cache token normalization happening at the adapter layer means these consumers are fully provider-agnostic.
 
 ---
 
@@ -805,7 +803,7 @@ Three concrete implementations exist today:
 - `CodexHarness` – Codex JSON-RPC app-server protocol (see [Codex JSON-RPC Protocol](#codex-json-rpc-protocol))
 - `AcpHarness` – ACP stdio JSON-RPC protocol for configured ACP agents such as Goose and Vibe
 
-`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries, and `HarnessPool` manages provider-scoped runners. Each provider identity has its own pool with default capacity `1`; `providers.<id>.pool_size` is the capacity override. Delegated sessions are provider-pinned and acquire or lazily spawn a matching task runner; the primary runner is never eligible. Exhausted or disabled capacity returns an inline delegation error. ACP agent registration controls spawn and security classification, not custom capacity.
+`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries, and `HarnessPool` manages reusable runners. Each provider identity has its own worker allocation with default capacity `1`; `providers.<id>.pool_size` is the capacity override. Logical-agent sessions acquire or lazily spawn an exact provider/security-profile worker; the primary runner is never eligible. The pool owns execution capacity, not conversation state. Exhausted capacity returns an inline error. ACP agent registration controls spawn and security classification, not custom capacity.
 
 #### ClaudeCodeHarness
 
@@ -831,7 +829,6 @@ class HarnessConfig {
   final int? maxTurns;                 // Safety cap
   final String? model;                 // Model selection (supports [1m] suffix)
   final String? effort;                // Reasoning-effort override
-  final Map<String, dynamic>? agents;  // Sub-agent definitions
   final String? appendSystemPrompt;    // Behavior content (spawn-time flag)
   final String? mcpServerUrl;          // Internal MCP server URL
   final String? mcpGatewayToken;       // MCP bearer auth token
@@ -878,7 +875,7 @@ DartClaw exposes custom tools to the agent via two mechanisms.
 
 ### Mechanism A: Internal HTTP MCP Server (serve mode)
 
-When running via `dartclaw serve`, `/mcp` is mounted for gateway-authenticated deployments. With authentication disabled, it is mounted only for an enabled memory journal on a configured loopback host. The `claude` binary discovers the mounted endpoint via `--mcp-config`:
+When running via `dartclaw serve`, `/mcp` is mounted for gateway-authenticated deployments and authentication-disabled loopback deployments. Authentication-disabled non-loopback deployments do not mount it. The `claude` and `codex` binaries discover the mounted endpoint through their provider adapters:
 
 ```
 DartclawServer (shelf)
@@ -900,14 +897,14 @@ DartclawServer (shelf)
   "mcpServers": {
     "dartclaw": {
       "type": "http",
-      "url": "http://127.0.0.1:3333/mcp",
+      "url": "http://localhost:3333/mcp",
       "headers": { "Authorization": "Bearer <gateway-token>" }
     }
   }
 }
 ```
 
-The bearer header is omitted only for an authentication-disabled loopback deployment with the memory journal enabled. That route still requires an exact loopback request `Host` and exact loopback browser `Origin`.
+The bearer header is omitted only for an authentication-disabled loopback deployment. That route still requires an exact loopback request `Host` and exact loopback browser `Origin`.
 
 **Registered tools** (via `McpProtocolHandler`):
 
@@ -921,9 +918,8 @@ The bearer header is omitted only for an authentication-disabled loopback deploy
 | `kg_timeline` | `KgTimelineTool` | always | Return the full temporal fact timeline for an entity |
 | `kg_invalidate` | `KgInvalidateTool` | always | Invalidate a temporal fact without deleting its history |
 | `kg_contradictions` | `KgContradictionsTool` | always | Find open facts that would contradict an incoming fact |
-| `delegate_to_agent` | `DelegateToAgentTool` | always | Delegate bounded work to an allowlisted ACP or Codex provider agent |
-| `sessions_spawn` | `SessionsSpawnTool` | always | Create a hidden configured-subagent conversation and run its first turn |
-| `sessions_send` | `SessionsSendTool` | always | Continue a delegated conversation by its returned session handle |
+| `sessions_spawn` | `SessionsSpawnTool` | always | Create a hidden configured logical-agent conversation and run its first turn |
+| `sessions_send` | `SessionsSendTool` | always | Continue a logical-agent conversation by its returned session handle |
 | `onboarding_complete` | `OnboardingCompleteTool` | **gated** – only while onboarding is active (`ONBOARDING.md` present at startup) | Mark conversational onboarding complete and remove the `ONBOARDING.md` sentinel |
 | `web_fetch` | `WebFetchTool` | always | SSRF-hardened URL fetching with ContentGuard |
 | `brave_search` | `BraveSearchTool` | **gated** – when the `brave` search provider is enabled with an API key | Web search via Brave API |
@@ -1042,43 +1038,43 @@ This keeps continuity under DartClaw's control and avoids depending on provider-
 
 ## 11. Harness Pool
 
-The `HarnessPool` manages multiple `TurnRunner` instances for concurrent task execution.
+The `HarnessPool` manages bounded `TurnRunner` capacity shared by background tasks and logical-agent sessions.
 
 ### Pool structure
 
 ```
 HarnessPool
   ├── runners[0]  – PRIMARY (main chat, cron, channel turns)
-  ├── runners[1]  – Task runner (profile: workspace)
-  ├── runners[2]  – Task runner (profile: restricted)
+  ├── runners[1]  – Worker (profile: workspace)
+  ├── runners[2]  – Worker (profile: restricted)
   └── runners[N]  – ...
 ```
 
 **Primary runner** (index 0): Reserved exclusively for interactive use via `TurnManager`. Never acquired by `TaskExecutor`. Always available for chat, cron, and channel-initiated turns.
 
-**Task runners** (indices 1..N): Acquired by `TaskExecutor` for background tasks or by `TurnManager` for provider-pinned delegated sessions. Delegation uses `TaskRunnerPoolCoordinator` to acquire or lazily provision an exact provider match and never uses the primary runner. Runners return to the pool after the task or delegated turn completes.
+**Workers** (indices 1..N): Acquired by `TaskExecutor` for background tasks or by `TurnManager` for logical-agent sessions. `WorkerPoolCoordinator` acquires or lazily provisions an exact provider/security-profile match and never uses the primary runner. Workers return to the pool after the turn completes and carry no authoritative conversation state.
 
 ### Acquisition and release
 
 ```dart
 class HarnessPool {
   TurnRunner get primary;                           // Always index 0
-  TurnRunner? tryAcquire();                         // Any available task runner
+  TurnRunner? tryAcquire();                         // Any available worker
   TurnRunner? tryAcquireForProfile(String profile); // Matching security profile
   TurnRunner? tryAcquireForProvider(String provider); // Matching provider
   void release(TurnRunner runner);                  // Return to pool
 }
 ```
 
-When all task runners are busy, background tasks remain queued. A delegated turn provisions another provider-matched runner when capacity remains; exhausted or failed provisioning returns an inline MCP error naming the provider and capacity settings.
+When all workers are busy, background tasks remain queued. A logical-agent turn provisions another provider/profile-matched worker when capacity remains; exhausted or failed provisioning returns an inline MCP error naming the provider/profile and capacity setting.
 
 ### Capacity configuration
 
-Configured providers each default to one worker; `providers.<id>.pool_size` overrides that provider's capacity. When neither `providers` nor ACP agents are configured, legacy `tasks.max_concurrent` supplies the shared worker capacity. Workers spawn lazily in both modes.
+Configured providers each default to one worker; `providers.<id>.pool_size` is that provider's hard capacity. Workers spawn lazily and are shared by background tasks and logical-agent sessions. Startup rejects capacity too small to cover required security profiles. Nested logical-agent calls use the same capacity boundary; acquisition fails immediately when the pool is exhausted, so a child cannot wait on a worker held by its caller.
 
 ### Single-harness fallback
 
-For legacy `maxConcurrentTasks == 0`, background tasks may use the idle primary runner. Delegated sessions never use this fallback and return an inline capacity error instead.
+SDK consumers may construct a pool with `maxConcurrentWorkers == 0`; in that single-harness mode, background tasks may use the idle primary runner. Logical-agent sessions never use this fallback and return an inline capacity error instead.
 
 ```
 TaskExecutor.pollOnce()
@@ -1102,15 +1098,15 @@ class TurnManager {
   HarnessPool get pool;               // For TaskExecutor
   TurnRunner get primary;             // Via pool.primary
 
-  Future<String> reserveTurn(...);     // Primary, or provider-matched pool runner for a pinned session
+  Future<String> reserveTurn(...);     // Primary, or provider/profile-matched worker for a pinned session
   void executeTurn(...);               // Uses the runner selected during reservation
   Future<void> cancelTurn(...);        // Searches all runners
 }
 ```
 
-`cancelTurn` and outcome lookup search across all pool runners – a session could be active on any runner. Task sessions and provider-pinned delegated sessions run on pool workers, not the primary.
+`cancelTurn` and outcome lookup search across all pool runners – a session could be active on any runner. Task sessions and provider-pinned logical-agent sessions run on pool workers, not the primary.
 
-Caller cancellation does not yet cascade to a `sessions_spawn` or `sessions_send` child. The inbound MCP call carries no caller-turn identity, and its 120-second `Future.timeout` does not cancel the underlying delegated future. A caller-aware MCP context and exact parent-to-child registry are scheduled with the 0.27 dispatch-level guard/audit seam; global “active child” cancellation would be unsafe with concurrent callers.
+Caller cancellation does not yet cascade to a `sessions_spawn` or `sessions_send` child. The inbound MCP call carries no caller-turn identity, and its 120-second `Future.timeout` does not cancel the underlying child future. A caller-aware MCP context and exact parent-to-child registry are scheduled with the 0.27 dispatch-level guard/audit seam; global “active child” cancellation would be unsafe with concurrent callers.
 
 ### TurnRunner
 
@@ -1169,9 +1165,9 @@ The `TaskExecutor` acquires runners matching the target profile:
 
 ```dart
 TurnRunner? _acquirePoolRunner(String profile) {
-  if (_pool.hasTaskRunnerForProfile(profile))
+  if (_pool.hasWorkerForProfile(profile))
     return _pool.tryAcquireForProfile(profile);
-  if (_pool.taskProfiles.length <= 1)
+  if (_pool.workerProfiles.length <= 1)
     return _pool.tryAcquire();     // Single-profile fallback
   return null;
 }

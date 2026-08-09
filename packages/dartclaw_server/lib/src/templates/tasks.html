@@ -24,7 +24,7 @@
            tl:text="${includeWorkflowOwned} ? 'Hide workflow artifacts' : 'Show workflow artifacts'">Show workflow artifacts</a>
       </div>
 
-      <div tl:if="${agentOverviewHtml}" tl:utext="${agentOverviewHtml}">agent overview</div>
+      <div tl:if="${harnessOverviewHtml}" tl:utext="${harnessOverviewHtml}">harness overview</div>
 
       <div tl:if="${hasTasks}" class="task-status-groups">
         <section tl:each="group : ${statusGroups}" class="task-status-group"

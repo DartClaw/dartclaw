@@ -58,7 +58,6 @@ void main() {
       expect(guardAudit.containsKey('maxEntries'), isFalse);
 
       final tasks = json['tasks'] as Map<String, dynamic>;
-      expect(tasks['maxConcurrent'], 3);
       expect(tasks['artifactRetentionDays'], 0);
       expect(tasks['worktree'], {'baseRef': 'main', 'staleTimeoutHours': 24, 'mergeStrategy': 'squash'});
 
@@ -210,7 +209,6 @@ void main() {
         auth: AuthConfig(cookieSecure: true, trustedProxies: ['192.168.1.100']),
         security: SecurityConfig(guardAuditMaxRetentionDays: 14),
         tasks: TaskConfig(
-          maxConcurrent: 5,
           artifactRetentionDays: 90,
           worktreeBaseRef: 'develop',
           worktreeStaleTimeoutHours: 72,
@@ -224,7 +222,6 @@ void main() {
       expect((json['auth'] as Map<String, dynamic>)['trustedProxies'], ['192.168.1.100']);
       expect((json['guardAudit'] as Map<String, dynamic>)['maxRetentionDays'], 14);
       expect((json['guardAudit'] as Map<String, dynamic>).containsKey('maxEntries'), isFalse);
-      expect((json['tasks'] as Map<String, dynamic>)['maxConcurrent'], 5);
       expect((json['tasks'] as Map<String, dynamic>)['artifactRetentionDays'], 90);
       expect((json['tasks'] as Map<String, dynamic>)['worktree'], {
         'baseRef': 'develop',

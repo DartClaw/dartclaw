@@ -158,12 +158,8 @@ Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
       'oauth' => 'OAuth / subscription login',
       _ => provider.credentialEnvVar ?? 'Credential source not configured',
     },
-    'poolUsageText': provider.poolSize > 0
-        ? '${provider.activeWorkers} of ${provider.poolSize} Task Workers busy'
-        : 'No Workers configured',
-    'poolUsageLabel': provider.poolSize > 0
-        ? '$poolUsagePercent% of Task Harness Pool in use'
-        : 'Configure pool_size to reserve task Workers',
+    'poolUsageText': '${provider.activeWorkers} of ${provider.poolSize} workers busy',
+    'poolUsageLabel': '$poolUsagePercent% of worker capacity in use',
     'poolUsageWidthStyle': 'width: $poolUsagePercent%;',
     'hasError': provider.errorMessage != null,
     'errorTitle': _providerErrorTitle(provider),

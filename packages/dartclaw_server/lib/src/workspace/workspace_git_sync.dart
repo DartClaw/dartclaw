@@ -60,6 +60,7 @@ class WorkspaceGitSync implements Reconfigurable {
   Future<void> initIfNeeded() async {
     if (!_gitAvailable) return;
 
+    Directory(workspaceDir).createSync(recursive: true);
     final gitMetadataPath = '$workspaceDir/.git';
     final repoExists = FileSystemEntity.typeSync(gitMetadataPath, followLinks: false) != FileSystemEntityType.notFound;
 

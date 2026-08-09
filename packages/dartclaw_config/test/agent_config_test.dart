@@ -37,4 +37,41 @@ agent:
       expect(config.warnings, anyElement(contains('Invalid type for provider')));
     });
   });
+
+  test('parses optional provider and security profile for each logical agent', () {
+    final config = loadYaml(
+      '''
+agent:
+  provider: claude
+  agents:
+    reviewer:
+      provider: codex
+      security_profile: workspace
+      prompt: Review the change
+      tools: [file_read]
+''',
+      configPath: 'dartclaw.yaml',
+      env: const {'HOME': '/tmp'},
+    );
+
+    expect(config.agent.definitions.single.provider, 'codex');
+    expect(config.agent.definitions.single.securityProfile, 'workspace');
+  });
+
+  test('removed delegation config warns and creates no parallel agent model', () {
+    final config = loadYaml(
+      '''
+delegation:
+  enabled: true
+  agents:
+    - id: reviewer
+''',
+      configPath: 'dartclaw.yaml',
+      env: const {'HOME': '/tmp'},
+    );
+
+    expect(config.agent.definitions, isEmpty);
+    expect(config.warnings, anyElement(contains('define logical agents under agent.agents')));
+    expect(config.warnings, isNot(anyElement(contains('Unknown config key: delegation'))));
+  });
 }

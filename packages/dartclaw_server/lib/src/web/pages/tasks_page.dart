@@ -116,18 +116,18 @@ class TasksPage extends DashboardPage {
       includeWorkflowOwned: !includeWorkflowOwned,
     );
 
-    // Agent observer data for agent pool section.
-    final observer = context.agentObserver;
-    List<Map<String, dynamic>>? agentRunners;
-    Map<String, dynamic>? agentPool;
+    // Runner metrics for the harness pool section.
+    final observer = context.runnerObserver;
+    List<Map<String, dynamic>>? runners;
+    Map<String, dynamic>? harnessPool;
     if (observer != null) {
-      agentRunners = observer.metrics.map((m) => m.toJson()).toList();
+      runners = observer.metrics.map((m) => m.toJson()).toList();
       final pool = observer.poolStatus;
-      agentPool = {
+      harnessPool = {
         'size': pool.size,
         'activeCount': pool.activeCount,
         'availableCount': pool.availableCount,
-        'maxConcurrentTasks': pool.maxConcurrentTasks,
+        'maxConcurrentWorkers': pool.maxConcurrentWorkers,
       };
     }
 
@@ -143,8 +143,8 @@ class TasksPage extends DashboardPage {
       reviewCount: reviewCount,
       restartBannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
-      agentRunners: agentRunners,
-      agentPool: agentPool,
+      runners: runners,
+      harnessPool: harnessPool,
       goalOptions: goals.map((goal) => <String, String>{'value': goal.id, 'label': goal.title}).toList(growable: false),
       defaultProvider: defaultProvider,
       projectNames: projectNames,

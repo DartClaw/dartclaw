@@ -110,40 +110,6 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
     ),
-    'delegation.enabled': FieldMeta(
-      yamlPath: 'delegation.enabled',
-      jsonKey: 'delegation.enabled',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'delegation.agents': FieldMeta(
-      yamlPath: 'delegation.agents',
-      jsonKey: 'delegation.agents',
-      type: ConfigFieldType.objectList,
-      mutability: ConfigMutability.restart,
-    ),
-    'delegation.max_budget_tokens': FieldMeta(
-      yamlPath: 'delegation.max_budget_tokens',
-      jsonKey: 'delegation.maxBudgetTokens',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 0,
-    ),
-    'delegation.budget_accounting': FieldMeta(
-      yamlPath: 'delegation.budget_accounting',
-      jsonKey: 'delegation.budgetAccounting',
-      type: ConfigFieldType.enum_,
-      mutability: ConfigMutability.restart,
-      allowedValues: ['provider_reported', 'estimate_if_unreported'],
-    ),
-    'delegation.rate_limit.max_per_minute': FieldMeta(
-      yamlPath: 'delegation.rate_limit.max_per_minute',
-      jsonKey: 'delegation.rateLimit.maxPerMinute',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 0,
-    ),
-
     // --- Restart-required fields ---
 
     // Top-level scalars
@@ -384,14 +350,6 @@ abstract final class ConfigMeta {
     ),
 
     // Tasks
-    'tasks.max_concurrent': FieldMeta(
-      yamlPath: 'tasks.max_concurrent',
-      jsonKey: 'tasks.maxConcurrent',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 1,
-      max: 10,
-    ),
     'tasks.artifact_retention_days': FieldMeta(
       yamlPath: 'tasks.artifact_retention_days',
       jsonKey: 'tasks.artifactRetentionDays',

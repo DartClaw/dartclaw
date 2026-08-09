@@ -3,31 +3,42 @@ import 'package:logging/logging.dart';
 
 import 'turn_runner.dart';
 
-/// Pool of [TurnRunner] instances for concurrent task execution.
+/// Pool of [TurnRunner] instances for concurrent host-dispatched execution.
 ///
 /// Runner at index 0 is the "primary" — used exclusively for main chat, cron,
-/// and channel turns via [TurnManager]. Runners at indices 1..N-1 form the
-/// "task pool" — acquired by [TaskExecutor] for background task execution.
+/// and channel turns via [TurnManager]. Runners at indices 1..N-1 are workers
+/// shared by background tasks and logical-agent sessions.
 ///
-/// Task runners can be added lazily via [addRunner] — the pool starts with
-/// only the primary runner and grows on demand up to [maxConcurrentTasks].
+/// Workers can be added lazily via [addRunner] — the pool starts with
+/// only the primary runner and grows on demand up to [maxConcurrentWorkers].
 ///
-/// When `maxConcurrentTasks == 0`, the pool has only the primary runner and
+/// When `maxConcurrentWorkers == 0`, the pool has only the primary runner and
 /// [tryAcquire] always returns null, preserving single-harness sequential
 /// behavior.
 class HarnessPool implements core.HarnessPool {
   static final _log = Logger('HarnessPool');
 
   final List<TurnRunner> _runners;
-  int _maxConcurrentTasks;
+  final int _maxConcurrentWorkers;
   final Set<TurnRunner> _available = {};
   final Set<TurnRunner> _busy = {};
 
-  HarnessPool({required List<TurnRunner> runners, int? maxConcurrentTasks})
+  HarnessPool({required List<TurnRunner> runners, int? maxConcurrentWorkers})
     : assert(runners.isNotEmpty, 'Pool must have at least one runner'),
-      _maxConcurrentTasks = maxConcurrentTasks ?? (runners.length - 1),
+      _maxConcurrentWorkers = maxConcurrentWorkers ?? (runners.length - 1),
       _runners = List<TurnRunner>.of(runners) {
-    // Indices 1..N-1 start as available task runners.
+    if (_maxConcurrentWorkers < 0) {
+      throw ArgumentError.value(_maxConcurrentWorkers, 'maxConcurrentWorkers', 'must not be negative');
+    }
+    final initialWorkerCount = _runners.length - 1;
+    if (initialWorkerCount > _maxConcurrentWorkers) {
+      throw ArgumentError.value(
+        _maxConcurrentWorkers,
+        'maxConcurrentWorkers',
+        'must cover all $initialWorkerCount initial workers',
+      );
+    }
+    // Indices 1..N-1 start as available workers.
     for (var i = 1; i < _runners.length; i++) {
       _available.add(_runners[i]);
     }
@@ -42,90 +53,79 @@ class HarnessPool implements core.HarnessPool {
   @override
   List<TurnRunner> get runners => _runners;
 
-  /// Adds a lazily-spawned task runner to the pool.
+  /// Adds a lazily-spawned worker to the pool.
   ///
   /// The runner is immediately available for acquisition. Throws if the pool
-  /// has already reached [maxConcurrentTasks] task runners.
+  /// has already reached [maxConcurrentWorkers] workers.
   @override
   void addRunner(core.TurnRunner runner) {
-    final taskRunnerCount = _runners.length - 1;
-    if (taskRunnerCount >= _maxConcurrentTasks) {
-      throw StateError('Pool already at capacity ($taskRunnerCount/$_maxConcurrentTasks task runners)');
+    final workerCount = _runners.length - 1;
+    if (workerCount >= _maxConcurrentWorkers) {
+      throw StateError('Pool already at capacity ($workerCount/$_maxConcurrentWorkers workers)');
     }
     final concrete = runner as TurnRunner;
     _runners.add(concrete);
     _available.add(concrete);
-    _log.info('Added task runner (pool: ${_runners.length - 1}/$_maxConcurrentTasks task runners)');
+    _log.info('Added worker (pool: ${_runners.length - 1}/$_maxConcurrentWorkers workers)');
   }
 
-  /// Current number of task runners (excludes the primary runner).
-  int get taskRunnerCount => _runners.length - 1;
+  /// Current number of workers (excludes the primary runner).
+  int get workerCount => _runners.length - 1;
 
-  /// Raises the task-runner capacity ceiling to at least [minCapacity];
-  /// never lowers it.
-  ///
-  /// The initial capacity is sized from config, but standalone workflow
-  /// execution may need to provision runners for a provider a workflow step
-  /// requests beyond that sizing (e.g. a `provider: claude` step under a
-  /// codex-default config). Growing the ceiling lets those runners be added.
-  void ensureCapacity(int minCapacity) {
-    if (minCapacity > _maxConcurrentTasks) {
-      _maxConcurrentTasks = minCapacity;
-    }
-  }
-
-  /// Number of additional task runners that can still be spawned.
+  /// Number of additional workers that can still be spawned.
   @override
-  int get spawnableCount => _maxConcurrentTasks - (_runners.length - 1);
+  int get spawnableCount => _maxConcurrentWorkers - (_runners.length - 1);
 
-  /// Acquires an idle task runner from the pool (indices 1..N-1).
-  /// Returns null if all task runners are busy or no task runners exist.
+  /// Acquires an idle worker from the pool (indices 1..N-1).
+  /// Returns null if all workers are busy or no workers exist.
   @override
   TurnRunner? tryAcquire() {
-    if (_busy.length >= _maxConcurrentTasks) return null;
+    if (_busy.length >= _maxConcurrentWorkers) return null;
     if (_available.isEmpty) return null;
     final runner = _available.first;
     _available.remove(runner);
     _busy.add(runner);
-    _log.fine('Acquired task runner (busy: ${_busy.length}/$maxConcurrentTasks)');
+    _log.fine('Acquired worker (busy: ${_busy.length}/$maxConcurrentWorkers)');
     return runner;
   }
 
-  /// Acquires an idle task runner matching the given [profileId].
+  /// Acquires an idle worker matching the given [profileId].
   /// Returns null if no matching runner is available.
   @override
   TurnRunner? tryAcquireForProfile(String profileId) {
-    if (_busy.length >= _maxConcurrentTasks) return null;
+    if (_busy.length >= _maxConcurrentWorkers) return null;
     final runner = _takeMatchingRunner((runner) => runner.profileId == profileId);
     if (runner == null) return null;
-    _log.fine('Acquired task runner for profile $profileId (busy: ${_busy.length}/$maxConcurrentTasks)');
+    _log.fine('Acquired worker for profile $profileId (busy: ${_busy.length}/$maxConcurrentWorkers)');
     return runner;
   }
 
-  /// Acquires an idle task runner matching the given [providerId].
+  /// Acquires an idle worker matching the given [providerId].
   /// Returns null if no matching runner is available.
   @override
   TurnRunner? tryAcquireForProvider(String providerId) {
+    if (_busy.length >= _maxConcurrentWorkers) return null;
     final runner = _takeMatchingRunner((runner) => runner.providerId == providerId);
     if (runner == null) return null;
     _log.fine(
-      'Acquired task runner for provider $providerId '
-      '(provider busy: ${_busyForProvider(providerId)}/${_taskRunnerCountForProvider(providerId)}, '
-      'total busy: ${_busy.length}/$maxConcurrentTasks)',
+      'Acquired worker for provider $providerId '
+      '(provider busy: ${_busyForProvider(providerId)}/${_workerCountForProvider(providerId)}, '
+      'total busy: ${_busy.length}/$maxConcurrentWorkers)',
     );
     return runner;
   }
 
-  /// Acquires an idle task runner matching both [providerId] and [profileId].
+  /// Acquires an idle worker matching both [providerId] and [profileId].
   /// Returns null if no matching runner is available.
   @override
   TurnRunner? tryAcquireForProviderAndProfile(String providerId, String profileId) {
+    if (_busy.length >= _maxConcurrentWorkers) return null;
     final runner = _takeMatchingRunner((runner) => runner.providerId == providerId && runner.profileId == profileId);
     if (runner == null) return null;
     _log.fine(
-      'Acquired task runner for provider $providerId in profile $profileId '
-      '(provider busy: ${_busyForProvider(providerId)}/${_taskRunnerCountForProvider(providerId)}, '
-      'total busy: ${_busy.length}/$maxConcurrentTasks)',
+      'Acquired worker for provider $providerId in profile $profileId '
+      '(provider busy: ${_busyForProvider(providerId)}/${_workerCountForProvider(providerId)}, '
+      'total busy: ${_busy.length}/$maxConcurrentWorkers)',
     );
     return runner;
   }
@@ -139,14 +139,14 @@ class HarnessPool implements core.HarnessPool {
       return;
     }
     _available.add(concrete);
-    _log.fine('Released task runner (busy: ${_busy.length}/$maxConcurrentTasks)');
+    _log.fine('Released worker (busy: ${_busy.length}/$maxConcurrentWorkers)');
   }
 
-  /// Number of runners currently executing task turns.
+  /// Number of workers currently executing turns.
   @override
   int get activeCount => _busy.length;
 
-  /// Number of runners available for task acquisition.
+  /// Number of workers available for acquisition.
   @override
   int get availableCount => _available.length;
 
@@ -154,17 +154,17 @@ class HarnessPool implements core.HarnessPool {
   @override
   int get size => _runners.length;
 
-  /// Maximum concurrent task executions allowed at once.
+  /// Maximum concurrent worker executions allowed at once.
   @override
-  int get maxConcurrentTasks => _maxConcurrentTasks;
+  int get maxConcurrentWorkers => _maxConcurrentWorkers;
 
   /// Returns the pool index of [runner], or -1 if not found.
   @override
   int indexOf(core.TurnRunner runner) => _runners.indexOf(runner as TurnRunner);
 
-  /// Returns true when the task pool contains at least one runner for [profileId].
+  /// Returns true when the worker pool contains at least one runner for [profileId].
   @override
-  bool hasTaskRunnerForProfile(String profileId) {
+  bool hasWorkerForProfile(String profileId) {
     for (var i = 1; i < _runners.length; i++) {
       if (_runners[i].profileId == profileId) {
         return true;
@@ -173,22 +173,22 @@ class HarnessPool implements core.HarnessPool {
     return false;
   }
 
-  /// Returns true when the task pool contains at least one runner for [providerId].
+  /// Returns true when the worker pool contains at least one runner for [providerId].
   @override
-  bool hasTaskRunnerForProvider(String providerId) {
-    return taskRunnerCountForProvider(providerId) > 0;
+  bool hasWorkerForProvider(String providerId) {
+    return workerCountForProvider(providerId) > 0;
   }
 
   @override
-  int taskRunnerCountForProvider(String providerId) => _taskRunnerCountForProvider(providerId);
+  int workerCountForProvider(String providerId) => _workerCountForProvider(providerId);
 
-  /// Distinct security profiles available among task runners.
+  /// Distinct security profiles available among workers.
   @override
-  Set<String> get taskProfiles => _runners.skip(1).map((runner) => runner.profileId).toSet();
+  Set<String> get workerProfiles => _runners.skip(1).map((runner) => runner.profileId).toSet();
 
-  /// Distinct provider IDs available among task runners.
+  /// Distinct provider IDs available among workers.
   @override
-  Set<String> get taskProviders => _runners.skip(1).map((runner) => runner.providerId).toSet();
+  Set<String> get workerProviders => _runners.skip(1).map((runner) => runner.providerId).toSet();
 
   TurnRunner? _takeMatchingRunner(bool Function(TurnRunner runner) predicate) {
     for (final runner in _available) {
@@ -204,7 +204,7 @@ class HarnessPool implements core.HarnessPool {
 
   int _busyForProvider(String providerId) => _busy.where((runner) => runner.providerId == providerId).length;
 
-  int _taskRunnerCountForProvider(String providerId) =>
+  int _workerCountForProvider(String providerId) =>
       _runners.skip(1).where((runner) => runner.providerId == providerId).length;
 
   /// Graceful shutdown: stops and disposes all runners' harnesses.

@@ -1,7 +1,7 @@
 export 'github_webhook.dart' show GitHubWebhookHandler;
 export 'github_webhook_config.dart'
     show GitHubWebhookConfig, GitHubWorkflowTrigger, ensureGitHubWebhookConfigRegistered;
-export 'agent_routes.dart' show agentRoutes;
+export 'runner_routes.dart' show runnerRoutes;
 export 'config_api_routes.dart' show configApiRoutes, writeRestartPending, readRestartPending;
 export 'config_routes.dart' show configRoutes;
 export 'event_bus_sse_bridge.dart' show EventBusSseBridge;

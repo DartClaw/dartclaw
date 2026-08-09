@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessConfig;
 import 'package:logging/logging.dart';
@@ -18,22 +17,10 @@ typedef _SpawnPlanEntry = ({
   bool requiresContainer,
 });
 
-/// Resolves a delegated agent's effective model for [providerFamily].
-String? resolveAgentModel(AgentDefinition agent, String providerFamily) {
-  final explicit = agent.model?.trim();
-  if (explicit != null && explicit.isNotEmpty) return explicit;
-  if (agent.id != 'search') return null;
-  return switch (providerFamily) {
-    ProviderIdentity.claude => 'sonnet',
-    ProviderIdentity.codex => 'gpt-5.6-luna',
-    _ => null,
-  };
-}
-
 /// Constructs and exposes harness-layer services.
 ///
-/// Owns agent definitions, primary + task harnesses, harness pool, token service,
-/// usage tracker, health service, context management, session delegate, behavior
+/// Owns agent definitions, primary + worker harnesses, harness pool, token service,
+/// usage tracker, health service, context management, logical-agent sessions, behavior
 /// service, self-improvement, SSE broadcast, and auth state.
 class HarnessWiring {
   HarnessWiring({
@@ -80,7 +67,7 @@ class HarnessWiring {
   late Map<String, CanonicalTool> _ownMcpToolCanonicals;
   late BehaviorFileService _behavior;
   late SelfImprovementService _selfImprovement;
-  late SessionDelegate _sessionDelegate;
+  late LogicalAgentSessionService _logicalAgentSessions;
   late UsageTracker _usageTracker;
   late HealthService _healthService;
   late SseBroadcast _sseBroadcast;
@@ -96,8 +83,8 @@ class HarnessWiring {
   })
   _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
-  SpawnTaskRunner? _onSpawnNeeded;
-  late TaskRunnerPoolCoordinator _runnerPoolCoordinator;
+  SpawnWorker? _onSpawnNeeded;
+  late WorkerPoolCoordinator _workerPoolCoordinator;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
   TokenService? _tokenService;
@@ -112,7 +99,7 @@ class HarnessWiring {
   Map<String, CanonicalTool> get ownMcpToolCanonicals => _ownMcpToolCanonicals;
   BehaviorFileService get behavior => _behavior;
   SelfImprovementService get selfImprovement => _selfImprovement;
-  SessionDelegate get sessionDelegate => _sessionDelegate;
+  LogicalAgentSessionService get logicalAgentSessions => _logicalAgentSessions;
   UsageTracker get usageTracker => _usageTracker;
   HealthService get healthService => _healthService;
   SseBroadcast get sseBroadcast => _sseBroadcast;
@@ -127,15 +114,15 @@ class HarnessWiring {
   })
   get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
-  SpawnTaskRunner? get onSpawnNeeded => _onSpawnNeeded;
-  TaskRunnerPoolCoordinator get runnerPoolCoordinator => _runnerPoolCoordinator;
+  SpawnWorker? get onSpawnNeeded => _onSpawnNeeded;
+  WorkerPoolCoordinator get workerPoolCoordinator => _workerPoolCoordinator;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
 
   /// Wires harness services. [serverRefGetter] is resolved lazily for
-  /// the session delegate dispatch closure.
+  /// the logical-agent session dispatch closure.
   Future<void> wire({required DartclawServer Function() serverRefGetter}) async {
     _behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
@@ -184,6 +171,8 @@ class HarnessWiring {
     }
     _semanticMcpTools = List.unmodifiable(semanticMcpTools);
     _ownMcpToolCanonicals = Map.unmodifiable({
+      'sessions_spawn': CanonicalTool.sessionsSpawn,
+      'sessions_send': CanonicalTool.sessionsSend,
       for (final tool in _semanticMcpTools)
         tool.name: switch (tool.name) {
           'web_fetch' => CanonicalTool.webFetch,
@@ -193,12 +182,7 @@ class HarnessWiring {
         },
     });
 
-    final defaultProviderId = config.agent.provider;
-    final defaultProviderFamily = ProviderIdentity.resolveFamily(
-      defaultProviderId,
-      options: _providerOptions(config, defaultProviderId),
-      executable: _resolveProviderExecutable(config, defaultProviderId),
-    );
+    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
     _authEnabled = config.gateway.authMode != 'none';
     if (_authEnabled) {
       _resolvedGatewayToken = config.gateway.token ?? TokenService.loadFromFile(_dataDir);
@@ -217,15 +201,9 @@ class HarnessWiring {
       }
     }
 
-    final mcpEnabled =
-        _resolvedGatewayToken != null ||
-        (!_authEnabled && _isLoopbackHost(config.server.host) && config.memory.journalEnabled);
+    final mcpEnabled = _resolvedGatewayToken != null || (!_authEnabled && _isLoopbackHost(config.server.host));
     _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
     _agentMap = {for (final a in _agentDefs) a.id: a};
-    final agentsPayload = {
-      for (final agent in _agentDefs)
-        agent.id: _initializePayloadForAgent(agent, providerFamily: defaultProviderFamily, mcpEnabled: mcpEnabled),
-    };
     _harnessConfig = HarnessConfig(
       disallowedTools: mcpDisallowedTools(
         mcpEnabled: mcpEnabled,
@@ -235,7 +213,6 @@ class HarnessWiring {
       maxTurns: config.agent.maxTurns,
       model: config.agent.model,
       effort: config.agent.effort,
-      agents: agentsPayload,
       appendSystemPrompt: staticPrompt,
       mcpServerUrl: mcpEnabled ? 'http://localhost:$_port/mcp' : null,
       mcpGatewayToken: _resolvedGatewayToken,
@@ -244,7 +221,7 @@ class HarnessWiring {
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
     final acpValidationResults = await _validateConfiguredAcpTargets(config);
-    for (final entry in config.harness.acp.agents.entries) {
+    for (final entry in _canonicalAcpAgentEntries(config.harness.acp).entries) {
       if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
         continue;
       }
@@ -253,8 +230,42 @@ class HarnessWiring {
     // Each runner gets its own TaskToolFilterGuard so per-task/per-turn
     // allowedTools enforcement is isolated across concurrent runners.
     final primaryFilter = TaskToolFilterGuard();
-    _primaryGuardChain = _buildRunnerGuardChain(_security.guardChain, primaryFilter);
+    _primaryGuardChain = _buildRunnerGuardChain(_security.guardChain, primaryFilter, _security.toolPolicyCascade);
+    late final List<_SpawnPlanEntry> spawnPlan;
+    late final int maxConcurrent;
     try {
+      final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
+      final providerEntries = _effectiveWorkerProviderEntries(config, acpValidationResults);
+      _providerStatusEntries = providerEntries;
+      spawnPlan = <_SpawnPlanEntry>[];
+      for (final providerEntry in providerEntries.entries) {
+        final providerId = providerEntry.key;
+        final entry = providerEntry.value;
+        final acpEntry = config.harness.acp[providerId];
+        final planProfiles = _profilesForProvider(config, providerId, profileIds);
+        final workerCount = entry.effectivePoolSize;
+        if (workerCount < planProfiles.length) {
+          throw StateError(
+            'providers.$providerId.pool_size must be at least ${planProfiles.length} '
+            'to cover the required worker profiles: ${planProfiles.join(', ')}',
+          );
+        }
+        for (var i = 0; i < workerCount; i++) {
+          spawnPlan.add((
+            providerId: providerId,
+            profileId: planProfiles[i % planProfiles.length],
+            executable: entry.executable,
+            credentialProviderId: _credentialProviderIdForProvider(config, providerId),
+            options: entry.options,
+            requiresContainer: acpEntry?.containerIsolationRequired ?? false,
+          ));
+        }
+      }
+      maxConcurrent = spawnPlan.length;
+      if (maxConcurrent > 0) {
+        _log.info('Worker pool: lazy, up to $maxConcurrent worker(s) + 1 primary');
+      }
+
       final validationProviders = ProvidersConfig(
         entries: _effectiveValidationProviderEntries(config, acpValidationResults),
       );
@@ -291,6 +302,8 @@ class HarnessWiring {
           acpPermissionDecision: _acpPermissionDecision,
           acpReverseCallAudit: _auditAcpReverseCall,
           environment: _providerEnvironment(
+            config,
+            defaultProviderId,
             _credentialProviderIdForProvider(config, defaultProviderId),
             credentialRegistry,
           ),
@@ -312,58 +325,6 @@ class HarnessWiring {
       await _security.credentialProxy?.stop();
       await _storage.dispose();
       _exitFn(1);
-    }
-
-    // Task pool capacity — runners are spawned lazily on first task creation.
-    final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
-    final providerEntries = _effectiveTaskProviderEntries(config, acpValidationResults);
-    _providerStatusEntries = providerEntries;
-    final useLegacyTaskPool = config.providers.isEmpty && config.harness.acp.isEmpty;
-    final maxConcurrent = useLegacyTaskPool
-        ? config.tasks.maxConcurrent
-        : providerEntries.values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
-
-    // Build a spawn plan: one entry per future task runner, consumed in order.
-    final spawnPlan = <_SpawnPlanEntry>[];
-    if (useLegacyTaskPool) {
-      final taskRunnerCount = config.tasks.maxConcurrent == 0
-          ? 0
-          : (_security.containerManagers.isEmpty
-                ? config.tasks.maxConcurrent
-                : max(config.tasks.maxConcurrent, profileIds.length));
-      final legacyProviderId = defaultProviderId;
-      final legacyExecutable = _resolveProviderExecutable(config, legacyProviderId);
-      final legacyProviderOptions = _providerOptions(config, legacyProviderId);
-      for (var i = 0; i < taskRunnerCount; i++) {
-        spawnPlan.add((
-          providerId: legacyProviderId,
-          profileId: profileIds[i % profileIds.length],
-          executable: legacyExecutable,
-          credentialProviderId: _credentialProviderIdForProvider(config, legacyProviderId),
-          options: legacyProviderOptions,
-          requiresContainer: false,
-        ));
-      }
-    } else {
-      for (final providerEntry in providerEntries.entries) {
-        final providerId = providerEntry.key;
-        final entry = providerEntry.value;
-        final acpEntry = config.harness.acp[providerId];
-        final planProfiles = _profilesForProvider(config, providerId, profileIds);
-        for (var i = 0; i < entry.effectivePoolSize; i++) {
-          spawnPlan.add((
-            providerId: providerId,
-            profileId: planProfiles[i % planProfiles.length],
-            executable: entry.executable,
-            credentialProviderId: _credentialProviderIdForProvider(config, providerId),
-            options: entry.options,
-            requiresContainer: acpEntry?.containerIsolationRequired ?? false,
-          ));
-        }
-      }
-    }
-    if (maxConcurrent > 0) {
-      _log.info('Task pool: lazy, up to $maxConcurrent task runner(s) + 1 primary');
     }
 
     _sseBroadcast = SseBroadcast();
@@ -411,39 +372,43 @@ class HarnessWiring {
       usageTracker: _usageTracker,
     );
 
-    final totalConcurrent = _agentDefs.fold(0, (sum, a) => sum + a.maxConcurrent);
-    final subagentLimits = SubagentLimits(
-      maxConcurrent: totalConcurrent,
-      maxSpawnDepth: 1,
-      maxChildrenPerAgent: totalConcurrent,
-    );
-
-    _sessionDelegate = SessionDelegate(
+    _logicalAgentSessions = LogicalAgentSessionService(
       dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
         final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
         final persona = definition.prompt.trim().isEmpty ? null : definition.prompt;
+        final trimmedModel = definition.model?.trim();
         final trimmedEffort = definition.effort?.trim();
+        final configuredProvider = definition.provider?.trim();
+        final agentProviderId = configuredProvider == null || configuredProvider.isEmpty
+            ? defaultProviderId
+            : ProviderIdentity.normalize(configuredProvider);
         Session? session;
         if (createSession) {
+          final workerProfile = _logicalAgentWorkerProfile(config, _security, definition, agentProviderId);
           session = await _storage.sessions.getOrCreateByKey(
             sessionId,
-            type: SessionType.delegated,
-            provider: defaultProviderId,
+            type: SessionType.logicalAgent,
+            provider: agentProviderId,
+            securityProfile: workerProfile,
           );
         } else {
           session = await _storage.sessions.getByKey(sessionId);
-          if (session == null || session.type != SessionType.delegated) {
-            throw StateError('Unknown delegated session: $sessionId');
+          if (session == null || session.type != SessionType.logicalAgent) {
+            throw StateError('Unknown logical-agent session: $sessionId');
           }
+        }
+        if (session.provider == null || session.securityProfile == null) {
+          throw StateError('Logical-agent session is missing pinned execution routing: $sessionId');
         }
 
         final srv = serverRefGetter();
         final turnId = await srv.turns.reserveTurn(
           session.id,
           agentName: agentId,
-          model: resolveAgentModel(definition, defaultProviderFamily),
+          model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
           systemPromptOverride: persona,
+          workerProfile: session.securityProfile,
         );
         try {
           await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
@@ -477,7 +442,7 @@ class HarnessWiring {
           await serverRefGetter().turns.resetProviderSessionContinuity(session.id);
         } finally {
           try {
-            if (session.type == SessionType.delegated) {
+            if (session.type == SessionType.logicalAgent) {
               await _storage.sessions.updateSessionType(session.id, SessionType.archive);
             }
           } finally {
@@ -485,7 +450,6 @@ class HarnessWiring {
           }
         }
       },
-      limits: subagentLimits,
       agents: _agentMap,
       contentGuard: _security.contentGuard,
       auditLogger: _security.auditLogger,
@@ -547,16 +511,16 @@ class HarnessWiring {
       providerId: providerId,
     );
 
-    // Build primary TurnRunner and pool (task runners spawned lazily).
+    // Build the primary TurnRunner and lazily populated worker pool.
     final primaryRunner = buildRunner(
       harness: _harness,
       guardChain: _primaryGuardChain,
       toolFilter: primaryFilter,
       providerId: defaultProviderId,
     );
-    _pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrent);
+    _pool = HarnessPool(runners: [primaryRunner], maxConcurrentWorkers: maxConcurrent);
 
-    // Lazy spawn callback — consumed by TaskExecutor when tasks arrive.
+    // Lazy spawn callback shared by task execution and logical-agent sessions.
     final consumedSpawnPlanIndexes = <int>{};
     _onSpawnNeeded = spawnPlan.isEmpty
         ? null
@@ -570,8 +534,8 @@ class HarnessWiring {
             if (planIndex == null) {
               _log.warning(
                 requestedProviderId == null
-                    ? 'No task runner spawn-plan entry remains'
-                    : 'No task runner spawn-plan entry remains for provider "$requestedProviderId"',
+                    ? 'No worker spawn-plan entry remains'
+                    : 'No worker spawn-plan entry remains for provider "$requestedProviderId"',
               );
               return false;
             }
@@ -584,13 +548,17 @@ class HarnessWiring {
               return false;
             }
             try {
-              // Each task runner gets its own TaskToolFilterGuard so per-task
+              // Each worker gets its own TaskToolFilterGuard so per-task
               // allowedTools enforcement is isolated across concurrent runners.
-              final taskFilter = TaskToolFilterGuard();
-              final taskGuardChain = _buildRunnerGuardChain(_security.guardChain, taskFilter);
-              final taskPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
-              final taskHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: taskPrompt);
-              final taskHarness = _harnessFactory.create(
+              final workerFilter = TaskToolFilterGuard();
+              final workerGuardChain = _buildRunnerGuardChain(
+                _security.guardChain,
+                workerFilter,
+                _security.toolPolicyCascade,
+              );
+              final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
+              final workerHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: workerPrompt);
+              final workerHarness = _harnessFactory.create(
                 plan.providerId,
                 HarnessFactoryConfig(
                   cwd: Directory.current.path,
@@ -604,24 +572,26 @@ class HarnessWiring {
                       ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()),
                     );
                   },
-                  harnessConfig: taskHarnessConfig,
+                  harnessConfig: workerHarnessConfig,
                   historyConfig: config.agent.history,
                   providerOptions: plan.options,
                   containerManager: containerManager,
-                  guardChain: taskGuardChain,
+                  guardChain: workerGuardChain,
                   ownMcpToolCanonicals: _ownMcpToolCanonicals,
-                  environment: {
-                    ..._providerEnvironment(plan.credentialProviderId, credentialRegistry),
-                    ..._taskRunnerSubagentEnvironment,
-                  },
+                  environment: _providerEnvironment(
+                    config,
+                    plan.providerId,
+                    plan.credentialProviderId,
+                    credentialRegistry,
+                  ),
                 ),
               );
-              _wireCompactionCallbacks(taskHarness);
-              await taskHarness.start();
+              _wireCompactionCallbacks(workerHarness);
+              await workerHarness.start();
               final runner = buildRunner(
-                harness: taskHarness,
-                guardChain: taskGuardChain,
-                toolFilter: taskFilter,
+                harness: workerHarness,
+                guardChain: workerGuardChain,
+                toolFilter: workerFilter,
                 profileId: plan.profileId,
                 providerId: plan.providerId,
               );
@@ -629,54 +599,14 @@ class HarnessWiring {
               consumedSpawnPlanIndexes.add(planIndex);
               return true;
             } catch (e) {
-              _log.warning('Failed to spawn task runner: $e');
+              _log.warning('Failed to spawn worker: $e');
               return false;
             }
           };
-    _runnerPoolCoordinator = TaskRunnerPoolCoordinator(pool: _pool, onSpawnNeeded: _onSpawnNeeded);
+    _workerPoolCoordinator = WorkerPoolCoordinator(pool: _pool, onSpawnNeeded: _onSpawnNeeded);
   }
 
   static bool _isLoopbackHost(String host) => host == 'localhost' || host == '127.0.0.1' || host == '::1';
-
-  Map<String, dynamic> _initializePayloadForAgent(
-    AgentDefinition agent, {
-    required String providerFamily,
-    required bool mcpEnabled,
-  }) {
-    final payload = agent.toInitializePayload();
-    final model = resolveAgentModel(agent, providerFamily);
-    if (model != null) payload['model'] = model;
-    if (agent.allowedTools.isEmpty) return payload;
-
-    final normalized = agent.allowedTools.map(ToolPolicyCascade.normalizeEntry).toSet();
-    final tools = <String>[];
-    for (final entry in normalized) {
-      final providerTool = switch (entry) {
-        'shell' => 'Bash',
-        'file_read' => 'Read',
-        'file_write' => 'Write',
-        'file_edit' => 'Edit',
-        'web_fetch' => 'WebFetch',
-        'web_search' => 'WebSearch',
-        'mcp_call' => null,
-        _ => entry,
-      };
-      if (providerTool == null) {
-        _log.fine('Agent ${agent.id}: canonical mcp_call has no provider-native Claude tool name');
-      } else {
-        tools.add(providerTool);
-      }
-    }
-    if (mcpEnabled) {
-      for (final entry in _ownMcpToolCanonicals.entries) {
-        if (normalized.contains(entry.value.stableName)) {
-          tools.add('mcp__${dartclawMcpServerName}__${entry.key}');
-        }
-      }
-    }
-    payload['tools'] = tools;
-    return payload;
-  }
 
   void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
     final hasToolPolicy =
@@ -687,11 +617,7 @@ class HarnessWiring {
     if (!hasToolPolicy) return;
 
     if (_security.guardChain == null) {
-      _log.warning(
-        'Agent tool policies are configured while security guards are disabled – '
-        'host tool-policy enforcement is inactive',
-      );
-      return;
+      _log.warning('Security guards are disabled – only configured tool policy and per-turn filters remain');
     }
 
     final providers = {...config.providers.entries.keys, defaultProviderId};
@@ -771,28 +697,42 @@ class HarnessWiring {
   }
 }
 
-const _taskRunnerSubagentEnvironment = <String, String>{'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet'};
-
 /// Creates a per-runner [GuardChain] layering the runner's [filter] after all
 /// guards of [base].
 ///
-/// Each runner (primary and task) requires its own chain so that mutating
+/// Each runner (primary and worker) requires its own chain so that mutating
 /// [filter] policies for one runner does not affect others. The base guard
 /// list is tracked live: a guards.* hot-reload ([GuardChain.replaceGuards] on
 /// [base]) reaches every runner chain while the filter survives the rebuild.
-/// When [base] is null, returns a chain with only the filter guard.
-GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter) =>
-    GuardChain.layered(base: base, guards: [filter]);
+/// When [base] is null, configured tool policy remains active independently of
+/// the optional security-guard bundle.
+GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter, ToolPolicyCascade cascade) =>
+    GuardChain.layered(
+      base: base,
+      guards: [
+        if (base == null) ToolPolicyGuard(cascade: cascade),
+        filter,
+      ],
+    );
 
-Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
+Map<String, String> _providerEnvironment(
+  DartclawConfig config,
+  String providerId,
+  String credentialProviderId,
+  CredentialRegistry registry,
+) {
+  final providerFamily = ProviderIdentity.resolveFamily(
+    providerId,
+    executable: _resolveProviderExecutable(config, providerId),
+    options: _providerOptions(config, providerId),
+  );
   final environment = SafeProcess.sanitize(
     baseEnvironment: Platform.environment,
-    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-    extraEnvironment: claudeHardeningEnvVars,
+    extraEnvironment: providerFamily == ProviderIdentity.claude ? claudeHardeningEnvVars : const {},
   );
-  final apiKey = registry.getApiKey(providerId);
+  final apiKey = registry.getApiKey(credentialProviderId);
   if (apiKey != null) {
-    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
+    for (final envVar in CredentialRegistry.envVarsFor(credentialProviderId)) {
       environment[envVar] = apiKey;
     }
   }
@@ -829,23 +769,28 @@ String _resolveProviderExecutable(DartclawConfig config, String providerId) {
 Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) =>
     config.providers[providerId]?.options ?? const <String, dynamic>{};
 
-Map<String, ProviderEntry> _effectiveTaskProviderEntries(
+Map<String, ProviderEntry> _effectiveWorkerProviderEntries(
   DartclawConfig config,
   Map<String, AcpTargetValidationResult> acpValidationResults,
 ) {
-  final entries = {
-    for (final entry in config.providers.entries.entries)
-      entry.key: ProviderEntry(
-        executable: entry.value.executable,
-        poolSize: entry.value.poolSize,
-        options: _withoutAcpValidationOptions(entry.value.options),
-      ),
-  };
-  for (final acpEntry in config.harness.acp.agents.entries) {
-    final providerOverride = entries[acpEntry.key];
-    final validation = acpValidationResults[acpEntry.key];
+  final entries = <String, ProviderEntry>{};
+  for (final entry in config.providers.entries.entries) {
+    final providerId = ProviderIdentity.normalize(entry.key);
+    if (entries.containsKey(providerId)) {
+      throw StateError('Configured provider IDs collide after normalization to "$providerId"');
+    }
+    entries[providerId] = ProviderEntry(
+      executable: entry.value.executable,
+      poolSize: entry.value.poolSize,
+      options: _withoutAcpValidationOptions(entry.value.options),
+    );
+  }
+  for (final acpEntry in _canonicalAcpAgentEntries(config.harness.acp).entries) {
+    final providerId = acpEntry.key;
+    final providerOverride = entries[providerId];
+    final validation = acpValidationResults[providerId];
     final validationJson = validation?.toJson();
-    entries[acpEntry.key] = ProviderEntry(
+    entries[providerId] = ProviderEntry(
       executable: acpEntry.value.binary,
       poolSize: validation?.status == AcpTargetValidationStatus.passed ? providerOverride?.poolSize ?? 0 : 0,
       options: {
@@ -857,8 +802,10 @@ Map<String, ProviderEntry> _effectiveTaskProviderEntries(
     );
   }
   entries.putIfAbsent(
-    config.agent.provider,
-    () => ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
+    ProviderIdentity.normalize(config.agent.provider),
+    () => ProviderEntry(
+      executable: _resolveProviderExecutable(config, ProviderIdentity.normalize(config.agent.provider)),
+    ),
   );
   return entries;
 }
@@ -872,25 +819,25 @@ Map<String, dynamic> _withoutAcpValidationOptions(Map<String, dynamic> options) 
 }
 
 Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(DartclawConfig config) async {
-  if (config.harness.acp.isEmpty) {
+  final agents = _canonicalAcpAgentEntries(config.harness.acp);
+  if (agents.isEmpty) {
     return const {};
   }
   const validator = AcpTargetValidator();
   final results = await validator.validateConfiguredTargets(
-    agents: config.harness.acp.agents,
+    agents: agents,
     commandProbe: Process.run,
     advertisedCapabilities: {
-      for (final providerId in config.harness.acp.agents.keys) providerId: const {'fs', 'terminal'},
+      for (final providerId in agents.keys) providerId: const {'fs', 'terminal'},
     },
-    requiredTargets: config.harness.acp.agents.entries
+    requiredTargets: agents.entries
         .where((entry) => entry.key == config.agent.provider || entry.value.requiresGuardMediation)
         .map((entry) => entry.key)
         .toSet(),
   );
   final failures = results.entries.where(
     (entry) =>
-        entry.value.status == AcpTargetValidationStatus.failed &&
-        config.harness.acp[entry.key]?.requiresGuardMediation == true,
+        entry.value.status == AcpTargetValidationStatus.failed && agents[entry.key]?.requiresGuardMediation == true,
   );
   if (failures.isNotEmpty) {
     throw StateError(
@@ -902,6 +849,18 @@ Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(Dar
   return results;
 }
 
+Map<String, AcpAgentConfig> _canonicalAcpAgentEntries(AcpConfig config) {
+  final agents = <String, AcpAgentConfig>{};
+  for (final entry in config.agents.entries) {
+    final providerId = ProviderIdentity.normalize(entry.key);
+    if (agents.containsKey(providerId)) {
+      throw StateError('Configured ACP provider IDs collide after normalization to "$providerId"');
+    }
+    agents[providerId] = entry.value;
+  }
+  return agents;
+}
+
 Map<String, ProviderEntry> _effectiveValidationProviderEntries(
   DartclawConfig config,
   Map<String, AcpTargetValidationResult> acpValidationResults,
@@ -911,7 +870,7 @@ Map<String, ProviderEntry> _effectiveValidationProviderEntries(
       config.agent.provider: ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
     };
   }
-  return _effectiveTaskProviderEntries(config, acpValidationResults);
+  return _effectiveWorkerProviderEntries(config, acpValidationResults);
 }
 
 List<String> _profilesForProvider(DartclawConfig config, String providerId, List<String> fallbackProfiles) {
@@ -948,6 +907,26 @@ String _containerProfileId(AcpContainerProfile profile) {
     AcpContainerProfile.restricted => 'restricted',
     AcpContainerProfile.workspace => 'workspace',
   };
+}
+
+String _logicalAgentWorkerProfile(
+  DartclawConfig config,
+  SecurityWiring security,
+  AgentDefinition definition,
+  String providerId,
+) {
+  final configured = definition.securityProfile;
+  if (configured != null) {
+    if (configured != 'workspace' && !security.containerManagers.containsKey(configured)) {
+      throw StateError('Logical agent "${definition.id}" requires unavailable security profile "$configured"');
+    }
+    return configured;
+  }
+
+  if (security.containerManagers.isEmpty) return 'workspace';
+
+  final providerProfile = config.harness.acp[providerId]?.containerProfile;
+  return providerProfile == null ? 'workspace' : _containerProfileId(providerProfile);
 }
 
 int? _nextSpawnPlanIndex(

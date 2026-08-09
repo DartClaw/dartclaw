@@ -1,18 +1,18 @@
 part of 'dartclaw_event.dart';
 
-/// Intermediate sealed type for agent observer events.
-sealed class AgentLifecycleEvent extends DartclawEvent {
+/// Intermediate sealed type for harness-runner lifecycle events.
+sealed class RunnerLifecycleEvent extends DartclawEvent {
   /// Runner identifier associated with the event.
   int get runnerId;
 
   @override
-  /// Timestamp when the agent event occurred.
+  /// Timestamp when the runner event occurred.
   DateTime get timestamp;
 }
 
 /// Fired when a runner transitions between states (idle/busy/stopped/crashed).
 // NOT_ALERTABLE: worker lifecycle telemetry — surfaced via SSE only
-final class AgentStateChangedEvent extends AgentLifecycleEvent {
+final class RunnerStateChangedEvent extends RunnerLifecycleEvent {
   @override
   /// Runner identifier whose state changed.
   final int runnerId;
@@ -27,9 +27,9 @@ final class AgentStateChangedEvent extends AgentLifecycleEvent {
   /// Timestamp when the state change occurred.
   final DateTime timestamp;
 
-  /// Creates an agent-state-changed event.
-  AgentStateChangedEvent({required this.runnerId, required this.state, this.currentTaskId, required this.timestamp});
+  /// Creates a runner-state-changed event.
+  RunnerStateChangedEvent({required this.runnerId, required this.state, this.currentTaskId, required this.timestamp});
 
   @override
-  String toString() => 'AgentStateChangedEvent(runner: $runnerId, state: $state, task: $currentTaskId)';
+  String toString() => 'RunnerStateChangedEvent(runner: $runnerId, state: $state, task: $currentTaskId)';
 }

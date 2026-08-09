@@ -108,7 +108,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
           return;
         }
 
-        if (data.type === 'agent_state') {
+        if (data.type === 'runner_state') {
           if (shouldRefreshTaskContent(data.currentTaskId)) {
             refreshTasksPageContent();
           }

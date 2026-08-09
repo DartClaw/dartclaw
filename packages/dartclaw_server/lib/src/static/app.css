@@ -2011,21 +2011,21 @@ select.form-select.channel-mode-select-hidden {
 }
 
 /* === AGENT OVERVIEW === */
-.agent-overview {
+.harness-overview {
   margin-top: var(--sp-5);
   padding-top: var(--sp-5);
   border-top: var(--border);
 }
-.agent-overview h3 {
+.harness-overview h3 {
   color: var(--fg);
   margin: 0 0 var(--sp-3);
 }
 /* Tile geometry only — the card surface, padding and radius come from canon
    `.card`, and the run-card anatomy from canon's orchestration family. */
-.agent-pool-runners {
+.harness-pool-runners {
   display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-3);
 }
-.agent-pool-runners > .card {
+.harness-pool-runners > .card {
   min-width: 180px; max-width: 220px; flex: 1;
 }
 .run-card-metrics {
@@ -2038,8 +2038,8 @@ select.form-select.channel-mode-select-hidden {
   font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
 }
 @media (max-width: 768px) {
-  .agent-pool-runners { flex-direction: column; }
-  .agent-pool-runners > .card { max-width: none; }
+  .harness-pool-runners { flex-direction: column; }
+  .harness-pool-runners > .card { max-width: none; }
 }
 
 /* === TASK TIMELINE === */
@@ -3280,6 +3280,8 @@ input.form-input--search::-webkit-search-cancel-button {
 }
 .provider-section-note {
   margin: 0;
+  display: block;
+  line-height: var(--leading-relaxed);
 }
 
 .guard-editor-shell {

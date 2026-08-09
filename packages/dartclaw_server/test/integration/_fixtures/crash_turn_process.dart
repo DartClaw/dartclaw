@@ -42,7 +42,7 @@ Future<void> main(List<String> args) async {
     ..behavior = BehaviorFileService(workspaceDir: dataDir)
     ..staticDir = 'packages/dartclaw_server/lib/src/static'
     ..kv = kv
-    ..pool = server_pool.HarnessPool(runners: [runner], maxConcurrentTasks: 0)
+    ..pool = server_pool.HarnessPool(runners: [runner], maxConcurrentWorkers: 0)
     ..sessionsForTurns = sessions
     ..authEnabled = false;
   final turns = builder.buildTurns();

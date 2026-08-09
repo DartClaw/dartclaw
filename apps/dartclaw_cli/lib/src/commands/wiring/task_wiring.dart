@@ -54,7 +54,7 @@ Future<void> Function(String taskId)? buildAutoAcceptCallback({
 /// Constructs and exposes task-execution layer services.
 ///
 /// Owns worktree manager, merge executor, task file guard, task review service,
-/// diff generator, artifact collector, agent observer, and task executor.
+/// diff generator, artifact collector, runner observer, and task executor.
 ///
 /// Split into two phases:
 /// - [wirePreServer]: builds services needed by [ChannelWiring] (review handler)
@@ -92,7 +92,7 @@ class TaskWiring {
   late PrCreator _prCreator;
   late DiffGenerator _diffGenerator;
   late ArtifactCollector _artifactCollector;
-  late AgentObserver _agentObserver;
+  late RunnerObserver _runnerObserver;
   late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
   late TaskExecutor _taskExecutor;
   late WorkflowCliRunner _workflowCliRunner;
@@ -109,7 +109,7 @@ class TaskWiring {
   PrCreator get prCreator => _prCreator;
   DiffGenerator get diffGenerator => _diffGenerator;
   ArtifactCollector get artifactCollector => _artifactCollector;
-  AgentObserver get agentObserver => _agentObserver;
+  RunnerObserver get runnerObserver => _runnerObserver;
   TaskExecutor get taskExecutor => _taskExecutor;
 
   /// The channel review handler — available after [wirePreServer].
@@ -162,8 +162,8 @@ class TaskWiring {
   Future<void> wirePostServer({
     required TurnManager turns,
     required HarnessPool pool,
-    SpawnTaskRunner? onSpawnNeeded,
-    TaskRunnerPoolCoordinator? runnerPoolCoordinator,
+    SpawnWorker? onSpawnNeeded,
+    WorkerPoolCoordinator? workerPoolCoordinator,
   }) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
@@ -189,11 +189,14 @@ class TaskWiring {
     );
     _compactionTaskEventSubscriber.subscribe(_eventBus);
 
-    _agentObserver = AgentObserver(pool: pool, eventBus: _eventBus);
+    _runnerObserver = RunnerObserver(pool: pool, eventBus: _eventBus);
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _workflowCliRunner = WorkflowCliRunner(
       providers: {
-        for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
+        for (final providerId in <String>{
+          config.agent.provider,
+          ...config.providers.entries.keys,
+        }.map(ProviderIdentity.normalize))
           providerId: WorkflowCliProviderConfig(
             executable: _resolveWorkflowProviderExecutable(config, providerId),
             environment: _providerEnvironmentForWorkflow(providerId, credentialRegistry),
@@ -220,7 +223,7 @@ class TaskWiring {
         kvService: _storage.kvService,
         eventBus: _eventBus,
       ),
-      runners: TaskExecutorRunners(turns: turns, observer: _agentObserver, workflowCliRunner: _workflowCliRunner),
+      runners: TaskExecutorRunners(turns: turns, observer: _runnerObserver, workflowCliRunner: _workflowCliRunner),
       limits: TaskExecutorLimits(
         maxMemoryBytes: config.memory.maxBytes,
         compactInstructions: config.context.compactInstructions,
@@ -233,7 +236,7 @@ class TaskWiring {
         defaultStepTimeout: config.governance.turnProgress.maxDuration,
       ),
       onSpawnNeeded: onSpawnNeeded,
-      runnerPoolCoordinator: runnerPoolCoordinator,
+      workerPoolCoordinator: workerPoolCoordinator,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
         reviewTask: (taskId) => _taskReviewService.review(taskId, 'accept', trigger: 'auto_accept'),
@@ -276,7 +279,6 @@ class TaskWiring {
   Future<void> dispose() async {
     await _workflowCliRunner.cancelInflight(cancelFutureProcesses: true);
     await _taskExecutor.stop();
-    _agentObserver.dispose();
     await _taskCancellationSubscriber.dispose();
     await _containerTaskFailureSubscriber.dispose();
     await _compactionTaskEventSubscriber.dispose();
@@ -285,10 +287,7 @@ class TaskWiring {
 }
 
 Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
-  final environment = SafeProcess.sanitize(
-    baseEnvironment: Platform.environment,
-    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-  );
+  final environment = SafeProcess.sanitize(baseEnvironment: Platform.environment);
   final apiKey = registry.getApiKey(providerId);
   if (apiKey != null) {
     for (final envVar in CredentialRegistry.envVarsFor(providerId)) {

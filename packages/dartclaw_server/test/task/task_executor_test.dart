@@ -501,7 +501,7 @@ void main() {
     expect((await tasks.get('task-b'))!.status, TaskStatus.queued);
   });
 
-  test('executes tasks via pool-mode when maxConcurrentTasks > 0', () async {
+  test('executes tasks via pool-mode when maxConcurrentWorkers > 0', () async {
     final poolWorker1 = FakeTaskWorker();
     final poolWorker2 = FakeTaskWorker();
     poolWorker1.responseText = 'pool result';
@@ -522,7 +522,7 @@ void main() {
     await tasks.create(
       id: 'task-pool',
       title: 'Pool task',
-      description: 'Should execute via acquired task runner.',
+      description: 'Should execute via acquired worker.',
       type: TaskType.automation,
       autoStart: true,
     );
@@ -532,7 +532,7 @@ void main() {
     expect(processed, isTrue);
     final completed = await waitForTaskStatus(tasks, 'task-pool', until: const {TaskStatus.review});
     expect(completed?.status, TaskStatus.review);
-    // Task runner was released back to pool.
+    // The worker was released back to the pool.
     expect(pool.availableCount, 1);
     expect(pool.activeCount, 0);
   });
@@ -549,7 +549,7 @@ void main() {
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
-    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
+    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentWorkers: 1);
     final poolTurns = TurnManager.fromPool(pool: pool);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(
       turnManager: poolTurns,
@@ -599,8 +599,8 @@ void main() {
     expect(spawnRequests, ['codex']);
     expect(executable, 'codex');
     expect(completed?.status, TaskStatus.review);
-    expect(pool.hasTaskRunnerForProvider('codex'), isTrue);
-    expect(pool.hasTaskRunnerForProvider('claude'), isFalse);
+    expect(pool.hasWorkerForProvider('codex'), isTrue);
+    expect(pool.hasWorkerForProvider('claude'), isFalse);
   });
 
   test('lazy spawn provider demand follows FIFO task ordering', () async {
@@ -608,7 +608,7 @@ void main() {
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
     final codexWorker = FakeTaskWorker()..responseText = 'codex result';
     addTearDown(codexWorker.dispose);
-    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
+    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentWorkers: 1);
     final poolTurns = TurnManager.fromPool(pool: pool);
     final spawnRequests = <String?>[];
     final spawnRequested = Completer<void>();

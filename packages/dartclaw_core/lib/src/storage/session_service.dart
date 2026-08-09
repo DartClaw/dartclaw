@@ -22,7 +22,12 @@ class SessionService {
 
   SessionService({required this.baseDir, this.eventBus, RepoLock? repoLock}) : _repoLock = repoLock ?? RepoLock();
 
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+  }) async {
     final id = _uuid.v4();
     final dir = Directory(p.join(baseDir, id));
     await dir.create(recursive: true);
@@ -33,6 +38,7 @@ class SessionService {
       type: type,
       channelKey: channelKey,
       provider: provider,
+      securityProfile: securityProfile,
       createdAt: now,
       updatedAt: now,
     );
@@ -65,7 +71,8 @@ class SessionService {
     if (!dir.existsSync()) return [];
 
     final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
-    final delegatedRequested = type == SessionType.delegated || (types?.contains(SessionType.delegated) ?? false);
+    final logicalAgentRequested =
+        type == SessionType.logicalAgent || (types?.contains(SessionType.logicalAgent) ?? false);
     final sessions = <Session>[];
     await for (final entity in dir.list()) {
       if (entity is! Directory) continue;
@@ -77,7 +84,7 @@ class SessionService {
         final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
         final session = Session.fromJson(json);
         if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) continue;
-        if (session.type == SessionType.delegated && !delegatedRequested) continue;
+        if (session.type == SessionType.logicalAgent && !logicalAgentRequested) continue;
         if (type != null && session.type != type) continue;
         if (types != null && !types.contains(session.type)) continue;
         sessions.add(session);
@@ -119,10 +126,15 @@ class SessionService {
   /// Serialised with [RepoLock] so concurrent callers (e.g. parallel workflow
   /// foreach iterations each creating their own session) don't interleave the
   /// read-modify-write on `.session_keys.json` and lose each other's mappings.
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+  }) async {
     return _repoLock.acquire(
       p.join(baseDir, '.session_keys.json'),
-      () => _getOrCreateByKeyLocked(key, type: type, provider: provider),
+      () => _getOrCreateByKeyLocked(key, type: type, provider: provider, securityProfile: securityProfile),
     );
   }
 
@@ -148,7 +160,12 @@ class SessionService {
     });
   }
 
-  Future<Session> _getOrCreateByKeyLocked(String key, {required SessionType type, String? provider}) async {
+  Future<Session> _getOrCreateByKeyLocked(
+    String key, {
+    required SessionType type,
+    String? provider,
+    String? securityProfile,
+  }) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
     final keyIndex = await _readKeyIndex(indexFile);
@@ -159,8 +176,16 @@ class SessionService {
       final session = await getSession(existingId);
       if (session != null && session.type != SessionType.archive) {
         // Lazy migration: update type/channelKey if needed (e.g. old sessions without type)
-        if (session.type != type || session.channelKey != key || session.provider != provider) {
-          final migrated = session.copyWith(type: type, channelKey: key, provider: provider);
+        if (session.type != type ||
+            session.channelKey != key ||
+            session.provider != provider ||
+            session.securityProfile != securityProfile) {
+          final migrated = session.copyWith(
+            type: type,
+            channelKey: key,
+            provider: provider,
+            securityProfile: securityProfile,
+          );
           await _updateSession(migrated);
           return migrated;
         }
@@ -171,7 +196,12 @@ class SessionService {
     }
 
     // Create new session and record mapping
-    final session = await createSession(type: type, channelKey: key, provider: provider);
+    final session = await createSession(
+      type: type,
+      channelKey: key,
+      provider: provider,
+      securityProfile: securityProfile,
+    );
     keyIndex[key] = session.id;
     await atomicWriteJson(indexFile, keyIndex);
     return session;

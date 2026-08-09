@@ -175,7 +175,7 @@ For production, prefer API-key based credentials managed by the service environm
 - **Sole egress** — `network:none` means the Unix socket is the only way out of the container
 - **Observability** — the proxy tracks request and error counts for health monitoring
 
-## ACP and Delegation Security Modes
+## ACP and Logical-Agent Security Modes
 
 ACP security claims are topology-scoped:
 
@@ -184,9 +184,9 @@ ACP security claims are topology-scoped:
 | Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host filesystem reverse-calls | Guard-mediated. ACP `fs/read_text_file` and `fs/write_text_file` are bound to the active task session and evaluated by DartClaw guards before host action |
 | Relay provider | The ACP target forwards work through another provider CLI or relay path | Container-isolation-only. No guard-mediation claim |
 | Unverified | Startup evidence is absent or insufficient | Container-isolation-only until verification proves reverse-call mediation |
-| Codex delegation | Delegated Codex work with approvals/sandbox enabled | Provider-approval mode, not guard-mediated |
+| Codex agent sessions | Codex work with approvals/sandbox enabled | Provider-approval mode, not guard-mediated |
 
-`delegate_to_agent` enforces these classifications before spawn. If an allowlist entry sets `require_guard_mediation: true`, relay and unverified ACP agents are rejected, and Codex is rejected because its delegated mode is `security_mode: "provider_approval"`. A restricted container profile is the safe default for relay or unverified ACP agents.
+Logical agents select providers through `agent.agents.<id>.provider` and may select `security_profile: workspace|restricted` independently. The built-in search agent requests `restricted`; other agents use an enforced ACP provider profile when present, otherwise `workspace`. Provider startup validation and exact provider/profile worker acquisition enforce the configured boundary before a logical-agent session can run. An unavailable `restricted` profile fails closed instead of falling back to host execution. A restricted container profile is the safe default for relay or unverified ACP agents.
 
 DartClaw does not advertise ACP `terminal/create` on any host; filesystem reverse-calls remain available. Host terminal execution stays disabled until DartClaw can prove containment of the complete spawned process tree.
 

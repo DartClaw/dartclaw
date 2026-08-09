@@ -97,7 +97,7 @@ void main() {
       final codexWorker = FakeWorkerService();
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
       late final HarnessPool pool;
-      final coordinator = TaskRunnerPoolCoordinator(
+      final coordinator = WorkerPoolCoordinator(
         pool: pool = HarnessPool(
           runners: [
             TurnRunner(
@@ -108,7 +108,7 @@ void main() {
               providerId: 'claude',
             ),
           ],
-          maxConcurrentTasks: 1,
+          maxConcurrentWorkers: 1,
         ),
         onSpawnNeeded: (provider) async {
           expect(provider, 'codex');
@@ -127,7 +127,7 @@ void main() {
       final providerTurns = TurnManager.fromPool(
         pool: pool,
         sessions: sessionService,
-        runnerPoolCoordinator: coordinator,
+        workerPoolCoordinator: coordinator,
       );
       addTearDown(providerTurns.pool.dispose);
 
@@ -171,12 +171,12 @@ void main() {
             providerId: 'codex',
           ),
         ],
-        maxConcurrentTasks: 2,
+        maxConcurrentWorkers: 2,
       );
       final providerTurns = TurnManager.fromPool(
         pool: pool,
         sessions: sessionService,
-        runnerPoolCoordinator: TaskRunnerPoolCoordinator(pool: pool),
+        workerPoolCoordinator: WorkerPoolCoordinator(pool: pool),
       );
       addTearDown(providerTurns.pool.dispose);
 
@@ -224,12 +224,12 @@ void main() {
             providerId: 'claude',
           ),
         ],
-        maxConcurrentTasks: 0,
+        maxConcurrentWorkers: 0,
       );
       final providerTurns = TurnManager.fromPool(
         pool: pool,
         sessions: sessionService,
-        runnerPoolCoordinator: TaskRunnerPoolCoordinator(pool: pool),
+        workerPoolCoordinator: WorkerPoolCoordinator(pool: pool),
       );
       addTearDown(providerTurns.pool.dispose);
 
@@ -237,7 +237,7 @@ void main() {
         () => providerTurns.startTurn(session.id, []),
         throwsA(
           isA<BusyTurnException>()
-              .having((error) => error.message, 'message', contains('tasks.max_concurrent'))
+              .having((error) => error.message, 'message', contains('worker pool unavailable'))
               .having((error) => error.message, 'message', contains('providers.codex.pool_size')),
         ),
       );
@@ -258,13 +258,13 @@ void main() {
             providerId: 'claude',
           ),
         ],
-        maxConcurrentTasks: 1,
+        maxConcurrentWorkers: 1,
       );
       var spawnCalls = 0;
       final providerTurns = TurnManager.fromPool(
         pool: pool,
         sessions: sessionService,
-        runnerPoolCoordinator: TaskRunnerPoolCoordinator(
+        workerPoolCoordinator: WorkerPoolCoordinator(
           pool: pool,
           onSpawnNeeded: (_) async {
             spawnCalls++;
@@ -317,7 +317,7 @@ void main() {
               providerId: 'codex',
             ),
           ],
-          maxConcurrentTasks: 1,
+          maxConcurrentWorkers: 2,
         ),
         sessions: sessionService,
       );
@@ -471,7 +471,7 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('promptStrategy', () {
-    test('append-strategy harness receives delegated persona verbatim', () async {
+    test('append-strategy harness receives logical-agent persona verbatim', () async {
       final appendWorker = AppendStrategyWorker();
       final appendTurns = TurnManager(
         messages: messages,
@@ -781,7 +781,7 @@ void main() {
       await turns.cancelTurn('s1');
     });
 
-    test('cancels active turns running on pooled task runners', () async {
+    test('cancels active turns running on pooled workers', () async {
       final taskWorker = FakeWorkerService();
       addTearDown(taskWorker.dispose);
 

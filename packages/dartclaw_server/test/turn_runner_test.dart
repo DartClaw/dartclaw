@@ -168,9 +168,9 @@ void main() {
     expect(runner.isActive(session.id), isFalse);
   });
 
-  test('delegated persona override reaches the harness verbatim', () async {
-    scheduleTurnCompletion(worker, responseText: 'delegated');
-    final session = await sessions.createSession(type: SessionType.delegated);
+  test('logical-agent persona override reaches the harness verbatim', () async {
+    scheduleTurnCompletion(worker, responseText: 'logical agent');
+    final session = await sessions.createSession(type: SessionType.logicalAgent);
 
     final turnId = await runner.startTurn(
       session.id,
@@ -185,14 +185,14 @@ void main() {
     expect(worker.lastSystemPrompt, 'SEARCH PERSONA');
   });
 
-  test('delegated and main turns supply the expected harness agent identity', () async {
+  test('logical-agent and main turns supply the expected harness agent identity', () async {
     final session = await sessions.getOrCreateMainSession();
 
-    scheduleTurnCompletion(worker, responseText: 'delegated');
-    final delegatedTurn = await runner.startTurn(session.id, [
+    scheduleTurnCompletion(worker, responseText: 'logical agent');
+    final logicalAgentTurn = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'search'},
     ], agentName: 'search');
-    await runner.waitForOutcome(session.id, delegatedTurn);
+    await runner.waitForOutcome(session.id, logicalAgentTurn);
     expect(worker.lastAgentId, 'search');
 
     scheduleTurnCompletion(worker, responseText: 'main');
@@ -1420,7 +1420,7 @@ void main() {
 
   // ---------------------------------------------------------------------------
   // Stall-timeout wiring — regression for 2026-04-24 E2E issue #9 where the
-  // plan-review turn hung silently for 27 minutes while a Codex sub-agent
+  // plan-review turn hung silently for 27 minutes while a Codex worker
   // waited on shell verification. The stall monitor is supposed to surface
   // that silence; these tests pin the wiring so a regression flips from a
   // 75-minute E2E failure to a <2-second unit failure.
@@ -1440,7 +1440,7 @@ void main() {
         turnMonitorNow: turnMonitorTime.now,
       );
 
-      // Never complete the worker turn — it's the hung-sub-agent case.
+      // Never complete the worker turn – it reproduces the hung-worker case.
       // The turn invocation awaits indefinitely; only the stall monitor
       // surfaces the silence.
       final session = await sessions.getOrCreateMainSession();

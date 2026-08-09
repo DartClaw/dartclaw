@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/components.css on 2026-08-08.
-   sha256: 3470dd9c0f2033b48f69043aebba51afbb40592138511c3736de157ca175f583 */
+/* Synced from dev/design-system/components.css on 2026-08-09.
+   sha256: 343434e112ff14055cdb0fe4a5a174ae1579f9a03afa3f91c3408feba5945764 */
 /* DartClaw Component Styles
    Requires: tokens.css loaded first
    Core palette, typography, spacing, and layout values reference tokens.
@@ -1370,7 +1370,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    Compact, centered value + label. The card carries a faint wash of its
    semantic color at rest; hover amplifies the same wash rather than
    introducing it, so a resting dashboard still reads as colored.
-   Use for: health dashboard stats, agent metrics, budget
+   Use for: health dashboard stats, runner metrics, budget
    counters, message counts.
 
    Apply alongside .card: <div class="card card-metric card-metric--accent">

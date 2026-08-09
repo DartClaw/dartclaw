@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecutionStatusChangedEvent,
-        AgentStateChangedEvent,
+        RunnerStateChangedEvent,
         EventBus,
         ProjectService,
         ProjectStatusChangedEvent,
@@ -20,7 +20,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
-import '../task/agent_observer.dart';
+import '../task/runner_observer.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../task/tool_call_summary.dart';
@@ -32,7 +32,7 @@ import 'sse_broadcast.dart';
 /// Creates a [Router] with the task SSE endpoint.
 ///
 /// `GET /api/tasks/events` streams [TaskStatusChangedEvent],
-/// [AgentStateChangedEvent], [ProjectStatusChangedEvent],
+/// [RunnerStateChangedEvent], [ProjectStatusChangedEvent],
 /// [TaskProgressSnapshot] (task_progress), [TaskEventCreatedEvent]
 /// (task_event), and workflow sidebar updates to connected clients via
 /// Server-Sent Events.
@@ -43,7 +43,7 @@ import 'sse_broadcast.dart';
 Router taskSseRoutes(
   TaskService tasks,
   EventBus eventBus, {
-  AgentObserver? observer,
+  RunnerObserver? observer,
   ProjectService? projects,
   TaskProgressTracker? progressTracker,
   WorkflowService? workflows,
@@ -84,13 +84,13 @@ Router taskSseRoutes(
     };
     if (observer != null) {
       final pool = observer.poolStatus;
-      connectedPayload['agents'] = {
+      connectedPayload['runners'] = {
         'runners': observer.metrics.map((m) => m.toJson()).toList(),
         'pool': {
           'size': pool.size,
           'activeCount': pool.activeCount,
           'availableCount': pool.availableCount,
-          'maxConcurrentTasks': pool.maxConcurrentTasks,
+          'maxConcurrentWorkers': pool.maxConcurrentWorkers,
         },
       };
     }
@@ -127,10 +127,10 @@ Router taskSseRoutes(
       }
     });
 
-    // Subscribe to agent state change events.
-    final agentSub = eventBus.on<AgentStateChangedEvent>().listen((event) {
+    // Subscribe to runner state change events.
+    final runnerSub = eventBus.on<RunnerStateChangedEvent>().listen((event) {
       final data = jsonEncode({
-        'type': 'agent_state',
+        'type': 'runner_state',
         'runnerId': event.runnerId,
         'state': event.state,
         'currentTaskId': event.currentTaskId,
@@ -252,7 +252,7 @@ Router taskSseRoutes(
     // Clean up on client disconnect.
     controller.onCancel = () {
       taskSub.cancel();
-      agentSub.cancel();
+      runnerSub.cancel();
       projectSub.cancel();
       progressSub?.cancel();
       taskEventSub.cancel();

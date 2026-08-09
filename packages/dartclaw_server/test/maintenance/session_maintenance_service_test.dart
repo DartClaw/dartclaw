@@ -176,8 +176,8 @@ void main() {
       expect(all.where((s) => s.type == SessionType.archive), hasLength(1));
     });
 
-    test('stale delegated session follows normal retention', () async {
-      final delegated = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 60));
+    test('stale logical-agent session follows normal retention', () async {
+      final logicalAgent = await createAgedSession(type: SessionType.logicalAgent, age: const Duration(days: 60));
       final service = createService(
         config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
@@ -186,14 +186,14 @@ void main() {
 
       expect(
         report.actions,
-        contains(isA<MaintenanceAction>().having((action) => action.sessionId, 'session', delegated.id)),
+        contains(isA<MaintenanceAction>().having((action) => action.sessionId, 'session', logicalAgent.id)),
       );
-      expect((await sessions.getSession(delegated.id))!.type, SessionType.archive);
+      expect((await sessions.getSession(logicalAgent.id))!.type, SessionType.archive);
     });
 
-    test('active delegated session is retained until its turn completes', () async {
-      final delegated = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 60));
-      final active = <String>{delegated.id};
+    test('active logical-agent session is retained until its turn completes', () async {
+      final logicalAgent = await createAgedSession(type: SessionType.logicalAgent, age: const Duration(days: 60));
+      final active = <String>{logicalAgent.id};
       final service = SessionMaintenanceService(
         sessions: sessions,
         config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
@@ -204,13 +204,13 @@ void main() {
       );
 
       final activeReport = await service.run();
-      expect(activeReport.actions.where((action) => action.sessionId == delegated.id), isEmpty);
-      expect((await sessions.getSession(delegated.id))!.type, SessionType.delegated);
+      expect(activeReport.actions.where((action) => action.sessionId == logicalAgent.id), isEmpty);
+      expect((await sessions.getSession(logicalAgent.id))!.type, SessionType.logicalAgent);
 
       active.clear();
       final completedReport = await service.run();
-      expect(completedReport.actions.where((action) => action.sessionId == delegated.id), hasLength(1));
-      expect((await sessions.getSession(delegated.id))!.type, SessionType.archive);
+      expect(completedReport.actions.where((action) => action.sessionId == logicalAgent.id), hasLength(1));
+      expect((await sessions.getSession(logicalAgent.id))!.type, SessionType.archive);
     });
 
     test('stale session is NOT archived in warn mode (but reported)', () async {
@@ -353,8 +353,8 @@ void main() {
       expect(capActions[0].applied, isTrue);
     });
 
-    test('delegated sessions participate in the count cap', () async {
-      final delegated = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 10));
+    test('logical-agent sessions participate in the count cap', () async {
+      final logicalAgent = await createAgedSession(type: SessionType.logicalAgent, age: const Duration(days: 10));
       await createAgedSession(age: const Duration(days: 5));
 
       final service = createService(
@@ -366,11 +366,11 @@ void main() {
         report.actions,
         contains(
           isA<MaintenanceAction>()
-              .having((action) => action.sessionId, 'session', delegated.id)
+              .having((action) => action.sessionId, 'session', logicalAgent.id)
               .having((action) => action.reason, 'reason', 'count_cap'),
         ),
       );
-      expect((await sessions.getSession(delegated.id))!.type, SessionType.archive);
+      expect((await sessions.getSession(logicalAgent.id))!.type, SessionType.archive);
     });
 
     test('protected sessions excluded from count', () async {
@@ -515,7 +515,7 @@ void main() {
     });
 
     test('disk cleanup does not delete an archived session with an active turn', () async {
-      final active = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 10));
+      final active = await createAgedSession(type: SessionType.logicalAgent, age: const Duration(days: 10));
       await sessions.updateSessionType(active.id, SessionType.archive);
       fillSessionDir(active.id, 900 * 1024);
 

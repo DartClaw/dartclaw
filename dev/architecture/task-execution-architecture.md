@@ -253,8 +253,8 @@ Two execution paths:
 
 | Mode | Condition | Behavior |
 |------|-----------|----------|
-| **Pool mode** | `pool.maxConcurrentTasks > 0` | Acquires task runners from pool; concurrent execution |
-| **Single-harness** | `pool.maxConcurrentTasks == 0` | Uses primary runner when idle; sequential execution |
+| **Pool mode** | `pool.maxConcurrentWorkers > 0` | Acquires workers from the shared pool; concurrent execution |
+| **Single-harness** | `pool.maxConcurrentWorkers == 0` | Uses primary runner when idle; sequential execution |
 
 Poll cycle (`_pollOnceInner`):
 1. List all queued tasks, sort by `createdAt` (FIFO)
@@ -280,7 +280,7 @@ The shared execution logic for both pool and single-harness paths:
 7. **Task-scoped behavior** — creates `BehaviorFileService` override for project-specific `CLAUDE.md`/`AGENTS.md`
 8. **Tool filter** — applies per-task `allowedTools` from `configJson`
 9. **Turn execution** — reserves turn, executes via runner, waits for outcome
-10. **Metrics recording** — `AgentObserver.recordTurn()`, `TaskEventRecorder` for token updates and tool calls, `TurnTraceService` for persistent traces
+10. **Metrics recording** — `RunnerObserver.recordTurn()`, `TaskEventRecorder` for token updates and tool calls, `TurnTraceService` for persistent traces
 11. **Artifact collection** — `ArtifactCollector.collect()` gathers type-specific artifacts
 12. **Status transition** — transitions to `review` or `accepted` based on review mode
 13. **Auto-accept** — optional callback for automatic acceptance after review transition
@@ -320,7 +320,7 @@ Non-retryable failures (loop detection, budget exceeded, missing project) skip t
 │  │  Never acquired by TaskExecutor                      │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                            │
-│  Indices 1..N: TASK RUNNERS (lazily added)                 │
+│  Indices 1..N: SHARED WORKERS (lazily added)               │
 │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────┐  │
 │  │ Runner 1        │ │ Runner 2        │ │ Runner N    │  │
 │  │ provider: claude│ │ provider: codex │ │ provider: ? │  │
@@ -343,11 +343,11 @@ Non-retryable failures (loop detection, budget exceeded, missing project) skip t
 | `tryAcquireForProvider(id)` | Matching `providerId` | Provider-specific tasks |
 | `tryAcquireForProviderAndProfile(provider, profile)` | Both match | Full constraint matching |
 
-All acquisition methods return `null` if no matching idle runner exists or if `busy.length >= maxConcurrentTasks`.
+All acquisition methods return `null` if no matching idle runner exists or if `busy.length >= maxConcurrentWorkers`.
 
 ### 4.3 Lazy Growth
 
-The pool starts with only the primary runner. Task runners are added on demand:
+The pool starts with only the primary runner. Workers are added on demand:
 
 1. `TaskExecutor.pollOnce()` finds queued tasks but no available runners
 2. Checks `pool.spawnableCount > 0` (capacity remaining)
@@ -357,7 +357,7 @@ The pool starts with only the primary runner. Task runners are added on demand:
 
 ### 4.4 Release-After-Use
 
-Task runners are released back to the pool after each task completes (success or failure). This ensures fairness — no runner is monopolized by long-running tasks when other tasks are waiting.
+Workers are released back to the pool after each task completes (success or failure). This ensures fairness – no worker is monopolized by long-running tasks when other work is waiting.
 
 ### 4.5 Shutdown Ownership
 
@@ -721,15 +721,15 @@ Activity formatting is handled by `formatToolActivity()` in `tool_call_summary.d
 
 SSE clients subscribe to the broadcast stream for live `task_progress` events.
 
-### 8.5 AgentObserver
+### 8.5 RunnerObserver
 
-Per-runner runtime metrics at `dartclaw_server/lib/src/task/agent_observer.dart`.
+Per-runner runtime metrics at `dartclaw_server/lib/src/task/runner_observer.dart`.
 
 Tracks per-runner: state (idle/busy/stopped/crashed), current task/session, tokens consumed, turns completed, error count, cache tokens, turn duration, tool call stats.
 
-Uses callback pattern: `TaskExecutor` calls `markBusy()`/`markIdle()` on acquire/release, and `recordTurn()` after each completed turn. Metrics are in-memory and reset on restart. Fires `AgentStateChangedEvent` on the `EventBus`.
+Uses callback pattern: `TaskExecutor` calls `markBusy()`/`markIdle()` on acquire/release, and `recordTurn()` after each completed turn. Metrics are in-memory and reset on restart. Fires `RunnerStateChangedEvent` on the `EventBus`.
 
-Pool-level summary: `poolStatus` returns `(size, activeCount, availableCount, maxConcurrentTasks)`.
+Pool-level summary: `poolStatus` returns `(size, activeCount, availableCount, maxConcurrentWorkers)`.
 
 ---
 

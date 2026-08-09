@@ -250,13 +250,13 @@ Key log patterns to look for:
 - `GitSync` -- commit and push events
 - `announce` -- delivery routing decisions
 
-### Agent metrics (0.8+)
+### Runner metrics (0.8+)
 
-The agent metrics API shows per-agent activity:
-- `GET /api/agents` -- list all agents with status (idle/busy) and turn counts
-- `GET /api/agents/<id>` -- detailed metrics for a specific agent
+The runner metrics API shows per-runner activity:
+- `GET /api/runners` -- list all runners with status (idle/busy) and turn counts
+- `GET /api/runners/<id>` -- detailed metrics for a specific runner
 
-The `/tasks` page shows an agent overview section with real-time status.
+The `/tasks` page shows a harness overview section with real-time runner status.
 
 ### Periodic health check
 

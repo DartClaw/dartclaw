@@ -92,10 +92,10 @@ void main() {
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [runningTask],
-        agentRunners: const [
+        runners: const [
           {
             'runnerId': 2,
-            'role': 'task',
+            'role': 'worker',
             'state': 'busy',
             'currentTaskId': 'task-run',
             'providerId': 'claude',
@@ -104,7 +104,7 @@ void main() {
             'errorCount': 0,
           },
         ],
-        agentPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentTasks': 2},
+        harnessPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentWorkers': 2},
       );
 
       expect(html, contains('task-agent-badge'));
@@ -118,7 +118,7 @@ void main() {
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [runningTask],
-        agentRunners: const [
+        runners: const [
           {
             'runnerId': 0,
             'role': 'primary',
@@ -130,7 +130,7 @@ void main() {
             'errorCount': 0,
           },
         ],
-        agentPool: const {'size': 1, 'activeCount': 1, 'availableCount': 0, 'maxConcurrentTasks': 1},
+        harnessPool: const {'size': 1, 'activeCount': 1, 'availableCount': 0, 'maxConcurrentWorkers': 1},
       );
 
       expect(html, contains('task-agent-badge'));
@@ -142,10 +142,10 @@ void main() {
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [runningTask],
-        agentRunners: const [
+        runners: const [
           {
             'runnerId': 1,
-            'role': 'task',
+            'role': 'worker',
             'state': 'idle',
             'currentTaskId': null,
             'providerId': 'claude',
@@ -154,7 +154,7 @@ void main() {
             'errorCount': 0,
           },
         ],
-        agentPool: const {'size': 1, 'activeCount': 0, 'availableCount': 1, 'maxConcurrentTasks': 1},
+        harnessPool: const {'size': 1, 'activeCount': 0, 'availableCount': 1, 'maxConcurrentWorkers': 1},
       );
 
       expect(html, isNot(contains('task-agent-badge')));

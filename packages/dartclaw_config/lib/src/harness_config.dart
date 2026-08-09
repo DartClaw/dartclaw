@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 
+import 'provider_identity.dart';
+
 const _acpAgentsEquality = MapEquality<String, AcpAgentConfig>();
 const _stringListEquality = ListEquality<String>();
 
@@ -144,7 +146,15 @@ class AcpConfig {
   const AcpConfig.defaults() : this();
 
   /// Returns the ACP agent registration for [providerId], if configured.
-  AcpAgentConfig? operator [](String providerId) => agents[providerId];
+  AcpAgentConfig? operator [](String providerId) {
+    final direct = agents[providerId];
+    if (direct != null) return direct;
+    final normalized = ProviderIdentity.normalize(providerId);
+    for (final entry in agents.entries) {
+      if (ProviderIdentity.normalize(entry.key) == normalized) return entry.value;
+    }
+    return null;
+  }
 
   /// Whether no ACP agents are registered.
   bool get isEmpty => agents.isEmpty;

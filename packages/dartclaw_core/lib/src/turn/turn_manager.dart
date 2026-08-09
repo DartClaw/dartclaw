@@ -30,6 +30,9 @@ abstract interface class TurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
+
+    /// Optional worker isolation profile for provider-pinned sessions.
+    String? workerProfile,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,

@@ -29,10 +29,10 @@ void main() {
       final pool = HarnessPool(runners: [primary, taskClaude, taskCodex]);
 
       expect(pool.primary.providerId, 'claude');
-      expect(pool.taskProviders, {'claude', 'codex'});
-      expect(pool.hasTaskRunnerForProvider('claude'), isTrue);
-      expect(pool.hasTaskRunnerForProvider('codex'), isTrue);
-      expect(pool.hasTaskRunnerForProvider('unknown'), isFalse);
+      expect(pool.workerProviders, {'claude', 'codex'});
+      expect(pool.hasWorkerForProvider('claude'), isTrue);
+      expect(pool.hasWorkerForProvider('codex'), isTrue);
+      expect(pool.hasWorkerForProvider('unknown'), isFalse);
     });
 
     test('tryAcquireForProvider returns the requested provider and never falls back', () {
@@ -73,7 +73,7 @@ void main() {
       final primary = _makeRunner();
       final taskClaude = _makeRunner(providerId: 'claude');
       final taskCodex = _makeRunner(providerId: 'codex');
-      final pool = HarnessPool(runners: [primary, taskClaude, taskCodex], maxConcurrentTasks: 1);
+      final pool = HarnessPool(runners: [primary, taskClaude, taskCodex], maxConcurrentWorkers: 2);
 
       final acquiredClaude = pool.tryAcquireForProvider('claude');
       expect(acquiredClaude, isNotNull);
@@ -81,9 +81,21 @@ void main() {
       final acquiredCodex = pool.tryAcquireForProvider('codex');
       expect(acquiredCodex, isNotNull);
       expect(acquiredCodex!.providerId, 'codex');
+      expect(pool.activeCount, lessThanOrEqualTo(pool.maxConcurrentWorkers));
       expect(pool.tryAcquire(), isNull);
       expect(pool.primary, isNot(same(acquiredClaude)));
       expect(pool.primary, isNot(same(acquiredCodex)));
+    });
+
+    test('constructor rejects more initial workers than the hard cap', () {
+      final primary = _makeRunner();
+      final taskClaude = _makeRunner(providerId: 'claude');
+      final taskCodex = _makeRunner(providerId: 'codex');
+
+      expect(
+        () => HarnessPool(runners: [primary, taskClaude, taskCodex], maxConcurrentWorkers: 1),
+        throwsArgumentError,
+      );
     });
 
     test('release returns a provider-specific runner to the available pool', () {

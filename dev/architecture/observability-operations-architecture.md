@@ -203,7 +203,7 @@ Structured audit logger in `dartclaw_security`. Dual output:
 
 File operations are fire-and-forget via `unawaited` to avoid affecting guard verdict latency. Write serialization is enforced via a `_pendingWrite` future chain.
 
-**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard verdicts preserve the delegated agent, canonical tool, and provider-native tool identity end to end.
+**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard verdicts preserve the logical agent, canonical tool, and provider-native tool identity end to end.
 
 **Date partitioning**: New entries use `audit-YYYY-MM-DD.ndjson`. A legacy `audit.ndjson` remains readable alongside dated partitions and ages out by file modification date under `cleanOldFiles(maxRetentionDays)`, avoiding non-idempotent copy migration. Dated partitions age out by the date in their filename.
 
@@ -382,7 +382,7 @@ DartClaw uses Server-Sent Events for all real-time communication with the web UI
      ┌───────────┴──────────────────────────┐
      │              EventBus                 │
      │  TaskStatusChangedEvent               │
-     │  AgentStateChangedEvent               │
+     │  RunnerStateChangedEvent               │
      │  ProjectStatusChangedEvent            │
      │  TaskEventCreatedEvent                │
      │  WorkflowRunStatusChangedEvent        │
@@ -396,9 +396,9 @@ Central SSE endpoint that multiplexes multiple event types to all connected web 
 
 | SSE Event Type | Trigger | Payload |
 |----------------|---------|---------|
-| `connected` | Client connects | Review count, active tasks, agent pool status, projects, active workflows |
+| `connected` | Client connects | Review count, active tasks, harness pool status, projects, active workflows |
 | `task_status_changed` | `TaskStatusChangedEvent` | Task ID, old/new status, trigger, review count, active tasks |
-| `agent_state` | `AgentStateChangedEvent` | Runner ID, state, current task |
+| `runner_state` | `RunnerStateChangedEvent` | Runner ID, state, current task |
 | `project_status` | `ProjectStatusChangedEvent` | Project ID, old/new status |
 | `task_progress` | `TaskProgressTracker` stream | Progress %, current activity, tokens used/budget |
 | `task_event` | `TaskEventCreatedEvent` | Kind, details, icon, compact text for dashboard |
@@ -435,11 +435,11 @@ Throttled progress tracker (max 1 emit/second/task). Subscribes to `TaskEventCre
 
 Source: `packages/dartclaw_server/lib/src/task/task_progress_tracker.dart`
 
-### AgentObserver
+### RunnerObserver
 
-Per-runner runtime metrics for all runners in a `HarnessPool`. Callback-based: `markBusy`/`markIdle` on acquire/release, `recordTurn` after each turn. Tracks: `tokensConsumed`, `turnsCompleted`, `errorCount`, `cacheReadTokens`, `cacheWriteTokens`, `totalTurnDurationMs`, `totalToolCalls`, `failedToolCalls`. State changes fire `AgentStateChangedEvent` for SSE propagation.
+Per-runner runtime metrics for all runners in a `HarnessPool`. Callback-based: `markBusy`/`markIdle` on acquire/release, `recordTurn` after each turn. Tracks: `tokensConsumed`, `turnsCompleted`, `errorCount`, `cacheReadTokens`, `cacheWriteTokens`, `totalTurnDurationMs`, `totalToolCalls`, `failedToolCalls`. State changes fire `RunnerStateChangedEvent` for SSE propagation.
 
-Source: `packages/dartclaw_server/lib/src/task/agent_observer.dart`
+Source: `packages/dartclaw_server/lib/src/task/runner_observer.dart`
 
 
 ## 8. Context Monitoring
@@ -718,7 +718,7 @@ Agent Turn Execution
 - [System Architecture](system-architecture.md) -- component map, package DAG, deployment model
 - [Security Architecture](security-architecture.md) -- guard pipeline, guard audit, governance controls, credential security
 - [Data Model & Persistence](data-model.md) -- audit files, usage files, turn traces, thread binding persistence, governance state
-- [Task & Execution Architecture](task-execution-architecture.md) -- task events, turn lifecycle, agent observer, progress tracking
+- [Task & Execution Architecture](task-execution-architecture.md) -- task events, turn lifecycle, runner observer, progress tracking
 - [Control Protocol & Harness](control-protocol.md) -- JSONL protocol, stream events, compaction hooks
 - [Workflow Architecture](workflow-architecture.md) -- workflow SSE events, workflow budget warnings
 - [Channel Messaging Architecture](channel-messaging-architecture.md) -- channel-routed alerts, governance enforcement

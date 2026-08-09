@@ -108,13 +108,6 @@ class SecurityWiring implements Reconfigurable {
     _wireAuditAndLifecycle();
     _wireContentGuard();
 
-    // Ensure agent session directories exist.
-    for (final agent in agentDefs) {
-      if (agent.sessionStorePath.isNotEmpty) {
-        Directory(p.join(config.workspaceDir, agent.sessionStorePath)).createSync(recursive: true);
-      }
-    }
-
     // Register security-layer services with ConfigNotifier via adapters.
     // (dartclaw_security cannot depend on dartclaw_core — adapters bridge the gap.)
     if (_configNotifier != null) {

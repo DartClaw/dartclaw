@@ -44,6 +44,7 @@ final List<Pattern> defaultSensitivePatterns = <Pattern>[
   RegExp(r'.*_TOKEN$', caseSensitive: false),
   RegExp(r'.*_CREDENTIAL$', caseSensitive: false),
   RegExp(r'.*_PASSWORD$', caseSensitive: false),
+  'CLAUDE_CODE_SUBAGENT_MODEL',
 ];
 
 /// Minimal shared interface for env-overlay plans.

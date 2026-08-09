@@ -269,7 +269,7 @@ class ServiceWiring {
       turns: ctx._serverTurns,
       pool: harness.pool,
       onSpawnNeeded: harness.onSpawnNeeded,
-      runnerPoolCoordinator: harness.runnerPoolCoordinator,
+      workerPoolCoordinator: harness.workerPoolCoordinator,
     );
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
@@ -519,10 +519,14 @@ class ServiceWiring {
   }
 
   Map<String, String> _providerProbeEnvironment(String providerId, config_tools.CredentialRegistry registry) {
+    final providerFamily = config_tools.ProviderIdentity.resolveFamily(
+      providerId,
+      executable: resolveWorkflowProviderExecutable(config, providerId),
+      options: workflowProviderOptions(config, providerId),
+    );
     final environment = SafeProcess.sanitize(
       baseEnvironment: Platform.environment,
-      sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-      extraEnvironment: claudeHardeningEnvVars,
+      extraEnvironment: providerFamily == config_tools.ProviderIdentity.claude ? claudeHardeningEnvVars : const {},
     );
     final apiKey = registry.getApiKey(providerId);
     if (apiKey != null) {

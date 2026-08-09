@@ -431,10 +431,10 @@ steps:
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
     await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'claude'});
+    await wired.ensureWorkersForProviders({'claude'});
 
     final codexConfigs = capturedByProvider['codex']!;
-    expect(codexConfigs, hasLength(2), reason: 'primary harness + default standalone task runner');
+    expect(codexConfigs, hasLength(2), reason: 'primary harness + default standalone worker');
     for (final harnessConfig in codexConfigs) {
       expect(harnessConfig.environment['CODEX_API_KEY'], 'openai-key');
       expect(harnessConfig.environment['OPENAI_API_KEY'], 'openai-key');
@@ -448,7 +448,7 @@ steps:
   test('reserves a pool slot for each non-default provider when default pool_size saturates the floor', () async {
     // Regression: with codex (default, pool_size: 3) + claude (pool_size: 1)
     // the eager spawn previously filled the 3-slot minimum capacity, then the
-    // first ensureTaskRunnersForProviders({'claude'}) threw `Pool already at
+    // first ensureWorkersForProviders({'claude'}) threw `Pool already at
     // capacity (3/3)` because no slot was reserved for the non-default
     // provider that workflow steps pin (e.g. plan-and-implement-inline's
     // plan-review-council pins provider: claude).
@@ -468,16 +468,16 @@ steps:
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
     await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'codex', 'claude'});
+    await wired.ensureWorkersForProviders({'codex', 'claude'});
 
-    // Pool now holds the primary codex harness + 3 codex task runners + the
+    // Pool now holds the primary Codex harness, three Codex workers, and the
     // on-demand claude runner. addRunner must not have thrown.
-    expect(capturedByProvider['codex'], hasLength(4), reason: 'primary harness + 3 eager codex task runners');
-    expect(capturedByProvider['claude'], hasLength(1), reason: 'on-demand claude task runner');
-    expect(wired.pool.hasTaskRunnerForProvider('claude'), isTrue);
+    expect(capturedByProvider['codex'], hasLength(4), reason: 'primary harness + 3 eager Codex workers');
+    expect(capturedByProvider['claude'], hasLength(1), reason: 'on-demand Claude worker');
+    expect(wired.pool.hasWorkerForProvider('claude'), isTrue);
   });
 
-  test('standalone single-provider pool_size one creates exactly one task runner', () async {
+  test('standalone single-provider pool_size one creates exactly one worker', () async {
     final captured = <HarnessFactoryConfig>[];
     final factory = HarnessFactory()
       ..register('claude', (config) {
@@ -489,17 +489,16 @@ steps:
       providers: ProvidersConfig(
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
     await wired.wire();
 
-    expect(captured, hasLength(2), reason: 'primary harness plus one task runner');
-    expect(wired.pool.maxConcurrentTasks, 1);
+    expect(captured, hasLength(2), reason: 'primary harness plus one worker');
+    expect(wired.pool.maxConcurrentWorkers, 1);
     expect(wired.pool.availableCount, 1);
-    expect(wired.pool.taskRunnerCountForProvider('claude'), 1);
+    expect(wired.pool.workerCountForProvider('claude'), 1);
   });
 
   test('standalone non-empty provider config missing default still reserves default capacity', () async {
@@ -513,10 +512,10 @@ steps:
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
     await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'goose'});
+    await wired.ensureWorkersForProviders({'goose'});
 
-    expect(wired.pool.maxConcurrentTasks, 2);
-    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus default task runner');
+    expect(wired.pool.maxConcurrentWorkers, 2);
+    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus default worker');
     expect(capturedByProvider['goose'], hasLength(1));
   });
 
@@ -536,9 +535,9 @@ steps:
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
     await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'goose'});
+    await wired.ensureWorkersForProviders({'goose'});
 
-    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus one claude task runner');
+    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus one Claude worker');
     expect(capturedByProvider['goose'], hasLength(1));
     final gooseRunner = wired.pool.tryAcquireForProvider('goose');
     expect(gooseRunner, isNotNull);
@@ -567,11 +566,28 @@ steps:
     await wired.wire();
 
     await expectLater(
-      () => wired.ensureTaskRunnersForProviders({'goose'}),
+      () => wired.ensureWorkersForProviders({'goose'}),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "goose"'))),
     );
-    expect(capturedByProvider['claude'], 2, reason: 'primary harness plus one configured claude task runner only');
-    expect(wired.pool.hasTaskRunnerForProvider('goose'), isFalse);
+    expect(capturedByProvider['claude'], 2, reason: 'primary harness plus one configured Claude worker only');
+    expect(wired.pool.hasWorkerForProvider('goose'), isFalse);
+  });
+
+  test('standalone built-in provider also requires configured capacity', () async {
+    final factory = capturingHarnessFactory(<String, List<HarnessFactoryConfig>>{}, ['claude', 'codex']);
+    final cfg = fixture.config(
+      providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+    );
+    final wired = fixture.wiring(cfg, harnessFactory: factory);
+
+    await wired.wire();
+
+    await expectLater(
+      () => wired.ensureWorkersForProviders({'codex'}),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "codex"'))),
+    );
+    expect(wired.pool.maxConcurrentWorkers, 1);
+    expect(wired.pool.hasWorkerForProvider('codex'), isFalse);
   });
 
   test('defaults standalone harness cwd to the process cwd when runtime cwd is omitted', () async {
@@ -590,7 +606,7 @@ steps:
     expect(captured.map((config) => config.cwd).toSet(), {launchDir.resolveSymbolicLinksSync()});
   });
 
-  test('uses injected runtime cwd for primary and task-runner harnesses', () async {
+  test('uses injected runtime cwd for primary and worker harnesses', () async {
     final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
@@ -625,14 +641,14 @@ steps:
       cfg,
       runtimeCwd: runtimeCwd.path,
       harnessFactory: factory,
-      body: (wired) => wired.ensureTaskRunnersForProviders({'claude'}),
+      body: (wired) => wired.ensureWorkersForProviders({'claude'}),
     );
 
     final captured = [
       ...capturedByProvider['codex'] ?? const <HarnessFactoryConfig>[],
       ...capturedByProvider['claude'] ?? const <HarnessFactoryConfig>[],
     ];
-    expect(captured, hasLength(4), reason: 'primary, two default task runners, and one added provider runner');
+    expect(captured, hasLength(4), reason: 'primary, two default workers, and one added provider worker');
     expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 

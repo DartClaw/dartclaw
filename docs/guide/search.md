@@ -2,16 +2,16 @@
 
 DartClaw includes a dedicated search agent for safe web access and a two-tier memory search system.
 
-The search agent is one of DartClaw's two agent execution models. For the broader picture – how subagents differ from task runners, how to define custom agents, and when to use which – see [Agents](agents.md).
+The search agent is a built-in logical agent. For the broader picture – how logical-agent sessions differ from background tasks, how to define custom agents, and when to use which – see [Agents](agents.md).
 
 ## Search Agent
 
-The search agent's canonical default allowlist is `{web_search, web_fetch}`. No filesystem, exec, or browser tools are allowed on host-guarded delegated turns. Its hidden delegated session is retained for diagnostics and normal maintenance.
+The search agent's canonical default allowlist is `{web_search, web_fetch}`. No filesystem, exec, or browser tools are allowed on host-guarded logical-agent turns. Its hidden session is retained for diagnostics and normal maintenance.
 
 ### How It Works
 
 1. Main agent calls `sessions_spawn` with the `search` agent and a query
-2. DartClaw acquires or spawns a provider-matched task-pool worker and starts a hidden delegated session
+2. DartClaw acquires or spawns a provider-matched worker and starts a hidden logical-agent session
 3. Search agent uses mapped search/fetch tools to find information
 4. Content-guard scans the result at the agent boundary
 5. Result returned to main agent (or blocked if unsafe)
@@ -23,7 +23,7 @@ The search agent's canonical default allowlist is `{web_search, web_fetch}`. No 
 2. **Agent deny** – blocked for this specific agent
 3. **Sandbox allow** – a non-empty list permits only explicitly listed tools (closed set)
 
-The active delegated-agent identity reaches `ToolPolicyGuard` on provider interception. DartClaw maps provider-native `WebSearch`/`WebFetch` and exact own-MCP search/fetch tool identities to `web_search`/`web_fetch`; unknown provider tools keep an auditable provider-prefixed fallback. Codex requires approval requests for host enforcement, while ACP enforcement is limited to its reverse-call and permission surfaces.
+The active logical-agent identity reaches `ToolPolicyGuard` on provider interception. DartClaw maps provider-native `WebSearch`/`WebFetch` and exact own-MCP search/fetch tool identities to `web_search`/`web_fetch`; unknown provider tools keep an auditable provider-prefixed fallback. Codex requires approval requests for host enforcement, while ACP enforcement is limited to its reverse-call and permission surfaces.
 
 ### Configuration
 
@@ -32,15 +32,12 @@ agent:
   agents:
     search:
       tools: [web_search, web_fetch]
-      max_concurrent: 2
       max_response_bytes: 5242880  # 5MB cap
 ```
 
-With no explicit `model`, search uses `sonnet` on Claude and `gpt-5.6-luna` on Codex. Set `model` or `effort` in the agent entry to override those provider defaults. Delegation requires task-pool capacity; an unavailable pool returns an inline configuration error instead of using the caller's primary harness.
+With no explicit `model` or `effort`, search inherits the selected provider's defaults. Set either in the agent entry when the search profile needs a fixed override. Search sessions require worker-pool capacity; an unavailable pool returns an inline configuration error instead of using the caller's primary harness.
 
-### Subagent Limits
-
-Configured `max_concurrent` values are summed into the global delegation cap; they are not currently enforced per agent. Subagents cannot spawn subagents. See [Agents](agents.md#subagent-limits).
+Execution capacity comes from the selected provider's worker pool. See [Agents](agents.md#capacity-boundary).
 
 Provider-native config spellings remain compatible through startup normalization. For portable policies, prefer canonical names. `web_search` and `web_fetch` are separate grants, so older task or step policies naming only `web_fetch` must add `web_search` if search is intended.
 

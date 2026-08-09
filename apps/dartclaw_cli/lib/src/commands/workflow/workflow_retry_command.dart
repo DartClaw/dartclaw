@@ -30,7 +30,7 @@ class WorkflowRetryCommand extends WorkflowRunIdCommand {
     if (isStandalone) {
       await runStandaloneLifecycle(
         runId: runId,
-        provisionTaskRunners: true,
+        provisionWorkers: true,
         action: (session) => driveStandaloneExecution(session, () => session.wiring.workflowService.retry(runId)),
       );
     } else {

@@ -23,9 +23,10 @@ void main() {
     final codexWorker = FakeWorkerService();
     final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
     final spawnGate = Completer<void>();
+    final spawnStarted = Completer<void>();
     var spawnCalls = 0;
     late final HarnessPool pool;
-    final coordinator = TaskRunnerPoolCoordinator(
+    final coordinator = WorkerPoolCoordinator(
       pool: pool = HarnessPool(
         runners: [
           TurnRunner(
@@ -36,10 +37,11 @@ void main() {
             providerId: 'claude',
           ),
         ],
-        maxConcurrentTasks: 1,
+        maxConcurrentWorkers: 1,
       ),
       onSpawnNeeded: (provider) async {
         spawnCalls++;
+        if (!spawnStarted.isCompleted) spawnStarted.complete();
         await spawnGate.future;
         pool.addRunner(
           TurnRunner(
@@ -56,13 +58,13 @@ void main() {
     final providerTurns = TurnManager.fromPool(
       pool: pool,
       sessions: sessionService,
-      runnerPoolCoordinator: coordinator,
+      workerPoolCoordinator: coordinator,
     );
     addTearDown(providerTurns.pool.dispose);
 
     final firstFuture = providerTurns.startTurn(session.id, []).then((turnId) => (index: 0, turnId: turnId));
     final secondFuture = providerTurns.startTurn(session.id, []).then((turnId) => (index: 1, turnId: turnId));
-    await pumpEventQueue();
+    await spawnStarted.future.timeout(const Duration(seconds: 1));
     expect(spawnCalls, 1);
 
     spawnGate.complete();
@@ -87,7 +89,7 @@ void main() {
     expect(primaryWorker.turnCalls, 0);
   });
 
-  test('provider continuity reset skips the active primary caller and clears idle task runners', () async {
+  test('provider continuity reset skips the active primary caller and clears idle workers', () async {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_provider_reset_test_');
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -95,7 +97,7 @@ void main() {
     final messages = MessageService(baseDir: tempDir.path);
     final sessions = SessionService(baseDir: tempDir.path);
     final parentSession = await sessions.createSession();
-    final delegatedSession = await sessions.createSession(type: SessionType.delegated, provider: 'codex');
+    final logicalAgentSession = await sessions.createSession(type: SessionType.logicalAgent, provider: 'codex');
     final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
     final primaryWorker = _RecordingResetWorker();
     final taskWorker = _RecordingResetWorker();
@@ -113,19 +115,78 @@ void main() {
       sessions: sessions,
       providerId: 'codex',
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskRunner], maxConcurrentTasks: 1);
+    final pool = HarnessPool(runners: [primaryRunner, taskRunner], maxConcurrentWorkers: 1);
     final turns = TurnManager.fromPool(pool: pool, sessions: sessions);
     addTearDown(pool.dispose);
 
     final parentTurnId = await primaryRunner.reserveTurn(parentSession.id);
 
-    await turns.resetProviderSessionContinuity(delegatedSession.id);
+    await turns.resetProviderSessionContinuity(logicalAgentSession.id);
 
     expect(primaryWorker.resetSessionIds, isEmpty);
-    expect(taskWorker.resetSessionIds, [delegatedSession.id]);
+    expect(taskWorker.resetSessionIds, [logicalAgentSession.id]);
     final releasedOutcome = expectLater(primaryRunner.waitForOutcome(parentSession.id, parentTurnId), throwsStateError);
     primaryRunner.releaseTurn(parentSession.id, parentTurnId);
     await releasedOutcome;
+  });
+
+  test('logical-agent reservation matches provider and security profile', () async {
+    final tempDir = Directory.systemTemp.createTempSync('dartclaw_provider_profile_test_');
+    addTearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+    final messages = MessageService(baseDir: tempDir.path);
+    final sessions = SessionService(baseDir: tempDir.path);
+    final session = await sessions.createSession(type: SessionType.logicalAgent, provider: 'claude');
+    final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+    final primaryWorker = FakeWorkerService();
+    final workspaceWorker = FakeWorkerService();
+    final restrictedWorker = FakeWorkerService();
+    final pool = HarnessPool(
+      runners: [
+        TurnRunner(
+          harness: primaryWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessions,
+          providerId: 'claude',
+        ),
+        TurnRunner(
+          harness: workspaceWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessions,
+          providerId: 'claude',
+          profileId: 'workspace',
+        ),
+        TurnRunner(
+          harness: restrictedWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessions,
+          providerId: 'claude',
+          profileId: 'restricted',
+        ),
+      ],
+      maxConcurrentWorkers: 2,
+    );
+    final turns = TurnManager.fromPool(pool: pool, sessions: sessions);
+    addTearDown(pool.dispose);
+
+    final turnId = await turns.startTurn(session.id, const [], agentName: 'search');
+    await workspaceWorker.turnInvoked;
+    workspaceWorker.completeSuccess();
+    await turns.waitForOutcome(session.id, turnId);
+
+    final restrictedTurnId = await turns.reserveTurn(session.id, agentName: 'search', workerProfile: 'restricted');
+    turns.executeTurn(session.id, restrictedTurnId, const [], agentName: 'search');
+    await restrictedWorker.turnInvoked;
+    restrictedWorker.completeSuccess();
+    await turns.waitForOutcome(session.id, restrictedTurnId);
+
+    expect(restrictedWorker.turnCalls, 1);
+    expect(workspaceWorker.turnCalls, 1, reason: 'the unconstrained first turn may use the workspace worker');
+    expect(primaryWorker.turnCalls, 0);
   });
 }
 

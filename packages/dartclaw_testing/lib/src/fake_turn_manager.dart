@@ -10,6 +10,7 @@ typedef FakeReserveTurnCallback =
       String? model,
       String? effort,
       String? systemPromptOverride,
+      String? workerProfile,
       int? maxTurns,
       String? taskId,
       bool isHumanInput,
@@ -59,6 +60,7 @@ typedef RecordedReserveTurn = ({
   String? model,
   String? effort,
   String? systemPromptOverride,
+  String? workerProfile,
   int? maxTurns,
   String? taskId,
   bool isHumanInput,
@@ -224,6 +226,7 @@ class FakeTurnManager implements TurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
+    String? workerProfile,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -239,6 +242,7 @@ class FakeTurnManager implements TurnManager {
       model: model,
       effort: effort,
       systemPromptOverride: systemPromptOverride,
+      workerProfile: workerProfile,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
@@ -255,6 +259,7 @@ class FakeTurnManager implements TurnManager {
         model: model,
         effort: effort,
         systemPromptOverride: systemPromptOverride,
+        workerProfile: workerProfile,
         maxTurns: maxTurns,
         taskId: taskId,
         isHumanInput: isHumanInput,
@@ -471,7 +476,7 @@ class _FakeHarnessPool implements HarnessPool {
 
   @override
   void addRunner(TurnRunner runner) {
-    throw StateError('FakeTurnManager pool does not support task runners.');
+    throw StateError('FakeTurnManager pool does not support workers.');
   }
 
   @override
@@ -502,25 +507,25 @@ class _FakeHarnessPool implements HarnessPool {
   int get size => 1;
 
   @override
-  int get maxConcurrentTasks => 0;
+  int get maxConcurrentWorkers => 0;
 
   @override
   int indexOf(TurnRunner runner) => identical(runner, _primary) ? 0 : -1;
 
   @override
-  bool hasTaskRunnerForProfile(String profileId) => false;
+  bool hasWorkerForProfile(String profileId) => false;
 
   @override
-  bool hasTaskRunnerForProvider(String providerId) => false;
+  bool hasWorkerForProvider(String providerId) => false;
 
   @override
-  int taskRunnerCountForProvider(String providerId) => 0;
+  int workerCountForProvider(String providerId) => 0;
 
   @override
-  Set<String> get taskProfiles => {};
+  Set<String> get workerProfiles => {};
 
   @override
-  Set<String> get taskProviders => {};
+  Set<String> get workerProviders => {};
 
   @override
   Future<void> dispose() async {}

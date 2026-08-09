@@ -13,7 +13,7 @@ import '../behavior/behavior_file_service.dart';
 import '../container/container_dispatcher.dart';
 import '../turn_manager.dart' show TurnManager;
 import '../turn_runner.dart' show TurnRunner;
-import 'agent_observer.dart';
+import 'runner_observer.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
 import 'task_budget_policy.dart';
@@ -25,7 +25,7 @@ import 'task_executor_services.dart';
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_read_only_guard.dart';
-import 'task_runner_pool_coordinator.dart';
+import '../worker_pool_coordinator.dart';
 import 'task_service.dart';
 import 'workflow_cli_runner.dart';
 import 'workflow_one_shot_runner.dart';
@@ -36,16 +36,16 @@ part 'task_executor_helpers.dart';
 
 /// Executes queued tasks against the harness pool.
 ///
-/// When `pool.maxConcurrentTasks > 0`, acquires a task runner from the pool.
-/// When `pool.maxConcurrentTasks == 0` (single-harness mode), falls back to
+/// When `pool.maxConcurrentWorkers > 0`, acquires a worker from the pool.
+/// When `pool.maxConcurrentWorkers == 0` (single-harness mode), falls back to
 /// using the primary runner directly when it is idle.
 class TaskExecutor {
   TaskExecutor({
     required TaskExecutorServices services,
     required TaskExecutorRunners runners,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
-    SpawnTaskRunner? onSpawnNeeded,
-    TaskRunnerPoolCoordinator? runnerPoolCoordinator,
+    SpawnWorker? onSpawnNeeded,
+    WorkerPoolCoordinator? workerPoolCoordinator,
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
     String? dataDir,
@@ -65,8 +65,8 @@ class TaskExecutor {
        _workflowCliRunner = runners.workflowCliRunner,
        _workflowStepExecutionRepository = services.workflowStepExecutionRepository,
        _workflowRunRepository = services.workflowRunRepository,
-       _runnerPoolCoordinator =
-           runnerPoolCoordinator ?? TaskRunnerPoolCoordinator(pool: runners.turns.pool, onSpawnNeeded: onSpawnNeeded),
+       _workerPoolCoordinator =
+           workerPoolCoordinator ?? WorkerPoolCoordinator(pool: runners.turns.pool, onSpawnNeeded: onSpawnNeeded),
        _onAutoAccept = onAutoAccept,
        _projectService = services.projectService,
        _workspaceRoot = workspaceRoot,
@@ -82,7 +82,7 @@ class TaskExecutor {
        _defaultStepTimeout = limits.defaultStepTimeout,
        _eventBus = services.eventBus,
        _dataDir = dataDir {
-    _runnerPoolCoordinator.setProviderUnavailableDiagnostic(_recordProviderUnavailable);
+    _workerPoolCoordinator.setProviderUnavailableDiagnostic(_recordProviderUnavailable);
   }
 
   static final _log = Logger('TaskExecutor');
@@ -97,7 +97,7 @@ class TaskExecutor {
   final ArtifactCollector _artifactCollector;
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
-  final AgentObserver? _observer;
+  final RunnerObserver? _observer;
   final TurnTraceService? _traceService;
   final TaskEventRecorder? _eventRecorder;
   final WorkflowCliRunner? _workflowCliRunner;
@@ -119,7 +119,7 @@ class TaskExecutor {
   final EventBus? _eventBus;
   final String? _dataDir;
   final Duration pollInterval;
-  final TaskRunnerPoolCoordinator _runnerPoolCoordinator;
+  final WorkerPoolCoordinator _workerPoolCoordinator;
   late final TaskFailureHandler _failureHandler = TaskFailureHandler(
     tasks: _tasks,
     eventRecorder: _eventRecorder,
@@ -198,7 +198,7 @@ class TaskExecutor {
 
   Future<bool> _pollOnceInner() async {
     // Pool mode: dispatch as many queued tasks as there are compatible idle runners.
-    if (_pool.maxConcurrentTasks > 0) {
+    if (_pool.maxConcurrentWorkers > 0) {
       final queued = await _queuedTasks();
       if (queued.isEmpty) return false;
 
@@ -210,7 +210,7 @@ class TaskExecutor {
           break;
         }
       }
-      _runnerPoolCoordinator.triggerSpawnIfNeeded(requestedProviderId);
+      _workerPoolCoordinator.triggerSpawnIfNeeded(requestedProviderId);
 
       var didWork = false;
       for (final task in queued) {
@@ -226,12 +226,12 @@ class TaskExecutor {
         final profile = resolveProfile(task.type);
         final effectiveProviderId = _effectivePoolProviderForTask(task);
         final runner =
-            _runnerPoolCoordinator.acquireRunnerForTask(task, profile, effectiveProviderId: effectiveProviderId)
+            _workerPoolCoordinator.acquireRunnerForTask(task, profile, effectiveProviderId: effectiveProviderId)
                 as TurnRunner?;
         if (runner == null) {
           continue;
         }
-        _runnerPoolCoordinator.clearWaitLog(task.id);
+        _workerPoolCoordinator.clearWaitLog(task.id);
 
         final runnerIndex = _pool.indexOf(runner);
         final runningTask = await _checkout(task);

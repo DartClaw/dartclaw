@@ -32,6 +32,8 @@ void main() {
           'web_fetch': CanonicalTool.webFetch,
           'brave_search': CanonicalTool.webSearch,
           'memory_save': CanonicalTool.memorySave,
+          'sessions_spawn': CanonicalTool.sessionsSpawn,
+          'sessions_send': CanonicalTool.sessionsSend,
         },
       );
       expect(adapter.mapToolName('WebFetch'), CanonicalTool.webFetch);
@@ -40,6 +42,8 @@ void main() {
       expect(adapter.mapToolName('mcp__dartclaw__web_fetch'), CanonicalTool.webFetch);
       expect(adapter.mapToolName('mcp__dartclaw__brave_search'), CanonicalTool.webSearch);
       expect(adapter.mapToolName('mcp__dartclaw__memory_save'), CanonicalTool.memorySave);
+      expect(adapter.mapToolName('mcp__dartclaw__sessions_spawn'), CanonicalTool.sessionsSpawn);
+      expect(adapter.mapToolName('mcp__dartclaw__sessions_send'), CanonicalTool.sessionsSend);
       expect(adapter.mapToolName('mcp__dartclaw__unknown'), CanonicalTool.mcpCall);
       expect(adapter.mapToolName('mcp__third_party__web_fetch'), CanonicalTool.mcpCall);
     });

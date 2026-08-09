@@ -589,7 +589,7 @@ Response? _validateSessionProviderForSend(String? provider, HarnessPool pool) {
   if (provider == null) {
     return null;
   }
-  if (pool.hasTaskRunnerForProvider(provider)) {
+  if (pool.hasWorkerForProvider(provider)) {
     return null;
   }
   return errorResponse(409, 'PROVIDER_UNAVAILABLE', 'Provider "$provider" is not available for session overrides', {

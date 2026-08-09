@@ -22,7 +22,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
-import 'api/agent_routes.dart';
+import 'api/runner_routes.dart';
 import 'api/chat_command_handler.dart';
 import 'api/config_api_routes.dart';
 import 'api/workflow_routes.dart';
@@ -61,7 +61,7 @@ import 'restart_service.dart';
 import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
-import 'task/agent_observer.dart';
+import 'task/runner_observer.dart';
 import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_event_recorder.dart';
@@ -260,8 +260,8 @@ class DartclawServer {
       if (_tasks.mergeExecutor == null) {
         throw StateError('taskService requires mergeExecutor');
       }
-      if (_tasks.agentObserver == null) {
-        throw StateError('taskService requires agentObserver');
+      if (_tasks.runnerObserver == null) {
+        throw StateError('taskService requires runnerObserver');
       }
     }
 
@@ -302,7 +302,7 @@ class DartclawServer {
     _mountTaskRoutes(router);
     _mountWorkflowRoutes(router);
     _mountGoogleChatSubscriptionRoutes(router);
-    _mountAgentRoutes(router);
+    _mountRunnerRoutes(router);
     _mountSessionRoutes(router);
     _mountWebRoutes(router);
 
@@ -322,8 +322,7 @@ class DartclawServer {
   void _mountMcpRoutes(Router router) {
     final gatewayToken = _core.gatewayToken;
     final host = _core.config?.server.host;
-    final unauthenticatedLoopback =
-        !_core.authEnabled && _isLoopbackHost(host) && (_core.config?.memory.journalEnabled ?? false);
+    final unauthenticatedLoopback = !_core.authEnabled && _isLoopbackHost(host);
     if (gatewayToken != null || unauthenticatedLoopback) {
       router.post(
         '/mcp',
@@ -570,7 +569,7 @@ class DartclawServer {
       final taskSseRouter = taskSseRoutes(
         taskService,
         eventBus,
-        observer: _tasks.agentObserver,
+        observer: _tasks.runnerObserver,
         projects: _tasks.projectService,
         progressTracker: _tasks.progressTracker,
         workflows: _web.workflowService,
@@ -614,11 +613,11 @@ class DartclawServer {
     router.mount('/', subRouter.call);
   }
 
-  void _mountAgentRoutes(Router router) {
-    final agentObs = _tasks.agentObserver;
-    if (agentObs != null) {
-      final agentRouter = agentRoutes(agentObs);
-      router.mount('/', agentRouter.call);
+  void _mountRunnerRoutes(Router router) {
+    final observer = _tasks.runnerObserver;
+    if (observer != null) {
+      final runnerRouter = runnerRoutes(observer);
+      router.mount('/', runnerRouter.call);
     }
   }
 
@@ -691,7 +690,7 @@ class DartclawServer {
       goalService: _tasks.goalService,
       projectService: _tasks.projectService,
       eventBus: _observability.eventBus,
-      agentObserver: _tasks.agentObserver,
+      runnerObserver: _tasks.runnerObserver,
       kvService: _core.kvService,
       traceService: _tasks.traceService,
       taskEventService: _tasks.taskEventService,

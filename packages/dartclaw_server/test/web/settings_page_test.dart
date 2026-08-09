@@ -67,7 +67,8 @@ void main() {
       expect(html, contains('credential-dot-ok'));
       expect(html, contains('credential-dot-missing'));
       expect(html, contains('Provider ID: codex'));
-      expect(html, contains('Task Workers busy'));
+      expect(html, contains('workers busy'));
+      expect(html, contains('Worker Capacity'));
     });
 
     test('the tab strip is a real tab widget and the topbar keeps the only h1', () async {

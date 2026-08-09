@@ -17,6 +17,16 @@ void main() {
       expect(env['USER'], 'tobias');
     });
 
+    test('strips inherited provider subagent model controls', () {
+      final env = buildWorkflowProviderEnvironment(
+        providerId: 'claude',
+        registry: registry(),
+        baseEnvironment: const {'USER': 'tobias', 'CLAUDE_CODE_SUBAGENT_MODEL': 'inherited-model'},
+      );
+
+      expect(env['CLAUDE_CODE_SUBAGENT_MODEL'], isNull);
+    });
+
     test('overlays a configured API key onto its accepted env vars', () {
       final env = buildWorkflowProviderEnvironment(
         providerId: 'claude',
@@ -26,6 +36,7 @@ void main() {
 
       expect(env['ANTHROPIC_API_KEY'], 'sk-ant-test');
       expect(env['USER'], 'tobias');
+      expect(env['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '1');
     });
 
     test('overlays a family API key for provider aliases', () {
@@ -39,6 +50,7 @@ void main() {
       expect(env['OPENAI_API_KEY'], 'sk-openai-test');
       expect(env['CODEX_API_KEY'], 'sk-openai-test');
       expect(env['USER'], 'tobias');
+      expect(env['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], isNull);
     });
 
     test('resolved family key wins over provider-id key family', () {

@@ -11,9 +11,11 @@
 | Turn | Single round of agent reasoning, tool execution, and response generation. Atomic work unit | iteration, cycle, pass | Server orchestration |
 | Worker | Agent subprocess executing turns. Lifecycle: `idle`, `busy`, `crashed`, `stopped` | agent process, execution context | Server execution |
 | Harness | Bridge between Dart host and native LLM binary. Implements protocol parsing, lifecycle, stream translation. Abstract: `AgentHarness`; concrete: `ClaudeCodeHarness`, `CodexHarness` | bridge, connector, wrapper | Harness pool |
-| Harness Pool | Manages N worker harnesses for parallel task execution. `tryAcquire()`, provider affinity, per-provider pool sizing | worker pool, thread pool | Server orchestration |
+| Harness Pool | Bounded, reusable execution capacity shared by background tasks and logical-agent sessions. Matches provider/security profile but owns no conversation state | thread pool | Server orchestration |
 | Provider | LLM provider (claude, codex). Determines harness implementation and credentials | model, backend, endpoint | Configuration |
-| Session | Top-level conversation container. File-based: `sessions/<id>/meta.json` + `messages.ndjson`. Types: main, channel, cron, user, task, archive | conversation, thread, chat | Storage, routing |
+| Logical Agent | Named execution profile under `agent.agents`: prompt, provider, model/effort overrides, and tool policy. Started with `sessions_spawn` and continued with `sessions_send` | subagent, native agent | Agent orchestration |
+| Logical-Agent Session | Durable hidden session created for one Logical Agent. Pinned to its provider and security profile, then continued only by the handle returned from `sessions_spawn` | delegated conversation, provider thread | Agent orchestration |
+| Session | Top-level conversation container with persisted messages. Types: main, channel, cron, user, task, logicalAgent, archive | conversation, thread, chat | Storage, routing |
 | Session Key | Deterministic routing string `agent:<agentId>:<scope>:<identifiers>`. Decouples scoping from session discovery | session ID, routing key | Routing |
 | Session Scope | Rules for session creation: `shared`, `per_contact`, `per_channel_contact`, `per_member` | isolation mode, distribution | Scoping |
 | Compaction Observability | Provider compaction signals surfaced in the host event model and task timeline. Used to track resumable flush boundaries | compaction handling, flush tracing | Agent runtime / observability |
@@ -173,6 +175,7 @@
 
 ## Changelog
 
+- 2026-08-09: Added Logical Agent and Logical-Agent Session; defined Harness Pool as shared worker capacity rather than a task-only pool.
 - 2026-04-04: Added Workflows section (10 terms) for 0.15 milestone: Workflow, Workflow Run, Workflow Step, Workflow Context, Workflow Definition, Loop Iteration, Parallel Group, Exit Gate, WorkflowExecutor, WorkflowRegistry
 - 2026-04-11: Added 0.16 terms for alert routing, compaction observability, and reconfigurable service; aligned glossary with current runtime governance and workflow observability language
 - 2026-04-17: Clarified that workflow-authored step types remain observability metadata while workflow runtime dispatch uses coding tasks plus `readOnly` for non-mutating steps

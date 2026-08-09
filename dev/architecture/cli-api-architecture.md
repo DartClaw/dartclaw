@@ -12,7 +12,7 @@ The CLI is an operational surface for a running DartClaw instance, not just a li
 
 - inspect and control live runtime state
 - trigger workflows against the server-owned execution model
-- query sessions, traces, jobs, agents, tasks, and projects
+- query sessions, traces, jobs, runners, tasks, and projects
 - keep local-only commands explicit rather than silently mixing local and server state
 
 The design preserves a clean split:
@@ -79,7 +79,7 @@ The CLI entry point lives in:
 - `config`
 - `projects`
 - `sessions`
-- `agents`
+- `runners`
 - `traces`
 - `jobs`
 
@@ -111,7 +111,7 @@ Connected mode is the default for:
 - `workflow resume`
 - `workflow cancel`
 - `workflow retry`
-- all `tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, and `jobs` commands
+- all `tasks`, `config`, `projects`, `sessions`, `runners`, `traces`, and `jobs` commands
 
 In connected mode:
 
@@ -173,7 +173,7 @@ The CLI primarily talks to these server route families:
 | Config | `/api/config`, `/api/settings/*`, `/api/scheduling/jobs*` | `config`, `jobs` |
 | Projects | `/api/projects*` | `projects` |
 | Sessions | `/api/sessions*` | `sessions` |
-| Agents | `/api/agents*` | `agents` |
+| Runners | `/api/runners*` | `runners` |
 | Traces | `/api/traces*` | `traces` |
 
 The important design property is that these are the same server APIs used by the web UI and background integrations. The CLI is not a privileged side-channel.
@@ -270,7 +270,7 @@ apps/dartclaw_cli/lib/src/commands/
   config/
   projects/
   sessions/
-  agents/
+  runners/
   traces/
   jobs/
 

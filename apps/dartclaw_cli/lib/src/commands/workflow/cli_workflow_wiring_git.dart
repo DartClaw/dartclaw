@@ -58,10 +58,7 @@ Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   }
 }
 
-int _standaloneTaskRunnerCapacity(DartclawConfig config) {
-  if (config.providers.isEmpty) {
-    return config.tasks.maxConcurrent > 0 ? config.tasks.maxConcurrent : 1;
-  }
+int _standaloneWorkerCapacity(DartclawConfig config) {
   return _effectiveWorkflowProviderEntries(config).values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
 }
 

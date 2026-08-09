@@ -30,7 +30,7 @@ void main() {
   late WorktreeManager worktreeManager;
   late TaskFileGuard taskFileGuard;
   late MergeExecutor mergeExecutor;
-  late AgentObserver agentObserver;
+  late RunnerObserver runnerObserver;
   late DartclawServer server;
   late Handler handler;
 
@@ -52,7 +52,7 @@ void main() {
     taskFileGuard = TaskFileGuard();
     final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
     mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
-    agentObserver = AgentObserver(
+    runnerObserver = RunnerObserver(
       pool: HarnessPool(
         runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
       ),
@@ -86,14 +86,13 @@ void main() {
               ..worktreeManager = worktreeManager
               ..taskFileGuard = taskFileGuard
               ..mergeExecutor = mergeExecutor
-              ..agentObserver = agentObserver)
+              ..runnerObserver = runnerObserver)
             .build();
     handler = server.handler;
   });
 
   tearDown(() async {
     await server.shutdown();
-    agentObserver.dispose();
     await taskService.dispose();
     await kvService.dispose();
     if (tempDir.existsSync()) {
@@ -231,7 +230,7 @@ String _exampleConfigPath(String fileName) {
 }
 
 typedef _ConfiguredServerFixture = ({
-  AgentObserver agentObserver,
+  RunnerObserver runnerObserver,
   Handler handler,
   KvService kvService,
   DartclawServer server,
@@ -258,7 +257,7 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
   final taskFileGuard = TaskFileGuard();
   final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
   final mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
-  final agentObserver = AgentObserver(
+  final runnerObserver = RunnerObserver(
     pool: HarnessPool(
       runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
     ),
@@ -304,11 +303,11 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
             ..worktreeManager = worktreeManager
             ..taskFileGuard = taskFileGuard
             ..mergeExecutor = mergeExecutor
-            ..agentObserver = agentObserver)
+            ..runnerObserver = runnerObserver)
           .build();
 
   return (
-    agentObserver: agentObserver,
+    runnerObserver: runnerObserver,
     handler: server.handler,
     kvService: kvService,
     server: server,
@@ -319,7 +318,6 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
 
 Future<void> _disposeFixture(_ConfiguredServerFixture fixture) async {
   await fixture.server.shutdown();
-  fixture.agentObserver.dispose();
   await fixture.taskService.dispose();
   await fixture.kvService.dispose();
   if (fixture.tempDir.existsSync()) {

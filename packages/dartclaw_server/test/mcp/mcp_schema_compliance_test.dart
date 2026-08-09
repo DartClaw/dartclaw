@@ -27,9 +27,8 @@ class _StubSearchBackend implements SearchBackend {
   Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async => [];
 }
 
-SessionDelegate _stubDelegate() => SessionDelegate(
+LogicalAgentSessionService _stubSessions() => LogicalAgentSessionService(
   dispatch: ({required sessionId, required message, required agentId, required createSession}) async => '',
-  limits: SubagentLimits(maxConcurrent: 2, maxSpawnDepth: 1, maxChildrenPerAgent: 2),
   agents: {'search': AgentDefinition.searchAgent()},
 );
 
@@ -71,9 +70,9 @@ void main() {
 
     test('TavilySearchTool', () => expectCompliant(TavilySearchTool(provider: _StubSearchProvider())));
 
-    test('SessionsSendTool', () => expectCompliant(SessionsSendTool(delegate: _stubDelegate())));
+    test('SessionsSendTool', () => expectCompliant(SessionsSendTool(sessions: _stubSessions())));
 
-    test('SessionsSpawnTool', () => expectCompliant(SessionsSpawnTool(delegate: _stubDelegate())));
+    test('SessionsSpawnTool', () => expectCompliant(SessionsSpawnTool(sessions: _stubSessions())));
 
     test('KG tools', () {
       expectCompliant(KgAddTool(kg: kg));
@@ -96,8 +95,8 @@ void main() {
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),
         TavilySearchTool(provider: _StubSearchProvider()),
-        SessionsSpawnTool(delegate: _stubDelegate()),
-        SessionsSendTool(delegate: _stubDelegate()),
+        SessionsSpawnTool(sessions: _stubSessions()),
+        SessionsSendTool(sessions: _stubSessions()),
         KgAddTool(kg: kg),
         KgQueryTool(kg: kg),
         KgTimelineTool(kg: kg),

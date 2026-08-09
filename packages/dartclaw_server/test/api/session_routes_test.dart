@@ -1863,8 +1863,18 @@ final class PausingUpdateTitleSessionService extends SessionService {
   Session? _initialSession;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
-    final created = await super.createSession(type: type, channelKey: channelKey, provider: provider);
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+  }) async {
+    final created = await super.createSession(
+      type: type,
+      channelKey: channelKey,
+      provider: provider,
+      securityProfile: securityProfile,
+    );
     _initialSession ??= created;
     return created;
   }
@@ -1947,9 +1957,19 @@ final class OpenTrackingSessionService extends SessionService {
   Session? _initialSession;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+  }) async {
     if (_initialSession != null) replacementCreateStarted.complete();
-    final created = await super.createSession(type: type, channelKey: channelKey, provider: provider);
+    final created = await super.createSession(
+      type: type,
+      channelKey: channelKey,
+      provider: provider,
+      securityProfile: securityProfile,
+    );
     _initialSession ??= created;
     return created;
   }
@@ -1981,6 +2001,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
+    String? workerProfile,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -2001,6 +2022,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
       model: model,
       effort: effort,
       systemPromptOverride: systemPromptOverride,
+      workerProfile: workerProfile,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,

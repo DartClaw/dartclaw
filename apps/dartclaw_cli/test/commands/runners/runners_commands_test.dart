@@ -1,16 +1,16 @@
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_cli/src/commands/agents/agents_command.dart';
-import 'package:dartclaw_cli/src/commands/agents/agents_list_command.dart';
-import 'package:dartclaw_cli/src/commands/agents/agents_show_command.dart';
+import 'package:dartclaw_cli/src/commands/runners/runners_command.dart';
+import 'package:dartclaw_cli/src/commands/runners/runners_list_command.dart';
+import 'package:dartclaw_cli/src/commands/runners/runners_show_command.dart';
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
 
 void main() {
-  group('Agents commands', () {
-    test('agents parent registers expected subcommands', () {
-      final command = AgentsCommand();
+  group('Runners commands', () {
+    test('runners parent registers expected subcommands', () {
+      final command = RunnersCommand();
       expect(command.subcommands.keys, containsAll(['list', 'show']));
     });
 
@@ -19,14 +19,14 @@ void main() {
         sendResponses: [
           jsonResponse(200, {
             'runners': [
-              {'id': 0, 'provider': 'claude', 'status': 'idle', 'turnCount': 4, 'totalTokens': 1234},
+              {'runnerId': 0, 'providerId': 'claude', 'state': 'idle', 'turnsCompleted': 4, 'tokensConsumed': 1234},
             ],
-            'pool': {'size': 3, 'activeCount': 1, 'availableCount': 2, 'maxConcurrentTasks': 3},
+            'pool': {'size': 3, 'activeCount': 1, 'availableCount': 2, 'maxConcurrentWorkers': 3},
           }),
         ],
       );
       final output = <String>[];
-      final command = AgentsListCommand(
+      final command = RunnersListCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         writeLine: output.add,
       );
@@ -45,7 +45,7 @@ void main() {
         ],
       );
       final output = <String>[];
-      final command = AgentsShowCommand(
+      final command = RunnersShowCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         writeLine: output.add,
       );
@@ -54,7 +54,7 @@ void main() {
       await runner.run(['show', '1']);
 
       expect(output.join('\n'), contains('provider: codex'));
-      expect(transport.requests.single.uri.path, '/api/agents/1');
+      expect(transport.requests.single.uri.path, '/api/runners/1');
     });
   });
 }

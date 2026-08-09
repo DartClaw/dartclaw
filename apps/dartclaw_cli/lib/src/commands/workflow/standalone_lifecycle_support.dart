@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -93,8 +93,8 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
 
   /// Builds the in-process engine, loads [runId], and runs [action] against it.
   ///
-  /// When [provisionTaskRunners] is true (resume/retry, which execute steps),
-  /// task runners are provisioned for the run definition's providers before
+  /// When [provisionWorkers] is true (resume/retry, which execute steps),
+  /// workers are provisioned for the run definition's providers before
   /// [action] runs; cancel/pause pass false. [action] returns the process exit
   /// code; a `StateError` it throws (engine guard violation) is mapped to its
   /// message on stderr + exit `1`.
@@ -108,7 +108,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
   @protected
   Future<void> runStandaloneLifecycle({
     required String runId,
-    required bool provisionTaskRunners,
+    required bool provisionWorkers,
     required Future<int> Function(StandaloneLifecycleSession session) action,
     bool? runWorkflowSkillsBootstrap,
   }) async {
@@ -164,7 +164,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
         exitFn(1);
       }
 
-      if (provisionTaskRunners) {
+      if (provisionWorkers) {
         final definition = WorkflowDefinition.fromJson(run.definitionJson);
         final harnessProviders = requiredWorkflowProviders(
           definition,
@@ -208,14 +208,18 @@ Set<String> requiredWorkflowProviders(
   final providers = <String>{};
   for (final step in definition.steps) {
     if (step.taskType != WorkflowTaskType.agent) continue;
-    providers.add(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById));
+    providers.add(
+      ProviderIdentity.normalize(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById)),
+    );
   }
   for (final step in syntheticWorkflowSkillSteps(
     definition,
     context: context ?? WorkflowContext(),
     roleDefaults: roleDefaults,
   )) {
-    providers.add(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById));
+    providers.add(
+      ProviderIdentity.normalize(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById)),
+    );
   }
   return providers;
 }

@@ -11,7 +11,12 @@ import 'package:test/test.dart';
 
 class _FakeSessionService implements SessionService {
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+  }) async {
     return Session(id: 'fake-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
   }
 

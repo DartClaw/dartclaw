@@ -68,7 +68,7 @@ abstract class AgentHarness {
   /// A non-empty [systemPrompt] is the authoritative scoped prompt for this
   /// turn on every prompt strategy; empty selects the harness's configured
   /// default.
-  /// [agentId] identifies a delegated agent; null denotes the main agent.
+  /// [agentId] identifies a logical agent; null denotes the main agent.
   /// [mcpServers] configures inline MCP servers for the request when supported.
   /// When [resume] is true, the harness resumes an existing SDK session
   /// instead of starting a fresh conversation (maps to `options.resume`).

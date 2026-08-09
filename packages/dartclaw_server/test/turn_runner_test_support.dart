@@ -1,6 +1,6 @@
 // Shared support doubles for the TurnRunner governance suites
 // (turn_runner_budget/loop_detection/rate_limit + the governance integration
-// test) plus the TurnRunner-subclass fakes used by agent_routes/agent_observer.
+// test) plus the TurnRunner-subclass fakes used by runner_routes/runner_observer.
 // SseBroadcast and TurnRunner are dartclaw_server-owned, so this lives
 // package-local rather than in the dartclaw_testing barrel.
 import 'dart:async';

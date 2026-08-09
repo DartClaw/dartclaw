@@ -31,16 +31,16 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C06 | Dedupe repeated-poll outage feedback to one persistent toast per failing poll source, cleared on recovery. Polling cadence unchanged. |
 | C09 | Amend canon with a keyboard/ARIA disclosure primitive (native button/details-summary + `aria-expanded`), aligned with the tool-call disclosure card, and apply it to workflow-step disclosure. |
 
-## TD-119 – Delegated MCP cancellation lacks caller-to-child causality
+## TD-119 – Logical-agent session cancellation lacks caller-to-child causality
 
 **Status**: Scheduled for 0.27 Phase A alongside TD-110's MCP dispatch seam
-**Severity**: Medium (cancelled/timed-out callers can leave a child holding a worker and delegation slot)
-**Found**: 2026-08-09, 0.24 delegation retrospective
-**Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, delegated session ownership, turn cancellation
+**Severity**: Medium (cancelled/timed-out callers can leave a child holding a worker)
+**Found**: 2026-08-09, 0.24 logical-agent session retrospective
+**Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, logical-agent session ownership, turn cancellation
 
-**Context**: Conversation delegation creates and awaits a child session without receiving the caller session/turn identity. Caller cancellation therefore cannot identify its child, and the MCP server's 120-second `Future.timeout` returns without cancelling the underlying delegated future. A global “cancel active child” shortcut is unsafe with concurrent callers.
+**Context**: A session tool creates and awaits a child session without receiving the caller session/turn identity. Caller cancellation therefore cannot identify its child, and the MCP server's 120-second `Future.timeout` returns without cancelling the underlying child future. A global “cancel active child” shortcut is unsafe with concurrent callers.
 
-**Decision**: Add typed caller-aware MCP call context, a parent-turn → delegated-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once runner/limit release. Design the shared context once with TD-110's dispatch-level guard/audit seam.
+**Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Design the shared context once with TD-110's dispatch-level guard/audit seam.
 
 **Target**: 0.27 Phase A.
 

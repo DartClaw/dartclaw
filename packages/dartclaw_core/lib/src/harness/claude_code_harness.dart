@@ -60,11 +60,6 @@ List<String> _buildClaudeArgs({
   if (settings != null) ...['--settings', settings],
 ];
 
-/// Env var forwarded from [_environment] to containerized spawns when present.
-/// Set at the wiring layer for task runners only.
-const _subagentModelEnvVar = 'CLAUDE_CODE_SUBAGENT_MODEL';
-// ClaudeCodeHarness
-
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
 class ClaudeCodeHarness extends BaseHarness {
@@ -529,7 +524,6 @@ class ClaudeCodeHarness extends BaseHarness {
       final containerEnv = <String, String>{
         ...claudeHardeningEnvVars,
         if (cm.profileId == 'restricted') 'CLAUDE_CODE_SIMPLE': '1',
-        _subagentModelEnvVar: ?_environment[_subagentModelEnvVar],
       };
       process = await cm.exec(
         [containerExecutable, ...args],

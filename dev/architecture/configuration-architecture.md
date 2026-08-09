@@ -66,7 +66,7 @@ packages/dartclaw_config/lib/src/dartclaw_config.dart
 │  container: ContainerConfig    channels: ChannelConfig               │
 │  governance: GovernanceConfig  features: FeaturesConfig              │
 │  projects: ProjectConfig       alerts: AlertsConfig                  │
-│  delegation: DelegationConfig  extensions: Map<String, Object?>      │
+│  extensions: Map<String, Object?>                                    │
 │  ────────────────────────────────────────────────────────────────    │
 │  + warnings: List<String>     (collected during load)                │
 │  + channelConfigProvider      (typed channel config access)          │
@@ -76,7 +76,7 @@ packages/dartclaw_config/lib/src/dartclaw_config.dart
 
 Key characteristics:
 
-- **29 typed section fields** plus `extensions` map for deployer-registered custom sections
+- **28 typed section fields** plus `extensions` map for deployer-registered custom sections
 - **`const` constructor** with named defaults for every section (e.g., `const ServerConfig.defaults()`)
 - **Value equality** on all sections via `==` and `hashCode` overrides, enabling `ConfigNotifier` to compute section-level deltas
 - **Warnings list** collected during parsing (unknown keys, deprecated syntax, invalid values that fell back to defaults)
@@ -89,7 +89,7 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | Section | Class | Domain | Key Fields |
 |---------|-------|--------|------------|
 | `server` | `ServerConfig` | Server runtime | `port`, `host`, `name`, `dataDir`, `baseUrl`, `workerTimeout`, `claudeExecutable`, `devMode`, `maxParallelTurns` |
-| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider` |
+| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider |
 | `advisor` | `AdvisorConfig` | Self-reflection advisor | `enabled`, `model`, `effort`, `triggers`, `periodicIntervalMinutes`, `maxWindowTurns` |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
@@ -103,7 +103,7 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, poolSize, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
-| `tasks` | `TaskConfig` | Task execution | `maxConcurrent`, `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy` |
+| `tasks` | `TaskConfig` | Task execution | `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy` |
 | `scheduling` | `SchedulingConfig` | Scheduled jobs | `heartbeatIntervalMinutes`, `jobs` list |
 | `workspace` | `WorkspaceConfig` | Workspace git sync | `gitSyncEnabled`, `gitSyncPushEnabled` |
 | `onboarding` | `OnboardingConfig` | Conversational onboarding | `expiryDays` |
@@ -116,7 +116,6 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `features` | `FeaturesConfig` | Feature flags | `threadBinding` (enabled, idleTimeoutMinutes) |
 | `projects` | `ProjectConfig` | Multi-project | Project definitions |
 | `alerts` | `AlertsConfig` | Alert routing | `enabled`, `cooldownSeconds`, `burstThreshold`, `targets`, `routes` |
-| `delegation` | `DelegationConfig` | Agent delegation | `enabled`, `agents` (`DelegationAgentConfig`), `maxBudgetTokens`, `budgetAccounting`, `rateLimit` |
 
 ### Nested Config Types
 
@@ -427,7 +426,7 @@ Controlled by `gateway.reload.mode`:
 | `logging.redact_patterns` | `logging.level`, `logging.format` |
 | `context.reserve_tokens`, `context.max_result_bytes` | `container.*` |
 | `alerts.*` (targets, cooldowns, thresholds) | `search.backend`, `search.qmd.*` |
-| `governance.*` (turn limits, stall detection) | `tasks.max_concurrent`, `tasks.worktree.*`, guard chain (`guards.*`) |
+| `governance.*` (turn limits, stall detection) | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
 
 ### Restart Banner
 

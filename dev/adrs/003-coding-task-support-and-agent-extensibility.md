@@ -1,6 +1,6 @@
 # ADR-003: Coding Task Support and Agent Extensibility
 
-**Status:** Accepted — partially superseded by Phase 0 Direct Bridge Migration (2026-02-25). Mechanism changed from SDK JS options to JSONL control protocol. Core decisions (layered extensibility, `.claude/` ecosystem, security options via bridge) remain valid.
+**Status:** Accepted – partially superseded by the Direct Bridge Migration (2026-02-25) and provider-independent logical-agent sessions (2026-08-09). The `.claude/` ecosystem and host-controlled security remain current; programmatic provider-native agents do not.
 **Date:** 2026-02-23 (addendum: 2026-02-27)
 **Deciders:** DartClaw team
 
@@ -148,10 +148,17 @@ Phase 0 eliminated the Deno worker layer. Dart now spawns the native `claude` bi
 
 **Layer 3 — Workflow/plugin bundling: Scheduled for 0.15 (Workflow Platform).** DartClaw 0.15 ships five built-in YAML workflow definitions (spec-and-implement, research-and-evaluate, fix-bug, refactor, review-and-remediate) that provide the same pipeline capabilities as external skill systems (e.g., [AndThen](https://github.com/IT-HUSET/andthen) plugin's plan → spec → exec-spec → review-gap pipeline) but with deterministic Dart orchestration instead of LLM-driven prompts. Custom workflows discoverable from `<workspace>/workflows/`. See 0.15 PRD.
 
-### Stale "what we don't do" entries
+## Addendum: Provider-Independent Logical-Agent Sessions (2026-08-09)
 
-- "Separate Deno worker for coding" — moot, no Deno workers exist. Reframe as: **no separate `claude` process for coding** — single harness instance handles all task types.
-- Other two ("no custom tool execution in Dart", "no custom orchestration logic") remain valid.
+The programmatic `agents` initialize payload and reliance on Claude's native Task tool are superseded. They created a second, Claude-only delegation model with no durable DartClaw session identity and no equivalent contract across Codex or ACP.
+
+DartClaw now owns logical-agent identity, durable conversation history, provider selection, tool policy, and content guarding. `sessions_spawn` creates a logical-agent session and `sessions_send` continues it by handle. Provider-specific continuity stays inside harness adapters; the orchestration contract does not vary by provider. Worker-pool capacity is the single execution-capacity boundary for logical-agent sessions and structured background tasks.
+
+### Superseded "what we don't do" entries
+
+- "Separate Deno worker for coding" is moot. DartClaw uses the same generic worker abstraction for coding, other background tasks, and logical-agent turns; it does not have a coding-specific harness type.
+- "No custom tool execution in Dart" now applies only to provider built-ins. DartClaw owns host MCP tools where host state or a pre-agent security boundary requires it.
+- "No custom orchestration logic" is superseded. DartClaw owns provider-independent logical-agent sessions because durable identity, host policy, and cross-provider behavior cannot be delegated to one provider's native agent feature.
 
 ## References
 

@@ -75,7 +75,6 @@ void main() {
         'memory_read',
         'sessions_spawn',
         'sessions_send',
-        'delegate_to_agent',
         'web_fetch',
       ]) {
         handler.registerTool(_StubTool(name));
@@ -85,17 +84,9 @@ void main() {
       final names = tools.map((t) => t['name']).toSet();
       expect(
         names,
-        containsAll([
-          'memory_save',
-          'memory_search',
-          'memory_read',
-          'sessions_spawn',
-          'sessions_send',
-          'delegate_to_agent',
-          'web_fetch',
-        ]),
+        containsAll(['memory_save', 'memory_search', 'memory_read', 'sessions_spawn', 'sessions_send', 'web_fetch']),
       );
-      expect(tools, hasLength(7));
+      expect(tools, hasLength(6));
     });
 
     test('tools/list includes search tools when registered', () async {

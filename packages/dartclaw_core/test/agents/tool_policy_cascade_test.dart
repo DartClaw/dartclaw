@@ -229,7 +229,7 @@ void main() {
       expect(verdict.message, 'Tool "Bash" not allowed for agent "search"');
     });
 
-    test('Claude adapter keeps session delegation tools outside the search allowlist', () async {
+    test('Claude adapter keeps session tools outside the search allowlist', () async {
       final adapter = ClaudeProtocolAdapter();
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(

@@ -59,7 +59,7 @@ final class GuardBlockEvent extends DartclawEvent {
   /// Canonical tool name evaluated by the guard, if any.
   final String? toolName;
 
-  /// Delegated agent identity associated with the verdict, if any.
+  /// Logical-agent identity associated with the verdict, if any.
   final String? agentId;
 
   /// Deterministic session key associated with the event, if known.

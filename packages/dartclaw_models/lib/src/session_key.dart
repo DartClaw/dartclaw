@@ -87,4 +87,15 @@ class SessionKey {
     if (taskId.isEmpty) throw ArgumentError('taskId must not be empty');
     return SessionKey(agentId: agentId, scope: 'task', identifiers: Uri.encodeComponent(taskId)).toString();
   }
+
+  /// Builds a logical-agent conversation key with an opaque [conversationId].
+  static String logicalAgentSession({required String agentId, required String conversationId}) {
+    if (agentId.isEmpty) throw ArgumentError('agentId must not be empty');
+    if (conversationId.isEmpty) throw ArgumentError('conversationId must not be empty');
+    return SessionKey(
+      agentId: Uri.encodeComponent(agentId),
+      scope: 'logical',
+      identifiers: Uri.encodeComponent(conversationId),
+    ).toString();
+  }
 }

@@ -25,7 +25,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 
 | Guide | What it covers |
 |-------|---------------|
-| [Agents](agents.md) | Providers (Claude, Codex), subagent delegation, custom agents, task runners, choosing the right model |
+| [Agents](agents.md) | Providers (Claude, Codex, ACP), logical-agent sessions, worker capacity, choosing the right model |
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
 | [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, memory consolidation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |

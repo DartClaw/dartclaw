@@ -505,7 +505,7 @@ void main() {
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
 
-        final delegated = harness.turn(
+        final logicalAgentTurn = harness.turn(
           sessionId: 'sess-persona',
           messages: const [
             {'role': 'user', 'content': 'search'},
@@ -517,7 +517,7 @@ void main() {
         await pumpEventLoop();
         await respondToLatestThreadStart(fake, threadId: 'persona-thread');
         fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
-        await delegated;
+        await logicalAgentTurn;
 
         final restored = harness.turn(
           sessionId: 'sess-persona',

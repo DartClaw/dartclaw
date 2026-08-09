@@ -8,17 +8,16 @@ import '../turn_runner_test_support.dart';
 void main() {
   late HarnessPool pool;
   late EventBus eventBus;
-  late AgentObserver observer;
+  late RunnerObserver observer;
 
   setUp(() {
     final runners = [FakeTurnRunner(), FakeTurnRunner(providerId: 'codex'), FakeTurnRunner()];
     pool = HarnessPool(runners: runners);
     eventBus = EventBus();
-    observer = AgentObserver(pool: pool, eventBus: eventBus);
+    observer = RunnerObserver(pool: pool, eventBus: eventBus);
   });
 
   tearDown(() {
-    observer.dispose();
     eventBus.dispose();
   });
 
@@ -28,12 +27,12 @@ void main() {
     expect(metrics[0].runnerId, 0);
     expect(metrics[0].role, 'primary');
     expect(metrics[0].providerId, 'claude');
-    expect(metrics[0].state, AgentState.idle);
+    expect(metrics[0].state, RunnerState.idle);
     expect(metrics[1].runnerId, 1);
-    expect(metrics[1].role, 'task');
+    expect(metrics[1].role, 'worker');
     expect(metrics[1].providerId, 'codex');
     expect(metrics[2].runnerId, 2);
-    expect(metrics[2].role, 'task');
+    expect(metrics[2].role, 'worker');
     expect(metrics[2].providerId, 'claude');
   });
 
@@ -47,20 +46,20 @@ void main() {
     observer.markIdle(99);
     observer.recordTurn(99, inputTokens: 1, outputTokens: 1, isError: false);
     // No crash, metrics unchanged
-    expect(observer.metrics.every((m) => m.state == AgentState.idle), isTrue);
+    expect(observer.metrics.every((m) => m.state == RunnerState.idle), isTrue);
   });
 
   test('poolStatus delegates to HarnessPool', () {
     final status = observer.poolStatus;
     expect(status.size, 3);
-    expect(status.maxConcurrentTasks, 2);
+    expect(status.maxConcurrentWorkers, 2);
     expect(status.activeCount, 0);
     expect(status.availableCount, 2);
   });
 
-  test('fires AgentStateChangedEvent on markBusy', () async {
-    final events = <AgentStateChangedEvent>[];
-    eventBus.on<AgentStateChangedEvent>().listen(events.add);
+  test('fires RunnerStateChangedEvent on markBusy', () async {
+    final events = <RunnerStateChangedEvent>[];
+    eventBus.on<RunnerStateChangedEvent>().listen(events.add);
 
     observer.markBusy(1, taskId: 'task-1');
 
@@ -71,9 +70,9 @@ void main() {
     expect(events[0].currentTaskId, 'task-1');
   });
 
-  test('fires AgentStateChangedEvent on markIdle', () async {
-    final events = <AgentStateChangedEvent>[];
-    eventBus.on<AgentStateChangedEvent>().listen(events.add);
+  test('fires RunnerStateChangedEvent on markIdle', () async {
+    final events = <RunnerStateChangedEvent>[];
+    eventBus.on<RunnerStateChangedEvent>().listen(events.add);
 
     observer.markBusy(2, taskId: 'task-2');
     observer.markIdle(2);
@@ -89,7 +88,7 @@ void main() {
     observer.recordTurn(1, inputTokens: 500, outputTokens: 300, isError: false);
     final json = observer.metricsFor(1)!.toJson();
     expect(json['runnerId'], 1);
-    expect(json['role'], 'task');
+    expect(json['role'], 'worker');
     expect(json['providerId'], 'codex');
     expect(json['state'], 'busy');
     expect(json['currentTaskId'], 'task-x');

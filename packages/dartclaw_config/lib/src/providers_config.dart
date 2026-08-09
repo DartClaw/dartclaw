@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 
+import 'provider_identity.dart';
+
 const _providerEntriesEquality = MapEquality<String, ProviderEntry>();
 const _optionsEquality = DeepCollectionEquality();
 
@@ -17,7 +19,7 @@ class ProviderEntry {
   /// const ProviderEntry({required this.executable, this.poolSize.
   const ProviderEntry({required this.executable, this.poolSize = 0, this.options = const {}});
 
-  /// Effective task-worker capacity after applying the legacy unset default.
+  /// Effective worker capacity after applying the unset default.
   int get effectivePoolSize => poolSize > 0 ? poolSize : 1;
 
   @override
@@ -47,7 +49,15 @@ class ProvidersConfig {
   const ProvidersConfig.defaults() : this();
 
   /// Returns the entry for [providerId], or `null` if not configured.
-  ProviderEntry? operator [](String providerId) => entries[providerId];
+  ProviderEntry? operator [](String providerId) {
+    final direct = entries[providerId];
+    if (direct != null) return direct;
+    final normalized = ProviderIdentity.normalize(providerId);
+    for (final entry in entries.entries) {
+      if (ProviderIdentity.normalize(entry.key) == normalized) return entry.value;
+    }
+    return null;
+  }
 
   /// Whether any providers are explicitly configured.
   bool get isEmpty => entries.isEmpty;

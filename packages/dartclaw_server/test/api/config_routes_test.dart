@@ -291,7 +291,12 @@ void main() {
 
 class _FakeSessionService implements SessionService {
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+  }) async {
     return Session(id: 'session-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
   }
 
@@ -303,8 +308,13 @@ class _BlockingSessionService extends _FakeSessionService {
   final release = Completer<void>();
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+  }) async {
     await release.future;
-    return super.getOrCreateByKey(key, type: type, provider: provider);
+    return super.getOrCreateByKey(key, type: type, provider: provider, securityProfile: securityProfile);
   }
 }

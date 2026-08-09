@@ -81,7 +81,7 @@ class ServerTaskDeps {
   final TaskReviewService? taskReviewService;
   final WorktreeManager? worktreeManager;
   final TaskFileGuard? taskFileGuard;
-  final AgentObserver? agentObserver;
+  final RunnerObserver? runnerObserver;
   final MergeExecutor? mergeExecutor;
   final String? mergeStrategy;
   final String? baseRef;
@@ -97,7 +97,7 @@ class ServerTaskDeps {
     required this.taskReviewService,
     required this.worktreeManager,
     required this.taskFileGuard,
-    required this.agentObserver,
+    required this.runnerObserver,
     required this.mergeExecutor,
     required this.mergeStrategy,
     required this.baseRef,

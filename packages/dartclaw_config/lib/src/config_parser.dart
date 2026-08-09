@@ -69,9 +69,9 @@ const _knownKeys = {
   'projects',
   'advisor',
   'alerts',
-  'delegation',
   'security',
   'andthen',
+  'delegation',
 };
 
 String? _defaultFileReader(String path) {
@@ -1210,7 +1210,6 @@ ChannelConfig _parseChannels(Map<String, dynamic> yaml, List<String> warns) {
 }
 
 TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<String> warns) {
-  var maxConcurrent = defaults.maxConcurrent;
   var artifactRetentionDays = defaults.artifactRetentionDays;
   var completionAction = defaults.completionAction;
   var worktreeBaseRef = defaults.worktreeBaseRef;
@@ -1219,9 +1218,6 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
 
   final tasksMap = _sectionMap('tasks', yaml, warns);
   if (tasksMap != null) {
-    maxConcurrent =
-        (readInt('max_concurrent', tasksMap, warns, defaultValue: defaults.maxConcurrent) ?? defaults.maxConcurrent)
-            .clamp(1, 10);
     artifactRetentionDays =
         (readInt('artifact_retention_days', tasksMap, warns, defaultValue: defaults.artifactRetentionDays) ??
                 defaults.artifactRetentionDays)
@@ -1287,7 +1283,6 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
   }
 
   return TaskConfig(
-    maxConcurrent: maxConcurrent,
     artifactRetentionDays: artifactRetentionDays,
     completionAction: completionAction,
     worktreeBaseRef: worktreeBaseRef,
@@ -1305,77 +1300,27 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
   return const FeaturesConfig();
 }
 
-DelegationConfig _parseDelegation(Map<String, dynamic> yaml, DelegationConfig defaults, List<String> warns) {
-  final map = _sectionMap('delegation', yaml, warns);
-  if (map == null) return defaults;
-
-  final agents = <DelegationAgentConfig>[];
-  final seenAgentIds = <String>{};
-  final duplicateAgentIds = <String>{};
-  final rawAgents = map['agents'];
-  if (rawAgents is List) {
-    for (var i = 0; i < rawAgents.length; i++) {
-      final value = rawAgents[i];
-      if (value is! Map) {
-        warns.add('Invalid type for delegation.agents[$i]: "${value.runtimeType}" — skipping');
-        continue;
-      }
-      final agentMap = Map<String, dynamic>.from(value);
-      final id = readString('id', agentMap, warns)?.trim();
-      if (id == null || id.isEmpty) {
-        warns.add('delegation.agents[$i] missing "id" — skipping');
-        continue;
-      }
-      if (duplicateAgentIds.contains(id) || !seenAgentIds.add(id)) {
-        agents.removeWhere((agent) => agent.id == id);
-        duplicateAgentIds.add(id);
-        warns.add('Duplicate delegation.agents id "$id" — skipping all entries for that id');
-        continue;
-      }
-      agents.add(
-        DelegationAgentConfig(
-          id: id,
-          requireGuardMediation: readBool('require_guard_mediation', agentMap, warns, defaultValue: false) ?? false,
-          postRunAccountingOnly: readBool('post_run_accounting_only', agentMap, warns, defaultValue: false) ?? false,
-        ),
-      );
-    }
-  } else if (rawAgents != null) {
-    warns.add('Invalid type for delegation.agents: "${rawAgents.runtimeType}" — using empty allowlist');
-  }
-
-  final maxBudgetTokens = readInt('max_budget_tokens', map, warns, defaultValue: defaults.maxBudgetTokens);
-  final rateLimitMap = readMap('rate_limit', map, warns);
-  final maxPerMinute = rateLimitMap == null
-      ? defaults.rateLimit.maxPerMinute
-      : readInt('max_per_minute', rateLimitMap, warns, defaultValue: defaults.rateLimit.maxPerMinute);
-
-  return DelegationConfig(
-    enabled: readBool('enabled', map, warns, defaultValue: defaults.enabled) ?? defaults.enabled,
-    agents: List<DelegationAgentConfig>.unmodifiable(agents),
-    maxBudgetTokens: (maxBudgetTokens == null || maxBudgetTokens < 0) ? defaults.maxBudgetTokens : maxBudgetTokens,
-    budgetAccounting: _parseDelegationBudgetAccounting(readString('budget_accounting', map, warns), warns),
-    rateLimit: DelegationRateLimitConfig(maxPerMinute: (maxPerMinute == null || maxPerMinute < 0) ? 0 : maxPerMinute),
-  );
-}
-
-DelegationBudgetAccounting _parseDelegationBudgetAccounting(String? raw, List<String> warns) {
-  final normalized = raw?.trim().toLowerCase();
-  return switch (normalized) {
-    null || '' || 'provider_reported' => DelegationBudgetAccounting.providerReported,
-    'estimate_if_unreported' => DelegationBudgetAccounting.estimateIfUnreported,
-    _ => () {
-      warns.add('Invalid delegation.budget_accounting: "$raw" — using provider_reported');
-      return DelegationBudgetAccounting.providerReported;
-    }(),
-  };
-}
-
 void _warnRetiredAndthenConfig(Map<String, dynamic> yaml, List<String> warns) {
   final atMap = _sectionMap('andthen', yaml, warns);
   if (atMap == null) return;
 
   for (final key in atMap.keys) {
     addConfigAdvisory(warns, 'Ignoring retired andthen.$key config; DartClaw no longer provisions AndThen skills.');
+  }
+}
+
+void _warnRemovedAgentOrchestrationConfig(Map<String, dynamic> yaml, List<String> warns) {
+  if (yaml.containsKey('delegation')) {
+    addConfigAdvisory(
+      warns,
+      'Ignoring removed delegation config; define logical agents under agent.agents and use sessions_spawn.',
+    );
+  }
+  final tasks = yaml['tasks'];
+  if (tasks is Map && tasks.containsKey('max_concurrent')) {
+    addConfigAdvisory(
+      warns,
+      'Ignoring removed tasks.max_concurrent; configure shared worker capacity with providers.<id>.pool_size.',
+    );
   }
 }

@@ -636,7 +636,7 @@ class AdvisorSubscriber {
   Future<void> _runAdvisor(AdvisorTriggerContext trigger) async {
     final runner = _pool.tryAcquire();
     if (runner == null) {
-      _log.info('Advisor skipped for ${trigger.type.wireName}: no task runner available');
+      _log.info('Advisor skipped for ${trigger.type.wireName}: no worker available');
       return;
     }
 

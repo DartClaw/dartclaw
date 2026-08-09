@@ -10,7 +10,10 @@
 ## Conventions
 - Every section class is immutable, has a `const FooConfig.defaults()` constructor, overrides `==`/`hashCode` (driven by `ConfigNotifier` delta detection), and lives in its own file under `lib/src/`. New sections also: add a field on `DartclawConfig`, a parser in `config_parser.dart`, a `_knownKeys` entry, and an export with explicit `show`.
 - Every writable field needs a `FieldMeta` entry in `ConfigMeta.fields` keyed by snake_case `yamlPath`, with the camelCase `jsonKey` mirror. Mutability tier (`live` / `reloadable` / `restart` / `readonly`) drives API routing — pick deliberately.
-- `PromptScope.conversational` is the transport-neutral onboarding scope selected by web and configured messaging channels; scheduled, task, delegated, restricted, and evaluator turns must not select it.
+- `PromptScope.conversational` is the transport-neutral onboarding scope selected by web and configured messaging channels; scheduled, task, logical-agent, restricted, and evaluator turns must not select it.
+- `providers.<id>.pool_size` is the only worker-capacity setting. Workers are shared by background tasks and logical-agent sessions; `TaskConfig` does not own execution capacity.
+- Provider IDs are trimmed/lowercased at parse time; provider/ACP map normalization collisions are rejected with a configuration warning, and typed lookups use the same canonical identity.
+- Removed preview keys (`delegation`, `tasks.max_concurrent`) remain parser-recognized only to emit migration warnings. They create no runtime config or capacity boundary.
 - `MemoryConfig` keeps journal and pruning as distinct flattened runtime fields. `memory.journal` is opt-in; pruning remains enabled by default.
 - All YAML mutations go through `ConfigWriter` (write-queue + `.bak` + atomic temp+rename). Don't write YAML with `File.writeAsString`. Reads in `ConfigWriter` are intentionally fresh per write — don't add caching.
 - API keys never appear in `dartclaw.yaml`. `CredentialsConfig` holds named entries (typically env-var refs); `CredentialRegistry` resolves at runtime.

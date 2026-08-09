@@ -3,17 +3,15 @@ import 'package:dartclaw_server/src/mcp/sessions_send_tool.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late SubagentLimits limits;
   late AgentDefinition searchAgent;
 
   setUp(() {
-    limits = SubagentLimits(maxConcurrent: 2, maxSpawnDepth: 1, maxChildrenPerAgent: 2);
     searchAgent = AgentDefinition.searchAgent();
   });
 
   group('SessionsSendTool', () {
-    test('requires a delegated session handle and message', () {
-      final tool = SessionsSendTool(delegate: _delegate(limits, searchAgent));
+    test('requires a logical-agent session handle and message', () {
+      final tool = SessionsSendTool(sessions: _sessions(searchAgent));
 
       expect(tool.name, 'sessions_send');
       expect(tool.inputSchema['type'], 'object');
@@ -21,20 +19,19 @@ void main() {
       expect((tool.inputSchema['properties'] as Map).containsKey('agent'), isFalse);
     });
 
-    test('continues the selected delegated session', () async {
+    test('continues the selected logical-agent session', () async {
       String? dispatchedSession;
       var created = true;
-      final delegate = SessionDelegate(
+      final sessions = LogicalAgentSessionService(
         dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
           dispatchedSession = sessionId;
           created = createSession;
           return 'Search result for: $message';
         },
-        limits: limits,
         agents: {'search': searchAgent},
       );
-      final tool = SessionsSendTool(delegate: delegate);
-      const sessionId = 'agent:search:delegated:018f82d5-99d1-7f8e-a4ea-4f6f72314b17';
+      final tool = SessionsSendTool(sessions: sessions);
+      const sessionId = 'agent:search:logical:018f82d5-99d1-7f8e-a4ea-4f6f72314b17';
 
       final result = await tool.call({'session_id': sessionId, 'message': 'What is Dart?'});
 
@@ -45,26 +42,25 @@ void main() {
     });
 
     test('invalid session handle returns ToolResultError', () async {
-      final tool = SessionsSendTool(delegate: _delegate(limits, searchAgent));
+      final tool = SessionsSendTool(sessions: _sessions(searchAgent));
 
       final result = await tool.call({'session_id': 'unknown', 'message': 'test'});
 
       expect(result, isA<ToolResultError>());
-      expect((result as ToolResultError).message, contains('delegated session'));
+      expect((result as ToolResultError).message, contains('logical-agent session'));
     });
 
-    test('delegation failure returns ToolResultError', () async {
-      final delegate = SessionDelegate(
+    test('logical-agent session failure returns ToolResultError', () async {
+      final sessions = LogicalAgentSessionService(
         dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
-          throw StateError('Provider "claude" task pool unavailable; increase providers.claude.pool_size');
+          throw StateError('Provider "claude" worker pool unavailable; increase providers.claude.pool_size');
         },
-        limits: limits,
         agents: {'search': searchAgent},
       );
-      final tool = SessionsSendTool(delegate: delegate);
+      final tool = SessionsSendTool(sessions: sessions);
 
       final result = await tool.call({
-        'session_id': 'agent:search:delegated:018f82d5-99d1-7f8e-a4ea-4f6f72314b17',
+        'session_id': 'agent:search:logical:018f82d5-99d1-7f8e-a4ea-4f6f72314b17',
         'message': 'test',
       });
 
@@ -74,10 +70,9 @@ void main() {
   });
 }
 
-SessionDelegate _delegate(SubagentLimits limits, AgentDefinition searchAgent) {
-  return SessionDelegate(
+LogicalAgentSessionService _sessions(AgentDefinition searchAgent) {
+  return LogicalAgentSessionService(
     dispatch: ({required sessionId, required message, required agentId, required createSession}) async => 'ok',
-    limits: limits,
     agents: {'search': searchAgent},
   );
 }

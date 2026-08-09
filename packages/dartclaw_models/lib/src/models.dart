@@ -17,8 +17,8 @@ enum SessionType {
   /// A session associated with a tracked task execution.
   task,
 
-  /// A delegated agent session retained for diagnostics and maintenance.
-  delegated,
+  /// A logical-agent session retained for diagnostics and maintenance.
+  logicalAgent,
 
   /// A read-only or historical session retained for archival purposes.
   archive,
@@ -41,6 +41,9 @@ class Session {
   /// Optional provider override pinned to this session.
   final String? provider;
 
+  /// Optional worker isolation profile pinned to this session.
+  final String? securityProfile;
+
   /// When this session record was first created.
   final DateTime createdAt;
 
@@ -54,6 +57,7 @@ class Session {
     this.type = SessionType.user,
     this.channelKey,
     this.provider,
+    this.securityProfile,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -65,6 +69,7 @@ class Session {
     'type': type.name,
     if (channelKey != null) 'channelKey': channelKey,
     if (provider != null) 'provider': provider,
+    if (securityProfile != null) 'securityProfile': securityProfile,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -76,6 +81,7 @@ class Session {
     type: _parseSessionType(json['type']),
     channelKey: json['channelKey'] as String?,
     provider: json['provider'] as String?,
+    securityProfile: json['securityProfile'] as String?,
     createdAt: DateTime.parse(json['createdAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),
   );
@@ -87,6 +93,7 @@ class Session {
     SessionType? type,
     Object? channelKey = _sessionFieldUnset,
     Object? provider = _sessionFieldUnset,
+    Object? securityProfile = _sessionFieldUnset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Session(
@@ -95,6 +102,7 @@ class Session {
     type: type ?? this.type,
     channelKey: identical(channelKey, _sessionFieldUnset) ? this.channelKey : channelKey as String?,
     provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
+    securityProfile: identical(securityProfile, _sessionFieldUnset) ? this.securityProfile : securityProfile as String?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );

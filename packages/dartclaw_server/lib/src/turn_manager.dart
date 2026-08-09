@@ -16,7 +16,7 @@ import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_runner.dart';
 import 'turn_wait_status.dart';
-import 'task/task_runner_pool_coordinator.dart';
+import 'worker_pool_coordinator.dart';
 
 // ---------------------------------------------------------------------------
 // Data types (re-exported from dartclaw_core for local convenience)
@@ -93,13 +93,13 @@ class TurnContext {
 ///
 /// Uses [HarnessPool.primary] for ordinary sessions and provider-matched task
 /// runners for sessions pinned to a specific provider. Exposes the [pool] for
-/// [TaskExecutor] to acquire task runners.
+/// [TaskExecutor] to acquire workers.
 class TurnManager implements core.TurnManager, Reconfigurable {
   static final _log = Logger('TurnManager');
 
   final HarnessPool _pool;
   final SessionService? _sessions;
-  final TaskRunnerPoolCoordinator? _runnerPoolCoordinator;
+  final WorkerPoolCoordinator? _workerPoolCoordinator;
   late final TurnRunner _primary = _pool.primary;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, TurnRunner> _providerSessionRunners = {};
@@ -159,16 +159,16 @@ class TurnManager implements core.TurnManager, Reconfigurable {
          ],
        ),
        _sessions = sessions,
-       _runnerPoolCoordinator = null;
+       _workerPoolCoordinator = null;
 
   /// Creates a TurnManager backed by a [HarnessPool].
   TurnManager.fromPool({
     required HarnessPool pool,
     SessionService? sessions,
-    TaskRunnerPoolCoordinator? runnerPoolCoordinator,
+    WorkerPoolCoordinator? workerPoolCoordinator,
   }) : _pool = pool,
        _sessions = sessions,
-       _runnerPoolCoordinator = runnerPoolCoordinator;
+       _workerPoolCoordinator = workerPoolCoordinator;
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -183,7 +183,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   }
 
   /// The pool backing this manager. Used by [TaskExecutor] to acquire
-  /// task runners.
+  /// workers.
   @override
   HarnessPool get pool => _pool;
 
@@ -231,6 +231,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String? model,
     String? effort,
     String? systemPromptOverride,
+    String? workerProfile,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -239,7 +240,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     List<String>? allowedTools,
     bool readOnly = false,
   }) async {
-    final runner = await _reserveRunnerForSession(sessionId);
+    final runner = await _reserveRunnerForSession(sessionId, workerProfile: workerProfile);
     try {
       final turnId = await runner.reserveTurn(
         sessionId,
@@ -468,7 +469,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     _primary.setTaskReadOnly(readOnly);
   }
 
-  Future<TurnRunner> _reserveRunnerForSession(String sessionId) async {
+  Future<TurnRunner> _reserveRunnerForSession(String sessionId, {String? workerProfile}) async {
     var activeRunner = _providerSessionRunners[sessionId];
     if (activeRunner != null) {
       _providerSessionReservations[sessionId] = (_providerSessionReservations[sessionId] ?? 0) + 1;
@@ -489,7 +490,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
 
     var acquisition = _providerSessionAcquisitions[sessionId];
     if (acquisition == null) {
-      acquisition = _acquireProviderRunner(provider);
+      acquisition = _acquireProviderRunner(provider, workerProfile: workerProfile);
       _providerSessionAcquisitions[sessionId] = acquisition;
     }
     try {
@@ -505,14 +506,17 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     }
   }
 
-  Future<TurnRunner> _acquireProviderRunner(String provider) async {
-    final acquired = _runnerPoolCoordinator == null
-        ? _pool.tryAcquireForProvider(provider)
-        : await _runnerPoolCoordinator.provisionAndAcquireProvider(provider);
+  Future<TurnRunner> _acquireProviderRunner(String provider, {String? workerProfile}) async {
+    final acquired = _workerPoolCoordinator == null
+        ? workerProfile == null
+              ? _pool.tryAcquireForProvider(provider)
+              : _pool.tryAcquireForProviderAndProfile(provider, workerProfile)
+        : await _workerPoolCoordinator.provisionAndAcquireProvider(provider, profileId: workerProfile);
     final runner = acquired as TurnRunner?;
     if (runner != null) return runner;
     throw BusyTurnException(
-      'Provider "$provider" task pool unavailable; increase tasks.max_concurrent or providers.$provider.pool_size',
+      'Provider "$provider" worker pool unavailable${workerProfile == null ? '' : ' for profile "$workerProfile"'}; '
+      'increase providers.$provider.pool_size',
       isSameSession: false,
     );
   }

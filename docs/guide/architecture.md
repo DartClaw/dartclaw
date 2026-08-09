@@ -57,7 +57,7 @@ Each provider binary is spawned as a subprocess. The Dart host manages its lifec
 
 Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
 
-In a mixed deployment, the `HarnessPool` contains provider-scoped workers — for example, a Claude primary harness for interactive chat, Codex workers for background tasks, and an ACP agent pool for Goose or Vibe. Each provider identity has default pool size `1`; override capacity with `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
+In a mixed deployment, the `HarnessPool` contains provider-scoped workers — for example, a Claude primary harness for interactive chat, Codex workers for background tasks, and ACP workers for Goose or Vibe. Each provider identity has default pool size `1`; override capacity with `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
 `AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
 
@@ -216,7 +216,7 @@ A "turn" is a single round-trip: user message in, agent response out. The Dart h
 1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
 2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, progress-aware stall handling, cost tracking, crash recovery
 3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude), `CodexHarness` (OpenAI), and `AcpHarness` (ACP agents) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
-4. **HarnessPool** — manages provider-scoped harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are task runners acquired by the task executor or delegation paths
+4. **HarnessPool** — manages provider-scoped harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are workers shared by task execution and logical-agent sessions
 
 ```
 User message (web / channel / cron / task)
@@ -287,14 +287,14 @@ Key components:
 - **TaskExecutor** — polls for queued tasks, acquires a harness from the pool, executes the task, collects artifacts
 - **WorktreeManager** — for coding tasks, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
-- **AgentObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
+- **RunnerObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
 - **TaskEventRecorder** — records structured task events (status changes, tool calls, artifacts, token usage) to the task timeline, visible on the task detail page
 
 Channel-originated task creation and review do not call the service directly from `dartclaw_core`. `ChannelManager` stays in `dartclaw_core`, but it now uses injected `TaskCreator`, `TaskLister`, and review-handler callbacks supplied by `dartclaw_server`.
 
 Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
 
-For a user-facing comparison of task runners vs subagent delegation (the two agent execution models), see the [Agents guide](agents.md).
+For a user-facing comparison of background tasks and logical-agent sessions, see the [Agents guide](agents.md).
 
 ## Project Management
 
@@ -378,7 +378,7 @@ Events use Dart 3 sealed classes, so the compiler catches missing handlers when 
 - **ScheduledJobFailedEvent** — a scheduled job exhausted retries
 - **ToolPermissionDeniedEvent** — Claude denied a tool at its own native permission layer
 - **ContainerLifecycleEvent** — container started, stopped, or crashed
-- **AgentStateChangedEvent** — a harness runner changed state (idle/busy)
+- **RunnerStateChangedEvent** — a harness runner changed state (idle/busy)
 
 Events are fire-and-forget notifications. If no listener is subscribed, the event is silently dropped (broadcast stream semantics).
 
@@ -391,15 +391,14 @@ Built-in MCP tools:
 | Tool | Purpose |
 |------|---------|
 | `memory_save` / `memory_search` | Persistent memory with FTS5 search |
-| `delegate_to_agent` | Delegates a bounded task to an allowlisted agent and returns terminal status: `completed`, `cancelled`, `budget_exceeded`, or `error` |
-| `sessions_spawn` | Creates a configured-subagent conversation and returns its handle after the first turn |
-| `sessions_send` | Continues the delegated conversation identified by that handle |
+| `sessions_spawn` | Creates a configured logical-agent conversation and returns its handle after the first turn |
+| `sessions_send` | Continues the logical-agent conversation identified by that handle |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |
 | `brave_search` / `tavily_search` | Web search via configurable provider |
 
 Additional tools can be registered via the `registerTool()` SDK API.
 
-`delegate_to_agent` validates `delegation.enabled`, the allowlisted `agent_id`, non-empty task text, workspace-jailed `work_dir`, budget settings, and the target's security mode before spawn. Direct verified ACP agents can satisfy `require_guard_mediation`; relay or unverified ACP agents cannot. Codex delegation uses `security_mode: "provider_approval"` and requires Codex approvals/sandbox to be enabled.
+`sessions_spawn` resolves a logical agent from `agent.agents`, pins the new session to that agent's configured provider, and acquires a matching bounded worker. `sessions_send` continues the same durable DartClaw session regardless of which compatible worker executes the next turn.
 
 ## Web UI Architecture
 
@@ -424,7 +423,7 @@ When you send a message:
 | Page | Purpose |
 |------|---------|
 | `/` | Main chat with session sidebar |
-| `/tasks` | Task dashboard (filterable, SSE badge count, agent overview) |
+| `/tasks` | Task dashboard (filterable, SSE badge count, harness overview) |
 | `/tasks/:id` | Task detail (embedded chat, artifact panel, review controls) |
 | `/health-dashboard` | System health, guard audit log, usage stats |
 | `/memory` | Memory overview, file browser, pruner history |

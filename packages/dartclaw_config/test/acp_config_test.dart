@@ -41,6 +41,24 @@ providers:
       expect(config.warnings, isEmpty);
     });
 
+    test('normalizes ACP provider IDs and rejects normalization collisions', () {
+      final config = loadYaml('''
+harness:
+  acp:
+    agents:
+      Goose:
+        binary: goose-first
+        topology: direct
+      goose:
+        binary: goose-second
+        topology: direct
+''');
+
+      expect(config.harness.acp.agents.keys, ['goose']);
+      expect(config.harness.acp['GOOSE']?.binary, 'goose-first');
+      expect(config.warnings, anyElement(contains('collides with another provider after normalization')));
+    });
+
     test('skips missing binary without creating an agent', () {
       final config = loadYaml('''
 harness:

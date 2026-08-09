@@ -83,7 +83,7 @@ class SidebarDataBuilder {
         case SessionType.cron:
           break;
         case SessionType.task:
-        case SessionType.delegated:
+        case SessionType.logicalAgent:
           break;
         case SessionType.user:
           activeEntries.add(entry);

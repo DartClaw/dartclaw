@@ -14,13 +14,13 @@ void main() {
     await startFuture;
 
     final turnFuture = harness.turn(
-      sessionId: 'delegated',
+      sessionId: 'logical-agent',
       messages: const [
         {'role': 'user', 'content': 'find it'},
       ],
       systemPrompt: 'SEARCH PERSONA',
     );
-    await process.respondTo('session/new', {'sessionId': 'acp-delegated'});
+    await process.respondTo('session/new', {'sessionId': 'acp-logical-agent'});
     final request = await process.waitForRequest('session/prompt');
     expect((request['params'] as Map<String, dynamic>)['prompt'], 'SEARCH PERSONA\n\nfind it');
     await process.respondTo('session/prompt', {'text': 'found'});
@@ -38,7 +38,7 @@ void main() {
     await startFuture;
 
     final turnFuture = harness.turn(
-      sessionId: 'delegated',
+      sessionId: 'logical-agent',
       messages: const [
         {'role': 'user', 'content': 'remember amber'},
         {'role': 'assistant', 'content': 'I will remember amber'},
@@ -46,7 +46,7 @@ void main() {
       ],
       systemPrompt: 'SEARCH PERSONA',
     );
-    await process.respondTo('session/new', {'sessionId': 'acp-delegated'});
+    await process.respondTo('session/new', {'sessionId': 'acp-logical-agent'});
     final request = await process.waitForRequest('session/prompt');
     final prompt = (request['params'] as Map<String, dynamic>)['prompt'] as String;
     expect(prompt, startsWith('SEARCH PERSONA\n\n<conversation_history>'));

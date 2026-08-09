@@ -173,6 +173,18 @@ void main() {
       expect(service.summary, {'configured': 3, 'healthy': 1, 'degraded': 1});
     });
 
+    test('reports effective default worker capacity for an unset pool size', () async {
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude')}),
+        registry: _registry(anthropicApiKey: 'anthropic-key'),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 1.0.0')}));
+
+      expect(service.all.single.poolSize, 1);
+    });
+
     test('reports OAuth-authenticated provider as healthy with oauth credential status', () async {
       final service = ProviderStatusService(
         providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 2)}),

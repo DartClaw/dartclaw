@@ -14,10 +14,10 @@ void main() {
 
       expect(pool.primary, same(runners[0]));
       expect(pool.size, 3);
-      expect(pool.maxConcurrentTasks, 2);
+      expect(pool.maxConcurrentWorkers, 2);
     });
 
-    test('tryAcquire returns idle runner from task pool', () {
+    test('tryAcquire returns an idle worker', () {
       final runners = _createRunners(3);
       final pool = HarnessPool(runners: runners);
 
@@ -28,7 +28,7 @@ void main() {
       expect(pool.availableCount, 1);
     });
 
-    test('tryAcquire returns null when all task runners busy', () {
+    test('tryAcquire returns null when all workers are busy', () {
       final runners = _createRunners(3);
       final pool = HarnessPool(runners: runners);
 
@@ -86,7 +86,7 @@ void main() {
       final pool = HarnessPool(runners: runners);
 
       expect(pool.size, 1);
-      expect(pool.maxConcurrentTasks, 0);
+      expect(pool.maxConcurrentWorkers, 0);
       expect(pool.tryAcquire(), isNull);
     });
 
@@ -133,7 +133,7 @@ void main() {
     group('lazy spawning', () {
       test('spawnableCount reflects remaining capacity', () {
         final runners = _createRunners(1); // primary only
-        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 3);
+        final pool = HarnessPool(runners: runners, maxConcurrentWorkers: 3);
 
         expect(pool.spawnableCount, 3);
         expect(pool.availableCount, 0);
@@ -141,7 +141,7 @@ void main() {
 
       test('addRunner makes runner immediately available', () {
         final runners = _createRunners(1);
-        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 2);
+        final pool = HarnessPool(runners: runners, maxConcurrentWorkers: 2);
 
         expect(pool.tryAcquire(), isNull);
 
@@ -158,7 +158,7 @@ void main() {
 
       test('addRunner throws when at capacity', () {
         final runners = _createRunners(1);
-        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 1);
+        final pool = HarnessPool(runners: runners, maxConcurrentWorkers: 1);
 
         pool.addRunner(_createRunners(1).first);
 
@@ -167,7 +167,7 @@ void main() {
 
       test('spawnableCount decreases as runners are added', () {
         final runners = _createRunners(1);
-        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 3);
+        final pool = HarnessPool(runners: runners, maxConcurrentWorkers: 3);
 
         expect(pool.spawnableCount, 3);
 
@@ -193,7 +193,7 @@ void main() {
           );
         }
 
-        final pool = HarnessPool(runners: [makeRunner()], maxConcurrentTasks: 2);
+        final pool = HarnessPool(runners: [makeRunner()], maxConcurrentWorkers: 2);
         pool.addRunner(makeRunner());
 
         await pool.dispose();

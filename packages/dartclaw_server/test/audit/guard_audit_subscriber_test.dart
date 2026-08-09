@@ -41,7 +41,7 @@ void main() {
       await eventBus.dispose();
     });
 
-    test('subscriber persists raw, canonical, and delegated-agent tool identity', () async {
+    test('subscriber persists raw, canonical, and logical-agent tool identity', () async {
       final tmpDir = Directory.systemTemp.createTempSync('guard_audit_subscriber_');
       addTearDown(() {
         if (tmpDir.existsSync()) {

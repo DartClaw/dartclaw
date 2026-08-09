@@ -58,7 +58,7 @@ DartClaw is a **2-layer agent runtime**. The Dart host is the control plane (ful
 | State | Sessions, messages, memory, tasks, config, audit logs | Stateless (no session persistence) |
 | Security | Guard chain, Claude container orchestration, credential proxy, audit | Tool execution inside the active provider boundary |
 | Networking | HTTP server, SSE streaming, channel webhooks, MCP endpoint | Constrained by the active boundary (Claude container or Codex sandbox/runtime) |
-| Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, delegation admission | LLM reasoning, tool selection and execution inside the provider boundary |
+| Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, logical-agent session admission | LLM reasoning, tool selection and execution inside the provider boundary |
 | Credentials | Owns all API keys; injects them through provider-specific boundaries (proxy for Claude, env for Codex, ACP target-specific environment or CLI auth) | Provider binaries receive only the credentials required for their family |
 
 Design rationale: [ADR-001 (SDK Integration & Security Architecture)](../adrs/001-sdk-integration-and-security-architecture.md)
@@ -144,7 +144,7 @@ and context-specific remediation text.
 │                                                                          │
 │  ┌──────────────────────────┐  ┌──────────────────────────────────────┐  │
 │  │ Project Management       │  │ Agent Observability                  │  │
-│  │ ProjectService           │  │ AgentObserver                        │  │
+│  │ ProjectService           │  │ RunnerObserver                        │  │
 │  │ RemotePushService        │  │ TurnTraceService · TaskEventService  │  │
 │  │ PrCreator · Isolate git  │  │ TaskEventRecorder                    │  │
 │  └──────────────────────────┘  └──────────────────────────────────────┘  │
@@ -223,7 +223,7 @@ Turn orchestration coordinates message flow from user input through guard evalua
 | `TurnManager` | `turn_manager.dart` | Entry point for interactive turns (web, channels, cron). Delegates to `TurnRunner` |
 | `TurnRunner` | `turn_runner.dart` | Per-harness turn engine: guard evaluation, message persistence, SSE event streaming, progress-aware stall handling, cost tracking, crash recovery. One per harness in the pool |
 | `TurnProgressMonitor` | `turn_progress_monitor.dart` | Resettable stall timer used by `TurnRunner`. Watches forward-progress events (`DeltaEvent`, `ToolUseEvent`, `ToolResultEvent`) and triggers warn/cancel/ignore actions when a turn goes silent |
-| `HarnessPool` | `harness_pool.dart` | Pool of `TurnRunner` instances. Index 0 = primary (interactive use), indices 1..N = task pool. Configurable `maxConcurrent` |
+| `HarnessPool` | `harness_pool.dart` | Pool of `TurnRunner` instances. Index 0 = primary (interactive use), indices 1..N = shared workers. Configurable per provider |
 | `SessionLockManager` | `concurrency/session_lock_manager.dart` | Per-session FIFO lock to serialize concurrent turns to the same session |
 | `ContextMonitor` | `context/context_monitor.dart` | Tracks context window usage; suppresses heuristic flush when deterministic compaction signals exist; deduplicates pre-compaction flushes per cycle; emits SSE `context_warning` when usage exceeds configurable threshold (one-shot per session) |
 | `ResultTrimmer` | `context/result_trimmer.dart` | Head+tail truncation for oversized tool results (fallback for `ExplorationSummarizer`) |
@@ -330,7 +330,7 @@ The task orchestrator transforms DartClaw from a single-session assistant into a
 | `MergeExecutor` | `task/merge_executor.dart` | Squash/merge worktree back to main branch, conflict detection |
 | `TaskFileGuard` | `task/task_file_guard.dart` | Path containment via `p.isWithin()` — coding tasks restricted to worktree directory |
 | `ArtifactCollector` | `task/artifact_collector.dart` | Collects task outputs as typed artifacts (`diff`, `document`, `data`, `log`) |
-| `AgentObserver` | `task/agent_observer.dart` | Per-agent metrics: busy/idle tracking, turn counts, harness status |
+| `RunnerObserver` | `task/runner_observer.dart` | Per-runner metrics: busy/idle tracking, turn counts, harness status |
 | `TaskReviewService` | `task/task_review_service.dart` | Shared accept/reject/push-back lifecycle for both HTTP and channel review paths. Owns state transition, merge execution (coding tasks), conflict artifact persistence, worktree cleanup, and `TaskStatusChangedEvent` firing. Single shared instance wired into both `task_routes.dart` and `ChannelManager` |
 | `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions (queued, running, review, accepted, rejected, failed). Notification text is conditioned on task type — worktree-backed tasks include merge outcome language; non-coding tasks do not. When thread binding is enabled and the origin channel is Google Chat, the initial `running` notification is sent in a new thread (via `sendMessageWithThread`); the returned `thread.name` is used to create a `ThreadBinding`, and subsequent notifications for that task are threaded into the same conversation |
 | `AdvisorSubscriber` | `advisor/advisor_subscriber.dart` | EventBus-driven crowd-coding observer. Accumulates a bounded normalized context window, evaluates triggers (`periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`), acquires a pooled runner for an advisory turn, parses structured output, then routes the result to bound channels and the event bus |
@@ -516,8 +516,8 @@ sealed class DartclawEvent
 ├── EmergencyStopEvent           — /stop command executed
 ├── AdvisorMentionEvent          — explicit `@advisor` invocation from channel traffic
 ├── AdvisorInsightEvent          — structured advisor output routed to channels and SSE
-├── sealed AgentLifecycleEvent
-│   └── AgentStateChangedEvent   — harness busy/idle transitions
+├── sealed RunnerLifecycleEvent
+│   └── RunnerStateChangedEvent   — harness busy/idle transitions
 └── sealed ContainerLifecycleEvent
     ├── ContainerStartedEvent    — container started
     ├── ContainerStoppedEvent    — container stopped
@@ -597,7 +597,7 @@ At call time the tool fans out retrieval across:
 - wiki/source documents exposed through the knowledge layer.
 
 Results are deduplicated while preserving source metadata. Synthesis then runs through the injected background-turn
-seam; production wiring uses the existing session delegation path, while tests can inject a deterministic synthesizer.
+seam; production wiring uses the logical-agent session path, while tests can inject a deterministic synthesizer.
 The returned `CitationPacket` contains statements, source references, degraded layers, and a
 `noSourcesFound` flag. If no sources are found, the packet reports that state instead of fabricating an answer. If the
 synthesizer returns malformed output, assembly falls back to citation-preserving snippets.
@@ -658,8 +658,8 @@ Internal MCP server hosted as a `/mcp` endpoint on the existing shelf HTTP serve
 | `McpProtocolHandler` | `mcp/mcp_server.dart` | MCP protocol handling, tool registration |
 | `McpRouter` | `mcp/mcp_router.dart` | Shelf route adapter for MCP HTTP transport |
 | `MemoryTools` | `mcp/memory_tools.dart` | `memory_save`, `memory_search`, `memory_read` |
-| `SessionsSpawnTool` | `mcp/sessions_spawn_tool.dart` | Create a configured-subagent conversation (sync) |
-| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Continue a delegated conversation (sync) |
+| `SessionsSpawnTool` | `mcp/sessions_spawn_tool.dart` | Create a configured logical-agent conversation (sync) |
+| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Continue a logical-agent conversation (sync) |
 | `WebFetchTool` | `mcp/web_fetch_tool.dart` | SSRF-hardened fetch with inline ContentGuard scanning |
 | `BraveSearchTool` | `mcp/brave_search_tool.dart` | Brave Search API |
 | `TavilySearchTool` | `mcp/tavily_search_tool.dart` | Tavily Search API |

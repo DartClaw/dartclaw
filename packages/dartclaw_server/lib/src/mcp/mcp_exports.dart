@@ -15,7 +15,6 @@ export 'context_research_tool.dart'
         ContextResearchCandidate,
         ContextResearchMetrics,
         ContextResearchMetricsSink;
-export 'delegate_to_agent_tool.dart' show DelegateToAgentTool, DelegationResultStatus, DelegationSecurityMode;
 export 'kg_tools.dart'
     show KgAddTool, KgQueryTool, KgTimelineTool, KgInvalidateTool, KgContradictionsTool, KgGuardEvaluator;
 export 'mcp_router.dart' show mcpRoute;

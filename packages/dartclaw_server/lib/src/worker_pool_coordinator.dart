@@ -3,25 +3,25 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
-/// Provisions a task runner for the requested provider, when supplied.
-typedef SpawnTaskRunner = Future<bool> Function(String? requestedProviderId);
+/// Provisions a worker for the requested provider, when supplied.
+typedef SpawnWorker = Future<bool> Function(String? requestedProviderId);
 
 typedef ProviderUnavailableDiagnostic = void Function(Task task, String message);
 
-/// Coordinates task-runner acquisition from the harness pool.
-final class TaskRunnerPoolCoordinator {
-  TaskRunnerPoolCoordinator({
+/// Coordinates worker acquisition and lazy provisioning from the harness pool.
+final class WorkerPoolCoordinator {
+  WorkerPoolCoordinator({
     required HarnessPool pool,
-    SpawnTaskRunner? onSpawnNeeded,
+    SpawnWorker? onSpawnNeeded,
     ProviderUnavailableDiagnostic? onProviderUnavailable,
     Logger? log,
   }) : _pool = pool,
        _onSpawnNeeded = onSpawnNeeded,
        _onProviderUnavailable = onProviderUnavailable,
-       _log = log ?? Logger('TaskRunnerPoolCoordinator');
+       _log = log ?? Logger('WorkerPoolCoordinator');
 
   final HarnessPool _pool;
-  final SpawnTaskRunner? _onSpawnNeeded;
+  final SpawnWorker? _onSpawnNeeded;
   ProviderUnavailableDiagnostic? _onProviderUnavailable;
   final Logger _log;
   final Set<String> _runnerWaitLoggedTaskIds = <String>{};
@@ -35,10 +35,13 @@ final class TaskRunnerPoolCoordinator {
     _onProviderUnavailable = diagnostic;
   }
 
-  /// Acquires an idle [providerId] runner, provisioning capacity when needed.
-  Future<TurnRunner?> provisionAndAcquireProvider(String providerId) async {
+  /// Acquires an idle [providerId] runner, optionally constrained to [profileId],
+  /// provisioning capacity when needed.
+  Future<TurnRunner?> provisionAndAcquireProvider(String providerId, {String? profileId}) async {
     while (true) {
-      final runner = _pool.tryAcquireForProvider(providerId);
+      final runner = profileId == null
+          ? _pool.tryAcquireForProvider(providerId)
+          : _pool.tryAcquireForProviderAndProfile(providerId, profileId);
       if (runner != null) return runner;
       if (_pool.spawnableCount <= 0) return null;
       final joinedDifferentProvider = _inFlightProvision != null && _inFlightProviderId != providerId;
@@ -56,7 +59,7 @@ final class TaskRunnerPoolCoordinator {
   TurnRunner? acquireRunnerForTask(Task task, String profile, {String? effectiveProviderId}) {
     final provider = effectiveProviderId ?? task.provider;
     if (provider != null) {
-      if (!_pool.hasTaskRunnerForProvider(provider)) {
+      if (!_pool.hasWorkerForProvider(provider)) {
         final canSpawn = !_isSpawning && _pool.spawnableCount > 0;
         final provisioning = _isSpawning || canSpawn;
         if (canSpawn) {
@@ -67,10 +70,10 @@ final class TaskRunnerPoolCoordinator {
         _logRunnerWaitOnce(
           task,
           provisioning
-              ? 'Task ${task.id} (${task.title}) is queued while provisioning a task runner for provider '
-                    '"$provider". Available providers: ${_pool.taskProviders.join(', ')}'
-              : 'Task ${task.id} (${task.title}) is queued but no task runner is configured for provider '
-                    '"$provider". Available providers: ${_pool.taskProviders.join(', ')}',
+              ? 'Task ${task.id} (${task.title}) is queued while provisioning a worker for provider '
+                    '"$provider". Available providers: ${_pool.workerProviders.join(', ')}'
+              : 'Task ${task.id} (${task.title}) is queued but no worker is configured for provider '
+                    '"$provider". Available providers: ${_pool.workerProviders.join(', ')}',
           level: provisioning ? Level.INFO : Level.WARNING,
         );
         return null;
@@ -81,33 +84,20 @@ final class TaskRunnerPoolCoordinator {
         return exactMatch;
       }
 
-      if (profile != 'workspace' && _pool.taskProfiles.length == 1 && _pool.taskProfiles.contains('workspace')) {
-        final workspaceFallback = _pool.tryAcquireForProvider(provider);
-        if (workspaceFallback != null) {
-          if (_runnerWaitLoggedTaskIds.add(task.id)) {
-            _log.info(
-              'Task ${task.id} (${task.title}) requested profile "$profile" for provider "$provider", '
-              'but only workspace task runners are available. Falling back to the workspace runner.',
-            );
-          }
-          return workspaceFallback;
-        }
-      }
-
       _logRunnerWaitOnce(
         task,
-        'Task ${task.id} (${task.title}) is queued waiting for an idle task runner for provider '
-        '"$provider" in profile "$profile". Available profiles: ${_pool.taskProfiles.join(', ')}',
+        'Task ${task.id} (${task.title}) is queued waiting for an idle worker for provider '
+        '"$provider" in profile "$profile". Available profiles: ${_pool.workerProfiles.join(', ')}',
       );
       if (!_isSpawning && _pool.spawnableCount > 0) {
         triggerSpawn(provider);
       }
       return null;
     }
-    if (_pool.hasTaskRunnerForProfile(profile)) {
+    if (_pool.hasWorkerForProfile(profile)) {
       return _pool.tryAcquireForProfile(profile);
     }
-    if (_pool.taskProfiles.length <= 1) {
+    if (_pool.workerProfiles.length <= 1) {
       return _pool.tryAcquire();
     }
     return null;
@@ -137,7 +127,7 @@ final class TaskRunnerPoolCoordinator {
     late final Future<bool> provision;
     provision = callback(requestedProviderId)
         .catchError((Object error, StackTrace stackTrace) {
-          _log.warning('Task-runner provisioning failed', error, stackTrace);
+          _log.warning('Worker provisioning failed', error, stackTrace);
           return false;
         })
         .whenComplete(() {

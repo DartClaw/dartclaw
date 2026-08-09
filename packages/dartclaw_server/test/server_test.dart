@@ -134,13 +134,13 @@ Future<ProcessResult> _successfulProcessResult(
   return ProcessResult(1, 0, '', '');
 }
 
-AgentObserver _buildAgentObserver(FakeWorkerService worker, MessageService messages) {
+RunnerObserver _buildRunnerObserver(FakeWorkerService worker, MessageService messages) {
   final runner = TurnRunner(
     harness: worker,
     messages: messages,
     behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
   );
-  return AgentObserver(pool: HarnessPool(runners: [runner]));
+  return RunnerObserver(pool: HarnessPool(runners: [runner]));
 }
 
 // ---------------------------------------------------------------------------
@@ -194,12 +194,7 @@ void main() {
   });
 
   group('MCP route exposure', () {
-    DartclawServer buildServer({
-      required String host,
-      required bool authEnabled,
-      String? gatewayToken,
-      bool journalEnabled = false,
-    }) =>
+    DartclawServer buildServer({required String host, required bool authEnabled, String? gatewayToken}) =>
         (DartclawServerBuilder()
               ..sessions = sessions
               ..messages = messages
@@ -208,7 +203,6 @@ void main() {
               ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
               ..config = DartclawConfig(
                 server: ServerConfig(host: host, dataDir: tempDir.path),
-                memory: MemoryConfig(journalEnabled: journalEnabled),
               )
               ..authEnabled = authEnabled
               ..gatewayToken = gatewayToken)
@@ -225,20 +219,12 @@ void main() {
       },
     );
 
-    test('authentication-disabled loopback server mounts MCP for the enabled journal', () async {
-      server = buildServer(host: 'localhost', authEnabled: false, journalEnabled: true);
-
-      final response = await server.handler(initializeRequest());
-
-      expect(response.statusCode, 200);
-    });
-
-    test('authentication-disabled default-off journal does not mount MCP', () async {
+    test('authentication-disabled loopback server mounts the standard MCP endpoint', () async {
       server = buildServer(host: 'localhost', authEnabled: false);
 
       final response = await server.handler(initializeRequest());
 
-      expect(response.statusCode, 404);
+      expect(response.statusCode, 200);
     });
 
     test('authentication-enabled MCP route still requires its bearer', () async {
@@ -408,7 +394,7 @@ void main() {
     late WorktreeManager worktreeManager;
     late TaskFileGuard taskFileGuard;
     late MergeExecutor mergeExecutor;
-    late AgentObserver agentObserver;
+    late RunnerObserver runnerObserver;
 
     setUp(() {
       taskDb = openTaskDbInMemory();
@@ -422,7 +408,7 @@ void main() {
       taskFileGuard = TaskFileGuard();
       final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
       mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
-      agentObserver = _buildAgentObserver(worker, messages);
+      runnerObserver = _buildRunnerObserver(worker, messages);
       server =
           (DartclawServerBuilder()
                 ..sessions = sessions
@@ -437,12 +423,11 @@ void main() {
                 ..worktreeManager = worktreeManager
                 ..taskFileGuard = taskFileGuard
                 ..mergeExecutor = mergeExecutor
-                ..agentObserver = agentObserver)
+                ..runnerObserver = runnerObserver)
               .build();
     });
 
     tearDown(() async {
-      agentObserver.dispose();
       await eventBus.dispose();
       await taskService.dispose();
     });

@@ -454,7 +454,13 @@ steps:
       final result = await wiring.wire();
       addTearDown(() => _disposeWiringResult(result, logService));
 
-      final expected = {'web_fetch', 'memory_save', if (searchEnabled) 'brave_search'};
+      final expected = {
+        'sessions_spawn',
+        'sessions_send',
+        'web_fetch',
+        'memory_save',
+        if (searchEnabled) 'brave_search',
+      };
       expect(factoryConfigs.single.ownMcpToolCanonicals.keys.toSet(), expected);
       expect(result.server.mcpHandler.toolNames.toSet().intersection(expected), expected);
       expect(result.server.mcpHandler.toolNames.contains('brave_search'), searchEnabled);

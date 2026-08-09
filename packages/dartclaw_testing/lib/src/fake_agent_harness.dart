@@ -52,7 +52,7 @@ class FakeAgentHarness extends AgentHarness {
   /// Most recent turn session id.
   String? lastSessionId;
 
-  /// Most recent delegated agent id.
+  /// Most recent logical-agent ID.
   String? lastAgentId;
 
   /// Most recent turn message payload.

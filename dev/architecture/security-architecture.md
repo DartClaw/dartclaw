@@ -20,7 +20,7 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 | **Unauthorized access** | Unauthenticated users accessing the web UI/API, or unauthorized contacts messaging via channels | AuthMiddleware, DmAccessController |
 | **Supply chain** | Malicious dependencies in the runtime chain | Zero npm/Node.js architecture, minimal deps |
 | **Container escape** | Agent breaking out of Docker isolation to access the host | Capability drops, read-only rootfs, non-root user |
-| **Cross-agent contamination** | A compromised sub-agent (e.g. search agent) accessing another agent's filesystem | Per-type container isolation (ADR-012) |
+| **Cross-agent contamination** | A compromised logical agent (e.g. search agent) accessing another agent's filesystem | Per-type container isolation (ADR-012) |
 | **Cost overrun** | Runaway agent consuming excessive tokens, unbounded autonomous loops | Daily token budget enforcement (BudgetEnforcer), loop detection (LoopDetector) |
 | **Rate abuse** | Flooding via channel messages overwhelming the agent with requests | Per-sender rate limiting, global turn rate limiting (SlidingWindowRateLimiter) |
 | **Runaway agent loops** | Agent stuck in repetitive tool-call patterns or unbounded turn chains | LoopDetector (3 mechanisms: turn chain depth, token velocity, tool fingerprinting) |
@@ -34,7 +34,7 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Layer 6: AUDIT & OBSERVABILITY                  │
 │  GuardAuditLogger (NDJSON) · EventBus · ContainerHealthMonitor          │
-│  UsageTracker · Agent observer · Guard audit web UI                     │
+│  UsageTracker · Runner observer · Guard audit web UI                    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                       Layer 5: RUNTIME GOVERNANCE                       │
 │  Per-sender rate limiting · Global turn rate limiting                   │
@@ -107,13 +107,13 @@ Every guard receives the same context object:
 | `toolName` | `String?` | Tool name for `beforeToolCall` (e.g. `'Bash'`, `'web_fetch'`) |
 | `toolInput` | `Map?` | Tool input arguments |
 | `messageContent` | `String?` | Message text for `messageReceived` / `beforeAgentSend` |
-| `agentId` | `String?` | Sub-agent ID (null = main agent) |
+| `agentId` | `String?` | Logical-agent ID (null = main agent) |
 | `source` | `String?` | Message origin: `'channel'`, `'web'`, `'cron'`, `'heartbeat'` |
 | `sessionId` | `String?` | Active session for audit correlation |
 | `peerId` | `String?` | Channel sender identifier |
 | `timestamp` | `DateTime` | Evaluation timestamp |
 
-`GuardContext` preserves the raw provider tool name for audit logging while the guard pipeline evaluates the canonical tool name. `GuardChain.evaluateBeforeToolCall` also carries the effective delegated-agent ID from the active turn. That keeps incident logs faithful to provider output and lets agent-scoped guards evaluate the real caller.
+`GuardContext` preserves the raw provider tool name for audit logging while the guard pipeline evaluates the canonical tool name. `GuardChain.evaluateBeforeToolCall` also carries the effective logical-agent ID from the active turn. That keeps incident logs faithful to provider output and lets agent-scoped guards evaluate the real caller.
 
 ### Execution Model
 
@@ -138,7 +138,7 @@ GuardChain._evaluate(context):
 
 **Package attribution**: `dartclaw_security` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_server`.
 
-**Per-runner chain composition**: serve wiring builds one shared base chain from `guards.*` config, and each runner — the primary interactive harness and every task runner — evaluates a layered chain (`GuardChain.layered`): the base chain plus that runner's own `TaskToolFilterGuard`. The base guard list is read live, so a `guards.*` hot-reload (`replaceGuards`) reaches every runner chain while the per-runner filter survives the rebuild. Turn-scoped tool policies (per-task `allowedTools`, per-turn session policies such as the knowledge-inbox no-tools turn) are enforced by that per-runner filter.
+**Per-runner chain composition**: serve wiring builds one shared base chain from `guards.*` config, and each runner – the primary interactive harness and every pool worker – evaluates a layered chain (`GuardChain.layered`): the base chain plus that runner's own `TaskToolFilterGuard`. The base guard list is read live, so a `guards.*` hot-reload (`replaceGuards`) reaches every runner chain while the per-runner filter survives the rebuild. Turn-scoped tool policies (per-task `allowedTools`, per-turn session policies such as the knowledge-inbox no-tools turn) are enforced by that per-runner filter.
 
 The same composition is the SDK host's responsibility. `DartclawServerBuilder` receives an already-constructed harness, so it cannot retrofit that harness's chain: a host wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and sets the same instance as `builder.taskToolFilterGuard`. The builder never creates one on the host's behalf — a filter outside the chain the harness evaluates is inert, and silently so.
 
@@ -154,7 +154,7 @@ Guards evaluate canonical tool names, not provider-native strings. Provider adap
 | **NetworkGuard** | `beforeToolCall` (Bash, web_fetch) | Network operations | Domain allowlist, IP blocking, exfiltration pattern detection |
 | **EgressGuard** | `outboundMcpToolsCall` | Outbound MCP `tools/call` dispatch | Default-deny per-server/per-tool allowlist for external MCP calls |
 | **ContentGuard** | `beforeAgentSend` | Agent boundary handoff | LLM-based content classification (prompt injection, harmful content, exfiltration) |
-| **ToolPolicyGuard** | `beforeToolCall` | Sub-agent tool calls | 3-layer policy cascade: global deny, agent deny, sandbox allow |
+| **ToolPolicyGuard** | `beforeToolCall` | Logical-agent tool calls | 3-layer policy cascade: global deny, agent deny, sandbox allow |
 | **TaskToolFilterGuard** | `beforeToolCall` | Per-task tool allowlist | Restricts tool use to the current task's allowlist; optional read-only mode blocks mutating file/shell calls |
 
 ### Outbound MCP Egress Boundary
@@ -367,7 +367,7 @@ stackoverflow.com
 | `curl ... -d/--data/--form` | POST data exfiltration |
 | `\| base64` | Encoding for covert data exfiltration |
 
-**Per-agent overrides**: The enforced `agent_overrides` config section grants additional domains only when `GuardContext.agentId` matches that subagent. Both shell and `web_fetch` checks use the effective global-plus-agent set. Claude-native subagent traffic that does not traverse a DartClaw-dispatched delegated turn uses only the global allowlist.
+**Per-agent overrides**: The enforced `agent_overrides` config section grants additional domains only when `GuardContext.agentId` matches that logical agent. Both shell and `web_fetch` checks use the effective global-plus-agent set. Every logical-agent turn traverses the host-dispatched session path.
 
 **Source**: `packages/dartclaw_security/lib/src/network_guard.dart`
 
@@ -375,7 +375,7 @@ stackoverflow.com
 
 ## ContentGuard
 
-LLM-based content classification at inter-agent boundaries. Fires only at the `beforeAgentSend` hook point — when a sub-agent (e.g. search agent) returns results to the main agent. This catches prompt injection and harmful content that bypassed regex-based guards by being embedded in web search results.
+LLM-based content classification at inter-agent boundaries. Fires only at the `beforeAgentSend` hook point – when a logical agent (e.g. search agent) returns results to the main agent. This catches prompt injection and harmful content that bypassed regex-based guards by being embedded in web search results.
 
 **Classification categories**: `safe`, `prompt_injection`, `harmful_content`, `exfiltration_attempt`.
 
@@ -391,7 +391,7 @@ LLM-based content classification at inter-agent boundaries. Fires only at the `b
 
 ## ToolPolicyGuard
 
-3-layer policy cascade wrapping `ToolPolicyCascade` for integration with the guard chain. `TurnRunner` passes the delegated-agent identity through `AgentHarness.turn`; Claude hooks, Codex approval requests, and ACP reverse-call/permission bindings attach it to `GuardContext`. Only evaluates when a subagent context is present (`context.agentId != null`). Main agent calls pass through.
+3-layer policy cascade wrapping `ToolPolicyCascade` for integration with the guard chain. `TurnRunner` passes the logical-agent identity through `AgentHarness.turn`; Claude hooks, Codex approval requests, and ACP reverse-call/permission bindings attach it to `GuardContext`. It evaluates only when a logical-agent context is present (`context.agentId != null`). Main agent calls pass through.
 
 **Evaluation order** (most restrictive wins):
 
@@ -403,7 +403,7 @@ LLM-based content classification at inter-agent boundaries. Fires only at the `b
 
 A tool passes only if it is not in global deny, not in agent deny, and is in the agent's allow set when that set is non-empty. Empty or absent allow sets impose no sandbox restriction. Known provider-native policy entries are canonicalized at construction; unknown entries remain exact literals. Denying `mcp_call` also denies semantically remapped own-MCP calls, but allowing `mcp_call` does not grant them.
 
-Example: the search agent's canonical sandbox is `{web_search, web_fetch}`, so `ToolPolicyGuard` blocks other intercepted tools on DartClaw-dispatched delegated turns. This is a host policy boundary, not OS isolation. Claude's unfiltered `PreToolUse` hook covers built-ins and dynamic MCP names. Codex requires an approval request: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses this guard. ACP enforcement covers only host reverse file calls and permission requests.
+Example: the search agent's canonical sandbox is `{web_search, web_fetch}`, so `ToolPolicyGuard` blocks other intercepted tools on logical-agent turns. It also requests the provider-independent `restricted` worker profile; where container profiles are unavailable, the tool policy remains the only host boundary. Claude's unfiltered `PreToolUse` hook covers built-ins and dynamic MCP names. Codex requires an approval request: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses this guard. ACP enforcement covers only host reverse file calls and permission requests.
 
 **Source**: `packages/dartclaw_core/lib/src/agents/tool_policy_cascade.dart`
 
@@ -619,7 +619,7 @@ shelf Pipeline
 - Printed at startup: `Web UI: http://localhost:<port>/?token=<hex64>`
 - Rotation: `dartclaw token rotate` generates new token, invalidates all sessions
 
-**Inbound MCP authentication**: `/mcp` requires the same bearer token whenever gateway authentication is enabled. An authentication-disabled deployment mounts the route without a bearer only when the memory journal is enabled and `server.host` is the literal loopback host `localhost`, `127.0.0.1`, or `::1`. Bearerless requests require an exact loopback `Host`; browser requests also require an exact loopback `Origin`. Authentication-disabled non-loopback and default-off journal deployments do not mount `/mcp`.
+**Inbound MCP authentication**: `/mcp` requires the same bearer token whenever gateway authentication is enabled. An authentication-disabled deployment mounts the route without a bearer only when `server.host` is the literal loopback host `localhost`, `127.0.0.1`, or `::1`. Bearerless requests require an exact loopback `Host`; browser requests also require an exact loopback `Origin`. Authentication-disabled non-loopback deployments do not mount `/mcp`.
 
 **Session cookies**:
 - HMAC-SHA256 signed with gateway token as key, stateless (no server-side storage)
@@ -716,7 +716,7 @@ The EventBus also surfaces security-relevant infrastructure events:
 | `ContainerCrashedEvent` | Container health check detects crash |
 | `ContainerStartedEvent` | Container recovered or started |
 | `ContainerStoppedEvent` | Container stopped normally |
-| `AgentStateChangedEvent` | Agent busy/idle transitions |
+| `RunnerStateChangedEvent` | Agent busy/idle transitions |
 
 **Source**: `packages/dartclaw_core/lib/src/events/dartclaw_event.dart`
 

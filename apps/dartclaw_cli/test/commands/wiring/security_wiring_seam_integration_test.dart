@@ -51,7 +51,21 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('security reload seam — valid reload', () {
-    test('guard events preserve delegated agent and canonical tool identity', () async {
+    test('logical-agent session-control policy uses the configured deny set', () async {
+      final configNotifier = ConfigNotifier(_baseConfig);
+      final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
+      await wiring.wire(
+        agentDefs: const [
+          AgentDefinition(id: 'search', description: 'Search', prompt: 'Search', deniedTools: {'sessions_spawn'}),
+        ],
+      );
+
+      expect(wiring.toolPolicyCascade.isAllowed('search', 'sessions_spawn'), isFalse);
+      expect(wiring.toolPolicyCascade.isAllowed('search', 'sessions_send'), isTrue);
+      expect(wiring.toolPolicyCascade.isAllowed('search', 'web_search'), isTrue);
+    });
+
+    test('guard events preserve logical-agent and canonical tool identity', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
       final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
       await wiring.wire(
@@ -66,7 +80,7 @@ void main() {
       final verdict = await wiring.guardChain!.evaluateBeforeToolCall(
         'shell',
         const {'command': 'pwd'},
-        sessionId: 'delegated-session',
+        sessionId: 'logical-agent-session',
         agentId: 'search',
         rawProviderToolName: 'Bash',
       );
@@ -77,7 +91,7 @@ void main() {
       expect(events.single.agentId, 'search');
       expect(events.single.toolName, 'shell');
       expect(events.single.rawProviderToolName, 'Bash');
-      expect(events.single.sessionId, 'delegated-session');
+      expect(events.single.sessionId, 'logical-agent-session');
     });
 
     test('ConfigNotifier.reload with changed security config triggers SecurityWiring via watchKeys', () async {

@@ -140,7 +140,6 @@ providers:
         expect(config.server.name, 'DartClaw');
         expect(config.server.dataDir, p.normalize('/workspace/dartclaw/dartclaw'));
         expect(config.gateway.authMode, 'token');
-        expect(config.tasks.maxConcurrent, 3);
         expect(config.governance.rateLimits.perSender.messages, 0);
         expect(config.workflow.defaults.workflow.provider, 'claude');
       });

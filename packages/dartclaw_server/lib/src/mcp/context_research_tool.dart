@@ -115,11 +115,14 @@ final class ContextResearchTool implements McpTool {
        _candidateLimit = candidateLimit,
        _defaultTokenBudget = defaultTokenBudget;
 
-  /// Creates a synthesizer that dispatches one background turn through [delegate].
-  static ContextResearchSynthesizer delegateSynthesizer(SessionDelegate delegate, {String agent = 'search'}) {
+  /// Creates a synthesizer that dispatches one logical-agent turn through [sessions].
+  static ContextResearchSynthesizer logicalAgentSynthesizer(
+    LogicalAgentSessionService sessions, {
+    String agent = 'search',
+  }) {
     return (request) async {
       final payload = jsonEncode(request.toJson());
-      final result = await delegate.handleSessionsSpawn({
+      final result = await sessions.handleSessionsSpawn({
         'agent': agent,
         'message':
             'Synthesize a compact JSON citation packet for this context_research request. '

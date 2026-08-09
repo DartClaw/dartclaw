@@ -27,6 +27,12 @@ enum CanonicalTool {
   /// Persistent memory writes.
   memorySave('memory_save'),
 
+  /// Create a new logical-agent session.
+  sessionsSpawn('sessions_spawn'),
+
+  /// Continue an existing logical-agent session.
+  sessionsSend('sessions_send'),
+
   /// MCP tool calls routed through an MCP server.
   mcpCall('mcp_call');
 

@@ -199,47 +199,100 @@ void main() {
     expect(events.single.details['message'], contains('Provider "goose" is unavailable'));
   });
 
-  test(
-    'provider-overridden research task falls back to workspace runner when restricted profile is unavailable',
-    () async {
-      final primaryWorker = _ProviderWorker(responseText: 'primary complete');
-      final codexWorkspaceWorker = _ProviderWorker(responseText: 'codex workspace complete');
-      addTearDown(() async {
-        await primaryWorker.dispose();
-        await codexWorkspaceWorker.dispose();
-      });
+  test('provider-overridden research task stays queued when its restricted profile is unavailable', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary complete');
+    final codexWorkspaceWorker = _ProviderWorker(responseText: 'codex workspace complete');
+    addTearDown(() async {
+      await primaryWorker.dispose();
+      await codexWorkspaceWorker.dispose();
+    });
 
-      final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-      final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
-      final taskCodexWorkspaceRunner = TurnRunner(
-        harness: codexWorkspaceWorker,
-        messages: messages,
-        behavior: behavior,
-        providerId: 'codex',
-      );
-      final pool = HarnessPool(runners: [primaryRunner, taskCodexWorkspaceRunner]);
-      final turns = TurnManager.fromPool(pool: pool);
-      executor = buildExecutor(turns);
-      addTearDown(executor.stop);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final taskCodexWorkspaceRunner = TurnRunner(
+      harness: codexWorkspaceWorker,
+      messages: messages,
+      behavior: behavior,
+      providerId: 'codex',
+    );
+    final pool = HarnessPool(runners: [primaryRunner, taskCodexWorkspaceRunner]);
+    final turns = TurnManager.fromPool(pool: pool);
+    executor = buildExecutor(turns);
+    addTearDown(executor.stop);
 
-      await tasks.create(
-        id: 'task-provider-workspace-fallback',
-        title: 'Codex research task',
-        description: 'Should use the codex workspace worker when restricted is unavailable.',
-        type: TaskType.research,
-        autoStart: true,
-        provider: 'codex',
-      );
+    await tasks.create(
+      id: 'task-provider-profile-missing',
+      title: 'Codex research task',
+      description: 'Must not weaken isolation when the restricted worker is unavailable.',
+      type: TaskType.research,
+      autoStart: true,
+      provider: 'codex',
+    );
 
-      final processed = await executor.pollOnce();
+    final processed = await executor.pollOnce();
 
-      expect(processed, isTrue);
-      await _waitForTaskStatus(tasks, 'task-provider-workspace-fallback', TaskStatus.review);
-      expect(primaryWorker.turnCalls, 0);
-      expect(codexWorkspaceWorker.turnCalls, 1);
-      expect((await tasks.get('task-provider-workspace-fallback'))!.status, TaskStatus.review);
-    },
-  );
+    expect(processed, isFalse);
+    expect(primaryWorker.turnCalls, 0);
+    expect(codexWorkspaceWorker.turnCalls, 0);
+    expect((await tasks.get('task-provider-profile-missing'))!.status, TaskStatus.queued);
+  });
+
+  test('research task provisions a restricted worker without using the workspace worker', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary');
+    final workspaceWorker = _ProviderWorker(responseText: 'workspace');
+    final restrictedWorker = _ProviderWorker(responseText: 'restricted');
+    addTearDown(primaryWorker.dispose);
+    addTearDown(workspaceWorker.dispose);
+    addTearDown(restrictedWorker.dispose);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final pool = HarnessPool(
+      runners: [
+        TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior),
+        TurnRunner(
+          harness: workspaceWorker,
+          messages: messages,
+          behavior: behavior,
+          providerId: 'codex',
+          profileId: 'workspace',
+        ),
+      ],
+      maxConcurrentWorkers: 2,
+    );
+    executor = buildExecutor(TurnManager.fromPool(pool: pool));
+    final spawned = Completer<void>();
+    final coordinator = WorkerPoolCoordinator(
+      pool: pool,
+      onSpawnNeeded: (provider) async {
+        pool.addRunner(
+          TurnRunner(
+            harness: restrictedWorker,
+            messages: messages,
+            behavior: behavior,
+            providerId: provider!,
+            profileId: 'restricted',
+          ),
+        );
+        spawned.complete();
+        return true;
+      },
+    );
+    final task = Task(
+      id: 'restricted-before-fallback',
+      title: 'Research',
+      description: 'Needs restricted isolation',
+      type: TaskType.research,
+      status: TaskStatus.queued,
+      provider: 'codex',
+      createdAt: DateTime.now(),
+    );
+
+    expect(coordinator.acquireRunnerForTask(task, 'restricted'), isNull);
+    await spawned.future.timeout(const Duration(seconds: 1));
+    final runner = coordinator.acquireRunnerForTask(task, 'restricted');
+
+    expect(runner?.profileId, 'restricted');
+    expect(pool.availableCount, 1, reason: 'the workspace worker was not used as a premature fallback');
+  });
 
   test('task with provider override stays queued when provider exists only in another profile', () async {
     final primaryWorker = _ProviderWorker(responseText: 'primary complete');
@@ -396,14 +449,14 @@ void main() {
         TurnRunner(harness: claudeTaskWorker, messages: messages, behavior: behavior, providerId: 'claude'),
         TurnRunner(harness: codexWorker, messages: messages, behavior: behavior, providerId: 'codex'),
       ],
-      maxConcurrentTasks: 3,
+      maxConcurrentWorkers: 3,
     );
     final busyClaude = pool.tryAcquireForProvider('claude');
     expect(busyClaude, isNotNull);
     expect(pool.availableCount, 1, reason: 'codex is idle and must not suppress claude provisioning');
 
     final spawned = Completer<void>();
-    final coordinator = TaskRunnerPoolCoordinator(
+    final coordinator = WorkerPoolCoordinator(
       pool: pool,
       onSpawnNeeded: (requestedProviderId) async {
         expect(requestedProviderId, 'claude');
@@ -433,26 +486,26 @@ void main() {
     expect(secondAttempt!.providerId, 'claude');
   });
 
-  test('concurrent delegated acquisitions coalesce first provisioning', () async {
+  test('concurrent logical-agent acquisitions coalesce first provisioning', () async {
     final primaryWorker = _ProviderWorker(responseText: 'primary');
-    final delegatedWorker = _ProviderWorker(responseText: 'delegated');
+    final logicalAgentWorker = _ProviderWorker(responseText: 'logical agent');
     addTearDown(primaryWorker.dispose);
-    addTearDown(delegatedWorker.dispose);
+    addTearDown(logicalAgentWorker.dispose);
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final pool = HarnessPool(
       runners: [TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior)],
-      maxConcurrentTasks: 1,
+      maxConcurrentWorkers: 1,
     );
     executor = buildExecutor(TurnManager.fromPool(pool: pool));
     final allowSpawn = Completer<void>();
     var spawnCalls = 0;
-    final coordinator = TaskRunnerPoolCoordinator(
+    final coordinator = WorkerPoolCoordinator(
       pool: pool,
       onSpawnNeeded: (provider) async {
         spawnCalls++;
         await allowSpawn.future;
         pool.addRunner(
-          TurnRunner(harness: delegatedWorker, messages: messages, behavior: behavior, providerId: provider!),
+          TurnRunner(harness: logicalAgentWorker, messages: messages, behavior: behavior, providerId: provider!),
         );
         return true;
       },
@@ -469,6 +522,44 @@ void main() {
     expect(spawnCalls, 1);
   });
 
+  test('logical-agent provisioning continues until provider and profile match', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary');
+    final workspaceWorker = _ProviderWorker(responseText: 'workspace');
+    final restrictedWorker = _ProviderWorker(responseText: 'restricted');
+    addTearDown(primaryWorker.dispose);
+    addTearDown(workspaceWorker.dispose);
+    addTearDown(restrictedWorker.dispose);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final pool = HarnessPool(
+      runners: [TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior)],
+      maxConcurrentWorkers: 2,
+    );
+    executor = buildExecutor(TurnManager.fromPool(pool: pool));
+    var spawnCalls = 0;
+    final coordinator = WorkerPoolCoordinator(
+      pool: pool,
+      onSpawnNeeded: (provider) async {
+        spawnCalls++;
+        pool.addRunner(
+          TurnRunner(
+            harness: spawnCalls == 1 ? workspaceWorker : restrictedWorker,
+            messages: messages,
+            behavior: behavior,
+            providerId: provider!,
+            profileId: spawnCalls == 1 ? 'workspace' : 'restricted',
+          ),
+        );
+        return true;
+      },
+    );
+
+    final runner = await coordinator.provisionAndAcquireProvider('claude', profileId: 'restricted');
+
+    expect(spawnCalls, 2);
+    expect(runner?.providerId, 'claude');
+    expect(runner?.profileId, 'restricted');
+  });
+
   test('failed provisioning for one provider does not suppress a concurrent provider spawn', () async {
     final primaryWorker = _ProviderWorker(responseText: 'primary');
     final codexWorker = _ProviderWorker(responseText: 'codex');
@@ -477,12 +568,12 @@ void main() {
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final pool = HarnessPool(
       runners: [TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior)],
-      maxConcurrentTasks: 2,
+      maxConcurrentWorkers: 2,
     );
     executor = buildExecutor(TurnManager.fromPool(pool: pool));
     final finishClaudeSpawn = Completer<void>();
     final requestedProviders = <String?>[];
-    final coordinator = TaskRunnerPoolCoordinator(
+    final coordinator = WorkerPoolCoordinator(
       pool: pool,
       onSpawnNeeded: (provider) async {
         requestedProviders.add(provider);
@@ -608,14 +699,19 @@ class _SerialSessionService extends SessionService {
   Future<void> _pending = Future<void>.value();
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+  }) async {
     Session? session;
     Object? error;
     StackTrace? stackTrace;
 
     _pending = _pending.then((_) async {
       try {
-        session = await super.getOrCreateByKey(key, type: type, provider: provider);
+        session = await super.getOrCreateByKey(key, type: type, provider: provider, securityProfile: securityProfile);
       } catch (e, st) {
         error = e;
         stackTrace = st;

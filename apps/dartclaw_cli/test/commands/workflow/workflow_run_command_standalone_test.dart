@@ -554,10 +554,15 @@ steps:
       expect(output.every((line) => !line.startsWith('Unknown workflow:')), isTrue);
     });
 
-    test('standalone run provisions explicit provider runners and CLI configs before starting the workflow', () async {
+    test('standalone run provisions an explicitly configured provider worker before starting the workflow', () async {
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
-        providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
+        providers: const ProvidersConfig(
+          entries: {
+            'codex': ProviderEntry(executable: 'codex', poolSize: 0),
+            'claude': ProviderEntry(executable: 'claude', poolSize: 1),
+          },
+        ),
         server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
@@ -596,14 +601,54 @@ steps:
       await wiring.wire();
       addTearDown(wiring.dispose);
 
-      expect(wiring.pool.hasTaskRunnerForProvider('claude'), isFalse);
-      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isFalse);
+      expect(wiring.pool.hasWorkerForProvider('claude'), isFalse);
+      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
 
-      await wiring.ensureTaskRunnersForProviders({'claude'});
+      await wiring.ensureWorkersForProviders({'claude'});
 
-      expect(wiring.pool.hasTaskRunnerForProvider('claude'), isTrue);
+      expect(wiring.pool.hasWorkerForProvider('claude'), isTrue);
       expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
       expect(createdHarnesses['claude'], isNotEmpty);
+    });
+
+    test('standalone harness startup canonicalizes referenced provider IDs once', () async {
+      const configuredProviderId = 'OpenAI-Work';
+      const providerId = 'openai-work';
+      config = DartclawConfig(
+        agent: const AgentConfig(provider: 'codex'),
+        providers: const ProvidersConfig(
+          entries: {configuredProviderId: ProviderEntry(executable: 'codex', poolSize: 1)},
+        ),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      );
+      final createdHarnesses = <FakeAgentHarness>[];
+      final factory = HarnessFactory()
+        ..register(providerId, (_) {
+          final harness = FakeAgentHarness();
+          createdHarnesses.add(harness);
+          return harness;
+        });
+      final wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: config.server.dataDir,
+        runWorkflowSkillsBootstrap: false,
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wirePreHarness();
+      addTearDown(wiring.dispose);
+
+      await wiring.startHarnesses({configuredProviderId});
+
+      expect(
+        createdHarnesses.where((harness) => harness.startCalled),
+        hasLength(2),
+        reason: 'one primary plus one provider worker',
+      );
+      expect(wiring.pool.workerCountForProvider(providerId), 1);
+      expect(wiring.workflowCliRunner.providers.keys, contains(providerId));
+      expect(wiring.workflowCliRunner.providers.keys, isNot(contains(configuredProviderId)));
     });
 
     test('S01 logged-out referenced provider aborts before any harness starts', () async {

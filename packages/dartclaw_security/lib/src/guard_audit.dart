@@ -30,7 +30,7 @@ class AuditEntry {
   /// Raw provider-native tool name associated with the verdict, if any.
   final String? rawProviderToolName;
 
-  /// Delegated agent identity associated with the verdict, if any.
+  /// Logical-agent identity associated with the verdict, if any.
   final String? agentId;
 
   /// Session identifier associated with the event, if available.

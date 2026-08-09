@@ -33,7 +33,7 @@ import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../templates/wiki_document.dart';
 import '../runtime_config.dart';
-import '../task/agent_observer.dart';
+import '../task/runner_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
@@ -87,7 +87,7 @@ Router webRoutes(
   GoalService? goalService,
   ProjectService? projectService,
   EventBus? eventBus,
-  AgentObserver? agentObserver,
+  RunnerObserver? runnerObserver,
   KvService? kvService,
   TurnTraceService? traceService,
   TaskEventService? taskEventService,
@@ -153,7 +153,7 @@ Router webRoutes(
     eventBus: eventBus,
     messages: messages,
     turns: turns,
-    agentObserver: agentObserver,
+    runnerObserver: runnerObserver,
     traceService: traceService,
     taskEventService: taskEventService,
     progressTracker: progressTracker,

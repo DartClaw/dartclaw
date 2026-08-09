@@ -28,12 +28,12 @@ import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'server.dart';
 import 'session/session_reset_service.dart';
-import 'task/agent_observer.dart';
+import 'task/runner_observer.dart';
 import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_event_recorder.dart';
 import 'task/task_progress_tracker.dart';
-import 'task/task_runner_pool_coordinator.dart';
+import 'worker_pool_coordinator.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
@@ -126,7 +126,7 @@ class DartclawServerBuilder {
   TaskReviewService? taskReviewService;
   WorktreeManager? worktreeManager;
   TaskFileGuard? taskFileGuard;
-  AgentObserver? agentObserver;
+  RunnerObserver? runnerObserver;
   MergeExecutor? mergeExecutor;
   String? mergeStrategy;
   String? baseRef;
@@ -151,7 +151,7 @@ class DartclawServerBuilder {
   AppDisplayParams appDisplay = const AppDisplayParams();
 
   TurnManager? _cachedTurns;
-  TaskRunnerPoolCoordinator? runnerPoolCoordinator;
+  WorkerPoolCoordinator? workerPoolCoordinator;
 
   /// Returns the [TurnManager] that will be used by the built server.
   ///
@@ -173,7 +173,7 @@ class DartclawServerBuilder {
         ? TurnManager.fromPool(
             pool: pool!,
             sessions: sessionsForTurns ?? s,
-            runnerPoolCoordinator: runnerPoolCoordinator,
+            workerPoolCoordinator: workerPoolCoordinator,
           )
         : TurnManager(
             messages: m,
@@ -262,7 +262,7 @@ class DartclawServerBuilder {
         taskReviewService: taskReviewService,
         worktreeManager: worktreeManager,
         taskFileGuard: taskFileGuard,
-        agentObserver: agentObserver,
+        runnerObserver: runnerObserver,
         mergeExecutor: mergeExecutor,
         mergeStrategy: mergeStrategy,
         baseRef: baseRef,

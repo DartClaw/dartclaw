@@ -659,7 +659,7 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills (`andthen:prd`, `andthen:plan`, `andthen:spec`) write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. Workflow steps downstream read the file via `file_read`. This lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
+Artifact-producing skills (`andthen:prd`, `andthen:plan`, `andthen:spec`) write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. Workflow steps downstream read the file via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
 
 Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `andthen:plan` step to synthesize or republish the plan bundle. An empty `story_specs.items: []` is a successful resume signal – every story is already `done`/`skipped`, so the foreach iterates zero times and the workflow proceeds to plan-level review.
 

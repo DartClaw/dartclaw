@@ -21,13 +21,19 @@ class InMemorySessionService implements SessionService {
   int _nextSessionNumber = 1;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+  }) async {
     final now = DateTime.now();
     final session = Session(
       id: _createId(),
       type: type,
       channelKey: channelKey,
       provider: provider,
+      securityProfile: securityProfile,
       createdAt: now,
       updatedAt: now,
     );
@@ -53,12 +59,13 @@ class InMemorySessionService implements SessionService {
     bool includeTaskSessions = false,
   }) async {
     final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
-    final delegatedRequested = type == SessionType.delegated || (types?.contains(SessionType.delegated) ?? false);
+    final logicalAgentRequested =
+        type == SessionType.logicalAgent || (types?.contains(SessionType.logicalAgent) ?? false);
     final sessions = _sessionsById.values.where((session) {
       if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) {
         return false;
       }
-      if (session.type == SessionType.delegated && !delegatedRequested) {
+      if (session.type == SessionType.logicalAgent && !logicalAgentRequested) {
         return false;
       }
       if (type != null && session.type != type) {
@@ -92,13 +99,27 @@ class InMemorySessionService implements SessionService {
   }
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+  }) async {
     final existingId = _sessionKeys[key];
     if (existingId != null) {
       final session = _sessionsById[existingId];
       if (session != null && session.type != SessionType.archive) {
-        if (session.type != type || session.channelKey != key || session.provider != provider) {
-          final migrated = session.copyWith(type: type, channelKey: key, provider: provider, updatedAt: DateTime.now());
+        if (session.type != type ||
+            session.channelKey != key ||
+            session.provider != provider ||
+            session.securityProfile != securityProfile) {
+          final migrated = session.copyWith(
+            type: type,
+            channelKey: key,
+            provider: provider,
+            securityProfile: securityProfile,
+            updatedAt: DateTime.now(),
+          );
           _sessionsById[existingId] = migrated;
           return migrated;
         }
@@ -107,7 +128,12 @@ class InMemorySessionService implements SessionService {
       _sessionKeys.remove(key);
     }
 
-    final session = await createSession(type: type, channelKey: key, provider: provider);
+    final session = await createSession(
+      type: type,
+      channelKey: key,
+      provider: provider,
+      securityProfile: securityProfile,
+    );
     _sessionKeys[key] = session.id;
     return session;
   }

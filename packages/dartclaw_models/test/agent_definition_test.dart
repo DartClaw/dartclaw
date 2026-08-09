@@ -7,6 +7,8 @@ void main() {
       test('leaves the search model provider-neutral', () {
         final agent = AgentDefinition.searchAgent();
         expect(agent.model, isNull);
+        expect(agent.provider, isNull);
+        expect(agent.securityProfile, 'restricted');
       });
 
       test('allows model override', () {
@@ -18,24 +20,77 @@ void main() {
         final agent = AgentDefinition.searchAgent();
         expect(agent.id, 'search');
         expect(agent.allowedTools, containsAll(['web_search', 'web_fetch']));
-        expect(agent.maxConcurrent, 2);
       });
     });
 
     group('fromYaml', () {
-      test('parses model field and keeps extra keys out of model', () {
+      test('parses provider and model fields', () {
         final warns = <String>[];
-        final agent = AgentDefinition.fromYaml('search', {'model': 'haiku', 'custom_key': 'custom_value'}, warns);
-        expect(agent.model, 'haiku');
-        expect(agent.extra, isNot(contains('model')));
-        expect(agent.extra['custom_key'], 'custom_value');
+        final agent = AgentDefinition.fromYaml('search', {'provider': ' OpenAI-Work ', 'model': 'gpt-5.6-luna'}, warns);
+        expect(agent.provider, 'openai-work');
+        expect(agent.model, 'gpt-5.6-luna');
         expect(warns, isEmpty);
+      });
+
+      test('invalid provider falls back to the deployment default', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('reviewer', const {
+          'provider': 42,
+          'tools': ['file_read'],
+        }, warns);
+
+        expect(agent.provider, isNull);
+        expect(warns, contains(contains('Invalid agents.reviewer.provider')));
+      });
+
+      test('parses a provider-independent security profile', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('reviewer', {
+          'security_profile': 'workspace',
+          'tools': ['file_read'],
+        }, warns);
+
+        expect(agent.securityProfile, 'workspace');
+        expect(warns, isEmpty);
+      });
+
+      test('defaults search to restricted and other agents to provider default', () {
+        final searchWarnings = <String>[];
+        final agentWarnings = <String>[];
+
+        expect(AgentDefinition.fromYaml('search', const {}, searchWarnings).securityProfile, 'restricted');
+        expect(
+          AgentDefinition.fromYaml('reviewer', const {
+            'tools': ['file_read'],
+          }, agentWarnings).securityProfile,
+          isNull,
+        );
+        expect(searchWarnings, isEmpty);
+        expect(agentWarnings, isEmpty);
+      });
+
+      test('invalid security profile warns and uses the agent default', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('search', const {'security_profile': 'host'}, warns);
+
+        expect(agent.securityProfile, 'restricted');
+        expect(warns, contains(contains('Invalid agents.search.security_profile')));
       });
 
       test('model is null when not specified', () {
         final warns = <String>[];
         final agent = AgentDefinition.fromYaml('search', {'description': 'Test agent'}, warns);
         expect(agent.model, isNull);
+      });
+
+      test('custom agents do not inherit the search persona', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('reviewer', const {
+          'tools': ['file_read'],
+        }, warns);
+
+        expect(agent.prompt, isEmpty);
+        expect(warns, isEmpty);
       });
 
       test('non-search agent with no tools gets empty allowedTools and warning', () {
@@ -63,47 +118,49 @@ void main() {
         expect(agent.allowedTools, equals({'Bash', 'Read'}));
         expect(warns, isEmpty);
       });
-
-      test('retired spawn fields warn and never leak into extra or payload', () {
-        final warns = <String>[];
-        final agent = AgentDefinition.fromYaml('search', {'max_spawn_depth': 2, 'max_children_per_agent': 5}, warns);
-
-        expect(warns, contains('agents.search.max_spawn_depth is not enforced – ignored'));
-        expect(warns, contains('agents.search.max_children_per_agent is not enforced – ignored'));
-        expect(agent.extra, isNot(contains('max_spawn_depth')));
-        expect(agent.extra, isNot(contains('max_children_per_agent')));
-        expect(agent.toInitializePayload(), isNot(contains('max_spawn_depth')));
-        expect(agent.toInitializePayload(), isNot(contains('max_children_per_agent')));
-      });
     });
 
-    group('toInitializePayload', () {
-      test('includes model when non-null', () {
-        final agent = AgentDefinition.searchAgent();
-        final payload = agent.toInitializePayload();
-        expect(payload.containsKey('model'), isFalse);
-      });
+    test('uses value equality for configuration change detection', () {
+      const first = AgentDefinition(
+        id: 'reviewer',
+        description: 'Reviews changes',
+        prompt: 'Review carefully',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        allowedTools: {'file_read', 'web_search'},
+        deniedTools: {'shell'},
+        maxResponseBytes: 4096,
+        model: 'review-model',
+        effort: 'high',
+      );
+      const same = AgentDefinition(
+        id: 'reviewer',
+        description: 'Reviews changes',
+        prompt: 'Review carefully',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        allowedTools: {'web_search', 'file_read'},
+        deniedTools: {'shell'},
+        maxResponseBytes: 4096,
+        model: 'review-model',
+        effort: 'high',
+      );
+      const differentProfile = AgentDefinition(
+        id: 'reviewer',
+        description: 'Reviews changes',
+        prompt: 'Review carefully',
+        provider: 'codex',
+        securityProfile: 'workspace',
+        allowedTools: {'file_read', 'web_search'},
+        deniedTools: {'shell'},
+        maxResponseBytes: 4096,
+        model: 'review-model',
+        effort: 'high',
+      );
 
-      test('excludes model when null', () {
-        const agent = AgentDefinition(id: 'test', description: 'Test', prompt: 'Test prompt');
-        final payload = agent.toInitializePayload();
-        expect(payload.containsKey('model'), isFalse);
-      });
-
-      test('includes description and prompt', () {
-        final agent = AgentDefinition.searchAgent();
-        final payload = agent.toInitializePayload();
-        expect(payload['description'], isNotEmpty);
-        expect(payload['prompt'], isNotEmpty);
-      });
-
-      test('includes tools exactly when the allowlist is non-empty', () {
-        final searchPayload = AgentDefinition.searchAgent().toInitializePayload();
-        expect(searchPayload['tools'], ['web_search', 'web_fetch']);
-
-        const unrestricted = AgentDefinition(id: 'test', description: 'Test', prompt: 'Test prompt');
-        expect(unrestricted.toInitializePayload(), isNot(contains('tools')));
-      });
+      expect(first, same);
+      expect(first.hashCode, same.hashCode);
+      expect(first, isNot(differentProfile));
     });
   });
 }

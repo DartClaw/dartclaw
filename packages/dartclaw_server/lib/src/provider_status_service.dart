@@ -121,7 +121,7 @@ class ProviderStatusService {
 
     // Legacy single-provider mode predates the `providers:` section.
     // We expose a single provider matching the injected default and derive
-    // task pool size from observed runners for that provider when possible.
+    // worker pool size from observed runners for that provider when possible.
     final providerId = _defaultProvider;
     return <String, ProviderEntry>{
       providerId: ProviderEntry(executable: _legacyExecutable(providerId), poolSize: _legacyPoolSize(providerId)),
@@ -167,7 +167,7 @@ class ProviderStatusService {
       binaryFound: probe.binaryFound,
       credentialStatus: credentialStatus,
       credentialEnvVar: credentialEnvVar,
-      poolSize: provider.poolSize,
+      poolSize: provider.effectivePoolSize,
       activeWorkers: _countActiveWorkers(providerId),
       isDefault: ProviderIdentity.normalize(providerId) == ProviderIdentity.normalize(_defaultProvider),
       health: health,

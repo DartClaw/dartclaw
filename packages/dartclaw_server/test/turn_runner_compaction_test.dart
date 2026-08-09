@@ -138,7 +138,7 @@ void main() {
     await runner.waitForOutcome(session.id, turnId);
 
     expect(worker.turnCallCount, equals(2));
-    expect(worker.lastAgentId, 'search', reason: 'the delegated identity must remain bound for the flush turn');
+    expect(worker.lastAgentId, 'search', reason: 'the logical-agent identity must remain bound for the flush turn');
   });
 
   test('Claude runners suppress heuristic flush via harness compaction-hook capability', () async {

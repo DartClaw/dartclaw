@@ -13,9 +13,8 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
   OutboundMcpTransportFactory? outboundMcpTransportFactory,
 }) async {
   final handlers = harness.memoryHandlers;
-  server.registerTool(DelegateToAgentTool(config: config, pool: harness.pool));
-  server.registerTool(SessionsSpawnTool(delegate: harness.sessionDelegate));
-  server.registerTool(SessionsSendTool(delegate: harness.sessionDelegate));
+  server.registerTool(SessionsSpawnTool(sessions: harness.logicalAgentSessions));
+  server.registerTool(SessionsSendTool(sessions: harness.logicalAgentSessions));
   for (final tool in harness.semanticMcpTools) {
     server.registerTool(tool);
   }
@@ -49,7 +48,7 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
       memorySearch: storage.searchBackend,
       kg: storage.kg,
       wikiSearch: WikiSearchSource(workspaceDir: config.workspaceDir),
-      synthesizer: ContextResearchTool.delegateSynthesizer(harness.sessionDelegate),
+      synthesizer: ContextResearchTool.logicalAgentSynthesizer(harness.logicalAgentSessions),
       metricsSink: (metrics) async {
         ctx.eventBus.fire(
           ContextResearchMetricsEvent(

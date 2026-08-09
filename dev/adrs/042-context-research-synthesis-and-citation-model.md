@@ -38,7 +38,7 @@ The citation contract is:
 
 The Dart value types are `CitationLayer`, `SourceRef`, `CitationStatement`, and `CitationPacket`. The shared resolver contract is `CitationSourceResolver`, with the tool applying it at packet assembly so unresolved references mark statements `unattributed` rather than authoritative.
 
-Synthesis runs through an injected background-turn seam. Production wiring dispatches through the existing session delegation path; tests can inject a deterministic synthesizer. If synthesis output is malformed, packet assembly falls back to citation-preserving candidate snippets rather than fabricating uncited claims.
+Synthesis runs through an injected background-turn seam. Production wiring dispatches through the logical-agent session path; tests can inject a deterministic synthesizer. If synthesis output is malformed, packet assembly falls back to citation-preserving candidate snippets rather than fabricating uncited claims.
 
 ## Consequences
 

@@ -67,7 +67,7 @@ AlertClassification? classifyAlert(DartclawEvent event) {
     MapStepCompletedEvent() => null,
     WorkflowSerializationEnactedEvent() => null,
     StepSkippedEvent() => null,
-    AgentStateChangedEvent() => null,
+    RunnerStateChangedEvent() => null,
     AgentExecutionStatusChangedEvent() => null,
     OutboundMcpGovernanceEvent() => null,
     ContextResearchMetricsEvent() => null,

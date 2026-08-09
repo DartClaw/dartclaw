@@ -939,7 +939,12 @@ void main() {
     });
 
     test('maps exact own MCP tools while unknown and third-party tools stay generic', () {
-      final adapter = CodexProtocolAdapter(ownMcpToolCanonicals: const {'memory_save': CanonicalTool.memorySave});
+      final adapter = CodexProtocolAdapter(
+        ownMcpToolCanonicals: const {
+          'memory_save': CanonicalTool.memorySave,
+          'sessions_spawn': CanonicalTool.sessionsSpawn,
+        },
+      );
 
       ToolUse parse(String server, String tool) =>
           adapter.parseLine(
@@ -959,6 +964,7 @@ void main() {
               as ToolUse;
 
       expect(parse('dartclaw', 'memory_save').name, 'memory_save');
+      expect(parse('dartclaw', 'sessions_spawn').name, 'sessions_spawn');
       expect(parse('dartclaw', 'unknown').name, 'mcp_call');
       expect(parse('third_party', 'memory_save').name, 'mcp_call');
     });

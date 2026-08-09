@@ -37,6 +37,20 @@ providers:
       expect(config.warnings, isEmpty);
     });
 
+    test('normalizes provider IDs and rejects normalization collisions', () {
+      final config = loadYaml('''
+providers:
+  OpenAI-Work:
+    executable: codex-first
+  openai-work:
+    executable: codex-second
+''');
+
+      expect(config.providers.entries.keys, ['openai-work']);
+      expect(config.providers['OPENAI-WORK']?.executable, 'codex-first');
+      expect(config.warnings, anyElement(contains('collides with another provider after normalization')));
+    });
+
     test('parses claude inherit_user_settings provider option', () {
       final config = loadYaml('''
 providers:

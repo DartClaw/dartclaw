@@ -38,3 +38,4 @@ export 'src/scheduling/scheduling_exports.dart';
 export 'src/session/session_exports.dart';
 export 'src/task/task_exports.dart';
 export 'src/ui_exports.dart';
+export 'src/worker_pool_coordinator.dart' show SpawnWorker, WorkerPoolCoordinator;

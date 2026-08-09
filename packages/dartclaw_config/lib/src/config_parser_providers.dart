@@ -78,7 +78,18 @@ ProvidersConfig _parseProviders(
 
   final entries = <String, ProviderEntry>{};
   for (final entry in providersRaw.entries) {
-    final providerId = entry.key.toString();
+    final rawProviderId = entry.key.toString();
+    if (rawProviderId.trim().isEmpty) {
+      warns.add('Provider ID must not be empty — skipping');
+      continue;
+    }
+    final providerId = ProviderIdentity.normalize(rawProviderId);
+    if (entries.containsKey(providerId)) {
+      warns.add(
+        'providers.$rawProviderId collides with another provider after normalization to "$providerId" — skipping',
+      );
+      continue;
+    }
     final value = entry.value;
     if (value is! Map) {
       // reason: dynamic key interpolation — per-provider id can't use readX helpers

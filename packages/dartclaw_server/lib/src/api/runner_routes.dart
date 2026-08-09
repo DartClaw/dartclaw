@@ -3,29 +3,29 @@ import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
-import '../task/agent_observer.dart';
+import '../task/runner_observer.dart';
 
-/// Creates a [Router] with agent REST API endpoints.
+/// Creates a [Router] with harness-runner REST API endpoints.
 ///
-/// `GET /api/agents` — all runners with metrics and pool status.
-/// `GET /api/agents/<id>` — single runner metrics by pool index.
-Router agentRoutes(AgentObserver observer) {
+/// `GET /api/runners` — all runners with metrics and pool status.
+/// `GET /api/runners/<id>` — single runner metrics by pool index.
+Router runnerRoutes(RunnerObserver observer) {
   final router = Router();
 
-  router.get('/api/agents', (Request request) {
+  router.get('/api/runners', (Request request) {
     final body = jsonEncode({
       'runners': observer.metrics.map((m) => m.toJson()).toList(),
       'pool': {
         'size': observer.poolStatus.size,
         'activeCount': observer.poolStatus.activeCount,
         'availableCount': observer.poolStatus.availableCount,
-        'maxConcurrentTasks': observer.poolStatus.maxConcurrentTasks,
+        'maxConcurrentWorkers': observer.poolStatus.maxConcurrentWorkers,
       },
     });
     return Response.ok(body, headers: {'Content-Type': 'application/json'});
   });
 
-  router.get('/api/agents/<id>', (Request request, String id) {
+  router.get('/api/runners/<id>', (Request request, String id) {
     final runnerId = int.tryParse(id);
     if (runnerId == null) {
       return Response(

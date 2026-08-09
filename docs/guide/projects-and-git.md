@@ -368,9 +368,13 @@ projects:
       draft: true                      # create PRs as drafts (default: false)
       labels: [agent, automated]       # auto-apply labels (default: [])
 
-# --- Tasks (worktree settings still apply to _local merges) ---
+# --- Provider workers and task worktree settings ---
+providers:
+  claude:
+    executable: claude
+    pool_size: 3                       # shared task and logical-agent workers
+
 tasks:
-  max_concurrent: 3                    # parallel task runners (harness pool size)
   artifact_retention_days: 0           # 0 = unlimited
   worktree:
     base_ref: main                     # branch to branch from / merge into (_local only)

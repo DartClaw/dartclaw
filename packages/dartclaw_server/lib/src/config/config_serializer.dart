@@ -62,7 +62,6 @@ class ConfigSerializer {
       'concurrency': {'maxParallelTurns': config.server.maxParallelTurns},
       'guardAudit': {'maxRetentionDays': config.security.guardAuditMaxRetentionDays},
       'tasks': {
-        'maxConcurrent': config.tasks.maxConcurrent,
         'artifactRetentionDays': config.tasks.artifactRetentionDays,
         'completionAction': config.tasks.completionAction,
         'worktree': {

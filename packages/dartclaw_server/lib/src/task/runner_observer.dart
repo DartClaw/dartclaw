@@ -1,14 +1,14 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-/// Runtime state of a single agent runner.
-enum AgentState { idle, busy, stopped, crashed }
+/// Runtime state of a single harness runner.
+enum RunnerState { idle, busy, stopped, crashed }
 
 /// Immutable snapshot of per-runner metrics.
-class AgentMetrics {
+class RunnerMetrics {
   final int runnerId;
   final String role;
   final String providerId;
-  final AgentState state;
+  final RunnerState state;
   final String? currentTaskId;
   final String? currentSessionId;
   final int tokensConsumed;
@@ -20,7 +20,7 @@ class AgentMetrics {
   final int totalToolCalls;
   final int failedToolCalls;
 
-  const AgentMetrics({
+  const RunnerMetrics({
     required this.runnerId,
     required this.role,
     required this.providerId,
@@ -60,12 +60,12 @@ class AgentMetrics {
 /// Uses a callback pattern: [TaskExecutor] calls [markBusy]/[markIdle] on
 /// acquire/release, and [recordTurn] after each completed turn.
 /// Metrics are in-memory and reset on restart.
-class AgentObserver {
+class RunnerObserver {
   final HarnessPool _pool;
   final EventBus? _eventBus;
   final List<_MutableMetrics> _metrics;
 
-  AgentObserver({required HarnessPool pool, EventBus? eventBus})
+  RunnerObserver({required HarnessPool pool, EventBus? eventBus})
     : _pool = pool,
       _eventBus = eventBus,
       _metrics = List.generate(pool.size, (i) => _MutableMetrics(runnerId: i, providerId: pool.runners[i].providerId));
@@ -75,13 +75,13 @@ class AgentObserver {
     if (runnerId < 0) return;
     _ensureCapacity(runnerId);
     final m = _metrics[runnerId];
-    m.state = AgentState.busy;
+    m.state = RunnerState.busy;
     m.currentTaskId = taskId;
     m.currentSessionId = sessionId;
     _eventBus?.fire(
-      AgentStateChangedEvent(
+      RunnerStateChangedEvent(
         runnerId: runnerId,
-        state: AgentState.busy.name,
+        state: RunnerState.busy.name,
         currentTaskId: taskId,
         timestamp: DateTime.now(),
       ),
@@ -92,10 +92,12 @@ class AgentObserver {
   void markIdle(int runnerId) {
     if (runnerId < 0 || runnerId >= _metrics.length) return; // Don't grow on idle-only calls.
     final m = _metrics[runnerId];
-    m.state = AgentState.idle;
+    m.state = RunnerState.idle;
     m.currentTaskId = null;
     m.currentSessionId = null;
-    _eventBus?.fire(AgentStateChangedEvent(runnerId: runnerId, state: AgentState.idle.name, timestamp: DateTime.now()));
+    _eventBus?.fire(
+      RunnerStateChangedEvent(runnerId: runnerId, state: RunnerState.idle.name, timestamp: DateTime.now()),
+    );
   }
 
   /// Record a completed turn for a runner, updating token and error counters.
@@ -123,20 +125,20 @@ class AgentObserver {
   }
 
   /// Current metrics snapshot for all runners.
-  List<AgentMetrics> get metrics => _metrics.map((m) => m.toSnapshot()).toList();
+  List<RunnerMetrics> get metrics => _metrics.map((m) => m.toSnapshot()).toList();
 
   /// Metrics for a specific runner by index, or null if out of range.
-  AgentMetrics? metricsFor(int runnerId) {
+  RunnerMetrics? metricsFor(int runnerId) {
     if (runnerId < 0 || runnerId >= _metrics.length) return null;
     return _metrics[runnerId].toSnapshot();
   }
 
   /// Pool-level summary.
-  ({int size, int activeCount, int availableCount, int maxConcurrentTasks}) get poolStatus => (
+  ({int size, int activeCount, int availableCount, int maxConcurrentWorkers}) get poolStatus => (
     size: _pool.size,
     activeCount: _pool.activeCount,
     availableCount: _pool.availableCount,
-    maxConcurrentTasks: _pool.maxConcurrentTasks,
+    maxConcurrentWorkers: _pool.maxConcurrentWorkers,
   );
 
   /// Grows [_metrics] to cover [runnerId] when the pool adds runners lazily.
@@ -147,16 +149,12 @@ class AgentObserver {
       _metrics.add(_MutableMetrics(runnerId: i, providerId: providerId));
     }
   }
-
-  void dispose() {
-    // No subscriptions to cancel in callback-based approach.
-  }
 }
 
 class _MutableMetrics {
   final int runnerId;
   final String providerId;
-  AgentState state = AgentState.idle;
+  RunnerState state = RunnerState.idle;
   String? currentTaskId;
   String? currentSessionId;
   int tokensConsumed = 0;
@@ -170,9 +168,9 @@ class _MutableMetrics {
 
   _MutableMetrics({required this.runnerId, required this.providerId});
 
-  AgentMetrics toSnapshot() => AgentMetrics(
+  RunnerMetrics toSnapshot() => RunnerMetrics(
     runnerId: runnerId,
-    role: runnerId == 0 ? 'primary' : 'task',
+    role: runnerId == 0 ? 'primary' : 'worker',
     providerId: providerId,
     state: state,
     currentTaskId: currentTaskId,

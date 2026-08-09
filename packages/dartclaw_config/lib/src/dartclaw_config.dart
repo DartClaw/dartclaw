@@ -26,7 +26,6 @@ import 'claude_provider_options.dart';
 import 'config_load_warnings.dart';
 import 'context_config.dart';
 import 'credentials_config.dart';
-import 'delegation_config.dart';
 import 'duration_parser.dart' show tryParseDuration;
 import 'features_config.dart';
 import 'gateway_config.dart';
@@ -150,9 +149,6 @@ class DartclawConfig {
   /// alerts.
   final AlertsConfig alerts;
 
-  /// delegation.
-  final DelegationConfig delegation;
-
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
   /// Unknown YAML keys without registered parsers are stored as raw values
@@ -230,7 +226,6 @@ class DartclawConfig {
     this.features = const FeaturesConfig(),
     this.projects = const ProjectConfig.defaults(),
     this.alerts = const AlertsConfig.defaults(),
-    this.delegation = const DelegationConfig.defaults(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -273,7 +268,6 @@ class DartclawConfig {
     FeaturesConfig? features,
     ProjectConfig? projects,
     AlertsConfig? alerts,
-    DelegationConfig? delegation,
     Map<String, Object?>? extensions,
     List<String>? warnings,
   }) {
@@ -306,7 +300,6 @@ class DartclawConfig {
       features: features ?? this.features,
       projects: projects ?? this.projects,
       alerts: alerts ?? this.alerts,
-      delegation: delegation ?? this.delegation,
       extensions: extensions ?? this.extensions,
       warnings: warnings ?? _warningSink(),
     );
@@ -437,8 +430,8 @@ class DartclawConfig {
     final features = _parseFeatures(yaml);
     final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns, base: configBaseDir);
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
-    final delegation = _parseDelegation(yaml, const DelegationConfig.defaults(), warns);
     _warnRetiredAndthenConfig(yaml, warns);
+    _warnRemovedAgentOrchestrationConfig(yaml, warns);
     final extensions = _parseExtensions(yaml, warns);
 
     final config = DartclawConfig(
@@ -470,7 +463,6 @@ class DartclawConfig {
       features: features,
       projects: projects,
       alerts: alerts,
-      delegation: delegation,
       extensions: extensions,
       warnings: warns,
     );

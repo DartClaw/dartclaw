@@ -31,13 +31,13 @@ void main() {
 
     test('getByKey returns only active mapped sessions', () async {
       final service = InMemorySessionService();
-      final session = await service.getOrCreateByKey('agent:search:delegated:known', type: SessionType.delegated);
+      final session = await service.getOrCreateByKey('agent:search:logical:known', type: SessionType.logicalAgent);
 
-      expect((await service.getByKey('agent:search:delegated:known'))?.id, session.id);
-      expect(await service.getByKey('agent:search:delegated:unknown'), isNull);
+      expect((await service.getByKey('agent:search:logical:known'))?.id, session.id);
+      expect(await service.getByKey('agent:search:logical:unknown'), isNull);
 
       await service.updateSessionType(session.id, SessionType.archive);
-      expect(await service.getByKey('agent:search:delegated:known'), isNull);
+      expect(await service.getByKey('agent:search:logical:known'), isNull);
     });
 
     test('direct keyed creation does not populate the deterministic key index', () async {
@@ -50,11 +50,11 @@ void main() {
 
     test('removeKeyMapping invalidates the handle without deleting the session', () async {
       final service = InMemorySessionService();
-      final session = await service.getOrCreateByKey('delegated-key', type: SessionType.delegated);
+      final session = await service.getOrCreateByKey('logical-agent-key', type: SessionType.logicalAgent);
 
-      await service.removeKeyMapping('delegated-key');
+      await service.removeKeyMapping('logical-agent-key');
 
-      expect(await service.getByKey('delegated-key'), isNull);
+      expect(await service.getByKey('logical-agent-key'), isNull);
       expect((await service.getSession(session.id))?.id, session.id);
     });
 

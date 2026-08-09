@@ -129,7 +129,7 @@ void main() {
       });
     });
 
-    test('parses item/started web_search into ToolUse with web_fetch mapping', () {
+    test('parses item/started web_search into ToolUse with web_search mapping', () {
       final adapter = CodexProtocolAdapter();
 
       final msg = adapter.parseLine(
@@ -148,7 +148,7 @@ void main() {
 
       expect(msg, isA<ToolUse>());
       final toolUse = msg! as ToolUse;
-      expect(toolUse.name, 'web_fetch');
+      expect(toolUse.name, 'web_search');
       expect(toolUse.id, 'web-1');
       expect(toolUse.input, {
         'query': 'dartclaw',
@@ -933,9 +933,34 @@ void main() {
       expect(adapter.mapToolName('mcp_tool_call'), CanonicalTool.mcpCall);
     });
 
-    test('maps web_search to web_fetch', () {
+    test('maps web_search to web_search', () {
       final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('web_search'), CanonicalTool.webFetch);
+      expect(adapter.mapToolName('web_search'), CanonicalTool.webSearch);
+    });
+
+    test('maps exact own MCP tools while unknown and third-party tools stay generic', () {
+      final adapter = CodexProtocolAdapter(ownMcpToolCanonicals: const {'memory_save': CanonicalTool.memorySave});
+
+      ToolUse parse(String server, String tool) =>
+          adapter.parseLine(
+                jsonEncode({
+                  'method': 'item/started',
+                  'params': {
+                    'item': {
+                      'type': 'mcp_tool_call',
+                      'id': '$server-$tool',
+                      'server': server,
+                      'tool': tool,
+                      'arguments': <String, dynamic>{},
+                    },
+                  },
+                }),
+              )!
+              as ToolUse;
+
+      expect(parse('dartclaw', 'memory_save').name, 'memory_save');
+      expect(parse('dartclaw', 'unknown').name, 'mcp_call');
+      expect(parse('third_party', 'memory_save').name, 'mcp_call');
     });
 
     test('returns null for unknown and edge-case tool names', () {

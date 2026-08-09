@@ -67,7 +67,7 @@ void main() {
       expect(callbackIds, contains('hook_permission_denied'));
     });
 
-    test('PreToolUse entry contains if: condition with required tool names', () async {
+    test('PreToolUse entry matches every built-in and MCP tool', () async {
       late CapturingFakeProcess fake;
 
       final h = ClaudeCodeHarness(
@@ -100,14 +100,8 @@ void main() {
       expect(preToolHooks!.isNotEmpty, isTrue);
 
       final preToolEntry = preToolHooks.first as Map<String, dynamic>;
-      expect(preToolEntry.containsKey('if'), isTrue, reason: 'Expected if: condition on PreToolUse');
-
-      final ifCondition = preToolEntry['if'] as Map<String, dynamic>;
-      final toolNameCondition = ifCondition['toolName'] as Map<String, dynamic>;
-      final toolNames = (toolNameCondition[r'$in'] as List).cast<String>();
-
-      expect(toolNames, containsAll(['Bash', 'Write', 'Edit', 'NotebookEdit', 'Read']));
-      expect(toolNames, isNot(contains('MultiEdit')));
+      expect(preToolEntry.containsKey('matcher'), isFalse);
+      expect(preToolEntry.containsKey('if'), isFalse);
     });
   });
 
@@ -237,7 +231,7 @@ void main() {
       }, returnsNormally);
     });
 
-    test('PermissionDenied callback with missing tool_name defaults to empty string', () async {
+    test('PermissionDenied callback with missing tool_name denies without invoking the observer', () async {
       late CapturingFakeProcess fake;
 
       String? capturedTool;
@@ -275,7 +269,18 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(capturedTool, '');
+      expect(capturedTool, isNull);
+      final responses = fake.capturedStdinJson.where(
+        (message) => (message['response'] as Map?)?['request_id'] == 'req-no-tool',
+      );
+      expect(responses, hasLength(1));
+      expect(
+        responses.single,
+        containsPair(
+          'response',
+          containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
+        ),
+      );
     });
   });
 }

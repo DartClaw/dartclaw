@@ -392,7 +392,8 @@ Built-in MCP tools:
 |------|---------|
 | `memory_save` / `memory_search` | Persistent memory with FTS5 search |
 | `delegate_to_agent` | Delegates a bounded task to an allowlisted agent and returns terminal status: `completed`, `cancelled`, `budget_exceeded`, or `error` |
-| `sessions_send` | Synchronous session handoff (legacy subagent path) |
+| `sessions_spawn` | Creates a configured-subagent conversation and returns its handle after the first turn |
+| `sessions_send` | Continues the delegated conversation identified by that handle |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |
 | `brave_search` / `tavily_search` | Web search via configurable provider |
 

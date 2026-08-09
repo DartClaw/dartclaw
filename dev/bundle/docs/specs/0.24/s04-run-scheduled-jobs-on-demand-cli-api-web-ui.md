@@ -1,6 +1,6 @@
 # FIS: Run Scheduled Jobs On Demand (CLI + API + Web UI)
 
-**Plan**: docs/specs/0.24/plan.json
+**Plan**: dev/bundle/docs/specs/0.24/plan.json
 **Story-ID**: S04
 
 > Milestone: **0.24** (do **not** implement on `feat/0.23` – release prep). All code paths below are
@@ -55,7 +55,7 @@ revert, and restart again – an immediate manual trigger lets them verify a job
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02] [TI01,TI02] Happy path – API run executes with configured delivery**
+- [x] **S01 [OC01,OC02] [TI01,TI02] Happy path – API run executes with configured delivery**
   - **Given** a running server with configured job `daily-summary` (delivery `announce`, schedule `0 8 * * *`)
     that is not currently executing
   - **When** `POST /api/scheduling/jobs/daily-summary/run` is called
@@ -63,14 +63,14 @@ revert, and restart again – an immediate manual trigger lets them verify a job
     through the same pipeline as a scheduled fire: an agent turn in the isolated `cron` session for
     `daily-summary`, followed by `DeliveryService.deliver` with mode `announce` carrying the turn's result text
 
-- [ ] **S02 [OC01] [TI03] CLI run command**
+- [x] **S02 [OC01] [TI03] CLI run command**
   - **Given** a running server with job `daily-summary` configured
   - **When** the operator runs `dartclaw jobs run daily-summary`
   - **Then** the command exits 0 and prints a confirmation naming `daily-summary` and stating the job was started
     and where to observe the outcome – the job's configured delivery (if any) and the server logs; with `--json`
     it prints the API response JSON instead
 
-- [ ] **S03 [OC03] [TI04,TI05] Web UI Run action**
+- [x] **S03 [OC03] [TI04,TI05] Web UI Run action**
   - **Given** the Scheduling page renders user job `daily-summary`, a prompt-type SYSTEM job row (e.g.
     `memory-journal`), and a callback SYSTEM job row (e.g. the memory pruner's)
   - **When** the operator clicks the Run button on the `daily-summary` row
@@ -78,14 +78,14 @@ revert, and restart again – an immediate manual trigger lets them verify a job
     job; the prompt-type SYSTEM row renders a Run button (and no Edit/Delete); the callback SYSTEM row renders no
     action buttons (owner decision 2026-08-05: prompt-type jobs are runnable on demand regardless of origin)
 
-- [ ] **S04 [OC02,OC04] [TI01,TI02] Already running – rejected, not queued**
+- [x] **S04 [OC02,OC04] [TI01,TI02] Already running – rejected, not queued**
   - **Given** job `daily-summary` is currently executing (scheduled fire or a prior manual run)
   - **When** `POST /api/scheduling/jobs/daily-summary/run` is called
   - **Then** the response is `409` with error code `CONFLICT`, and no second concurrent execution of the job
     starts; conversely, a scheduled fire landing during an in-flight manual run is skipped by the same guard and
     the schedule continues at the next fire (OC04)
 
-- [ ] **S05 [OC02] [TI02] Unknown or restart-pending job – 404**
+- [x] **S05 [OC02] [TI02] Unknown or restart-pending job – 404**
   - **Given** `nightly-review` was just created via `POST /api/scheduling/jobs` (written to YAML, restart pending)
     and is absent from the live scheduler's job list
   - **When** `POST /api/scheduling/jobs/nightly-review/run` is called
@@ -93,12 +93,12 @@ revert, and restart again – an immediate manual trigger lets them verify a job
     running scheduler or not runnable on demand (newly created or edited jobs require a restart; otherwise check
     server logs for config errors); a completely unknown name yields the same `404` response and message
 
-- [ ] **S06 [OC04] [TI01] Paused job runs manually and stays paused**
+- [x] **S06 [OC04] [TI01] Paused job runs manually and stays paused**
   - **Given** job `daily-summary` was paused via the existing toggle endpoint
   - **When** a manual run is triggered
   - **Then** the job executes once, remains paused afterwards, and no next-fire timer is scheduled for it
 
-- [ ] **S07 [OC01,OC04] [TI01] Failure parity – configured retries and alert, no delivery**
+- [x] **S07 [OC01,OC04] [TI01] Failure parity – configured retries and alert, no delivery**
   - **Given** job `flaky-job` with `retry.attempts: 1` whose agent turn fails on both attempts
   - **When** a manual run is triggered
   - **Then** exactly two attempts execute, `DeliveryService.deliver` is never called, and a `ScheduledJobFailedEvent`
@@ -106,16 +106,16 @@ revert, and restart again – an immediate manual trigger lets them verify a job
 
 ## Structural Criteria
 
-- [ ] Existing scheduling behavior is unchanged: job CRUD routes, the toggle route, and pause/resume semantics
+- [x] Existing scheduling behavior is unchanged: job CRUD routes, the toggle route, and pause/resume semantics
   keep their current contracts – existing `config_routes`, `config_api_routes`, and `schedule_service` tests pass
   unmodified (proved by the TI01/TI02 Verify "existing cases unmodified" clauses + the standard full-suite gate).
-- [ ] A manual run leaves timer state untouched: it never cancels or reschedules pending cron/interval/once timers
+- [x] A manual run leaves timer state untouched: it never cancels or reschedules pending cron/interval/once timers
   (proved by TI01 Verify).
-- [ ] The run route is registered inside the existing authed API pipeline only – no addition to any public-path
+- [x] The run route is registered inside the existing authed API pipeline only – no addition to any public-path
   allowlist in the auth middleware (proved by TI02 Verify).
-- [ ] Design-system canon and served assets stay in strict sync for icons, and `embedded_assets.g.dart` is
+- [x] Design-system canon and served assets stay in strict sync for icons, and `embedded_assets.g.dart` is
   regenerated via the tool, never hand-edited (proved by TI04/TI05 Verify).
-- [ ] User docs describe on-demand runs everywhere the feature surfaces – `scheduling.md`, `cli-reference.md`,
+- [x] User docs describe on-demand runs everywhere the feature surfaces – `scheduling.md`, `cli-reference.md`,
   `web-ui-and-api.md` (proved by TI06 Verify).
 
 ## Scope & Boundaries
@@ -198,7 +198,7 @@ file   | apps/dartclaw_cli/test/helpers/fake_api_transport.dart#FakeApiTransport
 
 ### Implementation Tasks
 
-- [ ] **TI01** `ScheduleService` exposes an on-demand run seam with parity semantics
+- [x] **TI01** `ScheduleService` exposes an on-demand run seam with parity semantics
   - Public method (e.g. `runJobNow(String id)`) returning a discriminated result (started / alreadyRunning /
     notFound), decided synchronously: job lookup + `_running` check-and-add complete before the first suspension
     point; the execution future is spawned inside the service, `unawaited()` with a caught-and-logged handler
@@ -223,7 +223,7 @@ file   | apps/dartclaw_cli/test/helpers/fake_api_transport.dart#FakeApiTransport
     `onExecute` null) → started with its configured delivery; a job failing all `retry.attempts` fires
     `ScheduledJobFailedEvent` and never calls `deliver` (S07); existing cases in the suite are unmodified.
 
-- [ ] **TI02** `POST /api/scheduling/jobs/<name>/run` is served by the live-control router
+- [x] **TI02** `POST /api/scheduling/jobs/<name>/run` is served by the live-control router
   - In `config_routes.dart`, next to the toggle route; decode the `<name>` segment as the CRUD router does –
     `_decodePathSegment` is library-private to `config_api_routes.dart`, so duplicate the small helper locally
     (do not move the run route into the CRUD router); the UI's `encodeURIComponent` fetch depends on it; the
@@ -239,7 +239,7 @@ file   | apps/dartclaw_cli/test/helpers/fake_api_transport.dart#FakeApiTransport
     its URL-encoded path; `rg` confirms no `/api/scheduling` entry was added to any auth public-path allowlist;
     existing cases in the suite are unmodified.
 
-- [ ] **TI03** `dartclaw jobs run <name>` triggers the route from the CLI
+- [x] **TI03** `dartclaw jobs run <name>` triggers the route from the CLI
   - New `JobsRunCommand extends ConnectedCommand` in `apps/dartclaw_cli/lib/src/commands/jobs/`, registered in
     `JobsCommand`; encode the name with `Uri.encodeComponent` before `postObject('/api/scheduling/jobs/$encodedName/run')`; `--json` flag. Human output names the original job,
     states it started, and points at the configured delivery (if any) and server logs for the outcome. `409`
@@ -254,12 +254,12 @@ file   | apps/dartclaw_cli/test/helpers/fake_api_transport.dart#FakeApiTransport
     encoded path while human output retains the original name; a `404` envelope's restart-hint message is printed
     verbatim (not the out-of-sync text); missing job name triggers the positional-arg guard (S02).
 
-- [ ] **TI04** A play icon exists in the design system, canon-first
+- [x] **TI04** A play icon exists in the design system, canon-first
   - `.icon-play` added to `dev/design-system/icons.css` and synced verbatim into
     `packages/dartclaw_server/lib/src/static/icons.css` (style-matched to the existing Lucide-derived set).
   - **Verify**: `rg '\.icon-play'` matches in both files; the icons strict-sync fitness check passes.
 
-- [ ] **TI05** The Scheduling page offers a Run action on user job rows
+- [x] **TI05** The Scheduling page offers a Run action on user job rows
   - Run button (`data-icon` play, `title`/`aria-label` "Run now") joins Edit/Delete inside the existing
     `hasActions`-gated `action-btns` cell in `scheduling.html`, and additionally renders alone on prompt-type
     SYSTEM rows. Keep the existing display-map shape: user rows are runnable by default; built-ins opt in with
@@ -275,7 +275,7 @@ file   | apps/dartclaw_cli/test/helpers/fake_api_transport.dart#FakeApiTransport
     harness: invoking `runJob` for `Q&A digest` captures `/api/scheduling/jobs/Q%26A%20digest/run`, while the toast
     retains `Q&A digest`. Regenerate `embedded_assets.g.dart` in the same change.
 
-- [ ] **TI06** User docs describe on-demand runs everywhere the feature surfaces
+- [x] **TI06** User docs describe on-demand runs everywhere the feature surfaces
   - `docs/guide/scheduling.md` (under Cron Jobs): running a job on demand via CLI/API/UI, parity semantics,
     paused-job behavior, busy rejection, restart-pending caveat, and the skipped-fire window (a scheduled fire
     landing during an in-flight run is skipped; for `once` jobs a skipped fire is lost – OC04). `docs/guide/cli-reference.md`: `jobs run` block matching
@@ -296,4 +296,9 @@ file   | apps/dartclaw_cli/test/helpers/fake_api_transport.dart#FakeApiTransport
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-08-08 21:35 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- S03 owns creation of the `memory-journal` production display row; that row must include `runnable: true` to opt
+  into S04's tested prompt-type SYSTEM Run action contract.

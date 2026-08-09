@@ -1,4 +1,5 @@
 import '../harness/agent_harness.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
 import 'turn_outcome.dart';
 
 /// Per-harness turn execution engine interface.
@@ -36,9 +37,11 @@ abstract interface class TurnRunner {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
+    PromptScope? promptScope,
   });
 
   /// Launches async execution for a previously [reserveTurn]'d turn.

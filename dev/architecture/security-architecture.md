@@ -113,7 +113,7 @@ Every guard receives the same context object:
 | `peerId` | `String?` | Channel sender identifier |
 | `timestamp` | `DateTime` | Evaluation timestamp |
 
-`GuardContext` preserves the raw provider tool name for audit logging while the guard pipeline evaluates the canonical tool name. That keeps incident logs faithful to provider output without expanding the policy surface.
+`GuardContext` preserves the raw provider tool name for audit logging while the guard pipeline evaluates the canonical tool name. `GuardChain.evaluateBeforeToolCall` also carries the effective delegated-agent ID from the active turn. That keeps incident logs faithful to provider output and lets agent-scoped guards evaluate the real caller.
 
 ### Execution Model
 
@@ -199,8 +199,8 @@ child environment under the variable name(s) the referenced credential declares,
 environment, logs, or the audit record (which retains only the credential reference). A credentialed stdio server whose
 credential declares no env var name fails closed rather than guessing one.
 
-The temporal-KG MCP mutating tools (`kg_add`, `kg_invalidate`) now invoke the guard chain before mutation and write audit
-evidence through the same guard-audit policy family; the old TD-110 gap where they bypassed guard/audit policy is closed.
+The temporal-KG MCP mutating tools (`kg_add`, `kg_invalidate`) still sit outside the inbound dispatch-level guard/audit
+seam. TD-110 schedules that shared enforcement point and `kg_invalidate` ownership checks for 0.27.
 
 ### Guard Hot-Reload
 
@@ -224,7 +224,9 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `file_read` | `Read` | `none` | Canonical read category; the current Codex shipped mapping does not expose a first-class read tool |
 | `file_write` | `Write` | `file_change` with `kind=create` | Create/write operations; Codex exec currently uses this bucket for all `file_change` events |
 | `file_edit` | `Edit` | `file_change` with `kind=update` or `kind=modify` (app-server) | In-place file modification; Codex exec does not currently split this out |
-| `web_fetch` | `web_fetch` | `web_search` | HTTP/web retrieval |
+| `web_fetch` | `WebFetch`; own MCP `mcp__dartclaw__web_fetch` | own MCP `{server: dartclaw, tool: web_fetch}` | HTTP/web retrieval |
+| `web_search` | `WebSearch`; own MCP `mcp__dartclaw__brave_search` or `mcp__dartclaw__tavily_search` when registered | `web_search`; own MCP `{server: dartclaw, tool: brave_search|tavily_search}` when registered | Web search |
+| `memory_save` | own MCP `mcp__dartclaw__memory_save` | own MCP `{server: dartclaw, tool: memory_save}` | Persistent memory writes |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
 ACP reverse-calls map at the handler level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`
@@ -239,7 +241,9 @@ Inference rules:
 - In Codex, `file_change` with `kind=update` or `kind=modify` maps to `file_edit`.
 - `command_execution` maps to `shell`.
 
-Unmapped tools are prefixed with `provider:name` for auditability and explicit policy handling. Example: an unknown Codex item becomes `codex:reasoning`, and an unknown Claude item becomes `claude:some_tool`. DartClaw logs a warning when this fallback is used, and the guard chain remains fail-closed for security-sensitive guards.
+Own-MCP semantic mapping uses the exact registered tool inventory and the shared `dartclaw` server identity; unregistered own tools and third-party MCP tools remain `mcp_call`. Other unmapped tools are prefixed with `provider:name` for auditability and explicit policy handling. Example: an unknown Codex item becomes `codex:reasoning`, and an unknown Claude item becomes `claude:some_tool`. DartClaw logs a warning when this fallback is used, and the guard chain remains fail-closed for security-sensitive guards.
+
+Claude may defer built-in and MCP tools behind its provider-native `ToolSearch` helper. A non-empty closed policy permits only the exact `claude:ToolSearch`/`ToolSearch` discovery identity after deny checks; discovered tools are not thereby granted and still require their own canonical allowlist entry. Explicit discovery denies remain closed. The toolless sentinel dominates a mixed list, so accidental policy composition cannot reopen discovery or another tool.
 
 **Source**: `packages/dartclaw_core/lib/src/harness/canonical_tool.dart`, `packages/dartclaw_core/lib/src/harness/claude_protocol_adapter.dart`, `packages/dartclaw_core/lib/src/harness/codex_protocol_adapter.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md)
 
@@ -250,13 +254,13 @@ Different providers expose different interception points. DartClaw keeps the gua
 | Provider / mode | Mechanism | DartClaw integration point | Security boundary |
 |-----------------|------------|-----------------------------|-------------------|
 | Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
-| Codex (app-server) | Approval requests only | `approval` control request handler in `CodexHarness`; must keep approvals enabled and must not use `--yolo` for provider-approval security mode | Approval response path is the only interception point |
+| Codex (app-server) | Approval requests only | `approval` handler in `CodexHarness`; `on-request` is broadest, granular is partial, `never` disables host interception | Approval response path is the only interception point |
 | ACP direct-provider, verified | Host-advertised ACP `fs` capabilities | `AcpReverseCallHandlers` bind reverse-calls to the active session and map them to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
 | ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Container profile and workspace jail only | Container-isolation-only until per-agent verification proves guard mediation |
 
 For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
 
-For Codex app-server, the approval request is the only interception point. DartClaw must preserve approval prompts and must not use `--yolo`, because bypassing the approval request would remove the guard chain from the execution path.
+For Codex app-server, the approval request is the only interception point. DartClaw does not use `--yolo`, but the configured policy still controls coverage: explicitly configured `on-request` is the intended host-guard posture, granular omits provider-safe operations, and `never` removes the guard chain from tool execution. An omitted option inherits Codex configuration, so serve treats it as unverified and warns when tool restrictions are configured.
 
 For ACP agents, security classification is topology-scoped. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies can still run under container isolation, but DartClaw does not describe them as mediated by guards.
 
@@ -363,7 +367,7 @@ stackoverflow.com
 | `curl ... -d/--data/--form` | POST data exfiltration |
 | `\| base64` | Encoding for covert data exfiltration |
 
-**Per-agent overrides**: The `agent_overrides` config section allows granting additional domains to specific sub-agents (e.g. search agent may need broader web access).
+**Per-agent overrides**: The enforced `agent_overrides` config section grants additional domains only when `GuardContext.agentId` matches that subagent. Both shell and `web_fetch` checks use the effective global-plus-agent set. Claude-native subagent traffic that does not traverse a DartClaw-dispatched delegated turn uses only the global allowlist.
 
 **Source**: `packages/dartclaw_security/lib/src/network_guard.dart`
 
@@ -387,19 +391,19 @@ LLM-based content classification at inter-agent boundaries. Fires only at the `b
 
 ## ToolPolicyGuard
 
-3-layer policy cascade wrapping `ToolPolicyCascade` for integration with the guard chain. Only evaluates when a sub-agent context is present (`context.agentId != null`). Main agent calls pass through.
+3-layer policy cascade wrapping `ToolPolicyCascade` for integration with the guard chain. `TurnRunner` passes the delegated-agent identity through `AgentHarness.turn`; Claude hooks, Codex approval requests, and ACP reverse-call/permission bindings attach it to `GuardContext`. Only evaluates when a subagent context is present (`context.agentId != null`). Main agent calls pass through.
 
 **Evaluation order** (most restrictive wins):
 
 ```
 1. Global deny   — always blocked regardless of agent
 2. Agent deny    — blocked for this specific agent
-3. Sandbox allow — only explicitly listed tools are permitted (closed set)
+3. Sandbox allow – when non-empty, only explicitly listed tools are permitted (closed set)
 ```
 
-A tool passes only if it is NOT in global deny, NOT in agent deny, AND IS in the agent's allow set (if an allow set is defined).
+A tool passes only if it is not in global deny, not in agent deny, and is in the agent's allow set when that set is non-empty. Empty or absent allow sets impose no sandbox restriction. Known provider-native policy entries are canonicalized at construction; unknown entries remain exact literals. Denying `mcp_call` also denies semantically remapped own-MCP calls, but allowing `mcp_call` does not grant them.
 
-Example: The search agent's sandbox is `{web_search, web_fetch}` — all other tools (Bash, Read, Write, etc.) are denied at the OS level and policy level, providing defense-in-depth.
+Example: the search agent's canonical sandbox is `{web_search, web_fetch}`, so `ToolPolicyGuard` blocks other intercepted tools on DartClaw-dispatched delegated turns. This is a host policy boundary, not OS isolation. Claude's unfiltered `PreToolUse` hook covers built-ins and dynamic MCP names. Codex requires an approval request: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses this guard. ACP enforcement covers only host reverse file calls and permission requests.
 
 **Source**: `packages/dartclaw_core/lib/src/agents/tool_policy_cascade.dart`
 
@@ -615,6 +619,8 @@ shelf Pipeline
 - Printed at startup: `Web UI: http://localhost:<port>/?token=<hex64>`
 - Rotation: `dartclaw token rotate` generates new token, invalidates all sessions
 
+**Inbound MCP authentication**: `/mcp` requires the same bearer token whenever gateway authentication is enabled. An authentication-disabled deployment mounts the route without a bearer only when the memory journal is enabled and `server.host` is the literal loopback host `localhost`, `127.0.0.1`, or `::1`. Bearerless requests require an exact loopback `Host`; browser requests also require an exact loopback `Origin`. Authentication-disabled non-loopback and default-off journal deployments do not mount `/mcp`.
+
 **Session cookies**:
 - HMAC-SHA256 signed with gateway token as key, stateless (no server-side storage)
 - Format: `base64url(payload).base64url(signature)` where payload = `{"iat": unix_ms}`
@@ -668,19 +674,19 @@ DM access is controlled per-channel via `DmAccessController`:
 
 ### Guard Audit Logger
 
-All guard evaluations are logged with timestamps, verdicts, and context. The `GuardAuditLogger` writes to both stdout (structured log lines) and `audit.ndjson` (append-only file sink).
+All guard evaluations are logged with timestamps, verdicts, and context. The `GuardAuditLogger` writes to both stdout (structured log lines) and date-partitioned audit NDJSON files.
 
 **Log levels**:
 - `INFO` — pass verdicts
 - `WARNING` — warn verdicts
 - `SEVERE` — block verdicts
 
-**File sink** (`audit.ndjson`):
+**File sink** (`audit-YYYY-MM-DD.ndjson`):
 - Fire-and-forget writes via `unawaited()` — guard verdict latency is never affected by I/O
 - Sequential writes chained via `_pendingWrite` future to prevent interleaving
-- Rotation: every 100 writes, checks if entries exceed 10,000; keeps newest N entries via atomic temp-file + rename
+- Date-partition retention removes old files by partition date; legacy `audit.ndjson` remains readable during transition
 
-**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `sessionId`, `channel`, `peerId`.
+**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard events preserve both canonical `tool` and raw provider names so policy denials remain attributable and diagnosable.
 
 **Source**: `packages/dartclaw_security/lib/src/guard_audit.dart`
 
@@ -789,7 +795,7 @@ The web UI uses Trellis HTML templates with `tl:text` for auto-escaping by defau
 DartClaw defends against cross-site request forgery in depth rather than relying on any single control:
 
 - **`SameSite=Strict` session cookies** (primary). The session cookie is not sent on cross-site requests, so a forged cross-origin request arrives unauthenticated. This blocks the common CSRF vector at the browser level without CSRF tokens. It is strong but not absolute — older browsers, some same-site navigation edge cases, and misconfigured intermediaries can weaken the guarantee — so it is backed by an explicit server-side check.
-- **Same-origin Origin/Host guard** (`origin_host_guard.dart`, wired in `server.dart` via `originHostGuardMiddleware`). For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the middleware compares the request's `Origin` authority — scheme, host, effective port — against the request's own `Host` authority (falling back to `Referer` when `Origin` is absent) and returns **403** on mismatch or when neither header is present. Safe methods (GET/HEAD/OPTIONS), Bearer-token (API-client) requests, and no-auth local-admin sessions are exempt.
+- **Same-origin Origin/Host guard** (`origin_host_guard.dart`, wired in `server.dart` via `originHostGuardMiddleware`). For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the middleware compares the request's `Origin` authority – scheme, host, effective port – against the request's own `Host` authority (falling back to `Referer` when `Origin` is absent) and returns **403** on mismatch or when neither header is present. No-auth local-admin writes require the configured server host and request `Host` to be literal loopback hosts before the same authority comparison; this rejects DNS-rebinding requests whose attacker-controlled `Origin` and `Host` match. Origin-less loopback API clients remain supported. Safe methods and Bearer-token requests are exempt.
 - **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, same-origin-only sources — `script-src 'self'` plus the inline-script hash, `style-src 'self'`, `font-src 'self'`, no external origin — `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
 
 ---
@@ -1006,7 +1012,7 @@ Guards are integrated with the `claude` binary's hook system. During the `initia
     "permissionDecision": "deny"}}}}
 ```
 
-`PreToolUse` registrations now use Claude's `if:` filtering support where possible, limiting guard callbacks to tools DartClaw actually evaluates (`Bash`, `Write`, `Edit`, `NotebookEdit`, `Read`). This reduces subprocess round-trips without changing the security model.
+`PreToolUse` is registered without a matcher or `if:` condition so every built-in and dynamically named MCP call reaches DartClaw's guard chain. Static provider-name filters are unsafe here because the provider tool inventory is extensible and excluded names would bypass host policy evaluation.
 
 ### Tool Approval
 
@@ -1077,7 +1083,7 @@ gateway:
 
 | Document | Location |
 |----------|----------|
-| Data Model | `dev/architecture/data-model.md` — `audit.ndjson`, `usage.jsonl` rotation and lifecycle |
+| Data Model | `dev/architecture/data-model.md` — audit NDJSON partitions, `usage.jsonl` rotation and lifecycle |
 | Feature Comparison | `docs/specs/feature-comparison.md` — OpenClaw vs NanoClaw vs DartClaw security models |
 | Public Security Guide | `docs/guide/security.md` — user-facing summary |
 | Security Hardening PRD | `docs/specs/0.5/prd.md` — InputSanitizer, MessageRedactor, ContentClassifier |

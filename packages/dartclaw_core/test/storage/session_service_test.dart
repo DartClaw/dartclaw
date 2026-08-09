@@ -123,6 +123,51 @@ void main() {
       expect(second.id, equals(first.id));
     });
 
+    test('getByKey returns only an existing active mapping', () async {
+      final created = await sessions.getOrCreateByKey('agent:search:delegated:known');
+
+      expect((await sessions.getByKey('agent:search:delegated:known'))?.id, created.id);
+      expect(await sessions.getByKey('agent:search:delegated:unknown'), isNull);
+
+      await sessions.updateSessionType(created.id, SessionType.archive);
+      expect(await sessions.getByKey('agent:search:delegated:known'), isNull);
+    });
+
+    test('getByKey reloads a persisted mapping after service reconstruction', () async {
+      final created = await sessions.getOrCreateByKey(
+        'agent:search:delegated:persisted',
+        type: SessionType.delegated,
+        provider: 'claude',
+      );
+
+      final restarted = SessionService(baseDir: tempDir.path);
+      final loaded = await restarted.getByKey('agent:search:delegated:persisted');
+
+      expect(loaded?.id, created.id);
+      expect(loaded?.type, SessionType.delegated);
+      expect(loaded?.provider, 'claude');
+    });
+
+    test('removeKeyMapping invalidates the handle without deleting the session', () async {
+      final created = await sessions.getOrCreateByKey('agent:search:delegated:discarded', type: SessionType.delegated);
+
+      await sessions.removeKeyMapping('agent:search:delegated:discarded');
+
+      expect(await sessions.getByKey('agent:search:delegated:discarded'), isNull);
+      expect((await sessions.getSession(created.id))?.id, created.id);
+    });
+
+    test('getByKey rejects an index entry pointing at another session key', () async {
+      final expected = await sessions.getOrCreateByKey('agent:search:delegated:expected');
+      final other = await sessions.getOrCreateByKey('agent:search:delegated:other');
+      final indexFile = File('${tempDir.path}/.session_keys.json');
+      final index = jsonDecode(indexFile.readAsStringSync()) as Map<String, dynamic>;
+      index[expected.channelKey!] = other.id;
+      indexFile.writeAsStringSync(jsonEncode(index));
+
+      expect(await sessions.getByKey(expected.channelKey!), isNull);
+    });
+
     test('returns different sessions for different keys', () async {
       final a = await sessions.getOrCreateByKey('cron:job-a');
       final b = await sessions.getOrCreateByKey('cron:job-b');
@@ -286,6 +331,18 @@ void main() {
       expect(all.map((session) => session.type), contains(SessionType.task));
     });
 
+    test('delegated sessions are hidden by default and explicitly queryable', () async {
+      final delegated = await sessions.createSession(type: SessionType.delegated);
+
+      expect(
+        await sessions.listSessions(),
+        isNot(contains(predicate<Session>((session) => session.id == delegated.id))),
+      );
+      expect(await sessions.listSessions(type: SessionType.delegated), [
+        isA<Session>().having((session) => session.id, 'id', delegated.id),
+      ]);
+    });
+
     test('updateSessionType changes type', () async {
       final session = await sessions.createSession(type: SessionType.archive);
       final updated = await sessions.updateSessionType(session.id, SessionType.user);
@@ -377,6 +434,16 @@ void main() {
       final session = await sessions.createSession(type: SessionType.archive);
       final result = await sessions.deleteSession(session.id);
       expect(result, equals(1));
+    });
+
+    test('removes every deterministic key mapping for the deleted session', () async {
+      final session = await sessions.getOrCreateByKey('agent:search:delegated:retained', type: SessionType.delegated);
+      await sessions.updateSessionType(session.id, SessionType.archive);
+
+      expect(await sessions.deleteSession(session.id), 1);
+
+      final index = jsonDecode(File('${tempDir.path}/.session_keys.json').readAsStringSync()) as Map<String, dynamic>;
+      expect(index, isNot(contains('agent:search:delegated:retained')));
     });
 
     test('allows deleting user session', () async {

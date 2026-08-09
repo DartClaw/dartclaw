@@ -65,7 +65,10 @@ abstract class AgentHarness {
   ///
   /// [sessionId] identifies the SDK session to use for this turn. [messages]
   /// contains the message history payload forwarded to the runtime.
-  /// [systemPrompt] is the effective behavior prompt for this turn.
+  /// A non-empty [systemPrompt] is the authoritative scoped prompt for this
+  /// turn on every prompt strategy; empty selects the harness's configured
+  /// default.
+  /// [agentId] identifies a delegated agent; null denotes the main agent.
   /// [mcpServers] configures inline MCP servers for the request when supported.
   /// When [resume] is true, the harness resumes an existing SDK session
   /// instead of starting a fresh conversation (maps to `options.resume`).
@@ -77,6 +80,7 @@ abstract class AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,

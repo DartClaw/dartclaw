@@ -339,6 +339,8 @@ class SecurityWiring implements Reconfigurable {
                 verdictMessage: message,
                 hookPoint: ctx.hookPoint,
                 rawProviderToolName: ctx.rawProviderToolName,
+                toolName: ctx.toolName,
+                agentId: ctx.agentId,
                 sessionId: ctx.sessionId,
                 channel: ctx.source,
                 peerId: ctx.peerId,

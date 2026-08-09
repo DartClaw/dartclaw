@@ -38,9 +38,16 @@ class SchedulingPage extends DashboardPage {
     final sidebarData = await context.sidebar.build();
     final liveHeartbeat = runtimeConfigGetter?.call()?.heartbeatEnabled ?? heartbeatDisplay.enabled;
 
-    // Read jobs fresh from YAML so newly-added jobs surface without restart;
-    // fall back to the startup snapshot when no writer is wired.
-    final liveJobs = configWriter != null ? await configWriter!.readSchedulingJobs() : schedulingDisplay.jobs;
+    final liveJobs = configWriter != null
+        ? [
+            ...(await configWriter!.readSchedulingJobs()).where(
+              (job) => !schedulingDisplay.systemJobNames.contains(job['id'] ?? job['name']),
+            ),
+            ...schedulingDisplay.jobs.where(
+              (job) => schedulingDisplay.systemJobNames.contains(job['id'] ?? job['name']),
+            ),
+          ]
+        : schedulingDisplay.jobs;
 
     final page = schedulingTemplate(
       sidebarData: sidebarData,

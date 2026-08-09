@@ -1,6 +1,6 @@
 # Agent Tool Policy Enforcement on the Live Tool-Call Path
 
-**Plan**: docs/specs/0.24/plan.json
+**Plan**: dev/bundle/docs/specs/0.24/plan.json
 **Story-ID**: S01
 
 > Standalone FIS. Origin: security wiring gap verified 2026-08-05 – the per-agent tool whitelist (`AgentDefinition.allowedTools`) is never enforced on any live tool-call path; restriction is prompt-level only while three docs describe an active 3-layer cascade. Target: **0.24** (owner decision 2026-08-05). Execution repo: `dartclaw-public` – all paths below relative to its root; anchors pinned at commit `584db0c1`. Pin exceptions (dated 2026-08-05, postdate the pin): the cited `dev/state/DECISIONS.md` entries and the TaskToolFilterGuard layered-chain fix – confirm they remain present before exec.
@@ -51,72 +51,72 @@ Documented and parsed (`NetworkGuardConfig.fromYaml` builds `agentOverrides`) bu
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02,TI03,TI04] Search-agent harness turn cannot use the shell**
+- [x] **S01 [OC01] [TI01,TI02,TI03,TI04] Search-agent harness turn cannot use the shell**
   - **Given** the default agent config (built-in `search` agent, `allowedTools: {web_search, web_fetch}` – canonical spellings) and a Claude harness turn invoked with DartClaw `sessionId: s-123` and `agentId: search`
   - **When** the Claude binary emits a `PreToolUse` hook callback for tool `Bash` during that turn
   - **Then** the guard chain returns a block verdict with message `Tool "Bash" not allowed for agent "search"`, the harness answers the hook with `allow: false`, and the evaluated `GuardContext` carries `agentId: search` and the DartClaw session id that was passed to `turn()` (not the provider-side session UUID)
 
-- [ ] **S02 [OC01] [TI02,TI04,TI12] Allowlisted tools still work for the delegated agent**
+- [x] **S02 [OC01] [TI02,TI04,TI12] Allowlisted tools still work for the delegated agent**
   - **Given** the same `search`-agent harness turn, with no search provider configured (native `WebSearch` is not suppressed at spawn)
   - **When** `PreToolUse` fires for `WebSearch`
   - **Then** `ToolPolicyGuard` passes (raw `WebSearch` maps to canonical `web_search`, which is in the allow set) and the hook is answered `allow: true` (subject only to the other guards in the chain)
 
-- [ ] **S03 [OC01] [TI02] Canonical tool names in an allowlist are provider-portable**
+- [x] **S03 [OC01] [TI02] Canonical tool names in an allowlist are provider-portable**
   - **Given** a custom agent configured with `tools: [web_fetch]` (canonical name, not the Claude-native `WebFetch`)
   - **When** the cascade evaluates a Claude call with raw name `WebFetch` (canonical `web_fetch`)
   - **Then** the call is allowed – the cascade matches if *either* the raw provider name or the canonical stable name is listed; a raw name absent from both (e.g. `Bash`/`shell`) is still blocked
 
-- [ ] **S04 [OC01] [TI02,TI04] Closed set blocks MCP tools – delegated agents cannot re-delegate**
+- [x] **S04 [OC01] [TI02,TI04] Closed set blocks MCP tools – delegated agents cannot re-delegate**
   - **Given** the `search`-agent harness turn (allow set `{web_search, web_fetch}`)
   - **When** `PreToolUse` fires for the MCP tool `mcp__dartclaw__sessions_send` (canonical `mcp_call`)
   - **Then** the call is blocked – neither the raw name nor `mcp_call` is in the allow set, so a sandboxed agent cannot spawn further delegations or reach memory/task MCP tools
 
-- [ ] **S05 [OC01] [TI02,TI03] Main-agent turns are untouched**
+- [x] **S05 [OC01] [TI02,TI03] Main-agent turns are untouched**
   - **Given** an ordinary interactive turn (`agentName: 'main'`) on the same guard chain
   - **When** `PreToolUse` fires for `Bash`
   - **Then** the chain verdict and side effects are identical to today's – no `ToolPolicyGuard` block verdict is recorded (observable via the chain's `onVerdict`), `GuardContext.agentId` is null for main turns, and the outcome is decided solely by the other guards
 
-- [ ] **S06 [OC02] [TI07] Per-agent network domain grant applies only to that agent**
+- [x] **S06 [OC02] [TI07] Per-agent network domain grant applies only to that agent**
   - **Given** `guards.network.agent_overrides.search.extra_domains: [example.com]` and `example.com` absent from the global allowlist
   - **When** a `web_fetch` of `https://example.com/page` is evaluated with `agentId: search`, and the same fetch is evaluated with `agentId` null
   - **Then** the search-agent call passes `NetworkGuard` while the main-agent call is blocked with `Network blocked: domain not in allowlist (example.com)`
 
-- [ ] **S07 [OC03] [TI08] Retired spawn fields warn loudly and never leak to the provider**
+- [x] **S07 [OC03] [TI08] Retired spawn fields warn loudly and never leak to the provider**
   - **Given** a config with `agent.agents.search.max_spawn_depth: 2` and `max_children_per_agent: 5`
   - **When** the config is parsed at startup
   - **Then** a warning names each retired key as ignored/unenforced, `AgentDefinition` no longer carries the fields, and neither key appears in `extra` (and therefore never reaches the Claude initialize handshake)
 
-- [ ] **S08 [OC01] [TI04,TI12] MCP-backed search tools work for the delegated agent**
+- [x] **S08 [OC01] [TI04,TI12] MCP-backed search tools work for the delegated agent**
   - **Given** a `search`-agent harness turn in a serve deployment with MCP enabled and a search provider configured (native `WebFetch`/`WebSearch` suppressed at spawn via `mcpDisallowedTools`)
   - **When** `PreToolUse` fires for `mcp__dartclaw__brave_search` and then for `mcp__dartclaw__web_fetch`
   - **Then** both calls are allowed – the wiring-injected semantic mapping canonicalizes them to `web_search` / `web_fetch`, which are in the allow set – while `mcp__dartclaw__sessions_send` still canonicalizes to `mcp_call` and stays blocked (S04)
 
-- [ ] **S09 [OC01] [TI12] Own-MCP fetches are domain-gated on guard-evaluated turns (restored coverage)**
+- [x] **S09 [OC01] [TI12] Own-MCP fetches are domain-gated on guard-evaluated turns (restored coverage)**
   - **Given** a guards-enabled serve deployment with MCP on, the Claude harness, `example.com` absent from `guards.network.allowed_domains`, and no `agent_overrides` entry for the main agent
   - **When** a main-agent turn (`agentId` null) calls `mcp__dartclaw__web_fetch` for `https://example.com/page`, and again for an allowlisted domain
   - **Then** the non-allowlisted fetch is blocked by `NetworkGuard` (`Network blocked: domain not in allowlist (example.com)`) and the allowlisted fetch passes – the remapped call evaluates as canonical `web_fetch`, closing today's MCP-path bypass of the domain allowlist (the MCP tool itself performs SSRF checks only)
 
-- [ ] **S10 [OC01] [TI02,TI04,TI12] Doc-copied raw allowlists keep working under MCP (entry canonicalization)**
+- [x] **S10 [OC01] [TI02,TI04,TI12] Doc-copied raw allowlists keep working under MCP (entry canonicalization)**
   - **Given** a search agent explicitly configured `tools: [WebSearch, WebFetch]` (the raw spelling today's guides instruct) in an MCP + search-provider deployment, running a delegated turn (`agentId: search`) on the Claude harness
   - **When** `PreToolUse` fires for `mcp__dartclaw__brave_search` (canonical `web_search`)
   - **Then** the call is allowed – allow/deny entries are normalized through the static known-name table at cascade build (`WebSearch` → `web_search`, `WebFetch` → `web_fetch`), so matching succeeds in canonical space; an entry matching no known name stays literal
 
-- [ ] **S11 [OC01] [TI12] Exact own-MCP semantics are consistent across Claude and Codex**
+- [x] **S11 [OC01] [TI12] Exact own-MCP semantics are consistent across Claude and Codex**
   - **Given** the shared own-MCP inventory contains `memory_save` → canonical `memory_save`
   - **When** Claude reports `mcp__dartclaw__memory_save` and Codex reports an `mcp_tool_call` item with `server: dartclaw`, `tool: memory_save`
   - **Then** both adapters emit canonical `memory_save`; an unknown DartClaw tool and a third-party server tool remain generic `mcp_call`
 
 ## Structural Criteria
 
-- [ ] `GuardChain.evaluateBeforeToolCall` gains only an optional named `agentId` parameter; all existing call sites compile unchanged (`service_wiring_mcp_tools.dart#_kgGuardEvaluator`, `guard_editor_service.dart#_evaluateTestChain`, `harness_wiring.dart#_acpPermissionDecision`).
-- [ ] On the Claude harness, `GuardContext.sessionId` for `beforeToolCall` equals the DartClaw session id passed to `turn()`; the provider-side session UUID (from `SystemInit`) remains available for logging but is no longer used as the guard/audit session identity.
-- [ ] On the Codex and ACP harnesses, `beforeToolCall` guard evaluations during an active/bound turn carry that turn's `agentId` alongside the existing DartClaw session id; idle/unbound behavior unchanged.
-- [ ] `AgentDefinition.toInitializePayload` emits `'tools': [...]` exactly when `allowedTools` is non-empty and continues to omit it when empty; `disallowedTools` and `extra` behavior unchanged.
-- [ ] `max_spawn_depth` and `max_children_per_agent` remain in `AgentDefinition._extractExtra`'s reserved set (parse-and-ignore with warning), so existing configs neither break nor leak the keys.
-- [ ] No doc in `docs/guide/` or `dev/architecture/` still claims that per-agent `max_spawn_depth`/`max_children_per_agent` are enforced, that per-agent `max_concurrent` is individually enforced, or that sandbox enforcement is "OS level".
-- [ ] Package `AGENTS.md` files for `dartclaw_security`, `dartclaw_core`, and `dartclaw_models` carry no stale mention of the retired spawn fields or pre-enforcement guard behavior.
-- [ ] The semantic own-MCP inventory is constructed once before harness startup and supplies both harness mapping and later MCP registration; provider adapters do not maintain separate tool lists. (Proved by TI12 Verify.)
-- [ ] All existing tests pass workspace-wide (`dart analyze` + `dart test`); barrel export tests updated only where the public API legitimately changed.
+- [x] `GuardChain.evaluateBeforeToolCall` gains only an optional named `agentId` parameter; all existing call sites compile unchanged (`service_wiring_mcp_tools.dart#_kgGuardEvaluator`, `guard_editor_service.dart#_evaluateTestChain`, `harness_wiring.dart#_acpPermissionDecision`).
+- [x] On the Claude harness, `GuardContext.sessionId` for `beforeToolCall` equals the DartClaw session id passed to `turn()`; the provider-side session UUID (from `SystemInit`) remains available for logging but is no longer used as the guard/audit session identity.
+- [x] On the Codex and ACP harnesses, `beforeToolCall` guard evaluations during an active/bound turn carry that turn's `agentId` alongside the existing DartClaw session id; idle/unbound behavior unchanged.
+- [x] `AgentDefinition.toInitializePayload` emits `'tools': [...]` exactly when `allowedTools` is non-empty and continues to omit it when empty; `disallowedTools` and `extra` behavior unchanged.
+- [x] `max_spawn_depth` and `max_children_per_agent` remain in `AgentDefinition._extractExtra`'s reserved set (parse-and-ignore with warning), so existing configs neither break nor leak the keys.
+- [x] No doc in `docs/guide/` or `dev/architecture/` still claims that per-agent `max_spawn_depth`/`max_children_per_agent` are enforced, that per-agent `max_concurrent` is individually enforced, or that sandbox enforcement is "OS level".
+- [x] Package `AGENTS.md` files for `dartclaw_security`, `dartclaw_core`, and `dartclaw_models` carry no stale mention of the retired spawn fields or pre-enforcement guard behavior.
+- [x] The semantic own-MCP inventory is constructed once before harness startup and supplies both harness mapping and later MCP registration; provider adapters do not maintain separate tool lists. (Proved by TI12 Verify.)
+- [x] All existing tests pass workspace-wide (`dart analyze` + `dart test`); barrel export tests updated only where the public API legitimately changed.
 
 ## Scope & Boundaries
 
@@ -183,51 +183,51 @@ url    | https://code.claude.com/docs/en/headless                               
 
 ### Implementation Tasks
 
-- [ ] **TI01** `GuardChain.evaluateBeforeToolCall` accepts and propagates agent identity
+- [x] **TI01** `GuardChain.evaluateBeforeToolCall` accepts and propagates agent identity
   - Optional named `String? agentId` → `GuardContext.agentId`; `guard_editor_service.dart#_evaluateTestChain` forwards `context.agentId` for the tester path
   - **Verify**: `dartclaw_security` `guard_chain_test.dart` – a chain evaluation with `agentId: 'search'` yields a `GuardContext` whose `agentId` is `'search'`; omitting the parameter yields null (existing tests untouched)
 
-- [ ] **TI02** `ToolPolicyCascade` matches raw and canonical names; main-agent passthrough preserved
+- [x] **TI02** `ToolPolicyCascade` matches raw and canonical names; main-agent passthrough preserved
   - `isAllowed` (or a successor taking both names) blocks when raw *or* canonical hits global/agent deny, and passes the allow layer when the set is absent or contains raw *or* canonical; `ToolPolicyGuard` supplies `context.rawProviderToolName` and `context.toolName`, still passing immediately when `context.agentId` is null; block messages render the raw provider name when present (canonical fallback). Allow/deny *entries* are normalized at cascade build through a static known-name table of exact raw↔canonical pairs (`WebSearch`/`web_search`, `WebFetch`/`web_fetch`, `Bash`/`shell`, `Read`/`file_read`, `Write`/`file_write`, `Edit`/`file_edit`, Codex `command_execution`/`shell`; **no prefix rules and no kind-dependent entries** – an `mcp__…` entry matches no table row and stays literal, never widening to `mcp_call`) so raw-spelled configs match in canonical space too (S10); on the deny layers, semantically-remapped own-MCP calls additionally match entries naming `mcp_call` (deny-side category union – deny errs broad; the allow side stays semantic-only, so allowing `mcp_call` does not grant own fetch/search/memory tools)
   - **Verify**: `tool_policy_cascade_test.dart` – allow `{web_search, web_fetch}` (the search default): raw `Bash`/canonical `shell` blocked with message `Tool "Bash" not allowed for agent "search"`, raw `WebSearch` (canonical `web_search`) allowed; allow `{WebSearch}` (raw user-config entry): raw `WebSearch` allowed via raw match, and raw `mcp__dartclaw__brave_search` (canonical `web_search`) allowed via entry canonicalization [S10]; deny `{shell}`: raw `Bash` blocked; deny `{WebFetch}` (raw entry, normalized `web_fetch`): own-MCP `mcp__dartclaw__web_fetch` blocked (raw-spelled denies gain the own-MCP equivalents); deny `{mcp_call}`: own-MCP `mcp__dartclaw__web_fetch` (semantic canonical `web_fetch`) still blocked via category union, while allow `{mcp_call}` alone does not admit it; allow `{mcp__dartclaw__web_fetch}` (exact MCP raw entry): admits exactly that raw name and no other MCP tool (stays literal, no `mcp_call` widening); `agentId` null → pass for every tool; `agentId: 'cron:x'` with no cascade entry → pass for any tool not in global deny, and a global-deny entry still blocks it (identified-but-unsandboxed passthrough)
 
-- [ ] **TI03** `AgentHarness.turn` carries the calling agent; `TurnRunner` supplies it
+- [x] **TI03** `AgentHarness.turn` carries the calling agent; `TurnRunner` supplies it
   - Add `String? agentId` to the interface and all implementers (sweep per Constraints); `TurnRunner._runTurnInner` and the context-flush turn pass `agentName == 'main' ? null : agentName` from the active `TurnContext`
   - **Verify**: `turn_runner` test – `startTurn(..., agentName: 'search')` reaches the fake harness with `agentId: 'search'`; default `agentName` reaches it as null
 
-- [ ] **TI04** Claude harness evaluates guards with active-turn identity
+- [x] **TI04** Claude harness evaluates guards with active-turn identity
   - Capture `{sessionId, agentId}` at `turn()` entry (cleared in the existing `finally`); `_handlePreToolUseCallback` passes both to `evaluateBeforeToolCall` – the DartClaw session id replaces `_sessionId` in the guard context
   - **Verify**: `claude_code_harness` test with a recording guard (`test/harness/harness_test_support.dart#RecordingGuard`) – during `turn(sessionId: 's-123', agentId: 'search')`, a `PreToolUse` for `Bash` produces a context with `sessionId: 's-123'`, `agentId: 'search'`, `rawProviderToolName: 'Bash'`, and a blocking chain answers the hook `allow: false` [S01]
 
-- [ ] **TI05** Codex harness threads `agentId` alongside `_activeSessionId`
+- [x] **TI05** Codex harness threads `agentId` alongside `_activeSessionId`
   - Same active-turn capture; `_handleApprovalRequest` passes `agentId` into `evaluateBeforeToolCall`
   - **Verify**: codex harness approval test – recorded `GuardContext` carries `agentId` from the active turn and the existing DartClaw `sessionId`
 
-- [ ] **TI06** ACP turn binding carries `agentId`; reverse calls and permission decisions see it
+- [x] **TI06** ACP turn binding carries `agentId`; reverse calls and permission decisions see it
   - `_AcpTurnBinding` + `bindTurn(...)` gain `agentId`; `_evaluateGuard` (acp_reverse_call_handlers.dart) passes it; the `AcpPermissionRequest` → `_acpPermissionDecision` seam forwards `sessionId` + `agentId` so the wiring-side evaluation stops calling `evaluateBeforeToolCall` identity-blind
   - **Verify**: `acp_reverse_call_handler_test.dart` – a reverse call during a bound turn evaluates with the bound `agentId`; unbound behavior unchanged
 
-- [ ] **TI07** `NetworkGuard` honors `agent_overrides` for the requesting agent
+- [x] **TI07** `NetworkGuard` honors `agent_overrides` for the requesting agent
   - Effective allowlist = `allowedDomains` ∪ `agentOverrides[context.agentId]` for both the `shell` URL-extraction path and `web_fetch`; no change when `agentId` is null or has no override entry
   - **Verify**: `network_guard_test.dart` – with `agent_overrides: {search: {extra_domains: [example.com]}}`, `web_fetch` of `https://example.com` passes at `agentId: 'search'` and blocks at `agentId: null`; a `curl https://example.com` shell command follows the same split [S06]
 
-- [ ] **TI08** `AgentDefinition` retires the unenforced spawn fields
+- [x] **TI08** `AgentDefinition` retires the unenforced spawn fields
   - Remove `maxSpawnDepth`/`maxChildrenPerAgent` fields and the `searchAgent` factory args; `fromYaml` warns `agents.<id>.max_spawn_depth is not enforced — ignored` (same for `max_children_per_agent`) when present; keys stay in `_extractExtra`'s reserved set; `harness_wiring.dart` `SubagentLimits` construction (hardcoded depth 1, summed `maxConcurrent`) is confirmed field-independent; the existing empty-`tools` startup warning for non-search agents is corrected to match fail-open enforcement (empty allowlist = no sandbox, all tools available minus denies – not "will not be able to use any tools"); serve startup additionally warns when any agent defines `tools` while a Codex harness runs `approval: never` (host tool-policy enforcement is inactive on that harness – see Constraints), and likewise for sandboxed agents on an ACP harness (partial guard surface – see Constraints)
   - **Verify**: `dartclaw_models` test – `fromYaml` with `max_spawn_depth: 2` emits the warning, the resulting `toInitializePayload()` and `extra` contain neither key; `rg -n "maxSpawnDepth|maxChildrenPerAgent" packages/dartclaw_models` returns no hits; wiring test – warning emitted for the sandboxed-agents + Codex + `approval: never` combination and for the ACP variant
 
-- [ ] **TI09** Claude initialize handshake carries the per-agent allowlist in provider-native spelling
+- [x] **TI09** Claude initialize handshake carries the per-agent allowlist in provider-native spelling
   - `toInitializePayload` emits `'tools': allowedTools.toList()` when non-empty (confirm key shape against the headless docs reference); empty allowlist keeps the key absent. `harness_wiring.dart` translates **every** canonical entry to its Claude-native spelling when assembling the `agents` payload (`shell` → `Bash`, `file_read` → `Read`, `file_write` → `Write`, `file_edit` → `Edit`, `web_fetch` → `WebFetch`, `web_search` → `WebSearch`; `mcp_call` has no native spelling – omitted with a debug log; prior art: `claude_cli_provider.dart`'s canonical→native pattern translation) and appends the concrete own-MCP raw names scoped by grant – the fetch tool name iff the allow set grants `web_fetch`, the search tool names iff it grants `web_search`, never unconditionally (appending to unrelated agents would widen the provider-side gate) – so the gate matches the tools the native subagent actually has; both the translation and the grant-scope check operate on entries normalized through the TI02 static table first, so raw-spelled configs (`tools: [WebSearch, WebFetch]`) translate and receive the own-MCP names exactly like canonical ones; entries the table does not know pass through untranslated
   - **Verify**: payload/wiring test – under an MCP-enabled config the search agent's `tools` contains `WebSearch`, `WebFetch`, and the own-MCP raw names; a raw-spelled agent `tools: [WebSearch, WebFetch]` under MCP gets the same own-MCP raw names appended (normalized grant check); a custom agent `tools: [shell, file_read]` forwards `['Bash', 'Read']`; a custom agent `tools: [Read]` gains no MCP names; an agent with empty `allowedTools` has no `tools` key; a raw user-configured entry (e.g. `Grep`) passes through unchanged
 
-- [ ] **TI10** User and architecture docs match the shipped enforcement
+- [x] **TI10** User and architecture docs match the shipped enforcement
   - `docs/guide/search.md` + `docs/guide/agents.md`: cascade described as guard-layer enforcement on delegated turns; the search agent's canonical default allowlist (`{web_search, web_fetch}`) and the cross-harness own-MCP semantic mapping documented; tool-name domains explained (provider-native + canonical; canonical names are portable only for canonically-mapped tools – unmapped tools such as Claude `Glob` keep provider-native names, evaluating under `claude:<raw>`/`codex:<raw>` guard fallbacks); spawn-field rows removed/marked retired; the "Tools default behavior" paragraph corrected (empty/absent `tools` = no sandbox – all tools allowed minus denies, not "no tools are permitted"); the per-agent `max_concurrent` "finer-grained control" claim corrected to global-sum enforcement; guide examples move to canonical spellings with a migration note (raw spellings keep working via entry canonicalization; raw-spelled denies now also cover the own-MCP equivalents; task/step policies naming `web_fetch` no longer imply `WebSearch` – add `web_search`). `docs/guide/configuration.md`: `max_spawn_depth` removed from the example; a note that own-MCP `web_fetch` is now domain-gated by `guards.network.allowed_domains` on guard-evaluated turns (upgrade impact for guards-on MCP deployments – maintain `allowed_domains`/`extra_allowed_domains`). `dev/architecture/security-architecture.md`: ToolPolicyGuard section states identity threading and the delegation enforcement boundary, fixes the "OS level" claim, adds `web_search`/`memory_save` taxonomy rows, and documents exact own-MCP mapping on Claude raw names and Codex `server`/`tool` payloads; NetworkGuard notes `agent_overrides` is enforced. `dev/architecture/control-protocol.md#41-initialize-handshake`: the `agents` example and request-field table document per-agent `tools`, while its deadlock-workaround section states that no `beforeToolCall` guard runs under Codex `approval: never`. `docs/guide/workflows-reference.md`: the `mcp_call` entry notes that DartClaw's own fetch/search/memory tools now evaluate under their exact canonicals, so step allowlists naming `mcp_call` no longer admit them – list `web_fetch`/`web_search`/`memory_save` instead (the deny-side `mcp_call` union lives in the agent cascade, not in step allowlists – `TaskToolFilterGuard` has no deny layer; the union is documented in the agents guide/security-architecture).
   - **Verify**: `rg -n "max_spawn_depth" docs/ dev/architecture/` reports only retired-key mentions (if any); `rg -n "OS level" dev/architecture/security-architecture.md` returns nothing; `rg -n "web_search" dev/architecture/security-architecture.md` shows the corrected taxonomy row; the agents-guide cascade section names `ToolPolicyGuard` as the live enforcement point
 
-- [ ] **TI11** Package `AGENTS.md` files stay current
+- [x] **TI11** Package `AGENTS.md` files stay current
   - `dartclaw_security` (ToolPolicyGuard is the one guard matching raw+canonical; `evaluateBeforeToolCall` identity params), `dartclaw_core` (harness active-turn identity; Claude guard-context session id is the DartClaw id), `dartclaw_models` (spawn fields retired, `tools` forwarded) – update the affected Role/Gotcha lines in the same change
   - **Verify**: each edited package's `AGENTS.md` diff shows the corresponding fact updated and no stale mention of the retired spawn fields or pre-enforcement guard behavior remains (diff inspection – the field names appear in no package `AGENTS.md` today, so absence alone proves nothing)
 
-- [ ] **TI12** Canonical `web_search`/`memory_save` + cross-harness semantic mapping for DartClaw's own MCP tools
+- [x] **TI12** Canonical `web_search`/`memory_save` + cross-harness semantic mapping for DartClaw's own MCP tools
   - `CanonicalTool` gains `webSearch('web_search')` and `memorySave('memory_save')`; `dev/adrs/016-multi-provider-harness-architecture.md` Part 1's taxonomy table receives one inline amendment note. Claude maps `WebSearch` and exact own-MCP raw names; Codex corrects native `web_search` and maps MCP items using their existing `server`/`tool` payload fields before generic `mcp_call`. Immediately after security wiring and before harness wiring, the composition root constructs one immutable semantic inventory of the actual enabled own-MCP tool instances needed at startup (`web_fetch` → `web_fetch`, enabled Brave/Tavily search → `web_search`, `memory_save` → `memory_save`), passes it to `HarnessWiring` for provider map construction, and later registers those same instances in `_registerMcpTools`; outbound/third-party tools stay generic and are excluded. The shared MCP server key replaces the duplicated `'dartclaw'` literal. `AgentDefinition.searchAgent` and the `fromYaml` search fallback default to `{web_search, web_fetch}`; remaining canonical-name consumers and task-form options are swept.
   - **Verify**: adapter tests prove Claude raw and Codex `server`/`tool` forms produce the same canonical for search/fetch/memory-save, while unknown own tools and third-party tools stay `mcp_call` (S11); wiring tests prove the semantic map and live MCP registration derive from the same prebuilt instances with no duplicated enabled-provider predicate; `searchAgent` defaults to `{web_search, web_fetch}`; own-MCP `web_fetch` reaches `NetworkGuard` with the URL visible (S09); deny `mcp_call` still blocks all remapped own tools, while allow `mcp_call` alone grants none of them.
 
@@ -246,7 +246,7 @@ url    | https://code.claude.com/docs/en/headless                               
 
 ## Final Validation Checklist
 
-- [ ] Workspace-wide gate per `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` (format, analyze, tests) – package-scoped analyze hides cross-package breaks from the `AgentHarness.turn` signature change.
+- [x] Workspace-wide gate per `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` (format, analyze, tests) – package-scoped analyze hides cross-package breaks from the `AgentHarness.turn` signature change.
 
 ## Implementation Observations
 

@@ -51,6 +51,8 @@ void main() {
       expect(html, contains('action-btns'));
       expect(html, contains('click->dc-scheduling#editJob'));
       expect(html, contains('click->dc-scheduling#confirmDeleteJob'));
+      expect(html, contains('click->dc-scheduling#runJob'));
+      expect('aria-label="Enable heartbeat"'.allMatches(html), hasLength(1));
     });
 
     test('system jobs have no action buttons', () {
@@ -64,6 +66,31 @@ void main() {
       );
       // System jobs should not have edit/delete buttons
       expect(html, isNot(contains('click->dc-scheduling#editJob')));
+    });
+
+    test('prompt system jobs can run without edit or delete actions', () {
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        jobs: [
+          {
+            'name': 'memory-journal',
+            'schedule': '0 22 * * *',
+            'delivery': 'none',
+            'status': 'active',
+            'runnable': true,
+          },
+          {'name': 'memory-pruner', 'schedule': '0 3 * * *', 'delivery': 'none', 'status': 'active'},
+        ],
+        systemJobNames: ['memory-journal', 'memory-pruner'],
+      );
+
+      expect('click->dc-scheduling#runJob'.allMatches(html), hasLength(1));
+      expect(html, contains('data-job-name="memory-journal"'));
+      expect(html, contains('title="Run now" aria-label="Run now" data-icon="play"'));
+      expect(html, isNot(contains('click->dc-scheduling#editJob')));
+      expect(html, isNot(contains('click->dc-scheduling#confirmDeleteJob')));
+      expect(html, isNot(contains('data-job-name="memory-pruner" title="Run now"')));
     });
 
     test('cron human-readable description appears in output', () {

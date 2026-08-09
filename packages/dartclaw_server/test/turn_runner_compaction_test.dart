@@ -134,10 +134,11 @@ void main() {
     final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'needs flush'},
-    ]);
+    ], agentName: 'search');
     await runner.waitForOutcome(session.id, turnId);
 
     expect(worker.turnCallCount, equals(2));
+    expect(worker.lastAgentId, 'search', reason: 'the delegated identity must remain bound for the flush turn');
   });
 
   test('Claude runners suppress heuristic flush via harness compaction-hook capability', () async {

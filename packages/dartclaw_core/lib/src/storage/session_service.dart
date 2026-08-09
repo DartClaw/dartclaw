@@ -65,6 +65,7 @@ class SessionService {
     if (!dir.existsSync()) return [];
 
     final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
+    final delegatedRequested = type == SessionType.delegated || (types?.contains(SessionType.delegated) ?? false);
     final sessions = <Session>[];
     await for (final entity in dir.list()) {
       if (entity is! Directory) continue;
@@ -76,6 +77,7 @@ class SessionService {
         final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
         final session = Session.fromJson(json);
         if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) continue;
+        if (session.type == SessionType.delegated && !delegatedRequested) continue;
         if (type != null && session.type != type) continue;
         if (types != null && !types.contains(session.type)) continue;
         sessions.add(session);
@@ -124,19 +126,32 @@ class SessionService {
     );
   }
 
+  /// Returns the active session mapped to [key], without creating one.
+  Future<Session?> getByKey(String key) {
+    return _repoLock.acquire(p.join(baseDir, '.session_keys.json'), () async {
+      final keyIndex = await _readKeyIndex(File(p.join(baseDir, '.session_keys.json')));
+      final id = keyIndex[key];
+      if (id == null) return null;
+      final session = await getSession(id);
+      return session == null || session.type == SessionType.archive || session.channelKey != key ? null : session;
+    });
+  }
+
+  /// Removes the deterministic mapping for [key] without deleting its session.
+  Future<void> removeKeyMapping(String key) {
+    return _repoLock.acquire(p.join(baseDir, '.session_keys.json'), () async {
+      final indexFile = File(p.join(baseDir, '.session_keys.json'));
+      final keyIndex = await _readKeyIndex(indexFile);
+      if (keyIndex.remove(key) != null) {
+        await atomicWriteJson(indexFile, keyIndex);
+      }
+    });
+  }
+
   Future<Session> _getOrCreateByKeyLocked(String key, {required SessionType type, String? provider}) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
-    // Load existing index
-    Map<String, String> keyIndex = {};
-    if (indexFile.existsSync()) {
-      try {
-        final raw = jsonDecode(await indexFile.readAsString());
-        if (raw is Map) keyIndex = Map<String, String>.from(raw);
-      } catch (e) {
-        _log.fine('Session key index corrupted or unreadable — using empty index: $e');
-      }
-    }
+    final keyIndex = await _readKeyIndex(indexFile);
 
     // Check if key already maps to a session
     final existingId = keyIndex[key];
@@ -160,6 +175,18 @@ class SessionService {
     keyIndex[key] = session.id;
     await atomicWriteJson(indexFile, keyIndex);
     return session;
+  }
+
+  Future<Map<String, String>> _readKeyIndex(File indexFile) async {
+    if (indexFile.existsSync()) {
+      try {
+        final raw = jsonDecode(await indexFile.readAsString());
+        if (raw is Map) return Map<String, String>.from(raw);
+      } catch (e) {
+        _log.fine('Session key index corrupted or unreadable — using empty index: $e');
+      }
+    }
+    return {};
   }
 
   /// Updates session type (e.g. archive→user for resume).
@@ -191,10 +218,17 @@ class SessionService {
   /// Types that cannot be deleted (system-managed sessions).
   static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron, SessionType.task};
 
-  Future<int> deleteSession(String id) async {
-    if (!isValidUuid(id)) return 0;
+  Future<int> deleteSession(String id) {
+    if (!isValidUuid(id)) return Future.value(0);
+    return _repoLock.acquire(p.join(baseDir, '.session_keys.json'), () => _deleteSessionLocked(id));
+  }
+
+  Future<int> _deleteSessionLocked(String id) async {
     final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return 0;
+    if (!metaFile.existsSync()) {
+      await _removeMappingsForSessionIdLocked(id);
+      return 0;
+    }
     Session? sessionForEvent;
     try {
       final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
@@ -209,6 +243,7 @@ class SessionService {
     }
     final dir = Directory(p.join(baseDir, id));
     await dir.delete(recursive: true);
+    await _removeMappingsForSessionIdLocked(id);
     eventBus?.fire(
       SessionEndedEvent(
         sessionId: id,
@@ -218,6 +253,16 @@ class SessionService {
       ),
     );
     return 1;
+  }
+
+  Future<void> _removeMappingsForSessionIdLocked(String id) async {
+    final indexFile = File(p.join(baseDir, '.session_keys.json'));
+    final keyIndex = await _readKeyIndex(indexFile);
+    final originalLength = keyIndex.length;
+    keyIndex.removeWhere((_, sessionId) => sessionId == id);
+    if (keyIndex.length != originalLength) {
+      await atomicWriteJson(indexFile, keyIndex);
+    }
   }
 
   /// Writes updated session metadata to disk.

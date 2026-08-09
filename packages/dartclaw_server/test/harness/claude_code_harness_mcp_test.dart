@@ -256,6 +256,30 @@ void main() {
       await harness.dispose();
     });
 
+    test('writes an unauthenticated MCP config when URL is set without a gateway token', () async {
+      late List<String> capturedArgs;
+      final fake = _bufferedFakeProcess();
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory: _processFactory(fake, onSpawn: (args, _) => capturedArgs = args),
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://localhost:3000/mcp'),
+      );
+
+      await harness.start();
+
+      final mcpConfigIndex = capturedArgs.indexOf('--mcp-config');
+      expect(mcpConfigIndex, isNonNegative);
+      final config = jsonDecode(File(capturedArgs[mcpConfigIndex + 1]).readAsStringSync()) as Map<String, dynamic>;
+      final server = (config['mcpServers'] as Map<String, dynamic>)['dartclaw'] as Map<String, dynamic>;
+      expect(server['url'], 'http://localhost:3000/mcp');
+      expect(server, isNot(contains('headers')));
+
+      await harness.dispose();
+    });
+
     test('skips sdkMcpServers when mcpServerUrl is set', () async {
       final fake = _bufferedCapturingFakeProcess();
 
@@ -310,9 +334,10 @@ void main() {
       expect(request, isNotNull);
       final sdkMcpServers = request!['sdkMcpServers'] as Map<String, dynamic>?;
       expect(sdkMcpServers, isNotNull);
-      expect(sdkMcpServers!.containsKey('dartclaw-memory'), isTrue);
+      expect(sdkMcpServers!.containsKey('dartclaw'), isTrue);
+      expect(sdkMcpServers.containsKey('dartclaw-memory'), isFalse);
       expect(sdkMcpServers.containsKey('sdkMcpServers'), isFalse);
-      final memoryServer = sdkMcpServers['dartclaw-memory'] as Map<String, dynamic>;
+      final memoryServer = sdkMcpServers['dartclaw'] as Map<String, dynamic>;
       expect(memoryServer['type'], equals('sdk_mcp_server'));
 
       await harness.dispose();

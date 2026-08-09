@@ -168,6 +168,41 @@ void main() {
     expect(runner.isActive(session.id), isFalse);
   });
 
+  test('delegated persona override reaches the harness verbatim', () async {
+    scheduleTurnCompletion(worker, responseText: 'delegated');
+    final session = await sessions.createSession(type: SessionType.delegated);
+
+    final turnId = await runner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'search'},
+      ],
+      agentName: 'search',
+      systemPromptOverride: 'SEARCH PERSONA',
+    );
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(worker.lastSystemPrompt, 'SEARCH PERSONA');
+  });
+
+  test('delegated and main turns supply the expected harness agent identity', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(worker, responseText: 'delegated');
+    final delegatedTurn = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'search'},
+    ], agentName: 'search');
+    await runner.waitForOutcome(session.id, delegatedTurn);
+    expect(worker.lastAgentId, 'search');
+
+    scheduleTurnCompletion(worker, responseText: 'main');
+    final mainTurn = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'main'},
+    ]);
+    await runner.waitForOutcome(session.id, mainTurn);
+    expect(worker.lastAgentId, isNull);
+  });
+
   test('per-turn toolless policy is applied session-scoped during the turn and cleared after (TD-109)', () async {
     // Regression guard for TD-109: the untrusted knowledge-inbox extraction turn
     // dispatches with allowedTools:['__knowledge_inbox_no_tools__'] + readOnly.

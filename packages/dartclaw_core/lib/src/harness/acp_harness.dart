@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig, PlatformCapabilities;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
@@ -14,6 +14,7 @@ import 'acp_errors.dart';
 import 'acp_protocol_adapter.dart';
 import 'acp_reverse_call_handlers.dart';
 import 'agent_harness.dart';
+import 'conversation_history.dart';
 import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
@@ -39,6 +40,9 @@ final class AcpHarness with SequentialLock implements AgentHarness {
 
   /// Maximum time allowed for one prompt.
   final Duration turnTimeout;
+
+  /// Limits applied when replaying persisted DartClaw history into fresh ACP sessions.
+  final HistoryConfig historyConfig;
 
   final ProcessFactory _processFactory;
   final PlatformCapabilities _platformCapabilities;
@@ -77,6 +81,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
     this.executable = 'goose',
     this.arguments = const <String>[],
     this.turnTimeout = const Duration(seconds: 600),
+    this.historyConfig = const HistoryConfig.defaults(),
     ProcessFactory? processFactory,
     AcpProtocolAdapter? adapter,
     this.guardChain,
@@ -189,6 +194,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -210,7 +216,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
       }
 
       final reverseCallHandlers = _reverseCallHandlers;
-      reverseCallHandlers?.bindTurn(sessionId: sessionId, effectiveDirectory: effectiveDirectory);
+      reverseCallHandlers?.bindTurn(sessionId: sessionId, agentId: agentId, effectiveDirectory: effectiveDirectory);
       _state = WorkerState.busy;
       _activeTurnCompleter = Completer<void>();
       _resetActiveMetadata();
@@ -243,7 +249,13 @@ final class AcpHarness with SequentialLock implements AgentHarness {
       var terminateAfterTurn = false;
       AcpHarnessException? promptError;
       try {
-        final prompt = _promptText(messages.last['content'], systemPrompt);
+        final currentMessage = _messageText(messages.last['content']);
+        final priorMessages = messages.length > 1
+            ? messages.sublist(0, messages.length - 1)
+            : const <Map<String, dynamic>>[];
+        final history = buildReplaySafeHistory(priorMessages, historyConfig);
+        final effectiveMessage = history.isEmpty ? currentMessage : '$history\n\n$currentMessage';
+        final prompt = _promptText(effectiveMessage, systemPrompt);
         final promptFuture = client.prompt(sessionId: acpSessionId, text: prompt);
         final cancelOrCrashFuture = _activeTurnCompleter!.future.then(
           (_) => const AcpPromptResult(text: '', stopReason: 'cancelled'),

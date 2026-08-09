@@ -1,6 +1,6 @@
 # Agent Persona and Model Application on the Delegation Dispatch Path
 
-**Plan**: docs/specs/0.24/plan.json
+**Plan**: dev/bundle/docs/specs/0.24/plan.json
 **Story-ID**: S02
 
 > Standalone FIS. Origin: adjacent defect recorded in `s01-agent-tool-policy-enforcement-on-the-live-tool-call-path.md` (this directory), runtime-confirmed 2026-08-05 via a FakeAgentHarness probe against a real `TurnRunner` and the verbatim `harness_wiring` dispatch closure – a `sessions_send('search', ...)` turn reached `AgentHarness.turn` with `model: null`, `effort: null`, and the MAIN behavior prompt (SOUL.md composition); `AgentDefinition.prompt` was entirely absent. Target: **0.24**. Execution repo: `dartclaw-public` – all paths relative to its root; anchors pinned at commit `584db0c1`.
@@ -52,61 +52,61 @@ The fixed `haiku` statement is superseded by the preflight decision: an omitted 
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02,TI03,TI04] Delegated search turn uses the Claude search default**
+- [x] **S01 [OC01] [TI01,TI02,TI03,TI04] Delegated search turn uses the Claude search default**
   - **Given** the default agent config (built-in `search` agent: web-search persona, no explicit model) and an idle Claude pool worker
   - **When** `SessionDelegate.handleSessionsSend` dispatches a delegated turn for agent `search`
   - **Then** `AgentHarness.turn` receives `systemPrompt` equal to `AgentDefinition.prompt` verbatim (no SOUL/USER/TOOLS/MEMORY composition), `model: 'sonnet'`, and the Claude worker process is (re)started with `--append-system-prompt <persona>` and `--model sonnet` in a single restart
 
-- [ ] **S02 [OC01] [TI01,TI02,TI03] Custom agent config keys are honored on the dispatch path**
+- [x] **S02 [OC01] [TI01,TI02,TI03] Custom agent config keys are honored on the dispatch path**
   - **Given** a custom agent parsed from YAML: `summarizer` with an explicit `prompt` and `model: sonnet`
   - **When** a delegated turn for `summarizer` is dispatched
   - **Then** the harness receives the summarizer's prompt verbatim and `model: 'sonnet'`; for a non-search agent whose YAML sets no `model`, the harness receives `model: null` and remains on the configured provider default; a configured `search` entry with no model receives the same provider-aware default as the built-in definition
 
-- [ ] **S03 [OC02] [TI05] Delegation reaches a pool worker while the caller's turn is active**
+- [x] **S03 [OC02] [TI05] Delegation reaches a pool worker while the caller's turn is active**
   - **Given** the primary harness is mid-turn (the caller) and task-pool capacity for the default provider is available (an idle worker, or a spawnable slot on a fresh pool)
   - **When** the caller's turn invokes `sessions_send('search', ...)`
   - **Then** the delegated turn executes on the pool worker (never the busy primary), completes, and its result returns inline to the caller's turn
 
-- [ ] **S04 [OC02] [TI05] No idle worker yields a clear inline error, not a wedge**
+- [x] **S04 [OC02] [TI05] No idle worker yields a clear inline error, not a wedge**
   - **Given** the primary is busy and no task-pool worker exists or can be spawned for the default provider (e.g. `tasks.max_concurrent: 0`)
   - **When** `sessions_send('search', ...)` is invoked
   - **Then** the main agent receives an `isError` result whose text names the unavailable provider pool (actionable toward `tasks.max_concurrent`/`providers.<id>.pool_size`), the caller's turn continues, and the primary harness is never restarted or contended
 
-- [ ] **S05 [OC03] [TI02,TI04] No persona/model residue on the next turn of the same worker**
+- [x] **S05 [OC03] [TI02,TI04] No persona/model residue on the next turn of the same worker**
   - **Given** a pool worker that just completed a delegated Claude `search` turn (persona append prompt, sonnet)
   - **When** the next ordinary task turn runs on that worker with empty `systemPrompt` and no model override
   - **Then** the worker is restored to the configured static append prompt and configured model (restart-if-differs fires exactly once for the restore), and the task turn's observable behavior matches today's
 
-- [ ] **S06 [OC03] [TI02,TI04] Ordinary interactive turns are byte-identical and restart-free**
+- [x] **S06 [OC03] [TI02,TI04] Ordinary interactive turns are byte-identical and restart-free**
   - **Given** the primary harness running main-session turns with no fresh onboarding sentinel (append strategy, empty per-turn `systemPrompt`)
   - **When** consecutive main turns execute
   - **Then** `_buildSystemPrompt` composes exactly as today (behavior files, memory, compact instructions), no `_restartForExecution` is triggered by prompt comparison, and existing `turn_runner_test.dart` assertions pass unchanged
 
-- [ ] **S07 [OC01] [TI06] Codex and ACP delegated turns carry the persona and model**
+- [x] **S07 [OC01] [TI06] Codex and ACP delegated turns carry the persona and model**
   - **Given** a `search` definition with no explicit model dispatched to a Codex pool worker, and separately a delegated turn dispatched to an ACP worker
   - **When** the harness executes the turn
   - **Then** Codex: the fresh delegated `thread/start` carries `developerInstructions: <persona>` and `turn/start` carries `model: gpt-5.6-luna` plus any configured effort, with no App Server restart or `config.toml` rewrite; ACP: the per-turn `systemPrompt` equals the persona (existing pass-through – delivered as a message-level prepend via `_promptText`, weaker isolation than a true system prompt, accepted for ACP; `model`/`effort` are not applied on ACP)
 
-- [ ] **S08 [OC04] [TI05] Delegated session history is hidden but retained and prunable**
+- [x] **S08 [OC04] [TI05] Delegated session history is hidden but retained and prunable**
   - **Given** a completed delegated turn whose session is `SessionType.delegated`
   - **When** normal session/sidebar listing runs, an explicit delegated-type query runs, and maintenance evaluates the session after its retention cutoff
   - **Then** the normal listing omits it, the explicit query returns it for diagnostics, and maintenance archives it using the existing configured retention path; the type is not in `SessionService.protectedTypes`
 
-- [ ] **S09 [OC05] [TI02,TI04,TI06,TI07] Onboarding follows the human conversation, not the transport**
+- [x] **S09 [OC05] [TI02,TI04,TI06,TI07] Onboarding follows the human conversation, not the transport**
   - **Given** a fresh `ONBOARDING.md` and turns arriving through web chat, each configured messaging-channel dispatcher, an automated schedule, and a delegated agent
   - **When** those turns reach Claude, Codex, or ACP
   - **Then** each human-facing turn receives the full conversational prompt including `ONBOARDING.md`; automated and delegated turns do not; completing or expiring onboarding restores the configured default prompt on the next turn without leaking onboarding across sessions or channels
 
 ## Structural Criteria
 
-- [ ] `AgentHarness.turn`'s `systemPrompt` contract is explicit in its dartdoc: non-empty = the authoritative scoped system prompt for this turn on every prompt strategy; empty = the harness's configured default. No implementer silently drops a non-empty persona or onboarding prompt.
-- [ ] The Claude restart comparison treats empty per-turn `systemPrompt` as "configured default" – `rg`-provable absence of restarts in the existing interactive-turn test suites (no test needs a new restart expectation).
-- [ ] `SessionDelegate` public API (`handleSessionsSend` params/result shape) and the content-guard boundary are unchanged.
-- [ ] Signature coordination: this FIS's `AgentHarness.turn` edits build on the sibling FIS's landed `agentId` parameter (or, if executed first, leave a rebase note); the implementer sweep uses the sibling's `rg -n "implements AgentHarness|extends AgentHarness"` inventory.
-- [ ] `docs/guide/agents.md`, `docs/guide/search.md`, and `dev/architecture/control-protocol.md` describe the shipped mechanism (persona replaces behavior composition for delegated turns; pool-worker routing; per-provider prompt mechanisms); no doc claims the definition prompt/model apply where they don't.
-- [ ] `SessionType.delegated` is hidden by default but explicitly queryable, and maintenance opts into listing it; no session-key prefix parsing determines lifecycle. (Proved by TI05 Verify.)
-- [ ] Search model defaults are resolved once from the effective provider family and reused by both Claude's native agents payload and DartClaw delegation; no duplicated provider checks or new YAML model-map shape. (Proved by TI03 Verify.)
-- [ ] Workspace-wide `dart analyze` + `dart test` pass (package-scoped analyze hides cross-package breaks from the interface change).
+- [x] `AgentHarness.turn`'s `systemPrompt` contract is explicit in its dartdoc: non-empty = the authoritative scoped system prompt for this turn on every prompt strategy; empty = the harness's configured default. No implementer silently drops a non-empty persona or onboarding prompt.
+- [x] The Claude restart comparison treats empty per-turn `systemPrompt` as "configured default" – `rg`-provable absence of restarts in the existing interactive-turn test suites (no test needs a new restart expectation).
+- [x] `SessionDelegate` public API (`handleSessionsSend` params/result shape) and the content-guard boundary are unchanged.
+- [x] Signature coordination: this FIS's `AgentHarness.turn` edits build on the sibling FIS's landed `agentId` parameter (or, if executed first, leave a rebase note); the implementer sweep uses the sibling's `rg -n "implements AgentHarness|extends AgentHarness"` inventory.
+- [x] `docs/guide/agents.md`, `docs/guide/search.md`, and `dev/architecture/control-protocol.md` describe the shipped mechanism (persona replaces behavior composition for delegated turns; pool-worker routing; per-provider prompt mechanisms); no doc claims the definition prompt/model apply where they don't.
+- [x] `SessionType.delegated` is hidden by default but explicitly queryable, and maintenance opts into listing it; no session-key prefix parsing determines lifecycle. (Proved by TI05 Verify.)
+- [x] Search model defaults are resolved once from the effective provider family and reused by both Claude's native agents payload and DartClaw delegation; no duplicated provider checks or new YAML model-map shape. (Proved by TI03 Verify.)
+- [x] Workspace-wide `dart analyze` + `dart test` pass (package-scoped analyze hides cross-package breaks from the interface change).
 
 ## Scope & Boundaries
 
@@ -183,35 +183,35 @@ url    | https://agentclientprotocol.com/protocol/v1/session-config-options     
 
 ### Implementation Tasks
 
-- [ ] **TI01** `TurnContext` carries a per-turn persona override; `reserveTurn`/`startTurn` (TurnRunner and the TurnManager passthrough) expose it
+- [x] **TI01** `TurnContext` carries a per-turn persona override; `reserveTurn`/`startTurn` (TurnRunner and the TurnManager passthrough) expose it
   - Mirror the existing `model`/`effort` threading (`turn_runner.dart#reserveTurn`, `turn_manager.dart#startTurn`); name it for what it is (persona/system-prompt override), not `behaviorOverride` (that slot is the task-scoped `BehaviorFileService`); the parameter is added on the `dartclaw_core` `TurnManager` interface and every implementer/fake (`FakeTurnManager`, server test-support fakes) – "call sites compile unchanged" holds for callers, not implementers
   - **Verify**: `Test: startTurn(..., systemPromptOverride: 'P') reaches TurnContext; omitted → null; existing reserveTurn call sites compile unchanged`
 
-- [ ] **TI02** `TurnRunner._buildSystemPrompt` returns the authoritative scoped prompt for every prompt strategy
+- [x] **TI02** `TurnRunner._buildSystemPrompt` returns the authoritative scoped prompt for every prompt strategy
   - A persona override returns verbatim and bypasses behavior composition; no memory/AGENTS content is attached to delegated personas. Without a persona, preserve the fresh-onboarding path but make its scope transport-neutral: web and configured messaging-channel entry points select the renamed conversational scope, which composes the normal interactive static prompt plus `ONBOARDING.md`; tasks, cron, workflows, evaluators, and delegated agents never select it. Append-strategy harnesses must receive this non-empty value instead of dropping it.
   - **Verify**: `Test: override 'P' reaches append- and replace-strategy fakes verbatim; fresh onboarding reaches web and channel conversational turns on both strategies; task/restricted/evaluator/delegated and scheduled interactive turns exclude it; no-sentinel turns retain existing prompt assertions [S06,S09]`
 
-- [ ] **TI03** The delegation dispatch applies the resolved `AgentDefinition` (persona, model, effort)
+- [x] **TI03** The delegation dispatch applies the resolved `AgentDefinition` (persona, model, effort)
   - `harness_wiring.dart` resolves the effective provider family once, then one helper returns `def.model` when explicit, `sonnet`/`gpt-5.6-luna` for an omitted search model on Claude/Codex, otherwise null. Use it both when constructing Claude's `agentsPayload` and in the dispatch closure; pass the resolved model, `def.effort`, and the nonblank persona into `startTurn`. Make `AgentDefinition.searchAgent()` provider-neutral rather than retaining a hidden `haiku` default, and recognize `gpt-5.6-luna` in config model advisories.
   - **Verify**: `Test: built-in and fromYaml search definitions with no model resolve to sonnet under Claude and gpt-5.6-luna under Codex in both agents payload and dispatch; explicit model wins; a non-search omission stays null; custom provider aliases resolve through ProviderIdentity; no haiku search default remains [S01,S02,S07].`
 
-- [ ] **TI04** `ClaudeCodeHarness` honors a non-empty per-turn `systemPrompt` under the append strategy via restart-if-differs; empty restores the configured default
+- [x] **TI04** `ClaudeCodeHarness` honors a non-empty per-turn `systemPrompt` under the append strategy via restart-if-differs; empty restores the configured default
   - Extend the `turn()` desired-state comparison (`claude_code_harness.dart#turn`) with the effective append prompt (non-empty param, else `harnessConfig.appendSystemPrompt`); spawn args use the effective value; single restart covers prompt+model+effort together; the first-use adoption block stays model/effort-only and never suppresses a persona-driven restart (a persona restart carries all desired values in the same comparison); document the contract in `AgentHarness.turn` dartdoc
   - **Verify**: `Test: turn(systemPrompt: 'P', model: 'sonnet') on an idle harness restarts once with --append-system-prompt P and --model sonnet [S01]; a conversational onboarding prompt uses the same single-restart seam [S09]; the next empty/default turn restarts once back to configured prompt/model [S05,S09]; consecutive empty-prompt turns trigger zero restarts [S06]`
 
-- [ ] **TI05** Delegated sessions route to an idle pool worker; unavailability surfaces as a clear inline delegation error
+- [x] **TI05** Delegated sessions route to an idle pool worker; unavailability surfaces as a clear inline delegation error
   - Dispatch passes `type: SessionType.delegated` and `provider: <default provider id>` to `getOrCreateByKey`. Extend `TaskRunnerPoolCoordinator` with a provider-generic awaitable provision-then-acquire method and use it from delegation/TurnManager rather than adding a second `_isSpawning` flag or raw callback race in `HarnessWiring`. It first acquires an idle matching runner; otherwise, if capacity remains, it coalesces callers onto one in-flight spawn, then retries acquisition. Busy matching runners plus spare capacity also trigger expansion. Only zero/exhausted capacity, spawn failure, or no acquired runner after provisioning returns S04; primary is never eligible. Existing task acquisition keeps its queue semantics through the same coordinator. Separately, `SessionService.listSessions` hides delegated sessions by default but returns them by explicit type/internal include; maintenance includes them and deletion protection does not.
   - **Verify**: `Test: busy primary + idle worker completes on worker [S03]; fresh pool + capacity spawns once then completes; two concurrent first delegations coalesce provisioning and do not exceed capacity; all matching workers busy + spare capacity spawns another; no capacity or failed spawn returns actionable error and never uses primary [S04]. Existing task coordinator tests remain green. Created session is delegated; default lists omit it, explicit query returns it, deletion protection excludes it, maintenance archives after cutoff [S08].`
 
-- [ ] **TI06** Codex thread startup carries scoped instructions; Codex turn startup carries model/effort; ACP pass-through is pinned by test
+- [x] **TI06** Codex thread startup carries scoped instructions; Codex turn startup carries model/effort; ACP pass-through is pinned by test
   - Thread a non-empty persona or onboarding prompt into `CodexHarness._startThread` as stable App Server `thread/start.params.developerInstructions`. Track the effective instructions per session: when they change between onboarding and the configured default, replace that session's thread and reuse existing history replay rather than restarting the App Server or rewriting `config.toml`. Keep `turn/start.model` and add/verify `turn/start.effort`. ACP needs no mechanism change – retain `_promptText` message-level prepend and add persona/onboarding assertions. Update request-shape tests against the installed schema; if the deployed Codex binary lacks the stable thread field, fail clearly instead of silently dropping instructions.
   - **Verify**: `Test: delegated Codex thread/start contains persona byte-equal and turn/start contains model/effort [S07]; a conversational onboarding thread contains the full scoped prompt, then completion/expiry starts one replacement thread with configured defaults and replayed history [S09]; other sessions and automated turns never receive onboarding; no config write or App Server restart occurs; ACP receives both scoped prompt forms`
 
-- [ ] **TI07** Docs describe the shipped mechanism
+- [x] **TI07** Docs describe the shipped mechanism
   - `docs/guide/agents.md`: config-reference rows for `prompt`/`model`/`effort`, provider-aware search defaults (`sonnet` Claude, `gpt-5.6-luna` Codex), pool-worker requirement/S04 error, delegated-session visibility/retention, and the missing-prompt fallback; remove every claim that search defaults to haiku or is necessarily "cheap". `docs/guide/search.md` and recipes/examples align; `docs/guide/workspace.md` and `docs/guide/getting-started.md` describe onboarding across human-facing channels rather than web-only; `dev/architecture/control-protocol.md` documents the turn prompt contract; session architecture documents delegated retention.
   - **Verify**: inspect every `rg -n "provider-side|not applied" docs/guide/agents.md` hit – each must be the sibling FIS's "provider-side defense-in-depth" wording; none may claim the per-agent config is unapplied (no exit-code expectation – the sibling's legitimate wording may match); the agents guide names the pool-worker requirement; control-protocol.md documents the non-empty-systemPrompt contract
 
-- [ ] **TI08** Package `AGENTS.md` files and shared fakes stay current
+- [x] **TI08** Package `AGENTS.md` files and shared fakes stay current
   - `dartclaw_core` (harness turn contract + restart trigger set), `dartclaw_server` (TurnRunner persona override), `dartclaw_testing` (any `FakeAgentHarness`/`FakeTurnManager` contract change) updated in the same change per the currency rule
   - **Verify**: each edited package's `AGENTS.md` diff reflects the new contract; `dart analyze` clean workspace-wide
 
@@ -228,8 +228,8 @@ url    | https://agentclientprotocol.com/protocol/v1/session-config-options     
 
 ## Final Validation Checklist
 
-- [ ] Workspace-wide gate per `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` (format, analyze, tests).
-- [ ] Production `sessions_send` smoke from an active caller reaches a task-pool worker, returns inline, and records the provider/pool/runner/result evidence in Implementation Observations (S03).
+- [x] Workspace-wide gate per `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` (format, analyze, tests).
+- [x] Production `sessions_send` smoke from an active caller reaches a task-pool worker, returns inline, and records the provider/pool/runner/result evidence in Implementation Observations (S03).
 
 ## Implementation Observations
 
@@ -280,3 +280,17 @@ Affected surface: OC01, S07/S09, AcpHarness prompt construction, TI06, control-p
 Decision: On ACP, deliver delegated personas and conversational onboarding as a message-level prepend before the user's prompt, document that this is weaker than a provider system/developer-instruction channel, and pin the exact ordering with tests. Do not introduce a private `_meta` convention or misuse agent-advertised modes as arbitrary instructions.
 Rationale: ACP exposes no interoperable system/developer/persona field. The existing prepend provides useful behavior across ACP agents without inventing a bilateral extension that would fragment provider support.
 Evidence: Operator conditionally approved the recommended behavior on 2026-08-06 after re-verification. Official ACP v1 and draft v2 schemas expose only user content on `session/prompt`; config options and modes select agent-advertised values, while `_meta` is extension data with no standard persona semantics.
+
+#### Live reachability smoke – 2026-08-09 00:27 CEST
+
+- Started the production `dartclaw serve` wiring on port 38881 with Claude as the default provider, token-authenticated MCP, and `providers.claude.pool_size: 1`; the pool began fresh with only the primary runner.
+- An active user turn invoked `mcp__dartclaw__sessions_send(agent: search, message: "Define DartClaw in one sentence.")`.
+- Runtime evidence: created session `6420cf2e-289b-4328-96d3-4713b4256733` with `type: delegated`; spawned Claude task runner PID 50866; pool changed to `1/1`; acquired provider `claude` with total busy `1/1`; the delegated turn ran on that worker while the caller remained active. The worker restarted once for the persona, and the live process exposed `--model sonnet` plus `--append-system-prompt`.
+- Result evidence: delegated turn `e56d5752-e8be-41e7-a0d5-6ba775476146` completed in 7418 ms, released the task runner, passed the content guard, and returned inline: “DartClaw is an experimental, security-conscious AI agent runtime built with Dart that orchestrates multiple agent harnesses … via a Dart-based, AOT-compiled, zero-npm control layer.”
+
+#### Review remediation – 2026-08-09 00:58 CEST
+
+- Quick review found and remediation proved: delegated Claude first-use model/effort application, MCP error-result propagation, canonical pool documentation, and direct configured-channel conversational-scope wiring.
+- Fresh review confirmed those four fixes and found one remaining lifecycle gap: count-cap maintenance used the default session listing, which hides delegated sessions. Count-cap maintenance now requests every explicit session type; a regression proves an oldest delegated session is archived normally.
+- A narrow post-fix critic review passed: the lifecycle fix, list semantics, regression strength, and canonical architecture wording satisfy OC04/TI05/S08 with no remaining weakness.
+- Post-remediation verification: workspace format changed 0 files; workspace analyze found no issues; the full workspace test gate passed (core +1192 with 3 skipped, server +3327 with 3 skipped, CLI +668 with 2 skipped, all other packages green); architecture passed 8/8; all fitness checks and `git diff --check` passed.

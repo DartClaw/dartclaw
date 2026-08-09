@@ -322,7 +322,7 @@ The SDK does **not** provide capabilities unavailable via the raw protocol.
       "PreToolUse": [{"matcher": "Bash", "hookCallbackIds": ["hook_0"], "timeout": 30}],
       "PostToolUse": [{"matcher": null, "hookCallbackIds": ["hook_1"]}]
     },
-    "sdkMcpServers": ["dartclaw-memory"],
+    "sdkMcpServers": ["dartclaw"],
     "systemPrompt": "You are DartClaw...",
     "appendSystemPrompt": "Additional instructions...",
     "agents": {"reviewer": {"description": "...", "prompt": "..."}},
@@ -348,7 +348,7 @@ SDK→Binary: `{"type": "control_response", "response": {"subtype": "success", "
 
 #### In-process MCP servers (proxied JSONRPC over control protocol)
 
-Binary→SDK: `{"type": "control_request", "request_id": "X", "request": {"subtype": "mcp_message", "server_name": "dartclaw-memory", "message": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {...}}}}`
+Binary→SDK: `{"type": "control_request", "request_id": "X", "request": {"subtype": "mcp_message", "server_name": "dartclaw", "message": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {...}}}}`
 
 SDK→Binary: `{"type": "control_response", "response": {"subtype": "success", "request_id": "X", "response": {"mcp_response": {"jsonrpc": "2.0", "id": 1, "result": {...}}}}}`
 

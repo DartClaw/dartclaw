@@ -140,9 +140,11 @@ class FakeDelegationRunner implements TurnRunner {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
+    PromptScope? promptScope,
   }) async {
     reserveCount += 1;
     final error = reserveError;

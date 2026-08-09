@@ -165,6 +165,8 @@ Message
   +-- createdAt: DateTime
 ```
 
+Sessions carry an explicit type. `delegated` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across pooled-worker replacement or process restart. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
+
 
 ## 3. Session Scoping Model
 

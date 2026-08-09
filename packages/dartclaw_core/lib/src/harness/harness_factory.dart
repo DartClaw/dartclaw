@@ -6,7 +6,10 @@ import 'agent_harness.dart';
 import 'acp_harness.dart';
 import 'acp_reverse_call_handlers.dart';
 import 'claude_code_harness.dart';
+import 'claude_protocol_adapter.dart';
+import 'canonical_tool.dart';
 import 'codex_harness.dart';
+import 'codex_protocol_adapter.dart';
 import '../container/container_executor.dart';
 import 'harness_config.dart';
 import 'process_types.dart';
@@ -53,6 +56,9 @@ class HarnessFactoryConfig {
   /// Optional guard audit logger used by Claude harnesses.
   final GuardAuditLogger? auditLogger;
 
+  /// Exact DartClaw MCP tool names mapped to their guard semantic.
+  final Map<String, CanonicalTool> ownMcpToolCanonicals;
+
   /// Optional approval decision callback used by ACP reverse-call permission requests.
   final AcpPermissionDecision? acpPermissionDecision;
 
@@ -90,6 +96,7 @@ class HarnessFactoryConfig {
     this.containerManager,
     this.guardChain,
     this.auditLogger,
+    this.ownMcpToolCanonicals = const {},
     this.acpPermissionDecision,
     this.acpReverseCallAudit,
     this.onMemorySave,
@@ -138,6 +145,7 @@ class HarnessFactory {
         executable: agent.binary,
         arguments: agent.args,
         turnTimeout: config.turnTimeout,
+        historyConfig: config.historyConfig,
         processFactory: config.processFactory,
         containerManager: agent.containerIsolationRequired ? config.containerManager : null,
         environment: config.environment,
@@ -239,6 +247,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     processFactory: config.processFactory,
     guardChain: config.guardChain,
     auditLogger: config.auditLogger,
+    protocolAdapter: ClaudeProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
   );
 }
@@ -253,6 +262,7 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     harnessConfig: config.harnessConfig,
     providerOptions: config.providerOptions,
     guardChain: config.guardChain,
+    adapter: CodexProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
   );
 }

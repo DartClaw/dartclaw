@@ -4,9 +4,9 @@ import 'package:test/test.dart';
 void main() {
   group('AgentDefinition', () {
     group('searchAgent factory', () {
-      test('defaults model to haiku shorthand', () {
+      test('leaves the search model provider-neutral', () {
         final agent = AgentDefinition.searchAgent();
-        expect(agent.model, 'haiku');
+        expect(agent.model, isNull);
       });
 
       test('allows model override', () {
@@ -17,7 +17,7 @@ void main() {
       test('sets expected defaults', () {
         final agent = AgentDefinition.searchAgent();
         expect(agent.id, 'search');
-        expect(agent.allowedTools, containsAll(['WebSearch', 'WebFetch']));
+        expect(agent.allowedTools, containsAll(['web_search', 'web_fetch']));
         expect(agent.maxConcurrent, 2);
       });
     });
@@ -47,10 +47,10 @@ void main() {
         expect(warns.first, contains('no tools'));
       });
 
-      test('search agent with no tools gets WebSearch and WebFetch defaults', () {
+      test('search agent with no tools gets canonical search defaults', () {
         final warns = <String>[];
         final agent = AgentDefinition.fromYaml('search', {'prompt': 'Search the web'}, warns);
-        expect(agent.allowedTools, equals({'WebSearch', 'WebFetch'}));
+        expect(agent.allowedTools, equals({'web_search', 'web_fetch'}));
         expect(warns, isEmpty);
       });
 
@@ -63,13 +63,25 @@ void main() {
         expect(agent.allowedTools, equals({'Bash', 'Read'}));
         expect(warns, isEmpty);
       });
+
+      test('retired spawn fields warn and never leak into extra or payload', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('search', {'max_spawn_depth': 2, 'max_children_per_agent': 5}, warns);
+
+        expect(warns, contains('agents.search.max_spawn_depth is not enforced – ignored'));
+        expect(warns, contains('agents.search.max_children_per_agent is not enforced – ignored'));
+        expect(agent.extra, isNot(contains('max_spawn_depth')));
+        expect(agent.extra, isNot(contains('max_children_per_agent')));
+        expect(agent.toInitializePayload(), isNot(contains('max_spawn_depth')));
+        expect(agent.toInitializePayload(), isNot(contains('max_children_per_agent')));
+      });
     });
 
     group('toInitializePayload', () {
       test('includes model when non-null', () {
         final agent = AgentDefinition.searchAgent();
         final payload = agent.toInitializePayload();
-        expect(payload['model'], 'haiku');
+        expect(payload.containsKey('model'), isFalse);
       });
 
       test('excludes model when null', () {
@@ -83,6 +95,14 @@ void main() {
         final payload = agent.toInitializePayload();
         expect(payload['description'], isNotEmpty);
         expect(payload['prompt'], isNotEmpty);
+      });
+
+      test('includes tools exactly when the allowlist is non-empty', () {
+        final searchPayload = AgentDefinition.searchAgent().toInitializePayload();
+        expect(searchPayload['tools'], ['web_search', 'web_fetch']);
+
+        const unrestricted = AgentDefinition(id: 'test', description: 'Test', prompt: 'Test prompt');
+        expect(unrestricted.toInitializePayload(), isNot(contains('tools')));
       });
     });
   });

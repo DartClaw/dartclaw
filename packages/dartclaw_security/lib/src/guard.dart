@@ -142,6 +142,7 @@ class GuardChain {
     String toolName,
     Map<dynamic, dynamic> toolInput, {
     String? sessionId,
+    String? agentId,
     String? rawProviderToolName,
   }) {
     final context = GuardContext(
@@ -150,6 +151,7 @@ class GuardChain {
       rawProviderToolName: rawProviderToolName,
       toolInput: Map<String, dynamic>.from(toolInput),
       sessionId: sessionId,
+      agentId: agentId,
       timestamp: DateTime.now(),
     );
     return _evaluate(context);

@@ -51,6 +51,35 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('security reload seam — valid reload', () {
+    test('guard events preserve delegated agent and canonical tool identity', () async {
+      final configNotifier = ConfigNotifier(_baseConfig);
+      final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
+      await wiring.wire(
+        agentDefs: const [
+          AgentDefinition(id: 'search', description: 'Search', prompt: 'Search', allowedTools: {'web_search'}),
+        ],
+      );
+      final events = <GuardBlockEvent>[];
+      final subscription = eventBus.on<GuardBlockEvent>().listen(events.add);
+      addTearDown(subscription.cancel);
+
+      final verdict = await wiring.guardChain!.evaluateBeforeToolCall(
+        'shell',
+        const {'command': 'pwd'},
+        sessionId: 'delegated-session',
+        agentId: 'search',
+        rawProviderToolName: 'Bash',
+      );
+      await pumpEventQueue();
+
+      expect(verdict, isA<GuardBlock>());
+      expect(events, hasLength(1));
+      expect(events.single.agentId, 'search');
+      expect(events.single.toolName, 'shell');
+      expect(events.single.rawProviderToolName, 'Bash');
+      expect(events.single.sessionId, 'delegated-session');
+    });
+
     test('ConfigNotifier.reload with changed security config triggers SecurityWiring via watchKeys', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
       final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);

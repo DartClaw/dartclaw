@@ -18,6 +18,18 @@ typedef _SpawnPlanEntry = ({
   bool requiresContainer,
 });
 
+/// Resolves a delegated agent's effective model for [providerFamily].
+String? resolveAgentModel(AgentDefinition agent, String providerFamily) {
+  final explicit = agent.model?.trim();
+  if (explicit != null && explicit.isNotEmpty) return explicit;
+  if (agent.id != 'search') return null;
+  return switch (providerFamily) {
+    ProviderIdentity.claude => 'sonnet',
+    ProviderIdentity.codex => 'gpt-5.6-luna',
+    _ => null,
+  };
+}
+
 /// Constructs and exposes harness-layer services.
 ///
 /// Owns agent definitions, primary + task harnesses, harness pool, token service,
@@ -64,6 +76,8 @@ class HarnessWiring {
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
+  late List<McpTool> _semanticMcpTools;
+  late Map<String, CanonicalTool> _ownMcpToolCanonicals;
   late BehaviorFileService _behavior;
   late SelfImprovementService _selfImprovement;
   late SessionDelegate _sessionDelegate;
@@ -83,6 +97,7 @@ class HarnessWiring {
   _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
   SpawnTaskRunner? _onSpawnNeeded;
+  late TaskRunnerPoolCoordinator _runnerPoolCoordinator;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
   TokenService? _tokenService;
@@ -93,6 +108,8 @@ class HarnessWiring {
   HarnessConfig get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
+  List<McpTool> get semanticMcpTools => _semanticMcpTools;
+  Map<String, CanonicalTool> get ownMcpToolCanonicals => _ownMcpToolCanonicals;
   BehaviorFileService get behavior => _behavior;
   SelfImprovementService get selfImprovement => _selfImprovement;
   SessionDelegate get sessionDelegate => _sessionDelegate;
@@ -111,6 +128,7 @@ class HarnessWiring {
   get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
   SpawnTaskRunner? get onSpawnNeeded => _onSpawnNeeded;
+  TaskRunnerPoolCoordinator get runnerPoolCoordinator => _runnerPoolCoordinator;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
@@ -139,10 +157,48 @@ class HarnessWiring {
       selfImprovement: _selfImprovement,
     );
 
-    _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
-    _agentMap = {for (final a in _agentDefs) a.id: a};
-    final agentsPayload = {for (final a in _agentDefs) a.id: a.toInitializePayload()};
+    final semanticMcpTools = <McpTool>[
+      WebFetchTool(classifier: _security.contentClassifier, failOpenOnClassification: _security.contentGuardFailOpen),
+      MemorySaveTool(handler: _memoryHandlers.onSave),
+    ];
+    for (final entry in config.search.providers.entries) {
+      if (!entry.value.enabled || entry.value.apiKey.isEmpty) continue;
+      switch (entry.key) {
+        case 'brave':
+          semanticMcpTools.add(
+            BraveSearchTool(
+              provider: BraveSearchProvider(apiKey: entry.value.apiKey),
+              contentGuard: _security.contentGuard,
+            ),
+          );
+        case 'tavily':
+          semanticMcpTools.add(
+            TavilySearchTool(
+              provider: TavilySearchProvider(apiKey: entry.value.apiKey),
+              contentGuard: _security.contentGuard,
+            ),
+          );
+        default:
+          _log.warning('Unknown search provider: ${entry.key} — skipping');
+      }
+    }
+    _semanticMcpTools = List.unmodifiable(semanticMcpTools);
+    _ownMcpToolCanonicals = Map.unmodifiable({
+      for (final tool in _semanticMcpTools)
+        tool.name: switch (tool.name) {
+          'web_fetch' => CanonicalTool.webFetch,
+          'brave_search' || 'tavily_search' => CanonicalTool.webSearch,
+          'memory_save' => CanonicalTool.memorySave,
+          _ => throw StateError('Missing canonical mapping for own MCP tool: ${tool.name}'),
+        },
+    });
 
+    final defaultProviderId = config.agent.provider;
+    final defaultProviderFamily = ProviderIdentity.resolveFamily(
+      defaultProviderId,
+      options: _providerOptions(config, defaultProviderId),
+      executable: _resolveProviderExecutable(config, defaultProviderId),
+    );
     _authEnabled = config.gateway.authMode != 'none';
     if (_authEnabled) {
       _resolvedGatewayToken = config.gateway.token ?? TokenService.loadFromFile(_dataDir);
@@ -154,19 +210,26 @@ class HarnessWiring {
       _tokenService = TokenService(token: _resolvedGatewayToken!);
     } else {
       final host = config.server.host;
-      final isLoopback = host == 'localhost' || host == '127.0.0.1';
-      if (isLoopback) {
+      if (_isLoopbackHost(host)) {
         _log.warning('Auth disabled on loopback — acceptable for local dev only');
       } else {
         _log.severe('CRITICAL: Auth disabled on network-accessible host $host');
       }
     }
 
-    final mcpEnabled = _resolvedGatewayToken != null;
+    final mcpEnabled =
+        _resolvedGatewayToken != null ||
+        (!_authEnabled && _isLoopbackHost(config.server.host) && config.memory.journalEnabled);
+    _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
+    _agentMap = {for (final a in _agentDefs) a.id: a};
+    final agentsPayload = {
+      for (final agent in _agentDefs)
+        agent.id: _initializePayloadForAgent(agent, providerFamily: defaultProviderFamily, mcpEnabled: mcpEnabled),
+    };
     _harnessConfig = HarnessConfig(
       disallowedTools: mcpDisallowedTools(
         mcpEnabled: mcpEnabled,
-        searchEnabled: _hasSearchProvider(config),
+        searchEnabled: _ownMcpToolCanonicals.containsValue(CanonicalTool.webSearch),
         userDisallowed: config.agent.disallowedTools,
       ),
       maxTurns: config.agent.maxTurns,
@@ -174,12 +237,12 @@ class HarnessWiring {
       effort: config.agent.effort,
       agents: agentsPayload,
       appendSystemPrompt: staticPrompt,
-      mcpServerUrl: _resolvedGatewayToken != null ? 'http://127.0.0.1:$_port/mcp' : null,
+      mcpServerUrl: mcpEnabled ? 'http://localhost:$_port/mcp' : null,
       mcpGatewayToken: _resolvedGatewayToken,
     );
 
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
-    final defaultProviderId = config.agent.provider;
+    _warnToolPolicyEnforcementBoundaries(defaultProviderId);
     final acpValidationResults = await _validateConfiguredAcpTargets(config);
     for (final entry in config.harness.acp.agents.entries) {
       if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
@@ -224,6 +287,7 @@ class HarnessWiring {
           providerOptions: _providerOptions(config, defaultProviderId),
           containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
           guardChain: _primaryGuardChain,
+          ownMcpToolCanonicals: _ownMcpToolCanonicals,
           acpPermissionDecision: _acpPermissionDecision,
           acpReverseCallAudit: _auditAcpReverseCall,
           environment: _providerEnvironment(
@@ -355,21 +419,71 @@ class HarnessWiring {
     );
 
     _sessionDelegate = SessionDelegate(
-      dispatch: ({required sessionId, required message, required agentId}) async {
-        final session = await _storage.sessions.getOrCreateByKey(sessionId);
-        final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+      dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
+        final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
+        final persona = definition.prompt.trim().isEmpty ? null : definition.prompt;
+        final trimmedEffort = definition.effort?.trim();
+        Session? session;
+        if (createSession) {
+          session = await _storage.sessions.getOrCreateByKey(
+            sessionId,
+            type: SessionType.delegated,
+            provider: defaultProviderId,
+          );
+        } else {
+          session = await _storage.sessions.getByKey(sessionId);
+          if (session == null || session.type != SessionType.delegated) {
+            throw StateError('Unknown delegated session: $sessionId');
+          }
+        }
+
         final srv = serverRefGetter();
-        final turnId = await srv.turns.startTurn(session.id, [userMsg], agentName: agentId);
+        final turnId = await srv.turns.reserveTurn(
+          session.id,
+          agentName: agentId,
+          model: resolveAgentModel(definition, defaultProviderFamily),
+          effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
+          systemPromptOverride: persona,
+        );
+        try {
+          await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
+          final history = await _storage.messages.getMessages(session.id);
+          srv.turns.executeTurn(
+            session.id,
+            turnId,
+            [
+              for (final entry in history) {'role': entry.role, 'content': entry.content},
+            ],
+            source: createSession ? 'sessions_spawn' : 'sessions_send',
+            agentName: agentId,
+          );
+        } catch (_) {
+          srv.turns.releaseTurn(session.id, turnId);
+          rethrow;
+        }
         final outcome = await srv.turns.waitForOutcome(session.id, turnId);
         if (outcome.status != TurnStatus.completed) {
           throw StateError('Agent turn failed: ${outcome.errorMessage}');
         }
-        final msgs = await _storage.messages.getMessages(session.id);
-        final lastAssistant = msgs.lastWhere(
-          (m) => m.role == 'assistant',
-          orElse: () => throw StateError('No assistant response in session'),
-        );
-        return lastAssistant.content;
+        return outcome.responseText ?? (throw StateError('No assistant response in session'));
+      },
+      discardSession: (sessionId) async {
+        final session = await _storage.sessions.getByKey(sessionId);
+        if (session == null) {
+          await _storage.sessions.removeKeyMapping(sessionId);
+          return;
+        }
+        try {
+          await serverRefGetter().turns.resetProviderSessionContinuity(session.id);
+        } finally {
+          try {
+            if (session.type == SessionType.delegated) {
+              await _storage.sessions.updateSessionType(session.id, SessionType.archive);
+            }
+          } finally {
+            await _storage.sessions.removeKeyMapping(sessionId);
+          }
+        }
       },
       limits: subagentLimits,
       agents: _agentMap,
@@ -495,6 +609,7 @@ class HarnessWiring {
                   providerOptions: plan.options,
                   containerManager: containerManager,
                   guardChain: taskGuardChain,
+                  ownMcpToolCanonicals: _ownMcpToolCanonicals,
                   environment: {
                     ..._providerEnvironment(plan.credentialProviderId, credentialRegistry),
                     ..._taskRunnerSubagentEnvironment,
@@ -518,6 +633,94 @@ class HarnessWiring {
               return false;
             }
           };
+    _runnerPoolCoordinator = TaskRunnerPoolCoordinator(pool: _pool, onSpawnNeeded: _onSpawnNeeded);
+  }
+
+  static bool _isLoopbackHost(String host) => host == 'localhost' || host == '127.0.0.1' || host == '::1';
+
+  Map<String, dynamic> _initializePayloadForAgent(
+    AgentDefinition agent, {
+    required String providerFamily,
+    required bool mcpEnabled,
+  }) {
+    final payload = agent.toInitializePayload();
+    final model = resolveAgentModel(agent, providerFamily);
+    if (model != null) payload['model'] = model;
+    if (agent.allowedTools.isEmpty) return payload;
+
+    final normalized = agent.allowedTools.map(ToolPolicyCascade.normalizeEntry).toSet();
+    final tools = <String>[];
+    for (final entry in normalized) {
+      final providerTool = switch (entry) {
+        'shell' => 'Bash',
+        'file_read' => 'Read',
+        'file_write' => 'Write',
+        'file_edit' => 'Edit',
+        'web_fetch' => 'WebFetch',
+        'web_search' => 'WebSearch',
+        'mcp_call' => null,
+        _ => entry,
+      };
+      if (providerTool == null) {
+        _log.fine('Agent ${agent.id}: canonical mcp_call has no provider-native Claude tool name');
+      } else {
+        tools.add(providerTool);
+      }
+    }
+    if (mcpEnabled) {
+      for (final entry in _ownMcpToolCanonicals.entries) {
+        if (normalized.contains(entry.value.stableName)) {
+          tools.add('mcp__${dartclawMcpServerName}__${entry.key}');
+        }
+      }
+    }
+    payload['tools'] = tools;
+    return payload;
+  }
+
+  void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
+    final hasToolPolicy =
+        config.agent.disallowedTools.isNotEmpty ||
+        _agentDefs.any((agent) => agent.allowedTools.isNotEmpty || agent.deniedTools.isNotEmpty) ||
+        config.memory.journalEnabled ||
+        config.knowledge.inbox.enabled;
+    if (!hasToolPolicy) return;
+
+    if (_security.guardChain == null) {
+      _log.warning(
+        'Agent tool policies are configured while security guards are disabled – '
+        'host tool-policy enforcement is inactive',
+      );
+      return;
+    }
+
+    final providers = {...config.providers.entries.keys, defaultProviderId};
+    for (final providerId in providers.where(
+      (id) =>
+          ProviderIdentity.resolveFamily(
+            id,
+            executable: _resolveProviderExecutable(config, id),
+            options: _providerOptions(config, id),
+          ) ==
+          ProviderIdentity.codex,
+    )) {
+      final approvalValue = _providerOptions(config, providerId)['approval'];
+      final approval = approvalValue is String && approvalValue.trim().isNotEmpty ? approvalValue.trim() : null;
+      if (approval != 'on-request') {
+        _log.warning(
+          'Tool-restricted agent or job turns are configured while a Codex harness uses approval: '
+          '${approval ?? 'not explicitly set'} – '
+          'host tool-policy enforcement is partial or inactive for that harness; use approval: on-request for the '
+          'broadest available interception',
+        );
+      }
+    }
+    if (config.harness.acp.agents.isNotEmpty) {
+      _log.warning(
+        'Tool-restricted agent or job turns are configured for an ACP harness – host tool-policy enforcement covers only '
+        'guard-evaluated reverse calls and permission requests',
+      );
+    }
   }
 
   Future<AcpPermissionResult> _acpPermissionDecision(AcpPermissionRequest request) async {
@@ -528,6 +731,8 @@ class HarnessWiring {
       final verdict = await _primaryGuardChain.evaluateBeforeToolCall(
         request.operation,
         request.params,
+        sessionId: request.sessionId,
+        agentId: request.agentId,
         rawProviderToolName: 'session/request_permission',
       );
       return AcpPermissionResult(granted: !verdict.isBlock, reason: verdict.message);
@@ -623,9 +828,6 @@ String _resolveProviderExecutable(DartclawConfig config, String providerId) {
 
 Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) =>
     config.providers[providerId]?.options ?? const <String, dynamic>{};
-
-bool _hasSearchProvider(DartclawConfig config) =>
-    config.search.providers.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
 
 Map<String, ProviderEntry> _effectiveTaskProviderEntries(
   DartclawConfig config,

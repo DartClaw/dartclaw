@@ -25,6 +25,8 @@ class GuardAuditSubscriber {
         hookPoint: event.hookPoint,
         timestamp: event.timestamp,
         rawProviderToolName: event.rawProviderToolName,
+        tool: event.toolName,
+        agentId: event.agentId,
         sessionId: event.sessionId,
         channel: event.channel,
         peerId: event.peerId,

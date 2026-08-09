@@ -11,6 +11,7 @@ const _recognizedCodexModels = <String>{
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.4-nano',
+  'gpt-5.6-luna',
   'gpt-5',
   'gpt-5-mini',
   'gpt-5-nano',
@@ -1063,10 +1064,13 @@ MemoryConfig _parseMemory(
   var pruningEnabled = defaults.pruningEnabled;
   var archiveAfterDays = defaults.archiveAfterDays;
   var pruningSchedule = defaults.pruningSchedule;
+  var journalEnabled = defaults.journalEnabled;
+  var journalSchedule = defaults.journalSchedule;
 
   final memoryMap = _sectionMap('memory', yaml, warns);
   final nestedMaxBytes = memoryMap?['max_bytes'];
   final pruningRaw = memoryMap?['pruning'];
+  final journalRaw = memoryMap?['journal'];
 
   final legacyTopLevelMaxBytes = yaml['memory_max_bytes'];
   if (legacyTopLevelMaxBytes != null && nestedMaxBytes == null) {
@@ -1100,11 +1104,35 @@ MemoryConfig _parseMemory(
     pruningSchedule = pruningMap!['schedule'] as String;
   }
 
+  if (memoryMap?.containsKey('journal') ?? false) {
+    if (journalRaw is! Map) {
+      throw const FormatException('memory.journal must be a map.');
+    }
+    if (journalRaw.containsKey('schedule') && journalRaw['schedule'] is! String) {
+      throw const FormatException('memory.journal.schedule must be a string.');
+    }
+  }
+  final journalMap = journalRaw is Map ? journalRaw : null;
+  journalEnabled = _parseBool(
+    'memory.journal.enabled',
+    cli['memory_journal_enabled'],
+    journalMap?['enabled'],
+    journalEnabled,
+    warns,
+  );
+  if (cli['memory_journal_schedule'] case final cliSchedule?) {
+    journalSchedule = cliSchedule;
+  } else if (journalMap?['schedule'] is String) {
+    journalSchedule = journalMap!['schedule'] as String;
+  }
+
   return MemoryConfig(
     maxBytes: maxBytes,
     pruningEnabled: pruningEnabled,
     archiveAfterDays: archiveAfterDays,
     pruningSchedule: pruningSchedule,
+    journalEnabled: journalEnabled,
+    journalSchedule: journalSchedule,
   );
 }
 

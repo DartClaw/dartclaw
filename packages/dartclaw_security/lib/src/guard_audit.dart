@@ -30,6 +30,9 @@ class AuditEntry {
   /// Raw provider-native tool name associated with the verdict, if any.
   final String? rawProviderToolName;
 
+  /// Delegated agent identity associated with the verdict, if any.
+  final String? agentId;
+
   /// Session identifier associated with the event, if available.
   final String? sessionId;
 
@@ -62,6 +65,7 @@ class AuditEntry {
     required this.verdict,
     this.reason,
     this.rawProviderToolName,
+    this.agentId,
     this.sessionId,
     this.channel,
     this.peerId,
@@ -81,6 +85,7 @@ class AuditEntry {
       verdict: json['verdict'] as String,
       reason: json['reason'] as String?,
       rawProviderToolName: json['rawProviderToolName'] as String?,
+      agentId: json['agentId'] as String?,
       sessionId: json['sessionId'] as String?,
       channel: json['channel'] as String?,
       peerId: json['peerId'] as String?,
@@ -100,6 +105,7 @@ class AuditEntry {
     'verdict': verdict,
     if (reason != null) 'reason': reason,
     if (rawProviderToolName != null) 'rawProviderToolName': rawProviderToolName,
+    if (agentId != null) 'agentId': agentId,
     if (sessionId != null) 'sessionId': sessionId,
     if (channel != null) 'channel': channel,
     if (peerId != null) 'peerId': peerId,
@@ -155,6 +161,7 @@ class GuardAuditLogger {
     required String hookPoint,
     required DateTime timestamp,
     String? rawProviderToolName,
+    String? agentId,
     String? sessionId,
     String? channel,
     String? peerId,
@@ -188,6 +195,7 @@ class GuardAuditLogger {
         verdict: _verdictLabel(verdict),
         reason: verdict.message,
         rawProviderToolName: rawProviderToolName,
+        agentId: agentId,
         sessionId: sessionId,
         channel: channel,
         peerId: peerId,

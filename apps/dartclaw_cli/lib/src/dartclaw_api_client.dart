@@ -217,7 +217,14 @@ class DartclawApiClient {
   }
 
   DartclawApiException _exceptionForResponse(String path, int statusCode, String body) {
-    final parsed = body.trim().isEmpty ? null : jsonDecode(body);
+    Object? parsed;
+    if (body.trim().isNotEmpty) {
+      try {
+        parsed = jsonDecode(body);
+      } on FormatException {
+        parsed = null;
+      }
+    }
     String? code;
     String? message;
     Object? details;
@@ -236,7 +243,8 @@ class DartclawApiClient {
       401 =>
         'Authentication failed for ${baseUri.toString()}. Run `dartclaw token show` or `dartclaw token rotate`, configure `gateway.token`, or pass `--token`.',
       404 =>
-        'The server endpoint $path was not found at ${baseUri.toString()}. The CLI and server versions may be out of sync.',
+        message ??
+            'The server endpoint $path was not found at ${baseUri.toString()}. The CLI and server versions may be out of sync.',
       >= 500 => message ?? 'The DartClaw server returned an internal error while handling $path.',
       _ => message ?? 'Request to $path failed with HTTP $statusCode.',
     };

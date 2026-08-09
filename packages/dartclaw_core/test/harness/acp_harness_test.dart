@@ -4,6 +4,60 @@ import 'package:test/test.dart';
 import 'acp_test_support.dart';
 
 void main() {
+  test('ACP prepends scoped instructions before user content', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final turnFuture = harness.turn(
+      sessionId: 'delegated',
+      messages: const [
+        {'role': 'user', 'content': 'find it'},
+      ],
+      systemPrompt: 'SEARCH PERSONA',
+    );
+    await process.respondTo('session/new', {'sessionId': 'acp-delegated'});
+    final request = await process.waitForRequest('session/prompt');
+    expect((request['params'] as Map<String, dynamic>)['prompt'], 'SEARCH PERSONA\n\nfind it');
+    await process.respondTo('session/prompt', {'text': 'found'});
+    await process.respondTo('session/close', {});
+    await turnFuture;
+  });
+
+  test('ACP replays persisted history into each fresh provider session', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final turnFuture = harness.turn(
+      sessionId: 'delegated',
+      messages: const [
+        {'role': 'user', 'content': 'remember amber'},
+        {'role': 'assistant', 'content': 'I will remember amber'},
+        {'role': 'user', 'content': 'what color?'},
+      ],
+      systemPrompt: 'SEARCH PERSONA',
+    );
+    await process.respondTo('session/new', {'sessionId': 'acp-delegated'});
+    final request = await process.waitForRequest('session/prompt');
+    final prompt = (request['params'] as Map<String, dynamic>)['prompt'] as String;
+    expect(prompt, startsWith('SEARCH PERSONA\n\n<conversation_history>'));
+    expect(prompt, contains('[user]: remember amber'));
+    expect(prompt, contains('[assistant]: I will remember amber'));
+    expect(prompt, endsWith('</conversation_history>\n\nwhat color?'));
+    await process.respondTo('session/prompt', {'text': 'amber'});
+    await process.respondTo('session/close', {});
+    await turnFuture;
+  });
+
   group('ACP harness S04 event routing', () {
     test('emits ordered DeltaEvent, ToolUseEvent, and ToolResultEvent without thought response pollution', () async {
       final process = FakeAcpProcess();

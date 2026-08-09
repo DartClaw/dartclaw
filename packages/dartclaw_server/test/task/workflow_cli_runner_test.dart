@@ -688,7 +688,21 @@ void main() {
 
       final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
-        'allow': ['WebFetch', 'WebSearch'],
+        'allow': ['WebFetch'],
+        'deny': ['Edit', 'NotebookEdit', 'Write'],
+      });
+    });
+
+    test('Claude task policy grants WebSearch only for web_search', () async {
+      final arguments = await capturedClaudeArgs(
+        prompt: 'Search this',
+        allowedTools: const ['web_search'],
+        readOnly: true,
+      );
+
+      final decoded = decodedClaudeSettings(arguments);
+      expect(decoded['permissions'], {
+        'allow': ['WebSearch'],
         'deny': ['Edit', 'NotebookEdit', 'Write'],
       });
     });

@@ -1,6 +1,6 @@
 # ADR-018: CLI Onboarding Architecture
 
-**Status:** Accepted (revised 2026-04-09 after review; accepted 2026-04-10 — consumed by 0.16.2 PRD and plan)
+**Status:** Accepted (revised 2026-04-09 after review; accepted 2026-04-10; conversational scope clarified 2026-08-09 – consumed by 0.16.2 PRD and plan)
 
 ## Context
 
@@ -80,7 +80,7 @@ DartClaw's implementation addresses the known weaknesses of OpenClaw's `BOOTSTRA
 |---|---|
 | **One-shot** — BOOTSTRAP.md deleted after first run, no re-trigger | **Re-triggerable**: `dartclaw setup --personalize` re-seeds ONBOARDING.md. Web UI "Personalize" button does the same via `POST /api/onboarding/reset` |
 | **Skipped if first message is a task** — identity files remain blank permanently | **Persistent with graceful deferral**: ONBOARDING.md includes a priority instruction to acknowledge the user's task first, then propose personalization. User can say "skip" or "later". File persists until personalization completes or user explicitly dismisses. Auto-expires after configurable period (default 14 days) with log warning |
-| **Prompt bloat** — sentinel loaded every turn until deleted (~1K tokens) | **Scoped injection**: ONBOARDING.md only injected in web UI sessions (not task/cron/channel sessions). Adds ~800 tokens to system prompt — acceptable for a temporary, bounded period |
+| **Prompt bloat** — sentinel loaded every turn until deleted (~1K tokens) | **Scoped injection**: ONBOARDING.md is injected only in human-conversational turns (Web UI and configured channels), not task, cron, workflow, delegated, or evaluator turns. Adds ~800 tokens to the system prompt – acceptable for a temporary, bounded period |
 | **No file safety** — agent writes directly to SOUL.md, USER.md | **Draft-review whenever content may pre-exist**: Direct writes are limited to a workspace where init created both fresh stubs. Any pre-existing behavior file and every `--personalize` rerun generate `.draft` files with diff preview. See [File Mutation Semantics](#file-mutation-semantics) |
 
 #### File Mutation Semantics
@@ -138,8 +138,8 @@ The sentinel file is a behavioral instruction block (~800-1200 words) containing
 ### Negative
 
 - **Step 2 is probabilistic.** The agent may not follow ONBOARDING.md instructions perfectly. It may prioritize a user's task over onboarding, ramble, or miss topics. Mitigated by: priority instruction in ONBOARDING.md, graceful deferral, re-trigger mechanism.
-- **Prompt bloat during onboarding period.** ONBOARDING.md adds ~800 tokens to every web UI session's system prompt until deleted/expired. Mitigated by: scoped injection (web sessions only), auto-expiry (14 days default), one-time cost.
-- **Custom BehaviorFileService integration.** Requires adding ONBOARDING.md loading to `_loadCoreParts()`, scope filtering (web sessions only), and `onboarding_complete` tool registration. ~100-150 LOC of new code. More integration code than a YAML workflow definition, but delivers conversational UX that a workflow definition cannot.
+- **Prompt bloat during onboarding period.** ONBOARDING.md adds ~800 tokens to each human-conversational turn's system prompt until deleted/expired. Mitigated by: conversational scope only, auto-expiry (14 days default), one-time cost.
+- **Custom BehaviorFileService integration.** Requires adding ONBOARDING.md loading to `_loadCoreParts()`, filtering to Web UI and configured channel conversations, and `onboarding_complete` tool registration. ~100-150 LOC of new code. More integration code than a YAML workflow definition, but delivers conversational UX that a workflow definition cannot.
 - **New dependency for TUI.** Step 1 wizard needs either `mason_logger` (593K downloads, AOT-compatible) or thin `dart:io` stdin layer (~200 LOC).
 - **Sentinel file is a new pattern in DartClaw.** Unlike the workflow engine approach, this introduces a "file triggers behavior, then self-deletes" pattern. However, it's a well-understood pattern (OpenClaw proved it at scale), and the implementation is small and isolated.
 
@@ -180,7 +180,7 @@ The sentinel file is a behavioral instruction block (~800-1200 words) containing
 - **Estimated effort:** 5-7 stories total. TUI wizard: 3-4 stories. ONBOARDING.md template + BehaviorFileService integration + re-trigger + draft-apply: 2-3 stories. Documentation: 0.5 story
 - **TUI library:** `mason_logger` (preferred, 593K downloads) or thin `dart:io` stdin layer (~200 LOC)
 - **ONBOARDING.md template location:** built by `SetupApply`, written to `<workspace>/ONBOARDING.md` during `dartclaw init`
-- **BehaviorFileService integration:** Add to `_loadCoreParts()` with session-scope filter (web UI only). ~50 LOC
+- **BehaviorFileService integration:** Add to `_loadCoreParts()` with human-conversational scope (Web UI and configured channels; exclude automation, delegation, and evaluation). ~50 LOC
 - **`onboarding_complete` MCP tool:** Registered alongside existing workspace tools. Deletes ONBOARDING.md + emits `OnboardingCompleteEvent` on EventBus. ~30 LOC
 - **Re-trigger:** `dartclaw setup --personalize` re-seeds ONBOARDING.md from template, with `rerun: true` marker. ~20 LOC in SetupCommand
 - **Draft application:** `dartclaw setup --apply-drafts` reads `.draft` files, shows section-level diff, confirms, applies with merge. ~100-150 LOC
@@ -209,6 +209,7 @@ The ADR does not pull the 0.17 structured identity work forward, supersede it, o
 - **2026-04-09 (initial):** Recommended Option D (TUI wizard + workflow-based personalization). Scored 78.0% in trade-off analysis.
 - **2026-04-09 (post-Codex review):** Review identified that the 0.15 workflow engine cannot support interactive personalization (designed for autonomous batch execution). V1 would be limited to non-interactive draft generation from pre-filled variables — a materially weaker UX than claimed.
 - **2026-04-09 (revised):** Changed recommendation to Option C with improvements (TUI wizard + sentinel-triggered conversational bootstrapping). Rationale: onboarding UX is the product; the sentinel approach delivers conversational personalization today using normal agent turns; Option D's infrastructure advantages (re-runnability, YAML maintenance) can be replicated in Option C with targeted improvements (re-trigger command, draft-review for reruns).
+- **2026-08-09 (scope clarification):** Reconciled the original web-only wording with the channel-neutral conversational runtime. Onboarding applies to Web UI and configured human channels, while automation, delegated, and evaluator turns remain excluded.
 
 ## References
 

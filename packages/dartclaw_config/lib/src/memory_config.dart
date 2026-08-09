@@ -12,12 +12,20 @@ class MemoryConfig {
   /// pruningSchedule.
   final String pruningSchedule;
 
+  /// Whether the built-in daily memory journal is enabled.
+  final bool journalEnabled;
+
+  /// Cron schedule for the built-in daily memory journal.
+  final String journalSchedule;
+
   /// Creates a [MemoryConfig] value.
   const MemoryConfig({
     this.maxBytes = 32 * 1024,
     this.pruningEnabled = true,
     this.archiveAfterDays = 90,
     this.pruningSchedule = '0 3 * * *',
+    this.journalEnabled = false,
+    this.journalSchedule = '0 22 * * *',
   });
 
   /// Default configuration.
@@ -30,8 +38,11 @@ class MemoryConfig {
           maxBytes == other.maxBytes &&
           pruningEnabled == other.pruningEnabled &&
           archiveAfterDays == other.archiveAfterDays &&
-          pruningSchedule == other.pruningSchedule;
+          pruningSchedule == other.pruningSchedule &&
+          journalEnabled == other.journalEnabled &&
+          journalSchedule == other.journalSchedule;
 
   @override
-  int get hashCode => Object.hash(maxBytes, pruningEnabled, archiveAfterDays, pruningSchedule);
+  int get hashCode =>
+      Object.hash(maxBytes, pruningEnabled, archiveAfterDays, pruningSchedule, journalEnabled, journalSchedule);
 }

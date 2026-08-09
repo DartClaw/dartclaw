@@ -139,6 +139,7 @@ void main() {
     SessionMaintenanceConfig config = const SessionMaintenanceConfig.defaults(),
     Set<String> activeChannelKeys = const {},
     Set<String> activeJobIds = const {},
+    Set<String> activeSessionIds = const {},
     TaskService? taskServiceOverride,
     int artifactRetentionDays = 0,
     String? dataDirOverride,
@@ -148,6 +149,7 @@ void main() {
       config: config,
       activeChannelKeys: activeChannelKeys,
       activeJobIds: activeJobIds,
+      isSessionActive: activeSessionIds.contains,
       sessionsDir: sessionsDir,
       taskService: taskServiceOverride ?? taskService,
       artifactRetentionDays: artifactRetentionDays,
@@ -172,6 +174,43 @@ void main() {
 
       final all = await sessions.listSessions();
       expect(all.where((s) => s.type == SessionType.archive), hasLength(1));
+    });
+
+    test('stale delegated session follows normal retention', () async {
+      final delegated = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 60));
+      final service = createService(
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
+      );
+
+      final report = await service.run();
+
+      expect(
+        report.actions,
+        contains(isA<MaintenanceAction>().having((action) => action.sessionId, 'session', delegated.id)),
+      );
+      expect((await sessions.getSession(delegated.id))!.type, SessionType.archive);
+    });
+
+    test('active delegated session is retained until its turn completes', () async {
+      final delegated = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 60));
+      final active = <String>{delegated.id};
+      final service = SessionMaintenanceService(
+        sessions: sessions,
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
+        activeChannelKeys: const {},
+        activeJobIds: const {},
+        isSessionActive: active.contains,
+        sessionsDir: sessionsDir,
+      );
+
+      final activeReport = await service.run();
+      expect(activeReport.actions.where((action) => action.sessionId == delegated.id), isEmpty);
+      expect((await sessions.getSession(delegated.id))!.type, SessionType.delegated);
+
+      active.clear();
+      final completedReport = await service.run();
+      expect(completedReport.actions.where((action) => action.sessionId == delegated.id), hasLength(1));
+      expect((await sessions.getSession(delegated.id))!.type, SessionType.archive);
     });
 
     test('stale session is NOT archived in warn mode (but reported)', () async {
@@ -314,6 +353,26 @@ void main() {
       expect(capActions[0].applied, isTrue);
     });
 
+    test('delegated sessions participate in the count cap', () async {
+      final delegated = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 10));
+      await createAgedSession(age: const Duration(days: 5));
+
+      final service = createService(
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxSessions: 1, pruneAfterDays: 0),
+      );
+
+      final report = await service.run();
+      expect(
+        report.actions,
+        contains(
+          isA<MaintenanceAction>()
+              .having((action) => action.sessionId, 'session', delegated.id)
+              .having((action) => action.reason, 'reason', 'count_cap'),
+        ),
+      );
+      expect((await sessions.getSession(delegated.id))!.type, SessionType.archive);
+    });
+
     test('protected sessions excluded from count', () async {
       await createAgedSession(type: SessionType.main, age: const Duration(days: 10));
       await sessions.createSession();
@@ -453,6 +512,22 @@ void main() {
       for (final a in diskActions) {
         expect(a.sessionId, isNot(userSession.id));
       }
+    });
+
+    test('disk cleanup does not delete an archived session with an active turn', () async {
+      final active = await createAgedSession(type: SessionType.delegated, age: const Duration(days: 10));
+      await sessions.updateSessionType(active.id, SessionType.archive);
+      fillSessionDir(active.id, 900 * 1024);
+
+      final service = createService(
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxDiskMb: 1, pruneAfterDays: 0),
+        activeSessionIds: {active.id},
+      );
+
+      final report = await service.run();
+
+      expect(report.actions.where((action) => action.sessionId == active.id), isEmpty);
+      expect(await sessions.getSession(active.id), isNotNull);
     });
 
     test('warning if still over after all archives deleted', () async {

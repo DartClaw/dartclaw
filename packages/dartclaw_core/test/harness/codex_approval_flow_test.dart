@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/src/harness/canonical_tool.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
+import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
@@ -12,6 +14,7 @@ CodexHarness _buildHarness({
   required FakeCodexProcess process,
   GuardChain? guardChain,
   Map<String, String>? environment,
+  Map<String, CanonicalTool> ownMcpToolCanonicals = const {},
 }) {
   return CodexHarness(
     cwd: '/tmp',
@@ -21,6 +24,7 @@ CodexHarness _buildHarness({
     delayFactory: noOpDelay,
     environment: environment ?? const {'OPENAI_API_KEY': 'sk-test-key'},
     guardChain: guardChain,
+    adapter: CodexProtocolAdapter(ownMcpToolCanonicals: ownMcpToolCanonicals),
   );
 }
 
@@ -51,6 +55,7 @@ void main() {
 
       final turnFuture = harness.turn(
         sessionId: 'sess-allow',
+        agentId: 'search',
         messages: [
           {'role': 'user', 'content': 'run status'},
         ],
@@ -71,14 +76,134 @@ void main() {
       await turnFuture;
       await Future<void>.delayed(Duration.zero);
 
-      expect(guard.contexts, hasLength(1));
-      expect(guard.contexts.single.toolName, 'shell');
-      expect(guard.contexts.single.rawProviderToolName, 'command_execution');
-      expect(guard.contexts.single.sessionId, 'sess-allow');
-      expect(guard.contexts.single.toolInput, {'command': 'git status'});
+      fake.emitApprovalRequest(
+        requestId: 'after-turn',
+        toolUseId: 'tool-after-turn',
+        toolName: 'command_execution',
+        extraParams: {
+          'tool_input': {'command': 'git status'},
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(guard.contexts, hasLength(2));
+      expect(guard.contexts.first.toolName, 'shell');
+      expect(guard.contexts.first.rawProviderToolName, 'command_execution');
+      expect(guard.contexts.first.sessionId, 'sess-allow');
+      expect(guard.contexts.first.agentId, 'search');
+      expect(guard.contexts.first.toolInput, {'command': 'git status'});
+      expect(guard.contexts.last.sessionId, isNull);
+      expect(guard.contexts.last.agentId, isNull);
       final allowResponse = fake.sentMessages.singleWhere((message) => message['id'] == 'allow-1');
       expect(allowResponse['jsonrpc'], '2.0');
       expect(allowResponse['result'], {'approved': true});
+    });
+
+    test('maps exact own-MCP approval identities and keeps unknown MCP calls generic', () async {
+      final fake = FakeCodexProcess(completeExitOnKill: true);
+      final guard = RecordingGuard();
+      final harness = _buildHarness(
+        process: fake,
+        guardChain: GuardChain(guards: [guard]),
+        ownMcpToolCanonicals: const {
+          'web_fetch': CanonicalTool.webFetch,
+          'brave_search': CanonicalTool.webSearch,
+          'memory_save': CanonicalTool.memorySave,
+        },
+      );
+      addTearDown(() async => harness.dispose());
+      await startHarness(harness, fake);
+
+      final turnFuture = harness.turn(
+        sessionId: 'sess-mcp-semantics',
+        agentId: 'search',
+        messages: [
+          {'role': 'user', 'content': 'use MCP tools'},
+        ],
+        systemPrompt: 'test',
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await respondToLatestThreadStart(fake);
+      final requests = [
+        ('fetch', 'dartclaw', 'web_fetch', <String, dynamic>{'url': 'https://github.com'}),
+        ('search', 'dartclaw', 'brave_search', <String, dynamic>{'query': 'Dart'}),
+        ('memory', 'dartclaw', 'memory_save', <String, dynamic>{'content': 'fact'}),
+        ('unknown-own', 'dartclaw', 'unknown', <String, dynamic>{}),
+        ('third-party', 'github', 'search', <String, dynamic>{}),
+      ];
+      for (final (id, server, tool, arguments) in requests) {
+        fake.emitApprovalRequest(
+          requestId: id,
+          toolUseId: 'tool-$id',
+          toolName: 'mcp_tool_call',
+          extraParams: {
+            'tool_input': {'server': server, 'tool': tool, 'arguments': arguments},
+          },
+        );
+      }
+      fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      await turnFuture;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(guard.contexts.map((context) => context.toolName), [
+        'web_fetch',
+        'web_search',
+        'memory_save',
+        'mcp_call',
+        'mcp_call',
+      ]);
+      expect(guard.contexts.first.toolInput, {'url': 'https://github.com'});
+      expect(guard.contexts.map((context) => context.rawProviderToolName), everyElement('mcp_tool_call'));
+    });
+
+    test('routes exact own-MCP web fetch approval arguments through NetworkGuard', () async {
+      final fake = FakeCodexProcess(completeExitOnKill: true);
+      final harness = _buildHarness(
+        process: fake,
+        guardChain: GuardChain(
+          guards: [
+            NetworkGuard(
+              config: NetworkGuardConfig(allowedDomains: const {'github.com'}, exfilPatterns: const []),
+            ),
+          ],
+        ),
+        ownMcpToolCanonicals: const {'web_fetch': CanonicalTool.webFetch},
+      );
+      addTearDown(() async => harness.dispose());
+      await startHarness(harness, fake);
+
+      final turnFuture = harness.turn(
+        sessionId: 'sess-mcp-fetch',
+        messages: [
+          {'role': 'user', 'content': 'fetch a page'},
+        ],
+        systemPrompt: 'test',
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await respondToLatestThreadStart(fake);
+      fake.emitApprovalRequest(
+        requestId: 'fetch-blocked',
+        toolUseId: 'tool-fetch',
+        toolName: 'mcp_tool_call',
+        extraParams: {
+          'tool_input': {
+            'server': 'dartclaw',
+            'tool': 'web_fetch',
+            'arguments': {'url': 'https://example.com/page'},
+          },
+        },
+      );
+      fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      await turnFuture;
+      await Future<void>.delayed(Duration.zero);
+
+      final response = fake.sentMessages.singleWhere((message) => message['id'] == 'fetch-blocked');
+      expect(response['result'], {
+        'approved': false,
+        'reason': 'Network blocked: domain not in allowlist (example.com)',
+      });
     });
 
     test('routes approval requests through GuardChain and denies blocked tools', () async {

@@ -33,6 +33,7 @@ import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_event_recorder.dart';
 import 'task/task_progress_tracker.dart';
+import 'task/task_runner_pool_coordinator.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
@@ -150,6 +151,7 @@ class DartclawServerBuilder {
   AppDisplayParams appDisplay = const AppDisplayParams();
 
   TurnManager? _cachedTurns;
+  TaskRunnerPoolCoordinator? runnerPoolCoordinator;
 
   /// Returns the [TurnManager] that will be used by the built server.
   ///
@@ -168,7 +170,11 @@ class DartclawServerBuilder {
     final w = worker ?? (throw StateError('worker is required'));
     final b = behavior ?? (throw StateError('behavior is required'));
     _cachedTurns = pool != null
-        ? TurnManager.fromPool(pool: pool!, sessions: sessionsForTurns ?? s)
+        ? TurnManager.fromPool(
+            pool: pool!,
+            sessions: sessionsForTurns ?? s,
+            runnerPoolCoordinator: runnerPoolCoordinator,
+          )
         : TurnManager(
             messages: m,
             worker: w,

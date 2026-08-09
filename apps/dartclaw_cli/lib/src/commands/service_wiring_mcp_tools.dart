@@ -14,8 +14,11 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
 }) async {
   final handlers = harness.memoryHandlers;
   server.registerTool(DelegateToAgentTool(config: config, pool: harness.pool));
+  server.registerTool(SessionsSpawnTool(delegate: harness.sessionDelegate));
   server.registerTool(SessionsSendTool(delegate: harness.sessionDelegate));
-  server.registerTool(MemorySaveTool(handler: handlers.onSave));
+  for (final tool in harness.semanticMcpTools) {
+    server.registerTool(tool);
+  }
   server.registerTool(MemorySearchTool(handler: handlers.onSearch));
   server.registerTool(MemoryReadTool(handler: handlers.onRead));
   final auditLogger = security.auditLogger;
@@ -61,10 +64,6 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
       },
     ),
   );
-  server.registerTool(
-    WebFetchTool(classifier: security.contentClassifier, failOpenOnClassification: security.contentGuardFailOpen),
-  );
-
   AdvisorSubscriber? advisorSubscriber;
   if (config.advisor.enabled) {
     advisorSubscriber = AdvisorSubscriber(
@@ -83,33 +82,6 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
       effort: config.advisor.effort,
     );
     advisorSubscriber.subscribe();
-  }
-
-  for (final entry in config.search.providers.entries) {
-    final providerName = entry.key;
-    final providerConfig = entry.value;
-    if (!providerConfig.enabled || providerConfig.apiKey.isEmpty) continue;
-
-    switch (providerName) {
-      case 'brave':
-        server.registerTool(
-          BraveSearchTool(
-            provider: BraveSearchProvider(apiKey: providerConfig.apiKey),
-            contentGuard: security.contentGuard,
-          ),
-        );
-        _mcpToolsLog.info('Registered brave_search MCP tool');
-      case 'tavily':
-        server.registerTool(
-          TavilySearchTool(
-            provider: TavilySearchProvider(apiKey: providerConfig.apiKey),
-            contentGuard: security.contentGuard,
-          ),
-        );
-        _mcpToolsLog.info('Registered tavily_search MCP tool');
-      default:
-        _mcpToolsLog.warning('Unknown search provider: $providerName — skipping');
-    }
   }
 
   final outboundMcpPool = await _registerOutboundMcpTools(

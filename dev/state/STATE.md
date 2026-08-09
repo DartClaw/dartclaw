@@ -3,30 +3,29 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-08 18:22 CEST
+Last Updated: 2026-08-09 08:24 CEST
 
 ## Current Phase
 
-**Release ready**
+**Phase 1: 0.24 milestone**
 
-**Status**: The 0.23 release is scope-frozen and release-ready on `feat/0.23`, awaiting squash merge and the `v0.23.0`
-tag. The automated release check, full workflow-live, complete UI smoke, and exact-SHA GitHub CI pass; 0.24 remains next.
+**Status**: On Track
 
 ## Current Focus
 
-- Squash-merge the release branch to `main` and tag the squash commit `v0.23.0`.
-- Audit release assets and Homebrew/Scoop publication after the tag workflow completes.
+- Review and merge the completed 0.24 implementation bundle.
+- Close the 0.24 provider-interception and audit-attribution follow-ups found during implementation reflection.
 - Continue paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
 
 ## Active Stories
 
-- None. All 16 planned stories are complete; the transient public implementation bundle has been removed.
+- None. The 0.24 plan's four stories are complete.
 
 ## Recently Completed
 
+- **0.24 implementation** (2026-08-09): live agent tool policy, provider-pinned persona delegation, the opt-in memory journal, and on-demand scheduled-job execution completed with final convergence review and full CI gates.
 - **0.23 implementation** (2026-07-30): all 16 planned stories completed at `b08941af`; subsequent session,
   deployment, onboarding, channel, and visual refinements remain unreleased.
-- **0.22**: Afterglow design-system overhaul, tagged `v0.22.0`.
 
 ## Blockers
 

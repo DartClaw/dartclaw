@@ -38,4 +38,6 @@
 
 ### Turn Routing
 - **Provider-routed sessions need turn-reservation bookkeeping in `TurnManager`.** When provider selection happens at reserve time, all of `executeTurn` / `waitForOutcome` / `releaseTurn` must hit the same runner.
-- **Append-mode harnesses need explicit per-turn prompt exceptions for scoped behavior.** `PromptStrategy.append` normally returns an empty per-turn system prompt to avoid replacing the spawn prompt. Scoped web-only behavior such as onboarding must opt into a full scoped static prompt for that turn; changing the default would leak behavior into non-web callers.
+- **Append-mode prompt exceptions follow conversational scope.** Onboarding may opt into a full static prompt for Web UI/channels; automation, delegated, and evaluator turns stay excluded.
+- **Claude PreToolUse must remain unfiltered.** Omitted matcher/if covers built-ins and dynamic MCP tools; a static name list silently bypasses host guards.
+- **Claude discovery is not capability grant.** Let exact `ToolSearch` load schemas under a closed allowlist; separately evaluate every selected tool, and keep toolless policies closed.

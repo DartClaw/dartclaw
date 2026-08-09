@@ -40,11 +40,15 @@ milestone builds on (added 2026-07-25).
 ### 0.27 — Knowledge Interop & Steward
 
 Guarded knowledge writes, the deferred validation/dogfooding/steward loop, OKF bundle interop, and governed idle-time
-memory curation. Reuses the 0.24 journal and on-demand job surfaces and follows the 0.25 storage/search seams.
+memory curation. Reuses the 0.24 journal and on-demand job surfaces and follows the 0.25 storage/search seams. Phase A
+also owns caller-aware MCP dispatch context, exact delegated-turn cancellation, and an opt-in pinned-provider matrix for
+the guard-interception capabilities this milestone relies on.
 
 ### 0.28 — Workflow Track: DSL v2
 
 Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `agents:`, fresh-context loops, conditional `approval:` routing) plus the TR-10 server-first authoring UI. First slice of the workflow track (the 2026-07-04 rebrand's "0.22" target, split + renumbered 2026-07-06, shifted again 2026-07-24).
+Inline-agent planning must explicitly settle whether agents share the current global delegation budget or introduce
+independent quotas; `max_concurrent` remains a global-budget contribution until that decision.
 
 ### 0.29 — Workflow Track: Dynamic Workflows + Orchestration Agent
 

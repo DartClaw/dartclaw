@@ -131,9 +131,9 @@ Use `--launch foreground`, `--launch background`, or `--launch service` to start
 - `USER.md` with six stable sections: Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant.
 - `SOUL.md` with durable behavior-update and proactivity guidance.
 - `wiki/README.md` for curated synthesized knowledge pages, distinct from the chronological `MEMORY.md` stream.
-- `ONBOARDING.md`, a web-chat-only sentinel that guides first-run personalization.
+- `ONBOARDING.md`, a human-conversation sentinel that guides first-run personalization in web chat and configured messaging channels.
 
-Existing installs can adopt the structure by running `dartclaw init --personalize`, then completing onboarding in web chat.
+Existing installs can adopt the structure by running `dartclaw init --personalize`, then completing onboarding in any configured human-facing chat.
 Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten. Review the drafts and apply
 them with `dartclaw init --apply-drafts`.
 

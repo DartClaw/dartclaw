@@ -6,6 +6,7 @@ import 'package:dartclaw_server/src/mcp/memory_tools.dart';
 import 'package:dartclaw_server/src/mcp/onboarding_complete_tool.dart';
 import 'package:dartclaw_server/src/mcp/search_provider.dart';
 import 'package:dartclaw_server/src/mcp/sessions_send_tool.dart';
+import 'package:dartclaw_server/src/mcp/sessions_spawn_tool.dart';
 import 'package:dartclaw_server/src/mcp/tavily_search_tool.dart';
 import 'package:dartclaw_server/src/mcp/web_fetch_tool.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -27,7 +28,7 @@ class _StubSearchBackend implements SearchBackend {
 }
 
 SessionDelegate _stubDelegate() => SessionDelegate(
-  dispatch: ({required sessionId, required message, required agentId}) async => '',
+  dispatch: ({required sessionId, required message, required agentId, required createSession}) async => '',
   limits: SubagentLimits(maxConcurrent: 2, maxSpawnDepth: 1, maxChildrenPerAgent: 2),
   agents: {'search': AgentDefinition.searchAgent()},
 );
@@ -72,6 +73,8 @@ void main() {
 
     test('SessionsSendTool', () => expectCompliant(SessionsSendTool(delegate: _stubDelegate())));
 
+    test('SessionsSpawnTool', () => expectCompliant(SessionsSpawnTool(delegate: _stubDelegate())));
+
     test('KG tools', () {
       expectCompliant(KgAddTool(kg: kg));
       expectCompliant(KgQueryTool(kg: kg));
@@ -93,6 +96,7 @@ void main() {
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),
         TavilySearchTool(provider: _StubSearchProvider()),
+        SessionsSpawnTool(delegate: _stubDelegate()),
         SessionsSendTool(delegate: _stubDelegate()),
         KgAddTool(kg: kg),
         KgQueryTool(kg: kg),

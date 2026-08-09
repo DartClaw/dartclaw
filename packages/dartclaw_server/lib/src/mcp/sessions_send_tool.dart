@@ -2,8 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'mcp_utils.dart';
 
-/// MCP tool that delegates a synchronous query to a sub-agent via
-/// [SessionDelegate.handleSessionsSend].
+/// MCP tool that continues an existing delegated agent session.
 class SessionsSendTool implements McpTool {
   final SessionDelegate _delegate;
 
@@ -14,23 +13,24 @@ class SessionsSendTool implements McpTool {
 
   @override
   String get description =>
-      'Send a query to a sub-agent and wait for the result. '
-      'Use for web search, information retrieval, or delegated tasks.';
+      'Send a message to an existing delegated session and wait for the result. '
+      'Use sessions_spawn to create the session first.';
 
   @override
   Map<String, dynamic> get inputSchema => {
     'type': 'object',
     'properties': {
-      'agent': {'type': 'string', 'description': 'Agent ID (e.g. "search")'},
-      'message': {'type': 'string', 'description': 'The query or instruction to send'},
+      'session_id': {'type': 'string', 'description': 'Delegated session handle returned by sessions_spawn'},
+      'message': {'type': 'string', 'description': 'The follow-up message to send'},
     },
-    'required': ['agent', 'message'],
+    'required': ['session_id', 'message'],
     'additionalProperties': false,
   };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
     final result = await _delegate.handleSessionsSend(args);
-    return ToolResult.text(extractMcpText(result));
+    final text = extractMcpText(result);
+    return result['isError'] == true ? ToolResult.error(text) : ToolResult.text(text);
   }
 }

@@ -68,6 +68,8 @@ void main() {
         'memory.pruning.enabled',
         'memory.pruning.archive_after_days',
         'memory.pruning.schedule',
+        'memory.journal.enabled',
+        'memory.journal.schedule',
         'usage.budget_warning_tokens',
         'usage.max_file_size_bytes',
         'channels.google_chat.enabled',

@@ -16,6 +16,7 @@ import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_runner.dart';
 import 'turn_wait_status.dart';
+import 'task/task_runner_pool_coordinator.dart';
 
 // ---------------------------------------------------------------------------
 // Data types (re-exported from dartclaw_core for local convenience)
@@ -41,6 +42,9 @@ class TurnContext {
 
   /// Optional per-turn reasoning effort override.
   final String? effort;
+
+  /// Authoritative system prompt for this turn when non-empty.
+  final String? systemPromptOverride;
 
   /// Optional hard cap on the number of harness turns for this request.
   final int? maxTurns;
@@ -72,6 +76,7 @@ class TurnContext {
     this.directory,
     this.model,
     this.effort,
+    this.systemPromptOverride,
     this.maxTurns,
     this.behaviorOverride,
     this.promptScope,
@@ -94,10 +99,12 @@ class TurnManager implements core.TurnManager, Reconfigurable {
 
   final HarnessPool _pool;
   final SessionService? _sessions;
+  final TaskRunnerPoolCoordinator? _runnerPoolCoordinator;
   late final TurnRunner _primary = _pool.primary;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, TurnRunner> _providerSessionRunners = {};
   final Map<String, int> _providerSessionReservations = {};
+  final Map<String, Future<TurnRunner>> _providerSessionAcquisitions = {};
 
   /// Backward-compatible constructor: accepts a single [AgentHarness] and wraps
   /// it in a single-runner pool. Used by existing callers and tests that don't
@@ -151,10 +158,17 @@ class TurnManager implements core.TurnManager, Reconfigurable {
            ),
          ],
        ),
-       _sessions = sessions;
+       _sessions = sessions,
+       _runnerPoolCoordinator = null;
 
   /// Creates a TurnManager backed by a [HarnessPool].
-  TurnManager.fromPool({required HarnessPool pool, SessionService? sessions}) : _pool = pool, _sessions = sessions;
+  TurnManager.fromPool({
+    required HarnessPool pool,
+    SessionService? sessions,
+    TaskRunnerPoolCoordinator? runnerPoolCoordinator,
+  }) : _pool = pool,
+       _sessions = sessions,
+       _runnerPoolCoordinator = runnerPoolCoordinator;
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -216,6 +230,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -232,6 +247,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
         directory: directory,
         model: model,
         effort: effort,
+        systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
         taskId: taskId,
         isHumanInput: isHumanInput,
@@ -293,6 +309,19 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     _providerSessionReservations.remove(sessionId);
   }
 
+  /// Clears continuity for a completed provider-pinned session without touching the primary caller.
+  Future<void> resetProviderSessionContinuity(String sessionId) async {
+    if (isActive(sessionId)) {
+      throw BusyTurnException('Cannot reset: turn in progress', isSameSession: true);
+    }
+    for (final runner in _pool.runners.skip(1)) {
+      if (runner.activeSessionIds.isNotEmpty) continue;
+      await runner.resetSessionContinuity(sessionId);
+    }
+    _providerSessionRunners.remove(sessionId);
+    _providerSessionReservations.remove(sessionId);
+  }
+
   @override
   Future<String> startTurn(
     String sessionId,
@@ -301,22 +330,26 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
       agentName: agentName,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
+      promptScope: promptScope,
     );
     try {
       executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
@@ -436,7 +469,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   }
 
   Future<TurnRunner> _reserveRunnerForSession(String sessionId) async {
-    final activeRunner = _providerSessionRunners[sessionId];
+    var activeRunner = _providerSessionRunners[sessionId];
     if (activeRunner != null) {
       _providerSessionReservations[sessionId] = (_providerSessionReservations[sessionId] ?? 0) + 1;
       return activeRunner;
@@ -448,19 +481,40 @@ class TurnManager implements core.TurnManager, Reconfigurable {
       return _primary;
     }
 
-    // Provider-pinned interactive sessions fail fast instead of silently
-    // falling back to another provider or queueing behind the generic pool.
-    if (!_pool.hasTaskRunnerForProvider(provider)) {
-      throw BusyTurnException('Provider $provider is unavailable for session turns', isSameSession: false);
+    activeRunner = _providerSessionRunners[sessionId];
+    if (activeRunner != null) {
+      _providerSessionReservations[sessionId] = (_providerSessionReservations[sessionId] ?? 0) + 1;
+      return activeRunner;
     }
 
-    final runner = _pool.tryAcquireForProvider(provider);
-    if (runner == null) {
-      throw BusyTurnException('No idle $provider workers available', isSameSession: false);
+    var acquisition = _providerSessionAcquisitions[sessionId];
+    if (acquisition == null) {
+      acquisition = _acquireProviderRunner(provider);
+      _providerSessionAcquisitions[sessionId] = acquisition;
     }
-    _providerSessionRunners[sessionId] = runner;
-    _providerSessionReservations[sessionId] = 1;
-    return runner;
+    try {
+      final runner = await acquisition;
+      _providerSessionRunners[sessionId] = runner;
+      _providerSessionReservations[sessionId] = (_providerSessionReservations[sessionId] ?? 0) + 1;
+      return runner;
+    } finally {
+      if (identical(_providerSessionAcquisitions[sessionId], acquisition)) {
+        final removed = _providerSessionAcquisitions.remove(sessionId);
+        assert(identical(removed, acquisition));
+      }
+    }
+  }
+
+  Future<TurnRunner> _acquireProviderRunner(String provider) async {
+    final acquired = _runnerPoolCoordinator == null
+        ? _pool.tryAcquireForProvider(provider)
+        : await _runnerPoolCoordinator.provisionAndAcquireProvider(provider);
+    final runner = acquired as TurnRunner?;
+    if (runner != null) return runner;
+    throw BusyTurnException(
+      'Provider "$provider" task pool unavailable; increase tasks.max_concurrent or providers.$provider.pool_size',
+      isSameSession: false,
+    );
   }
 
   void _releaseProviderReservation(String sessionId, TurnRunner runner) {

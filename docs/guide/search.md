@@ -6,13 +6,13 @@ The search agent is one of DartClaw's two agent execution models. For the broade
 
 ## Search Agent
 
-The search agent has restricted tools – only `WebSearch` and `WebFetch`. No filesystem, exec, or browser tools. It runs in a separate session store (`agents/search/sessions/`).
+The search agent's canonical default allowlist is `{web_search, web_fetch}`. No filesystem, exec, or browser tools are allowed on host-guarded delegated turns. Its hidden delegated session is retained for diagnostics and normal maintenance.
 
 ### How It Works
 
-1. Main agent calls `sessions_send` with a query
-2. DartClaw spawns a search agent turn in an isolated session
-3. Search agent uses `WebSearch`/`WebFetch` to find information
+1. Main agent calls `sessions_spawn` with the `search` agent and a query
+2. DartClaw acquires or spawns a provider-matched task-pool worker and starts a hidden delegated session
+3. Search agent uses mapped search/fetch tools to find information
 4. Content-guard scans the result at the agent boundary
 5. Result returned to main agent (or blocked if unsafe)
 
@@ -21,7 +21,9 @@ The search agent has restricted tools – only `WebSearch` and `WebFetch`. No fi
 3-layer policy evaluator (most restrictive wins):
 1. **Global deny** – always blocked regardless of agent
 2. **Agent deny** – blocked for this specific agent
-3. **Sandbox allow** – only explicitly listed tools permitted (closed set)
+3. **Sandbox allow** – a non-empty list permits only explicitly listed tools (closed set)
+
+The active delegated-agent identity reaches `ToolPolicyGuard` on provider interception. DartClaw maps provider-native `WebSearch`/`WebFetch` and exact own-MCP search/fetch tool identities to `web_search`/`web_fetch`; unknown provider tools keep an auditable provider-prefixed fallback. Codex requires approval requests for host enforcement, while ACP enforcement is limited to its reverse-call and permission surfaces.
 
 ### Configuration
 
@@ -29,25 +31,22 @@ The search agent has restricted tools – only `WebSearch` and `WebFetch`. No fi
 agent:
   agents:
     search:
-      tools: [WebSearch, WebFetch]
-      max_spawn_depth: 0        # cannot spawn sub-agents
+      tools: [web_search, web_fetch]
       max_concurrent: 2
       max_response_bytes: 5242880  # 5MB cap
 ```
 
+With no explicit `model`, search uses `sonnet` on Claude and `gpt-5.6-luna` on Codex. Set `model` or `effort` in the agent entry to override those provider defaults. Delegation requires task-pool capacity; an unavailable pool returns an inline configuration error instead of using the caller's primary harness.
+
 ### Subagent Limits
 
-| Limit | Default | Purpose |
-|-------|---------|---------|
-| `maxConcurrent` | 2 | Max parallel search agents |
-| `maxSpawnDepth` | 0 | Search agent cannot spawn sub-agents |
-| `maxChildrenPerAgent` | 0 | Max children per parent |
+Configured `max_concurrent` values are summed into the global delegation cap; they are not currently enforced per agent. Subagents cannot spawn subagents. See [Agents](agents.md#subagent-limits).
 
-These are per-agent limits. Global subagent limits and the full configuration reference are documented in [Agents](agents.md#subagent-limits).
+Provider-native config spellings remain compatible through startup normalization. For portable policies, prefer canonical names. `web_search` and `web_fetch` are separate grants, so older task or step policies naming only `web_fetch` must add `web_search` if search is intended.
 
 ## Content Guard
 
-Content-guard scans search results at the `sessions_send` boundary using Haiku classification:
+Content-guard scans search results at the `sessions_spawn` and `sessions_send` boundaries using Haiku classification:
 
 | Classification | Action |
 |---------------|--------|
@@ -93,3 +92,5 @@ If QMD becomes unreachable, DartClaw falls back to FTS5 silently.
 ### Memory Consolidation
 
 During heartbeat, if MEMORY.md exceeds 32KB, the agent runs a consolidation turn to deduplicate and reorganize entries.
+
+Memory journaling fills MEMORY.md from daily turn logs; consolidation deduplicates it after it exceeds the size cap.

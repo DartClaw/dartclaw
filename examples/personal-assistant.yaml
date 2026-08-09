@@ -18,6 +18,9 @@ agent:
 
 memory:
   max_bytes: 65536
+  journal:
+    enabled: true
+    schedule: "0 22 * * *"
 
 sessions:
   idle_timeout_minutes: 480
@@ -33,12 +36,6 @@ scheduling:
     enabled: true
     interval_minutes: 60
   jobs:
-    - id: daily-journal
-      prompt: "Review today's conversations and update MEMORY.md with key insights, decisions, and action items."
-      schedule:
-        type: cron
-        expression: "0 22 * * *"
-      delivery: none
     - id: weekly-review
       prompt: "Summarize this week's activity, highlight patterns, and suggest focus areas for next week."
       schedule:

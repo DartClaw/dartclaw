@@ -13,11 +13,11 @@
           <span class="heartbeat-label">Heartbeat</span>
           <tl:block tl:utext="${heartbeatBadgeHtml}">badge</tl:block>
           <label class="form-toggle toggle-inline">
-            <input type="checkbox" tl:if="${heartbeatOn}" checked
+            <input type="checkbox" tl:if="${heartbeatOn}" checked aria-label="Enable heartbeat"
                    hx-post="/api/settings/heartbeat/toggle"
                    hx-swap="none"
                    hx-vals='js:{"enabled": event.target.checked}'>
-            <input type="checkbox" tl:unless="${heartbeatOn}"
+            <input type="checkbox" tl:unless="${heartbeatOn}" aria-label="Enable heartbeat"
                    hx-post="/api/settings/heartbeat/toggle"
                    hx-swap="none"
                    hx-vals='js:{"enabled": event.target.checked}'>
@@ -95,10 +95,15 @@
               <td><span tl:classappend="${job.statusDotClass}" class="status-dot"></span> <span tl:text="${job.status}">active</span></td>
               <td tl:if="${job.hasActions}">
                 <div class="action-btns">
+                  <button tl:if="${job.canRun}" class="btn btn-icon-sm"
+                          data-action="click->dc-scheduling#runJob" tl:attr="data-job-name=${job.name}"
+                          title="Run now" aria-label="Run now" data-icon="play"></button>
                   <button class="btn btn-icon-sm"
+                          tl:unless="${job.isSystem}"
                           data-action="click->dc-scheduling#editJob" tl:attr="data-job-name=${job.name}"
                           title="Edit" aria-label="Edit" data-icon="pencil"></button>
                   <button class="btn btn-icon-sm"
+                          tl:unless="${job.isSystem}"
                           data-action="click->dc-scheduling#confirmDeleteJob" tl:attr="data-job-name=${job.name}"
                           title="Delete" aria-label="Delete" data-icon="x"></button>
                 </div>

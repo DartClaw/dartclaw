@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
-import 'package:dartclaw_server/src/task/task_runner_pool_coordinator.dart' show TaskRunnerPoolCoordinator;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -433,6 +432,79 @@ void main() {
     expect(secondAttempt, isNotNull);
     expect(secondAttempt!.providerId, 'claude');
   });
+
+  test('concurrent delegated acquisitions coalesce first provisioning', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary');
+    final delegatedWorker = _ProviderWorker(responseText: 'delegated');
+    addTearDown(primaryWorker.dispose);
+    addTearDown(delegatedWorker.dispose);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final pool = HarnessPool(
+      runners: [TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior)],
+      maxConcurrentTasks: 1,
+    );
+    executor = buildExecutor(TurnManager.fromPool(pool: pool));
+    final allowSpawn = Completer<void>();
+    var spawnCalls = 0;
+    final coordinator = TaskRunnerPoolCoordinator(
+      pool: pool,
+      onSpawnNeeded: (provider) async {
+        spawnCalls++;
+        await allowSpawn.future;
+        pool.addRunner(
+          TurnRunner(harness: delegatedWorker, messages: messages, behavior: behavior, providerId: provider!),
+        );
+        return true;
+      },
+    );
+
+    final first = coordinator.provisionAndAcquireProvider('claude');
+    final second = coordinator.provisionAndAcquireProvider('claude');
+    await pumpEventQueue();
+    expect(spawnCalls, 1);
+    allowSpawn.complete();
+
+    final results = await Future.wait([first, second]);
+    expect(results.whereType<TurnRunner>(), hasLength(1));
+    expect(spawnCalls, 1);
+  });
+
+  test('failed provisioning for one provider does not suppress a concurrent provider spawn', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary');
+    final codexWorker = _ProviderWorker(responseText: 'codex');
+    addTearDown(primaryWorker.dispose);
+    addTearDown(codexWorker.dispose);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final pool = HarnessPool(
+      runners: [TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior)],
+      maxConcurrentTasks: 2,
+    );
+    executor = buildExecutor(TurnManager.fromPool(pool: pool));
+    final finishClaudeSpawn = Completer<void>();
+    final requestedProviders = <String?>[];
+    final coordinator = TaskRunnerPoolCoordinator(
+      pool: pool,
+      onSpawnNeeded: (provider) async {
+        requestedProviders.add(provider);
+        if (provider == 'claude') {
+          await finishClaudeSpawn.future;
+          return false;
+        }
+        pool.addRunner(TurnRunner(harness: codexWorker, messages: messages, behavior: behavior, providerId: provider!));
+        return true;
+      },
+    );
+
+    final claude = coordinator.provisionAndAcquireProvider('claude');
+    final codex = coordinator.provisionAndAcquireProvider('codex');
+    await pumpEventQueue();
+    expect(requestedProviders, ['claude']);
+    finishClaudeSpawn.complete();
+
+    expect(await claude, isNull);
+    expect((await codex)?.providerId, 'codex');
+    expect(requestedProviders, ['claude', 'codex']);
+  });
 }
 
 class _ProviderWorker implements AgentHarness {
@@ -484,6 +556,7 @@ class _ProviderWorker implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,

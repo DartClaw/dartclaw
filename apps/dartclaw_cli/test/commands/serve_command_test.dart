@@ -69,6 +69,7 @@ class _FakeWorkerService extends FakeAgentHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) async => {'ok': true};
 }
 

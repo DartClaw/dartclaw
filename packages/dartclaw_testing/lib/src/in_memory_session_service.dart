@@ -32,9 +32,6 @@ class InMemorySessionService implements SessionService {
       updatedAt: now,
     );
     _sessionsById[session.id] = session;
-    if (channelKey != null) {
-      _sessionKeys[channelKey] = session.id;
-    }
     eventBus?.fire(
       SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
     );
@@ -56,8 +53,12 @@ class InMemorySessionService implements SessionService {
     bool includeTaskSessions = false,
   }) async {
     final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
+    final delegatedRequested = type == SessionType.delegated || (types?.contains(SessionType.delegated) ?? false);
     final sessions = _sessionsById.values.where((session) {
       if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) {
+        return false;
+      }
+      if (session.type == SessionType.delegated && !delegatedRequested) {
         return false;
       }
       if (type != null && session.type != type) {
@@ -106,7 +107,22 @@ class InMemorySessionService implements SessionService {
       _sessionKeys.remove(key);
     }
 
-    return createSession(type: type, channelKey: key, provider: provider);
+    final session = await createSession(type: type, channelKey: key, provider: provider);
+    _sessionKeys[key] = session.id;
+    return session;
+  }
+
+  @override
+  Future<Session?> getByKey(String key) async {
+    final id = _sessionKeys[key];
+    if (id == null) return null;
+    final session = _sessionsById[id];
+    return session == null || session.type == SessionType.archive || session.channelKey != key ? null : session;
+  }
+
+  @override
+  Future<void> removeKeyMapping(String key) async {
+    _sessionKeys.remove(key);
   }
 
   @override

@@ -102,6 +102,44 @@ void main() {
       );
     });
 
+    test('404 responses preserve a server error message when provided', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          _jsonResponse(404, {
+            'error': {'code': 'NOT_FOUND', 'message': 'Restart the server before running this job.'},
+          }),
+        ],
+      );
+      final client = DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport);
+
+      expect(
+        () => client.postObject('/api/scheduling/jobs/new-job/run'),
+        throwsA(
+          isA<DartclawApiException>()
+              .having((error) => error.message, 'message', 'Restart the server before running this job.')
+              .having((error) => error.code, 'code', 'NOT_FOUND'),
+        ),
+      );
+    });
+
+    for (final body in ['Not Found', '<html><body>Not Found</body></html>']) {
+      test('non-JSON 404 response uses compatibility guidance for ${body.startsWith('<') ? 'HTML' : 'text'}', () {
+        final transport = FakeApiTransport(
+          sendResponses: [ApiResponse(statusCode: 404, headers: const {}, body: Stream.value(utf8.encode(body)))],
+        );
+        final client = DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport);
+
+        expect(
+          () => client.get('/api/newer-endpoint'),
+          throwsA(
+            isA<DartclawApiException>()
+                .having((error) => error.statusCode, 'statusCode', 404)
+                .having((error) => error.message, 'message', contains('versions may be out of sync')),
+          ),
+        );
+      });
+    }
+
     test('probeHealth treats 401 as reachable when requested', () async {
       final transport = FakeApiTransport(
         sendResponses: [

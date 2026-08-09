@@ -633,7 +633,8 @@ final class _ClaudeTaskPolicy {
       if (tools.contains('file_write')) patterns.add('Write');
       if (tools.contains('file_edit')) patterns.addAll(['Edit', 'NotebookEdit']);
     }
-    if (tools.contains('web_fetch')) patterns.addAll(['WebFetch', 'WebSearch']);
+    if (tools.contains('web_fetch')) patterns.add('WebFetch');
+    if (tools.contains('web_search')) patterns.add('WebSearch');
     return patterns.toList()..sort();
   }
 

@@ -27,9 +27,12 @@ Future<String> _resolvePackageDir(String packageRelativeAnchor) async {
   return p.dirname(uri.toFilePath());
 }
 
-HarnessFactory _harnessFactoryFor(AgentHarness harness) {
+HarnessFactory _harnessFactoryFor(AgentHarness harness, {void Function(HarnessFactoryConfig config)? onCreate}) {
   final factory = HarnessFactory();
-  factory.register('claude', (_) => harness);
+  factory.register('claude', (config) {
+    onCreate?.call(config);
+    return harness;
+  });
   return factory;
 }
 
@@ -74,6 +77,49 @@ Future<void> _disposeWiringResult(WiringResult result, LogService logService) as
   result.searchDb.close();
   await logService.dispose();
 }
+
+DartclawConfig _schedulingConfig(
+  Directory dataDir, {
+  MemoryConfig memory = const MemoryConfig(),
+  SchedulingConfig scheduling = const SchedulingConfig(),
+}) => DartclawConfig(
+  agent: const AgentConfig(provider: 'claude'),
+  credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+  providers: ProvidersConfig(entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)}),
+  gateway: const GatewayConfig(authMode: 'none'),
+  memory: memory,
+  scheduling: scheduling,
+  server: ServerConfig(
+    dataDir: dataDir.path,
+    staticDir: _staticDirPath,
+    templatesDir: _templatesDirPath,
+    claudeExecutable: Platform.resolvedExecutable,
+  ),
+);
+
+ServiceWiring _schedulingServiceWiring({
+  required DartclawConfig config,
+  required Directory dataDir,
+  required AgentHarness harness,
+  required File configFile,
+  required LogService logService,
+  required MessageRedactor messageRedactor,
+}) => ServiceWiring(
+  config: config,
+  dataDir: dataDir.path,
+  port: 3000,
+  harnessFactory: _harnessFactoryFor(harness),
+  serverFactory: (builder) => builder.build(),
+  searchDbFactory: (_) => sqlite3.openInMemory(),
+  taskDbFactory: (_) => sqlite3.openInMemory(),
+  stderrLine: (_) {},
+  exitFn: _unexpectedExit,
+  resolvedConfigPath: configFile.path,
+  logService: logService,
+  messageRedactor: messageRedactor,
+  resolvedAssets: _resolvedAssetsForConfig(config),
+  runWorkflowSkillsBootstrap: false,
+);
 
 void main() {
   late Directory tempDir;
@@ -198,7 +244,7 @@ steps:
       Request(
         'POST',
         Uri.parse('http://localhost/api/workflows/run'),
-        headers: {'content-type': 'application/json'},
+        headers: {'host': 'localhost', 'content-type': 'application/json'},
         body: jsonEncode({
           'definition': 'bootstrap-localpath',
           'variables': {'PROJECT': 'alpha'},
@@ -326,4 +372,215 @@ steps:
     expect(File(p.join(config.workspaceDir, 'wiki', 'release-notes.md')).existsSync(), isTrue);
     expect(File(p.join(config.workspaceDir, 'processed', 'release-notes.md')).existsSync(), isTrue);
   }, tags: ['slow']);
+
+  test('service wiring registers the runnable memory journal system job', () async {
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      memory: const MemoryConfig(journalEnabled: true, journalSchedule: '0 6 * * *'),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDirPath,
+        templatesDir: _templatesDirPath,
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      runWorkflowSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final journal = result.scheduleService!.jobsForTesting.singleWhere((job) => job.id == 'memory-journal');
+    expect(journal.scheduleType, ScheduleType.cron);
+    expect(journal.cronExpression!.minutes, {0});
+    expect(journal.cronExpression!.hours, {6});
+    expect(journal.prompt, MemoryJournal.prompt);
+    expect(journal.deliveryMode, DeliveryMode.none);
+    expect(journal.allowedTools, ['file_read', 'memory_save']);
+
+    final response = await result.server.handler(Request('GET', Uri.parse('http://localhost/scheduling')));
+    final html = await response.readAsString();
+    expect(response.statusCode, 200);
+    expect(html, contains('memory-journal'));
+    expect(html, contains('data-job-name="memory-journal"'));
+    expect(html, contains('SYSTEM'));
+  }, tags: ['slow']);
+
+  for (final searchEnabled in [true, false]) {
+    test('service wiring aligns semantic MCP mapping and registration with search enabled=$searchEnabled', () async {
+      final config = _schedulingConfig(tempDir).copyWith(
+        gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
+        search: SearchConfig(
+          providers: {'brave': SearchProviderEntry(enabled: searchEnabled, apiKey: 'brave-key')},
+        ),
+      );
+      final factoryConfigs = <HarnessFactoryConfig>[];
+      final wiring = ServiceWiring(
+        config: config,
+        dataDir: tempDir.path,
+        port: 3000,
+        harnessFactory: _harnessFactoryFor(worker, onCreate: factoryConfigs.add),
+        serverFactory: (builder) => builder.build(),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: (_) {},
+        exitFn: _unexpectedExit,
+        resolvedConfigPath: configFile.path,
+        logService: logService,
+        messageRedactor: messageRedactor,
+        resolvedAssets: _resolvedAssetsForConfig(config),
+        runWorkflowSkillsBootstrap: false,
+      );
+
+      final result = await wiring.wire();
+      addTearDown(() => _disposeWiringResult(result, logService));
+
+      final expected = {'web_fetch', 'memory_save', if (searchEnabled) 'brave_search'};
+      expect(factoryConfigs.single.ownMcpToolCanonicals.keys.toSet(), expected);
+      expect(result.server.mcpHandler.toolNames.toSet().intersection(expected), expected);
+      expect(result.server.mcpHandler.toolNames.contains('brave_search'), searchEnabled);
+    }, tags: ['slow']);
+  }
+
+  test('authenticated run-now executes the production memory journal with its exact tool policy', () async {
+    final config =
+        _schedulingConfig(
+          tempDir,
+          memory: const MemoryConfig(journalEnabled: true, journalSchedule: '0 6 * * *'),
+        ).copyWith(
+          gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
+        );
+    final factoryConfigs = <HarnessFactoryConfig>[];
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker, onCreate: factoryConfigs.add),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      runWorkflowSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final response = await result.server.handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+        headers: {'authorization': 'Bearer test-token'},
+      ),
+    );
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    expect(response.statusCode, 202, reason: body.toString());
+    expect(body, {'name': 'memory-journal', 'status': 'started'});
+
+    await worker.turnInvoked;
+    expect(worker.lastAgentId, 'cron:memory-journal');
+    expect(worker.lastMessages, [
+      {'role': 'user', 'content': MemoryJournal.prompt},
+    ]);
+    expect(result.server.mcpHandler.toolNames, contains('memory_save'));
+
+    final guardChain = factoryConfigs.single.guardChain!;
+    final sessionId = worker.lastSessionId!;
+    expect((await guardChain.evaluateBeforeToolCall('file_read', {}, sessionId: sessionId)).isBlock, isFalse);
+    expect((await guardChain.evaluateBeforeToolCall('memory_save', {}, sessionId: sessionId)).isBlock, isFalse);
+    expect((await guardChain.evaluateBeforeToolCall('shell', {}, sessionId: sessionId)).isBlock, isTrue);
+
+    worker.emit(DeltaEvent('Journal complete'));
+    worker.completeSuccess({'stop_reason': 'end_turn'});
+    await _waitFor(() => !worker.hasPendingTurn);
+  }, tags: ['slow']);
+
+  test('service wiring leaves the memory journal absent by default', () async {
+    final config = _schedulingConfig(tempDir);
+    final wiring = _schedulingServiceWiring(
+      config: config,
+      dataDir: tempDir,
+      harness: worker,
+      configFile: configFile,
+      logService: logService,
+      messageRedactor: messageRedactor,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    expect(result.scheduleService!.jobsForTesting.map((job) => job.id), isNot(contains('memory-journal')));
+    final response = await result.server.handler(Request('GET', Uri.parse('http://localhost/scheduling')));
+    expect(await response.readAsString(), isNot(contains('data-job-name="memory-journal"')));
+    final runResponse = await result.server.handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+        headers: {'host': 'localhost'},
+      ),
+    );
+    expect(runResponse.statusCode, 404);
+  }, tags: ['slow']);
+
+  for (final identityKey in ['id', 'name']) {
+    test('service wiring rejects a memory journal $identityKey collision', () async {
+      final config = _schedulingConfig(
+        tempDir,
+        memory: const MemoryConfig(journalEnabled: true),
+        scheduling: SchedulingConfig(
+          jobs: [
+            {
+              identityKey: 'memory-journal',
+              'prompt': 'Custom journal',
+              'schedule': {'type': 'cron', 'expression': '0 8 * * *'},
+            },
+          ],
+        ),
+      );
+      final wiring = _schedulingServiceWiring(
+        config: config,
+        dataDir: tempDir,
+        harness: worker,
+        configFile: configFile,
+        logService: logService,
+        messageRedactor: messageRedactor,
+      );
+      addTearDown(logService.dispose);
+
+      await expectLater(
+        wiring.wire(),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('memory-journal'), contains('memory.journal'), contains('scheduling.jobs')),
+          ),
+        ),
+      );
+    }, tags: ['slow']);
+  }
 }

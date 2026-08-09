@@ -225,6 +225,9 @@ tasks:
 # --- Memory ---
 memory:
   max_bytes: 32768               # preferred MEMORY.md size cap
+  journal:
+    enabled: false               # distill daily turn logs into MEMORY.md (opt-in)
+    schedule: "0 22 * * *"
   pruning:
     enabled: true                # archive + dedupe MEMORY.md on a schedule
     archive_after_days: 30
@@ -373,8 +376,7 @@ agent:
     search:                      # built-in default; omit to use defaults
       model: haiku               # per-agent model override
       effort: low                # per-agent effort override
-      tools: [WebSearch, WebFetch]
-      max_spawn_depth: 0
+      tools: [web_search, web_fetch]
       max_concurrent: 2
       max_response_bytes: 5242880
     # Custom subagents — define any number with unique IDs:
@@ -449,13 +451,14 @@ providers:
   #   pool_size: 2               # 2 task workers
   #   sandbox: workspace-write   # workspace-write | danger-full-access
   #   approval: on-request       # on-request | unless-allow-listed | never
-  #                              # IMPORTANT: approval: never is incompatible with
-  #                              #   Codex delegation provider-approval mode. For delegated
-  #                              #   Codex agents, use approval: on-request with sandbox:
-  #                              #   read-only or workspace-write. Non-delegated batch use
-  #                              #   may still choose approval: never to avoid the upstream
-  #                              #   approval deadlock bug (openai/codex#11816), but that
-  #                              #   disables Codex approval-request mediation.
+  #                              # IMPORTANT: on-request is the broadest host interception;
+  #                              #   unless-allow-listed is partial and never disables it.
+  #                              #   If omitted, Codex inherits its own configuration and
+  #                              #   DartClaw cannot verify the host-interception posture.
+  #                              #   For delegated Codex agents, use approval: on-request
+  #                              #   with sandbox: read-only or workspace-write. Trusted
+  #                              #   batch use may still choose never to avoid the upstream
+  #                              #   approval deadlock bug (openai/codex#11816).
   #                              #   See: docs/guide/agents.md § Providers
 
 # --- Credentials (0.13) ---
@@ -581,6 +584,8 @@ automation:
         auto_start: true
 ```
 
+With guards enabled, DartClaw's own MCP `web_fetch` is canonicalized before guard evaluation and is therefore subject to NetworkGuard's built-in allowlist plus `guards.network.extra_allowed_domains`. Existing MCP deployments must add every required non-default fetch domain. Per-agent additions under `guards.network.agent_overrides.<agent-id>.extra_domains` apply only to host-dispatched delegated turns for that agent; Claude-native subagent traffic uses the global allowlist.
+
 Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a deprecated alias (see [Deprecated Keys](#deprecated-keys)), and `memory.pruning.*` configures the scheduled MEMORY.md cleanup job.
 
 `knowledge.inbox` and `knowledge.wiki_lint` are disabled by default. Enable them explicitly to schedule filesystem inbox processing or wiki lint reports.
@@ -614,10 +619,12 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 
 **Note on `delegation`:** The `delegate_to_agent` MCP tool is disabled unless `delegation.enabled: true`.
 
+This is the bounded, one-shot provider-agent path. It is separate from `sessions_spawn` / `sessions_send`, which target logical agents under `agent.agents` and retain resumable conversation history. Use `delegate_to_agent` when explicit ACP or Codex provider identity, workspace confinement, security-mode reporting, rate limiting, or budget enforcement is required.
+
 - Each target must be listed under `delegation.agents` with `id`, `require_guard_mediation`, and `post_run_accounting_only`.
 - Calls fail when `agent_id` is absent, task text is empty, or `work_dir` escapes the workspace jail.
 - `require_guard_mediation: true` rejects relay or unverified ACP agents and rejects Codex.
-- Codex delegation reports `security_mode: provider_approval`; use `approval: on-request` with `sandbox: read-only` or `sandbox: workspace-write`.
+- Codex delegation reports `security_mode: provider_approval`; explicitly use `approval: on-request` with `sandbox: read-only` or `sandbox: workspace-write`. If omitted, the Codex provider inherits its own configuration rather than a DartClaw default.
 - Approval bypass modes such as `approval: never`, and `sandbox: danger-full-access`, fail before spawn.
 - `max_budget_tokens` can enforce strict budgets for streaming or provider-reported usage. Non-reporting, non-streaming agents must set `post_run_accounting_only: true` on that allowlist entry.
 - Use `delegation.rate_limit.max_per_minute` to cap tool invocations.

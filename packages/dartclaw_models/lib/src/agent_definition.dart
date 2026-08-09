@@ -1,6 +1,6 @@
 /// Configuration for a sub-agent (e.g. search agent).
 ///
-/// Defines the agent's identity, tool sandbox, spawn limits, and session
+/// Defines the agent's identity, tool sandbox, concurrency, and session
 /// isolation. Serializes to the `agents` field in the initialize handshake.
 class AgentDefinition {
   /// Stable agent identifier referenced by delegation tools.
@@ -18,14 +18,8 @@ class AgentDefinition {
   /// Explicit denylist of tools blocked for the agent.
   final Set<String> deniedTools;
 
-  /// Maximum nesting depth at which this agent may spawn children.
-  final int maxSpawnDepth;
-
-  /// Maximum number of concurrent sessions for this agent.
+  /// Contribution to the global host-dispatched delegation concurrency cap.
   final int maxConcurrent;
-
-  /// Maximum number of direct children this agent may own.
-  final int maxChildrenPerAgent;
 
   /// Relative session-store path used by the runtime.
   final String sessionStorePath;
@@ -49,9 +43,7 @@ class AgentDefinition {
     required this.prompt,
     this.allowedTools = const {},
     this.deniedTools = const {},
-    this.maxSpawnDepth = 0,
     this.maxConcurrent = 1,
-    this.maxChildrenPerAgent = 0,
     this.sessionStorePath = '',
     this.maxResponseBytes = 5 * 1024 * 1024,
     this.model,
@@ -64,7 +56,7 @@ class AgentDefinition {
     String prompt = _defaultSearchPrompt,
     int maxConcurrent = 2,
     int maxResponseBytes = 5 * 1024 * 1024,
-    String model = 'haiku',
+    String? model,
   }) {
     return AgentDefinition(
       id: 'search',
@@ -72,11 +64,9 @@ class AgentDefinition {
           'Web search agent with restricted tool access. '
           'Can only use web_search and web_fetch.',
       prompt: prompt,
-      allowedTools: const {'WebSearch', 'WebFetch'},
+      allowedTools: const {'web_search', 'web_fetch'},
       deniedTools: const {},
-      maxSpawnDepth: 0,
       maxConcurrent: maxConcurrent,
-      maxChildrenPerAgent: 0,
       sessionStorePath: 'agents/search/sessions',
       maxResponseBytes: maxResponseBytes,
       model: model,
@@ -99,9 +89,14 @@ class AgentDefinition {
       deniedTools.addAll(denied.whereType<String>());
     }
 
-    final resolvedTools = allowedTools.isEmpty && id == 'search' ? const {'WebSearch', 'WebFetch'} : allowedTools;
+    final resolvedTools = allowedTools.isEmpty && id == 'search' ? const {'web_search', 'web_fetch'} : allowedTools;
     if (resolvedTools.isEmpty && id != 'search') {
-      warns.add('Agent "$id" has no tools configured — it will not be able to use any tools');
+      warns.add('Agent "$id" has no tools configured – no sandbox allowlist will be enforced');
+    }
+    for (final key in const ['max_spawn_depth', 'max_children_per_agent']) {
+      if (yaml.containsKey(key)) {
+        warns.add('agents.$id.$key is not enforced – ignored');
+      }
     }
     return AgentDefinition(
       id: id,
@@ -109,9 +104,7 @@ class AgentDefinition {
       prompt: yaml['prompt'] as String? ?? _defaultSearchPrompt,
       allowedTools: resolvedTools,
       deniedTools: deniedTools,
-      maxSpawnDepth: yaml['max_spawn_depth'] as int? ?? 0,
       maxConcurrent: yaml['max_concurrent'] as int? ?? 1,
-      maxChildrenPerAgent: yaml['max_children_per_agent'] as int? ?? 0,
       sessionStorePath: yaml['session_store_path'] as String? ?? 'agents/$id/sessions',
       maxResponseBytes: yaml['max_response_bytes'] as int? ?? 5 * 1024 * 1024,
       model: yaml['model'] as String?,
@@ -127,6 +120,7 @@ class AgentDefinition {
       'prompt': prompt,
       if (model != null) 'model': model,
       if (effort != null) 'effort': effort,
+      if (allowedTools.isNotEmpty) 'tools': allowedTools.toList(),
       if (deniedTools.isNotEmpty) 'disallowedTools': deniedTools.toList(),
       ...extra,
     };

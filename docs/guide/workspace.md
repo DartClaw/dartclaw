@@ -115,9 +115,9 @@ Treat the inbox as a curated source queue for bounded corpora such as a project,
 as a firehose for unrelated material.
 
 ### ONBOARDING.md -- Personalization Sentinel
-`dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Web chat receives the onboarding instructions until the agent
-calls `onboarding_complete`, the user defers, or the sentinel expires. Non-web task, cron, channel, advisor, and
-evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
+`dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Human conversations in web chat and configured messaging
+channels receive the onboarding instructions until the agent calls `onboarding_complete`, the user defers, or the
+sentinel expires. Task, cron, delegated-agent, advisor, and evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
 write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes. Ordinary init also uses draft mode when
 either `USER.md` or `SOUL.md` already exists; direct writes are allowed only when init created both fresh stubs.
 
@@ -136,7 +136,7 @@ Each knowledge store has exactly one write path, and none of them fill from conv
 
 | Store | Written by | When |
 |-------|-----------|------|
-| `MEMORY.md` | Agent, via the `memory_save` tool | Only when a turn calls it -- e.g. a scheduled journaling job ([Daily Memory Journal](recipes/02-daily-memory-journal.md)) or an explicit request. Never automatic. |
+| `MEMORY.md` | Agent, via the `memory_save` tool | The opt-in built-in `memory.journal` job ([Daily Memory Journal](recipes/02-daily-memory-journal.md)), a custom scheduled job, or an explicit request. |
 | MEMORY.md consolidation | Agent consolidation turn | Heartbeat, when `MEMORY.md` exceeds `memory.max_bytes` (default 32KB) |
 | MEMORY.md pruning | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving entries older than `memory.pruning.archive_after_days` |
 | `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` -- see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
@@ -154,7 +154,7 @@ The system prompt is assembled in this order:
 3. **TOOLS.md** (wrapped in `## Environment Notes`)
 4. **errors.md** and **learnings.md**
 5. **MEMORY.md** (truncated if over limit)
-6. **ONBOARDING.md** (web chat only, when fresh)
+6. **ONBOARDING.md** (human conversational turns only, when fresh)
 7. **AGENTS.md** (safety rules -- appended after behavior content)
 
 ## Git Sync

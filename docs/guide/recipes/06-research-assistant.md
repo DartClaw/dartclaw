@@ -120,8 +120,8 @@ scheduling:
 
 ## Customization Tips
 
-- **Use a more capable search model**: Change `agents.search.model` to `sonnet` for complex research requiring better synthesis (higher cost per search)
-- **Increase search concurrency**: Set `max_concurrent: 4` for faster parallel searches (uses more API calls)
+- **Choose the search model explicitly**: Set `agent.agents.search.model` when you need a fixed model instead of the provider-aware default (`sonnet` for Claude, `gpt-5.6-luna` for Codex)
+- **Increase delegated concurrency**: Raise one or more agents' `max_concurrent` contributions and the provider's `pool_size`; the agent values form one global delegation budget, not per-agent quotas
 - **Add topic focus**: Edit SOUL.md's "Research Process" to prioritize certain source types (e.g., "prefer peer-reviewed papers" or "focus on official documentation")
 - **Enable QMD hybrid search**: Add `search.backend: qmd` for semantic memory retrieval -- better for finding conceptually related previous research
 - **Add research templates**: Include structured templates in TOOLS.md for common research formats (comparison tables, literature reviews, technical evaluations)
@@ -133,5 +133,5 @@ scheduling:
 - **Content-guard filtering**: Some web content may be partially filtered by the content-guard. The agent will note when results seem incomplete
 - **No permanent document storage**: Research is stored as text in MEMORY.md, not as separate files or PDFs. For large research projects, consider increasing `memory.max_bytes`
 - **Web content is ephemeral**: URLs found during research may become unavailable later. The agent saves summaries, not cached copies of web pages
-- **Search model matters**: The default Haiku model for the search agent is fast and cheap but less capable at complex synthesis. Upgrade to Sonnet for research requiring nuanced understanding
+- **Search model matters**: The omitted-model default is provider-aware (`sonnet` for Claude, `gpt-5.6-luna` for Codex). Set `agent.agents.search.model` explicitly when a research workflow requires a fixed model
 - **Memory consolidation may restructure entries**: Heartbeat consolidation merges duplicate entries. Research findings saved across multiple sessions may be consolidated into a single entry

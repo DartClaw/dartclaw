@@ -47,8 +47,13 @@ Initial taxonomy:
 | `file_read` | `Read` | (via `command_execution`) | FileGuard |
 | `file_write` | `Write` | `file_change` (kind: create) | FileGuard |
 | `file_edit` | `Edit` | `file_change` (kind: update) | FileGuard |
-| `web_fetch` | `web_fetch` | `web_search` | NetworkGuard |
+| `web_fetch` | `WebFetch` / DartClaw MCP `web_fetch` | DartClaw MCP `web_fetch` | NetworkGuard |
+| `web_search` | `WebSearch` | `web_search` | ToolPolicyGuard |
+| `memory_save` | DartClaw MCP `memory_save` | DartClaw MCP `memory_save` | ToolPolicyGuard |
 | `mcp_call` | (via MCP) | `mcp_tool_call` | ToolPolicyGuard |
+
+Amendment (2026-08-08): exact DartClaw MCP fetch, search, and memory-save tools map to their semantic canonicals on
+Claude and Codex; unknown and third-party MCP tools remain `mcp_call`.
 
 Unmapped tools pass through with `provider:name` prefix (e.g., `codex:reasoning`). Warning logged. `ToolPolicyGuard` can block unknown tools via configurable policy.
 

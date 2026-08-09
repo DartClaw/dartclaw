@@ -136,7 +136,9 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `file_write` | Writing or creating files |
 | `file_edit` | Modifying existing files in place, such as Claude's `Edit` tool |
 | `web_fetch` | Web or HTTP fetch |
-| `mcp_call` | Tools routed through an MCP server |
+| `web_search` | Web search |
+| `memory_save` | Persisting memory |
+| `mcp_call` | Other tools routed through an MCP server |
 
 Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.
 
@@ -146,6 +148,8 @@ Claude has no safe permission rule for every MCP server. `mcp_call` therefore pr
 declared in `providers.claude.permissions.allow` or its structured `settings` block, such as `mcp__github` or
 `mcp__github__*`; it never broadens the policy to the rejected `mcp__*` rule. User, project, and managed Claude settings
 still participate according to Claude's settings precedence.
+
+DartClaw's own fetch, configured search, and memory-save MCP tools are recognized by exact server/tool identity and evaluate as `web_fetch`, `web_search`, and `memory_save`. A step allowlist containing only `mcp_call` therefore does not admit them; list the required semantic categories explicitly.
 
 One Claude-specific gotcha: under the non-interactive permission mode workflow steps run with, Claude's `Edit` and `NotebookEdit` tools are hard-denied unless the step grants `file_edit` — `file_write` alone permits creating files but not in-place edits of existing ones.
 

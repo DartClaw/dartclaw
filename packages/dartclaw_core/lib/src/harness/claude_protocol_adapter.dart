@@ -10,6 +10,11 @@ import 'tool_policy.dart' as tool_policy;
 class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   static final _log = Logger('ClaudeProtocolAdapter');
 
+  final Map<String, CanonicalTool> _ownMcpToolCanonicals;
+
+  ClaudeProtocolAdapter({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
+    : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
+
   @override
   ProtocolMessage? parseLine(String line) {
     final message = claude_protocol.parseJsonlLine(line);
@@ -142,6 +147,10 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
       'Write' || 'write_file' => CanonicalTool.fileWrite,
       'Edit' || 'NotebookEdit' || 'edit_file' => CanonicalTool.fileEdit,
       'WebFetch' || 'web_fetch' => CanonicalTool.webFetch,
+      'WebSearch' => CanonicalTool.webSearch,
+      _ when providerToolName.startsWith('mcp__${dartclawMcpServerName}__') =>
+        _ownMcpToolCanonicals[providerToolName.substring('mcp__${dartclawMcpServerName}__'.length)] ??
+            CanonicalTool.mcpCall,
       _ when providerToolName.startsWith('mcp_') => CanonicalTool.mcpCall,
       _ => null,
     };

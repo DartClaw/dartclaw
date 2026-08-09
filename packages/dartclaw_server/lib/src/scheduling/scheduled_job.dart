@@ -17,8 +17,9 @@ typedef JobCallback = Future<String> Function();
 /// Jobs execute in one of two modes:
 /// - **Prompt-based** (user-configured): sends [prompt] through the agent turn
 ///   system via `TurnManager`.
-/// - **Callback-based** (built-in): runs [onExecute] directly — no agent turn,
-///   no session created. Used for internal tasks like memory pruning.
+/// - **Callback-based** (built-in): acquires the cron session, then runs
+///   [onExecute] directly without an agent turn. Used for internal tasks like
+///   memory pruning.
 class ScheduledJob {
   final String id;
   final String prompt;
@@ -39,6 +40,9 @@ class ScheduledJob {
 
   /// Optional effort level override (e.g. 'high', 'low').
   final String? effort;
+
+  /// Optional session-local tool allowlist for built-in prompt jobs.
+  final List<String>? allowedTools;
 
   /// When [jobType] is [ScheduledJobType.task], the task definition to create.
   final ScheduledTaskDefinition? taskDefinition;
@@ -61,6 +65,7 @@ class ScheduledJob {
     this.jobType = ScheduledJobType.prompt,
     this.model,
     this.effort,
+    this.allowedTools,
     this.taskDefinition,
     this.onExecute,
   });

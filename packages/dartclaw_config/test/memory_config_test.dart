@@ -53,5 +53,35 @@ void main() {
       expect(config.memory.archiveAfterDays, 7);
       expect(config.memory.pruningSchedule, '0 4 * * *');
     });
+
+    test('parses memory.journal and defaults it off', () {
+      final configured = loadYaml('memory:\n  journal:\n    enabled: true\n    schedule: "0 6 * * *"\n');
+      final defaults = loadNoFile();
+
+      expect(configured.memory.journalEnabled, isTrue);
+      expect(configured.memory.journalSchedule, '0 6 * * *');
+      expect(defaults.memory.journalEnabled, isFalse);
+      expect(defaults.memory.journalSchedule, '0 22 * * *');
+    });
+
+    for (final malformedJournal in ['1', '[]', 'invalid', 'null']) {
+      test('rejects non-map memory.journal value $malformedJournal', () {
+        expect(
+          () => loadYaml('memory:\n  journal: $malformedJournal\n'),
+          throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('memory.journal'))),
+        );
+      });
+    }
+
+    for (final malformedSchedule in ['1', '[]', '{}', 'null']) {
+      test('rejects non-string memory.journal.schedule value $malformedSchedule', () {
+        expect(
+          () => loadYaml('memory:\n  journal:\n    schedule: $malformedSchedule\n'),
+          throwsA(
+            isA<FormatException>().having((error) => error.message, 'message', contains('memory.journal.schedule')),
+          ),
+        );
+      });
+    }
   });
 }

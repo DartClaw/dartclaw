@@ -117,6 +117,16 @@ dartclaw jobs delete daily-summary
 dartclaw jobs delete daily-summary --json
 ```
 
+### `jobs run`
+
+```bash
+dartclaw jobs run daily-summary
+dartclaw jobs run daily-summary --json
+```
+
+Starts a configured prompt job immediately on the running server. Observe its configured delivery and server logs for
+the outcome. Job changes made through the API require a restart before the job can run.
+
 ## Projects
 
 ### `projects list`

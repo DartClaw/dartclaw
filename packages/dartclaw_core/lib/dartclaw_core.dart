@@ -108,7 +108,7 @@ export 'src/harness/acp_target_validation.dart'
         acpSecurityClassificationId;
 export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
 export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
-export 'src/harness/canonical_tool.dart' show CanonicalTool;
+export 'src/harness/canonical_tool.dart' show CanonicalTool, dartclawMcpServerName;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
 export 'src/harness/codex_config_generator.dart' show CodexConfigGenerator;

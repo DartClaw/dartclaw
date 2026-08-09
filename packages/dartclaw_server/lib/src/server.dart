@@ -320,11 +320,19 @@ class DartclawServer {
   }
 
   void _mountMcpRoutes(Router router) {
-    final gt = _core.gatewayToken;
-    if (gt != null) {
-      router.post('/mcp', mcpRoute(_mcpHandler, gatewayToken: gt));
+    final gatewayToken = _core.gatewayToken;
+    final host = _core.config?.server.host;
+    final unauthenticatedLoopback =
+        !_core.authEnabled && _isLoopbackHost(host) && (_core.config?.memory.journalEnabled ?? false);
+    if (gatewayToken != null || unauthenticatedLoopback) {
+      router.post(
+        '/mcp',
+        mcpRoute(_mcpHandler, gatewayToken: gatewayToken, requireLoopbackHost: unauthenticatedLoopback),
+      );
     }
   }
+
+  static bool _isLoopbackHost(String? host) => host == 'localhost' || host == '127.0.0.1' || host == '::1';
 
   void _mountStaticRoutes(Router router) {
     final handler = _core.assetSource == AssetSource.embedded
@@ -735,10 +743,11 @@ class DartclawServer {
       // every request admin context so admin-gated routes remain usable.
       pipeline = pipeline.addMiddleware(localAdminMiddleware());
     }
-    // Origin/Host guard: enforces same-origin writes for cookie-authenticated
-    // sessions. Must run after auth middleware so the cookie-auth context flag
-    // is set. Bearer-token and no-auth requests are automatically exempt.
-    pipeline = pipeline.addMiddleware(originHostGuardMiddleware());
+    // Origin/Host guard: enforces same-origin browser writes after auth has
+    // identified cookie and local-admin requests. Origin-less API clients pass.
+    pipeline = pipeline.addMiddleware(
+      originHostGuardMiddleware(localAdminHost: _core.config?.server.host ?? 'localhost'),
+    );
     // Cascade: pass through to styled 404 when router finds no matching route.
     final cascade = Cascade()
         .add(router.call)

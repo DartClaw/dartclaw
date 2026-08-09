@@ -5,8 +5,10 @@ import 'package:dartclaw_cli/src/commands/wiring/security_wiring.dart';
 import 'package:dartclaw_cli/src/commands/wiring/storage_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessConfig;
-import 'package:dartclaw_server/dartclaw_server.dart' show TurnRunnerCancellation;
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show DartclawServer, DartclawServerBuilder, TurnRunnerCancellation;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -32,6 +34,22 @@ Future<T> _pollFor<T>(T Function() read, bool Function(T) isReady) async {
 }
 
 void main() {
+  group('provider-aware delegated model defaults', () {
+    final search = AgentDefinition.searchAgent();
+    const custom = AgentDefinition(id: 'summarizer', description: 'Summarize', prompt: 'Summarize');
+    const explicit = AgentDefinition(id: 'search', description: 'Search', prompt: 'Search', model: 'custom-model');
+
+    test('resolves omitted search model by provider family', () {
+      expect(resolveAgentModel(search, 'claude'), 'sonnet');
+      expect(resolveAgentModel(search, 'codex'), 'gpt-5.6-luna');
+    });
+
+    test('preserves explicit and non-search model behavior', () {
+      expect(resolveAgentModel(explicit, 'codex'), 'custom-model');
+      expect(resolveAgentModel(custom, 'claude'), isNull);
+    });
+  });
+
   late Directory tempDir;
   late Directory workspaceDir;
   late DartclawConfig config;
@@ -122,6 +140,44 @@ void main() {
     return factory;
   }
 
+  Future<List<String>> wireAndCollectHarnessMessages(Iterable<String> providerIds) async {
+    final records = <LogRecord>[];
+    final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
+    try {
+      await wireStorageAndSecurity();
+      await wireHarness(fakeFactory(providerIds));
+      return records.map((record) => record.message).toList();
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  void configureCodex({
+    String providerId = 'codex',
+    Map<String, dynamic> options = const {},
+    bool restricted = true,
+    bool journalEnabled = false,
+  }) {
+    config = config.copyWith(
+      memory: journalEnabled ? const MemoryConfig(journalEnabled: true) : config.memory,
+      agent: AgentConfig(
+        provider: providerId,
+        definitions: [
+          AgentDefinition(
+            id: 'worker',
+            description: 'Worker',
+            prompt: 'Work',
+            allowedTools: restricted ? const {'web_search'} : const {},
+          ),
+        ],
+      ),
+      providers: ProvidersConfig(
+        entries: {providerId: ProviderEntry(executable: Platform.resolvedExecutable, options: options)},
+      ),
+      credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: 'openai-key')}),
+    );
+  }
+
   test('primary runner keeps interactive prompt while spawned task runner gets lean task prompt', () async {
     await wireStorageAndSecurity();
 
@@ -136,6 +192,8 @@ void main() {
     expect(harnessWiring!.pool.size, 2);
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
+    expect(recordedConfigs.first.harnessConfig.mcpServerUrl, isNull);
+    expect(recordedConfigs.first.harnessConfig.mcpGatewayToken, isNull);
 
     // Primary and task harnesses each get a layered chain: all base security
     // guards plus their own per-runner TaskToolFilterGuard.
@@ -171,6 +229,518 @@ void main() {
     expect(taskPrompt, isNot(contains('## Recent error')));
     expect(taskPrompt, isNot(contains('## Recent learning')));
     expect(taskPrompt.length, lessThan(primaryPrompt.length));
+  });
+
+  test('warns when sandboxed agents use Codex without broad approval interception', () async {
+    configureCodex(options: const {'approval': 'unless-allow-listed'});
+    final messages = await wireAndCollectHarnessMessages(['codex']);
+
+    expect(messages, contains(contains('Codex harness uses approval: unless-allow-listed')));
+  });
+
+  test('warns for a session-local journal policy with a Codex alias using approval never', () async {
+    const providerId = 'openai-work';
+    configureCodex(
+      providerId: providerId,
+      options: const {'family': 'codex', 'approval': ' never ', 'credentials_required': false},
+      restricted: false,
+      journalEnabled: true,
+    );
+    final messages = await wireAndCollectHarnessMessages([providerId]);
+
+    expect(messages, contains(contains('Codex harness uses approval: never')));
+  });
+
+  test('does not warn for unrestricted agents with Codex approval never', () async {
+    configureCodex(options: const {'approval': 'never'}, restricted: false);
+    final messages = await wireAndCollectHarnessMessages(['codex']);
+
+    expect(messages, isNot(contains(contains('Codex harness uses approval: never'))));
+  });
+
+  test('does not warn when sandboxed agents use enabled guards and Codex approval on-request', () async {
+    configureCodex(options: const {'approval': ' on-request '});
+    final messages = await wireAndCollectHarnessMessages(['codex']);
+
+    expect(messages, isNot(contains(contains('host tool-policy enforcement'))));
+  });
+
+  test('warns when a restricted Codex provider does not declare an approval posture', () async {
+    configureCodex();
+    final messages = await wireAndCollectHarnessMessages(['codex']);
+
+    expect(messages, contains(contains('approval: not explicitly set')));
+  });
+
+  test('warns instead of throwing for a non-string Codex approval option', () async {
+    const providerId = 'openai-work';
+    configureCodex(
+      providerId: providerId,
+      options: const {'family': 'codex', 'approval': 42, 'credentials_required': false},
+    );
+    final messages = await wireAndCollectHarnessMessages([providerId]);
+
+    expect(messages, contains(contains('approval: not explicitly set')));
+  });
+
+  test('warns when a restricted Codex approval option is blank', () async {
+    configureCodex(options: const {'approval': '   '});
+    final messages = await wireAndCollectHarnessMessages(['codex']);
+
+    expect(messages, contains(contains('approval: not explicitly set')));
+  });
+
+  test('warns when agent tool policies are configured while guards are disabled', () async {
+    config = config.copyWith(
+      security: const SecurityConfig(guards: GuardConfig(enabled: false)),
+      agent: AgentConfig(
+        provider: 'claude',
+        definitions: const [
+          AgentDefinition(id: 'search', description: 'Search', prompt: 'Search', allowedTools: {'web_search'}),
+        ],
+      ),
+    );
+    final messages = await wireAndCollectHarnessMessages(['claude']);
+
+    expect(messages, contains(contains('security guards are disabled')));
+  });
+
+  test('translates agent tool grants and scopes own MCP names by semantic grant', () async {
+    config = config.copyWith(
+      gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
+      search: const SearchConfig(providers: {'brave': SearchProviderEntry(enabled: true, apiKey: 'brave-key')}),
+      agent: AgentConfig(
+        provider: 'claude',
+        definitions: const [
+          AgentDefinition(
+            id: 'search',
+            description: 'Search',
+            prompt: 'Search',
+            allowedTools: {'WebSearch', 'WebFetch'},
+          ),
+          AgentDefinition(
+            id: 'worker',
+            description: 'Worker',
+            prompt: 'Work',
+            allowedTools: {'shell', 'file_read', 'Grep'},
+          ),
+          AgentDefinition(id: 'unrestricted', description: 'Unrestricted', prompt: 'Work'),
+        ],
+      ),
+    );
+
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
+
+    final agents = recordedConfigs.single.harnessConfig.agents!;
+    final search = agents['search'] as Map<String, dynamic>;
+    expect(search['model'], 'sonnet');
+    expect(
+      search['tools'],
+      containsAll(['WebSearch', 'WebFetch', 'mcp__dartclaw__web_fetch', 'mcp__dartclaw__brave_search']),
+    );
+    expect(search['tools'], isNot(contains('mcp__dartclaw__memory_save')));
+    final worker = agents['worker'] as Map<String, dynamic>;
+    expect(worker['tools'], ['Bash', 'Read', 'Grep']);
+    expect((agents['unrestricted'] as Map<String, dynamic>), isNot(contains('tools')));
+  });
+
+  test('token-authenticated harness reaches the server on its bound loopback host', () async {
+    config = config.copyWith(
+      gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
+    );
+
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
+
+    expect(recordedConfigs.single.harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
+  });
+
+  test('authentication-disabled journal advertises exact own MCP tools', () async {
+    config = config.copyWith(
+      memory: const MemoryConfig(journalEnabled: true),
+      search: const SearchConfig(providers: {'brave': SearchProviderEntry(enabled: true, apiKey: 'brave-key')}),
+      agent: AgentConfig(
+        provider: 'claude',
+        definitions: const [
+          AgentDefinition(
+            id: 'search',
+            description: 'Search',
+            prompt: 'Search',
+            allowedTools: {'web_search', 'web_fetch', 'memory_save'},
+          ),
+        ],
+      ),
+    );
+
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
+
+    final harnessConfig = recordedConfigs.single.harnessConfig;
+    expect(harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
+    expect(harnessConfig.mcpGatewayToken, isNull);
+    expect(
+      (harnessConfig.agents!['search'] as Map<String, dynamic>)['tools'],
+      containsAll(['mcp__dartclaw__web_fetch', 'mcp__dartclaw__brave_search', 'mcp__dartclaw__memory_save']),
+    );
+  });
+
+  test('unknown search providers do not suppress the native search tool', () async {
+    config = config.copyWith(
+      gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
+      search: const SearchConfig(providers: {'unknown': SearchProviderEntry(enabled: true, apiKey: 'key')}),
+    );
+
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
+
+    expect(recordedConfigs.single.harnessConfig.disallowedTools, isNot(contains('WebSearch')));
+  });
+
+  test('authentication-disabled non-loopback harness does not advertise an unauthenticated MCP endpoint', () async {
+    config = config.copyWith(
+      server: ServerConfig(dataDir: tempDir.path, host: '0.0.0.0'),
+    );
+
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
+
+    expect(recordedConfigs.single.harnessConfig.mcpServerUrl, isNull);
+  });
+
+  test('wired session delegation applies configured persona, model, and effort', () async {
+    final builtInSearch = AgentDefinition.searchAgent();
+    config = config.copyWith(
+      agent: AgentConfig(
+        provider: 'claude',
+        definitions: [
+          builtInSearch,
+          const AgentDefinition(
+            id: 'summarizer',
+            description: 'Summarize',
+            prompt: 'SUMMARY PERSONA',
+            model: 'custom-model',
+            effort: 'low',
+          ),
+        ],
+      ),
+      tasks: const TaskConfig(maxConcurrent: 2),
+    );
+    await wireStorageAndSecurity();
+    final factory = fakeFactory(['claude']);
+    late DartclawServer wiredServer;
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    await harnessWiring!.wire(serverRefGetter: () => wiredServer);
+    wiredServer =
+        (DartclawServerBuilder()
+              ..sessions = storage!.sessions
+              ..messages = storage!.messages
+              ..worker = harnessWiring!.harness
+              ..staticDir = tempDir.path
+              ..behavior = harnessWiring!.behavior
+              ..pool = harnessWiring!.pool
+              ..sessionsForTurns = storage!.sessions
+              ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+              ..config = config)
+            .build();
+
+    Future<void> expectDelegation({
+      required String agent,
+      required String persona,
+      required String model,
+      required String? effort,
+    }) async {
+      final resultFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+        'agent': agent,
+        'message': 'Delegate this',
+      });
+      await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+      final delegatedHarness = createdHarnesses.last;
+      await delegatedHarness.turnInvoked;
+      final internalSessionId = delegatedHarness.lastSessionId;
+      expect(delegatedHarness.lastAgentId, agent);
+      expect(delegatedHarness.lastSystemPrompt, contains(persona));
+      expect(delegatedHarness.lastModel, model);
+      expect(delegatedHarness.lastEffort, effort);
+      delegatedHarness.emit(DeltaEvent('$agent result'));
+      delegatedHarness.completeSuccess();
+      final result = await resultFuture;
+      expect(result['isError'], isNull);
+      expect(result['content'], contains(containsPair('text', '$agent result')));
+
+      final sessionId = result['sessionId'] as String;
+      final followUpFuture = harnessWiring!.sessionDelegate.handleSessionsSend({
+        'session_id': sessionId,
+        'message': 'Continue this',
+      });
+      await delegatedHarness.turnInvoked;
+      expect(delegatedHarness.lastSessionId, internalSessionId);
+      expect(delegatedHarness.lastMessages, [
+        {'role': 'user', 'content': 'Delegate this'},
+        {'role': 'assistant', 'content': '$agent result'},
+        {'role': 'user', 'content': 'Continue this'},
+      ]);
+      delegatedHarness.emit(DeltaEvent('$agent follow-up'));
+      delegatedHarness.completeSuccess();
+      final followUp = await followUpFuture;
+      expect(followUp['isError'], isNull);
+      expect(followUp['content'], contains(containsPair('text', '$agent follow-up')));
+    }
+
+    await expectDelegation(agent: 'search', persona: builtInSearch.prompt, model: 'sonnet', effort: null);
+    await expectDelegation(agent: 'summarizer', persona: 'SUMMARY PERSONA', model: 'custom-model', effort: 'low');
+
+    final sessionsBefore = await storage!.sessions.listSessions(type: SessionType.delegated);
+    expect(sessionsBefore, hasLength(2));
+    expect(
+      (await storage!.sessions.listSessions()).map((session) => session.type),
+      isNot(contains(SessionType.delegated)),
+    );
+    for (final session in sessionsBefore) {
+      expect(session.type, SessionType.delegated);
+      expect(session.provider, 'claude');
+      expect(await storage!.messages.getMessages(session.id), isNotEmpty);
+    }
+    final unknown = await harnessWiring!.sessionDelegate.handleSessionsSend({
+      'session_id': 'agent:search:delegated:missing',
+      'message': 'Do not create this',
+    });
+    expect(unknown['isError'], isTrue);
+    expect((unknown['content'] as List).first['text'], contains('Unknown delegated session'));
+    expect(await storage!.sessions.listSessions(type: SessionType.delegated), hasLength(sessionsBefore.length));
+  });
+
+  test('delegated session resumes persisted history after storage and worker reconstruction', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(
+            id: 'search',
+            description: 'Search',
+            prompt: 'SEARCH PERSONA',
+            model: 'sonnet',
+            effort: 'low',
+          ),
+        ],
+      ),
+    );
+
+    Future<void> wireRuntime() async {
+      final factory = fakeFactory(['claude']);
+      late DartclawServer server;
+      harnessWiring = HarnessWiring(
+        config: config,
+        dataDir: tempDir.path,
+        port: 3333,
+        harnessFactory: factory,
+        exitFn: _unexpectedExit,
+        storage: storage!,
+        security: security!,
+        messageRedactor: MessageRedactor(),
+        eventBus: eventBus,
+      );
+      await harnessWiring!.wire(serverRefGetter: () => server);
+      server =
+          (DartclawServerBuilder()
+                ..sessions = storage!.sessions
+                ..messages = storage!.messages
+                ..worker = harnessWiring!.harness
+                ..staticDir = tempDir.path
+                ..behavior = harnessWiring!.behavior
+                ..pool = harnessWiring!.pool
+                ..sessionsForTurns = storage!.sessions
+                ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+                ..config = config)
+              .build();
+    }
+
+    await wireStorageAndSecurity();
+    await wireRuntime();
+
+    final spawnFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+      'agent': 'search',
+      'message': 'Remember amber',
+    });
+    await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+    final firstWorker = createdHarnesses.last;
+    await firstWorker.turnInvoked;
+    firstWorker.emit(DeltaEvent('Amber remembered'));
+    firstWorker.completeSuccess();
+    final spawned = await spawnFuture;
+    final handle = spawned['sessionId'] as String;
+
+    await harnessWiring!.pool.dispose();
+    harnessWiring = null;
+    await security!.dispose();
+    security = null;
+    await storage!.dispose();
+    storage = null;
+    createdHarnesses.clear();
+
+    await wireStorageAndSecurity();
+    await wireRuntime();
+
+    final sendFuture = harnessWiring!.sessionDelegate.handleSessionsSend({
+      'session_id': handle,
+      'message': 'What did I ask you to remember?',
+    });
+    await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+    final reconstructedWorker = createdHarnesses.last;
+    await reconstructedWorker.turnInvoked;
+    expect(reconstructedWorker.lastAgentId, 'search');
+    expect(reconstructedWorker.lastSystemPrompt, contains('SEARCH PERSONA'));
+    expect(reconstructedWorker.lastModel, 'sonnet');
+    expect(reconstructedWorker.lastEffort, 'low');
+    expect(reconstructedWorker.lastMessages, [
+      {'role': 'user', 'content': 'Remember amber'},
+      {'role': 'assistant', 'content': 'Amber remembered'},
+      {'role': 'user', 'content': 'What did I ask you to remember?'},
+    ]);
+    reconstructedWorker.emit(DeltaEvent('Amber'));
+    reconstructedWorker.completeSuccess();
+    final sent = await sendFuture;
+    expect(sent['isError'], isNull);
+    expect(sent['content'], contains(containsPair('text', 'Amber')));
+  });
+
+  test('wired delegation resolves a Codex provider alias and trims unset overrides', () async {
+    const providerId = 'openai-work';
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: providerId,
+        definitions: [
+          AgentDefinition(id: 'search', description: 'Search', prompt: 'SEARCH PERSONA'),
+          AgentDefinition(id: 'blank', description: 'Blank', prompt: '   ', model: '   ', effort: '   '),
+        ],
+      ),
+      providers: ProvidersConfig(
+        entries: {
+          providerId: ProviderEntry(
+            executable: Platform.resolvedExecutable,
+            poolSize: 1,
+            options: const {'family': 'codex', 'approval': 'on-request', 'credentials_required': false},
+          ),
+        },
+      ),
+      credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: 'openai-key')}),
+    );
+    await wireStorageAndSecurity();
+    final factory = fakeFactory([providerId]);
+    late DartclawServer wiredServer;
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    await harnessWiring!.wire(serverRefGetter: () => wiredServer);
+    wiredServer =
+        (DartclawServerBuilder()
+              ..sessions = storage!.sessions
+              ..messages = storage!.messages
+              ..worker = harnessWiring!.harness
+              ..staticDir = tempDir.path
+              ..behavior = harnessWiring!.behavior
+              ..pool = harnessWiring!.pool
+              ..sessionsForTurns = storage!.sessions
+              ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+              ..config = config)
+            .build();
+
+    Future<void> completeDelegation(String agentId) async {
+      final resultFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+        'agent': agentId,
+        'message': 'Delegate this',
+      });
+      await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+      final delegatedHarness = createdHarnesses.last;
+      await delegatedHarness.turnInvoked;
+      if (agentId == 'search') {
+        expect(delegatedHarness.lastSystemPrompt, contains('SEARCH PERSONA'));
+        expect(delegatedHarness.lastModel, 'gpt-5.6-luna');
+        expect(delegatedHarness.lastEffort, isNull);
+      } else {
+        expect(delegatedHarness.lastSystemPrompt, isNot('   '));
+        expect(delegatedHarness.lastModel, isNull);
+        expect(delegatedHarness.lastEffort, isNull);
+      }
+      delegatedHarness.emit(DeltaEvent('$agentId result'));
+      delegatedHarness.completeSuccess();
+      expect((await resultFuture)['isError'], isNull);
+    }
+
+    await completeDelegation('search');
+    await completeDelegation('blank');
+  });
+
+  test('wired delegation applies the configured content guard', () async {
+    config = config.copyWith(
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: '/bin/echo'),
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [AgentDefinition(id: 'search', description: 'Search', prompt: 'Search')],
+      ),
+      tasks: const TaskConfig(maxConcurrent: 1),
+    );
+    await wireStorageAndSecurity();
+    final factory = fakeFactory(['claude']);
+    late DartclawServer wiredServer;
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    await harnessWiring!.wire(serverRefGetter: () => wiredServer);
+    wiredServer =
+        (DartclawServerBuilder()
+              ..sessions = storage!.sessions
+              ..messages = storage!.messages
+              ..worker = harnessWiring!.harness
+              ..staticDir = tempDir.path
+              ..behavior = harnessWiring!.behavior
+              ..pool = harnessWiring!.pool
+              ..sessionsForTurns = storage!.sessions
+              ..runnerPoolCoordinator = harnessWiring!.runnerPoolCoordinator
+              ..config = config)
+            .build();
+
+    final resultFuture = harnessWiring!.sessionDelegate.handleSessionsSpawn({
+      'agent': 'search',
+      'message': 'Delegate this',
+    });
+    await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+    final delegatedHarness = createdHarnesses.last;
+    await delegatedHarness.turnInvoked;
+    delegatedHarness.emit(DeltaEvent('unsafe result'));
+    delegatedHarness.completeSuccess();
+
+    final result = await resultFuture;
+    expect(result['isError'], isTrue);
+    expect((result['content'] as List).first['text'], contains('content-guard'));
+    expect(await storage!.sessions.listSessions(type: SessionType.delegated), isEmpty);
+    expect(await storage!.sessions.listSessions(type: SessionType.archive), hasLength(1));
   });
 
   test('knowledge-inbox no-tools turn policy blocks tool calls on the primary harness chain', () async {
@@ -277,6 +847,9 @@ void main() {
   });
 
   test('configured ACP agents register provider identity and default pool capacity', () async {
+    final records = <LogRecord>[];
+    final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
+    addTearDown(subscription.cancel);
     config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
@@ -304,6 +877,10 @@ void main() {
     expect(factory.supports('goose'), isTrue);
     expect(harnessWiring!.pool.maxConcurrentTasks, 2);
     expect(harnessWiring!.onSpawnNeeded, isNotNull);
+    expect(
+      records.map((record) => record.message),
+      contains(contains('Tool-restricted agent or job turns are configured for an ACP')),
+    );
   });
 
   test('configured Goose and Vibe ACP agents register without unknown-provider fallback', () async {

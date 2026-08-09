@@ -5,6 +5,7 @@ import 'package:dartclaw_cli/src/commands/jobs/jobs_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_create_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_delete_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_list_command.dart';
+import 'package:dartclaw_cli/src/commands/jobs/jobs_run_command.dart';
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:test/test.dart';
 
@@ -14,7 +15,7 @@ void main() {
   group('Jobs commands', () {
     test('jobs parent registers expected subcommands', () {
       final command = JobsCommand();
-      expect(command.subcommands.keys, containsAll(['list', 'create', 'show', 'delete']));
+      expect(command.subcommands.keys, containsAll(['list', 'create', 'show', 'delete', 'run']));
     });
 
     test('list renders canonical config-defined jobs', () async {
@@ -148,5 +149,108 @@ void main() {
       expect(output.single, contains('Restart the server'));
       expect(transport.requests.single.uri.path, '/api/scheduling/jobs/daily-summary');
     });
+
+    test('run starts a job and prints observation guidance', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(202, {'name': 'daily-summary', 'status': 'started'}),
+        ],
+      );
+      final output = <String>[];
+      final command = JobsRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['run', 'daily-summary']);
+
+      expect(
+        output.single,
+        allOf(contains('daily-summary'), contains('started'), contains('delivery'), contains('logs')),
+      );
+      expect(transport.requests.single.uri.path, '/api/scheduling/jobs/daily-summary/run');
+    });
+
+    test('run JSON mode prints the API response', () async {
+      final response = {'name': 'daily-summary', 'status': 'started'};
+      final transport = FakeApiTransport(sendResponses: [jsonResponse(202, response)]);
+      final output = <String>[];
+      final command = JobsRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['run', 'daily-summary', '--json']);
+
+      expect(jsonDecode(output.single), response);
+    });
+
+    for (final (name, encoded) in [
+      ('Q&A digest', 'Q%26A%20digest'),
+      ('percent%job', 'percent%25job'),
+      ('slash/job', 'slash%2Fjob'),
+      ('already%20encoded', 'already%2520encoded'),
+    ]) {
+      test('run encodes $name as exactly one route segment', () async {
+        final transport = FakeApiTransport(
+          sendResponses: [
+            jsonResponse(202, {'name': name, 'status': 'started'}),
+          ],
+        );
+        final output = <String>[];
+        final command = JobsRunCommand(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          writeLine: output.add,
+        );
+        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+        await runner.run(['run', name]);
+
+        expect(transport.requests.single.uri.toString(), 'http://localhost:3333/api/scheduling/jobs/$encoded/run');
+        expect(transport.requests.single.uri.pathSegments, ['api', 'scheduling', 'jobs', name, 'run']);
+        expect(output.single, contains(name));
+      });
+    }
+
+    test('run prints a 404 restart hint verbatim', () async {
+      const message = 'Job is not present in the running scheduler; newly created jobs require a restart.';
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(404, {
+            'error': {'code': 'NOT_FOUND', 'message': message},
+          }),
+        ],
+      );
+      final output = <String>[];
+      final exits = <int>[];
+      final command = JobsRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+        exitFn: (code) {
+          exits.add(code);
+          throw const _ExitIntercept();
+        },
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(runner.run(['run', 'new-job']), throwsA(isA<_ExitIntercept>()));
+
+      expect(output, [message]);
+      expect(exits, [1]);
+      expect(output.single, isNot(contains('out of sync')));
+    });
+
+    test('run requires a job name', () {
+      final command = JobsRunCommand();
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      expect(() => runner.run(['run']), throwsA(isA<UsageException>()));
+    });
   });
+}
+
+class _ExitIntercept implements Exception {
+  const _ExitIntercept();
 }

@@ -230,13 +230,14 @@ class TurnRunner implements core.TurnRunner {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     // Governance checks happen before the session lock so blocked turns do not
     // hold the lock while waiting or failing fast.
@@ -261,12 +262,13 @@ class TurnRunner implements core.TurnRunner {
       directory: directory,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       behaviorOverride: behaviorOverride,
-      promptScope: promptScope,
       allowedTools: allowedTools,
       readOnly: readOnly,
+      promptScope: promptScope,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
@@ -337,22 +339,26 @@ class TurnRunner implements core.TurnRunner {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
       agentName: agentName,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
+      promptScope: promptScope,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
@@ -423,11 +429,16 @@ class TurnRunner implements core.TurnRunner {
   Future<String> _buildSystemPrompt(String sessionId) async {
     // Use task-scoped behavior override when present (project-backed tasks).
     final turnContext = _activeTurns[sessionId];
+    final override = turnContext?.systemPromptOverride;
+    if (override != null && override.trim().isNotEmpty) {
+      return override;
+    }
+
     final effectiveBehavior = turnContext?.behaviorOverride ?? _behavior;
     final scope = turnContext?.promptScope ?? PromptScope.interactive;
 
     if (_worker.promptStrategy == PromptStrategy.append) {
-      if (scope == PromptScope.webInteractive && effectiveBehavior.hasFreshOnboardingSentinel(logStale: true)) {
+      if (scope == PromptScope.conversational && effectiveBehavior.hasFreshOnboardingSentinel(logStale: true)) {
         return effectiveBehavior.composeStaticPrompt(scope: scope);
       }
       return '';
@@ -605,6 +616,7 @@ class TurnRunner implements core.TurnRunner {
         _runtimeWaits[sessionId] = runtimeWait;
         final result = await _worker.turn(
           sessionId: sessionId,
+          agentId: turnCtx?.agentName == 'main' ? null : turnCtx?.agentName,
           messages: messages,
           systemPrompt: systemPrompt,
           directory: turnCtx?.directory,
@@ -1030,7 +1042,13 @@ class TurnRunner implements core.TurnRunner {
     try {
       final systemPrompt = await _buildSystemPrompt(sessionId);
       final flushMessage = <String, dynamic>{'role': 'user', 'content': _flushPrompt};
-      await _worker.turn(sessionId: sessionId, messages: [flushMessage], systemPrompt: systemPrompt);
+      final agentName = _activeTurns[sessionId]?.agentName;
+      await _worker.turn(
+        sessionId: sessionId,
+        agentId: agentName == null || agentName == 'main' ? null : agentName,
+        messages: [flushMessage],
+        systemPrompt: systemPrompt,
+      );
       _contextMonitor.markFlushed(messageHash);
       _log.info('Pre-compaction flush completed for session $sessionId');
     } finally {

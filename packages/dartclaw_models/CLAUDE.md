@@ -2,6 +2,8 @@
 
 **Role**: Zero-dependency shared kernel — `Session`/`Message`/`MemoryChunk`, `SessionKey`, `AgentDefinition`, `ContainerConfig`, `ChannelConfig`/`ChannelType`/`SessionScopeConfig`, `TaskType`. All domain-specific models live in their owning packages (see CHANGELOG 0.16.5 Breaking API Changes). Barrel: `lib/dartclaw_models.dart` with explicit `show` clauses.
 
+`AgentDefinition.tools` is an optional sandbox allowlist forwarded to provider initialization only when non-empty; empty means unrestricted except denies. The built-in search definition uses canonical `web_search`/`web_fetch` and remains provider-neutral (`model == null`); composition-root wiring resolves provider defaults. `AgentDefinition.maxConcurrent` contributes to the single global host-dispatched delegation cap; it is not an independent per-agent quota. `SessionType.delegated` classifies hidden-but-retained delegated history. Legacy `max_spawn_depth` and `max_children_per_agent` inputs are reserved, warn, and are ignored rather than becoming model fields.
+
 ## Boundaries
 - Runtime dependencies: `collection` only. Do not add `path`, `yaml`, `sqlite3`, `dart:io`, or anything pulling them in transitively. These types must be importable from any environment (server, CLI, future Flutter clients).
 - Services, repositories, parsers, validators, and persistence logic do **not** live here. Models own data shape + JSON/Map (de)serialization only. Service layer = `dartclaw_core`. SQLite repositories = `dartclaw_storage`. Parsing/validation of YAML config = `dartclaw_config`.

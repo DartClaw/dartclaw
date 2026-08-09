@@ -140,6 +140,7 @@ class ConfigSerializer {
           'archiveAfterDays': config.memory.archiveAfterDays,
           'schedule': config.memory.pruningSchedule,
         },
+        'journal': {'enabled': config.memory.journalEnabled, 'schedule': config.memory.journalSchedule},
       },
       'knowledge': {
         'inbox': {

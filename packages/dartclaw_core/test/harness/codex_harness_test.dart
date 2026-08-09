@@ -496,6 +496,51 @@ void main() {
         expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
       });
 
+      test('scoped instructions create and replace only the session thread', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(
+          process: fake,
+          harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
+        );
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final delegated = harness.turn(
+          sessionId: 'sess-persona',
+          messages: const [
+            {'role': 'user', 'content': 'search'},
+          ],
+          systemPrompt: 'SEARCH PERSONA',
+          model: 'gpt-5.6-luna',
+          effort: 'medium',
+        );
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake, threadId: 'persona-thread');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
+        await delegated;
+
+        final restored = harness.turn(
+          sessionId: 'sess-persona',
+          messages: const [
+            {'role': 'user', 'content': 'ordinary'},
+          ],
+          systemPrompt: '',
+        );
+        await _pumpUntilSentMessageCount(fake, 'thread/start', 2);
+        fake.emitThreadStartResponse(id: latestRequestId(fake, 'thread/start'), threadId: 'default-thread');
+        await pumpEventLoop();
+        fake.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
+        await restored;
+
+        final threadStarts = fake.sentMessages.where((message) => message['method'] == 'thread/start').toList();
+        final turnStarts = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
+        expect((threadStarts[0]['params'] as Map<String, dynamic>)['developerInstructions'], 'SEARCH PERSONA');
+        expect((threadStarts[1]['params'] as Map<String, dynamic>).containsKey('developerInstructions'), isFalse);
+        expect((turnStarts[0]['params'] as Map<String, dynamic>)['model'], 'gpt-5.6-luna');
+        expect((turnStarts[0]['params'] as Map<String, dynamic>)['effort'], 'medium');
+        expect((turnStarts[1]['params'] as Map<String, dynamic>)['threadId'], 'default-thread');
+      });
+
       test('resetSessionContinuity starts a fresh thread for the session', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
@@ -579,7 +624,7 @@ void main() {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(
           process: fake,
-          providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
+          providerOptions: const {'sandbox': ' workspace-write ', 'approval': ' on-request '},
         );
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -599,9 +644,13 @@ void main() {
         await pumpEventLoop();
         await respondToLatestThreadStart(fake);
 
+        final threadStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
+        final threadParams = threadStartMessage['params'] as Map<String, dynamic>;
         final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
         final params = turnStartMessage['params'] as Map<String, dynamic>;
 
+        expect(threadParams['sandbox'], 'workspace-write');
+        expect(threadParams['approvalPolicy'], 'on-request');
         expect(params['input'], [
           {'type': 'text', 'text': 'current ask'},
         ]);

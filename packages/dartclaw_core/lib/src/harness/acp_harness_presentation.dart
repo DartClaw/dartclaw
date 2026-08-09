@@ -90,16 +90,20 @@ extension _AcpHarnessPresentation on AcpHarness {
   }
 
   String _promptText(Object? content, String systemPrompt) {
-    final text = switch (content) {
+    final text = _messageText(content);
+    if (systemPrompt.trim().isEmpty) {
+      return text;
+    }
+    return '$systemPrompt\n\n$text';
+  }
+
+  String _messageText(Object? content) {
+    return switch (content) {
       String value => value,
       List<Object?> values => values.map((value) => '$value').join('\n'),
       null => '',
       _ => '$content',
     };
-    if (systemPrompt.trim().isEmpty) {
-      return text;
-    }
-    return '$systemPrompt\n\n$text';
   }
 }
 

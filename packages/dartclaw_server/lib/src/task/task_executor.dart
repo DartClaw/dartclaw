@@ -45,6 +45,7 @@ class TaskExecutor {
     required TaskExecutorRunners runners,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
     SpawnTaskRunner? onSpawnNeeded,
+    TaskRunnerPoolCoordinator? runnerPoolCoordinator,
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
     String? dataDir,
@@ -64,7 +65,8 @@ class TaskExecutor {
        _workflowCliRunner = runners.workflowCliRunner,
        _workflowStepExecutionRepository = services.workflowStepExecutionRepository,
        _workflowRunRepository = services.workflowRunRepository,
-       _onSpawnNeeded = onSpawnNeeded,
+       _runnerPoolCoordinator =
+           runnerPoolCoordinator ?? TaskRunnerPoolCoordinator(pool: runners.turns.pool, onSpawnNeeded: onSpawnNeeded),
        _onAutoAccept = onAutoAccept,
        _projectService = services.projectService,
        _workspaceRoot = workspaceRoot,
@@ -79,7 +81,9 @@ class TaskExecutor {
        _stallAction = limits.stallAction,
        _defaultStepTimeout = limits.defaultStepTimeout,
        _eventBus = services.eventBus,
-       _dataDir = dataDir;
+       _dataDir = dataDir {
+    _runnerPoolCoordinator.setProviderUnavailableDiagnostic(_recordProviderUnavailable);
+  }
 
   static final _log = Logger('TaskExecutor');
   static const _uuid = Uuid();
@@ -99,7 +103,6 @@ class TaskExecutor {
   final WorkflowCliRunner? _workflowCliRunner;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final WorkflowRunRepository? _workflowRunRepository;
-  final SpawnTaskRunner? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
   final String? _workspaceRoot;
@@ -116,12 +119,7 @@ class TaskExecutor {
   final EventBus? _eventBus;
   final String? _dataDir;
   final Duration pollInterval;
-  late final TaskRunnerPoolCoordinator _runnerPoolCoordinator = TaskRunnerPoolCoordinator(
-    pool: _pool,
-    onSpawnNeeded: _onSpawnNeeded,
-    onProviderUnavailable: _recordProviderUnavailable,
-    log: _log,
-  );
+  final TaskRunnerPoolCoordinator _runnerPoolCoordinator;
   late final TaskFailureHandler _failureHandler = TaskFailureHandler(
     tasks: _tasks,
     eventRecorder: _eventRecorder,

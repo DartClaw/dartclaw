@@ -132,7 +132,7 @@ Middleware authMiddleware({
 /// and reject all requests — see [requestHasAdminAccess].
 Middleware localAdminMiddleware() =>
     (Handler inner) =>
-        (Request request) => inner(withAdminAuthContext(request));
+        (Request request) => inner(withLocalAdminAuthContext(request));
 
 String _failureReason(Request request) {
   final cookieHeader = request.headers['cookie'];

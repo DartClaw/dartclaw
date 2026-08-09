@@ -92,6 +92,7 @@ void main() {
 
       final turn = boundHarness.turn(
         sessionId: 'host-session',
+        agentId: 'search',
         directory: worktree.path,
         messages: const [
           {'role': 'user', 'content': 'hello'},
@@ -106,6 +107,7 @@ void main() {
       expect(File(p.join(worktree.path, 'created.txt')).readAsStringSync(), 'bound');
       expect(File(p.join(serviceRoot.path, 'created.txt')).existsSync(), isFalse);
       expect(guard.lastContext?.sessionId, 'host-session');
+      expect(guard.lastContext?.agentId, 'search');
 
       await boundProcess.respondTo('session/prompt', {'text': 'done'});
       await boundProcess.respondTo('session/close', {});

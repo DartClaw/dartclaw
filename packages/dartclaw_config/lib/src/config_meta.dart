@@ -712,6 +712,20 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
     ),
 
+    // Memory journal
+    'memory.journal.enabled': FieldMeta(
+      yamlPath: 'memory.journal.enabled',
+      jsonKey: 'memory.journal.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'memory.journal.schedule': FieldMeta(
+      yamlPath: 'memory.journal.schedule',
+      jsonKey: 'memory.journal.schedule',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+
     // Knowledge jobs
     'knowledge.inbox.enabled': FieldMeta(
       yamlPath: 'knowledge.inbox.enabled',

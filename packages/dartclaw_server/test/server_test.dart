@@ -65,6 +65,7 @@ class FakeWorkerService implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -101,6 +102,7 @@ class FakeWorkerService implements AgentHarness {
 
   void completeSuccess() => _turnCompleter?.complete({'ok': true});
   Future<void> get turnStarted => _turnStarted.future;
+  bool get hasTurnStarted => _turnStarted.isCompleted;
   Future<void> closeEvents() => _eventsCtrl.close();
 }
 
@@ -189,6 +191,108 @@ void main() {
     expect(response.headers['content-type'], startsWith('text/html'));
     expect(body, contains('Page Not Found'));
     expect(body, contains('href="/"'));
+  });
+
+  group('MCP route exposure', () {
+    DartclawServer buildServer({
+      required String host,
+      required bool authEnabled,
+      String? gatewayToken,
+      bool journalEnabled = false,
+    }) =>
+        (DartclawServerBuilder()
+              ..sessions = sessions
+              ..messages = messages
+              ..worker = worker
+              ..staticDir = _staticDir()
+              ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+              ..config = DartclawConfig(
+                server: ServerConfig(host: host, dataDir: tempDir.path),
+                memory: MemoryConfig(journalEnabled: journalEnabled),
+              )
+              ..authEnabled = authEnabled
+              ..gatewayToken = gatewayToken)
+            .build();
+
+    Request initializeRequest({String? token}) => Request(
+      'POST',
+      Uri.parse('http://localhost/mcp'),
+      body: jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1}),
+      headers: {
+        'host': 'localhost',
+        'content-type': 'application/json',
+        if (token != null) 'authorization': 'Bearer $token',
+      },
+    );
+
+    test('authentication-disabled loopback server mounts MCP for the enabled journal', () async {
+      server = buildServer(host: 'localhost', authEnabled: false, journalEnabled: true);
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 200);
+    });
+
+    test('authentication-disabled default-off journal does not mount MCP', () async {
+      server = buildServer(host: 'localhost', authEnabled: false);
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 404);
+    });
+
+    test('authentication-enabled MCP route still requires its bearer', () async {
+      server = buildServer(host: '0.0.0.0', authEnabled: true, gatewayToken: 'test-token');
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 401);
+    });
+
+    test('authentication-disabled non-loopback server rejects unsafe MCP requests', () async {
+      server = buildServer(host: '0.0.0.0', authEnabled: false);
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 403);
+    });
+  });
+
+  test('authentication-disabled run-now rejects cross-origin browser requests', () async {
+    final builder = DartclawServerBuilder()
+      ..sessions = sessions
+      ..messages = messages
+      ..worker = worker
+      ..staticDir = _staticDir()
+      ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+      ..runtimeConfig = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false)
+      ..authEnabled = false;
+    final schedule = ScheduleService(
+      turns: builder.buildTurns(),
+      sessions: sessions,
+      jobs: [
+        ScheduledJob(
+          id: 'memory-journal',
+          prompt: 'Journal memory',
+          scheduleType: ScheduleType.cron,
+          cronExpression: CronExpression.parse('0 22 * * *'),
+        ),
+      ],
+    )..start();
+    addTearDown(schedule.stop);
+    builder.scheduleService = schedule;
+    server = builder.build();
+
+    final response = await server.handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+        headers: {'host': 'localhost', 'origin': 'https://attacker.example'},
+      ),
+    );
+
+    expect(response.statusCode, 403);
+    expect(worker.hasTurnStarted, isFalse);
   });
 
   group('shutdown', () {

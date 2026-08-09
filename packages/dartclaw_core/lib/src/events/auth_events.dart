@@ -56,6 +56,12 @@ final class GuardBlockEvent extends DartclawEvent {
   /// Raw provider-native tool name associated with the verdict, if any.
   final String? rawProviderToolName;
 
+  /// Canonical tool name evaluated by the guard, if any.
+  final String? toolName;
+
+  /// Delegated agent identity associated with the verdict, if any.
+  final String? agentId;
+
   /// Deterministic session key associated with the event, if known.
   final String? sessionKey;
 
@@ -80,6 +86,8 @@ final class GuardBlockEvent extends DartclawEvent {
     this.verdictMessage,
     required this.hookPoint,
     this.rawProviderToolName,
+    this.toolName,
+    this.agentId,
     this.sessionKey,
     this.sessionId,
     this.channel,

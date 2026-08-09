@@ -1079,7 +1079,7 @@ void main() {
         ),
       );
 
-      expect(turns.lastPromptScope, PromptScope.webInteractive);
+      expect(turns.lastPromptScope, PromptScope.conversational);
     });
   });
 
@@ -1980,6 +1980,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -1999,6 +2000,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
       directory: directory,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,

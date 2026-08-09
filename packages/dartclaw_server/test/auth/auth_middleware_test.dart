@@ -25,6 +25,7 @@ void main() {
 
       expect(requestHasAdminAccess(request), isFalse);
       expect(requestHasAdminAccess(withAdminAuthContext(request)), isTrue);
+      expect(requestIsLocalAdmin(request), isFalse);
     });
 
     test('disabled middleware passes all through', () async {
@@ -36,12 +37,13 @@ void main() {
 
     test('localAdminMiddleware grants admin context to every request', () async {
       final handler = localAdminMiddleware()(
-        (Request request) => Response.ok(requestHasAdminAccess(request) ? 'admin' : 'read-only'),
+        (Request request) =>
+            Response.ok(requestHasAdminAccess(request) && requestIsLocalAdmin(request) ? 'local-admin' : 'read-only'),
       );
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/config/guards')));
 
       expect(response.statusCode, 200);
-      expect(await response.readAsString(), 'admin');
+      expect(await response.readAsString(), 'local-admin');
     });
 
     group('public paths', () {

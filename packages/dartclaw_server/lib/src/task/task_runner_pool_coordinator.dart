@@ -22,11 +22,30 @@ final class TaskRunnerPoolCoordinator {
 
   final HarnessPool _pool;
   final SpawnTaskRunner? _onSpawnNeeded;
-  final ProviderUnavailableDiagnostic? _onProviderUnavailable;
+  ProviderUnavailableDiagnostic? _onProviderUnavailable;
   final Logger _log;
   final Set<String> _runnerWaitLoggedTaskIds = <String>{};
   final Set<String> _providerUnavailableTaskIds = <String>{};
-  bool _isSpawning = false;
+  Future<bool>? _inFlightProvision;
+  String? _inFlightProviderId;
+
+  bool get _isSpawning => _inFlightProvision != null;
+
+  void setProviderUnavailableDiagnostic(ProviderUnavailableDiagnostic? diagnostic) {
+    _onProviderUnavailable = diagnostic;
+  }
+
+  /// Acquires an idle [providerId] runner, provisioning capacity when needed.
+  Future<TurnRunner?> provisionAndAcquireProvider(String providerId) async {
+    while (true) {
+      final runner = _pool.tryAcquireForProvider(providerId);
+      if (runner != null) return runner;
+      if (_pool.spawnableCount <= 0) return null;
+      final joinedDifferentProvider = _inFlightProvision != null && _inFlightProviderId != providerId;
+      final spawned = await _provision(providerId);
+      if (!spawned && !joinedDifferentProvider) return null;
+    }
+  }
 
   void triggerSpawnIfNeeded([String? requestedProviderId]) {
     if (_pool.availableCount == 0 && _pool.spawnableCount > 0 && !_isSpawning) {
@@ -100,20 +119,35 @@ final class TaskRunnerPoolCoordinator {
   }
 
   void triggerSpawn(String? requestedProviderId, {void Function()? onNoRunnerSpawned}) {
-    final callback = _onSpawnNeeded;
-    if (callback == null) return;
-    _isSpawning = true;
     unawaited(
-      callback(requestedProviderId)
-          .then((spawned) {
-            if (!spawned) {
-              onNoRunnerSpawned?.call();
-            }
-          })
-          .whenComplete(() {
-            _isSpawning = false;
-          }),
+      _provision(requestedProviderId).then((spawned) {
+        if (!spawned) {
+          onNoRunnerSpawned?.call();
+        }
+      }),
     );
+  }
+
+  Future<bool> _provision(String? requestedProviderId) {
+    final active = _inFlightProvision;
+    if (active != null) return active;
+    final callback = _onSpawnNeeded;
+    if (callback == null) return Future<bool>.value(false);
+    _inFlightProviderId = requestedProviderId;
+    late final Future<bool> provision;
+    provision = callback(requestedProviderId)
+        .catchError((Object error, StackTrace stackTrace) {
+          _log.warning('Task-runner provisioning failed', error, stackTrace);
+          return false;
+        })
+        .whenComplete(() {
+          if (identical(_inFlightProvision, provision)) {
+            _inFlightProvision = null;
+            _inFlightProviderId = null;
+          }
+        });
+    _inFlightProvision = provision;
+    return provision;
   }
 
   void _logRunnerWaitOnce(Task task, String message, {Level level = Level.WARNING}) {

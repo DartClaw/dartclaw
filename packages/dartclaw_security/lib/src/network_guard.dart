@@ -140,19 +140,23 @@ class NetworkGuard extends Guard {
     final toolName = context.toolName;
     final toolInput = context.toolInput;
     if (toolName == null || toolInput == null) return GuardVerdict.pass();
+    final allowedDomains = {
+      ...config.allowedDomains,
+      ...?(context.agentId == null ? null : config.agentOverrides[context.agentId]),
+    };
 
     if (toolName == 'shell') {
-      return _evaluateBash(toolInput['command'] as String? ?? '');
+      return _evaluateBash(toolInput['command'] as String? ?? '', allowedDomains);
     }
 
     if (toolName == 'web_fetch') {
-      return _evaluateWebFetch(toolInput['url'] as String? ?? '');
+      return _evaluateWebFetch(toolInput['url'] as String? ?? '', allowedDomains);
     }
 
     return GuardVerdict.pass();
   }
 
-  GuardVerdict _evaluateBash(String command) {
+  GuardVerdict _evaluateBash(String command, Set<String> allowedDomains) {
     if (command.isEmpty) return GuardVerdict.pass();
 
     // Check exfiltration patterns first (command-structure checks)
@@ -165,23 +169,23 @@ class NetworkGuard extends Guard {
     // Extract URLs and check domains
     final urls = _extractUrlsFromBash(command);
     for (final url in urls) {
-      final verdict = _checkUrl(url);
+      final verdict = _checkUrl(url, allowedDomains);
       if (verdict != null) return verdict;
     }
 
     return GuardVerdict.pass();
   }
 
-  GuardVerdict _evaluateWebFetch(String url) {
+  GuardVerdict _evaluateWebFetch(String url, Set<String> allowedDomains) {
     if (url.isEmpty) return GuardVerdict.pass();
-    return _checkUrl(url) ?? GuardVerdict.pass();
+    return _checkUrl(url, allowedDomains) ?? GuardVerdict.pass();
   }
 
   // -------------------------------------------------------------------------
   // URL checking
   // -------------------------------------------------------------------------
 
-  GuardVerdict? _checkUrl(String urlString) {
+  GuardVerdict? _checkUrl(String urlString, Set<String> allowedDomains) {
     // Prepend scheme if missing (for IP detection)
     var toParse = urlString;
     if (!toParse.contains('://')) toParse = 'http://$toParse';
@@ -197,7 +201,7 @@ class NetworkGuard extends Guard {
     }
 
     // Check domain against allowlist
-    if (!_isDomainAllowed(host, config.allowedDomains)) {
+    if (!_isDomainAllowed(host, allowedDomains)) {
       return GuardVerdict.block('Network blocked: domain not in allowlist ($host)');
     }
 

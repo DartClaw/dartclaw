@@ -36,6 +36,7 @@ String schedulingTemplate({
     final delivery = job['delivery']?.toString() ?? 'none';
     final jobStatus = job['status']?.toString() ?? 'active';
     final isSystem = systemJobNames.contains(name);
+    final canRun = !isSystem || job['runnable'] == true;
 
     // Cron human-readable description
     String cronHuman = '';
@@ -67,7 +68,8 @@ String schedulingTemplate({
       'rowClass': isSystem ? 'row-system' : (jobStatus == 'error' ? 'row-error' : ''),
       'isActive': jobStatus == 'active',
       'isSystem': isSystem,
-      'hasActions': !isSystem,
+      'canRun': canRun,
+      'hasActions': !isSystem || canRun,
       'cronHuman': cronHuman,
     };
   }).toList();

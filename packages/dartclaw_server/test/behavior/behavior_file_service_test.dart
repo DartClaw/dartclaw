@@ -120,19 +120,24 @@ void main() {
     expect(result, contains('Timezone: UTC+2'));
   });
 
-  test('injects ONBOARDING.md only for webInteractive scope', () async {
+  test('injects ONBOARDING.md only for conversational scope', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul');
     File('${globalDir.path}/ONBOARDING.md').writeAsStringSync('Onboarding instructions');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
 
-    final webPrompt = await service.composeSystemPrompt(scope: PromptScope.webInteractive);
-    final interactivePrompt = await service.composeSystemPrompt();
-    final taskPrompt = await service.composeSystemPrompt(scope: PromptScope.task);
-
-    expect(webPrompt, contains('## Onboarding'));
-    expect(webPrompt, contains('Onboarding instructions'));
-    expect(interactivePrompt, isNot(contains('Onboarding instructions')));
-    expect(taskPrompt, isNot(contains('Onboarding instructions')));
+    for (final scope in PromptScope.values) {
+      final prompt = await service.composeSystemPrompt(scope: scope);
+      if (scope == PromptScope.conversational) {
+        expect(prompt, contains('## Onboarding'), reason: '${scope.name} must include the onboarding section');
+        expect(prompt, contains('Onboarding instructions'));
+      } else {
+        expect(
+          prompt,
+          isNot(contains('Onboarding instructions')),
+          reason: '${scope.name} must exclude onboarding instructions',
+        );
+      }
+    }
   });
 
   test('skips stale ONBOARDING.md and logs restart path', () async {
@@ -153,7 +158,7 @@ void main() {
     });
 
     final service = BehaviorFileService(workspaceDir: globalDir.path, onboardingExpiryDays: 2);
-    final result = await service.composeSystemPrompt(scope: PromptScope.webInteractive);
+    final result = await service.composeSystemPrompt(scope: PromptScope.conversational);
 
     expect(result, isNot(contains('Old onboarding')));
     expect(warnings, anyElement(contains('dartclaw init --personalize')));

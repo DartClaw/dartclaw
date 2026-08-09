@@ -78,6 +78,7 @@ final class _LineRecordingHarness extends BaseHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) async => const <String, dynamic>{};
 }
 

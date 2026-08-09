@@ -74,6 +74,7 @@ class SchedulingWiring {
     required TurnManager turns,
     required ContextMonitor contextMonitor,
   }) async {
+    final journalCron = validateMemoryJournalConfig(config);
     final sessions = _storage.sessions;
     final taskService = _storage.taskService;
     final kvService = _storage.kvService;
@@ -103,6 +104,28 @@ class SchedulingWiring {
       } catch (e) {
         _log.warning('Invalid scheduled job config: $e — skipping');
       }
+    }
+
+    if (config.memory.journalEnabled) {
+      _scheduledJobs.add(
+        ScheduledJob(
+          id: 'memory-journal',
+          prompt: MemoryJournal.prompt,
+          scheduleType: ScheduleType.cron,
+          cronExpression: journalCron,
+          deliveryMode: DeliveryMode.none,
+          allowedTools: const ['file_read', 'memory_save'],
+        ),
+      );
+      _displayJobs.add({
+        'name': 'memory-journal',
+        'schedule': config.memory.journalSchedule,
+        'delivery': 'none',
+        'status': 'active',
+        'runnable': true,
+      });
+      _systemJobNames.add('memory-journal');
+      _log.info('Memory journal scheduled (${config.memory.journalSchedule})');
     }
 
     // Register memory pruner as a built-in scheduled job.
@@ -223,6 +246,7 @@ class SchedulingWiring {
                 config: config.sessions.maintenanceConfig,
                 activeChannelKeys: activeChannelKeys,
                 activeJobIds: _scheduledJobs.map((j) => j.id).toSet(),
+                isSessionActive: turns.isActive,
                 sessionsDir: config.sessionsDir,
                 taskService: taskService,
                 artifactRetentionDays: config.tasks.artifactRetentionDays,
@@ -424,6 +448,16 @@ class SchedulingWiring {
 
     await kv.set('prune_history', jsonEncode(history));
   }
+}
+
+CronExpression? validateMemoryJournalConfig(DartclawConfig config) {
+  if (!config.memory.journalEnabled) return null;
+  if (config.scheduling.jobs.any((job) => (job['id'] ?? job['name']) == 'memory-journal')) {
+    throw const FormatException(
+      'Duplicate scheduled job ID "memory-journal": memory.journal built-in conflicts with scheduling.jobs',
+    );
+  }
+  return CronExpression.parse(config.memory.journalSchedule);
 }
 
 DeliveryMode _knowledgeDeliveryMode(String value) => switch (value) {

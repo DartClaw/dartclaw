@@ -9,6 +9,7 @@ typedef FakeReserveTurnCallback =
       String? directory,
       String? model,
       String? effort,
+      String? systemPromptOverride,
       int? maxTurns,
       String? taskId,
       bool isHumanInput,
@@ -34,11 +35,13 @@ typedef FakeStartTurnCallback =
       String agentName,
       String? model,
       String? effort,
+      String? systemPromptOverride,
       int? maxTurns,
       String? taskId,
       bool isHumanInput,
       List<String>? allowedTools,
       bool readOnly,
+      PromptScope? promptScope,
     });
 
 typedef FakeWaitForCompletionCallback = Future<void> Function(String sessionId, {Duration timeout});
@@ -55,6 +58,7 @@ typedef RecordedReserveTurn = ({
   String? directory,
   String? model,
   String? effort,
+  String? systemPromptOverride,
   int? maxTurns,
   String? taskId,
   bool isHumanInput,
@@ -79,11 +83,13 @@ typedef RecordedStartTurn = ({
   String agentName,
   String? model,
   String? effort,
+  String? systemPromptOverride,
   int? maxTurns,
   String? taskId,
   bool isHumanInput,
   List<String>? allowedTools,
   bool readOnly,
+  PromptScope? promptScope,
 });
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
@@ -217,6 +223,7 @@ class FakeTurnManager implements TurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -231,6 +238,7 @@ class FakeTurnManager implements TurnManager {
       directory: directory,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
@@ -246,6 +254,7 @@ class FakeTurnManager implements TurnManager {
         directory: directory,
         model: model,
         effort: effort,
+        systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
         taskId: taskId,
         isHumanInput: isHumanInput,
@@ -312,11 +321,13 @@ class FakeTurnManager implements TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     startTurnCallCount += 1;
     startedTurns.add((
@@ -326,11 +337,13 @@ class FakeTurnManager implements TurnManager {
       agentName: agentName,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
       readOnly: readOnly,
+      promptScope: promptScope,
     ));
     final callback = onStartTurn;
     if (callback != null) {
@@ -341,11 +354,13 @@ class FakeTurnManager implements TurnManager {
         agentName: agentName,
         model: model,
         effort: effort,
+        systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
         taskId: taskId,
         isHumanInput: isHumanInput,
         allowedTools: allowedTools,
         readOnly: readOnly,
+        promptScope: promptScope,
       );
       addActiveSession(sessionId, turnId: turnId);
       return turnId;
@@ -355,11 +370,13 @@ class FakeTurnManager implements TurnManager {
       agentName: agentName,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
+      promptScope: promptScope,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;

@@ -121,7 +121,7 @@ gateway:
 Cookie-authenticated browser sessions are defended against cross-site request forgery in depth, not by a single control:
 
 - **`SameSite=Strict` session cookies** keep the cookie off cross-site requests, so a forged cross-origin request arrives unauthenticated. This is the primary defense and needs no CSRF tokens — strong, but not treated as absolute.
-- **Same-origin Origin/Host check.** For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the server compares the request's `Origin` (or `Referer`) authority against its own `Host` and returns **403** on mismatch or when neither header is present. API clients using a Bearer token and no-auth local-admin sessions are exempt.
+- **Same-origin Origin/Host check.** For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the server compares the request's `Origin` (or `Referer`) authority against its own `Host` and returns **403** on mismatch or when neither header is present. No-auth local-admin writes additionally require both the configured server host and request `Host` to be literal loopback hosts; matching non-local `Origin` and `Host` values are rejected. Origin-less loopback API clients remain supported. API clients using a Bearer token are exempt.
 - **Security headers.** Every response carries a strict `Content-Security-Policy` (including `form-action 'self'` and `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and HSTS when `gateway.hsts` is enabled.
 
 ## Credential Proxy

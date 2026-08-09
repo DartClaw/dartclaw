@@ -210,6 +210,8 @@ void main() {
         hookPoint: 'messageReceived',
         timestamp: timestamp,
         rawProviderToolName: 'Bash',
+        agentId: 'search',
+        tool: 'shell',
         sessionId: 'abc-123',
         channel: 'whatsapp',
         peerId: '+1234567890',
@@ -230,6 +232,8 @@ void main() {
       expect(entry['verdict'], 'block');
       expect(entry['reason'], 'injection detected');
       expect(entry['rawProviderToolName'], 'Bash');
+      expect(entry['agentId'], 'search');
+      expect(entry['tool'], 'shell');
       expect(entry['sessionId'], 'abc-123');
       expect(entry['channel'], 'whatsapp');
       expect(entry['peerId'], '+1234567890');
@@ -645,6 +649,8 @@ void main() {
         hook: 'messageReceived',
         verdict: 'block',
         reason: 'injection',
+        agentId: 'search',
+        tool: 'web_search',
         sessionId: 'sess-1',
         channel: 'whatsapp',
         peerId: '+1234',
@@ -655,15 +661,23 @@ void main() {
       expect(json['hook'], 'messageReceived');
       expect(json['verdict'], 'block');
       expect(json['reason'], 'injection');
+      expect(json['agentId'], 'search');
+      expect(json['tool'], 'web_search');
       expect(json['sessionId'], 'sess-1');
       expect(json['channel'], 'whatsapp');
       expect(json['peerId'], '+1234');
+
+      final restored = AuditEntry.fromJson(json);
+      expect(restored.agentId, 'search');
+      expect(restored.tool, 'web_search');
     });
 
     test('toJson omits null optional fields', () {
       final entry = AuditEntry(timestamp: DateTime.utc(2026, 1, 1), guard: 'g', hook: 'h', verdict: 'pass');
       final json = entry.toJson();
       expect(json.containsKey('reason'), isFalse);
+      expect(json.containsKey('agentId'), isFalse);
+      expect(json.containsKey('tool'), isFalse);
       expect(json.containsKey('sessionId'), isFalse);
       expect(json.containsKey('channel'), isFalse);
       expect(json.containsKey('peerId'), isFalse);

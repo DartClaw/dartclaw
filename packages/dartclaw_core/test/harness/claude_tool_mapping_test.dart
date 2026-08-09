@@ -27,10 +27,21 @@ void main() {
     });
 
     test('maps WebFetch/web_fetch and mcp_* tools', () {
-      final adapter = ClaudeProtocolAdapter();
+      final adapter = ClaudeProtocolAdapter(
+        ownMcpToolCanonicals: const {
+          'web_fetch': CanonicalTool.webFetch,
+          'brave_search': CanonicalTool.webSearch,
+          'memory_save': CanonicalTool.memorySave,
+        },
+      );
       expect(adapter.mapToolName('WebFetch'), CanonicalTool.webFetch);
       expect(adapter.mapToolName('web_fetch'), CanonicalTool.webFetch);
-      expect(adapter.mapToolName('mcp_tool_call'), CanonicalTool.mcpCall);
+      expect(adapter.mapToolName('WebSearch'), CanonicalTool.webSearch);
+      expect(adapter.mapToolName('mcp__dartclaw__web_fetch'), CanonicalTool.webFetch);
+      expect(adapter.mapToolName('mcp__dartclaw__brave_search'), CanonicalTool.webSearch);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_save'), CanonicalTool.memorySave);
+      expect(adapter.mapToolName('mcp__dartclaw__unknown'), CanonicalTool.mcpCall);
+      expect(adapter.mapToolName('mcp__third_party__web_fetch'), CanonicalTool.mcpCall);
     });
 
     test('returns null for unknown, empty, and lowercase Bash', () {

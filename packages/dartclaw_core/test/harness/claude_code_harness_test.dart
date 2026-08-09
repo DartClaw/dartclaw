@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_core/src/agents/tool_policy_cascade.dart';
 import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/bridge/bridge_events.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
@@ -202,7 +203,7 @@ void main() {
           messages: [
             {'role': 'user', 'content': 'hello'},
           ],
-          systemPrompt: 'test',
+          systemPrompt: '',
         );
 
         // Allow microtasks to run so turn() acquires lock and sets busy.
@@ -526,7 +527,7 @@ void main() {
           messages: const [
             {'role': 'user', 'content': 'first'},
           ],
-          systemPrompt: 'test',
+          systemPrompt: '',
         );
         await pumpEventQueue();
         fake.emitStdout(
@@ -548,7 +549,7 @@ void main() {
           messages: const [
             {'role': 'user', 'content': 'second'},
           ],
-          systemPrompt: 'test',
+          systemPrompt: '',
         );
         await pumpEventQueue();
         fake.emitStdout(jsonEncode({'type': 'result', 'is_error': false, 'stop_reason': 'end_turn', 'result': 'ok'}));
@@ -722,6 +723,62 @@ void main() {
         expect(capturedArgs, isNot(contains('--append-system-prompt')));
       });
 
+      test('delegated persona and model restart once, then empty restores defaults once', () async {
+        final spawns = <List<String>>[];
+        final h = buildClaudeHarness(
+          harnessConfig: const HarnessConfig(model: 'opus', appendSystemPrompt: 'DEFAULT'),
+          processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        await h.turn(
+          sessionId: 'delegated',
+          messages: const [
+            {'role': 'user', 'content': 'search'},
+          ],
+          systemPrompt: 'SEARCH PERSONA',
+          model: 'sonnet',
+        );
+        await h.turn(
+          sessionId: 'ordinary',
+          messages: const [
+            {'role': 'user', 'content': 'continue'},
+          ],
+          systemPrompt: '',
+        );
+        expect(spawns, hasLength(3));
+        expect(spawns[1], containsAllInOrder(['--model', 'sonnet']));
+        expect(spawns[1], containsAllInOrder(['--append-system-prompt', 'SEARCH PERSONA']));
+        expect(spawns[2], containsAllInOrder(['--model', 'opus']));
+        expect(spawns[2], containsAllInOrder(['--append-system-prompt', 'DEFAULT']));
+      });
+
+      test('delegated model and effort restart even when persona matches the configured prompt', () async {
+        final spawns = <List<String>>[];
+        final h = buildClaudeHarness(
+          harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
+          processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        await h.turn(
+          sessionId: 'delegated',
+          agentId: 'search',
+          messages: const [
+            {'role': 'user', 'content': 'search'},
+          ],
+          systemPrompt: 'DEFAULT',
+          model: 'sonnet',
+          effort: 'high',
+        );
+
+        expect(spawns, hasLength(2));
+        expect(spawns[1], containsAllInOrder(['--model', 'sonnet']));
+        expect(spawns[1], containsAllInOrder(['--effort', 'high']));
+      });
+
       test('JSONL payload omits system_prompt for append-strategy harness', () async {
         late CapturingFakeProcess fake;
 
@@ -808,8 +865,8 @@ void main() {
         );
       });
 
-      test('PreToolUse maps Claude tool names before guard evaluation and preserves raw provider name', () async {
-        final guard = RecordingGuard();
+      test('PreToolUse blocks with the delegated turn identity and DartClaw session id', () async {
+        final guard = RecordingGuard(verdict: GuardVerdict.block('blocked'));
         late CapturingFakeProcess fake;
         List<String>? capturedArgs;
 
@@ -835,6 +892,15 @@ void main() {
 
         await h.start();
         expect(capturedArgs, isNot(contains('--setting-sources')));
+        final turnFuture = h.turn(
+          sessionId: 's-123',
+          agentId: 'search',
+          messages: const [
+            {'role': 'user', 'content': 'search'},
+          ],
+          systemPrompt: '',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
         fake.emitStdout(
           jsonEncode({
             'type': 'control_request',
@@ -856,6 +922,8 @@ void main() {
         expect(guard.lastContext!.toolName, 'shell');
         expect(guard.lastContext!.rawProviderToolName, 'Bash');
         expect(guard.lastContext!.toolInput, {'command': 'git status'});
+        expect(guard.lastContext!.sessionId, 's-123');
+        expect(guard.lastContext!.agentId, 'search');
         expect(
           events,
           contains(
@@ -873,10 +941,96 @@ void main() {
           contains(
             containsPair(
               'response',
-              containsPair('response', containsPair('hookSpecificOutput', containsPair('hookEventName', 'PreToolUse'))),
+              containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
             ),
           ),
         );
+        fake.emitStdout(jsonEncode({'type': 'result', 'result': 'done', 'is_error': false}));
+        await turnFuture;
+
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-hook-after-turn',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'Bash',
+                'tool_input': {'command': 'git status'},
+              },
+            },
+          }),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(guard.contexts, hasLength(2));
+        expect(guard.contexts.last.sessionId, isNull);
+        expect(guard.contexts.last.agentId, isNull);
+      });
+
+      test('PreToolUse blocks a closed-set delegated agent from its ungranted own-MCP tool', () async {
+        late CapturingFakeProcess fake;
+        final guard = ToolPolicyGuard(
+          cascade: ToolPolicyCascade(
+            agentAllow: {
+              'search': {'web_search', 'web_fetch'},
+            },
+          ),
+        );
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          guardChain: GuardChain(guards: [guard]),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        final turnFuture = h.turn(
+          sessionId: 's-mcp',
+          agentId: 'search',
+          messages: const [
+            {'role': 'user', 'content': 'delegate again'},
+          ],
+          systemPrompt: '',
+        );
+        await pumpEventQueue();
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-mcp-hook',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'mcp__dartclaw__sessions_send',
+                'tool_input': {'agent': 'worker', 'message': 'do work'},
+              },
+            },
+          }),
+        );
+        await pumpEventQueue();
+
+        expect(
+          fake.capturedStdinJson,
+          contains(
+            containsPair(
+              'response',
+              containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
+            ),
+          ),
+        );
+        fake.exit(1);
+        await turnFuture.catchError((_) => <String, dynamic>{});
       });
 
       test('PreToolUse does not emit approval resolved when hook response write fails', () async {
@@ -996,6 +1150,160 @@ void main() {
           isTrue,
         );
         expect(fake.capturedStdinJson, isNotEmpty);
+      });
+
+      test('malformed hook callbacks deny exactly once and do not poison later valid callbacks', () async {
+        final guard = RecordingGuard();
+        late CapturingFakeProcess fake;
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          guardChain: GuardChain(guards: [guard]),
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+
+        final malformedInputs = <Object?>[
+          null,
+          const [],
+          const <String, dynamic>{},
+          const {'hook_event_name': 'Unknown', 'tool_name': 'Bash', 'tool_input': <String, dynamic>{}},
+          const {'hook_event_name': 'PreToolUse', 'tool_name': 42, 'tool_input': <String, dynamic>{}},
+          const {'hook_event_name': 'PreToolUse', 'tool_name': '  ', 'tool_input': <String, dynamic>{}},
+          const {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash', 'tool_input': []},
+          const {
+            'hook_event_name': 'PreToolUse',
+            'tool_name': 'Bash',
+            'tool_input': <String, dynamic>{'env': []},
+          },
+          const {'hook_event_name': 'PreCompact', 'session_id': 42},
+          const {'hook_event_name': 'PermissionDenied', 'tool_name': 'Bash', 'reason': 42},
+          const {'hook_event_name': 'PostToolUse', 'tool_name': []},
+        ];
+        for (var index = 0; index < malformedInputs.length; index++) {
+          fake.emitStdout(
+            jsonEncode({
+              'type': 'control_request',
+              'request_id': 'malformed-$index',
+              'request': {'subtype': 'hook_callback', 'input': malformedInputs[index]},
+            }),
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        for (var index = 0; index < malformedInputs.length; index++) {
+          final responses = fake.capturedStdinJson.where(
+            (message) => (message['response'] as Map?)?['request_id'] == 'malformed-$index',
+          );
+          expect(responses, hasLength(1));
+          expect(
+            responses.single,
+            containsPair(
+              'response',
+              containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
+            ),
+          );
+        }
+        expect(guard.contexts, isEmpty);
+
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'valid-after-malformed',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'Bash',
+                'tool_input': {'command': 'git status'},
+              },
+            },
+          }),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(guard.contexts, hasLength(1));
+        final validResponses = fake.capturedStdinJson.where(
+          (message) => (message['response'] as Map?)?['request_id'] == 'valid-after-malformed',
+        );
+        expect(validResponses, hasLength(1));
+        expect(
+          validResponses.single,
+          containsPair(
+            'response',
+            containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'allow'))),
+          ),
+        );
+      });
+
+      test('throwing hook guard denies exactly once and the active turn can still complete', () async {
+        late CapturingFakeProcess fake;
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          guardChain: GuardChain(guards: [_ThrowingGuard()]),
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+
+        final turn = h.turn(
+          sessionId: 'throwing-guard-session',
+          agentId: 'search',
+          messages: const [
+            {'role': 'user', 'content': 'search'},
+          ],
+          systemPrompt: '',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'throwing-guard-hook',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'Bash',
+                'tool_input': {'command': 'git status'},
+              },
+            },
+          }),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        final responses = fake.capturedStdinJson.where(
+          (message) => (message['response'] as Map?)?['request_id'] == 'throwing-guard-hook',
+        );
+        expect(responses, hasLength(1));
+        expect(
+          responses.single,
+          containsPair(
+            'response',
+            containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
+          ),
+        );
+
+        fake.emitStdout(jsonEncode({'type': 'result', 'result': 'done', 'is_error': false}));
+        expect((await turn)['is_error'], isFalse);
+        expect(h.state, WorkerState.idle);
       });
     });
 
@@ -1467,6 +1775,71 @@ void main() {
           reason: 'Cold process turn with prior messages must inject conversation history',
         );
       });
+
+      test('switching logical sessions restarts and replays only the selected session', () async {
+        var spawnCount = 0;
+        final spawnedProcesses = <CapturingFakeProcess>[];
+
+        Future<Process> makeProcess() async {
+          spawnCount++;
+          final fake = makeCapturingClaudeProcess();
+          spawnedProcesses.add(fake);
+          scheduleMicrotask(() {
+            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+          });
+          Future.delayed(const Duration(milliseconds: 30), () {
+            fake.emitStdout(
+              jsonEncode({'type': 'result', 'result': 'done', 'is_error': false, 'session_id': 'provider-$spawnCount'}),
+            );
+          });
+          return fake;
+        }
+
+        final harness = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
+              makeProcess(),
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(harness.dispose);
+        await harness.start();
+
+        await harness.turn(
+          sessionId: 'session-a',
+          messages: const [
+            {'role': 'user', 'content': 'A first'},
+          ],
+          systemPrompt: '',
+        );
+        await harness.turn(
+          sessionId: 'session-b',
+          messages: const [
+            {'role': 'user', 'content': 'B first'},
+          ],
+          systemPrompt: '',
+        );
+        expect(spawnCount, 2, reason: 'A different logical session must not inherit the warm provider conversation');
+
+        await harness.turn(
+          sessionId: 'session-a',
+          messages: const [
+            {'role': 'user', 'content': 'A first'},
+            {'role': 'assistant', 'content': 'A answer'},
+            {'role': 'user', 'content': 'A follow-up'},
+          ],
+          systemPrompt: '',
+        );
+        expect(spawnCount, 3);
+
+        final payload = spawnedProcesses.last.capturedStdinJson.lastWhere((entry) => entry['type'] == 'user');
+        final content = payload['message']?['content'] as String? ?? '';
+        expect(content, contains('[user]: A first'));
+        expect(content, contains('[assistant]: A answer'));
+        expect(content, contains('A follow-up'));
+        expect(content, isNot(contains('B first')));
+      });
     });
 
     // -------------------------------------------------------------------------
@@ -1509,3 +1882,16 @@ void main() {
 
 /// Registers async teardown — shorthand for [addTearDown] with async closures.
 void addTeardownAsync(Future<void> Function() fn) => addTearDown(fn);
+
+final class _ThrowingGuard extends Guard {
+  @override
+  String get name => 'throwing-guard';
+
+  @override
+  String get category => 'test';
+
+  @override
+  Future<GuardVerdict> evaluate(GuardContext context) async {
+    throw StateError('guard failed');
+  }
+}

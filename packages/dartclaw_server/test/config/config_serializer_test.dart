@@ -32,6 +32,7 @@ void main() {
       final memory = json['memory'] as Map<String, dynamic>;
       expect(memory['maxBytes'], 32 * 1024);
       expect(memory['pruning'], {'enabled': true, 'archiveAfterDays': 90, 'schedule': '0 3 * * *'});
+      expect(memory['journal'], {'enabled': false, 'schedule': '0 22 * * *'});
 
       // Nested sections
       final agent = json['agent'] as Map<String, dynamic>;

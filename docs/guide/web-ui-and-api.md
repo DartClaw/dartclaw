@@ -323,6 +323,13 @@ Requires admin access. Non-admin or unauthenticated requests receive `403`.
 
 ### Scheduling
 
+#### `POST /api/scheduling/jobs/:name/run`
+
+Starts a live prompt job immediately and returns `202` with `{"name":"daily-summary","status":"started"}`. Returns
+`409 CONFLICT` when the job is already running, `404 NOT_FOUND` when it is absent from the live scheduler or not
+runnable on demand, and `404 NOT_AVAILABLE` when scheduling is not configured. The route uses the same authentication
+as the other scheduling APIs. Job changes require a restart before this endpoint can run them.
+
 #### List jobs
 
 ```

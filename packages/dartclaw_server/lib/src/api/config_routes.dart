@@ -121,6 +121,25 @@ Router configRoutes({
     return jsonResponse(200, {'name': name, 'status': status});
   });
 
+  router.post('/api/scheduling/jobs/<name>/run', (Request request, String encodedName) {
+    if (scheduleService == null) {
+      return errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
+    }
+
+    final name = _decodePathSegment(encodedName);
+
+    return switch (scheduleService.runJobNow(name)) {
+      RunScheduledJobResult.started => jsonResponse(202, {'name': name, 'status': 'started'}),
+      RunScheduledJobResult.alreadyRunning => errorResponse(409, 'CONFLICT', 'Job "$name" is already running'),
+      RunScheduledJobResult.notFound => errorResponse(
+        404,
+        'NOT_FOUND',
+        'Job "$name" is not present in the running scheduler or is not runnable on demand. '
+            'Newly created or edited jobs require a restart; otherwise check server logs for configuration errors.',
+      ),
+    };
+  });
+
   // GET /api/settings/runtime
   router.get('/api/settings/runtime', (Request request) async {
     final jobStatuses = scheduledJobs
@@ -172,4 +191,12 @@ dynamic _coerceBool(String v) {
   if (v == 'true') return true;
   if (v == 'false') return false;
   return v;
+}
+
+String _decodePathSegment(String value) {
+  try {
+    return Uri.decodeComponent(value);
+  } on ArgumentError {
+    return value;
+  }
 }

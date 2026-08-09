@@ -163,6 +163,7 @@ class TaskWiring {
     required TurnManager turns,
     required HarnessPool pool,
     SpawnTaskRunner? onSpawnNeeded,
+    TaskRunnerPoolCoordinator? runnerPoolCoordinator,
   }) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
@@ -232,6 +233,7 @@ class TaskWiring {
         defaultStepTimeout: config.governance.turnProgress.maxDuration,
       ),
       onSpawnNeeded: onSpawnNeeded,
+      runnerPoolCoordinator: runnerPoolCoordinator,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
         reviewTask: (taskId) => _taskReviewService.review(taskId, 'accept', trigger: 'auto_accept'),

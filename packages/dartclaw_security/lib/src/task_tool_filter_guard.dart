@@ -4,8 +4,11 @@ import 'guard_verdict.dart';
 /// Guard that restricts tool usage to a task-specific allowlist.
 ///
 /// When [allowedTools] is null or empty, all tools are permitted.
-/// When set, any tool not in the list is blocked.
+/// When set, any capability not in the list is blocked. Claude's exact
+/// schema-discovery helper may pass; the selected capability remains filtered.
 class TaskToolFilterGuard extends Guard {
+  static const _noToolsPolicy = '__knowledge_inbox_no_tools__';
+
   @override
   String get name => 'task_tool_filter';
 
@@ -62,9 +65,18 @@ class TaskToolFilterGuard extends Guard {
     final hasSessionPolicy = sessionId != null && _allowedToolsBySession.containsKey(sessionId);
     final tools = hasSessionPolicy ? _allowedToolsBySession[sessionId] : allowedTools;
     if (tools == null || tools.isEmpty) return GuardVerdict.pass();
+    if (tools.contains(_noToolsPolicy)) {
+      return GuardVerdict.block(
+        'Tool "${context.toolName ?? 'unknown'}" is not in this task\'s allowed tools: ${tools.join(', ')}',
+      );
+    }
     final toolName = context.toolName;
     if (toolName == null) return GuardVerdict.pass();
     if (tools.contains(toolName)) return GuardVerdict.pass();
+    // Discovery exposes schemas only; the selected tool is evaluated separately.
+    if (toolName == 'claude:ToolSearch' && context.rawProviderToolName == 'ToolSearch') {
+      return GuardVerdict.pass();
+    }
     return GuardVerdict.block('Tool "$toolName" is not in this task\'s allowed tools: ${tools.join(', ')}');
   }
 

@@ -8,6 +8,11 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   static const String _clientName = 'dartclaw';
   static const String _clientVersion = '0.9.0';
 
+  final Map<String, CanonicalTool> _ownMcpToolCanonicals;
+
+  CodexProtocolAdapter({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
+    : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
+
   @override
   ProtocolMessage? parseLine(String line) {
     final decoded = decodeJsonObject(line);
@@ -157,9 +162,12 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   }
 
   @override
-  CanonicalTool? mapToolName(String providerToolName, {String? kind}) {
+  CanonicalTool? mapToolName(String providerToolName, {String? kind, String? mcpServer, String? mcpTool}) {
+    if (providerToolName == 'mcp_tool_call' && mcpServer == dartclawMcpServerName) {
+      return _ownMcpToolCanonicals[mcpTool] ?? CanonicalTool.mcpCall;
+    }
     return switch (providerToolName) {
-      'web_search' => CanonicalTool.webFetch,
+      'web_search' => CanonicalTool.webSearch,
       _ => codexMapToolName(providerToolName, kind: kind),
     };
   }
@@ -230,7 +238,10 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   }
 
   ToolUse? _buildMcpToolUse(Map<String, dynamic> item) {
-    return codexBuildMcpToolUse(item, tool: mapToolName('mcp_tool_call'));
+    return codexBuildMcpToolUse(
+      item,
+      tool: mapToolName('mcp_tool_call', mcpServer: stringValue(item['server']), mcpTool: stringValue(item['tool'])),
+    );
   }
 
   ToolUse? _buildWebSearchToolUse(Map<String, dynamic> item) {

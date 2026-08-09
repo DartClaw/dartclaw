@@ -29,6 +29,7 @@ abstract interface class TurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -56,11 +57,13 @@ abstract interface class TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   });
 
   Future<void> cancelTurn(String sessionId);

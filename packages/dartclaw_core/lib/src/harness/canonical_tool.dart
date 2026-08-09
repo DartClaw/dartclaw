@@ -21,6 +21,12 @@ enum CanonicalTool {
   /// Web or HTTP fetch operations.
   webFetch('web_fetch'),
 
+  /// Web search operations.
+  webSearch('web_search'),
+
+  /// Persistent memory writes.
+  memorySave('memory_save'),
+
   /// MCP tool calls routed through an MCP server.
   mcpCall('mcp_call');
 
@@ -39,3 +45,6 @@ enum CanonicalTool {
     return null;
   }
 }
+
+/// MCP server name used by DartClaw's built-in tool surface.
+const dartclawMcpServerName = 'dartclaw';

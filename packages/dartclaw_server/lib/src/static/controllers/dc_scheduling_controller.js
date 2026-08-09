@@ -456,6 +456,31 @@ export default class DcSchedulingController extends Stimulus.Controller {
     }
   }
 
+  async runJob(event) {
+    const button = event?.currentTarget;
+    const jobName = button?.dataset?.jobName;
+    if (!jobName) return;
+
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    try {
+      const response = await fetch('/api/scheduling/jobs/' + encodeURIComponent(jobName) + '/run' + this.apiQs, {
+        method: 'POST',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        this.showToast('success', "Job '" + jobName + "' started");
+      } else {
+        this.showToast('error', data.error?.message || 'Failed to run scheduled job');
+      }
+    } catch (_) {
+      this.showToast('error', 'Failed to reach server');
+    } finally {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+  }
+
   showToast(type, message) {
     if (typeof this.ui.showToast === 'function') {
       this.ui.showToast(type, message);

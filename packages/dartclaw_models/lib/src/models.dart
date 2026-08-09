@@ -17,6 +17,9 @@ enum SessionType {
   /// A session associated with a tracked task execution.
   task,
 
+  /// A delegated agent session retained for diagnostics and maintenance.
+  delegated,
+
   /// A read-only or historical session retained for archival purposes.
   archive,
 }

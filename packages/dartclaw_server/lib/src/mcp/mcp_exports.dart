@@ -43,5 +43,6 @@ export 'outbound/outbound_mcp_tool_adapter.dart'
 export 'outbound/outbound_mcp_transport.dart' show OutboundMcpTransport, OutboundMcpTransportFactory;
 export 'search_provider.dart' show SearchProvider, SearchResult;
 export 'sessions_send_tool.dart' show SessionsSendTool;
+export 'sessions_spawn_tool.dart' show SessionsSpawnTool;
 export 'tavily_search_tool.dart' show TavilySearchProvider, TavilySearchTool;
 export 'web_fetch_tool.dart' show WebFetchTool;

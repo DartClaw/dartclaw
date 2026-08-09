@@ -52,6 +52,9 @@ class FakeAgentHarness extends AgentHarness {
   /// Most recent turn session id.
   String? lastSessionId;
 
+  /// Most recent delegated agent id.
+  String? lastAgentId;
+
   /// Most recent turn message payload.
   List<Map<String, dynamic>>? lastMessages;
 
@@ -127,6 +130,7 @@ class FakeAgentHarness extends AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -136,6 +140,7 @@ class FakeAgentHarness extends AgentHarness {
   }) {
     turnCallCount += 1;
     lastSessionId = sessionId;
+    lastAgentId = agentId;
     lastMessages = List<Map<String, dynamic>>.unmodifiable(
       messages.map((message) => Map<String, dynamic>.from(message)),
     );

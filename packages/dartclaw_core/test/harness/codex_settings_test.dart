@@ -23,8 +23,9 @@ void main() {
     });
 
     test('buildDynamicSettings includes only non-null fields', () {
-      expect(CodexSettings.buildDynamicSettings(model: 'gpt-5', cwd: '/tmp/workspace'), {
+      expect(CodexSettings.buildDynamicSettings(model: 'gpt-5', effort: ' high ', cwd: '/tmp/workspace'), {
         'model': 'gpt-5',
+        'effort': 'high',
         'cwd': '/tmp/workspace',
       });
     });

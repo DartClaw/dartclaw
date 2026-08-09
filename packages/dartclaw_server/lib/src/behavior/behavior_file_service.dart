@@ -60,7 +60,7 @@ class BehaviorFileService {
   ///
   /// Files included per scope:
   /// - [PromptScope.interactive]: SOUL + USER + TOOLS + errors + learnings + MEMORY + compact instructions
-  /// - [PromptScope.webInteractive]: interactive + fresh ONBOARDING.md
+  /// - [PromptScope.conversational]: interactive + fresh ONBOARDING.md
   /// - [PromptScope.task]: SOUL (workspace) + TOOLS
   /// - [PromptScope.restricted]: TOOLS only
   /// - [PromptScope.evaluator]: default prompt only
@@ -133,7 +133,7 @@ class BehaviorFileService {
   ///
   /// Scope controls which workspace files are included at spawn time:
   /// - [PromptScope.interactive]: SOUL + USER + TOOLS + errors + learnings + AGENTS + memory hint
-  /// - [PromptScope.webInteractive]: interactive + fresh ONBOARDING.md
+  /// - [PromptScope.conversational]: interactive + fresh ONBOARDING.md
   /// - [PromptScope.task]: SOUL + TOOLS + AGENTS + memory hint
   /// - [PromptScope.restricted]: TOOLS + memory hint
   /// - [PromptScope.evaluator]: default prompt + memory hint
@@ -183,7 +183,7 @@ class BehaviorFileService {
     return parts.join('\n\n');
   }
 
-  /// Whether a fresh onboarding sentinel is available for web prompt injection.
+  /// Whether a fresh onboarding sentinel is available for conversational prompt injection.
   bool hasFreshOnboardingSentinel({bool logStale = false}) {
     final onboardingFile = File(p.join(workspaceDir, 'ONBOARDING.md'));
     if (!onboardingFile.existsSync()) return false;
@@ -221,11 +221,11 @@ class BehaviorFileService {
   }
 
   bool _includesInteractiveContext(PromptScope scope) {
-    return scope == PromptScope.interactive || scope == PromptScope.webInteractive;
+    return scope == PromptScope.interactive || scope == PromptScope.conversational;
   }
 
-  Future<void> _addOnboardingSection(List<String> parts, {PromptScope scope = PromptScope.webInteractive}) async {
-    if (scope != PromptScope.webInteractive) return;
+  Future<void> _addOnboardingSection(List<String> parts, {PromptScope scope = PromptScope.conversational}) async {
+    if (scope != PromptScope.conversational) return;
     final onboardingFile = File(p.join(workspaceDir, 'ONBOARDING.md'));
     if (!onboardingFile.existsSync()) return;
 

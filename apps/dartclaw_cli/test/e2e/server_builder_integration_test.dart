@@ -325,9 +325,9 @@ void main() {
     expect(healthBody['status'], equals('healthy'));
 
     final toolNames = await _mcpToolNames(result.server);
+    expect(toolNames, contains('sessions_spawn'));
     expect(toolNames, contains('sessions_send'));
     expect(toolNames, contains('context_research'));
-    expect(toolNames, isNot(contains('sessions_spawn')));
   });
 
   test('ServiceWiring registers surfaced outbound MCP tools on the live MCP handler', () async {

@@ -49,12 +49,13 @@ class HarnessConfig {
   /// version-controlled directories.
   final String? mcpServerUrl;
 
-  /// Gateway token used for MCP bearer auth.
+  /// Optional gateway token used for MCP bearer auth.
   ///
   /// Written into the ephemeral `--mcp-config` temp file as
   /// `Authorization: Bearer <token>`. Only used when [mcpServerUrl] is
   /// non-null. The same token authenticates both the web UI and MCP
-  /// endpoint via the gateway middleware.
+  /// endpoint via the gateway middleware. Null omits the header for an
+  /// authentication-disabled loopback gateway.
   final String? mcpGatewayToken;
 
   /// Creates immutable initialize-handshake options for a harness.

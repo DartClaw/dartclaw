@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 import '../delivery_test_support.dart';
@@ -168,6 +169,17 @@ void main() {
       });
       expect(job.deliveryMode, DeliveryMode.none);
     });
+
+    test('user config cannot populate the runtime-only tool policy', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'configured-job',
+        'prompt': 'Run',
+        'schedule': {'type': 'interval', 'minutes': 10},
+        'allowed_tools': ['shell'],
+      });
+
+      expect(job.allowedTools, isNull);
+    });
   });
 
   group('ScheduleService execution', () {
@@ -218,6 +230,29 @@ void main() {
       service.stop();
     });
 
+    test('prompt job forwards its runtime tool policy unchanged', () async {
+      final job = ScheduledJob(
+        id: 'policy-job',
+        prompt: 'Run safely',
+        scheduleType: ScheduleType.interval,
+        intervalMinutes: 60,
+        allowedTools: const ['file_read', 'memory_save'],
+      );
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+
+      await service.executeJobForTesting(job);
+
+      expect(turns.lastAllowedTools, ['file_read', 'memory_save']);
+    });
+
+    test('prompt job without a runtime policy forwards null', () async {
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+
+      await service.executeJobForTesting(intervalJob);
+
+      expect(turns.lastAllowedTools, isNull);
+    });
+
     test('successful agent-backed job delivers assistant response text', () async {
       final delivery = RecordingDeliveryService(sessions: sessions);
       turns.responseText = 'assistant summary';
@@ -237,6 +272,212 @@ void main() {
       expect(delivery.calls.single.mode, DeliveryMode.announce);
       expect(delivery.calls.single.jobId, 'announce-job');
       expect(delivery.calls.single.result, 'assistant summary');
+      service.stop();
+    });
+
+    test('on-demand run delivers through the configured mode', () async {
+      final delivery = RecordingDeliveryService(sessions: sessions);
+      turns.responseText = 'manual summary';
+      final job = ScheduledJob.fromConfig({
+        'id': 'daily-summary',
+        'prompt': 'Summarize',
+        'schedule': {'type': 'interval', 'minutes': 60},
+        'delivery': 'announce',
+      });
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [job], delivery: delivery)..start();
+
+      expect(service.runJobNow('daily-summary'), RunScheduledJobResult.started);
+      await pumpEventQueue();
+
+      expect(delivery.calls.single, (
+        mode: DeliveryMode.announce,
+        jobId: 'daily-summary',
+        result: 'manual summary',
+        webhookUrl: null,
+      ));
+      expect(sessions._keyedSessions, contains(SessionKey.cronSession(jobId: 'daily-summary')));
+      service.stop();
+    });
+
+    test('on-demand guard is synchronous and rejects overlap', () async {
+      final started = Completer<void>();
+      final release = Completer<void>();
+      turns.onStartTurn = (_) async {
+        started.complete();
+        await release.future;
+      };
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [intervalJob])..start();
+
+      expect(service.runJobNow('exec-job'), RunScheduledJobResult.started);
+      expect(service.runJobNow('exec-job'), RunScheduledJobResult.alreadyRunning);
+      await started.future;
+      expect(service.runJobNow('exec-job'), RunScheduledJobResult.alreadyRunning);
+      expect(turns.startTurnCallCount, 1);
+
+      release.complete();
+      await pumpEventQueue();
+      service.stop();
+    });
+
+    test('paused job runs on demand and remains paused without a timer', () {
+      fakeAsync((async) {
+        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [intervalJob])..start();
+        service.pauseJob('exec-job');
+
+        expect(service.runJobNow('exec-job'), RunScheduledJobResult.started);
+        async.flushMicrotasks();
+
+        expect(turns.startTurnCallCount, 1);
+        expect(service.isJobPaused('exec-job'), isTrue);
+        expect(async.pendingTimers, isEmpty);
+        service.stop();
+      });
+    });
+
+    test('on-demand run leaves interval and once timers unchanged', () {
+      fakeAsync((async) {
+        final futureOnce = ScheduledJob(
+          id: 'future-once',
+          prompt: 'One-time task',
+          scheduleType: ScheduleType.once,
+          onceAt: DateTime.now().add(const Duration(hours: 1)),
+        );
+        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [intervalJob, futureOnce])..start();
+        final originalTimers = async.pendingTimers.toList();
+
+        expect(service.runJobNow('exec-job'), RunScheduledJobResult.started);
+        expect(service.runJobNow('future-once'), RunScheduledJobResult.started);
+        async.flushMicrotasks();
+
+        expect(async.pendingTimers, originalTimers);
+        service.stop();
+      });
+    });
+
+    test('scheduled fire during an on-demand run is skipped and interval cadence continues', () {
+      fakeAsync((async) {
+        final release = Completer<void>();
+        turns.onStartTurn = (_) => release.future;
+        final oneMinuteJob = ScheduledJob.fromConfig({
+          'id': 'cadence-job',
+          'prompt': 'Run task',
+          'schedule': {'type': 'interval', 'minutes': 1},
+        });
+        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [oneMinuteJob])..start();
+        final firstTimer = async.pendingTimers.single;
+
+        expect(service.runJobNow('cadence-job'), RunScheduledJobResult.started);
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 1));
+
+        expect(turns.startTurnCallCount, 1);
+        expect(async.pendingTimers.single, isNot(same(firstTimer)));
+        expect(async.pendingTimers.single.isActive, isTrue);
+
+        release.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(turns.startTurnCallCount, 2);
+        service.stop();
+      });
+    });
+
+    test('a once fire skipped during an on-demand run is lost', () {
+      fakeAsync((async) {
+        final release = Completer<void>();
+        turns.onStartTurn = (_) => release.future;
+        final job = ScheduledJob(
+          id: 'once-window',
+          prompt: 'Run once',
+          scheduleType: ScheduleType.once,
+          onceAt: DateTime.now().add(const Duration(minutes: 1)),
+        );
+        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [job])..start();
+
+        expect(service.runJobNow('once-window'), RunScheduledJobResult.started);
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 1));
+
+        expect(turns.startTurnCallCount, 1);
+        expect(async.pendingTimers, isEmpty);
+
+        release.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(hours: 1));
+        expect(turns.startTurnCallCount, 1);
+        service.stop();
+      });
+    });
+
+    test('callback, unknown, and stopped jobs are not runnable on demand', () {
+      final callback = ScheduledJob(
+        id: 'auto-task-review',
+        scheduleType: ScheduleType.interval,
+        intervalMinutes: 60,
+        onExecute: () async => 'done',
+      );
+      final pruner = ScheduledJob(
+        id: 'memory-pruner',
+        scheduleType: ScheduleType.cron,
+        cronExpression: CronExpression.parse('0 3 * * *'),
+        onExecute: () async => 'done',
+      );
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [intervalJob, callback, pruner]);
+
+      expect(service.runJobNow('exec-job'), RunScheduledJobResult.notFound);
+      service.start();
+      expect(service.runJobNow('missing'), RunScheduledJobResult.notFound);
+      expect(service.runJobNow('auto-task-review'), RunScheduledJobResult.notFound);
+      expect(service.runJobNow('memory-pruner'), RunScheduledJobResult.notFound);
+      service.stop();
+      expect(service.runJobNow('exec-job'), RunScheduledJobResult.notFound);
+    });
+
+    test('prompt-type system job is runnable on demand', () async {
+      final journal = ScheduledJob(
+        id: 'memory-journal',
+        prompt: 'Journal today',
+        scheduleType: ScheduleType.cron,
+        cronExpression: CronExpression.parse('0 22 * * *'),
+        deliveryMode: DeliveryMode.none,
+      );
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [journal])..start();
+
+      expect(service.runJobNow('memory-journal'), RunScheduledJobResult.started);
+      await pumpEventQueue();
+      expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('on-demand failure retries, alerts, and never delivers', () async {
+      final delivery = RecordingDeliveryService(sessions: sessions);
+      final eventBus = EventBus();
+      final failures = <ScheduledJobFailedEvent>[];
+      final subscription = eventBus.on<ScheduledJobFailedEvent>().listen(failures.add);
+      turns.returnFailedOutcome = true;
+      final failing = ScheduledJob.fromConfig({
+        'id': 'flaky-job',
+        'prompt': 'Fail',
+        'schedule': {'type': 'interval', 'minutes': 60},
+        'delivery': 'announce',
+        'retry': {'attempts': 1, 'delay_seconds': 0},
+      });
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: [failing],
+        delivery: delivery,
+        eventBus: eventBus,
+      )..start();
+
+      expect(service.runJobNow('flaky-job'), RunScheduledJobResult.started);
+      await pumpEventQueue(times: 20);
+
+      expect(turns.startTurnCallCount, 2);
+      expect(delivery.calls, isEmpty);
+      expect(failures.single.jobId, 'flaky-job');
+      await subscription.cancel();
       service.stop();
     });
 
@@ -527,6 +768,7 @@ class _ConfigurableTurnManager implements TurnManager {
   /// Captured model/effort from the most recent startTurn call.
   String? lastModel;
   String? lastEffort;
+  List<String>? lastAllowedTools;
 
   /// Optional hook called inside startTurn — use to block execution for concurrency tests.
   Future<void> Function(String sessionId)? onStartTurn;
@@ -541,15 +783,18 @@ class _ConfigurableTurnManager implements TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     startTurnCallCount++;
     lastModel = model;
     lastEffort = effort;
+    lastAllowedTools = allowedTools;
     final turnId = 'fake-turn-$startTurnCallCount';
 
     if (shouldFail) {

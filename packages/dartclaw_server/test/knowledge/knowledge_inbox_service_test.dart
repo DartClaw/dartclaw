@@ -659,11 +659,13 @@ FakeTurnManager _turnsReturning(String responseText) {
           agentName = 'main',
           model,
           effort,
+          systemPromptOverride,
           maxTurns,
           taskId,
           isHumanInput = false,
           allowedTools,
           readOnly = false,
+          promptScope,
         }) async => 'extract-turn',
     onWaitForOutcome: (sessionId, turnId) async => TurnOutcome(
       turnId: turnId,

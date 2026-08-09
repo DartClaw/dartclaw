@@ -19,14 +19,22 @@ class CodexSettings {
     return _translate(_approvalTranslations, yamlValue);
   }
 
-  static Map<String, dynamic> buildDynamicSettings({String? model, String? cwd, String? sandbox, String? approval}) {
+  static Map<String, dynamic> buildDynamicSettings({
+    String? model,
+    String? effort,
+    String? cwd,
+    String? sandbox,
+    String? approval,
+  }) {
     final translatedSandbox = translateSandbox(sandbox);
     final translatedApproval = translateApproval(approval);
     final trimmedModel = _trimToNull(model);
+    final trimmedEffort = _trimToNull(effort);
     final trimmedCwd = _trimToNull(cwd);
 
     return {
       'model': ?trimmedModel,
+      'effort': ?trimmedEffort,
       'cwd': ?trimmedCwd,
       'sandbox': ?translatedSandbox,
       'approval_policy': ?translatedApproval,

@@ -51,6 +51,7 @@ class _AutoCompletingHarness extends FakeAgentHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) {
     final result = super.turn(
       sessionId: sessionId,
@@ -62,6 +63,7 @@ class _AutoCompletingHarness extends FakeAgentHarness {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      agentId: agentId,
     );
     Future<void>.microtask(() {
       emit(DeltaEvent('<step-outcome>{"outcome":"succeeded","reason":"test completed"}</step-outcome>'));

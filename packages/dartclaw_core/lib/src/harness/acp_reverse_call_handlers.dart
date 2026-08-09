@@ -27,9 +27,9 @@ final class AcpReverseCallHandlers {
   bool get ownsTerminals => false;
 
   /// Binds reverse calls to the authorization and workspace of an active turn.
-  void bindTurn({required String sessionId, required String effectiveDirectory}) {
+  void bindTurn({required String sessionId, String? agentId, required String effectiveDirectory}) {
     final root = _resolveExistingPath(effectiveDirectory, 'session/bind');
-    _activeTurn = _AcpTurnBinding(sessionId: sessionId, workspaceRoot: root);
+    _activeTurn = _AcpTurnBinding(sessionId: sessionId, agentId: agentId, workspaceRoot: root);
   }
 
   /// Stops admitting reverse calls, drains accepted calls, then removes the binding.
@@ -102,7 +102,15 @@ final class AcpReverseCallHandlers {
           return const {'granted': false, 'reason': 'Permission denied'};
         }
         try {
-          final decision = await decisionHandler(AcpPermissionRequest(operation: operation, params: request));
+          final activeTurn = _requireActiveTurn('session/request_permission');
+          final decision = await decisionHandler(
+            AcpPermissionRequest(
+              operation: operation,
+              params: request,
+              sessionId: activeTurn.sessionId,
+              agentId: activeTurn.agentId,
+            ),
+          );
           return {'granted': decision.granted, if (decision.reason != null) 'reason': decision.reason};
         } catch (error) {
           return {'granted': false, 'reason': 'Permission handler error: $error'};
@@ -203,6 +211,7 @@ final class AcpReverseCallHandlers {
       input,
       rawProviderToolName: method,
       sessionId: activeTurn.sessionId,
+      agentId: activeTurn.agentId,
     );
   }
 
@@ -235,9 +244,10 @@ final class AcpReverseCallHandlers {
 }
 
 final class _AcpTurnBinding {
-  _AcpTurnBinding({required this.sessionId, required this.workspaceRoot});
+  _AcpTurnBinding({required this.sessionId, required this.agentId, required this.workspaceRoot});
 
   final String sessionId;
+  final String? agentId;
   final String workspaceRoot;
   var acceptingCalls = true;
   var _inFlightCalls = 0;
@@ -268,8 +278,10 @@ final class _AcpTurnBinding {
 final class AcpPermissionRequest {
   final String operation;
   final Map<String, dynamic> params;
+  final String? sessionId;
+  final String? agentId;
 
-  const AcpPermissionRequest({required this.operation, required this.params});
+  const AcpPermissionRequest({required this.operation, required this.params, this.sessionId, this.agentId});
 }
 
 final class AcpPermissionResult {

@@ -4,13 +4,14 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
-import 'package:http/http.dart' as http;
+import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart'
     hide GoogleJwtVerifier, HarnessPool, ReservedCommandHandler, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -582,10 +583,10 @@ class ChannelWiring {
           config: config,
           groupConfigResolver: _groupConfigResolver,
         );
-        return _dispatchChannelTurn(
+        return dispatchChannelTurn(
           sessions: sessions,
           messages: messages,
-          serverRef: serverRef,
+          turnManagerGetter: () => serverRef().turns,
           sessionKey: sessionKey,
           message: message,
           senderJid: senderJid,
@@ -631,10 +632,10 @@ class ChannelWiring {
       config: config,
       groupConfigResolver: groupConfigResolver,
     );
-    return _dispatchChannelTurn(
+    return dispatchChannelTurn(
       sessions: sessions,
       messages: messages,
-      serverRef: serverRef,
+      turnManagerGetter: () => serverRef().turns,
       sessionKey: sessionKey,
       message: message.text,
       senderJid: message.senderJid,
@@ -643,42 +644,43 @@ class ChannelWiring {
       effort: overrides.effort,
     );
   }
+}
 
-  static Future<String> _dispatchChannelTurn({
-    required SessionService sessions,
-    required MessageService messages,
-    required DartclawServer Function() serverRef,
-    required String sessionKey,
-    required String message,
-    String? senderJid,
-    String? senderDisplayName,
-    String? model,
-    String? effort,
-  }) async {
-    final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-    final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
-    await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
+/// Dispatches the shared human-facing channel turn path.
+Future<String> dispatchChannelTurn({
+  required SessionService sessions,
+  required MessageService messages,
+  required core.TurnManager Function() turnManagerGetter,
+  required String sessionKey,
+  required String message,
+  String? senderJid,
+  String? senderDisplayName,
+  String? model,
+  String? effort,
+}) async {
+  final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+  final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
+  await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
 
-    if (session.title == null && senderJid != null) {
-      await sessions.updateTitle(session.id, channelSessionTitle(senderJid));
-    }
-
-    // Load full conversation history — the current message was already
-    // inserted above. This ensures the Claude CLI sees prior turns, matching
-    // the web UI path (session_routes.dart).
-    final history = await messages.getMessages(session.id);
-    final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
-
-    final srv = serverRef();
-    final turnId = await srv.turns.startTurn(
-      session.id,
-      messagesList,
-      source: 'channel',
-      isHumanInput: true,
-      model: model,
-      effort: effort,
-    );
-    final outcome = await srv.turns.waitForOutcome(session.id, turnId);
-    return outcome.responseText ?? '';
+  if (session.title == null && senderJid != null) {
+    await sessions.updateTitle(session.id, channelSessionTitle(senderJid));
   }
+
+  // The current message is already persisted; pass full history so channel
+  // continuity matches the web route.
+  final history = await messages.getMessages(session.id);
+  final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
+
+  final turns = turnManagerGetter();
+  final turnId = await turns.startTurn(
+    session.id,
+    messagesList,
+    source: 'channel',
+    isHumanInput: true,
+    model: model,
+    effort: effort,
+    promptScope: PromptScope.conversational,
+  );
+  final outcome = await turns.waitForOutcome(session.id, turnId);
+  return outcome.responseText ?? '';
 }

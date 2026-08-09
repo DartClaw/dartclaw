@@ -142,6 +142,16 @@ void main() {
         expect(a, equals(b));
       });
 
+      test('journal settings participate in equality', () {
+        const defaults = MemoryConfig.defaults();
+        const enabled = MemoryConfig(journalEnabled: true);
+        const rescheduled = MemoryConfig(journalSchedule: '0 6 * * *');
+
+        expect(defaults, isNot(equals(enabled)));
+        expect(defaults, isNot(equals(rescheduled)));
+        expect(defaults.hashCode, isNot(enabled.hashCode));
+      });
+
       test('different gitSyncEnabled are not equal', () {
         const a = WorkspaceConfig(gitSyncEnabled: true);
         const b = WorkspaceConfig(gitSyncEnabled: false);

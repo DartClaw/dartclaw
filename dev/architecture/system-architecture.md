@@ -658,7 +658,8 @@ Internal MCP server hosted as a `/mcp` endpoint on the existing shelf HTTP serve
 | `McpProtocolHandler` | `mcp/mcp_server.dart` | MCP protocol handling, tool registration |
 | `McpRouter` | `mcp/mcp_router.dart` | Shelf route adapter for MCP HTTP transport |
 | `MemoryTools` | `mcp/memory_tools.dart` | `memory_save`, `memory_search`, `memory_read` |
-| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Inter-agent delegation (sync) |
+| `SessionsSpawnTool` | `mcp/sessions_spawn_tool.dart` | Create a configured-subagent conversation (sync) |
+| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Continue a delegated conversation (sync) |
 | `WebFetchTool` | `mcp/web_fetch_tool.dart` | SSRF-hardened fetch with inline ContentGuard scanning |
 | `BraveSearchTool` | `mcp/brave_search_tool.dart` | Brave Search API |
 | `TavilySearchTool` | `mcp/tavily_search_tool.dart` | Tavily Search API |
@@ -980,7 +981,7 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 16. Project management (ProjectService, RemotePushService)
 17. Workflow engine (WorkflowRegistry, WorkflowService, WorkflowExecutor)
 18. Alert routing (AlertRouter, AlertDeliveryAdapter — if alerts configured)
-19. MCP server (register tools: memory, sessions_send, web_fetch, search)
+19. MCP server (register tools: memory, sessions_spawn, sessions_send, web_fetch, search)
 20. DartclawServer (shelf handler assembly, page registration)
 21. Reload triggers (`ReloadTriggerService`) for `SIGUSR1` / file-watch hot-reload
 ```

@@ -1,38 +1,45 @@
 # Agents
 
-DartClaw has two distinct agent execution models: **subagents** for lightweight delegated work and **task runners** for structured background work with review flows. They serve different purposes, are configured differently, and run on different infrastructure.
+DartClaw has two broad agent execution models: lightweight delegation and structured background task runners. Lightweight delegation has two separate APIs: resumable conversations with configured subagents, and bounded one-shot execution by an allowlisted provider agent.
 
 ## Subagents (Delegation)
 
-Subagents are lightweight, sandboxed agents that the main agent delegates to via MCP tools. Each subagent has restricted tool access, its own session store, and a content-guard boundary — results are scanned before returning to the caller.
+Subagents are lightweight agents that the main agent delegates to via MCP tools. Each subagent has its own session store and a content-guard boundary – results are scanned before returning to the caller. A non-empty `tools` list adds a host tool-policy sandbox on guard-evaluated delegated turns.
 
 ### How Delegation Works
 
 ```
 Main agent turn (primary harness)
     │
-    ├── sessions_send("search", "Find recent Dart 3.8 changes")
+    ├── sessions_spawn("search", "Find recent Dart changes")
     │       │
     │       ▼
     │   SessionDelegate
     │       ├── Validates agent ID exists in agent.agents
     │       ├── Enforces SubagentLimits (concurrency, depth, children)
-    │       ├── Dispatches turn to isolated session
+    │       ├── Creates a hidden delegated session
     │       ├── Content-guard scans result at boundary
-    │       └── Returns result (or blocks if unsafe)
+    │       └── Returns {session_id, result}
     │
-    └── Main agent continues with the search result
+    ├── sessions_send(session_id, "Narrow that to language changes")
+    │       └── Replays and continues the same conversation
+    │
+    └── Main agent continues with the results
 ```
 
-Delegation is triggered by one MCP tool:
+Delegation is exposed through three MCP tools with intentionally different contracts:
 
 | Tool | Behavior |
 |------|----------|
-| `sessions_send` | Synchronous — main agent blocks until the subagent completes and returns a result |
+| `sessions_spawn` | Creates a configured subagent conversation, waits for its first turn, and returns `{session_id, result}` |
+| `sessions_send` | Sends a follow-up to a `session_id` returned by `sessions_spawn`, waits, and returns the next result |
+| `delegate_to_agent` | Runs one bounded task on an allowlisted ACP or Codex provider; it does not create a resumable conversation |
+
+Use `sessions_spawn` and `sessions_send` for the logical agents under `agent.agents`: research, summarization, review, or any work that may need follow-up context. Use `delegate_to_agent` when the provider identity itself matters and the work needs its separate allowlist, workspace jail, security-mode check, rate limit, or token budget. The latter is registered on the MCP surface but returns `DELEGATION_DISABLED` unless `delegation.enabled: true`.
 
 ### Built-in: Search Agent
 
-The only pre-built subagent is `search` — a web search agent with `WebSearch` and `WebFetch` tools only. It defaults to the `haiku` model for cost efficiency.
+The only pre-built subagent is `search` – a web search agent with the canonical `web_search` and `web_fetch` grants. When its model is omitted, DartClaw selects `sonnet` for Claude or `gpt-5.6-luna` for Codex. Other providers keep their configured default.
 
 If you don't configure any agents under `agent.agents`, DartClaw automatically registers the default search agent. If you define *any* agents in config, the default is not added — include `search` explicitly if you still want it.
 
@@ -46,8 +53,7 @@ You can define any number of subagents under `agent.agents`. Each gets a unique 
 agent:
   agents:
     search:
-      tools: [WebSearch, WebFetch]
-      model: haiku
+      tools: [web_search, web_fetch]
       max_concurrent: 2
 
     summarizer:
@@ -56,7 +62,7 @@ agent:
         You are a summarization specialist. Read the provided content
         and produce a concise, structured summary. Include key facts,
         decisions, and action items. Never fabricate information.
-      tools: [Read]
+      tools: [file_read]
       model: haiku
       max_response_bytes: 1048576   # 1MB cap
 
@@ -66,17 +72,20 @@ agent:
         You are a code review assistant. Analyze the provided code
         for bugs, security issues, and style problems. Be specific
         about line numbers and suggest fixes.
-      tools: [Read, Glob, Grep]
-      denied_tools: [Bash, Write, Edit]
+      tools: [file_read, Glob, Grep]
+      denied_tools: [shell, file_write, file_edit]
       model: sonnet
       max_concurrent: 1
 ```
 
-The main agent delegates to these by name:
+The main agent starts each conversation by agent name, then uses the returned handle for follow-ups:
 
 ```
-Main agent: sessions_send("summarizer", "Summarize this document: ...")
-Main agent: sessions_send("code-reviewer", "Review the changes in src/auth/...")
+summary = sessions_spawn("summarizer", "Summarize this document: ...")
+sessions_send(summary.session_id, "Expand the risks section")
+
+review = sessions_spawn("code-reviewer", "Review the changes in src/auth/...")
+sessions_send(review.session_id, "Re-check the authorization boundary")
 ```
 
 ### Subagent Configuration Reference
@@ -86,27 +95,34 @@ Each entry under `agent.agents.<id>` supports:
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `description` | `"Agent: <id>"` | Human-readable description sent to the runtime |
-| `prompt` | *(search prompt)* | System prompt for the subagent |
-| `tools` | *(see note)* | Allowlisted tools (closed set — only these are permitted) |
+| `prompt` | *(search prompt)* | Authoritative persona for the delegated turn. Blank means the worker's configured default |
+| `tools` | `[]` | Optional closed allowlist; empty or absent means no sandbox allowlist |
 | `denied_tools` | `[]` | Explicitly blocked tools (overrides allowlist) |
-| `model` | *(global agent.model)* | Model override for this subagent |
-| `max_concurrent` | `1` | Max parallel instances of this subagent |
-| `max_spawn_depth` | `0` | Whether this subagent can spawn its own children |
-| `max_children_per_agent` | `0` | Max children this agent may own |
+| `model` | *(provider-aware for `search`; otherwise provider default)* | Model override for this subagent |
+| `effort` | *(provider default)* | Reasoning-effort override for Claude and Codex |
+| `max_concurrent` | `1` | Contribution to the global delegated-turn concurrency cap |
 | `max_response_bytes` | `5242880` (5MB) | Response size cap before truncation |
 | `session_store_path` | `agents/<id>/sessions` | Relative path for this agent's session files |
 
-**Tools default behavior**: The `tools` allowlist default depends on the agent id. The built-in `search` agent defaults to `[WebSearch, WebFetch]`. All other agents default to an empty allowlist — meaning no tools are permitted unless explicitly listed. A startup warning is emitted for any non-search agent with an empty tools list, since it will not be able to use any tools.
+**Tools default behavior**: The built-in `search` agent defaults to the canonical allowlist `[web_search, web_fetch]`. Other agents default to an empty list. Empty or absent `tools` means no sandbox allowlist is enforced, so all tools remain available except explicit denies. A startup warning calls out this fail-open posture.
+
+Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, and `memory_save`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Unmapped tools keep their exact provider-native spelling; for example Claude `Glob` evaluates under the `claude:Glob` canonical fallback. DartClaw's own MCP fetch, configured search, and memory-save tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
 
 Any unrecognized keys are preserved as `extra` and forwarded to the claude binary's initialize handshake.
 
+Conversation delegation always uses a provider-matched task-pool worker, never the caller's busy primary harness. Configure capacity with `providers.<id>.pool_size` (or legacy `tasks.max_concurrent`). If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider and relevant capacity settings. User and assistant messages are persisted and replayed when a different worker continues the session. Successful delegated sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
+
+Caller cancellation does not currently propagate into an in-flight `sessions_spawn` or `sessions_send` turn. The MCP gateway's 120-second tool timeout also returns without cancelling the underlying child turn, so its worker and delegation slot remain occupied until that turn completes or its harness timeout fires. Causal parent-to-child cancellation is planned with the caller-aware MCP dispatch work in 0.27.
+
 ### Tool Policy Cascade
 
-Subagent tool access is evaluated through a 3-layer policy (most restrictive wins):
+On host-dispatched delegated turns, subagent tool access is evaluated by `ToolPolicyGuard` through a 3-layer policy (most restrictive wins):
 
 1. **Global deny** — `agent.disallowed_tools` blocks tools for all agents (main + subagents)
 2. **Agent deny** — `denied_tools` per subagent blocks tools for that specific agent
-3. **Sandbox allow** — `tools` per subagent is a closed allowlist; only listed tools are permitted
+3. **Sandbox allow** – a non-empty `tools` list is a closed allowlist
+
+The active turn's agent identity is threaded through each provider interception path before this evaluation. Claude registers an unfiltered `PreToolUse` hook so built-ins and dynamically named MCP tools reach the host guard. When Claude defers an allowlisted tool behind `ToolSearch`, DartClaw permits that schema-discovery step but evaluates the selected tool separately against the closed policy; discovery does not grant the capability. Codex enforcement exists only for operations that emit approval requests: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses the host guard. Disabled security guards remove the host policy chain for every provider. ACP enforcement covers host reverse file calls and permission requests only; operations that request no permission do not reach the guard. DartClaw warns at startup when configured agent policy cannot be fully mediated by the selected posture.
 
 ### Subagent Limits
 
@@ -115,14 +131,16 @@ Global limits prevent runaway spawning. The runtime derives these from your agen
 | Limit | Value | How computed |
 |-------|-------|-------------|
 | `maxConcurrent` | sum of all agents' `max_concurrent` | e.g. search(2) + summarizer(1) = 3 |
-| `maxSpawnDepth` | 1 | Hardcoded — subagents cannot spawn sub-subagents beyond one level |
+| `maxSpawnDepth` | 1 | Current `SessionDelegate` input; caller depth is not yet propagated |
 | `maxChildrenPerAgent` | same as `maxConcurrent` | Each parent can own up to the global concurrent cap |
 
-These are enforced by `SubagentLimits` in `SessionDelegate`. When limits are reached, delegation calls return an error — the main agent can retry later or proceed without the subagent. Per-agent `max_concurrent` provides finer-grained control (e.g. limit search to 2 while allowing 1 summarizer).
+These are enforced by `SubagentLimits` in `SessionDelegate`. When limits are reached, delegation calls return an error – the main agent can retry later or proceed without the subagent. `max_concurrent` is a contribution to this one global budget, not an independent per-agent quota. Caller depth is not propagated, so a fail-open delegated agent can call the session tools again if provider-pool capacity remains; a non-empty tool allowlist blocks them unless MCP delegation is granted. Legacy `max_spawn_depth` and `max_children_per_agent` keys are accepted with a warning but ignored.
+
+Migration note: `web_search` is now distinct from `web_fetch`. Policies that intended to permit both must list both; naming only `web_fetch` no longer permits search.
 
 ### Content-Guard Boundary
 
-Every result returned via `sessions_send` passes through the content-guard before reaching the main agent. This prevents poisoned web content or prompt injection from propagating. If the guard blocks the result, the main agent receives an error message instead.
+Every result returned via `sessions_spawn` or `sessions_send` passes through the content-guard before reaching the main agent. This prevents poisoned web content or prompt injection from propagating. If the guard blocks the result, the main agent receives an error message instead.
 
 ## Task Runners (Background Work)
 
@@ -132,28 +150,30 @@ Task runners are a separate execution model for structured, reviewable backgroun
 
 | | Subagents | Task Runners |
 |---|-----------|-------------|
-| **Triggered by** | Main agent via `sessions_send` | Task queue (API, web UI, automation schedule) |
+| **Triggered by** | Main agent via `sessions_spawn` / `sessions_send` | Task queue (API, web UI, automation schedule) |
 | **Execution** | Within the caller's turn | Independent background execution |
-| **Harness** | Shared (main harness via SessionDelegate) | Dedicated harness from the pool |
-| **Tool access** | Sandboxed (closed allowlist) | Full agent tools (same as main chat) |
+| **Harness** | Provider-matched worker from the task pool | Dedicated harness from the pool |
+| **Tool access** | Optional closed allowlist; empty means unrestricted | Full agent tools (same as main chat) |
 | **Review** | None — result returned inline | Review workflow (accept/reject/push-back) |
 | **Artifacts** | None | Structured diffs, files, logs |
 | **Config** | `agent.agents.<id>` in YAML | `tasks.*` in YAML + per-task `configJson` at creation |
-| **Lifecycle** | Fire-and-forget or sync wait | State machine (draft → queued → running → review → accepted) |
+| **Lifecycle** | Synchronous wait | State machine (draft → queued → running → review → accepted) |
 
 ### Task Runner Pool
 
-The `HarnessPool` manages multiple claude binary instances:
+The `HarnessPool` manages provider-specific harness instances:
 
 - **Runner 0** (primary) — reserved for interactive chat, cron jobs, and channel messages. Never acquired by the task executor.
-- **Runners 1..N** (task pool) — acquired by `TaskExecutor` for background task execution. The pool size is controlled by `tasks.max_concurrent`.
+- **Runners 1..N** (worker pool) – acquired by background tasks and delegated sessions. Workers spawn lazily and are never replaced by the busy primary runner.
+
+Configure capacity per provider with `providers.<id>.pool_size`. Legacy configurations without `providers` use `tasks.max_concurrent` as the shared worker capacity.
 
 ```yaml
 tasks:
-  max_concurrent: 3    # creates 3 dedicated task runners
+  max_concurrent: 3    # legacy shared worker capacity
 ```
 
-With `max_concurrent: 3`, DartClaw spawns 4 total harnesses: 1 primary + 3 task runners. Each task runner is an independent claude binary subprocess.
+With `max_concurrent: 3`, DartClaw reserves capacity for one primary plus up to three lazily spawned workers.
 
 ### Container Profile Routing
 
@@ -209,6 +229,7 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 |-------------|--------|----------|--------|-------|
 | `claude` | `claude` CLI | Bidirectional JSONL | Claude (Haiku, Sonnet, Opus) | Default. Full feature support including cost reporting, streaming, tool approval via hooks |
 | `codex` | `codex` CLI (app-server mode) | JSON-RPC JSONL | OpenAI (GPT-4o, GPT-5, o-series), Ollama | Persistent process, approval chain via JSON-RPC, no USD cost reporting |
+| Configured ACP ID | ACP-compatible binary | ACP stdio JSON-RPC | Agent-specific | Registered from `harness.acp.agents`; model and effort overrides are not forwarded |
 
 Core Claude and Codex turns are supported on native Windows. Their sandbox capabilities are not equivalent to the
 POSIX container boundary: Claude's native sandbox is unavailable, and restrictive Codex sandbox modes were not part
@@ -286,7 +307,7 @@ This acquires a harness from the Codex pool regardless of the global `agent.prov
 | **Per-task** | `provider` field on task creation | Task acquires a harness from the specified provider's pool |
 | **Pool allocation** | `providers.<id>.pool_size` | Controls how many concurrent workers each provider gets |
 
-The primary harness (Runner 0, for interactive chat) always uses the global default provider. Task pool workers can be a mix of providers.
+The primary harness (Runner 0, for interactive chat) always uses the global default provider. Worker-pool tasks can mix providers; delegated sessions are pinned to the default provider and require its worker capacity.
 
 ### Codex Approval Policy & Sandbox Mode
 
@@ -294,13 +315,17 @@ The Codex app-server provider supports two per-turn settings that control how Co
 
 | Config key | Values | Default | Purpose |
 |---|---|---|---|
-| `approval` | `on-request`, `unless-allow-listed`, `never` | `on-request` | Whether Codex sends tool approval requests to DartClaw |
+| `approval` | `on-request`, `unless-allow-listed`, `never` | *(inherited from Codex)* | Whether Codex sends tool approval requests to DartClaw |
 | `sandbox` | `workspace-write`, `danger-full-access` | *(none — Codex default)* | Codex-side filesystem sandbox restrictions |
 
 **`approval` values:**
-- `on-request` — Codex sends approval requests for every tool call; DartClaw's guard chain evaluates them
-- `unless-allow-listed` — Codex only requests approval for commands not in its built-in safe-command list
-- `never` — No approval requests; all tool calls execute immediately
+- `on-request` — broadest available interception; DartClaw evaluates every operation Codex routes through an approval request
+- `unless-allow-listed` — partial interception; commands in Codex's built-in safe list emit no approval request
+- `never` — no approval requests; the host guard cannot mediate Codex tool calls
+
+Set `approval: on-request` explicitly for a tool-restricted Codex agent. When omitted, DartClaw leaves the option out of
+the provider request and Codex may inherit user or provider configuration; serve therefore warns instead of assuming
+that host interception is active.
 
 **`sandbox` values:**
 - `workspace-write` — Codex sandbox allows writes only to the working directory
@@ -318,10 +343,10 @@ The Codex app-server provider supports two per-turn settings that control how Co
 >     sandbox: danger-full-access
 > ```
 >
-> Setting `approval: never` disables Codex's *internal* approval gate. On POSIX deployments with containers enabled,
-> DartClaw's guard chain, container isolation, `TaskFileGuard`, and input sanitizer remain active. On native Windows,
-> container isolation is unavailable and restrictive Codex sandbox behavior is unverified; guards still apply, but
-> this configuration is not POSIX sandbox parity.
+> Setting `approval: never` disables Codex's *internal* approval gate. No Codex `beforeToolCall` approval reaches DartClaw's
+> guard chain in this mode. On POSIX deployments with containers enabled, container isolation still applies. On native Windows,
+> container isolation is unavailable and restrictive Codex sandbox behavior is unverified. Message/content checks remain
+> independent of tool-call approvals, but this configuration has no DartClaw tool-call guard and is not POSIX sandbox parity.
 >
 > Also consider reducing `worker_timeout` (default 600s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
 
@@ -337,14 +362,15 @@ This keeps authentication and provider behavior aligned with ordinary `codex` CL
 
 Not all providers support every feature. DartClaw degrades gracefully:
 
-| Capability | Claude | Codex |
-|-----------|--------|-------|
-| Streaming text | Yes | Yes |
-| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) |
-| USD cost reporting | Yes | No (token counts only) |
-| Crash recovery | Yes | Yes |
-| System prompt injection | `--append-system-prompt` | `config.toml` `developer_instructions` |
-| MCP server support | Yes | Yes (via `config.toml`) |
+| Capability | Claude | Codex | ACP |
+|-----------|--------|-------|-----|
+| Streaming text | Yes | Yes | Yes |
+| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) | Reverse calls and permission requests only |
+| USD cost reporting | Yes | No (token counts only) | Agent-specific |
+| Crash recovery | Yes | Yes | Yes |
+| Per-turn persona | Process restart with `--append-system-prompt` | Session thread `developerInstructions` | Prepended to the prompt text |
+| Per-turn model and effort | Yes | Yes | Ignored |
+| MCP server support | Yes | Yes (via `config.toml`) | Agent-specific |
 
 When a provider doesn't report cost, the UI shows token counts with a "cost unavailable" indicator. For Codex sessions, the sidebar labels input as fresh input and shows cached input separately so Claude and Codex totals are comparable.
 
@@ -360,7 +386,7 @@ Check provider health at `GET /api/providers` or on the Settings page. DartClaw 
 
 | Use case | Agent model | Why |
 |----------|------------|-----|
-| Quick web lookup during chat | Subagent (`search`) | Sandboxed, cheap (haiku), result scanned by content-guard |
+| Quick web lookup during chat | Subagent (`search`) | Sandboxed, provider-aware model, result scanned by content-guard |
 | Summarize a document for the main agent | Custom subagent (`summarizer`) | Restricted tools, inline result, no review needed |
 | Write and test a new feature | Task (`coding`) | Needs full tool access, worktree isolation, code review |
 | Background research report | Task (`research`) | Independent work, restricted container, reviewable output |

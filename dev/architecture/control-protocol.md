@@ -17,7 +17,7 @@ DartClaw communicates with provider binaries over bidirectional subprocess proto
 | Lifecycle | Spawn `claude`, initialize once, then send user turns against the long-lived process | Spawn `codex app-server`, complete `initialize`/`initialized`, create a thread, then send turns against that thread | Spawn configured ACP binary such as `goose acp` or `vibe-acp`, initialize once, then route turns through `AcpClient` |
 | Streaming | `content_block_delta`, assistant/tool blocks, and `compact_boundary` compaction markers | `item/agentMessage/delta`, `item/started`, `item/completed`, `turn/completed`, `turn/failed` | ACP session updates adapted into DartClaw bridge events by `AcpProtocolAdapter` |
 | Tool approval | `control_request` plus hook callbacks (`can_use_tool`, `PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`) | JSON-RPC approval requests from server to client; DartClaw evaluates guards and replies allow/deny | Handler-level reverse-calls route through `GuardChain.evaluateBeforeToolCall(...)` before host file or terminal actions |
-| Session continuity | DartClaw owns persistence and replay; provider session state is not trusted as the source of truth | DartClaw also owns continuity; cached thread IDs are cleared on crash and history is replayed into a new thread | DartClaw owns persistence and classifies each ACP agent at registration/startup; relay and unverified topologies are container-isolation-only |
+| Session continuity | DartClaw owns persistence and replay; a pooled process restarts when its logical session changes | DartClaw also owns continuity; cached thread IDs are cleared on crash and history is replayed into a new thread | Each turn opens a fresh ACP session and injects bounded persisted history; relay and unverified topologies are container-isolation-only |
 
 ### Workflow One-Shot Exception
 
@@ -196,7 +196,6 @@ The first exchange after spawning. Dart sends an `initialize` control request; t
     "hooks": {
       "PreToolUse": [
         {
-          "matcher": null,
           "hookCallbackIds": ["hook_pre_tool"],
           "timeout": 30
         }
@@ -212,7 +211,7 @@ The first exchange after spawning. Dart sends an `initialize` control request; t
     "disallowedTools": ["WebSearch"],
     "maxTurns": 25,
     "model": "sonnet",
-    "agents": { "reviewer": { "description": "...", "prompt": "..." } }
+    "agents": { "reviewer": { "description": "...", "prompt": "...", "tools": ["Read", "Grep"] } }
   }
 }
 ```
@@ -221,11 +220,11 @@ Key fields in the `request` object:
 
 | Field | Source | Description |
 |---|---|---|
-| `hooks` | Hardcoded | `PreToolUse` (30s, filtered with Claude `if:` to tool types DartClaw guards), `PostToolUse` (10s, audit), `PermissionDenied` (10s, audit), and `PreCompact` (10s, compaction signal) |
+| `hooks` | Hardcoded | Unfiltered `PreToolUse` (30s, all built-ins and dynamic MCP tools), `PostToolUse` (10s, audit), `PermissionDenied` (10s, audit), and `PreCompact` (10s, compaction signal) |
 | `disallowedTools` | `HarnessConfig.disallowedTools` | Tool blocklist enforced by the binary |
 | `maxTurns` | `HarnessConfig.maxTurns` | Safety cap on agentic loops |
 | `model` | `HarnessConfig.model` | Model override (supports `[1m]` suffix for extended context, e.g. `opus[1m]`) |
-| `agents` | `HarnessConfig.agents` | Sub-agent definitions |
+| `agents` | `HarnessConfig.agents` | Subagent definitions; each entry has `description`/`prompt` and an optional exact provider-native `tools` allowlist |
 | `sdkMcpServers` | Fallback only | In-protocol MCP tools (used when no HTTP MCP server is configured) |
 
 **claude → Dart:**
@@ -282,7 +281,7 @@ For harnesses using `PromptStrategy.replace`, a `system_prompt` field is include
 }
 ```
 
-`ClaudeCodeHarness` uses `PromptStrategy.append` (system prompt injected via `--append-system-prompt` at spawn), so the `system_prompt` field is omitted during normal operation.
+`AgentHarness.turn.systemPrompt` is a scoped per-turn contract independent of prompt strategy: a non-empty value is authoritative; an empty value selects the harness's configured default. `ClaudeCodeHarness` uses `PromptStrategy.append`, so ordinary turns omit `system_prompt`. A non-empty delegated persona or conversational onboarding prompt participates in the process desired-state comparison and is applied by a single restart with `--append-system-prompt` together with any model or effort change. Switching the pooled process to a different logical session also restarts it, preventing conversation leakage; persisted history is replayed after that restart. The next empty turn restores the configured append prompt.
 
 For resumed sessions, a `"resume": true` field is added.
 
@@ -457,7 +456,7 @@ When the internal HTTP MCP server is not configured (chat mode without `serve` c
   "request_id": "req_77_mcp",
   "request": {
     "subtype": "mcp_message",
-    "server_name": "dartclaw-memory",
+    "server_name": "dartclaw",
     "message": {
       "jsonrpc": "2.0",
       "id": 1,
@@ -558,7 +557,7 @@ User (Web/Channel/Cron/Task)
   │
   ▼
 TurnManager.startTurn(sessionId, messages)
-  │ delegates to primary TurnRunner (or acquired pool runner for tasks)
+  │ delegates to the primary runner, or a provider-matched pool runner for tasks and delegated sessions
   ▼
 TurnRunner.reserveTurn(sessionId)
   │ ① Acquire session lock (SessionLockManager)
@@ -573,8 +572,9 @@ _runTurn()
   │ ④ Pre-turn guard: GuardChain.evaluateMessageReceived()
   │   └─ block → insert "[Blocked by guard: ...]" → return failed outcome
   │
-  │ ⑤ Build system prompt (BehaviorFileService.composeSystemPrompt())
-  │   └─ Appends compact instructions for long-running sessions (web, DM, group, cron)
+  │ ⑤ Resolve system prompt
+  │   ├─ Non-empty per-turn override is authoritative (delegated persona or onboarding)
+  │   └─ Otherwise compose BehaviorFileService prompt for the request scope
   │
   │ ⑥ Subscribe to harness.events stream
   │   ├─ DeltaEvent      → buffer + progress reset + session activity touch
@@ -583,9 +583,10 @@ _runTurn()
   │   └─ SystemInitEvent → context-window update only (not counted as progress)
   │
   ▼
-AgentHarness.turn(sessionId, messages, systemPrompt, directory?, model?)
+AgentHarness.turn(sessionId, messages, systemPrompt, agentId?, directory?, model?, effort?)
   │
-  │ ⑦ Restart harness if working directory or model changed
+  │ ⑦ Reconcile provider-specific persona, working directory, model, and effort state
+  │   └─ Claude restarts once when its spawn-time desired state changes
   │ ⑧ If crashed: exponential backoff (baseBackoff × 2^(crashCount-1))
   │ ⑨ Set state → busy
   │ ⑩ Start timeout timer (default 600s)
@@ -723,6 +724,8 @@ enum ToolApprovalPolicy { allowAll }
 
 Immediately after binary-level approval, the binary invokes the registered `hook_pre_tool` callback. This is where DartClaw's security logic runs.
 
+Claude may first invoke exact provider-native `ToolSearch` to load a deferred tool's schema. Under a non-empty closed allowlist, DartClaw permits that metadata-only discovery after deny checks, then independently evaluates the selected tool call against the same policy. An explicit discovery deny or a toolless policy still blocks discovery.
+
 **Flow:**
 
 ```
@@ -780,10 +783,13 @@ abstract class AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
+    int? maxTurns,
   });
   Future<void> cancel();
   Future<void> stop();
@@ -799,7 +805,7 @@ Three concrete implementations exist today:
 - `CodexHarness` – Codex JSON-RPC app-server protocol (see [Codex JSON-RPC Protocol](#codex-json-rpc-protocol))
 - `AcpHarness` – ACP stdio JSON-RPC protocol for configured ACP agents such as Goose and Vibe
 
-`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries, and `HarnessPool` manages provider-scoped runners. Each provider identity has its own pool with default capacity `1`; `providers.<id>.pool_size` is the only capacity override. ACP agent registration controls spawn and security classification, not custom capacity.
+`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries, and `HarnessPool` manages provider-scoped runners. Each provider identity has its own pool with default capacity `1`; `providers.<id>.pool_size` is the capacity override. Delegated sessions are provider-pinned and acquire or lazily spawn a matching task runner; the primary runner is never eligible. Exhausted or disabled capacity returns an inline delegation error. ACP agent registration controls spawn and security classification, not custom capacity.
 
 #### ClaudeCodeHarness
 
@@ -813,6 +819,7 @@ Key behavioral properties:
 | Init handshake timeout | 10 seconds |
 | Lifecycle serialization | `_withLock()` – chains mutating operations via future chaining |
 | Event stream | Broadcast `StreamController` – survives process restarts |
+| Session isolation | Restarts when a pooled worker changes DartClaw session; cold turns replay bounded persisted history |
 
 ### HarnessConfig
 
@@ -823,6 +830,7 @@ class HarnessConfig {
   final List<String> disallowedTools;  // Tool blocklist
   final int? maxTurns;                 // Safety cap
   final String? model;                 // Model selection (supports [1m] suffix)
+  final String? effort;                // Reasoning-effort override
   final Map<String, dynamic>? agents;  // Sub-agent definitions
   final String? appendSystemPrompt;    // Behavior content (spawn-time flag)
   final String? mcpServerUrl;          // Internal MCP server URL
@@ -832,7 +840,7 @@ class HarnessConfig {
 
 #### AcpHarness
 
-`AcpHarness` wraps an ACP agent subprocess using stdio JSON-RPC. The configured `harness.acp.agents.<id>` entry supplies the binary, args, topology, model provider, verification evidence, required built-ins, and container profile. Missing `topology` defaults to `unverified`.
+`AcpHarness` wraps an ACP agent subprocess using stdio JSON-RPC. The configured `harness.acp.agents.<id>` entry supplies the binary, args, topology, model provider, verification evidence, required built-ins, and container profile. Missing `topology` defaults to `unverified`. Every turn creates and closes a provider session, so DartClaw injects bounded replay-safe history before the current message rather than relying on provider-side continuity.
 
 Only direct-provider ACP agents that advertise and honor host `fs` capabilities can be classified as guard-mediated. Goose direct-provider targets require the `developer` extension, a direct model provider selector, and verification evidence when guard mediation is required; known proxy selectors such as `claude-acp` and `codex-acp` are rejected as direct-provider claims. Vibe must prove the declared provider is non-proxy or pass startup verification before DartClaw marks it guard-mediated.
 
@@ -850,9 +858,9 @@ Every filesystem reverse-call is bound to the active host session and effective 
 
 DartClaw does not advertise `terminal.create` and rejects all ACP terminal lifecycle calls on every host because complete descendant containment is not yet proven. Filesystem reverse-calls remain available. Container-isolated ACP agents advertise no host reverse-calls.
 
-### Working directory and model changes
+### Per-turn execution changes
 
-The harness supports per-turn working directory and model overrides (used by task execution for worktree paths and per-task model selection). If the requested directory or model differs from the current process configuration, the harness performs a full stop-and-restart cycle:
+The harness contract supports per-turn persona, working directory, model, and effort overrides. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes. Codex applies persona/model/effort to its session thread. ACP prepends the persona to the prompt and ignores model/effort overrides.
 
 ```
 turn(directory: "/worktrees/task-42")
@@ -870,7 +878,7 @@ DartClaw exposes custom tools to the agent via two mechanisms.
 
 ### Mechanism A: Internal HTTP MCP Server (serve mode)
 
-When running via `dartclaw serve`, an MCP endpoint is hosted at `/mcp` on the existing shelf HTTP server. The `claude` binary discovers it via `--mcp-config`:
+When running via `dartclaw serve`, `/mcp` is mounted for gateway-authenticated deployments. With authentication disabled, it is mounted only for an enabled memory journal on a configured loopback host. The `claude` binary discovers the mounted endpoint via `--mcp-config`:
 
 ```
 DartclawServer (shelf)
@@ -880,7 +888,7 @@ DartclawServer (shelf)
   └── /mcp            MCP server (Streamable HTTP, JSON-RPC 2.0)
                         ▲
                         │ POST /mcp (JSON-RPC)
-                        │ Authorization: Bearer <token>
+                        │ Authorization: Bearer <token> (auth-enabled mode)
                         │
                       claude binary
 ```
@@ -899,6 +907,8 @@ DartclawServer (shelf)
 }
 ```
 
+The bearer header is omitted only for an authentication-disabled loopback deployment with the memory journal enabled. That route still requires an exact loopback request `Host` and exact loopback browser `Origin`.
+
 **Registered tools** (via `McpProtocolHandler`):
 
 | Tool | Implementation | Registration | Description |
@@ -912,7 +922,8 @@ DartclawServer (shelf)
 | `kg_invalidate` | `KgInvalidateTool` | always | Invalidate a temporal fact without deleting its history |
 | `kg_contradictions` | `KgContradictionsTool` | always | Find open facts that would contradict an incoming fact |
 | `delegate_to_agent` | `DelegateToAgentTool` | always | Delegate bounded work to an allowlisted ACP or Codex provider agent |
-| `sessions_send` | `SessionsSendTool` | always | Inter-agent delegation |
+| `sessions_spawn` | `SessionsSpawnTool` | always | Create a hidden configured-subagent conversation and run its first turn |
+| `sessions_send` | `SessionsSendTool` | always | Continue a delegated conversation by its returned session handle |
 | `onboarding_complete` | `OnboardingCompleteTool` | **gated** – only while onboarding is active (`ONBOARDING.md` present at startup) | Mark conversational onboarding complete and remove the `ONBOARDING.md` sentinel |
 | `web_fetch` | `WebFetchTool` | always | SSRF-hardened URL fetching with ContentGuard |
 | `brave_search` | `BraveSearchTool` | **gated** – when the `brave` search provider is enabled with an API key | Web search via Brave API |
@@ -929,7 +940,7 @@ abstract interface class McpTool {
 }
 ```
 
-The MCP router (`mcp_router.dart`) handles auth (Bearer token), content-type validation, payload size limits (1 MB), and origin checking (localhost only for browser clients).
+The MCP router (`mcp_router.dart`) handles bearer or exact-loopback request validation, content-type validation, payload size limits (1 MB), and exact loopback origin checking for browser clients.
 
 ### Mechanism B: sdkMcpServers (chat mode fallback)
 
@@ -943,7 +954,7 @@ When no MCP server URL is configured (running without `serve`), memory tools are
 
 See the Codex CLI Harness Research (private repo: `docs/research/codex-cli-harness/research.md`) for the protocol analysis that informed this section.
 
-Codex integrates through `codex app-server`, a long-lived subprocess that speaks JSON-RPC 2.0-like messages over stdin/stdout and serializes them as JSONL. DartClaw keeps approval requests active during startup and normal turns, so the harness does not use `--yolo`.
+Codex integrates through `codex app-server`, a long-lived subprocess that speaks JSON-RPC 2.0-like messages over stdin/stdout and serializes them as JSONL. DartClaw does not use `--yolo`; the configured approval policy determines which operations reach the host approval handler.
 
 ### Spawn and handshake
 
@@ -995,11 +1006,14 @@ DartClaw passes `approval_policy` and `sandbox` as per-turn settings in every `t
 
 | DartClaw config | Codex setting | Behavior |
 |---|---|---|
-| `approval: on-request` | `approval_policy: "on-request"` | Default – Codex sends approval requests to DartClaw's guard chain |
-| `approval: unless-allow-listed` | `approval_policy: "granular"` | Only requests approval for commands not in Codex's safe-command list |
+| `approval: on-request` | `approval_policy: "on-request"` | Recommended explicit posture – broadest available approval interception for DartClaw's guard chain |
+| `approval: unless-allow-listed` | `approval_policy: "granular"` | Partial – safe-listed commands emit no approval request |
 | `approval: never` | `approval_policy: "never"` | No approval requests – all tool calls execute immediately |
 | `sandbox: workspace-write` | `sandbox: "workspaceWrite"` | Codex sandbox allows writes to working directory only |
 | `sandbox: danger-full-access` | `sandbox: "dangerFullAccess"` | No Codex sandbox restrictions |
+
+When `approval` is absent or blank, DartClaw omits `approval_policy` and Codex inherits its own configuration. Because
+that inherited posture is not verifiable, serve warns whenever tool-restricted agents or jobs use such a provider.
 
 #### Known issue: approval elicitation deadlock
 
@@ -1008,8 +1022,8 @@ DartClaw passes `approval_policy` and `sandbox` as per-turn settings in every `t
 > **Impact on DartClaw**: A stuck approval holds DartClaw's `SessionLockManager` per-session lock for up to `worker_timeout` (default 600s), blocking all other messages to that session. In crowd-coding with a shared session, this blocks the entire workshop.
 >
 > **Recommended configuration**: Set `approval: never` + `sandbox: danger-full-access` in the Codex provider config.
-> This bypasses Codex's internal approval gate. On POSIX deployments with containers enabled, the guard chain,
-> container isolation, and `TaskFileGuard` remain active. Native Windows has no container-isolation parity and
+> This bypasses Codex's internal approval gate, so no Codex `beforeToolCall` request reaches the DartClaw guard chain.
+> On POSIX deployments with containers enabled, container isolation remains active. Native Windows has no container-isolation parity and
 > restrictive Codex sandbox modes were not qualified for 0.21. Also reduce `worker_timeout` to 120s for shared-session
 > scenarios.
 
@@ -1042,7 +1056,7 @@ HarnessPool
 
 **Primary runner** (index 0): Reserved exclusively for interactive use via `TurnManager`. Never acquired by `TaskExecutor`. Always available for chat, cron, and channel-initiated turns.
 
-**Task runners** (indices 1..N): Acquired by `TaskExecutor` via `tryAcquire()` or `tryAcquireForProfile(profileId)`. Released back to the pool after task completion.
+**Task runners** (indices 1..N): Acquired by `TaskExecutor` for background tasks or by `TurnManager` for provider-pinned delegated sessions. Delegation uses `TaskRunnerPoolCoordinator` to acquire or lazily provision an exact provider match and never uses the primary runner. Runners return to the pool after the task or delegated turn completes.
 
 ### Acquisition and release
 
@@ -1051,19 +1065,20 @@ class HarnessPool {
   TurnRunner get primary;                           // Always index 0
   TurnRunner? tryAcquire();                         // Any available task runner
   TurnRunner? tryAcquireForProfile(String profile); // Matching security profile
+  TurnRunner? tryAcquireForProvider(String provider); // Matching provider
   void release(TurnRunner runner);                  // Return to pool
 }
 ```
 
-When all task runners are busy, `tryAcquire()` returns `null` and the task remains queued until a runner is released.
+When all task runners are busy, background tasks remain queued. A delegated turn provisions another provider-matched runner when capacity remains; exhausted or failed provisioning returns an inline MCP error naming the provider and capacity settings.
 
 ### Capacity configuration
 
-Pool size is controlled by `tasks.max_concurrent` in `dartclaw.yaml` (range: 1-10). When set to 1, only the primary runner exists and `TaskExecutor` falls back to using the primary runner when it is idle – preserving single-harness sequential behavior.
+Configured providers each default to one worker; `providers.<id>.pool_size` overrides that provider's capacity. When neither `providers` nor ACP agents are configured, legacy `tasks.max_concurrent` supplies the shared worker capacity. Workers spawn lazily in both modes.
 
 ### Single-harness fallback
 
-For `maxConcurrentTasks == 0`:
+For legacy `maxConcurrentTasks == 0`, background tasks may use the idle primary runner. Delegated sessions never use this fallback and return an inline capacity error instead.
 
 ```
 TaskExecutor.pollOnce()
@@ -1087,13 +1102,15 @@ class TurnManager {
   HarnessPool get pool;               // For TaskExecutor
   TurnRunner get primary;             // Via pool.primary
 
-  Future<String> reserveTurn(...);     // Delegates to primary
-  void executeTurn(...);               // Delegates to primary
+  Future<String> reserveTurn(...);     // Primary, or provider-matched pool runner for a pinned session
+  void executeTurn(...);               // Uses the runner selected during reservation
   Future<void> cancelTurn(...);        // Searches all runners
 }
 ```
 
-`cancelTurn` and `waitForCompletion` search across all pool runners – a session could be active on any runner (task sessions run on pool runners, not just primary).
+`cancelTurn` and outcome lookup search across all pool runners – a session could be active on any runner. Task sessions and provider-pinned delegated sessions run on pool workers, not the primary.
+
+Caller cancellation does not yet cascade to a `sessions_spawn` or `sessions_send` child. The inbound MCP call carries no caller-turn identity, and its 120-second `Future.timeout` does not cancel the underlying delegated future. A caller-aware MCP context and exact parent-to-child registry are scheduled with the 0.27 dispatch-level guard/audit seam; global “active child” cancellation would be unsafe with concurrent callers.
 
 ### TurnRunner
 

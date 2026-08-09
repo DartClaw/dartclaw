@@ -265,7 +265,12 @@ class ServiceWiring {
     await ctx._serverTurns.detectAndCleanOrphanedTurns();
     ctx.configNotifier.register(ctx._serverTurns);
     // 7. Tasks (post-server)
-    await task.wirePostServer(turns: ctx._serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
+    await task.wirePostServer(
+      turns: ctx._serverTurns,
+      pool: harness.pool,
+      onSpawnNeeded: harness.onSpawnNeeded,
+      runnerPoolCoordinator: harness.runnerPoolCoordinator,
+    );
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
     final workflowRegistry = await _wireWorkflowRegistry(ctx, harness, workflowRoleDefaults);

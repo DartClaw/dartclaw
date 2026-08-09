@@ -48,6 +48,7 @@ class FakeTurnManager extends TurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,

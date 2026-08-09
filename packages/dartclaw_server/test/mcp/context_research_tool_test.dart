@@ -365,10 +365,13 @@ final class _RecordingSessionDelegate extends SessionDelegate {
   final List<Map<String, dynamic>> sent = [];
 
   _RecordingSessionDelegate()
-    : super(dispatch: ({required sessionId, required message, required agentId}) async => '', limits: SubagentLimits());
+    : super(
+        dispatch: ({required sessionId, required message, required agentId, required createSession}) async => '',
+        limits: SubagentLimits(),
+      );
 
   @override
-  Future<Map<String, dynamic>> handleSessionsSend(Map<String, dynamic> args) async {
+  Future<Map<String, dynamic>> handleSessionsSpawn(Map<String, dynamic> args) async {
     sent.add(args);
     return {
       'content': [

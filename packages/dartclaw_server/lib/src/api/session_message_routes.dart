@@ -95,7 +95,7 @@ void registerSessionMessageRoutes(
         // 3. Reserve turn — same-session queues behind active turn, global cap → 409.
         final String turnId;
         try {
-          turnId = await turns.reserveTurn(id, isHumanInput: true, promptScope: PromptScope.webInteractive);
+          turnId = await turns.reserveTurn(id, isHumanInput: true, promptScope: PromptScope.conversational);
         } on BusyTurnException {
           if (current!.provider != null) {
             return (

@@ -90,6 +90,200 @@ void main() {
       await providerTurns.waitForOutcome(session.id, turnId);
     });
 
+    test('provisions a provider runner on demand for a provider-pinned session', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final codexWorker = FakeWorkerService();
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      late final HarnessPool pool;
+      final coordinator = TaskRunnerPoolCoordinator(
+        pool: pool = HarnessPool(
+          runners: [
+            TurnRunner(
+              harness: primaryWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'claude',
+            ),
+          ],
+          maxConcurrentTasks: 1,
+        ),
+        onSpawnNeeded: (provider) async {
+          expect(provider, 'codex');
+          pool.addRunner(
+            TurnRunner(
+              harness: codexWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: provider!,
+            ),
+          );
+          return true;
+        },
+      );
+      final providerTurns = TurnManager.fromPool(
+        pool: pool,
+        sessions: sessionService,
+        runnerPoolCoordinator: coordinator,
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      final turnId = await providerTurns.startTurn(session.id, []);
+      await codexWorker.turnInvoked;
+
+      expect(primaryWorker.turnCalls, 0);
+      expect(codexWorker.turnCalls, 1);
+      codexWorker.completeSuccess();
+      await providerTurns.waitForOutcome(session.id, turnId);
+    });
+
+    test('concurrent turns for one provider-pinned session share one runner', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final firstCodexWorker = FakeWorkerService();
+      final secondCodexWorker = FakeWorkerService();
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final pool = HarnessPool(
+        runners: [
+          TurnRunner(
+            harness: primaryWorker,
+            messages: messages,
+            behavior: behavior,
+            sessions: sessionService,
+            providerId: 'claude',
+          ),
+          TurnRunner(
+            harness: firstCodexWorker,
+            messages: messages,
+            behavior: behavior,
+            sessions: sessionService,
+            providerId: 'codex',
+          ),
+          TurnRunner(
+            harness: secondCodexWorker,
+            messages: messages,
+            behavior: behavior,
+            sessions: sessionService,
+            providerId: 'codex',
+          ),
+        ],
+        maxConcurrentTasks: 2,
+      );
+      final providerTurns = TurnManager.fromPool(
+        pool: pool,
+        sessions: sessionService,
+        runnerPoolCoordinator: TaskRunnerPoolCoordinator(pool: pool),
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      final firstFuture = providerTurns.startTurn(session.id, []);
+      var secondReserved = false;
+      final secondFuture = providerTurns.startTurn(session.id, []).then((turnId) {
+        secondReserved = true;
+        return turnId;
+      });
+      final firstTurnId = await firstFuture;
+      final activeWorker = await Future.any<FakeWorkerService>([
+        firstCodexWorker.turnInvoked.then((_) => firstCodexWorker),
+        secondCodexWorker.turnInvoked.then((_) => secondCodexWorker),
+      ]);
+      final unusedWorker = identical(activeWorker, firstCodexWorker) ? secondCodexWorker : firstCodexWorker;
+      await pumpEventQueue();
+
+      expect(secondReserved, isFalse);
+      expect(primaryWorker.turnCalls, 0);
+      expect(activeWorker.turnCalls, 1);
+      expect(unusedWorker.turnCalls, 0);
+
+      activeWorker.completeSuccess();
+      await providerTurns.waitForOutcome(session.id, firstTurnId);
+      final secondTurnId = await secondFuture;
+      await activeWorker.turnInvoked;
+      expect(activeWorker.turnCalls, 2);
+      expect(unusedWorker.turnCalls, 0);
+
+      activeWorker.completeSuccess();
+      await providerTurns.waitForOutcome(session.id, secondTurnId);
+    });
+
+    test('provider-pinned session reports capacity configuration without using primary runner', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final pool = HarnessPool(
+        runners: [
+          TurnRunner(
+            harness: primaryWorker,
+            messages: messages,
+            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+            sessions: sessionService,
+            providerId: 'claude',
+          ),
+        ],
+        maxConcurrentTasks: 0,
+      );
+      final providerTurns = TurnManager.fromPool(
+        pool: pool,
+        sessions: sessionService,
+        runnerPoolCoordinator: TaskRunnerPoolCoordinator(pool: pool),
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      await expectLater(
+        () => providerTurns.startTurn(session.id, []),
+        throwsA(
+          isA<BusyTurnException>()
+              .having((error) => error.message, 'message', contains('tasks.max_concurrent'))
+              .having((error) => error.message, 'message', contains('providers.codex.pool_size')),
+        ),
+      );
+      expect(primaryWorker.turnCalls, 0);
+    });
+
+    test('provider-pinned session reports unavailable pool when provisioning fails', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final pool = HarnessPool(
+        runners: [
+          TurnRunner(
+            harness: primaryWorker,
+            messages: messages,
+            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+            sessions: sessionService,
+            providerId: 'claude',
+          ),
+        ],
+        maxConcurrentTasks: 1,
+      );
+      var spawnCalls = 0;
+      final providerTurns = TurnManager.fromPool(
+        pool: pool,
+        sessions: sessionService,
+        runnerPoolCoordinator: TaskRunnerPoolCoordinator(
+          pool: pool,
+          onSpawnNeeded: (_) async {
+            spawnCalls++;
+            return false;
+          },
+        ),
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      await expectLater(
+        () => providerTurns.startTurn(session.id, []),
+        throwsA(
+          isA<BusyTurnException>().having((error) => error.message, 'message', contains('providers.codex.pool_size')),
+        ),
+      );
+      expect(spawnCalls, 1);
+      expect(primaryWorker.turnCalls, 0);
+    });
+
     test('busy provider-pinned session does not block another provider session', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
       final claudeSession = await sessionService.createSession(provider: 'claude');
@@ -218,7 +412,7 @@ void main() {
 
       await expectLater(
         () => providerTurns.startTurn(session.id, []),
-        throwsA(isA<BusyTurnException>().having((error) => error.message, 'message', contains('Provider goose'))),
+        throwsA(isA<BusyTurnException>().having((error) => error.message, 'message', contains('Provider "goose"'))),
       );
       expect(primaryWorker.turnCalls, 0);
       expect(claudeWorker.turnCalls, 0);
@@ -277,6 +471,44 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('promptStrategy', () {
+    test('append-strategy harness receives delegated persona verbatim', () async {
+      final appendWorker = AppendStrategyWorker();
+      final appendTurns = TurnManager(
+        messages: messages,
+        worker: appendWorker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+      );
+
+      final turnId = await appendTurns.startTurn('s1', [
+        {'role': 'user', 'content': 'search'},
+      ], systemPromptOverride: 'SEARCH PERSONA');
+      await appendWorker.turnInvoked;
+      expect(appendWorker.lastSystemPrompt, 'SEARCH PERSONA');
+
+      appendWorker.completeSuccess();
+      await appendTurns.waitForOutcome('s1', turnId);
+    });
+
+    test('append-strategy conversational turn receives onboarding prompt', () async {
+      final workspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+      File(p.join(workspace.path, 'ONBOARDING.md')).writeAsStringSync('ONBOARDING PERSONA');
+      final appendWorker = AppendStrategyWorker();
+      final appendTurns = TurnManager(
+        messages: messages,
+        worker: appendWorker,
+        behavior: BehaviorFileService(workspaceDir: workspace.path),
+      );
+
+      final turnId = await appendTurns.startTurn('s1', [
+        {'role': 'user', 'content': 'hello'},
+      ], promptScope: PromptScope.conversational);
+      await appendWorker.turnInvoked;
+      expect(appendWorker.lastSystemPrompt, contains('ONBOARDING PERSONA'));
+
+      appendWorker.completeSuccess();
+      await appendTurns.waitForOutcome('s1', turnId);
+    });
+
     test('append-strategy harness receives empty systemPrompt', () async {
       final appendWorker = AppendStrategyWorker();
       final appendTurns = TurnManager(

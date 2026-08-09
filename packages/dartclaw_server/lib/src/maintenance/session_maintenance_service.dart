@@ -72,13 +72,14 @@ class MaintenanceReport {
 /// Executes the session maintenance pipeline.
 ///
 /// Pipeline order: prune stale -> count cap -> cron retention -> disk budget ->
-/// artifact retention. Protected sessions (main, active channel, active cron)
-/// are never pruned.
+/// artifact retention. Protected sessions (main, active turn, active channel,
+/// active cron) are never pruned.
 class SessionMaintenanceService {
   final SessionService sessions;
   final SessionMaintenanceConfig config;
   final Set<String> activeChannelKeys;
   final Set<String> activeJobIds;
+  final bool Function(String sessionId)? isSessionActive;
   final String sessionsDir;
   final TaskService? taskService;
   final int artifactRetentionDays;
@@ -89,6 +90,7 @@ class SessionMaintenanceService {
     required this.config,
     required this.activeChannelKeys,
     required this.activeJobIds,
+    this.isSessionActive,
     required this.sessionsDir,
     this.taskService,
     this.artifactRetentionDays = 0,
@@ -143,7 +145,7 @@ class SessionMaintenanceService {
     actions.addAll(artifactResult.actions);
 
     // Final counts
-    final allSessions = await sessions.listSessions();
+    final allSessions = await sessions.listSessions(types: SessionType.values);
     final totalDisk = _calculateDiskUsage(sessionsDir);
 
     return MaintenanceReport(
@@ -161,6 +163,7 @@ class SessionMaintenanceService {
   }
 
   bool _isProtected(Session s) {
+    if (isSessionActive?.call(s.id) ?? false) return true;
     if (s.type == SessionType.main) return true;
     if (s.type == SessionType.channel) {
       return s.channelKey != null && activeChannelKeys.contains(s.channelKey);
@@ -190,7 +193,7 @@ class SessionMaintenanceService {
     if (config.pruneAfterDays == 0) return _StageResult.empty();
 
     final cutoff = DateTime.now().subtract(Duration(days: config.pruneAfterDays));
-    final allSessions = await sessions.listSessions();
+    final allSessions = await sessions.listSessions(types: SessionType.values);
     final actions = <MaintenanceAction>[];
     final warnings = <String>[];
     var archived = 0;
@@ -220,7 +223,7 @@ class SessionMaintenanceService {
   Future<_StageResult> _enforceCountCap(bool isEnforce) async {
     if (config.maxSessions == 0) return _StageResult.empty();
 
-    final allSessions = await sessions.listSessions();
+    final allSessions = await sessions.listSessions(types: SessionType.values);
     final activeSessions = allSessions.where((s) => s.type != SessionType.archive && !_isProtected(s)).toList();
 
     if (activeSessions.length <= config.maxSessions) return _StageResult.empty();
@@ -306,6 +309,7 @@ class SessionMaintenanceService {
 
     for (final s in archivedSessions) {
       if (currentUsage <= threshold) break;
+      if (_isProtected(s)) continue;
 
       final sessionDir = Directory(p.join(sessionsDir, s.id));
       final sessionSize = _calculateDiskUsage(sessionDir.path);

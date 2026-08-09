@@ -42,6 +42,9 @@ class ScheduleTurnFailureException implements Exception {
       : 'ScheduleTurnFailureException: $message';
 }
 
+/// Result of attempting to start a configured prompt job immediately.
+enum RunScheduledJobResult { started, alreadyRunning, notFound }
+
 /// Manages time-based job execution: cron, interval, and one-time schedules.
 ///
 /// Each job runs in an isolated session (via [SessionKey.cronSession]) to avoid
@@ -127,6 +130,37 @@ class ScheduleService implements Reconfigurable {
 
   /// Whether [id] is currently paused.
   bool isJobPaused(String id) => _paused.contains(id);
+
+  /// Starts a configured prompt job without changing its schedule or pause state.
+  RunScheduledJobResult runJobNow(String id) {
+    if (!_started) return RunScheduledJobResult.notFound;
+
+    ScheduledJob? job;
+    for (final candidate in _jobs) {
+      if (candidate.id == id && candidate.onExecute == null) {
+        job = candidate;
+        break;
+      }
+    }
+    if (job == null) return RunScheduledJobResult.notFound;
+    if (!_running.add(id)) return RunScheduledJobResult.alreadyRunning;
+
+    unawaited(
+      _executeNow(job).catchError((Object error, StackTrace stackTrace) {
+        _log.severe('Job "$id": on-demand execution failed unexpectedly', error, stackTrace);
+      }),
+    );
+    return RunScheduledJobResult.started;
+  }
+
+  Future<void> _executeNow(ScheduledJob job) async {
+    _log.info('Job "${job.id}": executing on demand');
+    try {
+      await _executeWithRetry(job);
+    } finally {
+      _running.remove(job.id);
+    }
+  }
 
   void _scheduleNext(ScheduledJob job) {
     _timers[job.id]?.cancel();
@@ -253,6 +287,7 @@ class ScheduleService implements Reconfigurable {
       agentName: 'cron:${job.id}',
       model: job.model,
       effort: job.effort,
+      allowedTools: job.allowedTools,
     );
     final outcome = await _turns.waitForOutcome(session.id, turnId);
 

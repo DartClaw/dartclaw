@@ -91,6 +91,22 @@ If not specified, the job inherits the global `agent.model` and `agent.effort` v
 
 Each scheduled job runs in its own session, isolated from user conversations.
 
+### Run a job on demand
+
+Run a configured prompt job immediately from the Scheduling page, the HTTP API, or the CLI:
+
+```bash
+dartclaw jobs run daily-summary
+```
+
+An on-demand run uses the same isolated cron session, retry policy, delivery mode, and failure alerts as a scheduled
+fire. It does not change the job's timer or pause state, so paused jobs can be tested while remaining paused. A job
+created or edited through the API requires a server restart before it can run.
+
+Only one execution of a job can run at a time. A second request is rejected, and a scheduled fire that lands while an
+on-demand run is active is skipped; the next recurring fire remains on schedule. For a one-time job, a fire skipped in
+this window is lost. Outside that window, an on-demand run neither consumes nor cancels its pending one-time fire.
+
 ## Scheduled Task Jobs
 
 To schedule reviewable tasks (instead of prompt jobs that run and deliver immediately), add a job with `type: task` to `scheduling.jobs`. The task goes through the standard `/tasks` review flow when it runs.

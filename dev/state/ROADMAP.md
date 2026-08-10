@@ -6,13 +6,14 @@
 
 ### 0.24 — Logical-Agent Correctness & Scheduling Operability
 
-**Status: Implemented; release preparation blocked on native Windows provider requalification.** Logical-agent execution now applies configured tool/network
+**Status: Release-ready; awaiting tag.** Logical-agent execution now applies configured tool/network
 policy, persona, provider, model, effort, and security profile through durable provider-pinned sessions. One execution
 coordinator owns the fixed primary lane and hard per-provider worker capacity, while process reuse remains an
 opportunistic cache. The release also adds the opt-in `memory.journal` job and safe on-demand prompt-job execution
 through CLI, API, and Web UI. Final implementation, convergence, simplification, full workspace gates, and visual
-validation are complete. Native Windows Codex 0.139.0 passed before final approval-path hardening and must be rerun;
-Claude 2.1.207 must be reauthenticated before its equivalent matrix and the final pre-tag gate can complete.
+validation are complete. Native Windows Claude 2.1.226 passed allowed and denied shell, file, web, and MCP checks.
+Codex 0.139.0 passed every claimed command, file-change, and MCP approval category after one-shot approval hardening;
+native Codex web search remains outside interception because it emits no approval request.
 
 ## Planned
 

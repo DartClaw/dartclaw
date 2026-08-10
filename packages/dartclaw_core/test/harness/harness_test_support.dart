@@ -200,6 +200,9 @@ ClaudeCodeHarness buildClaudeHarness({
   Duration killGracePeriod = Duration.zero,
   Duration initializeTimeout = const Duration(seconds: 10),
   PlatformCapabilities? platformCapabilities,
+  GuardChain? guardChain,
+  GuardAuditLogger? auditLogger,
+  void Function(String toolName, String? reason)? onPermissionDenied,
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -212,6 +215,9 @@ ClaudeCodeHarness buildClaudeHarness({
     killGracePeriod: killGracePeriod,
     initializeTimeout: initializeTimeout,
     platformCapabilities: platformCapabilities,
+    guardChain: guardChain,
+    auditLogger: auditLogger,
+    onPermissionDenied: onPermissionDenied,
   );
 }
 

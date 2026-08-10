@@ -110,9 +110,11 @@ void main() {
     await lease.release();
   });
 
-  test('removes disposed runners from current metrics during fingerprint churn', () async {
+  test('removes disposed runners from current metrics during profile churn', () async {
     final churnExecutions = ExecutionCoordinator(
       providerCapacities: const {'claude': 1},
+      admitExecution: (_) async {},
+      releaseAdmission: (_) {},
       createWorker: (request) async => FakeTurnRunner(providerId: request.providerId, profileId: request.profileId),
     );
     final churnEvents = EventBus();
@@ -220,8 +222,8 @@ ExecutionRequest _request(
   return ExecutionRequest(
     surface: surface,
     providerId: providerId,
+    profileId: profileId,
     sessionId: sessionId,
-    fingerprint: executions.fingerprintFor(providerId, profileId),
     taskId: taskId,
   );
 }
@@ -236,9 +238,7 @@ Future<TurnOutcome> _completeTurn(
   bool fail = false,
 }) async {
   final runner = lease.runner!;
-  final turnId = lease.admissionOwned
-      ? await runner.reserveAdmittedTurn(lease.request.sessionId)
-      : await runner.reserveTurn(lease.request.sessionId);
+  final turnId = await runner.reserveAdmittedTurn(lease.request.sessionId);
   final harness = runner.harness as FakeAgentHarness;
   unawaited(() async {
     await harness.turnInvoked;

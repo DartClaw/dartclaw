@@ -5,6 +5,29 @@ import 'support/load_config.dart';
 
 void main() {
   group('ACP harness config', () {
+    test('direct construction retains normalized lookup compatibility', () {
+      const agent = AcpAgentConfig(binary: 'goose');
+      const config = AcpConfig(agents: {' Goose ': agent});
+
+      expect(config['goose'], same(agent));
+    });
+
+    test('direct construction never routes blank IDs to a default provider', () {
+      const agent = AcpAgentConfig(binary: 'goose');
+      const config = AcpConfig(agents: {'claude': agent, ' ': agent});
+
+      expect(config[' '], isNull);
+      expect(const AcpConfig(agents: {' ': agent})['claude'], isNull);
+    });
+
+    test('direct construction rejects normalized lookup collisions', () {
+      const first = AcpAgentConfig(binary: 'goose-first');
+      const second = AcpAgentConfig(binary: 'goose-second');
+      const config = AcpConfig(agents: {'Goose': first, ' goose ': second});
+
+      expect(() => config['goose'], throwsStateError);
+    });
+
     test('parses a guarded direct ACP agent without provider capacity coupling', () {
       final config = loadYaml('''
 harness:

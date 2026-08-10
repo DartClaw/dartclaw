@@ -130,6 +130,18 @@ workflow:
       expect(config.warnings, isEmpty);
     });
 
+    test('workflow.defaults rejects a blank role provider', () {
+      expect(
+        () => _load('''
+workflow:
+  defaults:
+    reviewer:
+      provider: " "
+'''),
+        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('reviewer.provider'))),
+      );
+    });
+
     test('workflow.cleanup.delete_remote_branch_on_failure parses bool', () {
       final config = _load('''
 workflow:

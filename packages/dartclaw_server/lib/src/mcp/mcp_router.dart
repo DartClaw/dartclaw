@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dartclaw_security/dartclaw_security.dart' show isLoopbackHost;
 import 'package:shelf/shelf.dart';
 
 import '../auth/auth_utils.dart';
@@ -83,19 +84,14 @@ bool _requestHasLoopbackHost(Request request) {
       uri.path.isEmpty &&
       !uri.hasQuery &&
       !uri.hasFragment &&
-      _isLoopbackHost(uri.host);
+      isLoopbackHost(uri.host);
 }
 
 bool _isLoopbackOrigin(String origin) {
   final uri = Uri.tryParse(origin);
   if (uri == null || !uri.hasAuthority || uri.userInfo.isNotEmpty || uri.path.isNotEmpty) return false;
   if (uri.hasQuery || uri.hasFragment || (uri.scheme != 'http' && uri.scheme != 'https')) return false;
-  return _isLoopbackHost(uri.host);
-}
-
-bool _isLoopbackHost(String host) {
-  final normalized = host.toLowerCase();
-  return normalized == 'localhost' || normalized == '127.0.0.1' || normalized == '::1';
+  return isLoopbackHost(uri.host);
 }
 
 Response _mcpError(int status, String message) =>

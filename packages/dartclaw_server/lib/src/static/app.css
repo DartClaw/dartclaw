@@ -2172,7 +2172,7 @@ select.form-select.channel-mode-select-hidden {
 .task-event-icon-warning    { color: var(--warning); }
 .task-event-icon-compaction { color: var(--fg-sub1); }
 
-.task-agent-badge {
+.task-runner-badge {
   font-size: var(--text-xs);
   color: var(--fg-sub0);
   font-weight: var(--weight-medium);

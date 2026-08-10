@@ -69,7 +69,7 @@ extension _TurnRunnerMemory on TurnRunner {
       final agentName = _activeTurns[sessionId]?.agentName;
       await _worker.turn(
         sessionId: sessionId,
-        agentId: agentName == null || agentName == 'main' ? null : agentName,
+        agentId: TurnRunner._harnessAgentId(agentName),
         messages: [flushMessage],
         systemPrompt: systemPrompt,
       );

@@ -239,8 +239,8 @@ TurnRunner (per-harness)
 
 Each runner owns a layered guard chain: shared reloadable base guards plus that runner's tool filter. The harness evaluates this combined chain, so config reloads do not discard per-turn or per-task policy. SDK hosts that construct harnesses own this same composition boundary.
 
-Released workers are only eligible for reuse when healthy and compatible by provider, security profile, and runtime
-configuration fingerprint; exact-session reuse is preferred. Capacity is lease-based, so cached process count never
+Released workers are only eligible for reuse when healthy and compatible by provider and security profile within one
+immutable runtime composition; exact-session reuse is preferred. Capacity is lease-based, so cached process count never
 changes the hard limit. Container managers have an independent lifecycle and can be shared across workers.
 
 Since 0.14.4, `TurnRunner` treats text deltas and tool events as forward progress. That keeps session idle timers fresh during long-running tool execution and lets governance stall timers warn or cancel only when the provider event stream actually goes silent, instead of after a fixed wall-clock timeout.

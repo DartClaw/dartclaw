@@ -223,8 +223,8 @@ class TaskExecutor {
           ExecutionRequest(
             surface: isWorkflow ? ExecutionSurface.workflow : ExecutionSurface.task,
             providerId: provider,
+            profileId: profile,
             sessionId: preparedTask.sessionId!,
-            fingerprint: _executions.fingerprintFor(provider, profile),
             admission: ExecutionAdmission.failFast,
             taskId: preparedTask.id,
           ),
@@ -260,7 +260,8 @@ class TaskExecutor {
 
   String? _effectiveProviderForTask(Task task) {
     final provider = task.provider;
-    if (provider != null && provider.trim().isNotEmpty) {
+    if (provider != null) {
+      if (provider.trim().isEmpty) return null;
       return ProviderIdentity.normalize(provider);
     }
     final defaultProvider = _defaultProviderId;

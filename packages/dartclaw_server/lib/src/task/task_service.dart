@@ -79,10 +79,11 @@ class TaskService implements WorkflowTaskService {
     String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
-    final rawProvider = _trimmedOrNull(
-      provider ??
-          ((configJson['provider'] as String?)?.trim().isEmpty ?? true ? null : configJson['provider'] as String?),
-    );
+    final configuredProvider = provider ?? configJson['provider'] as String?;
+    if (configuredProvider != null && configuredProvider.trim().isEmpty) {
+      throw ArgumentError.value(configuredProvider, 'provider', 'must not be blank');
+    }
+    final rawProvider = _trimmedOrNull(configuredProvider);
     final persistedProvider = rawProvider == null ? null : ProviderIdentity.normalize(rawProvider);
     final persistedModel = _trimmedOrNull(model) ?? _trimmedOrNull(configJson['model'] as String?);
     final persistedSessionId = _trimmedOrNull(sessionId);

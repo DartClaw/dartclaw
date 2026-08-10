@@ -126,7 +126,7 @@ Router configRoutes({
       return errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
     }
 
-    final name = _decodePathSegment(encodedName);
+    final name = decodePathSegment(encodedName);
 
     return switch (scheduleService.runJobNow(name)) {
       RunScheduledJobResult.started => jsonResponse(202, {'name': name, 'status': 'started'}),
@@ -191,12 +191,4 @@ dynamic _coerceBool(String v) {
   if (v == 'true') return true;
   if (v == 'false') return false;
   return v;
-}
-
-String _decodePathSegment(String value) {
-  try {
-    return Uri.decodeComponent(value);
-  } on ArgumentError {
-    return value;
-  }
 }

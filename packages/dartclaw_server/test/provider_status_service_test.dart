@@ -312,8 +312,8 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
+          profileId: 'workspace',
           sessionId: 'unsafe',
-          fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
         ),
       );
       (lease!.runner!.harness as FakeAgentHarness).setState(WorkerState.crashed);
@@ -430,8 +430,8 @@ Future<ExecutionCoordinator> _buildCoordinator({
       ExecutionRequest(
         surface: ExecutionSurface.workflow,
         providerId: runner.providerId,
+        profileId: 'workspace',
         sessionId: 'busy-$index',
-        fingerprint: coordinator.fingerprintFor(runner.providerId, 'workspace'),
       ),
     );
     activeLeases.add(lease!);

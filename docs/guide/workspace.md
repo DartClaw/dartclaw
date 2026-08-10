@@ -30,7 +30,8 @@ This view focuses on the workspace behavior files. The instance directory also h
 
 ## Behavior Files
 
-Files are re-read on every turn -- edit them live without restarting.
+Replace-mode providers re-read these files every turn. Claude and Codex receive them when the server starts, so restart
+the server to apply changes to those providers.
 
 ### SOUL.md -- Agent Identity
 Defines who the agent is. The agent can update this file.

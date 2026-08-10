@@ -42,6 +42,8 @@ class TurnRunner implements core.TurnRunner {
   static const _uuid = Uuid();
   static const _memoryWarnBytes = 50 * 1024;
 
+  static String? _harnessAgentId(String? agentName) => agentName == null || agentName == 'main' ? null : agentName;
+
   final AgentHarness _worker;
   final MessageService _messages;
   final BehaviorFileService _behavior;

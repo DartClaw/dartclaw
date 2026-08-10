@@ -8,9 +8,9 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessConfig;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show ExecutionAdmission, ExecutionRequest, ExecutionSurface, TurnRunnerCancellation, WorkerCreationException;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../../helpers/harness_wiring_fixture.dart';
 
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
@@ -55,13 +55,7 @@ final class _HarnessWiringFixture {
       gateway: const GatewayConfig(authMode: 'none'),
     );
 
-    final workspaceDir = Directory(config.workspaceDir)..createSync(recursive: true);
-    File(p.join(workspaceDir.path, 'SOUL.md')).writeAsStringSync('Soul prompt');
-    File(p.join(workspaceDir.path, 'USER.md')).writeAsStringSync('User prompt');
-    File(p.join(workspaceDir.path, 'TOOLS.md')).writeAsStringSync('Tool prompt');
-    File(p.join(workspaceDir.path, 'AGENTS.md')).writeAsStringSync('## Agent prompt');
-    File(p.join(workspaceDir.path, 'errors.md')).writeAsStringSync('## Recent error');
-    File(p.join(workspaceDir.path, 'learnings.md')).writeAsStringSync('## Recent learning');
+    writeWorkspacePromptFiles(config.workspaceDir);
   }
 
   late final Directory tempDir;
@@ -80,34 +74,26 @@ final class _HarnessWiringFixture {
   }
 
   Future<void> wireStorageAndSecurity() async {
-    storage = StorageWiring(
+    storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
+    security = await wireTestSecurity(
       config: config,
+      dataDir: tempDir.path,
       eventBus: eventBus,
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
       exitFn: _unexpectedExit,
-    );
-    await storage!.wire();
-
-    security = SecurityWiring(config: config, dataDir: tempDir.path, eventBus: eventBus, exitFn: _unexpectedExit);
-    await security!.wire(
-      agentDefs: config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()],
     );
   }
 
   Future<void> wireHarness(HarnessFactory factory) async {
-    harnessWiring = HarnessWiring(
+    harnessWiring = await wireTestHarness(
       config: config,
       dataDir: tempDir.path,
-      port: 3333,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
       storage: storage!,
       security: security!,
-      messageRedactor: MessageRedactor(),
       eventBus: eventBus,
+      serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'),
     );
-    await harnessWiring!.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
   }
 
   HarnessFactory fakeFactory(Iterable<String> providerIds) {
@@ -130,8 +116,8 @@ final class _HarnessWiringFixture {
   }) => ExecutionRequest(
     surface: surface,
     providerId: providerId,
+    profileId: 'workspace',
     sessionId: sessionId,
-    fingerprint: harnessWiring!.executions.fingerprintFor(providerId, 'workspace'),
     admission: admission,
   );
 }

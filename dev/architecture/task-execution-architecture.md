@@ -262,7 +262,7 @@ Poll cycle (`_pollOnceInner`):
 1. List all queued tasks, sort by `createdAt` (FIFO)
 2. For each task: check project readiness (`cloning` = wait, `error` = fail)
 3. Resolve security profile from task type
-4. After global governance, request a provider-neutral worker lease with the exact provider/profile fingerprint
+4. After global governance, request a provider-neutral worker lease for the exact provider and security profile
 5. Transition task to `running` (checkout)
 6. Execute asynchronously (`unawaited` in server coordinator mode)
 7. On completion: release the lease; the coordinator alone decides whether to cache, dispose, or quarantine the worker
@@ -320,7 +320,7 @@ Non-retryable failures (loop detection, budget exceeded, missing project) skip t
 
 ### 4.2 Task acquisition
 
-A task request contains normalized provider identity, session ID, task ID, admission behavior, and a canonical construction fingerprint. The fingerprint includes provider, security profile, and the canonical identity of all other construction-only inputs. Task scheduling remains provider-neutral: concrete provider factories and adapter differences exist only in composition/wiring.
+A task request contains normalized provider identity, security profile, session ID, task ID, and admission behavior. The coordinator's remaining construction inputs are immutable. Task scheduling remains provider-neutral: concrete provider factories and adapter differences exist only in composition/wiring.
 
 Ordinary queued tasks wait for a lease. Nested logical-agent calls use fail-fast admission to avoid waiting on capacity held by their caller. There is no provider or security-profile fallback.
 
@@ -328,11 +328,11 @@ Ordinary queued tasks wait for a lease. Nested logical-agent calls use fail-fast
 
 After the lease is granted, reusable-worker lookup prefers:
 
-1. the exact session within the requested canonical construction fingerprint;
-2. any healthy worker with a compatible fingerprint;
+1. the exact session with the requested provider/profile;
+2. any healthy worker with the same provider/profile;
 3. a fresh worker.
 
-Unknown compatibility or health means fresh creation. Cache behavior has no configuration knobs. An idle healthy worker may be cached after release; an unhealthy worker is disposed.
+A provider/profile mismatch or unknown health means fresh creation. Cache behavior has no configuration knobs. An idle healthy worker may be cached after release; an unhealthy worker is disposed.
 
 ### 4.4 Replacement and quarantine
 
@@ -712,7 +712,7 @@ Tracks per-runner cumulative turn metrics: tokens, completed turns, errors, cach
 `TurnRunner` reports each terminal outcome once through `ExecutionCoordinator`, so primary and worker turns share one
 metrics path. Current busy/free/task/session state also comes from coordinator lease events and snapshots, not independent
 lifecycle authority. Disposed workers are removed from current metrics after their disposal event; capacity-only workflow
-executions have an execution ID and provider lease but no runner ID.
+executions have a provider lease but no runner identity.
 
 Provider summaries expose configured, effective, active, queued, cached, and quarantined counts. Available worker capacity is `effective - active`; cached process count never changes it. Metrics are in-memory and reset on restart. Lease transitions fire `RunnerStateChangedEvent` or its execution-capacity equivalent for SSE propagation.
 

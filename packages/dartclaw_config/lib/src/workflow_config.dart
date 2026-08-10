@@ -360,7 +360,7 @@ WorkflowRoleModelConfig _parseWorkflowRoleModel(Map<Object?, Object?> defaultsMa
   }
 
   final roleMap = raw.cast<Object?, Object?>();
-  var provider = _readNullableString(roleMap['provider'], 'workflow.defaults.$role.provider', warns);
+  var provider = _readProviderString(roleMap['provider'], 'workflow.defaults.$role.provider', warns);
   var model = _readNullableString(roleMap['model'], 'workflow.defaults.$role.model', warns);
   final effort = _readNullableString(roleMap['effort'], 'workflow.defaults.$role.effort', warns);
   final shorthand = ProviderIdentity.parseProviderModelShorthand(model);
@@ -392,4 +392,11 @@ String? _readNullableString(Object? raw, String path, List<String> warns) {
   }
   final trimmed = raw.trim();
   return trimmed.isEmpty ? null : trimmed;
+}
+
+String? _readProviderString(Object? raw, String path, List<String> warns) {
+  if (raw is String && raw.trim().isEmpty) {
+    throw FormatException('$path must not be blank.');
+  }
+  return _readNullableString(raw, path, warns);
 }

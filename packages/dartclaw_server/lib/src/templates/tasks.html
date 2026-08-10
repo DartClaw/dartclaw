@@ -38,7 +38,7 @@
             <div tl:each="task : ${group.tasks}" class="card task-card-running print-in" tl:classappend="${task.cardTintClass}">
               <div class="task-card-title" tl:text="${task.title}">Task title</div>
               <div class="task-card-meta">
-                <span tl:if="${task.agentLabel}" class="task-agent-badge"><span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${task.agentLabel},data-identicon-initials=${task.agentLabel}"></span><span tl:text="${task.agentLabel}">Agent #1</span></span>
+                <span tl:if="${task.runnerLabel}" class="task-runner-badge"><span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${task.runnerLabel},data-identicon-initials=${task.runnerLabel}"></span><span tl:text="${task.runnerLabel}">Worker #1</span></span>
                 <span tl:if="${task.projectName}" class="project-badge" tl:text="${task.projectName}">Project</span>
                 <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
                 <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"

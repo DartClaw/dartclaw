@@ -29,6 +29,7 @@ void main() {
     final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'claude');
     final primaryWorker = FakeWorkerService();
     final pooledWorker = _DisposableWorkerService();
+    final replacementWorker = _DisposableWorkerService();
     final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
     final primaryRunner = TurnRunner(
       harness: primaryWorker,
@@ -42,10 +43,19 @@ void main() {
       behavior: behavior,
       providerId: 'claude',
     );
+    final replacementRunner = TurnRunner(
+      harness: replacementWorker,
+      messages: messages,
+      behavior: behavior,
+      providerId: 'claude',
+      profileId: 'restricted',
+    );
     final coordinator = ExecutionCoordinator(
       providerCapacities: const {'claude': 1},
       primary: primaryRunner,
-      createWorker: (_) async => pooledRunner,
+      admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+      releaseAdmission: primaryRunner.releaseAdmission,
+      createWorker: (request) async => request.profileId == 'restricted' ? replacementRunner : pooledRunner,
       outcomeTtl: outcomeTtl,
       now: () => now,
     );
@@ -63,15 +73,16 @@ void main() {
     await released;
 
     if (!unhealthy) {
-      final capacityLease = await coordinator.acquire(
-        ExecutionRequest(
-          surface: ExecutionSurface.workflow,
+      final replacementLease = await coordinator.acquire(
+        const ExecutionRequest(
+          surface: ExecutionSurface.task,
           providerId: 'claude',
-          sessionId: 'capacity-only',
-          fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
+          profileId: 'restricted',
+          sessionId: 'replacement',
         ),
       );
-      await capacityLease!.release();
+      replacementWorker.workerState = WorkerState.crashed;
+      await replacementLease!.release();
     }
 
     expect(pooledWorker.disposeCalled, isTrue);
@@ -105,7 +116,7 @@ void main() {
     expect(sseStreamResponse(primaryWorker, turns, session.id, turnId).statusCode, 404);
   }
 
-  test('retains terminal outcome after capacity-only scavenging disposes its worker', () async {
+  test('retains terminal outcome after incompatible-profile replacement disposes its worker', () async {
     await verifyRetentionAfterWorkerDisposal(unhealthy: false, resetBeforeExpiry: true);
   });
 

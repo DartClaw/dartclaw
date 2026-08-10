@@ -71,8 +71,7 @@ class CodexHarness extends BaseHarness {
 
   static final _log = Logger('CodexHarness');
 
-  final Map<String, String> _threadIds = <String, String>{};
-  final Map<String, String?> _threadInstructions = <String, String?>{};
+  final Map<String, ({String threadId, String? instructions})> _threads = {};
   String? _activeSessionId;
   String? _activeAgentId;
   int _nextRequestId = 0;
@@ -210,12 +209,13 @@ class CodexHarness extends BaseHarness {
 
     try {
       final scopedInstructions = systemPrompt.trim().isEmpty ? null : systemPrompt;
-      if (_threadIds.containsKey(sessionId) && _threadInstructions[sessionId] != scopedInstructions) {
-        _threadIds.remove(sessionId);
-        _threadInstructions.remove(sessionId);
+      var thread = _threads[sessionId];
+      if (thread != null && thread.instructions != scopedInstructions) {
+        _threads.remove(sessionId);
+        thread = null;
       }
       final threadId =
-          _threadIds[sessionId] ??
+          thread?.threadId ??
           await _startThread(
             sessionId,
             scopedInstructions,
@@ -325,8 +325,7 @@ class CodexHarness extends BaseHarness {
 
   @override
   Future<void> resetSessionContinuity(String sessionId) async {
-    _threadIds.remove(sessionId);
-    _threadInstructions.remove(sessionId);
+    _threads.remove(sessionId);
   }
 
   @override
@@ -346,8 +345,7 @@ class CodexHarness extends BaseHarness {
     }
 
     currentState = WorkerState.stopped;
-    _threadIds.clear();
-    _threadInstructions.clear();
+    _threads.clear();
     _completePendingWithError(StateError('CodexHarness stopped'));
 
     if (cancellationResult != null && !platformCapabilities.posixSignalsAvailable) {
@@ -401,8 +399,7 @@ class CodexHarness extends BaseHarness {
   /// Maps DartClaw sandbox config values to Codex `sandbox_permissions` TOML arrays.
   Future<void> _restartAfterCrash() async {
     await cancelTrackedSubscriptions();
-    _threadIds.clear();
-    _threadInstructions.clear();
+    _threads.clear();
     try {
       await _spawnProcess();
       await _initialize();
@@ -420,8 +417,7 @@ class CodexHarness extends BaseHarness {
 
   Future<void> _cleanupStartupFailure() async {
     currentState = WorkerState.stopped;
-    _threadIds.clear();
-    _threadInstructions.clear();
+    _threads.clear();
     _completePendingWithError(StateError('CodexHarness startup failed'));
 
     await shutdownCurrentProcess(
@@ -477,8 +473,7 @@ class CodexHarness extends BaseHarness {
     }
     _writeLine(adapter.buildThreadStartRequest(id: id, params: threadParams));
     final threadId = await _threadStartCompleter!.future;
-    _threadIds[sessionId] = threadId;
-    _threadInstructions[sessionId] = developerInstructions;
+    _threads[sessionId] = (threadId: threadId, instructions: developerInstructions);
     return threadId;
   }
 
@@ -590,8 +585,7 @@ class CodexHarness extends BaseHarness {
     if (currentState == WorkerState.stopped || isStopping) {
       return;
     }
-    _threadIds.clear();
-    _threadInstructions.clear();
+    _threads.clear();
     currentState = WorkerState.crashed;
     crashCount++;
     _completePendingWithError(StateError('Codex process exited with code $exitCode'));

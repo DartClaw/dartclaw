@@ -102,13 +102,13 @@ There are three execution lanes:
 
 `providers.<id>.pool_size` is therefore a hard ceiling on concurrent worker and capacity-only executions for that provider, not a target number of live processes. Cached harnesses and long-lived profile containers do not consume capacity while idle. The global turn-governance limit remains an earlier admission boundary and does not replace provider capacity.
 
-Reusable harnesses form a small opportunistic cache with no operator knobs. A worker request carries a canonical construction fingerprint consisting of the normalized provider, security profile, and canonical identity of all other construction-only configuration. Lookup order is:
+Reusable harnesses form a small opportunistic cache with no operator knobs. One coordinator is built from immutable construction inputs, so a worker request needs only the normalized provider and security profile to identify compatibility within that coordinator. Lookup order is:
 
-1. a healthy cached worker for the exact session within the requested canonical construction fingerprint;
-2. any healthy cached worker with a compatible canonical construction fingerprint;
+1. a healthy cached worker for the exact session and provider/profile;
+2. any healthy cached worker with the same provider/profile;
 3. a fresh worker.
 
-Unknown compatibility or health means fresh creation, never speculative reuse. A released unhealthy worker is disposed. Before a worker is replaced, DartClaw must confirm termination of the managed root process. If confirmation is unavailable, the lease's capacity slot is quarantined and effective provider capacity decreases; no overlapping replacement is spawned.
+A provider/profile mismatch or unknown health means fresh creation, never speculative reuse. A released unhealthy worker is disposed. Before a worker is replaced, DartClaw must confirm termination of the managed root process. If confirmation is unavailable, the lease's capacity slot is quarantined and effective provider capacity decreases; no overlapping replacement is spawned.
 
 Container amortization is independent. Profile containers may remain alive across process disposal and multiple leases, but they carry no session identity and do not alter capacity accounting.
 
@@ -124,7 +124,7 @@ SDK consumers that construct only one harness retain a compatibility exception: 
 - **Extensibility**: Adding a third provider (Pi, DirectApi, ACP) means implementing one `ProtocolAdapter` + one tool name mapping table. No guard changes, no pool changes.
 - **Per-task flexibility**: Heterogeneous pool enables "Claude for chat, Codex for coding tasks" in a single deployment.
 - **Bounded execution**: Per-provider leases bound all worker surfaces, including one-shots, independently from process reuse.
-- **Safe reuse**: Canonical fingerprints and teardown confirmation prevent cross-session/configuration leakage and overlapping replacements.
+- **Safe reuse**: Immutable coordinator composition, exact provider/profile matching, and teardown confirmation prevent cross-session/configuration leakage and overlapping replacements.
 - **SDK clarity**: Canonical tool names and `ProtocolAdapter` interface are clean SDK surface for consumers building custom harnesses.
 - **Auditability**: Shared contracts (adapter interface, canonical taxonomy) make the multi-provider architecture self-documenting.
 
@@ -204,7 +204,7 @@ One Codex thread per DartClaw session (or task). First turn creates the thread (
 
 ### Pool Worker Lifecycle
 
-Superseded by Part 4. `pool_size` bounds leases, not pre-created workers. Harnesses are created lazily, reused only through canonical fingerprint matching, and never fall back to another provider or weaker profile. Admission may wait for ordinary worker surfaces; nested logical-agent acquisition is fail-fast to avoid waiting on capacity held by the caller.
+Superseded by Part 4. `pool_size` bounds leases, not pre-created workers. Harnesses are created lazily, reused only for the same provider/profile within one immutable coordinator composition, and never fall back to another provider or weaker profile. Admission may wait for ordinary worker surfaces; nested logical-agent acquisition is fail-fast to avoid waiting on capacity held by the caller.
 
 ### config.toml Scope
 
@@ -250,7 +250,7 @@ All three decisions validated by the 0.13 implementation:
 - **D2 (Heterogeneous Pool)**: Mixed-provider `HarnessPool` works as designed. Per-task provider override (F14) ships as specced. Pool sizing via `providers.*.pool_size` config is intuitive.
 - **D3 (ProtocolAdapter)**: Three concrete adapters (Claude JSONL, Codex JSON-RPC, Codex exec JSON) confirm the interface shape is viable. The `ProtocolMessage` sealed class hierarchy (`TextDelta`, `ToolUse`, `ToolResult`, `ControlRequest`, `TurnComplete`, `SystemInit`) covers all three protocols without leaky abstractions.
 
-Part 4 was implemented in 0.24. Structural checks prove production execution surfaces use the post-governance coordinator and provider branching stays at adapter/wiring boundaries. Tests cover serialized primary execution; per-provider hard capacity and queue release; capacity-only one-shots; exact-session then compatible-fingerprint reuse; profile isolation; turn-local guard reset; unhealthy disposal, confirmed replacement, and quarantine; shutdown; SDK fallback; and lease-derived API/SSE/UI observability. Provider continuity suites retain Claude session/fingerprint restart behavior, Codex session-thread affinity, and ACP initialized-process reuse with fresh provider sessions.
+Part 4 was implemented in 0.24. Structural checks prove production execution surfaces use the post-governance coordinator and provider branching stays at adapter/wiring boundaries. Tests cover serialized primary execution; per-provider hard capacity and queue release; capacity-only one-shots; exact-session then compatible provider/profile reuse; profile isolation; turn-local guard reset; unhealthy disposal, confirmed replacement, and quarantine; shutdown; SDK fallback; and lease-derived API/SSE/UI observability. Provider continuity suites retain Claude session/fingerprint restart behavior, Codex session-thread affinity, and ACP initialized-process reuse with fresh provider sessions.
 
 **Lessons for next provider (Pi)**: The adapter interface held without modification across three implementations. Pi's JSONL RPC protocol (`--mode rpc`) maps even more naturally than Codex's JSON-RPC, since Pi uses the same spawn+NDJSON pattern as Claude. Main concern remains runtime dependency (Node.js/Bun) and bus factor (solo developer). See the research appendix.
 

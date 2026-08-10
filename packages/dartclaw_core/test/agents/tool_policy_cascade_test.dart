@@ -195,16 +195,7 @@ void main() {
           },
         ),
       );
-      final verdict = await guard.evaluate(
-        GuardContext(
-          hookPoint: 'beforeToolCall',
-          toolName: 'web_search',
-          rawProviderToolName: 'WebSearch',
-          toolInput: const {},
-          agentId: 'search',
-          timestamp: DateTime.now(),
-        ),
-      );
+      final verdict = await guard.evaluate(_searchToolCall('web_search', 'WebSearch'));
       expect(verdict.isPass, isTrue);
     });
 
@@ -216,16 +207,7 @@ void main() {
           },
         ),
       );
-      final verdict = await guard.evaluate(
-        GuardContext(
-          hookPoint: 'beforeToolCall',
-          toolName: 'shell',
-          rawProviderToolName: 'Bash',
-          toolInput: const {},
-          agentId: 'search',
-          timestamp: DateTime.now(),
-        ),
-      );
+      final verdict = await guard.evaluate(_searchToolCall('shell', 'Bash'));
       expect(verdict.message, 'Tool "Bash" not allowed for agent "search"');
     });
 
@@ -242,16 +224,7 @@ void main() {
       for (final tool in ['sessions_spawn', 'sessions_send']) {
         final rawToolName = 'mcp__dartclaw__$tool';
         final canonicalToolName = adapter.mapToolName(rawToolName)!.stableName;
-        final verdict = await guard.evaluate(
-          GuardContext(
-            hookPoint: 'beforeToolCall',
-            toolName: canonicalToolName,
-            rawProviderToolName: rawToolName,
-            toolInput: const {},
-            agentId: 'search',
-            timestamp: DateTime.now(),
-          ),
-        );
+        final verdict = await guard.evaluate(_searchToolCall(canonicalToolName, rawToolName));
 
         expect(canonicalToolName, 'mcp_call', reason: tool);
         expect(verdict.isBlock, isTrue, reason: tool);
@@ -336,3 +309,12 @@ void main() {
     });
   });
 }
+
+GuardContext _searchToolCall(String toolName, String rawProviderToolName) => GuardContext(
+  hookPoint: 'beforeToolCall',
+  toolName: toolName,
+  rawProviderToolName: rawProviderToolName,
+  toolInput: const {},
+  agentId: 'search',
+  timestamp: DateTime.now(),
+);

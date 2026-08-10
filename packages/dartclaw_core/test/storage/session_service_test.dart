@@ -133,11 +133,12 @@ void main() {
       expect(await sessions.getByKey('agent:search:logical:known'), isNull);
     });
 
-    test('getByKey reloads a persisted mapping after service reconstruction', () async {
+    test('getByKey reloads the persisted type, provider, and security profile after service reconstruction', () async {
       final created = await sessions.getOrCreateByKey(
         'agent:search:logical:persisted',
         type: SessionType.logicalAgent,
-        provider: 'claude',
+        provider: 'codex',
+        securityProfile: 'restricted',
       );
 
       final restarted = SessionService(baseDir: tempDir.path);
@@ -145,7 +146,8 @@ void main() {
 
       expect(loaded?.id, created.id);
       expect(loaded?.type, SessionType.logicalAgent);
-      expect(loaded?.provider, 'claude');
+      expect(loaded?.provider, 'codex');
+      expect(loaded?.securityProfile, 'restricted');
     });
 
     test('removeKeyMapping invalidates the handle without deleting the session', () async {
@@ -197,22 +199,6 @@ void main() {
       final fetched = await sessions.getSession(session.id);
       expect(fetched, isNotNull);
       expect(fetched!.provider, 'codex');
-    });
-
-    test('persists logical-agent provider and security profile across service reconstruction', () async {
-      final session = await sessions.getOrCreateByKey(
-        'agent:search:logical:session-1',
-        type: SessionType.logicalAgent,
-        provider: 'codex',
-        securityProfile: 'restricted',
-      );
-
-      final reconstructed = SessionService(baseDir: tempDir.path);
-      final fetched = await reconstructed.getByKey('agent:search:logical:session-1');
-
-      expect(fetched?.id, session.id);
-      expect(fetched?.provider, 'codex');
-      expect(fetched?.securityProfile, 'restricted');
     });
 
     test('migrates provider on existing keyed session', () async {

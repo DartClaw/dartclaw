@@ -88,8 +88,8 @@ String tasksPageTemplate({
         final projectName = projectId != null && projectId != '_local' ? projectNames[projectId] : null;
         final taskId = t['id']?.toString() ?? '';
 
-        // Running task enhancements: agent badge, progress, token display, recent events.
-        String? agentLabel;
+        // Running task enhancements: runner badge, progress, token display, recent events.
+        String? runnerLabel;
         int progressPct = 0;
         bool isIndeterminate = true;
         String tokenDisplay = '0 tokens';
@@ -98,13 +98,13 @@ String tasksPageTemplate({
         String? finalTokenDisplay;
 
         if (isRunningGroup) {
-          // Agent assignment lookup.
+          // Runner assignment lookup.
           if (runners != null) {
             for (final runner in runners) {
               if (runner['currentTaskId']?.toString() == taskId) {
                 final runnerId = runner['runnerId'] as int? ?? 0;
                 final role = runner['role']?.toString() ?? 'worker';
-                agentLabel = role == 'primary' ? 'Primary (#$runnerId)' : 'Agent #$runnerId';
+                runnerLabel = role == 'primary' ? 'Primary (#$runnerId)' : 'Worker #$runnerId';
                 break;
               }
             }
@@ -168,7 +168,7 @@ String tasksPageTemplate({
           'projectDisplay': absentValue(projectName).value,
           'projectAbsent': absentValue(projectName).isAbsent,
           // S11 additions:
-          'agentLabel': agentLabel,
+          'runnerLabel': runnerLabel,
           'progressPct': progressPct,
           'isIndeterminate': isIndeterminate,
           'tokenDisplay': tokenDisplay,

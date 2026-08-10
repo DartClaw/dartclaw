@@ -31,7 +31,7 @@ void main() {
       );
     });
 
-    test('reuses exact-session worker before a fingerprint-only match', () async {
+    test('reuses exact-session worker before another compatible worker', () async {
       final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
       addTearDown(fixture.dispose);
 
@@ -39,6 +39,8 @@ void main() {
       final second = await fixture.acquire(sessionId: 'session-b');
       final firstRunner = first.runner;
       final secondRunner = second.runner;
+      expect((firstRunner!.harness as _TestHarness).startCalled, isTrue);
+      expect((secondRunner!.harness as _TestHarness).startCalled, isTrue);
       await first.release();
       await second.release();
 
@@ -50,15 +52,8 @@ void main() {
       await reacquired.release();
     });
 
-    test('never reuses across provider, profile, or configuration fingerprints', () async {
-      final fixture = _CoordinatorFixture(
-        capacities: const {'claude': 2, 'codex': 1},
-        resolveFingerprint: (providerId, profileId) => ExecutionFingerprint(
-          providerId: providerId,
-          profileId: profileId,
-          configurationId: '$providerId-$profileId-config',
-        ),
-      );
+    test('never reuses across provider or profile', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2, 'codex': 1});
       addTearDown(fixture.dispose);
 
       final workspace = await fixture.acquire(sessionId: 'shared', providerId: 'claude', profileId: 'workspace');
@@ -88,6 +83,28 @@ void main() {
       expect(fixture.coordinator.snapshot.providers['claude']!.active, 1);
       await lease.release();
       expect(fixture.coordinator.snapshot.providers['claude']!.active, 0);
+    });
+
+    test('capacity-only lease neither consumes nor evicts a warm worker', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final workerLease = await fixture.acquire(sessionId: 'task');
+      final warmRunner = workerLease.runner!;
+      final warmHarness = warmRunner.harness as _TestHarness;
+      await workerLease.release();
+
+      final workflowLease = await fixture.acquire(sessionId: 'workflow', surface: ExecutionSurface.workflow);
+
+      expect(workflowLease.runner, isNull);
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+      expect(warmHarness.stopCalled, isFalse);
+      expect(warmHarness.disposeCalled, isFalse);
+      await workflowLease.release();
+
+      final reused = await fixture.acquire(sessionId: 'task');
+      expect(reused.runner, same(warmRunner));
+      expect(fixture.created, hasLength(1));
+      await reused.release();
     });
 
     test('fail-fast admission reports exhaustion without queueing', () async {
@@ -121,18 +138,18 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
+            profileId: 'workspace',
             sessionId: sessionId,
-            fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
             admission: admission,
           );
 
       final active = await coordinator.acquire(request('active'));
       final denied = await coordinator.acquire(request('denied', admission: ExecutionAdmission.failFast));
 
-      expect(active!.admissionOwned, isTrue);
+      expect(active, isNotNull);
       expect(denied, isNull);
       expect(calls, ['admit:active', 'create:active', 'admit:denied', 'release:denied']);
-      await active.release();
+      await active!.release();
       expect(calls.last, 'release:active');
     });
 
@@ -151,8 +168,8 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
+            profileId: 'workspace',
             sessionId: 'failed',
-            fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
           ),
         ),
         throwsA(isA<WorkerCreationException>()),
@@ -176,14 +193,14 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.workflow,
           providerId: 'claude',
+          profileId: 'workspace',
           sessionId: 'workflow',
-          fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
         ),
       );
-      expect(lease!.admissionOwned, isTrue);
+      expect(lease, isNotNull);
       expect(calls, ['admit:workflow']);
 
-      await lease.release();
+      await lease!.release();
       expect(calls, ['admit:workflow', 'release:workflow']);
     });
 
@@ -208,26 +225,33 @@ void main() {
       final primaryHarness = _TestHarness();
       final fixture = _CoordinatorFixture(capacities: const {'claude': 1}, primaryHarness: primaryHarness);
       addTearDown(fixture.dispose);
+      final events = <ExecutionEvent>[];
+      final subscription = fixture.coordinator.events.listen(events.add);
+      addTearDown(subscription.cancel);
+
+      Future<void> acquireAndExpectLane(
+        ExecutionSurface surface,
+        ExecutionLane lane, {
+        String profileId = 'workspace',
+      }) async {
+        final lease = await fixture.acquire(sessionId: surface.name, profileId: profileId, surface: surface);
+        await _flushEvents();
+        expect(events.lastWhere((event) => event.kind == ExecutionEventKind.acquired).lane, lane);
+        await lease.release();
+      }
 
       for (final surface in [ExecutionSurface.interactive, ExecutionSurface.channel]) {
-        final lease = await fixture.acquire(sessionId: surface.name, profileId: 'primary', surface: surface);
-        expect(lease.lane, ExecutionLane.primary);
-        await lease.release();
+        await acquireAndExpectLane(surface, ExecutionLane.primary, profileId: 'primary');
       }
       for (final surface in [
         ExecutionSurface.task,
         ExecutionSurface.scheduler,
         ExecutionSurface.advisor,
-        ExecutionSurface.system,
         ExecutionSurface.logicalAgent,
       ]) {
-        final lease = await fixture.acquire(sessionId: surface.name, surface: surface);
-        expect(lease.lane, ExecutionLane.worker);
-        await lease.release();
+        await acquireAndExpectLane(surface, ExecutionLane.worker);
       }
-      final workflow = await fixture.acquire(sessionId: 'workflow', surface: ExecutionSurface.workflow);
-      expect(workflow.lane, ExecutionLane.capacityOnly);
-      await workflow.release();
+      await acquireAndExpectLane(ExecutionSurface.workflow, ExecutionLane.capacityOnly);
     });
 
     test('SDK background fallback is explicit and excludes advisor, workflow, and logical-agent surfaces', () async {
@@ -237,30 +261,22 @@ void main() {
         providerCapacities: const {},
         primary: primary,
         allowPrimaryBackgroundFallback: true,
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
         createWorker: (_) => throw StateError('must not create'),
       );
       addTearDown(coordinator.dispose);
 
-      for (final surface in [ExecutionSurface.task, ExecutionSurface.scheduler, ExecutionSurface.system]) {
+      for (final surface in [ExecutionSurface.task, ExecutionSurface.scheduler]) {
         final lease = await coordinator.acquire(
-          ExecutionRequest(
-            surface: surface,
-            providerId: 'claude',
-            sessionId: surface.name,
-            fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
-          ),
+          ExecutionRequest(surface: surface, providerId: 'claude', profileId: 'workspace', sessionId: surface.name),
         );
         await lease!.release();
       }
       for (final surface in [ExecutionSurface.advisor, ExecutionSurface.workflow, ExecutionSurface.logicalAgent]) {
         await expectLater(
           coordinator.acquire(
-            ExecutionRequest(
-              surface: surface,
-              providerId: 'claude',
-              sessionId: surface.name,
-              fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
-            ),
+            ExecutionRequest(surface: surface, providerId: 'claude', profileId: 'workspace', sessionId: surface.name),
           ),
           throwsStateError,
         );
@@ -289,6 +305,8 @@ void main() {
       late final ExecutionCoordinator coordinator;
       coordinator = ExecutionCoordinator(
         providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
         createWorker: (request) async => _runner(harness, providerId: request.providerId, profileId: request.profileId),
       );
       addTearDown(coordinator.dispose);
@@ -298,11 +316,11 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
+            profileId: 'workspace',
             sessionId: 'invalid-factory-worker',
-            fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
           ),
         ),
-        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('non-idle'))),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('did not become idle'))),
       );
 
       expect(harness.stopCalled, isTrue);
@@ -316,6 +334,8 @@ void main() {
       late final ExecutionCoordinator coordinator;
       coordinator = ExecutionCoordinator(
         providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
         createWorker: (request) async => _runner(harness, providerId: request.providerId, profileId: request.profileId),
       );
       addTearDown(coordinator.dispose);
@@ -325,13 +345,44 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
+            profileId: 'workspace',
             sessionId: 'unsafe-factory-worker',
-            fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
           ),
         ),
         throwsStateError,
       );
 
+      final capacity = coordinator.snapshot.providers['claude']!;
+      expect(capacity.active, 0);
+      expect(capacity.effective, 0);
+      expect(capacity.quarantined, 1);
+    });
+
+    test('startup failure with unconfirmed teardown quarantines capacity', () async {
+      final harness = _FailingStartHarness(terminationConfirmed: false);
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, profileId: request.profileId),
+      );
+      addTearDown(coordinator.dispose);
+
+      await expectLater(
+        coordinator.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            profileId: 'workspace',
+            sessionId: 'start-failed',
+          ),
+        ),
+        throwsA(isA<WorkerCreationException>()),
+      );
+
+      expect(harness.startCalled, isTrue);
+      expect(harness.stopCalled, isTrue);
+      expect(harness.disposeCalled, isTrue);
       final capacity = coordinator.snapshot.providers['claude']!;
       expect(capacity.active, 0);
       expect(capacity.effective, 0);
@@ -402,6 +453,8 @@ void main() {
       final harness = _TestHarness();
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
         createWorker: (request) async {
           createStarted.complete();
           await allowCreate.future;
@@ -412,8 +465,8 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
+          profileId: 'workspace',
           sessionId: 'pending',
-          fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
         ),
       );
       await createStarted.future;
@@ -437,6 +490,8 @@ void main() {
       final allowCreate = Completer<void>();
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
         createWorker: (request) async {
           createStarted.complete();
           await allowCreate.future;
@@ -448,8 +503,8 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
+          profileId: 'workspace',
           sessionId: 'pending',
-          fingerprint: coordinator.fingerprintFor('claude', 'workspace'),
         ),
       );
       await createStarted.future;
@@ -501,10 +556,8 @@ void main() {
         containsAllInOrder([
           ExecutionEventKind.runnerCreated,
           ExecutionEventKind.acquired,
-          ExecutionEventKind.cached,
           ExecutionEventKind.released,
           ExecutionEventKind.acquired,
-          ExecutionEventKind.cached,
           ExecutionEventKind.released,
         ]),
       );
@@ -518,14 +571,14 @@ Future<void> _flushEvents() => Future<void>.delayed(Duration.zero);
 final class _CoordinatorFixture {
   _CoordinatorFixture({
     required Map<String, int> capacities,
-    ResolveExecutionFingerprint? resolveFingerprint,
     bool terminationConfirmed = true,
     _TestHarness? primaryHarness,
   }) : _terminationConfirmed = terminationConfirmed {
     coordinator = ExecutionCoordinator(
       providerCapacities: capacities,
-      resolveFingerprint: resolveFingerprint,
       primary: primaryHarness == null ? null : _runner(primaryHarness, providerId: 'claude', profileId: 'primary'),
+      admitExecution: (_) async {},
+      releaseAdmission: (_) {},
       createWorker: (request) async {
         final harness = _TestHarness(terminationConfirmed: _terminationConfirmed);
         final runner = _runner(harness, providerId: request.providerId, profileId: request.profileId);
@@ -550,8 +603,8 @@ final class _CoordinatorFixture {
   }) => ExecutionRequest(
     surface: surface,
     providerId: providerId,
+    profileId: profileId,
     sessionId: sessionId,
-    fingerprint: coordinator.fingerprintFor(providerId, profileId),
     admission: admission,
     taskId: taskId,
   );
@@ -588,6 +641,16 @@ class _TestHarness extends FakeAgentHarness {
 
   @override
   bool get isRootProcessTerminationConfirmed => terminationConfirmed;
+}
+
+final class _FailingStartHarness extends _TestHarness {
+  _FailingStartHarness({required super.terminationConfirmed});
+
+  @override
+  Future<void> start() async {
+    startCalled = true;
+    throw StateError('start failed');
+  }
 }
 
 final class _DelayedDisposeHarness extends _TestHarness {

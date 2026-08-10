@@ -324,7 +324,7 @@ class DartclawServer {
   void _mountMcpRoutes(Router router) {
     final gatewayToken = _core.gatewayToken;
     final host = _core.config?.server.host;
-    final unauthenticatedLoopback = !_core.authEnabled && _isLoopbackHost(host);
+    final unauthenticatedLoopback = !_core.authEnabled && host != null && isLoopbackHost(host);
     if (gatewayToken != null || unauthenticatedLoopback) {
       router.post(
         '/mcp',
@@ -332,8 +332,6 @@ class DartclawServer {
       );
     }
   }
-
-  static bool _isLoopbackHost(String? host) => host == 'localhost' || host == '127.0.0.1' || host == '::1';
 
   void _mountStaticRoutes(Router router) {
     final handler = _core.assetSource == AssetSource.embedded

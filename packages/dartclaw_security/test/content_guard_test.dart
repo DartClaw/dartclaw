@@ -103,4 +103,14 @@ void main() {
       expect(verdict.isPass, isTrue);
     });
   });
+
+  group('truncateUtf8Bytes', () {
+    test('honors exact, split-codepoint, and zero-byte boundaries', () {
+      expect(truncateUtf8Bytes('abc', 3), 'abc');
+      expect(truncateUtf8Bytes('a🎉b', 5), 'a🎉');
+      expect(truncateUtf8Bytes('a🎉b', 4), 'a');
+      expect(truncateUtf8Bytes('🎉', 0), '');
+      expect(truncateUtf8Bytes('a🎉b', 4), isNot(contains('\uFFFD')));
+    });
+  });
 }

@@ -503,7 +503,12 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
     disallowedTools =
         readStringList('disallowed_tools', agentMap, warns, defaultValue: disallowedTools) ?? disallowedTools;
     final providerVal = readString('provider', agentMap, warns);
-    if (providerVal != null) provider = providerVal;
+    if (providerVal != null) {
+      if (providerVal.trim().isEmpty) {
+        throw const FormatException('agent.provider must not be empty.');
+      }
+      provider = ProviderIdentity.normalize(providerVal);
+    }
     maxTurns = readInt('max_turns', agentMap, warns, defaultValue: maxTurns);
     final modelVal = readString('model', agentMap, warns);
     if (modelVal != null) {
@@ -512,10 +517,10 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
         model = shorthand.model;
         if (providerVal == null) {
           provider = shorthand.provider;
-        } else if (ProviderIdentity.normalize(provider) != shorthand.provider) {
+        } else if (provider != shorthand.provider) {
           warns.add(
             'agent.model shorthand provider "${shorthand.provider}" conflicts with agent.provider '
-            '"${ProviderIdentity.normalize(provider)}" — using agent.provider',
+            '"$provider" — using agent.provider',
           );
         }
       } else {
@@ -1104,15 +1109,15 @@ MemoryConfig _parseMemory(
     pruningSchedule = pruningMap!['schedule'] as String;
   }
 
+  final journalMap = journalRaw is Map ? journalRaw : null;
   if (memoryMap?.containsKey('journal') ?? false) {
-    if (journalRaw is! Map) {
+    if (journalMap == null) {
       throw const FormatException('memory.journal must be a map.');
     }
-    if (journalRaw.containsKey('schedule') && journalRaw['schedule'] is! String) {
+    if (journalMap.containsKey('schedule') && journalMap['schedule'] is! String) {
       throw const FormatException('memory.journal.schedule must be a string.');
     }
   }
-  final journalMap = journalRaw is Map ? journalRaw : null;
   journalEnabled = _parseBool(
     'memory.journal.enabled',
     cli['memory_journal_enabled'],

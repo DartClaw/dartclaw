@@ -91,15 +91,18 @@ void main() {
       final primaryWorker = FakeWorkerService();
       final codexWorker = FakeWorkerService();
       final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final primaryRunner = TurnRunner(
+        harness: primaryWorker,
+        messages: messages,
+        behavior: behavior,
+        sessions: sessionService,
+        providerId: 'claude',
+      );
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {'codex': 1},
-        primary: TurnRunner(
-          harness: primaryWorker,
-          messages: messages,
-          behavior: behavior,
-          sessions: sessionService,
-          providerId: 'claude',
-        ),
+        primary: primaryRunner,
+        admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primaryRunner.releaseAdmission,
         createWorker: (request) async {
           expect(request.providerId, 'codex');
           return TurnRunner(
@@ -223,15 +226,18 @@ void main() {
       final sessionService = SessionService(baseDir: tempDir.path);
       final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
+      final primaryRunner = TurnRunner(
+        harness: primaryWorker,
+        messages: messages,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        sessions: sessionService,
+        providerId: 'claude',
+      );
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {},
-        primary: TurnRunner(
-          harness: primaryWorker,
-          messages: messages,
-          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-          sessions: sessionService,
-          providerId: 'claude',
-        ),
+        primary: primaryRunner,
+        admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primaryRunner.releaseAdmission,
         createWorker: (_) => throw StateError('Worker execution disabled'),
       );
       final providerTurns = TurnManager.fromCoordinator(coordinator: coordinator, sessions: sessionService);
@@ -255,15 +261,18 @@ void main() {
       final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
       final primaryWorker = FakeWorkerService();
       var spawnCalls = 0;
+      final primaryRunner = TurnRunner(
+        harness: primaryWorker,
+        messages: messages,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        sessions: sessionService,
+        providerId: 'claude',
+      );
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {'codex': 1},
-        primary: TurnRunner(
-          harness: primaryWorker,
-          messages: messages,
-          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-          sessions: sessionService,
-          providerId: 'claude',
-        ),
+        primary: primaryRunner,
+        admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primaryRunner.releaseAdmission,
         createWorker: (_) async {
           spawnCalls++;
           throw const WorkerCreationException('spawn failed');
@@ -1157,8 +1166,8 @@ Future<void> _primeWorker(ExecutionCoordinator executions, {required String prov
     ExecutionRequest(
       surface: ExecutionSurface.task,
       providerId: providerId,
+      profileId: 'workspace',
       sessionId: 'prime-$providerId',
-      fingerprint: executions.fingerprintFor(providerId, 'workspace'),
     ),
   );
   await lease!.release();

@@ -243,7 +243,7 @@ class WorkflowRunCommand extends Command<void> {
     );
     var preWired = false;
     try {
-      await wiring.wirePreHarness();
+      await wiring.wireBaseServices();
       preWired = true;
     } on CredentialPreflightException catch (error) {
       for (final item in error.errors) {
@@ -310,12 +310,9 @@ class WorkflowRunCommand extends Command<void> {
         }
         _exitFn(1);
       }
-      // Gate referenced-provider auth before any harness starts: derive the
-      // run's referenced providers, preflight them, and only then start
-      // harnesses for that exact set. A logged-out referenced provider aborts
-      // here with the friendly remediation, before `harness.start()`; an
-      // unreferenced provider (e.g. a logged-out default) is never started or
-      // probed.
+      // Gate referenced-provider auth before configuring execution services.
+      // An unreferenced provider (for example a logged-out default) is never
+      // probed or made eligible for workflow execution.
       final referencedProviders = requiredWorkflowProviders(definition, config);
       try {
         await wiring.preflightProviderAuth(referencedProviders);
@@ -323,7 +320,7 @@ class WorkflowRunCommand extends Command<void> {
         _stderrLine(error.message);
         _exitFn(1);
       }
-      await wiring.startHarnesses(referencedProviders);
+      await wiring.wireExecutionServices(referencedProviders);
 
       final printer = CliProgressPrinter(
         totalSteps: definition.steps.length,

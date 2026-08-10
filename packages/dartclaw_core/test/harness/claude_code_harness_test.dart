@@ -978,8 +978,7 @@ void main() {
             },
           ),
         );
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
@@ -987,9 +986,6 @@ void main() {
             });
             return fake;
           },
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           guardChain: GuardChain(guards: [guard]),
         );
         addTeardownAsync(() => h.dispose());
@@ -1155,8 +1151,7 @@ void main() {
       test('malformed hook callbacks deny exactly once and do not poison later valid callbacks', () async {
         final guard = RecordingGuard();
         late CapturingFakeProcess fake;
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
@@ -1164,9 +1159,6 @@ void main() {
             });
             return fake;
           },
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           guardChain: GuardChain(guards: [guard]),
         );
         addTeardownAsync(() => h.dispose());
@@ -1247,8 +1239,7 @@ void main() {
 
       test('throwing hook guard denies exactly once and the active turn can still complete', () async {
         late CapturingFakeProcess fake;
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
+        final h = buildClaudeHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
@@ -1256,9 +1247,6 @@ void main() {
             });
             return fake;
           },
-          commandProbe: defaultClaudeCommandProbe,
-          delayFactory: noOpClaudeDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           guardChain: GuardChain(guards: [_ThrowingGuard()]),
         );
         addTeardownAsync(() => h.dispose());

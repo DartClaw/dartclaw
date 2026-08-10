@@ -89,19 +89,24 @@ class AgentDefinition {
       warns.add('Agent "$id" has no tools configured – no sandbox allowlist will be enforced');
     }
     final profile = yaml['security_profile'];
+    final defaultProfile = id == 'search' ? 'restricted' : null;
     String? securityProfile;
     if (profile == null) {
-      securityProfile = id == 'search' ? 'restricted' : null;
+      securityProfile = defaultProfile;
     } else if (profile is String && const {'workspace', 'restricted'}.contains(profile)) {
       securityProfile = profile;
     } else {
       warns.add('Invalid agents.$id.security_profile: "$profile" – using the default');
-      securityProfile = id == 'search' ? 'restricted' : null;
+      securityProfile = defaultProfile;
     }
     final providerValue = yaml['provider'];
     String? provider;
-    if (providerValue is String && providerValue.trim().isNotEmpty) {
-      provider = providerValue.trim().toLowerCase();
+    if (providerValue is String) {
+      final normalizedProvider = providerValue.trim().toLowerCase();
+      if (normalizedProvider.isEmpty) {
+        throw FormatException('agents.$id.provider must not be blank');
+      }
+      provider = normalizedProvider;
     } else if (providerValue != null) {
       warns.add('Invalid agents.$id.provider: "$providerValue" – using agent.provider');
     }

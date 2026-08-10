@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
@@ -120,7 +118,7 @@ class LogicalAgentSessionService {
 
       // Enforce response size cap
       final maxBytes = agent.maxResponseBytes;
-      final truncated = _truncateUtf8(result, maxBytes);
+      final truncated = truncateUtf8Bytes(result, maxBytes);
 
       return _success(truncated, sessionId: includeSessionId ? sessionId : null);
     } catch (e) {
@@ -146,21 +144,10 @@ class LogicalAgentSessionService {
       return agentId.isEmpty ? null : agentId;
     } on FormatException {
       return null;
+    } on ArgumentError {
+      // Uri.decodeComponent throws ArgumentError, not FormatException, on malformed percent-escapes.
+      return null;
     }
-  }
-
-  static String _truncateUtf8(String value, int maxBytes) {
-    final encoded = utf8.encode(value);
-    if (encoded.length <= maxBytes) return value;
-    var end = maxBytes;
-    while (end > 0) {
-      try {
-        return utf8.decode(encoded.sublist(0, end));
-      } on FormatException {
-        end--;
-      }
-    }
-    return '';
   }
 
   static Map<String, dynamic> _success(String text, {String? sessionId}) => {

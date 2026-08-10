@@ -42,7 +42,7 @@
 - `lib/dartclaw_security.dart` — barrel.
 - `lib/src/guard.dart` — `Guard`, `GuardChain`, `GuardContext`, `GuardVerdictCallback`.
 - `lib/src/guard_verdict.dart` — sealed `GuardVerdict` (`Pass`/`Warn`/`Block`).
-- `lib/src/{command,file,network,content}_guard.dart`, `input_sanitizer.dart`, `task_tool_filter_guard.dart` — built-in guards.
+- `lib/src/{command,file,network,content}_guard.dart`, `input_sanitizer.dart`, `task_tool_filter_guard.dart` — built-in guards. `network_guard.dart` also owns the shared `isLoopbackHost(host)` predicate for inbound unauthenticated host/origin decisions (bare host, case-insensitive, literal-only — no DNS resolution). Outbound MCP TLS policy deliberately uses broader IP loopback semantics.
 - `lib/src/content_classifier.dart` + `anthropic_api_classifier.dart` / `claude_binary_classifier.dart` / `cloudflare_detector.dart` — classifier interface + impls.
 - `lib/src/safe_process.dart` — `SafeProcess`, `EnvPolicy`, env allowlists, sensitive-name patterns.
 - `lib/src/guard_audit.dart` — `GuardAuditLogger`, `AuditEntry` (NDJSON, fire-and-forget).

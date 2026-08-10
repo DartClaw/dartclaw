@@ -7,9 +7,9 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show DartclawServer, DartclawServerBuilder;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../../helpers/harness_wiring_fixture.dart';
 
 Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code) during harness wiring test');
 
@@ -36,17 +36,7 @@ void main() {
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
       gateway: const GatewayConfig(authMode: 'none'),
     );
-    final workspaceDir = Directory(config.workspaceDir)..createSync(recursive: true);
-    for (final entry in const {
-      'SOUL.md': 'Soul prompt',
-      'USER.md': 'User prompt',
-      'TOOLS.md': 'Tool prompt',
-      'AGENTS.md': '## Agent prompt',
-      'errors.md': '## Recent error',
-      'learnings.md': '## Recent learning',
-    }.entries) {
-      File(p.join(workspaceDir.path, entry.key)).writeAsStringSync(entry.value);
-    }
+    writeWorkspacePromptFiles(config.workspaceDir);
     final eventBus = EventBus();
     final createdHarnesses = <FakeAgentHarness>[];
     StorageWiring? storage;
@@ -54,16 +44,13 @@ void main() {
     HarnessWiring? harnessWiring;
 
     Future<void> wireStorageAndSecurity() async {
-      storage = StorageWiring(
+      storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
+      security = await wireTestSecurity(
         config: config,
+        dataDir: tempDir.path,
         eventBus: eventBus,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
         exitFn: _unexpectedExit,
       );
-      await storage!.wire();
-      security = SecurityWiring(config: config, dataDir: tempDir.path, eventBus: eventBus, exitFn: _unexpectedExit);
-      await security!.wire(agentDefs: config.agent.definitions);
     }
 
     Future<void> wireRuntime() async {
@@ -74,18 +61,16 @@ void main() {
           return harness;
         });
       late DartclawServer server;
-      harnessWiring = HarnessWiring(
+      harnessWiring = await wireTestHarness(
         config: config,
         dataDir: tempDir.path,
-        port: 3333,
         harnessFactory: factory,
         exitFn: _unexpectedExit,
         storage: storage!,
         security: security!,
-        messageRedactor: MessageRedactor(),
         eventBus: eventBus,
+        serverRefGetter: () => server,
       );
-      await harnessWiring!.wire(serverRefGetter: () => server);
       server =
           (DartclawServerBuilder()
                 ..sessions = storage!.sessions

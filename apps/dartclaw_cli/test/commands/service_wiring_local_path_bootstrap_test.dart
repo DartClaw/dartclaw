@@ -97,36 +97,30 @@ DartclawConfig _schedulingConfig(
   ),
 );
 
-ServiceWiring _schedulingServiceWiring({
-  required DartclawConfig config,
-  required Directory dataDir,
-  required AgentHarness harness,
-  required File configFile,
-  required LogService logService,
-  required MessageRedactor messageRedactor,
-}) => ServiceWiring(
-  config: config,
-  dataDir: dataDir.path,
-  port: 3000,
-  harnessFactory: _harnessFactoryFor(harness),
-  serverFactory: (builder) => builder.build(),
-  searchDbFactory: (_) => sqlite3.openInMemory(),
-  taskDbFactory: (_) => sqlite3.openInMemory(),
-  stderrLine: (_) {},
-  exitFn: _unexpectedExit,
-  resolvedConfigPath: configFile.path,
-  logService: logService,
-  messageRedactor: messageRedactor,
-  resolvedAssets: _resolvedAssetsForConfig(config),
-  runWorkflowSkillsBootstrap: false,
-);
-
 void main() {
   late Directory tempDir;
   late File configFile;
   late FakeAgentHarness worker;
   late MessageRedactor messageRedactor;
   late LogService logService;
+
+  ServiceWiring wiringFor(DartclawConfig config, {void Function(HarnessFactoryConfig)? onHarnessCreate}) =>
+      ServiceWiring(
+        config: config,
+        dataDir: tempDir.path,
+        port: 3000,
+        harnessFactory: _harnessFactoryFor(worker, onCreate: onHarnessCreate),
+        serverFactory: (builder) => builder.build(),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: (_) {},
+        exitFn: _unexpectedExit,
+        resolvedConfigPath: configFile.path,
+        logService: logService,
+        messageRedactor: messageRedactor,
+        resolvedAssets: _resolvedAssetsForConfig(config),
+        runWorkflowSkillsBootstrap: false,
+      );
 
   setUpAll(() async {
     _staticDirPath = await _resolvePackageDir('src/static/app.js');
@@ -220,22 +214,7 @@ steps:
       ),
     );
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = wiringFor(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -318,22 +297,7 @@ steps:
     Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
     File(p.join(workspace.path, 'inbox', 'release-notes.md')).writeAsStringSync('DartClaw release notes.');
 
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = wiringFor(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -389,22 +353,7 @@ steps:
         claudeExecutable: Platform.resolvedExecutable,
       ),
     );
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = wiringFor(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -434,22 +383,7 @@ steps:
         ),
       );
       final factoryConfigs = <HarnessFactoryConfig>[];
-      final wiring = ServiceWiring(
-        config: config,
-        dataDir: tempDir.path,
-        port: 3000,
-        harnessFactory: _harnessFactoryFor(worker, onCreate: factoryConfigs.add),
-        serverFactory: (builder) => builder.build(),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: (_) {},
-        exitFn: _unexpectedExit,
-        resolvedConfigPath: configFile.path,
-        logService: logService,
-        messageRedactor: messageRedactor,
-        resolvedAssets: _resolvedAssetsForConfig(config),
-        runWorkflowSkillsBootstrap: false,
-      );
+      final wiring = wiringFor(config, onHarnessCreate: factoryConfigs.add);
 
       final result = await wiring.wire();
       addTearDown(() => _disposeWiringResult(result, logService));
@@ -478,22 +412,7 @@ steps:
           gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
         );
     final factoryConfigs = <HarnessFactoryConfig>[];
-    final wiring = ServiceWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3000,
-      harnessFactory: _harnessFactoryFor(worker, onCreate: factoryConfigs.add),
-      serverFactory: (builder) => builder.build(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-      stderrLine: (_) {},
-      exitFn: _unexpectedExit,
-      resolvedConfigPath: configFile.path,
-      logService: logService,
-      messageRedactor: messageRedactor,
-      resolvedAssets: _resolvedAssetsForConfig(config),
-      runWorkflowSkillsBootstrap: false,
-    );
+    final wiring = wiringFor(config, onHarnessCreate: factoryConfigs.add);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -533,14 +452,7 @@ steps:
 
   test('service wiring leaves the memory journal absent by default', () async {
     final config = _schedulingConfig(tempDir);
-    final wiring = _schedulingServiceWiring(
-      config: config,
-      dataDir: tempDir,
-      harness: worker,
-      configFile: configFile,
-      logService: logService,
-      messageRedactor: messageRedactor,
-    );
+    final wiring = wiringFor(config);
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
@@ -573,14 +485,7 @@ steps:
           ],
         ),
       );
-      final wiring = _schedulingServiceWiring(
-        config: config,
-        dataDir: tempDir,
-        harness: worker,
-        configFile: configFile,
-        logService: logService,
-        messageRedactor: messageRedactor,
-      );
+      final wiring = wiringFor(config);
       addTearDown(logService.dispose);
 
       await expectLater(

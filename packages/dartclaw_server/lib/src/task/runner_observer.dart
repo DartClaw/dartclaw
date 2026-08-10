@@ -128,8 +128,6 @@ class RunnerObserver {
           break;
         case ExecutionEventKind.acquired:
           _markBusy(metrics, taskId: event.request.taskId, sessionId: event.request.sessionId);
-        case ExecutionEventKind.cached:
-          _markIdle(metrics);
         case ExecutionEventKind.disposed:
           _markTerminal(metrics, runner.harness.state);
           _metrics.remove(runnerId);
@@ -148,7 +146,9 @@ class RunnerObserver {
           if (outcome != null) _recordTurn(metrics, outcome);
       }
     }
-    if (!_capacityChanges.isClosed) _capacityChanges.add(capacityStatus);
+    if (event.kind != ExecutionEventKind.turnSettled && !_capacityChanges.isClosed) {
+      _capacityChanges.add(capacityStatus);
+    }
   }
 
   void _recordTurn(_MutableMetrics metrics, TurnOutcome outcome) {

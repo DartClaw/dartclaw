@@ -167,7 +167,7 @@ Message
   +-- createdAt: DateTime
 ```
 
-Sessions carry an explicit type. `logicalAgent` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across compatible-worker replacement or process restart. The coordinator prefers a healthy exact-session worker when its provider/profile/configuration fingerprint still matches, but replay remains authoritative. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
+Sessions carry an explicit type. `logicalAgent` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across compatible-worker replacement or process restart. The coordinator prefers a healthy exact-session worker with the same provider/profile, but replay remains authoritative. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
 
 
 ## 3. Session Scoping Model

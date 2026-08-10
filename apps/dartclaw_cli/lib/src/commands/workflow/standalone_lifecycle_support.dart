@@ -149,7 +149,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
     var preWired = false;
     try {
       try {
-        await wiring.wirePreHarness();
+        await wiring.wireBaseServices();
         preWired = true;
       } on CredentialPreflightException catch (error) {
         for (final item in error.errors) {
@@ -166,18 +166,18 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
 
       if (provisionWorkers) {
         final definition = WorkflowDefinition.fromJson(run.definitionJson);
-        final harnessProviders = requiredWorkflowProviders(
+        final executionProviders = requiredWorkflowProviders(
           definition,
           config,
           context: WorkflowContext.fromJson(run.contextJson),
         );
         try {
-          await wiring.preflightProviderAuth(harnessProviders);
+          await wiring.preflightProviderAuth(executionProviders);
         } on WorkflowPreflightException catch (error) {
           stderrLine(error.message);
           exitFn(1);
         }
-        await wiring.startHarnesses(harnessProviders);
+        await wiring.wireExecutionServices(executionProviders);
       } else {
         await wiring.wireLifecycleOnly();
       }
@@ -206,20 +206,24 @@ Set<String> requiredWorkflowProviders(
   final roleDefaults = workflowRoleDefaultsFromConfig(config);
   final stepsById = {for (final step in definition.steps) step.id: step};
   final providers = <String>{};
+  void addProvider(WorkflowStep step) {
+    final provider = _effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById);
+    if (provider.trim().isEmpty) {
+      throw StateError('Workflow step "${step.id}" provider must not be blank');
+    }
+    providers.add(ProviderIdentity.normalize(provider));
+  }
+
   for (final step in definition.steps) {
     if (step.taskType != WorkflowTaskType.agent) continue;
-    providers.add(
-      ProviderIdentity.normalize(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById)),
-    );
+    addProvider(step);
   }
   for (final step in syntheticWorkflowSkillSteps(
     definition,
     context: context ?? WorkflowContext(),
     roleDefaults: roleDefaults,
   )) {
-    providers.add(
-      ProviderIdentity.normalize(_effectiveAgentStepProvider(definition, step, config, roleDefaults, stepsById)),
-    );
+    addProvider(step);
   }
   return providers;
 }

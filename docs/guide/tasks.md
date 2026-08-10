@@ -132,7 +132,7 @@ behavior but cannot activate these container profiles; enabling containers fails
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
 
-The task executor requests a worker whose execution fingerprint matches the task's provider and profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; containers are managed independently and may be shared by multiple compatible workers.
+The task executor requests a worker for the task's exact provider and profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; containers are managed independently and may be shared by multiple compatible workers.
 
 ## Coding Tasks and Worktrees
 

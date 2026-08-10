@@ -654,8 +654,8 @@ class AdvisorSubscriber {
         ExecutionRequest(
           surface: ExecutionSurface.advisor,
           providerId: _providerId,
+          profileId: 'workspace',
           sessionId: advisorSession.id,
-          fingerprint: _executions.fingerprintFor(_providerId, 'workspace'),
           admission: ExecutionAdmission.failFast,
         ),
       );
@@ -665,21 +665,13 @@ class AdvisorSubscriber {
         return;
       }
 
-      final turnId = lease!.admissionOwned
-          ? await runner.reserveAdmittedTurn(
-              advisorSession.id,
-              agentName: 'advisor',
-              model: _model,
-              effort: _effort,
-              maxTurns: 1,
-            )
-          : await runner.reserveTurn(
-              advisorSession.id,
-              agentName: 'advisor',
-              model: _model,
-              effort: _effort,
-              maxTurns: 1,
-            );
+      final turnId = await runner.reserveAdmittedTurn(
+        advisorSession.id,
+        agentName: 'advisor',
+        model: _model,
+        effort: _effort,
+        maxTurns: 1,
+      );
       executionSessionId = advisorSession.id;
       executionTurnId = turnId;
       runner.executeTurn(

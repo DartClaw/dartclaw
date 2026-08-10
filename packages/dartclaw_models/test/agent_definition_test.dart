@@ -43,6 +43,13 @@ void main() {
         expect(warns, contains(contains('Invalid agents.reviewer.provider')));
       });
 
+      test('rejects an explicitly blank provider', () {
+        expect(
+          () => AgentDefinition.fromYaml('reviewer', const {'provider': ' '}, <String>[]),
+          throwsA(isA<FormatException>()),
+        );
+      });
+
       test('parses a provider-independent security profile', () {
         final warns = <String>[];
         final agent = AgentDefinition.fromYaml('reviewer', {

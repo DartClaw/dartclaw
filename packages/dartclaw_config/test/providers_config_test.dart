@@ -15,6 +15,29 @@ void main() {
       expect(config.toString(), contains('codex'));
     });
 
+    test('direct construction retains normalized lookup compatibility', () {
+      const entry = ProviderEntry(executable: 'codex');
+      const config = ProvidersConfig(entries: {' Codex ': entry});
+
+      expect(config['codex'], same(entry));
+    });
+
+    test('direct construction never routes blank IDs to the default provider', () {
+      const entry = ProviderEntry(executable: 'claude');
+      const config = ProvidersConfig(entries: {'claude': entry, ' ': entry});
+
+      expect(config[' '], isNull);
+      expect(const ProvidersConfig(entries: {' ': entry})['claude'], isNull);
+    });
+
+    test('direct construction rejects normalized lookup collisions', () {
+      const first = ProviderEntry(executable: 'codex-first');
+      const second = ProviderEntry(executable: 'codex-second');
+      const config = ProvidersConfig(entries: {'Codex': first, ' codex ': second});
+
+      expect(() => config['codex'], throwsStateError);
+    });
+
     test('parses providers section with claude and codex entries', () {
       final config = loadYaml('''
 providers:

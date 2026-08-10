@@ -170,6 +170,9 @@ class HarnessWiring {
         },
     });
 
+    if (config.agent.provider.trim().isEmpty) {
+      throw StateError('agent.provider must not be blank');
+    }
     final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
     _authEnabled = config.gateway.authMode != 'none';
     if (_authEnabled) {
@@ -182,15 +185,20 @@ class HarnessWiring {
       _tokenService = TokenService(token: _resolvedGatewayToken!);
     } else {
       final host = config.server.host;
-      if (_isLoopbackHost(host)) {
+      if (isLoopbackHost(host)) {
         _log.warning('Auth disabled on loopback — acceptable for local dev only');
       } else {
         _log.severe('CRITICAL: Auth disabled on network-accessible host $host');
       }
     }
 
-    final mcpEnabled = _resolvedGatewayToken != null || (!_authEnabled && _isLoopbackHost(config.server.host));
+    final mcpEnabled = _resolvedGatewayToken != null || (!_authEnabled && isLoopbackHost(config.server.host));
     _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
+    for (final definition in _agentDefs) {
+      if (definition.provider != null && definition.provider!.trim().isEmpty) {
+        throw StateError('agents.${definition.id}.provider must not be blank');
+      }
+    }
     _agentMap = {for (final a in _agentDefs) a.id: a};
     _harnessConfig = HarnessConfig(
       disallowedTools: mcpDisallowedTools(
@@ -208,8 +216,9 @@ class HarnessWiring {
 
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
-    final acpValidationResults = await _validateConfiguredAcpTargets(config);
-    for (final entry in _canonicalAcpAgentEntries(config.harness.acp).entries) {
+    final acpAgents = ProviderIdentity.normalizeKeys(config.harness.acp.agents, subject: 'Configured ACP provider IDs');
+    final acpValidationResults = await _validateConfiguredAcpTargets(config, acpAgents);
+    for (final entry in acpAgents.entries) {
       if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
         continue;
       }
@@ -224,7 +233,7 @@ class HarnessWiring {
     late final Map<String, int> providerCapacities;
     try {
       final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
-      providerEntries = _effectiveWorkerProviderEntries(config, acpValidationResults);
+      providerEntries = _effectiveWorkerProviderEntries(config, acpAgents, acpValidationResults);
       _providerStatusEntries = providerEntries;
       providerProfiles = {
         for (final providerId in providerEntries.keys) providerId: _profilesForProvider(config, providerId, profileIds),
@@ -238,7 +247,7 @@ class HarnessWiring {
       }
 
       final validationProviders = ProvidersConfig(
-        entries: _effectiveValidationProviderEntries(config, acpValidationResults),
+        entries: _effectiveValidationProviderEntries(config, providerEntries),
       );
       final validation = await ProviderValidator.validate(
         providers: validationProviders,
@@ -254,24 +263,12 @@ class HarnessWiring {
 
       _harness = _harnessFactory.create(
         defaultProviderId,
-        HarnessFactoryConfig(
-          cwd: Directory.current.path,
+        _buildFactoryConfig(
           executable: _resolveProviderExecutable(config, defaultProviderId),
-          turnTimeout: Duration(seconds: config.server.workerTimeout),
-          onMemorySave: _memoryHandlers.onSave,
-          onMemorySearch: _memoryHandlers.onSearch,
-          onMemoryRead: _memoryHandlers.onRead,
-          onPermissionDenied: (toolName, reason) {
-            _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
-          },
           harnessConfig: _harnessConfig,
-          historyConfig: config.agent.history,
           providerOptions: _providerOptions(config, defaultProviderId),
           containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
           guardChain: _primaryGuardChain,
-          ownMcpToolCanonicals: _ownMcpToolCanonicals,
-          acpPermissionDecision: (request) => _acpPermissionDecision(_primaryGuardChain, request),
-          acpReverseCallAudit: _auditAcpReverseCall,
           environment: _providerEnvironment(
             config,
             defaultProviderId,
@@ -482,6 +479,11 @@ class HarnessWiring {
       providerId: providerId,
     );
 
+    // Append-mode providers receive behavior content when their process starts.
+    // Snapshot the task prompt once so all workers in this coordinator share the
+    // same construction inputs and are safe to reuse.
+    final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
+
     // Build the primary lane and on-demand worker authority.
     final primaryRunner = buildRunner(
       harness: _harness,
@@ -494,13 +496,6 @@ class HarnessWiring {
       providerCapacities: providerCapacities,
       admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
       releaseAdmission: primaryRunner.releaseAdmission,
-      resolveFingerprint: (providerId, profileId) {
-        final allowedProfiles = providerProfiles[providerId];
-        if (allowedProfiles == null || !allowedProfiles.contains(profileId)) {
-          throw StateError('Provider "$providerId" cannot execute in security profile "$profileId"');
-        }
-        return ExecutionFingerprint(providerId: providerId, profileId: profileId, configurationId: 'serve-composition');
-      },
       createWorker: (request) async {
         final entry = providerEntries[request.providerId];
         final allowedProfiles = providerProfiles[request.providerId];
@@ -522,28 +517,15 @@ class HarnessWiring {
           workerFilter,
           _security.toolPolicyCascade,
         );
-        final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
         final workerHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: workerPrompt);
         final workerHarness = _harnessFactory.create(
           request.providerId,
-          HarnessFactoryConfig(
-            cwd: Directory.current.path,
+          _buildFactoryConfig(
             executable: entry.executable,
-            turnTimeout: Duration(seconds: config.server.workerTimeout),
-            onMemorySave: _memoryHandlers.onSave,
-            onMemorySearch: _memoryHandlers.onSearch,
-            onMemoryRead: _memoryHandlers.onRead,
-            onPermissionDenied: (toolName, reason) {
-              _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
-            },
             harnessConfig: workerHarnessConfig,
-            historyConfig: config.agent.history,
             providerOptions: entry.options,
             containerManager: containerManager,
             guardChain: workerGuardChain,
-            ownMcpToolCanonicals: _ownMcpToolCanonicals,
-            acpPermissionDecision: (permissionRequest) => _acpPermissionDecision(workerGuardChain, permissionRequest),
-            acpReverseCallAudit: _auditAcpReverseCall,
             environment: _providerEnvironment(
               config,
               request.providerId,
@@ -553,36 +535,44 @@ class HarnessWiring {
           ),
         );
         _wireCompactionCallbacks(workerHarness);
-        try {
-          await workerHarness.start();
-          return buildRunner(
-            harness: workerHarness,
-            guardChain: workerGuardChain,
-            toolFilter: workerFilter,
-            profileId: request.profileId,
-            providerId: request.providerId,
-          );
-        } catch (error) {
-          try {
-            await workerHarness.stop();
-          } catch (cleanupError) {
-            _log.warning('Failed to stop worker after startup failure: $cleanupError');
-          }
-          try {
-            await workerHarness.dispose();
-          } catch (cleanupError) {
-            _log.warning('Failed to dispose worker after startup failure: $cleanupError');
-          }
-          throw WorkerCreationException(
-            'Failed to start ${request.providerId} worker: $error',
-            quarantineSlot: !workerHarness.isRootProcessTerminationConfirmed,
-          );
-        }
+        return buildRunner(
+          harness: workerHarness,
+          guardChain: workerGuardChain,
+          toolFilter: workerFilter,
+          profileId: request.profileId,
+          providerId: request.providerId,
+        );
       },
     );
   }
 
-  static bool _isLoopbackHost(String host) => host == 'localhost' || host == '127.0.0.1' || host == '::1';
+  HarnessFactoryConfig _buildFactoryConfig({
+    required String executable,
+    required HarnessConfig harnessConfig,
+    required Map<String, dynamic> providerOptions,
+    required ContainerExecutor? containerManager,
+    required GuardChain guardChain,
+    required Map<String, String> environment,
+  }) => HarnessFactoryConfig(
+    cwd: Directory.current.path,
+    executable: executable,
+    turnTimeout: Duration(seconds: config.server.workerTimeout),
+    onMemorySave: _memoryHandlers.onSave,
+    onMemorySearch: _memoryHandlers.onSearch,
+    onMemoryRead: _memoryHandlers.onRead,
+    onPermissionDenied: (toolName, reason) {
+      _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
+    },
+    harnessConfig: harnessConfig,
+    historyConfig: config.agent.history,
+    providerOptions: providerOptions,
+    containerManager: containerManager,
+    guardChain: guardChain,
+    ownMcpToolCanonicals: _ownMcpToolCanonicals,
+    acpPermissionDecision: (request) => _acpPermissionDecision(guardChain, request),
+    acpReverseCallAudit: _auditAcpReverseCall,
+    environment: environment,
+  );
 
   void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
     final hasToolPolicy =
@@ -744,21 +734,18 @@ Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) 
 
 Map<String, ProviderEntry> _effectiveWorkerProviderEntries(
   DartclawConfig config,
+  Map<String, AcpAgentConfig> acpAgents,
   Map<String, AcpTargetValidationResult> acpValidationResults,
 ) {
-  final entries = <String, ProviderEntry>{};
-  for (final entry in config.providers.entries.entries) {
-    final providerId = ProviderIdentity.normalize(entry.key);
-    if (entries.containsKey(providerId)) {
-      throw StateError('Configured provider IDs collide after normalization to "$providerId"');
-    }
-    entries[providerId] = ProviderEntry(
-      executable: entry.value.executable,
-      poolSize: entry.value.poolSize,
-      options: _withoutAcpValidationOptions(entry.value.options),
-    );
-  }
-  for (final acpEntry in _canonicalAcpAgentEntries(config.harness.acp).entries) {
+  final entries = <String, ProviderEntry>{
+    for (final entry in ProviderIdentity.normalizeKeys(config.providers.entries).entries)
+      entry.key: ProviderEntry(
+        executable: entry.value.executable,
+        poolSize: entry.value.poolSize,
+        options: _withoutAcpValidationOptions(entry.value.options),
+      ),
+  };
+  for (final acpEntry in acpAgents.entries) {
     final providerId = acpEntry.key;
     final providerOverride = entries[providerId];
     final validation = acpValidationResults[providerId];
@@ -791,12 +778,15 @@ Map<String, dynamic> _withoutAcpValidationOptions(Map<String, dynamic> options) 
   return sanitized;
 }
 
-Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(DartclawConfig config) async {
-  final agents = _canonicalAcpAgentEntries(config.harness.acp);
+Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(
+  DartclawConfig config,
+  Map<String, AcpAgentConfig> agents,
+) async {
   if (agents.isEmpty) {
     return const {};
   }
   const validator = AcpTargetValidator();
+  final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
   final results = await validator.validateConfiguredTargets(
     agents: agents,
     commandProbe: Process.run,
@@ -804,7 +794,7 @@ Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(Dar
       for (final providerId in agents.keys) providerId: const {'fs', 'terminal'},
     },
     requiredTargets: agents.entries
-        .where((entry) => entry.key == config.agent.provider || entry.value.requiresGuardMediation)
+        .where((entry) => entry.key == defaultProviderId || entry.value.requiresGuardMediation)
         .map((entry) => entry.key)
         .toSet(),
   );
@@ -822,28 +812,15 @@ Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(Dar
   return results;
 }
 
-Map<String, AcpAgentConfig> _canonicalAcpAgentEntries(AcpConfig config) {
-  final agents = <String, AcpAgentConfig>{};
-  for (final entry in config.agents.entries) {
-    final providerId = ProviderIdentity.normalize(entry.key);
-    if (agents.containsKey(providerId)) {
-      throw StateError('Configured ACP provider IDs collide after normalization to "$providerId"');
-    }
-    agents[providerId] = entry.value;
-  }
-  return agents;
-}
-
 Map<String, ProviderEntry> _effectiveValidationProviderEntries(
   DartclawConfig config,
-  Map<String, AcpTargetValidationResult> acpValidationResults,
+  Map<String, ProviderEntry> workerEntries,
 ) {
   if (config.providers.isEmpty && config.harness.acp.isEmpty) {
-    return {
-      config.agent.provider: ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
-    };
+    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
+    return {defaultProviderId: ProviderEntry(executable: _resolveProviderExecutable(config, defaultProviderId))};
   }
-  return _effectiveWorkerProviderEntries(config, acpValidationResults);
+  return workerEntries;
 }
 
 List<String> _profilesForProvider(DartclawConfig config, String providerId, List<String> fallbackProfiles) {

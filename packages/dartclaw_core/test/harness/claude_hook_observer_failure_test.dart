@@ -1,31 +1,19 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess;
 import 'package:test/test.dart';
 
-Future<ProcessResult> _observerProbe(String exe, List<String> args) async => ProcessResult(0, 0, '1.0.0', '');
-
-Future<void> _observerDelay(Duration _) async {}
+import 'harness_test_support.dart';
 
 Future<(ClaudeCodeHarness, CapturingFakeProcess)> _startHarness({
   GuardAuditLogger? auditLogger,
   void Function(String, String?)? onPermissionDenied,
 }) async {
-  late CapturingFakeProcess process;
-  final harness = ClaudeCodeHarness(
-    cwd: '/tmp',
-    processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-      process = CapturingFakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
-      scheduleMicrotask(() => process.emitStdout(jsonEncode({'type': 'control_response', 'response': {}})));
-      return process;
-    },
-    commandProbe: _observerProbe,
-    delayFactory: _observerDelay,
-    environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+  final process = makeCapturingClaudeProcess();
+  final harness = buildClaudeHarness(
+    processFactory: capturingInitFactory(process: process),
     auditLogger: auditLogger,
     onPermissionDenied: onPermissionDenied,
   );

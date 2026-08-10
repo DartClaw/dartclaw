@@ -100,7 +100,7 @@ void main() {
     test('sessions_send rejects malformed or unknown session handles', () async {
       final sessions = _sessions(searchAgent);
 
-      for (final sessionId in ['not-a-session', 'agent:missing:logical:123']) {
+      for (final sessionId in ['not-a-session', 'agent:missing:logical:123', 'agent:%ZZ:logical:123']) {
         final result = await sessions.handleSessionsSend({'session_id': sessionId, 'message': 'test'});
         expect(result['isError'], isTrue, reason: sessionId);
       }

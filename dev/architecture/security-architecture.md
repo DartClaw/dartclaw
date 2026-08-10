@@ -25,7 +25,7 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 | **Rate abuse** | Flooding via channel messages overwhelming the agent with requests | Per-sender rate limiting, global turn rate limiting (SlidingWindowRateLimiter) |
 | **Runaway agent loops** | Agent stuck in repetitive tool-call patterns or unbounded turn chains | LoopDetector (3 mechanisms: turn chain depth, token velocity, tool fingerprinting) |
 | **Provider-specific tool bypass** | Provider-native tool names slipping past provider-specific interception or bypassing a guard path entirely | Canonical Tool Taxonomy, fail-closed guard evaluation, provider interception hardening |
-| **Cross-execution state reuse** | Reusing a process built for a different session, provider configuration, or security profile | Canonical construction fingerprints, exact-session-first compatible reuse, unknown=fresh |
+| **Cross-execution state reuse** | Reusing a process built for a different session, provider configuration, or security profile | Immutable coordinator composition, exact provider/profile matching, exact-session-first reuse |
 | **Overlapping replacement** | Starting a replacement while the previous managed root process may still be alive | Confirmed root teardown or provider-capacity quarantine |
 
 ---
@@ -140,7 +140,7 @@ GuardChain._evaluate(context):
 
 **Package attribution**: `dartclaw_security` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_server`.
 
-**Per-execution chain composition**: serve wiring builds one shared base chain from `guards.*` config. The fixed primary harness and every coordinator-created worker evaluate a layered chain (`GuardChain.layered`): the live base chain plus the worker's `TaskToolFilterGuard`. A `guards.*` hot-reload (`replaceGuards`) reaches every chain while the execution-scoped filter remains authoritative for per-task `allowedTools` and session policies such as no-tools turns. Reuse cannot weaken this boundary: construction-affecting security inputs participate in the canonical worker fingerprint, while turn-scoped policy is rebound from the active lease/request.
+**Per-execution chain composition**: serve wiring builds one shared base chain from `guards.*` config. The fixed primary harness and every coordinator-created worker evaluate a layered chain (`GuardChain.layered`): the live base chain plus the worker's `TaskToolFilterGuard`. A `guards.*` hot-reload (`replaceGuards`) reaches every chain while the execution-scoped filter remains authoritative for per-task `allowedTools` and session policies such as no-tools turns. Reuse cannot weaken this boundary: coordinator construction inputs are immutable and the security profile must match, while turn-scoped policy is rebound from the active lease/request.
 
 The same composition is the SDK host's responsibility. `DartclawServerBuilder` receives an already-constructed harness, so it cannot retrofit that harness's chain: a host wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and sets the same instance as `builder.taskToolFilterGuard`. The builder never creates one on the host's behalf — a filter outside the chain the harness evaluates is inert, and silently so.
 
@@ -472,7 +472,7 @@ custom    → workspace
 
 Global governance runs before `ExecutionCoordinator`. After admission, the coordinator is the only authority that selects the fixed primary-interactive lane or acquires a provider worker lease. Main-agent user/channel turns serialize on the primary lane. Cron/system jobs, advisor turns, tasks, and logical agents consume worker capacity; workflow one-shots consume capacity-only leases.
 
-`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries a canonical construction fingerprint containing normalized provider, security profile, and the canonical identity of every other construction-only input. Reuse order is exact session within that fingerprint, then a healthy compatible fingerprint, otherwise fresh. Unknown compatibility or health is treated as fresh.
+`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and security profile; all other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/profile, then any healthy worker with the same provider/profile, otherwise fresh. A mismatch or unknown health is treated as fresh.
 
 Released unhealthy workers are stopped and disposed. No replacement is created until teardown of the managed root process is confirmed. If confirmation is unavailable, the slot is quarantined and effective provider capacity decreases. This prevents a failed termination from turning one configured capacity slot into multiple live security principals.
 
@@ -1140,7 +1140,7 @@ gateway:
 | `mcp/web_fetch_tool.dart` | `dartclaw_server` | SSRF-hardened URL fetcher |
 | `task/task_file_guard.dart` | `dartclaw_server` | Per-task worktree path containment |
 | `container/container_health_monitor.dart` | `dartclaw_server` | Periodic container health checks |
-| `execution_coordinator.dart` | `dartclaw_server` | Post-governance lanes, capacity leases, fingerprinted reuse, quarantine |
+| `execution_coordinator.dart` | `dartclaw_server` | Post-governance lanes, capacity leases, provider/profile reuse, quarantine |
 | `worker_capacity_gate.dart` | `dartclaw_server` | Hard per-provider worker execution capacity |
 | `harness/tool_policy.dart` | `dartclaw_core` | Control protocol tool approval/hook responses |
 | `governance_config.dart` | `dartclaw_config` | GovernanceConfig, RateLimitsConfig, BudgetConfig, LoopDetectionConfig |

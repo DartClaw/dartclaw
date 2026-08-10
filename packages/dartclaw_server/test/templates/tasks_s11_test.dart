@@ -87,7 +87,7 @@ void main() {
       expect(html, contains('0 tokens'));
     });
 
-    test('renders agent badge when runner is assigned to task', () {
+    test('renders runner badge when runner is assigned to task', () {
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
@@ -107,13 +107,13 @@ void main() {
         executionCapacity: const {'effective': 2, 'active': 1, 'available': 1},
       );
 
-      expect(html, contains('task-agent-badge'));
-      expect(html, contains('data-identicon-id="Agent #2"'));
-      expect(html, contains('Agent #2'));
+      expect(html, contains('task-runner-badge'));
+      expect(html, contains('data-identicon-id="Worker #2"'));
+      expect(html, contains('Worker #2'));
       expect(html, contains('class="provider-badge provider-badge-claude"'));
     });
 
-    test('agent badge shows Primary label for primary role runner', () {
+    test('runner badge shows Primary label for primary role runner', () {
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
@@ -133,11 +133,11 @@ void main() {
         executionCapacity: const {'effective': 1, 'active': 1, 'available': 0},
       );
 
-      expect(html, contains('task-agent-badge'));
+      expect(html, contains('task-runner-badge'));
       expect(html, contains('Primary (#0)'));
     });
 
-    test('no agent badge when no runner assigned to task', () {
+    test('no runner badge when no runner assigned to task', () {
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
@@ -157,7 +157,7 @@ void main() {
         executionCapacity: const {'effective': 1, 'active': 0, 'available': 1},
       );
 
-      expect(html, isNot(contains('task-agent-badge')));
+      expect(html, isNot(contains('task-runner-badge')));
     });
 
     test('renders compact events section when task has recent events', () {

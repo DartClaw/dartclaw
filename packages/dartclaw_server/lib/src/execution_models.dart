@@ -1,37 +1,21 @@
 part of 'execution_coordinator.dart';
 
+/// The execution resource selected by the coordinator for a request surface.
 enum ExecutionLane { primary, worker, capacityOnly }
 
+/// Whether worker-capacity acquisition queues or returns immediately.
 enum ExecutionAdmission { wait, failFast }
 
-enum ExecutionSurface { interactive, channel, task, workflow, logicalAgent, scheduler, advisor, system }
-
-/// Identifies static construction inputs that may safely share a worker process.
-final class ExecutionFingerprint {
-  const ExecutionFingerprint({required this.providerId, required this.profileId, required this.configurationId});
-
-  final String providerId;
-  final String profileId;
-  final String configurationId;
-
-  @override
-  bool operator ==(Object other) =>
-      other is ExecutionFingerprint &&
-      other.providerId == providerId &&
-      other.profileId == profileId &&
-      other.configurationId == configurationId;
-
-  @override
-  int get hashCode => Object.hash(providerId, profileId, configurationId);
-}
+/// Identifies the product surface requesting execution.
+enum ExecutionSurface { interactive, channel, task, workflow, logicalAgent, scheduler, advisor }
 
 /// Describes one post-governance execution allocation.
 final class ExecutionRequest {
   const ExecutionRequest({
     required this.surface,
     required this.providerId,
+    required this.profileId,
     required this.sessionId,
-    required this.fingerprint,
     this.admission = ExecutionAdmission.wait,
     this.isHumanInput = false,
     this.taskId,
@@ -39,20 +23,18 @@ final class ExecutionRequest {
 
   final ExecutionSurface surface;
   final String providerId;
+  final String profileId;
   final String sessionId;
-  final ExecutionFingerprint fingerprint;
   final ExecutionAdmission admission;
   final bool isHumanInput;
   final String? taskId;
 
-  String get profileId => fingerprint.profileId;
-
-  ExecutionRequest _route({String? providerId, ExecutionFingerprint? fingerprint}) {
+  ExecutionRequest _route({String? providerId, String? profileId}) {
     return ExecutionRequest(
       surface: surface,
       providerId: providerId ?? this.providerId,
+      profileId: profileId ?? this.profileId,
       sessionId: sessionId,
-      fingerprint: fingerprint ?? this.fingerprint,
       admission: admission,
       isHumanInput: isHumanInput,
       taskId: taskId,
@@ -60,38 +42,31 @@ final class ExecutionRequest {
   }
 }
 
+/// Builds an unstarted worker. The coordinator exclusively owns its lifecycle.
 typedef CreateExecutionWorker = Future<TurnRunner> Function(ExecutionRequest request);
-typedef ResolveExecutionFingerprint = ExecutionFingerprint Function(String providerId, String profileId);
+
+/// Reserves a logical session before capacity or a runner is acquired.
 typedef AdmitExecution = Future<void> Function(ExecutionRequest request);
+
+/// Releases a logical-session reservation previously made by [AdmitExecution].
 typedef ReleaseExecutionAdmission = void Function(String sessionId);
 
 final class WorkerCreationException implements Exception {
-  const WorkerCreationException(this.message, {this.quarantineSlot = false});
+  const WorkerCreationException(this.message);
 
   final String message;
-  final bool quarantineSlot;
 
   @override
   String toString() => 'WorkerCreationException: $message';
 }
 
-enum ExecutionEventKind {
-  capacityChanged,
-  acquired,
-  released,
-  cached,
-  disposed,
-  quarantined,
-  runnerCreated,
-  turnSettled,
-}
+enum ExecutionEventKind { capacityChanged, acquired, released, disposed, quarantined, runnerCreated, turnSettled }
 
 final class ExecutionEvent {
   const ExecutionEvent({
     required this.kind,
     required this.request,
     required this.lane,
-    required this.executionId,
     this.runnerId,
     this.runner,
     this.outcome,
@@ -100,12 +75,12 @@ final class ExecutionEvent {
   final ExecutionEventKind kind;
   final ExecutionRequest request;
   final ExecutionLane lane;
-  final int executionId;
   final int? runnerId;
   final TurnRunner? runner;
   final TurnOutcome? outcome;
 }
 
+/// Immutable capacity state for one provider.
 final class ProviderCapacitySnapshot {
   const ProviderCapacitySnapshot({
     required this.configured,
@@ -116,16 +91,28 @@ final class ProviderCapacitySnapshot {
     required this.quarantined,
   });
 
+  /// Configured concurrency ceiling.
   final int configured;
+
+  /// Usable ceiling after quarantined slots are removed.
   final int effective;
+
+  /// Currently leased slots.
   final int active;
+
+  /// Requests waiting for a slot.
   final int queued;
+
+  /// Idle reusable workers.
   final int cached;
+
+  /// Slots withheld because process termination could not be confirmed.
   final int quarantined;
 
   int get available => effective - active;
 }
 
+/// Immutable aggregate execution-capacity state.
 final class ExecutionSnapshot {
   const ExecutionSnapshot({required this.primaryActive, required this.providers});
 

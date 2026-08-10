@@ -23,12 +23,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
           },
         );
       } else {
-        await _executeWithRunner(
-          runningTask,
-          runner,
-          runnerIndex: lease.runnerId ?? -1,
-          admissionOwned: lease.admissionOwned,
-        );
+        await _executeWithRunner(runningTask, runner, runnerIndex: lease.runnerId ?? -1);
       }
     } finally {
       if (rootProcessTerminationConfirmed) {
@@ -108,12 +103,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
     return _QueuedTaskDisposition.ready;
   }
 
-  Future<void> _executeWithRunner(
-    Task runningTask,
-    TurnRunner runner, {
-    required int runnerIndex,
-    required bool admissionOwned,
-  }) {
+  Future<void> _executeWithRunner(Task runningTask, TurnRunner runner, {required int runnerIndex}) {
     return _executeCore(
       runningTask,
       runnerIndex: runnerIndex,
@@ -130,31 +120,18 @@ extension _TaskExecutorHelpers on TaskExecutor {
             required List<String>? allowedTools,
             required bool readOnly,
             PromptScope? promptScope,
-          }) => admissionOwned
-          ? runner.reserveAdmittedTurn(
-              sessionId,
-              agentName: 'task',
-              directory: directory,
-              model: model,
-              effort: effort,
-              taskId: taskId,
-              behaviorOverride: behaviorOverride,
-              allowedTools: allowedTools,
-              readOnly: readOnly,
-              promptScope: promptScope,
-            )
-          : runner.reserveTurn(
-              sessionId,
-              agentName: 'task',
-              directory: directory,
-              model: model,
-              effort: effort,
-              taskId: taskId,
-              behaviorOverride: behaviorOverride,
-              allowedTools: allowedTools,
-              readOnly: readOnly,
-              promptScope: promptScope,
-            ),
+          }) => runner.reserveAdmittedTurn(
+            sessionId,
+            agentName: 'task',
+            directory: directory,
+            model: model,
+            effort: effort,
+            taskId: taskId,
+            behaviorOverride: behaviorOverride,
+            allowedTools: allowedTools,
+            readOnly: readOnly,
+            promptScope: promptScope,
+          ),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
       waitForExecutionSettled: runner.waitForExecutionSettled,

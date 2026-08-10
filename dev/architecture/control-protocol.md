@@ -1080,15 +1080,15 @@ The primary-interactive lane is fixed, serialized, and tied to the configured pr
 
 The coordinator returns an idempotent `ExecutionLease`. The lease is released exactly once on every success, failure, cancellation, or setup-error path. Its active set is the source of truth for runtime busy/free/current-work observability.
 
-### Canonical construction fingerprint and lookup
+### Compatible-worker lookup
 
-Each worker request carries an `ExecutionFingerprint`: normalized provider ID, security profile ID, and a canonical configuration identity covering all remaining construction-only inputs. The cache lookup order is:
+Harness-construction inputs are fixed for a coordinator's lifetime. Within that boundary, normalized provider ID and security profile ID identify compatible workers; callers submit those two facts directly rather than constructing a second configuration identity. The cache lookup order is:
 
-1. healthy exact-session worker within the requested canonical construction fingerprint;
-2. any healthy worker with a compatible canonical construction fingerprint;
+1. healthy exact-session worker for the requested provider/profile;
+2. any healthy worker with the same provider/profile;
 3. create a fresh worker through provider wiring.
 
-Compatibility must be known, not inferred from missing fields. Unknown compatibility or health means fresh creation. The cache is opportunistic and has no size, TTL, prewarm, or reuse-policy configuration.
+Compatibility is the explicit provider/profile match within the immutable composition. A mismatch or unknown health means fresh creation. The cache is opportunistic and has no size, TTL, prewarm, or reuse-policy configuration.
 
 ### Release, replacement, and quarantine
 
@@ -1181,12 +1181,8 @@ The caller resolves the provider-neutral security profile, then submits it as pa
 ExecutionRequest(
   surface: ExecutionSurface.task,
   providerId: normalizedProviderId,
+  profileId: profile,
   sessionId: durableSessionId,
-  fingerprint: ExecutionFingerprint(
-    providerId: normalizedProviderId,
-    profileId: profile,
-    configurationId: canonicalConstructionId,
-  ),
 )
 ```
 
@@ -1447,7 +1443,7 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_server/lib/src/container/container_dispatcher.dart` | `resolveProfile()` – task type → security profile |
 | `packages/dartclaw_server/lib/src/turn_manager.dart` | `TurnManager` – orchestration wrapper |
 | `packages/dartclaw_server/lib/src/turn_runner.dart` | `TurnRunner` – per-harness turn execution |
-| `packages/dartclaw_server/lib/src/execution_coordinator.dart` | `ExecutionCoordinator`, execution requests/leases, fingerprinted reuse, quarantine, lease snapshots |
+| `packages/dartclaw_server/lib/src/execution_coordinator.dart` | `ExecutionCoordinator`, execution requests/leases, provider/profile reuse, quarantine, lease snapshots |
 | `packages/dartclaw_server/lib/src/worker_capacity_gate.dart` | Hard per-provider execution-capacity permits |
 | `packages/dartclaw_server/lib/src/mcp/mcp_server.dart` | `McpProtocolHandler` – JSON-RPC 2.0 handler |
 | `packages/dartclaw_server/lib/src/mcp/mcp_router.dart` | `/mcp` shelf route with auth/validation |

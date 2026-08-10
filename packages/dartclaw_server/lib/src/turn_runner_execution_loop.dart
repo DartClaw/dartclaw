@@ -137,7 +137,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         _runtimeWaits[sessionId] = runtimeWait;
         final result = await _worker.turn(
           sessionId: sessionId,
-          agentId: turnCtx?.agentName == 'main' ? null : turnCtx?.agentName,
+          agentId: TurnRunner._harnessAgentId(turnCtx?.agentName),
           messages: messages,
           systemPrompt: systemPrompt,
           directory: turnCtx?.directory,

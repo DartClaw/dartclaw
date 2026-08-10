@@ -115,7 +115,7 @@ void main() {
     await turns.waitForOutcome(session.id, thirdTurnId);
   });
 
-  test('logical-agent first turn provisions lazily and concurrent admission fails fast', () async {
+  test('logical-agent first turn provisions lazily and concurrent provider demand fails fast', () async {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_provider_session_test_');
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -123,21 +123,25 @@ void main() {
     final messages = MessageService(baseDir: tempDir.path);
     final sessionService = SessionService(baseDir: tempDir.path);
     final session = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
+    final competingSession = await sessionService.createSession(type: SessionType.logicalAgent, provider: 'codex');
     final primaryWorker = FakeWorkerService();
     final codexWorker = FakeWorkerService();
     final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
     final spawnGate = Completer<void>();
     final spawnStarted = Completer<void>();
     var spawnCalls = 0;
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessionService,
+      providerId: 'claude',
+    );
     final coordinator = ExecutionCoordinator(
       providerCapacities: const {'codex': 1},
-      primary: TurnRunner(
-        harness: primaryWorker,
-        messages: messages,
-        behavior: behavior,
-        sessions: sessionService,
-        providerId: 'claude',
-      ),
+      primary: primaryRunner,
+      admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+      releaseAdmission: primaryRunner.releaseAdmission,
       createWorker: (request) async {
         spawnCalls++;
         if (!spawnStarted.isCompleted) spawnStarted.complete();
@@ -157,7 +161,7 @@ void main() {
     final firstFuture = providerTurns.startTurn(session.id, []);
     await spawnStarted.future.timeout(const Duration(seconds: 1));
     expect(spawnCalls, 1);
-    await expectLater(providerTurns.startTurn(session.id, []), throwsA(isA<BusyTurnException>()));
+    await expectLater(providerTurns.startTurn(competingSession.id, []), throwsA(isA<BusyTurnException>()));
 
     spawnGate.complete();
     final turnId = await firstFuture;
@@ -207,8 +211,8 @@ void main() {
       ExecutionRequest(
         surface: ExecutionSurface.logicalAgent,
         providerId: 'codex',
+        profileId: 'workspace',
         sessionId: logicalAgentSession.id,
-        fingerprint: turns.executions.fingerprintFor('codex', 'workspace'),
       ),
     );
     await workerLease!.release();
@@ -324,7 +328,7 @@ void main() {
 
     worker.allowCancel.complete();
     await disposeFuture;
-    expect(worker.calls, ['cancel:start', 'cancel:end', 'stop', 'start', 'stop', 'dispose']);
+    expect(worker.calls, ['start', 'cancel:start', 'cancel:end', 'stop', 'start', 'stop', 'dispose']);
     expect(lockManager.isLocked(session.id), isFalse);
   });
 

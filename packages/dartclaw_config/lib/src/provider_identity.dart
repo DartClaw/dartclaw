@@ -27,6 +27,26 @@ class ProviderIdentity {
     return normalize(providerId, fallback: fallback);
   }
 
+  /// Returns [entries] rekeyed by [normalize]d provider ID.
+  ///
+  /// Throws a [StateError] naming [subject] when two keys normalize to the same
+  /// provider ID — a collision must fail loudly rather than silently drop one of
+  /// the configured entries.
+  static Map<String, V> normalizeKeys<V>(Map<String, V> entries, {String subject = 'Configured provider IDs'}) {
+    final normalized = <String, V>{};
+    for (final entry in entries.entries) {
+      if (entry.key.trim().isEmpty) {
+        throw StateError('$subject contain a blank provider ID');
+      }
+      final providerId = normalize(entry.key);
+      if (normalized.containsKey(providerId)) {
+        throw StateError('$subject collide after normalization to "$providerId"');
+      }
+      normalized[providerId] = entry.value;
+    }
+    return normalized;
+  }
+
   /// Resolves the effective family for [providerId], honoring an explicit
   /// `family` (or legacy `provider`) override in [options] and, failing that, a
   /// canonical name embedded in [executable].

@@ -83,6 +83,19 @@ void main() {
       expect(task.agentExecution?.provider, 'codex');
     });
 
+    test('rejects blank provider overrides instead of inheriting the default', () async {
+      await expectLater(
+        () => service.create(
+          id: 'task-provider',
+          title: 'Task',
+          description: 'Describe the work',
+          type: TaskType.research,
+          provider: ' ',
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('reuses an existing agent execution without overwriting its richer fields', () async {
       await agentExecutions.create(
         AgentExecution(

@@ -24,7 +24,8 @@ You are [role description -- e.g., "a personal assistant", "a system administrat
 - Do not [things to avoid]
 ```
 
-The agent can update SOUL.md over time. It is re-read every turn -- edit live without restarting. See [Workspace](../workspace.md) for prompt assembly order.
+The agent can update SOUL.md over time. Restart the server to apply changes to Claude or Codex; replace-mode providers
+read it each turn. See [Workspace](../workspace.md) for prompt assembly order.
 
 ### Example: A real daily-driver SOUL.md
 

@@ -18,6 +18,8 @@ abstract interface class TurnManager {
 
   TurnOutcome? recentOutcome(String sessionId, String turnId);
 
+  /// Reserves a new turn slot for [sessionId]; [workerProfile] selects the
+  /// worker isolation profile for provider-pinned sessions.
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
@@ -25,8 +27,6 @@ abstract interface class TurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
-
-    /// Optional worker isolation profile for provider-pinned sessions.
     String? workerProfile,
     int? maxTurns,
     String? taskId,

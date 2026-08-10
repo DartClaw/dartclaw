@@ -598,8 +598,8 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
       );
-      await wiring.wirePreHarness();
-      await wiring.startHarnesses({'claude'});
+      await wiring.wireBaseServices();
+      await wiring.wireExecutionServices({'claude'});
       addTearDown(wiring.dispose);
 
       expect(createdHarnesses.values.expand((harnesses) => harnesses).every((harness) => !harness.startCalled), isTrue);
@@ -634,10 +634,10 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
       );
-      await wiring.wirePreHarness();
+      await wiring.wireBaseServices();
       addTearDown(wiring.dispose);
 
-      await wiring.startHarnesses({configuredProviderId});
+      await wiring.wireExecutionServices({configuredProviderId});
 
       expect(createdHarnesses.every((harness) => !harness.startCalled), isTrue);
       expect(wiring.executions.primary, isNull);
@@ -647,7 +647,7 @@ steps:
       expect(wiring.workflowCliRunner.providers.keys, isNot(contains(configuredProviderId)));
     });
 
-    test('S01 logged-out referenced provider aborts before any harness starts', () async {
+    test('S01 logged-out referenced provider aborts before workflow execution', () async {
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
       File(p.join(workflowsDir.path, 'agent-auth.yaml')).writeAsStringSync('''
 name: agent-auth
@@ -779,6 +779,18 @@ steps:
       );
 
       expect(requiredWorkflowProviders(definition, config), isEmpty);
+    });
+
+    test('provider derivation rejects an explicitly blank provider', () {
+      final definition = WorkflowDefinition(
+        name: 'blank-provider',
+        description: 'Invalid direct definition',
+        steps: const [
+          WorkflowStep(id: 'agent', name: 'Agent', provider: ' ', prompts: ['Run']),
+        ],
+      );
+
+      expect(() => requiredWorkflowProviders(definition, config), throwsA(isA<StateError>()));
     });
 
     // Any foreach with mergeResolve enabled materializes the synthetic

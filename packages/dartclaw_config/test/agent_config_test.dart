@@ -23,6 +23,33 @@ agent:
       expect(config.agent.provider, 'codex');
     });
 
+    test('normalizes mixed-case agent.provider at parse time', () {
+      final config = loadYaml(
+        '''
+agent:
+  provider: " Codex "
+''',
+        configPath: 'dartclaw.yaml',
+        env: const {'HOME': '/tmp'},
+      );
+
+      expect(config.agent.provider, 'codex');
+    });
+
+    test('rejects a blank agent.provider', () {
+      expect(
+        () => loadYaml(
+          '''
+agent:
+  provider: " "
+''',
+          configPath: 'dartclaw.yaml',
+          env: const {'HOME': '/tmp'},
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('invalid type for agent.provider produces warning and uses default', () {
       final config = loadYaml(
         '''

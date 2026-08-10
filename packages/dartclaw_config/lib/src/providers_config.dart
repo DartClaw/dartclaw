@@ -50,13 +50,18 @@ class ProvidersConfig {
 
   /// Returns the entry for [providerId], or `null` if not configured.
   ProviderEntry? operator [](String providerId) {
-    final direct = entries[providerId];
-    if (direct != null) return direct;
+    if (providerId.trim().isEmpty) return null;
     final normalized = ProviderIdentity.normalize(providerId);
+    ProviderEntry? match;
     for (final entry in entries.entries) {
-      if (ProviderIdentity.normalize(entry.key) == normalized) return entry.value;
+      if (entry.key.trim().isEmpty) continue;
+      if (ProviderIdentity.normalize(entry.key) != normalized) continue;
+      if (match != null) {
+        throw StateError('Configured provider IDs collide after normalization to "$normalized"');
+      }
+      match = entry.value;
     }
-    return null;
+    return match;
   }
 
   /// Whether any providers are explicitly configured.

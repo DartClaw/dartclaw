@@ -937,18 +937,17 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Routes hook_callback by event type: PreToolUse (guard + credential strip),
   /// PostToolUse (audit logging), or PreCompact (compaction notification).
   void _handleHookCallback(String requestId, Map<String, dynamic> data) {
-    final rawHookInput = data['input'];
-    if (rawHookInput is! Map<String, dynamic>) {
-      _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
+    final hookInput = data['input'];
+    if (hookInput is! Map<String, dynamic>) {
+      _denyHook(requestId);
       return;
     }
-    final hookInput = rawHookInput;
     final hookEventName = hookInput['hook_event_name'];
 
     if (hookEventName == 'PreCompact') {
       if ((hookInput['session_id'] != null && hookInput['session_id'] is! String) ||
           (hookInput['trigger'] != null && hookInput['trigger'] is! String)) {
-        _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
+        _denyHook(requestId);
         return;
       }
       _handlePreCompactCallback(requestId, hookInput);
@@ -956,19 +955,19 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     if (hookEventName != 'PreToolUse' && hookEventName != 'PostToolUse' && hookEventName != 'PermissionDenied') {
-      _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
+      _denyHook(requestId);
       return;
     }
 
     final rawToolName = hookInput['tool_name'];
     if (rawToolName is! String || rawToolName.trim().isEmpty) {
-      _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
+      _denyHook(requestId);
       return;
     }
 
     if (hookEventName == 'PermissionDenied') {
       if (hookInput['reason'] != null && hookInput['reason'] is! String) {
-        _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
+        _denyHook(requestId);
         return;
       }
       _handlePermissionDeniedCallback(requestId, hookInput);
@@ -982,11 +981,15 @@ class ClaudeCodeHarness extends BaseHarness {
 
     final toolInput = hookInput['tool_input'];
     if (toolInput is! Map<String, dynamic> || (toolInput['env'] != null && toolInput['env'] is! Map<String, dynamic>)) {
-      _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
+      _denyHook(requestId);
       return;
     }
 
     unawaited(_handlePreToolUseCallback(requestId, hookInput));
+  }
+
+  void _denyHook(String requestId) {
+    _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
   }
 
   /// Handles the `PreCompact` hook callback: invokes [onCompactionStarting]
@@ -1002,10 +1005,10 @@ class ClaudeCodeHarness extends BaseHarness {
     _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true));
   }
 
-  Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic>? hookInput) async {
-    final rawToolName = hookInput?['tool_name'] as String? ?? '';
+  Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic> hookInput) async {
+    final rawToolName = hookInput['tool_name'] as String;
     emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
-    final toolInput = hookInput?['tool_input'] as Map<String, dynamic>? ?? {};
+    final toolInput = hookInput['tool_input'] as Map<String, dynamic>;
     final canonicalTool = _adapter.mapToolName(rawToolName);
     final guardToolName = canonicalTool?.stableName ?? 'claude:$rawToolName';
 
@@ -1065,9 +1068,9 @@ class ClaudeCodeHarness extends BaseHarness {
     }
   }
 
-  void _handlePostToolUseCallback(String requestId, Map<String, dynamic>? hookInput) {
-    final toolName = hookInput?['tool_name'] as String? ?? 'unknown';
-    final toolResponse = _parseToolResponse(hookInput?['tool_response']);
+  void _handlePostToolUseCallback(String requestId, Map<String, dynamic> hookInput) {
+    final toolName = hookInput['tool_name'] as String;
+    final toolResponse = _parseToolResponse(hookInput['tool_response']);
 
     final success = toolResponse['error'] == null;
     try {
@@ -1078,9 +1081,9 @@ class ClaudeCodeHarness extends BaseHarness {
     _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true));
   }
 
-  void _handlePermissionDeniedCallback(String requestId, Map<String, dynamic>? hookInput) {
-    final toolName = hookInput?['tool_name'] as String? ?? '';
-    final reason = hookInput?['reason'] as String?;
+  void _handlePermissionDeniedCallback(String requestId, Map<String, dynamic> hookInput) {
+    final toolName = hookInput['tool_name'] as String;
+    final reason = hookInput['reason'] as String?;
 
     try {
       onPermissionDenied?.call(toolName, reason);

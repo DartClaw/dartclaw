@@ -1,5 +1,6 @@
 part of 'execution_coordinator.dart';
 
+/// Supplies wall-clock time for deterministic outcome-retention expiry.
 typedef ExecutionNow = DateTime Function();
 
 final class _OutcomeRetention {
@@ -60,14 +61,7 @@ extension ExecutionCoordinatorObservability on ExecutionCoordinator {
           request: execution.request,
           expiresAt: _outcomes.now().add(_outcomes.ttl),
         );
-        _emit(
-          ExecutionEventKind.turnSettled,
-          execution.request,
-          execution.lane,
-          entry.key,
-          runner: runner,
-          outcome: outcome,
-        );
+        _emit(ExecutionEventKind.turnSettled, execution.request, execution.lane, runner: runner, outcome: outcome);
         return;
       }
     }
@@ -76,8 +70,7 @@ extension ExecutionCoordinatorObservability on ExecutionCoordinator {
   void _emit(
     ExecutionEventKind kind,
     ExecutionRequest request,
-    ExecutionLane lane,
-    int executionId, {
+    ExecutionLane lane, {
     TurnRunner? runner,
     TurnOutcome? outcome,
   }) {
@@ -87,7 +80,6 @@ extension ExecutionCoordinatorObservability on ExecutionCoordinator {
         kind: kind,
         request: request,
         lane: lane,
-        executionId: executionId,
         runnerId: runner == null ? null : _runnerIds[runner],
         runner: runner,
         outcome: outcome,

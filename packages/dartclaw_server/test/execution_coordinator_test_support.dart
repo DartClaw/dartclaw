@@ -3,11 +3,7 @@ import 'package:dartclaw_server/src/execution_coordinator.dart';
 import 'package:dartclaw_server/src/turn_manager.dart';
 import 'package:dartclaw_server/src/turn_runner.dart';
 
-ExecutionCoordinator coordinatorForRunners(
-  List<TurnRunner> runners, {
-  Map<String, int>? providerCapacities,
-  ResolveExecutionFingerprint? resolveFingerprint,
-}) {
+ExecutionCoordinator coordinatorForRunners(List<TurnRunner> runners, {Map<String, int>? providerCapacities}) {
   if (runners.isEmpty) throw ArgumentError.value(runners, 'runners', 'must include a primary runner');
   final available = List<TurnRunner>.from(runners.skip(1));
   final capacities = providerCapacities ?? <String, int>{};
@@ -20,7 +16,6 @@ ExecutionCoordinator coordinatorForRunners(
     providerCapacities: capacities,
     primary: runners.first,
     allowPrimaryBackgroundFallback: available.isEmpty,
-    resolveFingerprint: resolveFingerprint,
     admitExecution: (request) => runners.first.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
     releaseAdmission: runners.first.releaseAdmission,
     createWorker: (request) async {
@@ -39,12 +34,7 @@ TurnManager turnManagerForRunners(
   List<TurnRunner> runners, {
   SessionService? sessions,
   Map<String, int>? providerCapacities,
-  ResolveExecutionFingerprint? resolveFingerprint,
 }) => TurnManager.fromCoordinator(
-  coordinator: coordinatorForRunners(
-    runners,
-    providerCapacities: providerCapacities,
-    resolveFingerprint: resolveFingerprint,
-  ),
+  coordinator: coordinatorForRunners(runners, providerCapacities: providerCapacities),
   sessions: sessions,
 );

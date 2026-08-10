@@ -5,6 +5,17 @@ import 'guard_verdict.dart';
 
 final _log = Logger('NetworkGuard');
 
+/// Whether [host] is a literal loopback host name or address.
+///
+/// [host] must be a bare host — no port, and IPv6 without brackets (the shape
+/// `Uri.host` yields). Matching is case-insensitive but literal only: names are
+/// never resolved, so a hostname that merely resolves to a loopback address is
+/// still rejected (fails closed against DNS rebinding).
+bool isLoopbackHost(String host) {
+  final normalized = host.toLowerCase();
+  return normalized == 'localhost' || normalized == '127.0.0.1' || normalized == '::1';
+}
+
 // ---------------------------------------------------------------------------
 // NetworkGuardConfig
 // ---------------------------------------------------------------------------
@@ -140,10 +151,8 @@ class NetworkGuard extends Guard {
     final toolName = context.toolName;
     final toolInput = context.toolInput;
     if (toolName == null || toolInput == null) return GuardVerdict.pass();
-    final allowedDomains = {
-      ...config.allowedDomains,
-      ...?(context.agentId == null ? null : config.agentOverrides[context.agentId]),
-    };
+    final agentDomains = config.agentOverrides[context.agentId];
+    final allowedDomains = agentDomains == null ? config.allowedDomains : {...config.allowedDomains, ...agentDomains};
 
     if (toolName == 'shell') {
       return _evaluateBash(toolInput['command'] as String? ?? '', allowedDomains);

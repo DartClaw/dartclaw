@@ -94,5 +94,13 @@ class ContentGuard extends Guard {
 String truncateUtf8Bytes(String text, int maxBytes) {
   final encoded = utf8.encode(text);
   if (encoded.length <= maxBytes) return text;
-  return utf8.decode(encoded.sublist(0, maxBytes), allowMalformed: true);
+  var end = maxBytes;
+  while (end > 0) {
+    try {
+      return utf8.decode(encoded.sublist(0, end));
+    } on FormatException {
+      end--;
+    }
+  }
+  return '';
 }

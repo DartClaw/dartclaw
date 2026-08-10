@@ -33,7 +33,7 @@ HarnessFactory capturingHarnessFactory(
   for (final providerId in providerIds) {
     factory.register(providerId, (config) {
       // Ignore capability-probe constructions (cwd:'/', no spawn) — e.g.
-      // `probeContinuityProviders` during pre-harness registry wiring — so
+      // `probeContinuityProviders` during base-service registry wiring — so
       // captures reflect only real runner spawns.
       if (config.cwd != '/') {
         capturedByProvider.putIfAbsent(providerId, () => <HarnessFactoryConfig>[]).add(config);
@@ -45,8 +45,8 @@ HarnessFactory capturingHarnessFactory(
 }
 
 /// A [FakeAgentHarness] whose [start] throws — stands in for a provider whose
-/// real harness would throw from `_verifyAuth`. Used to prove the pre-harness
-/// phase never reaches `harness.start()`.
+/// real harness would throw from `_verifyAuth`. Used to prove base-service
+/// wiring never reaches `harness.start()`.
 class ThrowOnStartHarness extends FakeAgentHarness {
   @override
   Future<void> start() async {

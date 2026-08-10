@@ -232,7 +232,7 @@ Turn orchestration coordinates message flow from user input through guard evalua
 
 `providers.<id>.pool_size` is the hard concurrent worker-lease limit for that provider, not a target runner count.
 Workers are created on demand. After release, a healthy idle worker may be retained and reused only when its
-provider, security profile, and runtime-configuration fingerprint match; the exact prior session is preferred. Reuse is
+provider and security profile match within the immutable coordinator composition; the exact prior session is preferred. Reuse is
 an optimization, never the capacity authority. Provider/profile containers have their own lifecycle and may be shared by
 multiple workers, so container count and worker capacity are independent.
 
@@ -469,7 +469,9 @@ The config API now partitions fields into three mutability classes:
 
 In 0.16, this powers hot-reload for context settings, scheduling services, alert routing config, guard-chain rebuilds, queue/lock tuning, and other runtime-owned services. Server socket bindings (`server.port`, `server.host`, `server.data_dir`) remain explicitly non-reloadable and are excluded from `ConfigDelta`.
 
-Behavior files (`SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`) are re-read every turn — no restart needed for behavior changes.
+Replace-mode providers re-read behavior files (`SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`,
+`HEARTBEAT.md`) each turn. Claude and Codex receive append-mode behavior content when the server starts and require a
+restart for changes.
 
 **Package**: `dartclaw_core` (live config notifier, delta, runtime-facing interfaces), `dartclaw_config` (typed config model, metadata, validator, writer), `dartclaw_server` (API routes), `dartclaw_cli` (reload triggers)
 

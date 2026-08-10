@@ -22,5 +22,11 @@ void main() {
       expect(ProviderIdentity.parseProviderModelShorthand('openai/gpt-5.4'), isNull);
       expect(ProviderIdentity.parseProviderModelShorthand('claude/opus/extra'), isNull);
     });
+
+    test('normalizes map keys and rejects blank or colliding IDs', () {
+      expect(ProviderIdentity.normalizeKeys({' Codex ': 1}), {'codex': 1});
+      expect(() => ProviderIdentity.normalizeKeys({' ': 1}), throwsStateError);
+      expect(() => ProviderIdentity.normalizeKeys({'Codex': 1, ' codex ': 2}), throwsStateError);
+    });
   });
 }

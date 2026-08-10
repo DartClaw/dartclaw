@@ -147,13 +147,18 @@ class AcpConfig {
 
   /// Returns the ACP agent registration for [providerId], if configured.
   AcpAgentConfig? operator [](String providerId) {
-    final direct = agents[providerId];
-    if (direct != null) return direct;
+    if (providerId.trim().isEmpty) return null;
     final normalized = ProviderIdentity.normalize(providerId);
+    AcpAgentConfig? match;
     for (final entry in agents.entries) {
-      if (ProviderIdentity.normalize(entry.key) == normalized) return entry.value;
+      if (entry.key.trim().isEmpty) continue;
+      if (ProviderIdentity.normalize(entry.key) != normalized) continue;
+      if (match != null) {
+        throw StateError('Configured ACP provider IDs collide after normalization to "$normalized"');
+      }
+      match = entry.value;
     }
-    return null;
+    return match;
   }
 
   /// Whether no ACP agents are registered.

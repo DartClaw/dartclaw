@@ -126,7 +126,7 @@ The active turn's agent identity is threaded through each provider interception 
 
 The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system/advisor work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller.
 
-Workers are created lazily. After a lease is released, a healthy idle worker may be retained and reused only when its provider, security profile, and runtime configuration fingerprint match; the exact prior session is preferred. Reuse is optional and owns no conversation state – durable DartClaw sessions do. Containers have a separate lifecycle and may serve multiple workers, so the number of security profiles or containers does not consume or enlarge worker lease capacity.
+Workers are created lazily. Harness-construction inputs are fixed for a coordinator's lifetime, so after a lease is released a healthy idle worker may be retained and reused only when its provider and security profile match; the exact prior session is preferred. Reuse is optional and owns no conversation state – durable DartClaw sessions do. Containers have a separate lifecycle and may serve multiple workers, so the number of security profiles or containers does not consume or enlarge worker lease capacity.
 
 Migration note: `web_search` is now distinct from `web_fetch`. Policies that intended to permit both must list both; naming only `web_fetch` no longer permits search.
 
@@ -187,7 +187,7 @@ Each task type maps to a security profile that determines which container the ta
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` | General-purpose automation |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` | Default for untyped work |
 
-`TaskExecutor` requests a lease whose fingerprint includes the task's provider and profile. A `research` task will only execute on a `restricted`-profile runner. A cached `workspace` worker is incompatible and cannot be substituted.
+`TaskExecutor` requests a lease for the task's exact provider and profile. A `research` task will only execute on a `restricted`-profile runner. A cached `workspace` worker is incompatible and cannot be substituted.
 
 ### Per-Task Overrides
 

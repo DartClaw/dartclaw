@@ -13,19 +13,20 @@ export 'package:dartclaw_config/dartclaw_config.dart';
 export 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException, PromptScope, TurnOutcome, TurnStatus;
 export 'src/execution_coordinator.dart'
     show
+        AdmitExecution,
         CreateExecutionWorker,
         ExecutionAdmission,
         ExecutionCoordinator,
         ExecutionEvent,
         ExecutionEventKind,
-        ExecutionFingerprint,
         ExecutionLane,
         ExecutionLease,
+        ExecutionNow,
         ExecutionRequest,
         ExecutionSnapshot,
         ExecutionSurface,
         ProviderCapacitySnapshot,
-        ResolveExecutionFingerprint,
+        ReleaseExecutionAdmission,
         WorkerCreationException;
 export 'src/security/security_exports.dart' show GoogleJwtVerifier, buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
@@ -53,4 +54,3 @@ export 'src/scheduling/scheduling_exports.dart';
 export 'src/session/session_exports.dart';
 export 'src/task/task_exports.dart';
 export 'src/ui_exports.dart';
-export 'src/worker_capacity_gate.dart' show WorkerCapacityGate, WorkerCapacityPermit;

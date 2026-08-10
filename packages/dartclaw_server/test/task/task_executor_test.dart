@@ -579,7 +579,7 @@ void main() {
     expect(poolTurns.executions.snapshot.activeWorkers, 0);
   });
 
-  test('uses the durable task session for first-attempt admission and cache events', () async {
+  test('uses the durable task session for first-attempt execution lifecycle events', () async {
     final poolWorker = FakeTaskWorker()..responseText = 'done';
     addTearDown(poolWorker.dispose);
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
@@ -595,7 +595,7 @@ void main() {
     await tasks.create(
       id: 'task-durable-admission',
       title: 'Durable admission identity',
-      description: 'Use one identity from admission through cache release.',
+      description: 'Use one identity from admission through execution release.',
       type: TaskType.automation,
       provider: 'claude',
       autoStart: true,
@@ -606,17 +606,10 @@ void main() {
 
     final sessionId = (await tasks.get('task-durable-admission'))!.sessionId!;
     final lifecycleEvents = events.where(
-      (event) => const {
-        ExecutionEventKind.acquired,
-        ExecutionEventKind.cached,
-        ExecutionEventKind.released,
-      }.contains(event.kind),
+      (event) => const {ExecutionEventKind.acquired, ExecutionEventKind.released}.contains(event.kind),
     );
     expect(sessionId, isNot('task-durable-admission'));
-    expect(
-      lifecycleEvents.map((event) => event.kind),
-      containsAll([ExecutionEventKind.acquired, ExecutionEventKind.cached]),
-    );
+    expect(lifecycleEvents.map((event) => event.kind), contains(ExecutionEventKind.acquired));
     expect(lifecycleEvents.map((event) => event.request.sessionId).toSet(), {sessionId});
   });
 
@@ -764,18 +757,19 @@ void main() {
   test('lazy spawn provider demand follows FIFO task ordering', () async {
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
-    final codexWorker = FakeTaskWorker()..responseText = 'codex result';
-    addTearDown(codexWorker.dispose);
     final spawnRequests = <String?>[];
     final spawnRequested = Completer<void>();
     final executions = ExecutionCoordinator(
       providerCapacities: const {'codex': 1, 'claude': 1},
       primary: primaryRunner,
+      admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+      releaseAdmission: primaryRunner.releaseAdmission,
       createWorker: (request) async {
         spawnRequests.add(request.providerId);
         if (!spawnRequested.isCompleted) spawnRequested.complete();
+        final worker = FakeTaskWorker()..responseText = '${request.providerId} result';
         return TurnRunner(
-          harness: codexWorker,
+          harness: worker,
           messages: messages,
           behavior: behavior,
           sessions: sessions,
@@ -783,6 +777,7 @@ void main() {
         );
       },
     );
+    addTearDown(executions.dispose);
     final poolTurns = TurnManager.fromCoordinator(coordinator: executions);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
     addTearDown(poolExecutor.stop);

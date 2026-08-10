@@ -1,3 +1,4 @@
+import 'package:dartclaw_security/dartclaw_security.dart' show isLoopbackHost;
 import 'package:shelf/shelf.dart';
 
 import 'request_auth_context.dart';
@@ -40,7 +41,7 @@ Middleware originHostGuardMiddleware({String localAdminHost = 'localhost'}) {
     if (requestAuthority == null) {
       return _forbidden('Missing Host header');
     }
-    if (isLocalAdmin && (!_isLoopbackHost(localAdminHost) || !_isLoopbackHost(requestAuthority.host))) {
+    if (isLocalAdmin && (!isLoopbackHost(localAdminHost) || !isLoopbackHost(requestAuthority.host))) {
       return _forbidden('No-auth writes require a loopback host');
     }
 
@@ -68,11 +69,6 @@ Middleware originHostGuardMiddleware({String localAdminHost = 'localhost'}) {
 
     return _forbidden('Cookie-authenticated request missing Origin and Referer');
   };
-}
-
-bool _isLoopbackHost(String host) {
-  final normalized = host.toLowerCase();
-  return normalized == 'localhost' || normalized == '127.0.0.1' || normalized == '::1';
 }
 
 _EffectiveAuthority? _requestAuthority(Request request) {

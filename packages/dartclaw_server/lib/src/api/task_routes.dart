@@ -61,7 +61,7 @@ Router taskRoutes(
       if (goalIdFieldError != null) return goalIdFieldError;
       final acceptanceCriteriaFieldError = _validateStringFieldType(body.value!, 'acceptanceCriteria');
       if (acceptanceCriteriaFieldError != null) return acceptanceCriteriaFieldError;
-      final providerFieldError = _validateStringFieldType(body.value!, 'provider');
+      final providerFieldError = _validateStringFieldType(body.value!, 'provider', rejectBlank: true);
       if (providerFieldError != null) return providerFieldError;
       final modelFieldError = _validateStringFieldType(body.value!, 'model');
       if (modelFieldError != null) return modelFieldError;
@@ -115,6 +115,8 @@ Router taskRoutes(
         return errorResponse(400, 'INVALID_INPUT', 'configJson must be a JSON object', {'field': 'configJson'});
       }
       final configJson = _jsonMapOrEmpty(body.value!['configJson']);
+      final configProviderError = _validateConfigProvider(configJson);
+      if (configProviderError != null) return configProviderError;
       final internalConfigKey = configJson.keys.cast<String?>().firstWhere(
         (key) => key != null && key.startsWith('_'),
         orElse: () => null,
@@ -508,12 +510,21 @@ Future<int> _artifactDiskBytes(String? dataDir, String taskId) async {
 
 String? _stringOrNull(Object? value) => value is String ? value : null;
 
-Response? _validateStringFieldType(Map<String, dynamic> body, String field) {
+Response? _validateStringFieldType(Map<String, dynamic> body, String field, {bool rejectBlank = false}) {
   if (!body.containsKey(field)) return null;
   final value = body[field];
-  if (value == null || value is String) return null;
-  return errorResponse(400, 'INVALID_INPUT', '$field must be a string', {'field': field});
+  if (value == null || value is String && (!rejectBlank || value.trim().isNotEmpty)) return null;
+  final message = value is String ? '$field must not be blank' : '$field must be a string';
+  return errorResponse(400, 'INVALID_INPUT', message, {'field': field});
 }
+
+Response? _validateConfigProvider(Map<String, dynamic> config) => switch (config['provider']) {
+  null => null,
+  final String provider when provider.trim().isNotEmpty => null,
+  _ => errorResponse(400, 'INVALID_INPUT', 'configJson.provider must be a non-blank string', {
+    'field': 'configJson.provider',
+  }),
+};
 
 Response? _validateMaxTokens(Map<String, dynamic> body) {
   if (!body.containsKey('maxTokens')) return null;

@@ -746,7 +746,8 @@ Highest priority wins:
 
 ## Behavior Files
 
-Behavior files compose the system prompt. Re-read every turn -- edit live without restart.
+Behavior files compose the system prompt. Replace-mode providers read them each turn. Claude and Codex receive them when
+the server starts, so restart the server to apply changes to those providers.
 
 | File | Purpose | Maintained by |
 |------|---------|---------------|

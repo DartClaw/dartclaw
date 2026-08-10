@@ -231,37 +231,21 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     );
     final runner = lease.runner!;
     try {
-      final turnId = lease.admissionOwned
-          ? await runner.reserveAdmittedTurn(
-              sessionId,
-              agentName: agentName,
-              directory: directory,
-              model: model,
-              effort: effort,
-              systemPromptOverride: systemPromptOverride,
-              maxTurns: maxTurns,
-              taskId: taskId,
-              isHumanInput: isHumanInput,
-              behaviorOverride: behaviorOverride,
-              promptScope: promptScope,
-              allowedTools: allowedTools,
-              readOnly: readOnly,
-            )
-          : await runner.reserveTurn(
-              sessionId,
-              agentName: agentName,
-              directory: directory,
-              model: model,
-              effort: effort,
-              systemPromptOverride: systemPromptOverride,
-              maxTurns: maxTurns,
-              taskId: taskId,
-              isHumanInput: isHumanInput,
-              behaviorOverride: behaviorOverride,
-              promptScope: promptScope,
-              allowedTools: allowedTools,
-              readOnly: readOnly,
-            );
+      final turnId = await runner.reserveAdmittedTurn(
+        sessionId,
+        agentName: agentName,
+        directory: directory,
+        model: model,
+        effort: effort,
+        systemPromptOverride: systemPromptOverride,
+        maxTurns: maxTurns,
+        taskId: taskId,
+        isHumanInput: isHumanInput,
+        behaviorOverride: behaviorOverride,
+        promptScope: promptScope,
+        allowedTools: allowedTools,
+        readOnly: readOnly,
+      );
       _reservedTurnRunners[turnId] = runner;
       _reservedTurnLeases[turnId] = lease;
       return turnId;
@@ -496,8 +480,8 @@ class TurnManager implements core.TurnManager, Reconfigurable {
       ExecutionRequest(
         surface: surface,
         providerId: provider,
+        profileId: profile,
         sessionId: sessionId,
-        fingerprint: _executions.fingerprintFor(provider, profile),
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
         taskId: taskId,

@@ -24,8 +24,8 @@ void main() {
       ExecutionRequest(
         surface: ExecutionSurface.task,
         providerId: 'claude',
+        profileId: 'workspace',
         sessionId: 'worker',
-        fingerprint: executions.fingerprintFor('claude', 'workspace'),
       ),
     );
     await worker!.release();
@@ -44,8 +44,8 @@ void main() {
       ExecutionRequest(
         surface: ExecutionSurface.task,
         providerId: 'claude',
+        profileId: 'workspace',
         sessionId: 'worker',
-        fingerprint: executions.fingerprintFor('claude', 'workspace'),
         taskId: 'task-1',
       ),
     );

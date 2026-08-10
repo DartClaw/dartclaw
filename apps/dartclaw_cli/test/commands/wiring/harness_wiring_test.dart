@@ -16,8 +16,9 @@ import 'package:dartclaw_server/dartclaw_server.dart'
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../../helpers/harness_wiring_fixture.dart';
 
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
@@ -41,7 +42,6 @@ Future<T> _pollFor<T>(T Function() read, bool Function(T) isReady) async {
 
 void main() {
   late Directory tempDir;
-  late Directory workspaceDir;
   late DartclawConfig config;
   late EventBus eventBus;
   late List<HarnessFactoryConfig> recordedConfigs;
@@ -62,13 +62,7 @@ void main() {
       gateway: const GatewayConfig(authMode: 'none'),
     );
 
-    workspaceDir = Directory(config.workspaceDir)..createSync(recursive: true);
-    File(p.join(workspaceDir.path, 'SOUL.md')).writeAsStringSync('Soul prompt');
-    File(p.join(workspaceDir.path, 'USER.md')).writeAsStringSync('User prompt');
-    File(p.join(workspaceDir.path, 'TOOLS.md')).writeAsStringSync('Tool prompt');
-    File(p.join(workspaceDir.path, 'AGENTS.md')).writeAsStringSync('## Agent prompt');
-    File(p.join(workspaceDir.path, 'errors.md')).writeAsStringSync('## Recent error');
-    File(p.join(workspaceDir.path, 'learnings.md')).writeAsStringSync('## Recent learning');
+    writeWorkspacePromptFiles(config.workspaceDir);
 
     eventBus = EventBus();
     recordedConfigs = <HarnessFactoryConfig>[];
@@ -83,18 +77,12 @@ void main() {
   });
 
   Future<void> wireStorageAndSecurity() async {
-    storage = StorageWiring(
+    storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
+    security = await wireTestSecurity(
       config: config,
+      dataDir: tempDir.path,
       eventBus: eventBus,
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
       exitFn: _unexpectedExit,
-    );
-    await storage!.wire();
-
-    security = SecurityWiring(config: config, dataDir: tempDir.path, eventBus: eventBus, exitFn: _unexpectedExit);
-    await security!.wire(
-      agentDefs: config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()],
     );
   }
 
@@ -107,24 +95,22 @@ void main() {
   }) => ExecutionRequest(
     surface: surface,
     providerId: providerId,
+    profileId: profileId,
     sessionId: sessionId,
-    fingerprint: harnessWiring!.executions.fingerprintFor(providerId, profileId),
     admission: admission,
   );
 
   Future<void> wireHarness(HarnessFactory factory) async {
-    harnessWiring = HarnessWiring(
+    harnessWiring = await wireTestHarness(
       config: config,
       dataDir: tempDir.path,
-      port: 3333,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
       storage: storage!,
       security: security!,
-      messageRedactor: MessageRedactor(),
       eventBus: eventBus,
+      serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'),
     );
-    await harnessWiring!.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
   }
 
   HarnessFactory fakeFactory(
@@ -142,6 +128,25 @@ void main() {
     }
     return factory;
   }
+
+  test('direct config rejects a blank primary provider', () async {
+    config = config.copyWith(agent: const AgentConfig(provider: ' '));
+    await wireStorageAndSecurity();
+
+    await expectLater(() => wireHarness(fakeFactory(['claude'])), throwsStateError);
+  });
+
+  test('direct config rejects a blank logical-agent provider', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [AgentDefinition(id: 'reviewer', description: 'Review', prompt: 'Review', provider: ' ')],
+      ),
+    );
+    await wireStorageAndSecurity();
+
+    await expectLater(() => wireHarness(fakeFactory(['claude'])), throwsStateError);
+  });
 
   Future<List<String>> wireAndCollectHarnessMessages(Iterable<String> providerIds) async {
     final records = <LogRecord>[];
@@ -191,6 +196,7 @@ void main() {
 
     final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
     await wireHarness(factory);
+    File(p.join(config.workspaceDir, 'SOUL.md')).writeAsStringSync('Changed after wiring');
 
     expect(harnessWiring!.executions.runners, hasLength(1));
     expect(createdHarnesses, hasLength(1));
@@ -233,6 +239,7 @@ void main() {
     expect(primaryPrompt, contains('memory_read tool'));
 
     expect(taskPrompt, contains('Soul prompt'));
+    expect(taskPrompt, isNot(contains('Changed after wiring')));
     expect(taskPrompt, contains('Tool prompt'));
     expect(taskPrompt, contains('## Agent prompt'));
     expect(taskPrompt, contains('memory_read tool'));

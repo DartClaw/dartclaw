@@ -445,7 +445,7 @@ Per-runner cumulative metrics remain attached to current reusable runners: `toke
 `TurnRunner` emits each terminal outcome once through `ExecutionCoordinator`, which keys the outcome to the active runner
 ID before `RunnerObserver` accumulates it. The same coordinator event stream is authoritative for busy/free/current
 task/current session state. Disposal is delivered before the coordinator and observer remove the runner from their
-current registries, keeping fingerprint churn bounded without retaining historical runner objects.
+current registries, preventing stale runner accumulation without retaining historical runner objects.
 
 ### Execution Capacity and Lease Observability
 
@@ -455,9 +455,9 @@ current registries, keeping fingerprint churn bounded without retaining historic
 - per provider: `configured`, `effective`, `active`, `queued`, `cached`, and `quarantined` worker counts;
 - aggregate configured, active, available, queued, cached, and quarantined counts.
 
-`available = effective - active`. Cached harness count is diagnostic only and never increases capacity. Quarantined slots reduce `effective` until recovery/restart. Capacity-only workflow one-shots emit acquire/release transitions with an execution ID and provider but no runner ID, so the same API/SSE state remains truthful.
+`available = effective - active`. Cached harness count is diagnostic only and never increases capacity. Quarantined slots reduce `effective` until recovery/restart. Capacity-only workflow one-shots emit acquire/release transitions with their request and provider but no runner ID, so the same API/SSE state remains truthful.
 
-Coordinator events cover `acquired`, `released`, `cached`, `disposed`, `quarantined`, `runnerCreated`, and `turnSettled`.
+Coordinator events cover `acquired`, `released`, `disposed`, `quarantined`, `runnerCreated`, and `turnSettled`. Cache state is visible in lease snapshots; it does not need a separate lifecycle event.
 Surfaces must not emit independent lifecycle or outcome transitions; doing so would race with lease release or double-count
 turn metrics.
 
@@ -644,7 +644,7 @@ Governance controls (rate limiting, budgets, loop detection, emergency controls)
 
 Central coordination point for all pre-turn governance checks. Runs before each turn reservation.
 
-When governance admits the request, execution allocation passes to `ExecutionCoordinator`. The coordinator is the only post-governance authority; its lease ID is the correlation point for capacity, runner activity, and quarantine observability. Provider-specific adapters may add protocol telemetry, but routing and capacity views do not branch on provider identity.
+When governance admits the request, execution allocation passes to `ExecutionCoordinator`. The coordinator is the only post-governance authority; its request and runner identity correlate capacity, runner activity, and quarantine observability. Provider-specific adapters may add protocol telemetry, but routing and capacity views do not branch on provider identity.
 
 ```
 Inbound turn request

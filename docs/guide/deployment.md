@@ -214,6 +214,22 @@ table inet dartclaw {
 
 DartClaw does **not** auto-update the `claude` CLI, Codex, or channel sidecar binaries (GOWA, signal-cli). You are responsible for keeping them current.
 
+DartClaw disables Claude's background updater and nonessential network traffic in the Claude subprocesses it starts.
+This prevents a running pool from changing underneath the host. It does not affect `claude update` run separately by
+an operator or maintenance service.
+
+### Provider update commands
+
+| Installation | Update | Diagnose |
+|--------------|--------|----------|
+| Claude native installer | `claude update` | `claude doctor` |
+| Codex release with self-update support | `codex update` | `codex doctor` |
+| Homebrew, WinGet, npm, apt, dnf, or apk | Use the package manager that installed the CLI | Run the provider's `doctor` command afterward |
+
+`claude update` follows the configured Claude release channel. `codex update` works only when the installed release
+supports self-update. See the official [Claude Code setup guide](https://code.claude.com/docs/en/setup) and
+[Codex CLI guide](https://learn.chatgpt.com/docs/codex/cli) for package-manager-specific commands.
+
 ### How updates propagate
 
 Running harness processes hold the old binary in memory. Updating the binary on disk (e.g. via `claude update` or Homebrew) does **not** affect already-running processes. A harness picks up the new binary only when it next spawns a process, which happens on:
@@ -225,20 +241,43 @@ Running harness processes hold the old binary in memory. Updating the binary on 
 ### Recommended update procedure
 
 ```bash
-# 1. Update the binary
-claude update            # or: brew upgrade claude-code
+# 1. Stop DartClaw so no turn is using the binary
+dartclaw service stop --instance-dir /absolute/path/to/instance
 
-# 2. Restart DartClaw to pick up the new version
-dartclaw service stop && dartclaw service start   # via service command
-# or manually:
-launchctl kill TERM gui/$(id -u)/com.dartclaw.agent.3f1c9a4b          # macOS
-systemctl --user restart dartclaw-3f1c9a4b                            # Linux
+# 2. Update each configured provider
+claude update
+codex update
 
-# 3. Verify
+# 3. Confirm the installed versions
+claude --version
+codex --version
+
+# 4. Start DartClaw and verify health
+dartclaw service start --instance-dir /absolute/path/to/instance
 curl -s http://localhost:3333/health | jq .worker_state
 ```
 
-On restart, DartClaw runs a version probe (`claude --version`) and logs the detected version. Check the startup log to confirm the expected version.
+Run only the provider commands relevant to your configuration, and substitute the package-manager update command when
+the CLI is package-managed. Use the same explicit instance selector for both service commands and the configured port
+for the health check. On startup, DartClaw probes each configured provider with `--version` and exposes the result
+through `GET /api/providers` and the Settings page. Confirm that every configured provider is healthy and reports the
+expected version; `/health` verifies the DartClaw host, not its providers.
+
+### Optional scheduled maintenance
+
+An external daily provider update job is possible when brief, scheduled interruption is acceptable. DartClaw cannot
+make the update atomic or protect against a bad provider release. Run it through launchd, systemd, or Windows Task
+Scheduler – not as a DartClaw task or workflow. The job should:
+
+1. Stop the exact DartClaw instance.
+2. Run the install-method-specific update commands.
+3. Record the version and run diagnostics for each configured provider.
+4. Start the same instance even if an update fails.
+5. Check its host health and provider status, then alert on any failure.
+
+Stopping first prevents new harness processes from starting against an updated binary while old processes still run.
+Until graceful draining exists, an unattended update can interrupt an in-flight turn; schedule it only when that
+trade-off is acceptable. DartClaw does not roll back a provider update.
 
 ### Why restart is necessary
 

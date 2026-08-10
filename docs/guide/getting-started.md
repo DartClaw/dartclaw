@@ -9,8 +9,8 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 | Homebrew | Latest | DartClaw install path on macOS and Linux |
 | PowerShell | 5.1+ | Qualified Windows installer; Scoop requires a public Windows asset and bucket manifest |
 | Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
-| `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
-| `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
+| `claude` CLI | Stable channel | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
+| `codex` CLI | Current release | Agent binary — optional, for OpenAI models (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |
 | SQLite | Bundled | FTS5 search library shipped with release builds |
 
@@ -22,12 +22,12 @@ brew tap DartClaw/dartclaw
 brew install dartclaw
 dartclaw --version
 
-# Provider CLI — Claude (default provider)
-curl -fsSL https://claude.ai/install.sh | bash
+# Provider CLI — Claude (default provider; delayed stable channel recommended)
+curl -fsSL https://claude.ai/install.sh | bash -s stable
 claude --version
 
 # Provider CLI — Codex (optional, for OpenAI models)
-# See https://github.com/openai/codex for installation
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex --version
 
 # ACP agents — optional, install separately from DartClaw
@@ -36,6 +36,10 @@ vibe-acp --version
 ```
 
 Auth: for Claude, run `claude auth login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
+
+The provider-native installers give the simplest maintenance path. Package-manager installations are also supported,
+but must be updated through the same package manager that installed them. Claude's stable channel is typically about
+one week behind latest and skips releases with major regressions.
 
 ## Install DartClaw
 

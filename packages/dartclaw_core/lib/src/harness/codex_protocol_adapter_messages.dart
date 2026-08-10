@@ -33,18 +33,29 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
       final decisions? when decisions.contains('cancel') => _CommandDenial.cancel,
       _ => _CommandDenial.error,
     };
-    final hasUnevaluatedAuthority =
-        params['additionalPermissions'] != null ||
-        params['networkApprovalContext'] != null ||
-        params['environmentId'] != null ||
-        params['proposedExecpolicyAmendment'] != null ||
-        params['proposedNetworkPolicyAmendments'] != null;
-    if (command == null || command.trim().isEmpty || hasUnevaluatedAuthority) {
-      return ControlRequest(requestId: requestId, subtype: 'unsupported_command_request', data: params);
+    final unsupportedReasons = <String>[
+      if (command == null || command.trim().isEmpty) 'missing command',
+      if (params['additionalPermissions'] != null) 'additional permissions',
+      if (params['networkApprovalContext'] != null) 'network approval context',
+      if (params['environmentId'] != null) 'remote environment',
+    ];
+    if (unsupportedReasons.isNotEmpty) {
+      return ControlRequest(
+        requestId: requestId,
+        subtype: 'unsupported_command_request',
+        data: {...params, 'dartclawUnsupportedReasons': unsupportedReasons},
+      );
     }
     if (params['availableDecisions'] != null &&
         (availableDecisions == null || !availableDecisions.contains('accept'))) {
-      return ControlRequest(requestId: requestId, subtype: 'unsupported_command_request', data: params);
+      return ControlRequest(
+        requestId: requestId,
+        subtype: 'unsupported_command_request',
+        data: {
+          ...params,
+          'dartclawUnsupportedReasons': ['accept decision unavailable'],
+        },
+      );
     }
     return ControlRequest(
       requestId: requestId,

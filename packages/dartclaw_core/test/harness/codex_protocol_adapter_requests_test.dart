@@ -206,6 +206,35 @@ void main() {
       expect(adapter.buildApprovalResponse('accept-only', allow: true)['result'], {'decision': 'accept'});
     });
 
+    test('accepts one command without applying offered persistent policy amendments', () {
+      final adapter = CodexProtocolAdapter();
+      final request = adapter.parseLine(
+        jsonEncode({
+          'id': 'one-command',
+          'method': 'item/commandExecution/requestApproval',
+          'params': {
+            'itemId': 'command-1',
+            'command': 'pwd',
+            'proposedExecpolicyAmendment': ['pwd'],
+            'proposedNetworkPolicyAmendments': [
+              {'host': 'example.com', 'action': 'allow'},
+            ],
+            'availableDecisions': [
+              'accept',
+              {
+                'acceptWithExecpolicyAmendment': {
+                  'execpolicy_amendment': ['pwd'],
+                },
+              },
+            ],
+          },
+        }),
+      );
+
+      expect(request, isA<ControlRequest>().having((request) => request.subtype, 'subtype', 'approval'));
+      expect(adapter.buildApprovalResponse('one-command', allow: true)['result'], {'decision': 'accept'});
+    });
+
     test('answers every other pinned server request with a JSON-RPC error', () {
       const methods = [
         'item/tool/requestUserInput',

@@ -640,6 +640,9 @@ class CodexHarness extends BaseHarness {
         subtype == 'unsupported_permission_request' ||
         subtype == 'unsupported_command_request' ||
         subtype == 'unsupported_server_request') {
+      if (subtype == 'unsupported_command_request') {
+        _log.warning('Declining unsupported Codex command request: ${data['dartclawUnsupportedReasons']}');
+      }
       emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: subtype));
       if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'Unsupported Codex request')) {
         emitEvent(ToolApprovalResolvedEvent(requestId: requestId));

@@ -1025,10 +1025,13 @@ approval request's server, tool, and arguments rather than ambiguous cached item
 separate hook system here; the approval round-trip is the interception point.
 
 Approval is intentionally narrower than the provider schema where DartClaw cannot evaluate the full authority. Command
-requests are declined when the command is missing, `accept` is unavailable, or additional filesystem, network, remote
-environment, or policy-amendment authority is present. File delete, move, and session-root grants are declined until
-their source, destination, deletion, and persistence semantics can all be represented by the guard contract. Relative
-shell paths are evaluated from the provider-supplied working directory.
+requests fail closed when the command is missing, `accept` is unavailable, or additional filesystem, network, or remote
+environment authority is present. A rejection uses `decline` when offered, otherwise `cancel`; if neither safe decision
+is available, DartClaw returns a terminal invalid-params error. Proposed exec or network policy amendments do not widen
+a one-shot `accept` response, so DartClaw ignores those optional persistence choices and never selects their structured
+decisions. File delete, move, and session-root grants are declined until their source, destination, deletion, and
+persistence semantics can all be represented by the guard contract. Relative shell paths are evaluated from the
+provider-supplied working directory.
 
 #### Per-turn dynamic settings
 

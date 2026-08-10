@@ -184,7 +184,7 @@ ACP security claims are topology-scoped:
 | Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host filesystem reverse-calls | Guard-mediated. ACP `fs/read_text_file` and `fs/write_text_file` are bound to the active task session and evaluated by DartClaw guards before host action |
 | Relay provider | The ACP target forwards work through another provider CLI or relay path | Container-isolation-only. No guard-mediation claim |
 | Unverified | Startup evidence is absent or insufficient | Container-isolation-only until verification proves reverse-call mediation |
-| Codex agent sessions | Codex work with approvals/sandbox enabled | Provider-approval mode, not guard-mediated |
+| Codex agent sessions | Codex with `approval: on-request` | Guard-mediated for supported command, file-change, and MCP operations that emit provider approval requests; unevaluated authority is declined and the sandbox remains an independent boundary |
 
 Logical agents select providers through `agent.agents.<id>.provider` and may select `security_profile: workspace|restricted` independently. The built-in search agent requests `restricted`; other agents use an enforced ACP provider profile when present, otherwise `workspace`. Provider startup validation and exact provider/profile worker acquisition enforce the configured boundary before a logical-agent session can run. An unavailable `restricted` profile fails closed instead of falling back to host execution. A restricted container profile is the safe default for relay or unverified ACP agents.
 

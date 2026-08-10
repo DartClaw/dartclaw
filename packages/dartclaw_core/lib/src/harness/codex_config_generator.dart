@@ -11,15 +11,15 @@ class CodexConfigGenerator {
 
     final trimmedMcpServerUrl = mcpServerUrl?.trim();
     if (trimmedMcpServerUrl != null && trimmedMcpServerUrl.isNotEmpty) {
-      final bearerTokenEnvVar = (mcpBearerTokenEnvVar?.trim().isNotEmpty ?? false)
-          ? mcpBearerTokenEnvVar!.trim()
-          : defaultMcpBearerTokenEnvVar;
+      final bearerTokenEnvVar = mcpBearerTokenEnvVar?.trim();
 
       buffer
         ..writeln()
         ..writeln('[mcp_servers.dartclaw]')
-        ..writeln('url = "${_escapeBasicString(trimmedMcpServerUrl)}"')
-        ..writeln('bearer_token_env_var = "${_escapeBasicString(bearerTokenEnvVar)}"');
+        ..writeln('url = "${_escapeBasicString(trimmedMcpServerUrl)}"');
+      if (bearerTokenEnvVar != null && bearerTokenEnvVar.isNotEmpty) {
+        buffer.writeln('bearer_token_env_var = "${_escapeBasicString(bearerTokenEnvVar)}"');
+      }
     }
 
     return buffer.toString();

@@ -8,6 +8,16 @@
          tl:attr="data-run-id=${runId},data-run-status=${status}">
 
       <!-- Workflow metadata card grid -->
+      <div class="card workflow-run-identity" data-workflow-run-id>
+        <div>
+          <span class="t-label">Definition</span>
+          <strong tl:text="${definitionName}">workflow-definition</strong>
+        </div>
+        <div>
+          <span class="t-label">Run ID</span>
+          <code tl:text="${runId}">run-id</code>
+        </div>
+      </div>
       <div class="metrics-grid metrics-grid-4" tl:utext="${metricsHtml}"></div>
       <div tl:if="${hasError}" class="workflow-error-message">
         <span class="icon icon-triangle-alert" aria-hidden="true"></span>

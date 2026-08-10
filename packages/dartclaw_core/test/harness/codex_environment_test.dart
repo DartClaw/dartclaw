@@ -58,8 +58,34 @@ void main() {
 
         expect(configFile.existsSync(), isTrue);
         expect(configFile.readAsStringSync(), contains('developer_instructions = """'));
+        expect(configFile.readAsStringSync(), isNot(contains('bearer_token_env_var')));
         expect(agentsFile.existsSync(), isFalse);
         expect(env.environmentOverrides(), {'CODEX_HOME': dirPath});
+      });
+
+      test('seeds authentication without merging user config into generated TOML', () async {
+        final userHome = Directory.systemTemp.createTempSync('dartclaw-codex-user-');
+        addTearDown(() => userHome.deleteSync(recursive: true));
+        final sourceHome = Directory(p.join(userHome.path, '.codex'))..createSync();
+        File(p.join(sourceHome.path, 'auth.json')).writeAsStringSync('{"tokens":{}}');
+        File(
+          p.join(sourceHome.path, 'config.toml'),
+        ).writeAsStringSync('developer_instructions = "user"\n\n[mcp_servers.dartclaw]\nurl = "https://example.com"\n');
+        final env = CodexEnvironment(
+          developerInstructions: 'worker rules',
+          mcpServerUrl: 'http://127.0.0.1:3333/mcp',
+          useSystemCodexHome: false,
+          platformCapabilities: PlatformCapabilities(operatingSystem: 'linux', environment: {'HOME': userHome.path}),
+        );
+        addTearDown(env.cleanup);
+
+        final dirPath = await env.setup();
+        final config = File(p.join(dirPath, 'config.toml')).readAsStringSync();
+
+        expect(File(p.join(dirPath, 'auth.json')).readAsStringSync(), '{"tokens":{}}');
+        expect('developer_instructions'.allMatches(config), hasLength(1));
+        expect('[mcp_servers.dartclaw]'.allMatches(config), hasLength(1));
+        expect(config, isNot(contains('https://example.com')));
       });
 
       test('cleanup removes the temp directory and is safe to call twice', () async {

@@ -864,7 +864,7 @@ mcp_servers:
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Missing ref regression', 'PROJECT': 'alpha', 'BRANCH': 'missing/ref'},
         }),
-        headers: {'content-type': 'application/json'},
+        headers: {'content-type': 'application/json', 'host': 'localhost'},
       ),
     );
 

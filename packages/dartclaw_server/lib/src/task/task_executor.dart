@@ -192,6 +192,7 @@ class TaskExecutor {
     final queued = await _queuedTasks();
     if (queued.isEmpty) return false;
     var didWork = false;
+    final unavailableWorkerProfiles = <String>{};
     for (final task in queued) {
       final disposition = await _prepareQueuedTask(task);
       if (disposition == _QueuedTaskDisposition.waiting) {
@@ -216,6 +217,10 @@ class TaskExecutor {
         continue;
       }
       final profile = resolveProfile(preparedTask.type);
+      final workerProfileKey = '$provider\u0000$profile';
+      if (unavailableWorkerProfiles.contains(workerProfileKey)) {
+        continue;
+      }
       final isWorkflow = _isWorkflowOrchestrated(preparedTask);
       ExecutionLease? lease;
       try {
@@ -230,6 +235,13 @@ class TaskExecutor {
           ),
         );
       } on StateError catch (error) {
+        unavailableWorkerProfiles.add(workerProfileKey);
+        if (_providerUnavailableTaskIds.add(preparedTask.id)) {
+          _recordProviderUnavailable(preparedTask, error.message);
+        }
+        continue;
+      } on WorkerCreationException catch (error) {
+        unavailableWorkerProfiles.add(workerProfileKey);
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
           _recordProviderUnavailable(preparedTask, error.message);
         }

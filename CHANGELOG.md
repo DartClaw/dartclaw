@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.24.0] - 2026-08-10
+
+### Added
+
+- **Durable logical-agent conversations** – `sessions_spawn` creates a hidden, provider-pinned session from `agent.agents`; `sessions_send` continues the returned handle with persisted history, persona/model/effort/profile settings, content guarding, and provider-neutral continuity.
+- **Opt-in memory journal** – `memory.journal.enabled` registers a scheduled `memory-journal` job that distills daily logs into `MEMORY.md` through a closed `file_read` + `memory_save` policy. The feature remains off by default.
+- **On-demand prompt jobs** – configured prompt jobs can be started through `dartclaw jobs run`, `POST /api/scheduling/jobs/<name>/run`, or the Scheduling page without altering pause state or timer cadence.
+
+### Changed
+
+- **Background execution uses one bounded authority** – the fixed serialized primary lane serves main user/channel turns, while `providers.<id>.pool_size` is the hard per-provider capacity shared by tasks, cron/system/advisor work, logical agents, and workflow one-shots. Healthy compatible workers may be reused, but cached processes and containers no longer determine capacity.
+- **Human onboarding is transport-independent** – fresh onboarding applies to Web UI and configured messaging-channel conversations while remaining excluded from tasks, scheduled work, workflows, evaluators, advisors, and logical agents.
+- **Provider identity is canonicalized** – provider IDs are trimmed and lowercased across configuration and routing; blank IDs and normalization collisions fail clearly.
+
+### Fixed
+
+- **Logical-agent tool and network policies reach live provider calls** – raw and canonical tool names, own-MCP search/fetch/memory semantics, global and agent denies, network overrides, and exact agent attribution now flow through available Claude, Codex, and ACP interception paths. Provider limitations remain explicit.
+- **Worker reuse preserves session isolation** – DartClaw session state remains authoritative across Claude process switching, Codex thread association, and ACP replay, preventing provider-local state from leaking between logical-agent sessions.
+- **No-auth HTTP surfaces fail closed off loopback** – bearerless MCP and local-admin writes require literal loopback hosts; browser-origin checks no longer accept non-local matching `Origin`/`Host` pairs.
+- **Codex app-server approvals use the current wire protocol** – command, file-change, permission, and MCP elicitation requests receive schema-native responses; file batches are evaluated per operation, request IDs retain their JSON type, relative shell paths use the requested working directory, and unsupported authority fails closed without hanging the turn.
+- **Queued tasks recover from unavailable worker profiles** – worker creation failures leave work queued, bound retry amplification to one attempt per provider/profile per poll, and no longer crash the poller.
+
+### Removed
+
+- **Preview delegation surfaces (breaking)** – `delegate_to_agent`, `delegation.*`, `SessionDelegate`, `SubagentLimits`, delegation config exports, and provider-native agent registration are removed. Use `sessions_spawn` and handle-based `sessions_send`.
+- **Legacy capacity and observability surfaces (breaking)** – `tasks.max_concurrent` and `HarnessPool` are replaced by provider `pool_size` and `ExecutionCoordinator`; CLI `agents`, `/api/agents`, SSE `agent_state`, and agent observer/events become `runners`, `/api/runners`, `runner_state`, and runner equivalents.
+- **Obsolete `AgentDefinition` controls (breaking, SDK)** – per-agent spawn/concurrency/session-store fields, arbitrary initialize-payload extras, and `toInitializePayload()` are removed; logical agents use shared worker capacity and host-owned orchestration.
+
 ## [0.23.0] - 2026-08-08
 
 ### Added

@@ -636,6 +636,16 @@ class CodexHarness extends BaseHarness {
     String? sessionId,
     String? agentId,
   }) async {
+    if (subtype == 'unsupported_elicitation' ||
+        subtype == 'unsupported_permission_request' ||
+        subtype == 'unsupported_command_request' ||
+        subtype == 'unsupported_server_request') {
+      emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: subtype));
+      if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'Unsupported Codex request')) {
+        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+      }
+      return;
+    }
     if (subtype != 'approval') {
       _log.fine('Ignoring unsupported Codex control request subtype: $subtype');
       return;
@@ -660,41 +670,33 @@ class CodexHarness extends BaseHarness {
     final rawToolName = data['tool_name'] as String? ?? '';
     emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
     final providerToolInput = Map<String, dynamic>.from(mapValue(data['tool_input']) ?? const <String, dynamic>{});
-    final kind = rawToolName == 'file_change' ? _inferFileChangeKind(providerToolInput) : null;
-    final canonicalTool = adapter.mapToolName(
-      rawToolName,
-      kind: kind,
-      mcpServer: stringValue(providerToolInput['server']),
-      mcpTool: stringValue(providerToolInput['tool']),
-    );
-    final semanticMcpArguments = rawToolName == 'mcp_tool_call' && canonicalTool != CanonicalTool.mcpCall
-        ? mapValue(providerToolInput['arguments'])
-        : null;
-    // Codex approval responses can only allow or deny; they cannot mutate the
-    // provider's actual tool_input. Redact and normalize a DartClaw-side copy
-    // so guards and audit logs never see raw credentials.
-    final guardToolInput = _prepareGuardToolInput(rawToolName, semanticMcpArguments ?? providerToolInput);
-    final guardToolName = canonicalTool?.stableName ?? 'codex:$rawToolName';
-
-    if (canonicalTool == null) {
-      _log.warning('Falling back to unmapped Codex tool name: $rawToolName -> $guardToolName');
+    final evaluations = rawToolName == 'file_change'
+        ? _fileChangeGuardEvaluations(providerToolInput)
+        : [_guardEvaluation(rawToolName, providerToolInput)];
+    if (evaluations == null || evaluations.isEmpty) {
+      if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'File change context is incomplete')) {
+        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+      }
+      return;
     }
 
     final chain = guardChain;
     if (chain != null) {
       try {
-        final verdict = await chain.evaluateBeforeToolCall(
-          guardToolName,
-          guardToolInput,
-          sessionId: sessionId,
-          agentId: agentId,
-          rawProviderToolName: rawToolName,
-        );
-        if (verdict.isBlock) {
-          if (_tryWriteApprovalResponse(requestId, allow: false, reason: verdict.message)) {
-            emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+        for (final evaluation in evaluations) {
+          final verdict = await chain.evaluateBeforeToolCall(
+            evaluation.$1,
+            evaluation.$2,
+            sessionId: sessionId,
+            agentId: agentId,
+            rawProviderToolName: rawToolName,
+          );
+          if (verdict.isBlock) {
+            if (_tryWriteApprovalResponse(requestId, allow: false, reason: verdict.message)) {
+              emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+            }
+            return;
           }
-          return;
         }
       } catch (error, stackTrace) {
         _log.severe('GuardChain evaluation failed for Codex approval $requestId: $error', error, stackTrace);
@@ -708,6 +710,54 @@ class CodexHarness extends BaseHarness {
     if (_tryWriteApprovalResponse(requestId, allow: true)) {
       emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
     }
+  }
+
+  (String, Map<String, dynamic>) _guardEvaluation(String rawToolName, Map<String, dynamic> providerToolInput) {
+    final canonicalTool = adapter.mapToolName(
+      rawToolName,
+      mcpServer: stringValue(providerToolInput['server']),
+      mcpTool: stringValue(providerToolInput['tool']),
+    );
+    final semanticMcpArguments = rawToolName == 'mcp_tool_call' && canonicalTool != CanonicalTool.mcpCall
+        ? mapValue(providerToolInput['arguments'])
+        : null;
+    final guardToolInput = _prepareGuardToolInput(rawToolName, semanticMcpArguments ?? providerToolInput);
+    final guardToolName = canonicalTool?.stableName ?? 'codex:$rawToolName';
+    if (canonicalTool == null) {
+      _log.warning('Falling back to unmapped Codex tool name: $rawToolName -> $guardToolName');
+    }
+    return (guardToolName, guardToolInput);
+  }
+
+  List<(String, Map<String, dynamic>)>? _fileChangeGuardEvaluations(Map<String, dynamic> providerToolInput) {
+    if (stringValue(providerToolInput['grantRoot']) case final grantRoot? when grantRoot.isNotEmpty) {
+      return null;
+    }
+    final rawChanges = providerToolInput['changes'];
+    final changes = rawChanges is List
+        ? rawChanges.map(mapValue).whereType<Map<String, dynamic>>().toList()
+        : [providerToolInput];
+    if (changes.isEmpty || (rawChanges is List && changes.length != rawChanges.length)) {
+      return null;
+    }
+
+    final evaluations = <(String, Map<String, dynamic>)>[];
+    for (final change in changes) {
+      final kind = codexFileChangeKind(change['kind']);
+      final path = stringValue(change['path']);
+      final movePath = stringValue(mapValue(change['kind'])?['move_path']);
+      final canonicalTool = switch (kind) {
+        'add' || 'create' => CanonicalTool.fileWrite,
+        'modify' || 'update' => CanonicalTool.fileEdit,
+        _ => null,
+      };
+      if (canonicalTool == null || path == null || path.isEmpty || (movePath != null && movePath.isNotEmpty)) {
+        return null;
+      }
+      final input = Map<String, dynamic>.from(change)..['kind'] = kind;
+      evaluations.add((canonicalTool.stableName, _prepareGuardToolInput('file_change', input)));
+    }
+    return evaluations;
   }
 
   void _handlePendingResponse(String line) {
@@ -783,26 +833,6 @@ class CodexHarness extends BaseHarness {
 
   void _writeLine(Map<String, dynamic> message) {
     writeJsonLine(message, processNotRunningMessage: 'Codex process is not running');
-  }
-
-  static String? _inferFileChangeKind(Map<String, dynamic> toolInput) {
-    final directKind = toolInput['kind'];
-    if (directKind is String && directKind.isNotEmpty) {
-      return directKind;
-    }
-
-    final changes = toolInput['changes'];
-    if (changes is List) {
-      for (final change in changes) {
-        final changeMap = mapValue(change);
-        final nestedKind = changeMap?['kind'];
-        if (nestedKind is String && nestedKind.isNotEmpty) {
-          return nestedKind;
-        }
-      }
-    }
-
-    return null;
   }
 
   static Map<String, dynamic> _prepareGuardToolInput(String rawToolName, Map<String, dynamic> providerToolInput) {

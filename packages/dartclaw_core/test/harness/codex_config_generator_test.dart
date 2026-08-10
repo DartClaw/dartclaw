@@ -36,10 +36,21 @@ void main() {
       final config = CodexConfigGenerator.generate(
         developerInstructions: 'use tools carefully',
         mcpServerUrl: 'http://127.0.0.1:3333/mcp',
+        mcpBearerTokenEnvVar: CodexConfigGenerator.defaultMcpBearerTokenEnvVar,
       );
 
       expect(config, contains('[mcp_servers.dartclaw]'));
       expect(config, contains('bearer_token_env_var = "${CodexConfigGenerator.defaultMcpBearerTokenEnvVar}"'));
+    });
+
+    test('omits bearer token configuration for an unauthenticated loopback MCP server', () {
+      final config = CodexConfigGenerator.generate(
+        developerInstructions: 'use tools carefully',
+        mcpServerUrl: 'http://127.0.0.1:3333/mcp',
+      );
+
+      expect(config, contains('[mcp_servers.dartclaw]'));
+      expect(config, isNot(contains('bearer_token_env_var')));
     });
 
     test('omits MCP section when URL is blank', () {

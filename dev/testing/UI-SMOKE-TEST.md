@@ -8,7 +8,7 @@ See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and s
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.23
+**Last refreshed for**: DartClaw 0.24
 
 ---
 
@@ -411,8 +411,8 @@ content directly (NDJSON file or SQLite).
 
 ### TC-21: Task Detail Progression *(requires a task to start)*
 **Steps:**
-1. Plain profile: create a **Research** draft task at `/tasks/<id>`; Coding tasks instead require
-   a registered, ready Git project
+1. Plain profile: create an **Automation** draft task at `/tasks/<id>`; Coding tasks require a registered, ready Git
+   project, while Research tasks require the `restricted` profile supplied by container isolation
 2. Click **Start Task** (or equivalent transition); do not manually reload afterwards
 
 **Pass:**
@@ -583,6 +583,7 @@ Previously fixed issues. Flag immediately if any regress.
 | R-11 | Workspace section missing | Main session always rendered under Workspace, not buried in Chats |
 | R-12 | Workflow step expansion full-page reload | Step row expansion is HTMX-driven, no full reload |
 | R-13 | External runtime dependency returns | Embedded fallback serves fully offline — run § R-13 protocol below |
+| R-14 | Workflow run identity truncates | At 320px, a real UUID wraps and remains fully readable without horizontal overflow |
 
 ### R-13 protocol
 
@@ -615,6 +616,15 @@ binary's embedded fallback with the network cut, not against a dev server.
    and a broken axis would still report three loaded `FontFace`s at the right descriptors. Draw the same glyphs to a
    canvas at weight 400 and at 600 and require materially more ink at 600 (~1.2x opaque pixels); equal ink means the
    weights collapsed. Monospace advance width is weight-invariant, so width comparison cannot substitute.
+
+### R-14 protocol
+
+1. Seed a workflow run whose ID is a real UUID, such as `123e4567-e89b-12d3-a456-426614174000`, and open its detail
+   page from the plain profile.
+2. Set the viewport to exactly 320px wide.
+3. Confirm the identity card displays the complete UUID, the code element wraps to multiple lines, and
+   `document.documentElement.scrollWidth <= document.documentElement.clientWidth`.
+4. Capture the 320px screenshot and confirm no console errors.
 
 ---
 

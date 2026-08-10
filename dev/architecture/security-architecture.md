@@ -154,7 +154,7 @@ Provider branching is confined to protocol adapters and composition/wiring. Secu
 |-------|-----------|-------|-------------|
 | **InputSanitizer** | `messageReceived` | Channel messages (configurable) | Regex-based prompt injection detection across 4 categories |
 | **CommandGuard** | `beforeToolCall` (Bash) | All Bash tool calls | Destructive command, force operation, fork bomb, interpreter escape, pipe target blocking |
-| **FileGuard** | `beforeToolCall` (Bash, write_file, edit_file) | File operations | Glob-based path protection with 3 access levels, symlink resolution |
+| **FileGuard** | `beforeToolCall` (Bash, write_file, edit_file) | File operations | Glob-based path protection with 3 access levels, provider-`cwd` relative resolution, symlink resolution |
 | **NetworkGuard** | `beforeToolCall` (Bash, web_fetch) | Network operations | Domain allowlist, IP blocking, exfiltration pattern detection |
 | **EgressGuard** | `outboundMcpToolsCall` | Outbound MCP `tools/call` dispatch | Default-deny per-server/per-tool allowlist for external MCP calls |
 | **ContentGuard** | `beforeAgentSend` | Agent boundary handoff | LLM-based content classification (prompt injection, harmful content, exfiltration) |
@@ -258,13 +258,18 @@ Different providers expose different interception points. DartClaw keeps the gua
 | Provider / mode | Mechanism | DartClaw integration point | Security boundary |
 |-----------------|------------|-----------------------------|-------------------|
 | Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
-| Codex (app-server) | Approval requests only | `approval` handler in `CodexHarness`; `on-request` is broadest, granular is partial, `never` disables host interception | Approval response path is the only interception point |
+| Codex (app-server) | Command, file-change, and MCP approval requests | `approval` handler in `CodexHarness`; `on-request` is broadest, granular is partial, `never` disables host interception | Approval response path is the only interception point |
 | ACP direct-provider, verified | Host-advertised ACP `fs` capabilities | `AcpReverseCallHandlers` bind reverse-calls to the active session and map them to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
 | ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Container profile and workspace jail only | Container-isolation-only until per-agent verification proves guard mediation |
 
 For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
 
-For Codex app-server, the approval request is the only interception point. DartClaw does not use `--yolo`, but the configured policy still controls coverage: explicitly configured `on-request` is the intended host-guard posture, granular omits provider-safe operations, and `never` removes the guard chain from tool execution. An omitted option inherits Codex configuration, so serve treats it as unverified and warns when tool restrictions are configured.
+For Codex app-server, the approval request is the only interception point. DartClaw handles the current
+`item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, and MCP approval-elicitation shapes. It does
+not use `--yolo`, but the configured policy still controls coverage: explicitly configured `on-request` is the intended
+host-guard posture, granular omits provider-safe operations, and `never` removes the guard chain from tool execution. An
+omitted option inherits Codex configuration, so serve treats it as unverified and warns when tool restrictions are
+configured.
 
 For ACP agents, security classification is topology-scoped. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies can still run under container isolation, but DartClaw does not describe them as mediated by guards.
 

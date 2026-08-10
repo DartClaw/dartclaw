@@ -169,8 +169,9 @@ class FileGuard extends Guard {
       _ => <_PathOp>[],
     };
 
+    final workingDirectory = _stringValue(toolInput['cwd']);
     for (final po in pathOps) {
-      final resolved = _resolvePath(po.path);
+      final resolved = _resolvePath(po.path, workingDirectory: workingDirectory);
       final verdict = _checkAccess(resolved, po.operation);
       if (verdict != null) return verdict;
     }
@@ -300,9 +301,12 @@ class FileGuard extends Guard {
   // Path resolution + matching
   // -------------------------------------------------------------------------
 
-  String _resolvePath(String path) {
+  String _resolvePath(String path, {String? workingDirectory}) {
     final expanded = expandHome(path);
-    final normalized = p.normalize(expanded);
+    final rooted = workingDirectory != null && workingDirectory.isNotEmpty && !p.isAbsolute(expanded)
+        ? p.join(workingDirectory, expanded)
+        : expanded;
+    final normalized = p.normalize(rooted);
     // Resolve all symlinks in the path (including parent dirs like /var -> /private/var)
     try {
       final type = FileSystemEntity.typeSync(normalized, followLinks: true);

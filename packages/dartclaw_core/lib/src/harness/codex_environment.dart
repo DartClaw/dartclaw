@@ -15,7 +15,7 @@ const _homeDirectoryRemediation = 'Set HOME or USERPROFILE before starting DartC
 /// By default ([useSystemCodexHome] = `true`), the worker subprocess inherits
 /// the user's standard `~/.codex/` — no temp dir, no config mutation. Set
 /// [useSystemCodexHome] to `false` to opt into the isolated-temp-dir model
-/// that seeds from `~/.codex/` and injects DartClaw-specific
+/// that seeds authentication from `~/.codex/` and writes DartClaw-specific
 /// `developer_instructions` + MCP server entries into a per-worker `config.toml`.
 class CodexEnvironment {
   final String developerInstructions;
@@ -28,7 +28,7 @@ class CodexEnvironment {
 
   /// When `true` (default), the harness does not override `CODEX_HOME` and the
   /// Codex subprocess reads the user's `~/.codex/` directly. When `false`, an
-  /// isolated temp `CODEX_HOME` is created and seeded from `~/.codex/`.
+  /// isolated temp `CODEX_HOME` is created with authentication from `~/.codex/`.
   final bool useSystemCodexHome;
 
   Directory? _tempDirectory;
@@ -48,8 +48,8 @@ class CodexEnvironment {
   ///
   /// - [useSystemCodexHome] = `true`: returns `.codex` under the resolved home
   ///   without mutating anything; the subprocess inherits the parent environment.
-  /// - [useSystemCodexHome] = `false`: creates an isolated temp dir, seeds it
-  ///   from `~/.codex/`, and writes a DartClaw-specific `config.toml`.
+  /// - [useSystemCodexHome] = `false`: creates an isolated temp dir, seeds
+  ///   authentication from `~/.codex/`, and writes a standalone `config.toml`.
   Future<String> setup() async {
     if (useSystemCodexHome) {
       final home = platformCapabilities.homeDirectory;
@@ -79,19 +79,17 @@ class CodexEnvironment {
     try {
       await _chmod700(tempDirectory.path);
 
-      await _seedFromDefaultCodexHome(tempDirectory.path);
+      await _seedAuthentication(tempDirectory.path);
 
       final configFile = File(p.join(tempDirectory.path, 'config.toml'));
-      final existingConfig = await configFile.exists() ? await configFile.readAsString() : '';
       final generatedConfig = CodexConfigGenerator.generate(
         developerInstructions: developerInstructions,
         mcpServerUrl: mcpServerUrl,
-        mcpBearerTokenEnvVar: CodexConfigGenerator.defaultMcpBearerTokenEnvVar,
+        mcpBearerTokenEnvVar: mcpGatewayToken?.trim().isNotEmpty ?? false
+            ? CodexConfigGenerator.defaultMcpBearerTokenEnvVar
+            : null,
       );
-      await configFile.writeAsString(
-        existingConfig.trim().isEmpty ? generatedConfig : '$existingConfig\n$generatedConfig',
-        flush: true,
-      );
+      await configFile.writeAsString(generatedConfig, flush: true);
 
       final agentsContent = agentsMdContent;
       if (agentsContent != null) {
@@ -163,7 +161,7 @@ class CodexEnvironment {
     }
   }
 
-  Future<void> _seedFromDefaultCodexHome(String targetDir) async {
+  Future<void> _seedAuthentication(String targetDir) async {
     final home = platformCapabilities.homeDirectory;
     if (home == null) {
       return;
@@ -174,14 +172,9 @@ class CodexEnvironment {
       return;
     }
 
-    for (final name in const <String>['auth.json', 'config.toml']) {
-      final source = File(p.join(sourceDir.path, name));
-      if (!source.existsSync()) {
-        continue;
-      }
-
-      final target = File(p.join(targetDir, name));
-      await source.copy(target.path);
+    final source = File(p.join(sourceDir.path, 'auth.json'));
+    if (source.existsSync()) {
+      await source.copy(p.join(targetDir, 'auth.json'));
     }
   }
 }

@@ -90,6 +90,9 @@ CanonicalTool? codexMapToolName(String providerToolName, {String? kind}) {
   };
 }
 
+/// Extracts the kind from legacy string and current tagged-object file changes.
+String? codexFileChangeKind(Object? value) => stringValue(value) ?? stringValue(mapValue(value)?['type']);
+
 /// Returns a compact tool-call summary from an error object.
 String? codexErrorSummary(Object? error) {
   final map = mapValue(error);

@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.18**
+> Current through: **0.24**
 
 DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
 

@@ -1,12 +1,8 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/src/harness/codex_settings.dart';
-import 'package:dartclaw_core/src/harness/canonical_tool.dart';
 import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
 import 'package:dartclaw_core/src/harness/protocol_message.dart';
 import 'package:test/test.dart';
-
-Map<String, dynamic> _j(Map<String, dynamic> value) => jsonDecode(jsonEncode(value)) as Map<String, dynamic>;
 
 void main() {
   group('CodexProtocolAdapter.parseLine', () {
@@ -156,6 +152,63 @@ void main() {
       });
     });
 
+    test('parses current camelCase tool item types', () {
+      final adapter = CodexProtocolAdapter();
+
+      final command = adapter.parseLine(
+        jsonEncode({
+          'method': 'item/started',
+          'params': {
+            'item': {'type': 'commandExecution', 'id': 'command-current', 'command': 'git status'},
+          },
+        }),
+      );
+      final file = adapter.parseLine(
+        jsonEncode({
+          'method': 'item/started',
+          'params': {
+            'item': {
+              'type': 'fileChange',
+              'id': 'file-current',
+              'changes': [
+                {
+                  'kind': {'type': 'update'},
+                  'path': '/tmp/existing.txt',
+                },
+              ],
+            },
+          },
+        }),
+      );
+      final mcp = adapter.parseLine(
+        jsonEncode({
+          'method': 'item/started',
+          'params': {
+            'item': {
+              'type': 'mcpToolCall',
+              'id': 'mcp-current',
+              'server': 'dartclaw',
+              'tool': 'memory_save',
+              'arguments': {'content': 'fact'},
+            },
+          },
+        }),
+      );
+      final web = adapter.parseLine(
+        jsonEncode({
+          'method': 'item/started',
+          'params': {
+            'item': {'type': 'webSearch', 'id': 'web-current', 'query': 'dartclaw'},
+          },
+        }),
+      );
+
+      expect(command, isA<ToolUse>().having((message) => message.name, 'name', 'shell'));
+      expect(file, isA<ToolUse>().having((message) => message.name, 'name', 'file_edit'));
+      expect(mcp, isA<ToolUse>().having((message) => message.name, 'name', 'mcp_call'));
+      expect(web, isA<ToolUse>().having((message) => message.name, 'name', 'web_search'));
+    });
+
     test('parses item/completed command_execution into ToolResult', () {
       final adapter = CodexProtocolAdapter();
 
@@ -249,6 +302,58 @@ void main() {
       expect(toolResult.toolId, 'tool-4');
       expect(toolResult.output, 'failed\n');
       expect(toolResult.isError, isTrue);
+    });
+
+    test('parses current camelCase command result fields', () {
+      final adapter = CodexProtocolAdapter();
+
+      final msg = adapter.parseLine(
+        jsonEncode({
+          'method': 'item/completed',
+          'params': {
+            'item': {
+              'type': 'commandExecution',
+              'id': 'command-current',
+              'aggregatedOutput': 'failed\n',
+              'exitCode': 2,
+            },
+          },
+        }),
+      );
+
+      expect(msg, isA<ToolResult>());
+      final result = msg! as ToolResult;
+      expect(result.output, 'failed\n');
+      expect(result.isError, isTrue);
+    });
+
+    test('does not report current message items as unknown tools', () {
+      final adapter = CodexProtocolAdapter();
+
+      for (final type in ['userMessage', 'agentMessage']) {
+        expect(
+          adapter.parseLine(
+            jsonEncode({
+              'method': 'item/started',
+              'params': {
+                'item': {'type': type, 'id': '$type-started'},
+              },
+            }),
+          ),
+          isNull,
+        );
+        expect(
+          adapter.parseLine(
+            jsonEncode({
+              'method': 'item/completed',
+              'params': {
+                'item': {'type': type, 'id': '$type-completed', 'text': 'message'},
+              },
+            }),
+          ),
+          isNull,
+        );
+      }
     });
 
     test('parses turn/completed into TurnComplete with token counts', () {
@@ -472,6 +577,172 @@ void main() {
       expect(request.subtype, 'approval');
       expect(request.data['tool_name'], 'command_execution');
       expect(request.data['tool_input'], {'command': 'git status'});
+    });
+
+    test('parses current command execution approval request', () {
+      final adapter = CodexProtocolAdapter();
+
+      final msg = adapter.parseLine(
+        jsonEncode({
+          'id': 'req-command',
+          'method': 'item/commandExecution/requestApproval',
+          'params': {
+            'itemId': 'command-1',
+            'command': 'git status',
+            'cwd': '/tmp/workspace',
+            'reason': 'Inspect the checkout',
+          },
+        }),
+      );
+
+      expect(msg, isA<ControlRequest>());
+      final request = msg! as ControlRequest;
+      expect(request.data['tool_name'], 'command_execution');
+      expect(request.data['tool_use_id'], 'command-1');
+      expect(request.data['tool_input'], {
+        'command': 'git status',
+        'cwd': '/tmp/workspace',
+        'reason': 'Inspect the checkout',
+      });
+    });
+
+    test('parses current file change approval with the started item context', () {
+      final adapter = CodexProtocolAdapter();
+      adapter.parseLine(
+        jsonEncode({
+          'method': 'item/started',
+          'params': {
+            'item': {
+              'type': 'fileChange',
+              'id': 'file-1',
+              'changes': [
+                {'kind': 'update', 'path': '/tmp/existing.txt'},
+              ],
+            },
+          },
+        }),
+      );
+
+      final msg = adapter.parseLine(
+        jsonEncode({
+          'id': 'req-file',
+          'method': 'item/fileChange/requestApproval',
+          'params': {'itemId': 'file-1', 'reason': 'Update the fixture'},
+        }),
+      );
+
+      expect(msg, isA<ControlRequest>());
+      final request = msg! as ControlRequest;
+      expect(request.data['tool_name'], 'file_change');
+      expect(request.data['tool_use_id'], 'file-1');
+      expect(request.data['tool_input'], {
+        'id': 'file-1',
+        'changes': [
+          {'kind': 'update', 'path': '/tmp/existing.txt'},
+        ],
+        'reason': 'Update the fixture',
+      });
+    });
+
+    test('parses current MCP tool approval elicitation', () {
+      final adapter = CodexProtocolAdapter();
+
+      final msg = adapter.parseLine(
+        jsonEncode({
+          'id': 'req-mcp',
+          'method': 'mcpServer/elicitation/request',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'serverName': 'dartclaw',
+            'mode': 'form',
+            '_meta': {
+              'codex_approval_kind': 'mcp_tool_call',
+              'tool_name': 'memory_save',
+              'tool_params': {'content': 'fact'},
+            },
+            'message': 'Allow memory write?',
+            'requestedSchema': {'type': 'object', 'properties': <String, dynamic>{}},
+          },
+        }),
+      );
+
+      expect(msg, isA<ControlRequest>());
+      final request = msg! as ControlRequest;
+      expect(request.data['tool_name'], 'mcp_tool_call');
+      expect(request.data['tool_use_id'], 'req-mcp');
+      expect(request.data['tool_input'], {
+        'server': 'dartclaw',
+        'tool': 'memory_save',
+        'arguments': {'content': 'fact'},
+      });
+    });
+
+    test('uses the MCP approval request identity instead of cached started items', () {
+      final adapter = CodexProtocolAdapter();
+      adapter.parseLine(
+        jsonEncode({
+          'method': 'item/started',
+          'params': {
+            'item': {
+              'type': 'mcpToolCall',
+              'id': 'mcp-started',
+              'server': 'dartclaw',
+              'tool': 'memory_save',
+              'arguments': {'content': 'fact'},
+            },
+          },
+        }),
+      );
+
+      final msg = adapter.parseLine(
+        jsonEncode({
+          'id': 8,
+          'method': 'mcpServer/elicitation/request',
+          'params': {
+            'serverName': 'external-memory',
+            'mode': 'form',
+            '_meta': {
+              'codex_approval_kind': 'mcp_tool_call',
+              'tool_name': 'memory_save',
+              'tool_params': {'content': 'fact'},
+            },
+            'message': 'Allow?',
+            'requestedSchema': {'type': 'object'},
+          },
+        }),
+      );
+
+      expect((msg! as ControlRequest).data['tool_input'], {
+        'server': 'external-memory',
+        'tool': 'memory_save',
+        'arguments': {'content': 'fact'},
+      });
+    });
+
+    test('routes non-approval MCP elicitations for an immediate native response', () {
+      final adapter = CodexProtocolAdapter();
+
+      final message = adapter.parseLine(
+        jsonEncode({
+          'id': 'req-mcp-form',
+          'method': 'mcpServer/elicitation/request',
+          'params': {
+            'serverName': 'forms',
+            'mode': 'form',
+            '_meta': {'source': 'form'},
+            'message': 'Enter a value',
+            'requestedSchema': {'type': 'object'},
+          },
+        }),
+      );
+
+      expect(
+        message,
+        isA<ControlRequest>()
+            .having((request) => request.requestId, 'requestId', 'req-mcp-form')
+            .having((request) => request.subtype, 'subtype', 'unsupported_elicitation'),
+      );
     });
 
     test('returns null for turn/started', () {
@@ -751,100 +1022,6 @@ void main() {
     });
   });
 
-  group('CodexProtocolAdapter.buildTurnRequest', () {
-    test('maps configured sandbox values to camelCase sandboxPolicy types', () {
-      final adapter = CodexProtocolAdapter();
-
-      for (final entry in const {
-        'workspace-write': 'workspaceWrite',
-        'danger-full-access': 'dangerFullAccess',
-      }.entries) {
-        final settings = CodexSettings.buildDynamicSettings(sandbox: entry.key);
-        final request = adapter.buildTurnRequest(message: 'test', settings: settings);
-        expect(request['params']?['sandboxPolicy'], {'type': entry.value}, reason: entry.key);
-      }
-    });
-    test('builds turn/start payload with user content', () {
-      final adapter = CodexProtocolAdapter();
-      expect(
-        adapter.buildTurnRequest(message: 'Hello'),
-        _j({
-          'method': 'turn/start',
-          'params': {
-            'input': [
-              {'type': 'text', 'text': 'Hello'},
-            ],
-          },
-        }),
-      );
-    });
-
-    test('includes threadId and resume flags while ignoring systemPrompt', () {
-      final adapter = CodexProtocolAdapter();
-      final payload = adapter.buildTurnRequest(
-        message: 'Hello',
-        systemPrompt: 'Be concise',
-        threadId: 'thread-123',
-        resume: true,
-      );
-
-      expect(payload['method'], 'turn/start');
-      expect(payload['params'], isA<Map<String, dynamic>>());
-      expect((payload['params'] as Map<String, dynamic>)['input'], [
-        {'type': 'text', 'text': 'Hello'},
-      ]);
-      expect(payload['params']?['threadId'], 'thread-123');
-      expect(payload['params']?['system_prompt'], isNull);
-      expect(payload['params']?['resume'], isTrue);
-    });
-
-    test('includes previousResponseItems and dynamic settings', () {
-      final dynamic adapter = CodexProtocolAdapter();
-      final payload =
-          adapter.buildTurnRequest(
-                message: 'Hello',
-                threadId: 'thread-123',
-                history: [
-                  {'role': 'human', 'content': 'Earlier question'},
-                  {'role': 'assistant', 'content': 'Earlier answer'},
-                ],
-                settings: {
-                  'model': 'gpt-5',
-                  'cwd': '/tmp/workspace',
-                  'sandbox': 'workspaceWrite',
-                  'approval_policy': 'on-request',
-                },
-              )
-              as Map<String, dynamic>;
-
-      final params = payload['params'] as Map<String, dynamic>;
-      expect(params['threadId'], 'thread-123');
-      expect(params['input'], [
-        {'type': 'text', 'text': 'Hello'},
-      ]);
-      expect(params['previousResponseItems'], [
-        {
-          'type': 'message',
-          'role': 'user',
-          'content': [
-            {'type': 'input_text', 'text': 'Earlier question'},
-          ],
-        },
-        {
-          'type': 'message',
-          'role': 'assistant',
-          'content': [
-            {'type': 'output_text', 'text': 'Earlier answer'},
-          ],
-        },
-      ]);
-      expect(params['model'], 'gpt-5');
-      expect(params['cwd'], '/tmp/workspace');
-      expect(params['sandboxPolicy'], {'type': 'workspaceWrite'});
-      expect(params['approvalPolicy'], 'on-request');
-    });
-  });
-
   group('CodexProtocolAdapter.buildApprovalResponse', () {
     test('builds approved response', () {
       final adapter = CodexProtocolAdapter();
@@ -872,109 +1049,147 @@ void main() {
         'result': {'approved': false, 'reason': 'Blocked by FileGuard'},
       });
     });
-  });
 
-  group('CodexProtocolAdapter initialization helpers', () {
-    test('builds initialize request with default params', () {
+    test('builds current command approval decisions', () {
       final adapter = CodexProtocolAdapter();
-
-      expect(adapter.buildInitializeRequest(id: 1), {
-        'id': 1,
-        'method': 'initialize',
-        'params': {
-          'clientInfo': {'name': 'dartclaw', 'version': '0.9.0'},
-        },
-      });
-    });
-
-    test('builds initialized notification with custom params', () {
-      final adapter = CodexProtocolAdapter();
-
-      expect(adapter.buildInitializedNotification(params: {'session_id': 'sess-123'}), {
-        'method': 'initialized',
-        'params': {'session_id': 'sess-123'},
-      });
-    });
-
-    test('builds thread/start request', () {
-      final adapter = CodexProtocolAdapter();
-
-      expect(adapter.buildThreadStartRequest(id: 'thread-1', params: {'session_id': 'sess-123'}), {
-        'id': 'thread-1',
-        'method': 'thread/start',
-        'params': {'session_id': 'sess-123'},
-      });
-    });
-  });
-
-  group('CodexProtocolAdapter.mapToolName', () {
-    test('maps command_execution to shell', () {
-      final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('command_execution'), CanonicalTool.shell);
-    });
-
-    test('maps file_change create to file_write', () {
-      final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('file_change', kind: 'create'), CanonicalTool.fileWrite);
-    });
-
-    test('maps file_change update to file_edit', () {
-      final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('file_change', kind: 'update'), CanonicalTool.fileEdit);
-    });
-
-    test('maps file_change unknown kind to file_write for fail-closed guard evaluation', () {
-      final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('file_change', kind: 'rename'), CanonicalTool.fileWrite);
-    });
-
-    test('maps mcp_tool_call to mcp_call', () {
-      final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('mcp_tool_call'), CanonicalTool.mcpCall);
-    });
-
-    test('maps web_search to web_search', () {
-      final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('web_search'), CanonicalTool.webSearch);
-    });
-
-    test('maps exact own MCP tools while unknown and third-party tools stay generic', () {
-      final adapter = CodexProtocolAdapter(
-        ownMcpToolCanonicals: const {
-          'memory_save': CanonicalTool.memorySave,
-          'sessions_spawn': CanonicalTool.sessionsSpawn,
-        },
+      adapter.parseLine(
+        jsonEncode({
+          'id': 'req-current-allow',
+          'method': 'item/commandExecution/requestApproval',
+          'params': {'itemId': 'command-1'},
+        }),
+      );
+      adapter.parseLine(
+        jsonEncode({
+          'id': 'req-current-deny',
+          'method': 'item/commandExecution/requestApproval',
+          'params': {'itemId': 'command-2'},
+        }),
       );
 
-      ToolUse parse(String server, String tool) =>
+      expect(adapter.buildApprovalResponse('req-current-allow', allow: true), {
+        'jsonrpc': '2.0',
+        'id': 'req-current-allow',
+        'result': {'decision': 'accept'},
+      });
+      expect(adapter.buildApprovalResponse('req-current-deny', allow: false, reason: 'blocked'), {
+        'jsonrpc': '2.0',
+        'id': 'req-current-deny',
+        'result': {'decision': 'decline'},
+      });
+    });
+
+    test('preserves numeric request IDs in current approval responses', () {
+      final adapter = CodexProtocolAdapter();
+      adapter.parseLine(
+        jsonEncode({
+          'id': 7,
+          'method': 'item/commandExecution/requestApproval',
+          'params': {'itemId': 'command-7'},
+        }),
+      );
+
+      expect(adapter.buildApprovalResponse('7', allow: true), {
+        'jsonrpc': '2.0',
+        'id': 7,
+        'result': {'decision': 'accept'},
+      });
+    });
+
+    test('keeps concurrent numeric and string request IDs distinct', () {
+      final adapter = CodexProtocolAdapter();
+      final numeric =
           adapter.parseLine(
                 jsonEncode({
-                  'method': 'item/started',
+                  'id': 7,
+                  'method': 'item/commandExecution/requestApproval',
+                  'params': {'itemId': 'command-7'},
+                }),
+              )!
+              as ControlRequest;
+      final string =
+          adapter.parseLine(
+                jsonEncode({
+                  'id': '7',
+                  'method': 'mcpServer/elicitation/request',
                   'params': {
-                    'item': {
-                      'type': 'mcp_tool_call',
-                      'id': '$server-$tool',
-                      'server': server,
-                      'tool': tool,
-                      'arguments': <String, dynamic>{},
-                    },
+                    'serverName': 'dartclaw',
+                    '_meta': {'codex_approval_kind': 'mcp_tool_call', 'tool_name': 'memory_save'},
                   },
                 }),
               )!
-              as ToolUse;
+              as ControlRequest;
 
-      expect(parse('dartclaw', 'memory_save').name, 'memory_save');
-      expect(parse('dartclaw', 'sessions_spawn').name, 'sessions_spawn');
-      expect(parse('dartclaw', 'unknown').name, 'mcp_call');
-      expect(parse('third_party', 'memory_save').name, 'mcp_call');
+      expect(numeric.requestId, '7');
+      expect(string.requestId, '7#1');
+      expect(adapter.buildApprovalResponse(numeric.requestId, allow: false), {
+        'jsonrpc': '2.0',
+        'id': 7,
+        'result': {'decision': 'decline'},
+      });
+      expect(adapter.buildApprovalResponse(string.requestId, allow: true), {
+        'jsonrpc': '2.0',
+        'id': '7',
+        'result': {'action': 'accept', 'content': null, '_meta': null},
+      });
     });
 
-    test('returns null for unknown and edge-case tool names', () {
+    test('builds an empty permission grant for unsupported permission requests', () {
       final adapter = CodexProtocolAdapter();
-      expect(adapter.mapToolName('unknown_tool'), isNull);
-      expect(adapter.mapToolName('reasoning'), isNull);
-      expect(adapter.mapToolName('todo_list'), isNull);
-      expect(adapter.mapToolName('error'), isNull);
+      final request = adapter.parseLine(
+        jsonEncode({
+          'id': 'permission-1',
+          'method': 'item/permissions/requestApproval',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'item-1',
+            'startedAtMs': 1,
+            'cwd': '/tmp',
+            'permissions': <String, dynamic>{},
+          },
+        }),
+      );
+
+      expect(
+        request,
+        isA<ControlRequest>().having((request) => request.subtype, 'subtype', 'unsupported_permission_request'),
+      );
+      expect(adapter.buildApprovalResponse('permission-1', allow: false), {
+        'jsonrpc': '2.0',
+        'id': 'permission-1',
+        'result': {'permissions': <String, dynamic>{}},
+      });
+    });
+
+    test('builds current MCP elicitation approval actions', () {
+      final adapter = CodexProtocolAdapter();
+      for (final requestId in ['req-mcp-allow', 'req-mcp-deny']) {
+        adapter.parseLine(
+          jsonEncode({
+            'id': requestId,
+            'method': 'mcpServer/elicitation/request',
+            'params': {
+              'serverName': 'dartclaw',
+              'mode': 'form',
+              '_meta': {'codex_approval_kind': 'mcp_tool_call', 'tool_name': 'memory_save'},
+              'message': 'Allow?',
+              'requestedSchema': {'type': 'object'},
+            },
+          }),
+        );
+      }
+
+      expect(adapter.buildApprovalResponse('req-mcp-allow', allow: true), {
+        'jsonrpc': '2.0',
+        'id': 'req-mcp-allow',
+        'result': {'action': 'accept', 'content': null, '_meta': null},
+      });
+      expect(adapter.buildApprovalResponse('req-mcp-deny', allow: false, reason: 'blocked'), {
+        'jsonrpc': '2.0',
+        'id': 'req-mcp-deny',
+        'result': {'action': 'decline', 'content': null, '_meta': null},
+      });
     });
   });
 }

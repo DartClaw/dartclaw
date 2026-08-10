@@ -4,27 +4,17 @@
 
 ## Active Milestone
 
-### 0.23 — Design-System Refinement, Web UI Polish & Runtime Hardening
-
-**Status: Implemented; release-ready, awaiting tag.** Opened 2026-07-25 after a post-release audit of `v0.22.0`
-(23 surfaces, 92 screenshots, both themes) found 232 verified defects whose root causes are in the design-system canon
-itself: `.sidebar`/`.topbar`/`.card` and the end stop of the body ground gradient all resolve to `--bg-mantle`
-(card-vs-ground contrast 1.07:1), card colour is entirely `:hover`-gated, three of seven type tiers sit inside a 2px
-band, and canon ships no form, tab or dialog primitives while sanctioning `window.confirm()`. Scope: surface/depth
-revision, type-scale rationalization + composite type layer, a `--container-wide` tier, form/tab/dialog primitives,
-native-dialog eradication, a 64-issue glitch sweep, and local vendoring of the remaining CDN runtime dependencies. All
-16 original stories are complete. Post-plan work also refined session navigation and corrected deployment, onboarding,
-Signal, and Signal/WhatsApp typing behavior. The automated release check, full workflow-live, complete UI smoke, and
-exact-SHA GitHub CI pass on the scope-frozen branch. Paired-device typing checks continue as non-blocking field
-validation. Sequenced before 0.26, whose Phase-0 chat components this release changes by construction.
-
-## Planned
-
 ### 0.24 — Logical-Agent Correctness & Scheduling Operability
 
-Make logical-agent execution honor configured tool policies, personas, and models on the live dispatch path; add the
-built-in `memory.journal` maintenance job; and expose safe on-demand scheduled-job execution through CLI, API, and Web
-UI. Renumbered from the planned 0.22.2 bundle when the current release became 0.23.
+**Status: Implemented; release preparation blocked on native Windows provider requalification.** Logical-agent execution now applies configured tool/network
+policy, persona, provider, model, effort, and security profile through durable provider-pinned sessions. One execution
+coordinator owns the fixed primary lane and hard per-provider worker capacity, while process reuse remains an
+opportunistic cache. The release also adds the opt-in `memory.journal` job and safe on-demand prompt-job execution
+through CLI, API, and Web UI. Final implementation, convergence, simplification, full workspace gates, and visual
+validation are complete. Native Windows Codex 0.139.0 passed before final approval-path hardening and must be rerun;
+Claude 2.1.207 must be reauthenticated before its equivalent matrix and the final pre-tag gate can complete.
+
+## Planned
 
 ### 0.25 — Pluggable Database Backend & Multi-Language Search
 
@@ -55,6 +45,13 @@ for background execution.
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.23 — Design-System Refinement, Web UI Polish & Runtime Hardening ✅
+
+Tagged `v0.23.0` on 2026-08-08. Refined the Afterglow design-system canon and complete Web UI, added persistent session
+navigation and native Signal/WhatsApp typing indicators, and shipped session/task concurrency fixes, generated embedded
+assets, deployment/onboarding hardening, guard-chain corrections, channel formatting fixes, and release-build repairs.
+See `CHANGELOG.md` for details.
 
 ### 0.22 — Afterglow Design-System Overhaul ✅
 

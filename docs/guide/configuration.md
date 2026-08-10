@@ -456,8 +456,8 @@ providers:
   #                              #   DartClaw cannot verify the host-interception posture.
   #                              #   For logical agents using Codex, use approval: on-request
   #                              #   with sandbox: read-only or workspace-write. Trusted
-  #                              #   batch use may still choose never to avoid the upstream
-  #                              #   approval deadlock bug (openai/codex#11816).
+  #                              #   batch use may still choose never when host guard
+  #                              #   interception is intentionally not required.
   #                              #   See: docs/guide/agents.md § Providers
 
 # --- Credentials (0.13) ---

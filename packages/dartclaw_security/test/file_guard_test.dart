@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'guard_test_support.dart';
@@ -136,6 +137,26 @@ void main() {
     test('blocks cp with protected destination', () async {
       final v = await guard.evaluate(bashGuardContext('cp secrets.txt .env'));
       expect(v.isBlock, isTrue);
+    });
+
+    test('resolves relative command paths from the provider working directory', () async {
+      final tempDir = Directory.systemTemp.createTempSync('file_guard_cwd_test_');
+      try {
+        final protected = '${tempDir.path}/workspace/.env';
+        final cwdGuard = FileGuard(
+          config: FileGuardConfig(
+            rules: [FileGuardRule(pattern: protected, level: FileAccessLevel.readOnly)],
+          ),
+        );
+        final verdict = await cwdGuard.evaluate(
+          _tool('shell', {'command': 'echo secret > .env', 'cwd': p.dirname(protected)}),
+        );
+
+        expect(verdict.isBlock, isTrue);
+        expect(verdict.message, contains(protected));
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
     });
   });
 

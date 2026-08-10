@@ -3,12 +3,22 @@ import 'base_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'protocol_message.dart';
 
+part 'codex_protocol_adapter_messages.dart';
+
+enum _ApprovalResponseKind { decision, elicitation, permissions, unsupported }
+
+enum _CommandDenial { decline, cancel, error }
+
 /// Codex app-server implementation of [ProtocolAdapter].
 class CodexProtocolAdapter extends BaseProtocolAdapter {
   static const String _clientName = 'dartclaw';
   static const String _clientVersion = '0.9.0';
 
   final Map<String, CanonicalTool> _ownMcpToolCanonicals;
+  final Map<String, _ApprovalResponseKind> _approvalResponseKinds = {};
+  final Map<String, _CommandDenial> _commandDenials = {};
+  final Map<String, Object> _approvalWireIds = {};
+  final Map<String, Map<String, dynamic>> _startedItems = {};
 
   CodexProtocolAdapter({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
     : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
@@ -19,24 +29,53 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     if (decoded == null) return null;
 
     final method = stringValue(decoded['method']);
-    final id = decoded['id'];
+    final Object? id = decoded['id'];
 
     if (id != null && (method == 'control/approval' || method == 'approval/request')) {
+      final requestId = _registerApproval(id);
       return ControlRequest(
-        requestId: '$id',
+        requestId: requestId,
         subtype: 'approval',
         data: mapValue(decoded['params']) ?? const <String, dynamic>{},
       );
+    }
+
+    if (id != null && method != null) {
+      final params = mapValue(decoded['params']) ?? const <String, dynamic>{};
+      switch (method) {
+        case 'item/commandExecution/requestApproval':
+          final requestId = _registerApproval(id, _ApprovalResponseKind.decision);
+          return _extractCommandApproval(requestId, params);
+        case 'item/fileChange/requestApproval':
+          final requestId = _registerApproval(id, _ApprovalResponseKind.decision);
+          return _extractFileChangeApproval(requestId, params);
+        case 'item/permissions/requestApproval':
+          final requestId = _registerApproval(id, _ApprovalResponseKind.permissions);
+          return ControlRequest(requestId: requestId, subtype: 'unsupported_permission_request', data: params);
+        case 'mcpServer/elicitation/request':
+          final requestId = _registerApproval(id, _ApprovalResponseKind.elicitation);
+          if (stringValue(mapValue(params['_meta'])?['codex_approval_kind']) != 'mcp_tool_call') {
+            return ControlRequest(requestId: requestId, subtype: 'unsupported_elicitation', data: params);
+          }
+          return _extractMcpApproval(requestId, params);
+        default:
+          final requestId = _registerApproval(id, _ApprovalResponseKind.unsupported);
+          return ControlRequest(
+            requestId: requestId,
+            subtype: 'unsupported_server_request',
+            data: {'method': method, 'params': params},
+          );
+      }
     }
 
     if (method != null) {
       final params = mapValue(decoded['params']) ?? const <String, dynamic>{};
       return switch (method) {
         'item/agentMessage/delta' => _extractAgentMessageDelta(params),
-        'item/started' => _extractStartedItem(mapValue(params['item'])),
-        'item/completed' => _extractCompletedItem(mapValue(params['item'])),
-        'turn/completed' => _extractTurnComplete(params),
-        'turn/failed' => const TurnComplete(stopReason: 'error'),
+        'item/started' => _handleStartedItem(mapValue(params['item'])),
+        'item/completed' => _handleCompletedItem(mapValue(params['item'])),
+        'turn/completed' => _handleTurnComplete(params),
+        'turn/failed' => _handleTurnFailed(),
         'configWarning' => _extractConfigWarning(params),
         'mcpServer/startupStatus/updated' => _extractMcpStartupStatus(params),
         'turn/started' => null,
@@ -132,9 +171,47 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     String? toolUseId,
     String? reason,
   }) {
+    final responseKind = _approvalResponseKinds.remove(requestId);
+    final commandDenial = _commandDenials.remove(requestId) ?? _CommandDenial.decline;
+    final wireId = _approvalWireIds.remove(requestId) ?? requestId;
+    if (responseKind == _ApprovalResponseKind.decision) {
+      if (!allow && commandDenial == _CommandDenial.error) {
+        return {
+          'jsonrpc': '2.0',
+          'id': wireId,
+          'error': {'code': -32602, 'message': 'No safe approval decision was offered'},
+        };
+      }
+      return {
+        'jsonrpc': '2.0',
+        'id': wireId,
+        'result': {'decision': allow ? 'accept' : (commandDenial == _CommandDenial.cancel ? 'cancel' : 'decline')},
+      };
+    }
+    if (responseKind == _ApprovalResponseKind.elicitation) {
+      return {
+        'jsonrpc': '2.0',
+        'id': wireId,
+        'result': {'action': allow ? 'accept' : 'decline', 'content': null, '_meta': null},
+      };
+    }
+    if (responseKind == _ApprovalResponseKind.permissions) {
+      return {
+        'jsonrpc': '2.0',
+        'id': wireId,
+        'result': {'permissions': <String, dynamic>{}},
+      };
+    }
+    if (responseKind == _ApprovalResponseKind.unsupported) {
+      return {
+        'jsonrpc': '2.0',
+        'id': wireId,
+        'error': {'code': -32601, 'message': 'Method not supported by DartClaw'},
+      };
+    }
     return {
       'jsonrpc': '2.0',
-      'id': requestId,
+      'id': wireId,
       'result': {'approved': allow, if (!allow && reason != null) 'reason': reason},
     };
   }
@@ -170,206 +247,5 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
       'web_search' => CanonicalTool.webSearch,
       _ => codexMapToolName(providerToolName, kind: kind),
     };
-  }
-
-  ProtocolMessage? _extractResponseMessage(Map<String, dynamic>? result) {
-    if (result == null) return null;
-    if (result.containsKey('thread_id')) return null;
-
-    // Codex v0.118.0 may wrap the initialize response in a ClientResponse
-    // envelope: result.response.{session_id, capabilities, tools}.
-    // Try the nested shape first; fall back to the flat (pre-0.118.0) shape.
-    final payload = mapValue(result['response']) ?? result;
-
-    final capabilities = mapValue(payload['capabilities']);
-    final tools = listValue(payload['tools']);
-    final contextWindow = intValue(capabilities?['context_window']) ?? intValue(payload['context_window']);
-
-    if (!payload.containsKey('session_id') && capabilities == null && tools == null) {
-      return null;
-    }
-
-    return SystemInit(
-      sessionId: stringValue(payload['session_id']),
-      toolCount: tools?.length ?? 0,
-      contextWindow: contextWindow,
-    );
-  }
-
-  TextDelta? _extractAgentMessageDelta(Map<String, dynamic> params) {
-    final text = stringValue(params['delta']) ?? stringValue(params['text']);
-    if (text == null) return null;
-    return TextDelta(text);
-  }
-
-  ProtocolMessage? _extractStartedItem(Map<String, dynamic>? item) {
-    if (item == null) return null;
-    final itemType = stringValue(item['type']);
-    if (itemType == 'contextCompaction') {
-      return CompactionStarted(id: stringValue(item['id']));
-    }
-    if (itemType == 'reasoning') {
-      return _buildProviderProgress(item, 'reasoning');
-    }
-    return _extractToolUse(item);
-  }
-
-  ToolUse? _extractToolUse(Map<String, dynamic>? item) {
-    if (item == null) return null;
-
-    final itemType = stringValue(item['type']);
-    if (itemType == null) return null;
-
-    return switch (itemType) {
-      'command_execution' => _buildCommandExecutionToolUse(item),
-      'file_change' => _buildFileChangeToolUse(item),
-      'mcp_tool_call' => _buildMcpToolUse(item),
-      'web_search' => _buildWebSearchToolUse(item),
-      _ => _buildUnknownToolUse(item, itemType),
-    };
-  }
-
-  ToolUse? _buildCommandExecutionToolUse(Map<String, dynamic> item) {
-    return codexBuildCommandExecutionToolUse(item, tool: mapToolName('command_execution'));
-  }
-
-  ToolUse? _buildFileChangeToolUse(Map<String, dynamic> item) {
-    return codexBuildFileChangeToolUse(item, mapToolName: mapToolName, preferPrimaryChange: true);
-  }
-
-  ToolUse? _buildMcpToolUse(Map<String, dynamic> item) {
-    return codexBuildMcpToolUse(
-      item,
-      tool: mapToolName('mcp_tool_call', mcpServer: stringValue(item['server']), mcpTool: stringValue(item['tool'])),
-    );
-  }
-
-  ToolUse? _buildWebSearchToolUse(Map<String, dynamic> item) {
-    final name = mapToolName('web_search');
-    if (name == null) return null;
-
-    return ToolUse(name: name.stableName, id: stringValue(item['id']) ?? '', input: codexUnknownItemInput(item));
-  }
-
-  ProtocolMessage? _extractCompletedItem(Map<String, dynamic>? item) {
-    if (item == null) return null;
-
-    final itemType = stringValue(item['type']);
-    if (itemType == null) return null;
-
-    if (itemType == 'agent_message') {
-      return codexBuildAgentMessageDelta(item);
-    }
-
-    if (itemType == 'contextCompaction') {
-      return CompactionCompleted(id: stringValue(item['id']));
-    }
-    if (itemType == 'reasoning') {
-      return _buildProviderProgress(item, 'reasoning');
-    }
-
-    return _extractToolResult(item);
-  }
-
-  ProgressMessage _buildProviderProgress(Map<String, dynamic> item, String itemType) {
-    final text =
-        stringifyValue(item['summary'] ?? item['text'] ?? item['content'] ?? item['details']) ??
-        stringifyValue(codexUnknownItemInput(item)) ??
-        '';
-    return ProgressMessage(text: text, kind: 'codex_$itemType');
-  }
-
-  ToolResult? _extractToolResult(Map<String, dynamic> item) {
-    final itemType = stringValue(item['type']);
-    if (itemType == null) return null;
-
-    return switch (itemType) {
-      'command_execution' => codexBuildCommandExecutionToolResult(item),
-      'file_change' => ToolResult(toolId: stringValue(item['id']) ?? '', output: _summarizeFileChanges(item)),
-      'mcp_tool_call' => _buildMcpToolResult(item),
-      'web_search' => ToolResult(
-        toolId: stringValue(item['id']) ?? '',
-        output: stringifyValue(item['result'] ?? item['results'] ?? item['summary'] ?? item['text']) ?? '',
-        isError: item['error'] != null,
-      ),
-      _ => _buildUnknownToolResult(item, itemType),
-    };
-  }
-
-  ToolResult _buildMcpToolResult(Map<String, dynamic> item) {
-    final error = item['error'];
-    final output = stringifyValue(item['result']) ?? codexErrorSummary(error) ?? '';
-    return ToolResult(toolId: stringValue(item['id']) ?? '', output: output, isError: error != null);
-  }
-
-  ToolUse _buildUnknownToolUse(Map<String, dynamic> item, String itemType) {
-    return ToolUse(name: 'codex:$itemType', id: stringValue(item['id']) ?? '', input: codexUnknownItemInput(item));
-  }
-
-  ToolResult _buildUnknownToolResult(Map<String, dynamic> item, String itemType) {
-    final details = codexUnknownItemInput(item);
-    return ToolResult(
-      toolId: stringValue(item['id']) ?? '',
-      output: 'codex:$itemType ${stringifyValue(details) ?? ''}'.trim(),
-      isError: item['error'] != null,
-    );
-  }
-
-  TurnComplete _extractTurnComplete(Map<String, dynamic> params) {
-    final turn = mapValue(params['turn']);
-    if (stringValue(turn?['status']) == 'failed' || turn?['error'] != null) {
-      return const TurnComplete(stopReason: 'error');
-    }
-    final usage = mapValue(params['usage']) ?? const <String, dynamic>{};
-    return codexBuildTurnComplete(usage, stopReason: 'completed');
-  }
-
-  ProtocolMessage? _extractConfigWarning(Map<String, dynamic> params) {
-    final summary = stringValue(params['summary'])?.trim();
-    if (summary == null || summary.isEmpty) return null;
-    if (!summary.contains('Project-local config, hooks, and exec policies are disabled')) {
-      return ProtocolDiagnostic(message: summary, method: 'configWarning');
-    }
-    final details = stringValue(params['details'])?.trim();
-    return ProgressMessage(
-      kind: 'provider_setup_warning',
-      text: details == null || details.isEmpty ? summary : '$summary\n$details',
-    );
-  }
-
-  ProtocolMessage? _extractMcpStartupStatus(Map<String, dynamic> params) {
-    final status = stringValue(params['status']);
-    if (status != 'failed') return null;
-    final name = stringValue(params['name']) ?? '<unknown>';
-    final error = stringValue(params['error']) ?? 'startup failed without provider detail';
-    return ProtocolDiagnostic(
-      message: 'Codex MCP server "$name" failed to start: $error',
-      method: 'mcpServer/startupStatus/updated',
-      updateType: status,
-    );
-  }
-
-  String _summarizeFileChanges(Map<String, dynamic> item) {
-    final changes = listValue(item['changes']);
-    if (changes == null || changes.isEmpty) {
-      final kind = stringValue(item['kind']) ?? 'change';
-      final path = stringValue(item['path']) ?? '<unknown>';
-      return '$kind $path';
-    }
-
-    final summaries = <String>[];
-    for (final rawChange in changes) {
-      final change = mapValue(rawChange);
-      if (change == null) continue;
-      final kind = stringValue(change['kind']) ?? 'change';
-      final path = stringValue(change['path']) ?? '<unknown>';
-      summaries.add('$kind $path');
-    }
-
-    if (summaries.isEmpty) {
-      return 'file_change completed';
-    }
-
-    return summaries.join('\n');
   }
 }

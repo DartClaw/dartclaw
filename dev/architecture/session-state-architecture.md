@@ -127,6 +127,7 @@ Format: `agent:<agentId>:<scope>:<identifiers>`
 | `groupPerMember()`     | `group` | `agent:main:group:googlechat:spaces%2FAAAA:bob`     |
 | `cronSession()`        | `cron`  | `agent:main:cron:daily-summary`                     |
 | `taskSession()`        | `task`  | `agent:main:task:abc123`                            |
+| `logicalAgentSession()`| `logical` | `agent:review%3Asecurity:logical:turn%2F123`       |
 
 Identifier components are URI-encoded by the factory methods to prevent
 delimiter collisions. The `SessionKey.parse()` factory reconstructs the

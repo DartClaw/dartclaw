@@ -999,7 +999,7 @@ Codex emits turn and item notifications over stdout. DartClaw parses and maps th
 | `turn/started` | Lifecycle marker; ignored by the protocol adapter |
 | `item/agentMessage/delta` | `DeltaEvent` for incremental text streaming |
 | `item/started` (`contextCompaction`) | `CompactionStartingBridgeEvent` |
-| `item/started` (tool item) | `ToolUseEvent` for typed tool items such as `command_execution`, `file_change`, `mcp_tool_call`, and `web_search` |
+| `item/started` (tool item) | `ToolUseEvent` for typed tool items such as `commandExecution`, `fileChange`, `mcpToolCall`, and `webSearch` (legacy snake-case aliases remain accepted) |
 | `item/completed` (`contextCompaction`) | `CompactionCompletedBridgeEvent` |
 | `item/completed` (tool item / agent message) | `ToolResultEvent` for completed tool items and final agent messages |
 | `turn/completed` | Completes the pending turn with usage metadata |
@@ -1009,9 +1009,26 @@ This is the Codex path implemented by `CodexProtocolAdapter`. The adapter also a
 
 ### Approval flow
 
-Codex sends tool approval requests back to DartClaw as JSON-RPC requests, including `control/approval` and `approval/request`. DartClaw evaluates the request through the same guard chain used elsewhere in the runtime, then replies with a JSON-RPC result that either approves or denies the tool call.
+Codex sends tool approval requests back to DartClaw as JSON-RPC requests. Command execution uses
+`item/commandExecution/requestApproval`, file changes use `item/fileChange/requestApproval`, and MCP tool approvals use
+form-mode `mcpServer/elicitation/request` requests whose `_meta.codex_approval_kind` is `mcp_tool_call`. DartClaw also
+accepts the legacy `control/approval` and `approval/request` shapes. Broad
+`item/permissions/requestApproval` escalation receives an empty permission grant, and ordinary MCP elicitations are
+declined because DartClaw has no interactive form surface. Other server requests receive a terminal JSON-RPC
+unsupported-method error rather than holding the turn. It evaluates each recognized tool request through the same guard
+chain used elsewhere in the runtime, then replies using that request type's native result shape.
 
-The approval payload is normalized before guard evaluation so DartClaw can strip sensitive environment values and translate provider tool names into canonical tool names. Unlike Claude Code, there is no separate hook system here; the approval round-trip is the interception point.
+The approval payload is normalized before guard evaluation so DartClaw can strip sensitive environment values and
+translate provider tool names into canonical tool names. File approvals reuse the preceding `item/started` context and
+evaluate every operation in a batch so create and update policies remain distinct. MCP approval identity comes from the
+approval request's server, tool, and arguments rather than ambiguous cached items. Unlike Claude Code, there is no
+separate hook system here; the approval round-trip is the interception point.
+
+Approval is intentionally narrower than the provider schema where DartClaw cannot evaluate the full authority. Command
+requests are declined when the command is missing, `accept` is unavailable, or additional filesystem, network, remote
+environment, or policy-amendment authority is present. File delete, move, and session-root grants are declined until
+their source, destination, deletion, and persistence semantics can all be represented by the guard contract. Relative
+shell paths are evaluated from the provider-supplied working directory.
 
 #### Per-turn dynamic settings
 
@@ -1028,17 +1045,13 @@ DartClaw passes `approval_policy` and `sandbox` as per-turn settings in every `t
 When `approval` is absent or blank, DartClaw omits `approval_policy` and Codex inherits its own configuration. Because
 that inherited posture is not verifiable, serve warns whenever tool-restricted agents or jobs use such a provider.
 
-#### Known issue: approval elicitation deadlock
+#### Approval coverage
 
-> **Upstream bug** ([openai/codex#11816](https://github.com/openai/codex/issues/11816), OPEN as of 2026-03): Codex's `exec_approval.rs` awaits the client's approval response with **no timeout and no cancellation**. If the client cannot respond (e.g., it doesn't implement the `elicitation/create` capability), the turn hangs indefinitely – no error, no timeout event. Simple conversational turns succeed because they don't trigger tool approval; file writes and shell commands do.
->
-> **Impact on DartClaw**: A stuck approval holds DartClaw's `SessionLockManager` per-session lock for up to `worker_timeout` (default 600s), blocking all other messages to that session. In crowd-coding with a shared session, this blocks the entire workshop.
->
-> **Recommended configuration**: Set `approval: never` + `sandbox: danger-full-access` in the Codex provider config.
-> This bypasses Codex's internal approval gate, so no Codex `beforeToolCall` request reaches the DartClaw guard chain.
-> On POSIX deployments with containers enabled, container isolation remains active. Native Windows has no container-isolation parity and
-> restrictive Codex sandbox modes were not qualified for 0.21. Also reduce `worker_timeout` to 120s for shared-session
-> scenarios.
+Codex guard enforcement covers only operations for which app-server emits an approval request. `on-request` provides
+the broadest available interception, but provider-safe operations may still execute without a host callback. A missing
+or unrecognized approval response can hold the provider turn until DartClaw's `worker_timeout`; server requests
+therefore always receive a terminal fail-closed response when guard evaluation fails or the requested authority is
+unsupported.
 
 ### Crash recovery and history replay
 

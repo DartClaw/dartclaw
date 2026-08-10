@@ -70,6 +70,18 @@ class AgentDefinition {
 
   /// Builds a config entry for `AgentDefinition.fromYaml`.
   factory AgentDefinition.fromYaml(String id, Map<String, dynamic> yaml, List<String> warns) {
+    const removedKeys = {
+      'max_spawn_depth': 'nested logical-agent execution is bounded by shared worker capacity',
+      'max_children_per_agent': 'nested logical-agent execution is bounded by shared worker capacity',
+      'max_concurrent': 'configure worker capacity with providers.<id>.pool_size',
+      'session_store_path': 'logical-agent session storage is host-owned',
+    };
+    for (final entry in removedKeys.entries) {
+      if (yaml.containsKey(entry.key)) {
+        warns.add('Ignoring removed agent.agents.$id.${entry.key}; ${entry.value}.');
+      }
+    }
+
     final tools = yaml['tools'];
     final allowedTools = <String>{};
     if (tools is List) {

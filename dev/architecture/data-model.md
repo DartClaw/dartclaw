@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.20.1 (built-in workflow and skill sources are embedded with source-tree precedence)
+**Current through**: 0.24
 
 ---
 
@@ -86,8 +86,10 @@ Sessions are the primary conversation container. File-based storage, one directo
 Session
 ├── id: String (UUID v4)
 ├── title: String?
-├── type: SessionType {main, user, channel, cron, task, archive}
+├── type: SessionType {main, user, channel, cron, task, logicalAgent, archive}
 ├── channelKey: String? (e.g., "agent:main:dm:contact:%40alice")
+├── provider: String? (provider pinned for logical-agent sessions)
+├── securityProfile: String? (worker isolation profile pinned for logical-agent sessions)
 ├── createdAt: DateTime
 └── updatedAt: DateTime
 ```
@@ -107,10 +109,13 @@ SessionKey (factories)
 ├── groupShared(channelType, groupId)                → agent:main:group:<channel>:<encoded>
 ├── groupPerMember(channelType, groupId, peerId)     → agent:main:group:<channel>:<encoded>:<encoded>
 ├── cronSession(jobId)                              → agent:main:cron:<encoded>
-└── taskSession(taskId)                             → agent:main:task:<encoded>
+├── taskSession(taskId)                             → agent:main:task:<encoded>
+└── logicalAgentSession(agentId, conversationId)    → agent:<encoded>:logical:<encoded>
 ```
 
 **Index**: `sessions/.session_keys.json` maps keys to session UUIDs. `getOrCreateByKey()` is idempotent.
+For logical-agent sessions, the returned UUID is the external conversation handle and the deterministic
+`logicalAgentSession()` value is stored as `channelKey` for reconstruction.
 
 #### Session Types & Protection
 
@@ -121,6 +126,7 @@ SessionKey (factories)
 | `channel` | Channel message | Yes (when channel active) | No |
 | `cron` | Scheduler | Yes (when job active) | Orphan cleanup after retention period |
 | `task` | TaskExecutor | Yes | Yes (lifecycle via task API) |
+| `logicalAgent` | `sessions_spawn` | No (ordinary retention/count rules) | No |
 | `archive` | Maintenance prune | No (eligible for disk budget cleanup) | No |
 
 ### Message

@@ -3,7 +3,7 @@
 Canonical reference for how DartClaw keeps package boundaries and structural
 constraints from drifting after a milestone ships.
 
-**Current through**: 0.20
+**Current through**: 0.24
 
 ---
 
@@ -103,9 +103,9 @@ intent should remain documented here:
 
 | Constraint | Current value | Why it exists |
 |---|---:|---|
-| `dartclaw_core` LOC ceiling | `<= 14900` | Preserve a lightweight runtime core (bumped 12500 → 14900 through 0.18 for the first-party ACP harness; see the rationale comments in `dev/tools/arch_check.dart`) |
-| `dartclaw_workflow` LOC ceiling | WARN `>= 24600`, hard `<= 25000` | Preserve the post-simplification workflow-engine size as a ratchet: current baseline usage is about 23,311 LOC, the hard ceiling carries about two milestones of headroom, and the WARN threshold fires a few hundred LOC before the cap so growth is planned or justified |
-| Barrel export ceiling | `<= 94` | Keep public package surfaces reviewable |
+| `dartclaw_core` LOC ceiling | WARN `>= 15800`, hard `<= 16500` | Preserve a lightweight runtime core while leaving one milestone of headroom; lower both values when core shrinks |
+| `dartclaw_workflow` LOC ceiling | WARN `>= 27000`, hard `<= 30000` | Preserve the post-simplification workflow-engine size as a ratchet against its roughly 23,311 LOC baseline |
+| Barrel export ceiling | `<= 110` | Keep public package surfaces reviewable while leaving deliberate API headroom |
 | Workspace package count | `<= 14` | Avoid package proliferation without real need |
 
 If these thresholds change, update both this document and the script in the

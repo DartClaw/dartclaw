@@ -2272,6 +2272,15 @@ select.form-select.channel-mode-select-hidden {
   margin: 0 auto;
 }
 
+.workflow-run-identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.workflow-run-identity > div { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.workflow-run-identity code { overflow-wrap: anywhere; }
+@media (max-width: 560px) { .workflow-run-identity { grid-template-columns: 1fr; } }
+
 .workflow-error-message {
   margin-top: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);

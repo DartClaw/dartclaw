@@ -41,7 +41,7 @@
 - Direct Claude spawns inherit user-scope Claude settings by default. Only pass `--setting-sources project` when `providers.claude.inherit_user_settings: false`; containerized spawns stay flag-free because the container is the isolation boundary.
 - Claude `PreToolUse` registration stays unfiltered so built-ins and dynamically named MCP tools all reach the guard chain; never replace it with a static tool-name list.
 - Claude may defer allowlisted tools behind `ToolSearch`. Permit only the exact `claude:ToolSearch`/`ToolSearch` discovery pair after deny checks; the selected tool still requires its own allowlist match.
-- Codex approval round-trip is the only guard interception point for the Codex provider. Explicit `on-request` is the broadest available host interception; omitted options inherit Codex configuration, `unless-allow-listed` is partial, and `never` produces no host guard event. String provider options are trimmed before process and request use.
+- Codex approval round-trip is the only guard interception point for the Codex provider. Preserve current command/file request methods, MCP approval elicitations, response-specific result shapes, and camelCase item types; legacy aliases remain accepted. Explicit `on-request` is the broadest available host interception; omitted options inherit Codex configuration, `unless-allow-listed` is partial, and `never` produces no host guard event. String provider options are trimmed before process and request use.
 - File-backed `MessageService` uses 1-based line cursors in `messages.ndjson`; cursor is assigned on read, never persisted in the JSON line itself.
 
 ## Testing

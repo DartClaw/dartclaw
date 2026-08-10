@@ -697,7 +697,8 @@ void main() {
     );
     diagnosticSubs.add(
       w.eventBus.on<WorkflowRunStatusChangedEvent>().listen((e) {
-        diagLog.info('Workflow ${e.runId}: ${e.oldStatus} → ${e.newStatus}');
+        final error = e.errorMessage == null ? '' : ' – ${e.errorMessage}';
+        diagLog.info('Workflow ${e.runId}: ${e.oldStatus} → ${e.newStatus}$error');
       }),
     );
 

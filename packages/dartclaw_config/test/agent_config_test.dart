@@ -101,4 +101,26 @@ delegation:
     expect(config.warnings, anyElement(contains('define logical agents under agent.agents')));
     expect(config.warnings, isNot(anyElement(contains('Unknown config key: delegation'))));
   });
+
+  test('removed logical-agent controls emit migration warnings', () {
+    final config = loadYaml(
+      '''
+agent:
+  agents:
+    reviewer:
+      tools: [file_read]
+      max_spawn_depth: 2
+      max_children_per_agent: 4
+      max_concurrent: 3
+      session_store_path: custom-sessions
+''',
+      configPath: 'dartclaw.yaml',
+      env: const {'HOME': '/tmp'},
+    );
+
+    for (final key in const ['max_spawn_depth', 'max_children_per_agent', 'max_concurrent', 'session_store_path']) {
+      expect(config.warnings, anyElement(contains('Ignoring removed agent.agents.reviewer.$key')));
+    }
+    expect(config.agent.definitions.single.allowedTools, {'file_read'});
+  });
 }

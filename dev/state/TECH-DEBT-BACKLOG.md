@@ -365,3 +365,27 @@ Last reviewed: 2026-05-18
 **References**: [ADR-043](../adrs/043-cli-task-execution-provider-placement.md) (placement decision) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
 
 Last reviewed: 2026-06-27
+
+## TD-120 – Container-crash attribution keys on shared per-profile managers, not per-authority containers
+
+**Severity**: High (dedicated containers can die unnoticed; shared-container crash fails healthy tasks)
+**Found**: 2026-08-11, 0.24 execution-isolation Critic pass
+**Affects**: `packages/dartclaw_server/lib/src/security/security_wiring.dart`, `ContainerHealthMonitor`, `ContainerTaskFailureSubscriber`
+
+**Context**: `ContainerHealthMonitor` is still constructed from the shared per-profile managers, so the dedicated per-authority containers – every worker container and the primary agent's – are unmonitored, and a dedicated container can die without raising `ContainerCrashedEvent`. Conversely `ContainerTaskFailureSubscriber._affectedBy` maps a crashed `profileId` back through the task-type profile default, so a crash of the now-one-shot-only shared container fails running tasks that were healthy in their own containers.
+
+**Needs decision**: whether crash attribution keys on authority/lease identity, and whether per-authority containers register with `ContainerHealthMonitor`.
+
+**Note**: the scoped-host-gateway and container-parity stories of the active 0.24 execution-isolation plan rework these surfaces and may resolve or reshape this item – re-verify before implementing. Full detail: FIS observations, `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md`, Run 2026-08-11 20:13 UTC (repoint to the canonical private-repo spec path if this entry outlives the bundle).
+
+## TD-121 – Per-authority container names unreclaimable after abnormal exit (no prefix/label sweep)
+
+**Severity**: High (one leaked running container per in-flight authority, accumulating across restarts)
+**Found**: 2026-08-11, 0.24 execution-isolation Critic pass
+**Affects**: `ContainerManager.start()` leak reclamation, per-authority container naming
+
+**Context**: container names embed a per-process epoch specifically so they never repeat, but `ContainerManager.start()` reclaims leaks only by removing the *same* deterministic name, and there is no prefix- or label-based sweep. SIGKILL, OOM, or a shutdown-timeout force-exit therefore leaves one running container per in-flight authority, accumulating across restarts. A startup sweep over the `dartclaw-<hash(dataDir)>-` prefix would restore the self-healing the deterministic names used to provide.
+
+**Needs decision**: multi-instance safety of a `dartclaw-<hash(dataDir)>-` prefix sweep when instances share a data dir.
+
+**Note**: the scoped-host-gateway and container-parity stories of the active 0.24 execution-isolation plan rework these surfaces and may resolve or reshape this item – re-verify before implementing. Full detail: FIS observations, `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md`, Run 2026-08-11 20:13 UTC (repoint to the canonical private-repo spec path if this entry outlives the bundle).

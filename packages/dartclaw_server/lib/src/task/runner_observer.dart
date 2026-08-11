@@ -10,6 +10,12 @@ class RunnerMetrics {
   final int runnerId;
   final String role;
   final String providerId;
+
+  /// Where this runner's harness actually executes: `host` or `container`.
+  final String executionMode;
+
+  /// Container profile backing [executionMode], absent for host execution.
+  final String? containerProfile;
   final RunnerState state;
   final String? currentTaskId;
   final String? currentSessionId;
@@ -26,6 +32,8 @@ class RunnerMetrics {
     required this.runnerId,
     required this.role,
     required this.providerId,
+    required this.executionMode,
+    this.containerProfile,
     required this.state,
     this.currentTaskId,
     this.currentSessionId,
@@ -43,6 +51,8 @@ class RunnerMetrics {
     'runnerId': runnerId,
     'role': role,
     'providerId': providerId,
+    'executionMode': executionMode,
+    'containerProfile': containerProfile,
     'state': state.name,
     'currentTaskId': currentTaskId,
     'currentSessionId': currentSessionId,
@@ -101,7 +111,7 @@ class RunnerObserver {
     for (final runner in executions.runners) {
       final runnerId = identical(runner, executions.primary) ? 0 : null;
       if (runnerId != null) {
-        _ensureRunner(runnerId, runner.providerId, role: 'primary');
+        _ensureRunner(runnerId, runner.providerId, role: 'primary', policy: runner.executionPolicy);
       }
     }
     _subscription = executions.events.listen(_onExecutionEvent);
@@ -122,6 +132,7 @@ class RunnerObserver {
         runnerId,
         event.request.providerId,
         role: event.lane == ExecutionLane.primary ? 'primary' : 'worker',
+        policy: runner.executionPolicy,
       );
       switch (event.kind) {
         case ExecutionEventKind.capacityChanged:
@@ -191,10 +202,15 @@ class RunnerObserver {
     await _capacityChanges.close();
   }
 
-  _MutableMetrics _ensureRunner(int runnerId, String providerId, {required String role}) {
+  _MutableMetrics _ensureRunner(
+    int runnerId,
+    String providerId, {
+    required String role,
+    required ExecutionPolicy policy,
+  }) {
     return _metrics.putIfAbsent(
       runnerId,
-      () => _MutableMetrics(runnerId: runnerId, providerId: providerId, role: role),
+      () => _MutableMetrics(runnerId: runnerId, providerId: providerId, role: role, policy: policy),
     );
   }
 
@@ -239,6 +255,7 @@ class _MutableMetrics {
   final int runnerId;
   final String role;
   final String providerId;
+  final ExecutionPolicy policy;
   RunnerState state = RunnerState.idle;
   String? currentTaskId;
   String? currentSessionId;
@@ -251,12 +268,14 @@ class _MutableMetrics {
   int totalToolCalls = 0;
   int failedToolCalls = 0;
 
-  _MutableMetrics({required this.runnerId, required this.role, required this.providerId});
+  _MutableMetrics({required this.runnerId, required this.role, required this.providerId, required this.policy});
 
   RunnerMetrics toSnapshot() => RunnerMetrics(
     runnerId: runnerId,
     role: role,
     providerId: providerId,
+    executionMode: policy.mode.name,
+    containerProfile: policy.containerProfile,
     state: state,
     currentTaskId: currentTaskId,
     currentSessionId: currentSessionId,

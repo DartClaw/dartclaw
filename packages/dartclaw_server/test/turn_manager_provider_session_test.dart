@@ -211,7 +211,7 @@ void main() {
       ExecutionRequest(
         surface: ExecutionSurface.logicalAgent,
         providerId: 'codex',
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: logicalAgentSession.id,
       ),
     );
@@ -358,7 +358,7 @@ void main() {
         behavior: behavior,
         sessions: sessions,
         providerId: 'claude',
-        profileId: 'workspace',
+        executionPolicy: const ExecutionPolicy.host(),
       ),
       TurnRunner(
         harness: restrictedWorker,
@@ -366,7 +366,7 @@ void main() {
         behavior: behavior,
         sessions: sessions,
         providerId: 'claude',
-        profileId: 'restricted',
+        executionPolicy: const ExecutionPolicy.container('restricted'),
       ),
     ], sessions: sessions);
     addTearDown(turns.executions.dispose);
@@ -376,7 +376,11 @@ void main() {
     workspaceWorker.completeSuccess();
     await turns.waitForOutcome(session.id, turnId);
 
-    final restrictedTurnId = await turns.reserveTurn(session.id, agentName: 'search', workerProfile: 'restricted');
+    final restrictedTurnId = await turns.reserveTurn(
+      session.id,
+      agentName: 'search',
+      workerPolicy: const ExecutionPolicy.container('restricted'),
+    );
     turns.executeTurn(session.id, restrictedTurnId, const [], agentName: 'search');
     await restrictedWorker.turnInvoked;
     restrictedWorker.completeSuccess();

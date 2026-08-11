@@ -160,7 +160,11 @@ class TaskWiring {
   ///
   /// Must be called after server construction. [turns] comes from the
   /// newly-built server, [executions] from [HarnessWiring].
-  Future<void> wirePostServer({required TurnManager turns, required ExecutionCoordinator executions}) async {
+  Future<void> wirePostServer({
+    required TurnManager turns,
+    required ExecutionCoordinator executions,
+    required ExecutionPolicyResolver policyResolver,
+  }) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
       tasks: _storage.taskService,
@@ -173,7 +177,10 @@ class TaskWiring {
       baseRef: config.tasks.worktreeBaseRef,
     );
 
-    _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: _storage.taskService);
+    _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(
+      tasks: _storage.taskService,
+      policyResolver: policyResolver,
+    );
     _containerTaskFailureSubscriber.subscribe(_eventBus);
 
     _taskCancellationSubscriber = TaskCancellationSubscriber(tasks: _storage.taskService, turns: turns);
@@ -218,6 +225,7 @@ class TaskWiring {
         projectService: _project?.projectService,
         kvService: _storage.kvService,
         eventBus: _eventBus,
+        policyResolver: policyResolver,
       ),
       runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _workflowCliRunner),
       limits: TaskExecutorLimits(

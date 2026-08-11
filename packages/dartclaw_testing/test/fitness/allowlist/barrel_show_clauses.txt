@@ -23,28 +23,28 @@ packages/dartclaw_testing/lib/dartclaw_testing.dart:44  # test-helper file; all 
 packages/dartclaw_testing/lib/dartclaw_testing.dart:46  # test-helper file; all public symbols are part of the test-helpers API surface
 
 # dartclaw_server: sub-barrel delegates (each *_exports.dart is itself show-scoped internally)
-packages/dartclaw_server/lib/dartclaw_server.dart:35  # sub-barrel delegate; symbols are scoped inside src/api/api_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:36  # sub-barrel delegate; symbols are scoped inside src/alerts/alerts_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:37  # sub-barrel delegate; symbols are scoped inside src/advisor/advisor_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:38  # sub-barrel delegate; symbols are scoped inside src/audit/audit_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:39  # sub-barrel delegate; symbols are scoped inside src/auth/auth_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:40  # sub-barrel delegate; symbols are scoped inside src/behavior/behavior_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:41  # sub-barrel delegate; symbols are scoped inside src/config/config_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:42  # sub-barrel delegate; symbols are scoped inside src/context/context_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:43  # sub-barrel delegate; symbols are scoped inside src/container/container_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:44  # sub-barrel delegate; symbols are scoped inside src/governance/governance_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:45  # sub-barrel delegate; symbols are scoped inside src/health/health_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:46  # sub-barrel delegate; symbols are scoped inside src/host_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:47  # sub-barrel delegate; symbols are scoped inside src/knowledge/knowledge_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:48  # sub-barrel delegate; symbols are scoped inside src/logging/logging_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:49  # sub-barrel delegate; symbols are scoped inside src/mcp/mcp_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:50  # sub-barrel delegate; symbols are scoped inside src/memory/memory_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:51  # sub-barrel delegate; symbols are scoped inside src/params/params_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:52  # sub-barrel delegate; symbols are scoped inside src/project/project_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:53  # sub-barrel delegate; symbols are scoped inside src/scheduling/scheduling_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:54  # sub-barrel delegate; symbols are scoped inside src/session/session_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:55  # sub-barrel delegate; symbols are scoped inside src/task/task_exports.dart
-packages/dartclaw_server/lib/dartclaw_server.dart:56  # sub-barrel delegate; symbols are scoped inside src/ui_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:39  # sub-barrel delegate; symbols are scoped inside src/api/api_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:40  # sub-barrel delegate; symbols are scoped inside src/alerts/alerts_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:41  # sub-barrel delegate; symbols are scoped inside src/advisor/advisor_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:42  # sub-barrel delegate; symbols are scoped inside src/audit/audit_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:43  # sub-barrel delegate; symbols are scoped inside src/auth/auth_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:44  # sub-barrel delegate; symbols are scoped inside src/behavior/behavior_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:45  # sub-barrel delegate; symbols are scoped inside src/config/config_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:46  # sub-barrel delegate; symbols are scoped inside src/context/context_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:47  # sub-barrel delegate; symbols are scoped inside src/container/container_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:48  # sub-barrel delegate; symbols are scoped inside src/governance/governance_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:49  # sub-barrel delegate; symbols are scoped inside src/health/health_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:50  # sub-barrel delegate; symbols are scoped inside src/host_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:51  # sub-barrel delegate; symbols are scoped inside src/knowledge/knowledge_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:52  # sub-barrel delegate; symbols are scoped inside src/logging/logging_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:53  # sub-barrel delegate; symbols are scoped inside src/mcp/mcp_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:54  # sub-barrel delegate; symbols are scoped inside src/memory/memory_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:55  # sub-barrel delegate; symbols are scoped inside src/params/params_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:56  # sub-barrel delegate; symbols are scoped inside src/project/project_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:57  # sub-barrel delegate; symbols are scoped inside src/scheduling/scheduling_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:58  # sub-barrel delegate; symbols are scoped inside src/session/session_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:59  # sub-barrel delegate; symbols are scoped inside src/task/task_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:60  # sub-barrel delegate; symbols are scoped inside src/ui_exports.dart
 
 # dartclaw_security: 2 wholesale exports (small focused files; all symbols intended public)
 packages/dartclaw_security/lib/dartclaw_security.dart:18  # inline_process_environment_plan.dart is a single-class file; all symbols public

@@ -135,9 +135,9 @@ Execution allocation deliberately has one capacity knob: `providers.<id>.pool_si
 - `governance.rate_limits.global.turns` / `max_parallel_turns` remain earlier global admission controls; they do not create provider capacity.
 - `tasks.max_concurrent`, per-agent quotas, and other duplicate execution limits are not configuration surfaces.
 
-Reusable harnesses are an opportunistic implementation cache. There are no cache size, TTL, prewarm, affinity, or replacement knobs. Harness-construction inputs are fixed for a coordinator's lifetime, so normalized provider and security profile identify compatible workers within it. A mismatch or unknown health means fresh creation; unhealthy workers are disposed; unconfirmed root teardown quarantines capacity.
+Reusable harnesses are an opportunistic implementation cache. There are no cache size, TTL, prewarm, affinity, or replacement knobs. Harness-construction inputs are fixed for a coordinator's lifetime, so normalized provider plus the complete effective execution policy identify compatible workers within it. A mismatch or unknown health means fresh creation; unhealthy workers are disposed; unconfirmed root teardown quarantines capacity.
 
-Container settings control isolation and profile-container lifecycle only. Container count and lifetime are independently amortized and do not alter `pool_size`. The SDK single-harness compatibility path is selected by programmatic composition, not YAML, and is never a server logical-agent routing option.
+Container settings define the isolation templates only. Each live container authority owns a dedicated container destroyed on release (ADR-012, 2026-08-11 amendment), so container count is bounded by configured worker capacity rather than amortized across leases — and it still does not alter `pool_size`, which remains the only worker-capacity limit. The SDK single-harness compatibility path is selected by programmatic composition, not YAML, and is never a server logical-agent routing option.
 
 Provider-specific `options` are interpreted only by the matching adapter/factory wiring. Execution, task, scheduling, logical-agent, and observability services receive normalized provider identity and provider-neutral contracts; configuration does not authorize provider-name branching in those layers.
 

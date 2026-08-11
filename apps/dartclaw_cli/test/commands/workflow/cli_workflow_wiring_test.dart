@@ -457,7 +457,7 @@ steps:
       provider: 'claude',
       prompt: 'Verify credentials',
       workingDirectory: tempDir.path,
-      profileId: 'workspace',
+      policy: const ExecutionPolicy.host(),
     );
 
     expect(processEnvironment?['ANTHROPIC_API_KEY'], 'anthropic-key');

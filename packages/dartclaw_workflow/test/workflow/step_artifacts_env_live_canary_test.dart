@@ -3,7 +3,8 @@ library;
 
 import 'dart:io';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowCliProviderConfig, WorkflowCliRunner;
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show ExecutionPolicy, WorkflowCliProviderConfig, WorkflowCliRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -75,7 +76,7 @@ void main() {
             '  mkdir -p "\$DARTCLAW_STEP_ARTIFACTS_DIR" && echo "\$DARTCLAW_STEP_ARTIFACTS_DIR"\n'
             'Do not create any other directory.',
         workingDirectory: tempDir.path,
-        profileId: 'default',
+        policy: const ExecutionPolicy.host(),
         stepTimeout: const Duration(minutes: 2),
         stepName: 'step-artifacts-env-canary',
         extraEnvironment: {'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir},

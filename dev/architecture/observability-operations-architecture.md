@@ -462,7 +462,7 @@ Coordinator events cover `acquired`, `released`, `disposed`, `quarantined`, `run
 Surfaces must not emit independent lifecycle or outcome transitions; doing so would race with lease release or double-count
 turn metrics.
 
-The cache is intentionally opportunistic and unconfigured. Observability may report cache outcomes for diagnosis, but there are no cache target, TTL, hit-rate policy, or prewarm settings. Container health/lifetime is reported separately because containers are amortized independently from harness cache and execution capacity.
+The cache is intentionally opportunistic and unconfigured. Observability may report cache outcomes for diagnosis, but there are no cache target, TTL, hit-rate policy, or prewarm settings. Container health/lifetime is reported separately from the harness cache: only host harnesses are cacheable, and each container is bound to the single authority that owns it.
 
 Source: `packages/dartclaw_server/lib/src/task/runner_observer.dart`
 

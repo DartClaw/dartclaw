@@ -16,6 +16,7 @@ class _FakeSessionService implements SessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     return Session(id: 'fake-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
   }

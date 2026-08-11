@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart' as core;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
@@ -139,7 +140,9 @@ class KnowledgeInboxService {
   final DateTime Function() now;
   final IngestFailureHook? failureHook;
   final String? workerProviderId;
-  final String workerProfileId;
+
+  /// Placement for extraction turns, which carry no logical-agent identity.
+  final ExecutionPolicy? workerPolicy;
 
   KnowledgeInboxService({
     required this.workspaceDir,
@@ -155,7 +158,7 @@ class KnowledgeInboxService {
     DateTime Function()? now,
     this.failureHook,
     this.workerProviderId,
-    this.workerProfileId = 'workspace',
+    this.workerPolicy,
   }) : now = now ?? DateTime.now;
 
   ScheduledJob scheduledJob({
@@ -386,7 +389,8 @@ class KnowledgeInboxService {
       sessionKey,
       type: core.SessionType.cron,
       provider: workerProviderId,
-      securityProfile: workerProviderId == null ? null : workerProfileId,
+      securityProfile: workerProviderId == null ? null : workerPolicy?.containerProfile,
+      executionMode: workerProviderId == null ? null : workerPolicy?.mode,
     );
     final turnId = await turns.startTurn(
       session.id,

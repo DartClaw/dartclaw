@@ -105,7 +105,8 @@ void main() {
     final handle = (await spawnFuture)['sessionId'] as String;
     final storedSession = await storage!.sessions.getByKey(handle);
     expect(storedSession?.provider, 'claude');
-    expect(storedSession?.securityProfile, 'workspace');
+    expect(storedSession?.executionMode, ExecutionMode.host, reason: 'containers are disabled in this deployment');
+    expect(storedSession?.securityProfile, isNull, reason: 'host execution pins no container profile');
 
     await harnessWiring!.executions.dispose();
     harnessWiring = null;
@@ -119,7 +120,12 @@ void main() {
     await wireRuntime();
     final reconstructedSession = await storage!.sessions.getByKey(handle);
     expect(reconstructedSession?.provider, 'claude');
-    expect(reconstructedSession?.securityProfile, 'workspace');
+    expect(
+      reconstructedSession?.executionMode,
+      ExecutionMode.host,
+      reason: 'the pinned routing survives storage and worker reconstruction',
+    );
+    expect(reconstructedSession?.securityProfile, isNull);
     final sendFuture = harnessWiring!.logicalAgentSessions.handleSessionsSend({
       'session_id': handle,
       'message': 'What did I ask you to remember?',

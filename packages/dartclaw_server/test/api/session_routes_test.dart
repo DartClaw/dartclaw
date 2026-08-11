@@ -1868,6 +1868,7 @@ final class PausingUpdateTitleSessionService extends SessionService {
     String? channelKey,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     final created = await super.createSession(
       type: type,
@@ -1962,6 +1963,7 @@ final class OpenTrackingSessionService extends SessionService {
     String? channelKey,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     if (_initialSession != null) replacementCreateStarted.complete();
     final created = await super.createSession(
@@ -2001,7 +2003,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
-    String? workerProfile,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -2022,7 +2024,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
       model: model,
       effort: effort,
       systemPromptOverride: systemPromptOverride,
-      workerProfile: workerProfile,
+      workerPolicy: workerPolicy,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,

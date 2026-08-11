@@ -822,20 +822,26 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final primaryRunner = TurnRunner(
+      harness: worker,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessions,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskRunner1 = TurnRunner(
       harness: poolWorker1,
       messages: messages,
       behavior: behavior,
       sessions: sessions,
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
     );
     final taskRunner2 = TurnRunner(
       harness: poolWorker2,
       messages: messages,
       behavior: behavior,
       sessions: sessions,
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
     );
     final poolTurns = turnManagerForRunners([primaryRunner, taskRunner1, taskRunner2]);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
@@ -884,7 +890,13 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final primaryRunner = TurnRunner(
+      harness: worker,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessions,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskRunner1 = TurnRunner(harness: poolWorker1, messages: messages, behavior: behavior, sessions: sessions);
     final taskRunner2 = TurnRunner(harness: poolWorker2, messages: messages, behavior: behavior, sessions: sessions);
     final poolTurns = turnManagerForRunners([primaryRunner, taskRunner1, taskRunner2]);

@@ -89,13 +89,13 @@ void main() {
   ExecutionRequest executionRequest({
     required String providerId,
     required String sessionId,
-    String profileId = 'workspace',
+    ExecutionPolicy policy = const ExecutionPolicy.host(),
     ExecutionSurface surface = ExecutionSurface.task,
     ExecutionAdmission admission = ExecutionAdmission.wait,
   }) => ExecutionRequest(
     surface: surface,
     providerId: providerId,
-    profileId: profileId,
+    policy: policy,
     sessionId: sessionId,
     admission: admission,
   );
@@ -629,7 +629,15 @@ void main() {
       'message': 'Search safely',
     });
     expect(result['isError'], isTrue);
-    expect((result['content'] as List).first['text'], contains('unavailable security profile "restricted"'));
+    expect(
+      (result['content'] as List).first['text'],
+      allOf(
+        contains('logical agent "search"'),
+        contains('"restricted"'),
+        contains('agent.agents.search.execution: host'),
+      ),
+      reason: 'the diagnostic names the agent, its container profile, and the accepted remediation',
+    );
     expect(createdHarnesses, hasLength(1));
   });
 
@@ -885,7 +893,7 @@ void main() {
     addTearDown(() => codexLease?.release());
     expect(createdProviderIds, ['claude', 'codex']);
     expect(codexLease!.runner!.providerId, 'codex');
-    expect(codexLease.runner!.profileId, 'workspace');
+    expect(codexLease.runner!.executionPolicy, const ExecutionPolicy.host());
     expect(harnessWiring!.executions.runners.where((runner) => runner.providerId == 'claude'), hasLength(1));
   });
 
@@ -1163,7 +1171,11 @@ void main(List<String> args) async {
 
     await expectLater(
       harnessWiring!.executions.acquire(
-        executionRequest(providerId: 'goose', sessionId: 'goose-task', profileId: 'restricted'),
+        executionRequest(
+          providerId: 'goose',
+          sessionId: 'goose-task',
+          policy: const ExecutionPolicy.container('restricted'),
+        ),
       ),
       throwsA(
         isA<WorkerCreationException>().having(

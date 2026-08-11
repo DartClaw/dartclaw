@@ -6,7 +6,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowCliProviderConfig, WorkflowCliRunner;
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show ExecutionPolicy, TaskService, WorkflowCliProviderConfig, WorkflowCliRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -384,7 +385,7 @@ void main() {
       model: executorModel,
       prompt: prompt,
       workingDirectory: fixtureDir,
-      profileId: 'default',
+      policy: const ExecutionPolicy.host(),
       extraEnvironment: {stepArtifactsDirEnvVar: stepArtifactsDir},
       stepTimeout: stepTimeout,
       stepName: step.name,

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
 import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowCliProviderConfig, WorkflowCliRunner;
 import 'package:dartclaw_server/src/task/cli_provider.dart' show CliProvider, CliTurnRequest;
@@ -117,7 +118,7 @@ Future<List<String>> capturedClaudeArgs({
     provider: 'claude',
     prompt: prompt,
     workingDirectory: Directory.systemTemp.path,
-    profileId: 'workspace',
+    policy: const ExecutionPolicy.host(),
     allowedTools: allowedTools,
     readOnly: readOnly,
   );

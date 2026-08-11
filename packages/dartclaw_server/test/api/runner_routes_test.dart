@@ -24,7 +24,7 @@ void main() {
       ExecutionRequest(
         surface: ExecutionSurface.task,
         providerId: 'claude',
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'worker',
       ),
     );
@@ -44,7 +44,7 @@ void main() {
       ExecutionRequest(
         surface: ExecutionSurface.task,
         providerId: 'claude',
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'worker',
         taskId: 'task-1',
       ),
@@ -65,6 +65,10 @@ void main() {
     expect(runners[1]['state'], 'busy');
     expect(runners[1]['currentTaskId'], 'task-1');
     expect(runners[1]['tokensConsumed'], 0);
+    for (final runner in runners) {
+      expect(runner['executionMode'], 'host', reason: 'diagnostics report the real execution mode');
+      expect(runner['containerProfile'], isNull, reason: 'host execution carries no container profile');
+    }
 
     final capacity = body['capacity'] as Map<String, dynamic>;
     expect(capacity['runnerCount'], 2);

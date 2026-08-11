@@ -65,7 +65,32 @@ class ConfigValidator {
     _validateGitHubRequirements(updates, currentValues, errors);
     _validateSpaceEventsRequirements(updates, currentValues, errors);
     _validateAdvisorTriggers(updates, errors);
+    _validateExecutionMode(updates, currentValues, errors);
     return errors;
+  }
+
+  /// Rejects a container execution selection that no enabled container runtime
+  /// can satisfy.
+  ///
+  /// Restart-tier, so the write would otherwise be accepted here and only fail
+  /// at the next boot; PRD FR1 forbids substituting host execution, so the
+  /// unsatisfiable value is refused at write time instead.
+  void _validateExecutionMode(
+    Map<String, dynamic> updates,
+    Map<String, dynamic> currentValues,
+    List<ValidationError> errors,
+  ) {
+    if (!updates.containsKey('agent.execution')) return;
+    if (updates['agent.execution'] != 'container') return;
+    if (_mergedValue<bool>('container.enabled', updates, currentValues) == true) return;
+    errors.add(
+      const ValidationError(
+        field: 'agent.execution',
+        message:
+            "Field 'agent.execution' cannot be 'container' while container isolation is disabled. "
+            "Enable container.enabled first, or select 'host'.",
+      ),
+    );
   }
 
   void _validateGoogleChatRequirements(

@@ -1,5 +1,6 @@
 import '../harness/agent_harness.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
+import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
 import 'turn_outcome.dart';
 
 /// Per-harness turn execution engine interface.
@@ -9,8 +10,9 @@ import 'turn_outcome.dart';
 /// recovery. Multiple [TurnRunner] instances execute concurrently – one per
 /// acquired harness.
 abstract interface class TurnRunner {
-  /// Security profile this runner's harness executes in.
-  String get profileId;
+  /// Where this runner's harness actually executes, including the container
+  /// profile when — and only when — it runs in a container.
+  ExecutionPolicy get executionPolicy;
 
   /// Agent provider backing this runner's harness.
   String get providerId;

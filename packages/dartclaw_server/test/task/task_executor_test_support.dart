@@ -97,6 +97,7 @@ final class TaskExecutorTestHarness {
     TurnManager? turnManager,
     Future<void> Function(String taskId)? onAutoAccept,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
+    ExecutionPolicyResolver? policyResolver,
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
     return TaskExecutor(
@@ -113,6 +114,7 @@ final class TaskExecutorTestHarness {
         traceService: traceService,
         kvService: kvService,
         eventBus: eventBus,
+        policyResolver: policyResolver,
       ),
       runners: TaskExecutorRunners(turns: turnManager ?? turns, workflowCliRunner: workflowCliRunner),
       limits: limits,
@@ -367,6 +369,8 @@ final class WorkflowTaskExecutorTestContext {
     WorkflowCliRunner? workflowCliRunner,
     TaskEventRecorder? eventRecorder,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
+    TurnManager? turnManager,
+    ExecutionPolicyResolver? policyResolver,
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
     return TaskExecutor(
@@ -380,8 +384,9 @@ final class WorkflowTaskExecutorTestContext {
         kvService: kvService,
         projectService: projectService,
         eventRecorder: eventRecorder,
+        policyResolver: policyResolver,
       ),
-      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: workflowCliRunner),
+      runners: TaskExecutorRunners(turns: turnManager ?? turns, workflowCliRunner: workflowCliRunner),
       limits: limits,
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
@@ -775,7 +780,7 @@ class BusyOnceTurnManager extends TurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
-    String? workerProfile,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,

@@ -18,6 +18,7 @@ import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
 import 'execution_coordinator.dart' show ExecutionCoordinator;
+import 'execution_policy_resolver.dart' show ExecutionPolicyResolver;
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'observability/usage_tracker.dart';
@@ -57,6 +58,10 @@ class DartclawServerBuilder {
 
   // Turn management (optional — if not set, uses sessions/worker/behavior)
   ExecutionCoordinator? executions;
+
+  /// Resolves pinned-session placement. Absent in single-harness compositions,
+  /// which follow the primary runner.
+  ExecutionPolicyResolver? policyResolver;
   SessionService? sessionsForTurns;
   SessionLockManager? lockManager;
   ContextMonitor? contextMonitor;
@@ -169,7 +174,11 @@ class DartclawServerBuilder {
     final w = worker ?? (throw StateError('worker is required'));
     final b = behavior ?? (throw StateError('behavior is required'));
     _cachedTurns = executions != null
-        ? TurnManager.fromCoordinator(coordinator: executions!, sessions: sessionsForTurns ?? s)
+        ? TurnManager.fromCoordinator(
+            coordinator: executions!,
+            sessions: sessionsForTurns ?? s,
+            policyResolver: policyResolver,
+          )
         : TurnManager(
             messages: m,
             worker: w,

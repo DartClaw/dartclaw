@@ -1166,7 +1166,7 @@ Future<void> _primeWorker(ExecutionCoordinator executions, {required String prov
     ExecutionRequest(
       surface: ExecutionSurface.task,
       providerId: providerId,
-      profileId: 'workspace',
+      policy: const ExecutionPolicy.host(),
       sessionId: 'prime-$providerId',
     ),
   );

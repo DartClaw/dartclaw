@@ -48,14 +48,15 @@ void main() {
       messages: messages,
       behavior: behavior,
       providerId: 'claude',
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
     );
     final coordinator = ExecutionCoordinator(
       providerCapacities: const {'claude': 1},
       primary: primaryRunner,
       admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
       releaseAdmission: primaryRunner.releaseAdmission,
-      createWorker: (request) async => request.profileId == 'restricted' ? replacementRunner : pooledRunner,
+      createWorker: (request) async =>
+          request.policy.containerProfile == 'restricted' ? replacementRunner : pooledRunner,
       outcomeTtl: outcomeTtl,
       now: () => now,
     );
@@ -77,7 +78,7 @@ void main() {
         const ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
-          profileId: 'restricted',
+          policy: ExecutionPolicy.container('restricted'),
           sessionId: 'replacement',
         ),
       );

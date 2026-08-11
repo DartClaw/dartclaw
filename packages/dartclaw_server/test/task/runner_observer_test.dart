@@ -117,12 +117,29 @@ void main() {
     await lease.release();
   });
 
-  test('removes disposed runners from current metrics during profile churn', () async {
+  test('runner JSON distinguishes host execution from each container profile', () {
+    Map<String, dynamic> jsonFor(ExecutionPolicy policy) => RunnerMetrics(
+      runnerId: 1,
+      role: 'worker',
+      providerId: 'claude',
+      executionMode: policy.mode.name,
+      containerProfile: policy.containerProfile,
+      state: RunnerState.idle,
+    ).toJson();
+
+    expect(jsonFor(const ExecutionPolicy.host()), containsPair('executionMode', 'host'));
+    expect(jsonFor(const ExecutionPolicy.host()), containsPair('containerProfile', isNull));
+    expect(jsonFor(const ExecutionPolicy.container('workspace')), containsPair('executionMode', 'container'));
+    expect(jsonFor(const ExecutionPolicy.container('workspace')), containsPair('containerProfile', 'workspace'));
+    expect(jsonFor(const ExecutionPolicy.container('restricted')), containsPair('containerProfile', 'restricted'));
+  });
+
+  test('released container runners leave no cached runner or stale metrics behind', () async {
     final churnExecutions = ExecutionCoordinator(
       providerCapacities: const {'claude': 1},
       admitExecution: (_) async {},
       releaseAdmission: (_) {},
-      createWorker: (request) async => FakeTurnRunner(providerId: request.providerId, profileId: request.profileId),
+      createWorker: (request) async => FakeTurnRunner(providerId: request.providerId, executionPolicy: request.policy),
     );
     final churnEvents = EventBus();
     final churnObserver = RunnerObserver(executions: churnExecutions, eventBus: churnEvents);
@@ -132,17 +149,27 @@ void main() {
       await churnEvents.dispose();
     });
 
+    final runnerIds = <int?>[];
     for (var index = 0; index < 5; index++) {
       final lease = await churnExecutions.acquire(
-        _request(churnExecutions, providerId: 'claude', sessionId: 'churn-$index', profileId: 'profile-$index'),
+        _request(
+          churnExecutions,
+          providerId: 'claude',
+          sessionId: 'churn-$index',
+          policy: ExecutionPolicy.container('profile-$index'),
+        ),
       );
-      await lease!.release();
+      await pumpEventQueue();
+      expect(churnObserver.metrics.single.runnerId, lease!.runnerId);
+      expect(churnObserver.metrics.single.containerProfile, 'profile-$index');
+      runnerIds.add(lease.runnerId);
+      await lease.release();
       await pumpEventQueue();
 
-      expect(churnExecutions.runners, hasLength(1));
-      expect(churnObserver.metrics, hasLength(1));
-      expect(churnObserver.metrics.single.runnerId, lease.runnerId);
+      expect(churnExecutions.runners, isEmpty, reason: 'a container runner is destroyed, never cached');
+      expect(churnObserver.metrics, isEmpty, reason: 'disposed runners drop out of current metrics');
     }
+    expect(runnerIds.toSet(), hasLength(5), reason: 'every container authority gets its own runner');
   });
 
   test('capacityChanges reports a queued lease before it becomes active', () async {
@@ -222,14 +249,14 @@ ExecutionRequest _request(
   ExecutionCoordinator executions, {
   required String providerId,
   required String sessionId,
-  String profileId = 'workspace',
+  ExecutionPolicy policy = const ExecutionPolicy.host(),
   ExecutionSurface surface = ExecutionSurface.task,
   String? taskId,
 }) {
   return ExecutionRequest(
     surface: surface,
     providerId: providerId,
-    profileId: profileId,
+    policy: policy,
     sessionId: sessionId,
     taskId: taskId,
   );

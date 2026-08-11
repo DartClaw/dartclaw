@@ -312,7 +312,7 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           sessionId: 'unsafe',
         ),
       );
@@ -430,7 +430,7 @@ Future<ExecutionCoordinator> _buildCoordinator({
       ExecutionRequest(
         surface: ExecutionSurface.workflow,
         providerId: runner.providerId,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'busy-$index',
       ),
     );

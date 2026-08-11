@@ -159,7 +159,7 @@
       "dependsOn": [],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s01-effective-execution-policy.md",
       "owner": null,
       "scope": "Add restart-time host/container selection for the primary and logical agents plus identityless task-type fallbacks; resolve one validated policy shared by task, workflow, crash and scheduling paths; separate container profile from execution mode in worker identity, preserve host caching, make each container authority own a non-cached container harness, and amend ADR-012 before gateway work.",

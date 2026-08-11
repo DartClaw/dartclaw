@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowCliTurnProgressEvent, stringValue;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -210,7 +211,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     final req = CliTurnRequest(
       prompt: prompt,
       workingDirectory: schemaDirectory,
-      profileId: '',
+      policy: const ExecutionPolicy.host(),
       providerSessionId: providerSessionId,
       model: model,
       effort: effort,

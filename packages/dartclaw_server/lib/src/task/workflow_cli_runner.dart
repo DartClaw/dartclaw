@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
-import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity, TurnProgressAction;
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, ProviderIdentity, TurnProgressAction;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
@@ -178,6 +178,22 @@ class WorkflowCliRunner {
   final Uuid _uuid;
   final Map<String, CliProvider> _providerImpls;
 
+  /// Selects the container backing [policy], or `null` for host execution.
+  ///
+  /// A container policy whose profile has no manager is rejected rather than
+  /// silently run on the host.
+  ContainerExecutor? _containerManagerFor(ExecutionPolicy policy) {
+    if (!policy.isContainer) return null;
+    final manager = containerManagers[policy.containerProfile];
+    if (manager == null) {
+      throw StateError(
+        'Workflow one-shot requires container profile "${policy.containerProfile}", but no container manager is '
+        'available for it. Enable container.enabled: true or select host execution for this task type.',
+      );
+    }
+    return manager;
+  }
+
   WorkflowCliRunner({
     required this.providers,
     this.containerManagers = const <String, ContainerExecutor>{},
@@ -245,7 +261,7 @@ class WorkflowCliRunner {
     required String provider,
     required String prompt,
     required String workingDirectory,
-    required String profileId,
+    required ExecutionPolicy policy,
     String? taskId,
     String? sessionId,
     String? providerSessionId,
@@ -285,7 +301,7 @@ class WorkflowCliRunner {
     final req = CliTurnRequest(
       prompt: prompt,
       workingDirectory: workingDirectory,
-      profileId: profileId,
+      policy: policy,
       taskId: taskId,
       sessionId: sessionId,
       providerSessionId: providerSessionId,
@@ -310,7 +326,7 @@ class WorkflowCliRunner {
       extraEnvironment: extraEnvironment,
       usageBaseline: usageBaseline,
       providerConfig: providerConfig,
-      containerManager: containerManagers[profileId],
+      containerManager: _containerManagerFor(policy),
       processStarter: _processStarter,
       eventBus: _eventBus,
       uuid: _uuid,

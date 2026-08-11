@@ -11,7 +11,7 @@ void main() {
   group('ExecutionCoordinator', () {
     test('rejects admission callbacks unless both ownership operations are configured', () {
       TurnRunner createRunner(ExecutionRequest request) =>
-          _runner(_TestHarness(), providerId: request.providerId, profileId: request.profileId);
+          _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
 
       expect(
         () => ExecutionCoordinator(
@@ -56,16 +56,28 @@ void main() {
       final fixture = _CoordinatorFixture(capacities: const {'claude': 2, 'codex': 1});
       addTearDown(fixture.dispose);
 
-      final workspace = await fixture.acquire(sessionId: 'shared', providerId: 'claude', profileId: 'workspace');
+      final workspace = await fixture.acquire(
+        sessionId: 'shared',
+        providerId: 'claude',
+        policy: const ExecutionPolicy.host(),
+      );
       final workspaceRunner = workspace.runner;
       await workspace.release();
 
-      final restricted = await fixture.acquire(sessionId: 'shared', providerId: 'claude', profileId: 'restricted');
-      final codex = await fixture.acquire(sessionId: 'shared', providerId: 'codex', profileId: 'workspace');
+      final restricted = await fixture.acquire(
+        sessionId: 'shared',
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('restricted'),
+      );
+      final codex = await fixture.acquire(
+        sessionId: 'shared',
+        providerId: 'codex',
+        policy: const ExecutionPolicy.host(),
+      );
 
       expect(restricted.runner, isNot(same(workspaceRunner)));
       expect(codex.runner, isNot(same(workspaceRunner)));
-      expect(restricted.runner!.profileId, 'restricted');
+      expect(restricted.runner!.executionPolicy, const ExecutionPolicy.container('restricted'));
       expect(codex.runner!.providerId, 'codex');
       await restricted.release();
       await codex.release();
@@ -130,7 +142,7 @@ void main() {
         releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
         createWorker: (request) async {
           calls.add('create:${request.sessionId}');
-          return _runner(_TestHarness(), providerId: request.providerId, profileId: request.profileId);
+          return _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
         },
       );
       addTearDown(coordinator.dispose);
@@ -138,7 +150,7 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
             sessionId: sessionId,
             admission: admission,
           );
@@ -168,7 +180,7 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
             sessionId: 'failed',
           ),
         ),
@@ -193,7 +205,7 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.workflow,
           providerId: 'claude',
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           sessionId: 'workflow',
         ),
       );
@@ -232,16 +244,16 @@ void main() {
       Future<void> acquireAndExpectLane(
         ExecutionSurface surface,
         ExecutionLane lane, {
-        String profileId = 'workspace',
+        ExecutionPolicy policy = const ExecutionPolicy.host(),
       }) async {
-        final lease = await fixture.acquire(sessionId: surface.name, profileId: profileId, surface: surface);
+        final lease = await fixture.acquire(sessionId: surface.name, policy: policy, surface: surface);
         await _flushEvents();
         expect(events.lastWhere((event) => event.kind == ExecutionEventKind.acquired).lane, lane);
         await lease.release();
       }
 
       for (final surface in [ExecutionSurface.interactive, ExecutionSurface.channel]) {
-        await acquireAndExpectLane(surface, ExecutionLane.primary, profileId: 'primary');
+        await acquireAndExpectLane(surface, ExecutionLane.primary, policy: const ExecutionPolicy.container('primary'));
       }
       for (final surface in [
         ExecutionSurface.task,
@@ -256,7 +268,7 @@ void main() {
 
     test('SDK background fallback is explicit and excludes advisor, workflow, and logical-agent surfaces', () async {
       final primaryHarness = _TestHarness();
-      final primary = _runner(primaryHarness, providerId: 'claude', profileId: 'workspace');
+      final primary = _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.host());
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {},
         primary: primary,
@@ -269,14 +281,24 @@ void main() {
 
       for (final surface in [ExecutionSurface.task, ExecutionSurface.scheduler]) {
         final lease = await coordinator.acquire(
-          ExecutionRequest(surface: surface, providerId: 'claude', profileId: 'workspace', sessionId: surface.name),
+          ExecutionRequest(
+            surface: surface,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.host(),
+            sessionId: surface.name,
+          ),
         );
         await lease!.release();
       }
       for (final surface in [ExecutionSurface.advisor, ExecutionSurface.workflow, ExecutionSurface.logicalAgent]) {
         await expectLater(
           coordinator.acquire(
-            ExecutionRequest(surface: surface, providerId: 'claude', profileId: 'workspace', sessionId: surface.name),
+            ExecutionRequest(
+              surface: surface,
+              providerId: 'claude',
+              policy: const ExecutionPolicy.host(),
+              sessionId: surface.name,
+            ),
           ),
           throwsStateError,
         );
@@ -307,7 +329,7 @@ void main() {
         providerCapacities: const {'claude': 1},
         admitExecution: (_) async {},
         releaseAdmission: (_) {},
-        createWorker: (request) async => _runner(harness, providerId: request.providerId, profileId: request.profileId),
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, policy: request.policy),
       );
       addTearDown(coordinator.dispose);
 
@@ -316,7 +338,7 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
             sessionId: 'invalid-factory-worker',
           ),
         ),
@@ -336,7 +358,7 @@ void main() {
         providerCapacities: const {'claude': 1},
         admitExecution: (_) async {},
         releaseAdmission: (_) {},
-        createWorker: (request) async => _runner(harness, providerId: request.providerId, profileId: request.profileId),
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, policy: request.policy),
       );
       addTearDown(coordinator.dispose);
 
@@ -345,7 +367,7 @@ void main() {
           ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
             sessionId: 'unsafe-factory-worker',
           ),
         ),
@@ -364,7 +386,7 @@ void main() {
         providerCapacities: const {'claude': 1},
         admitExecution: (_) async {},
         releaseAdmission: (_) {},
-        createWorker: (request) async => _runner(harness, providerId: request.providerId, profileId: request.profileId),
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, policy: request.policy),
       );
       addTearDown(coordinator.dispose);
 
@@ -373,7 +395,7 @@ void main() {
           const ExecutionRequest(
             surface: ExecutionSurface.task,
             providerId: 'claude',
-            profileId: 'workspace',
+            policy: ExecutionPolicy.host(),
             sessionId: 'start-failed',
           ),
         ),
@@ -428,7 +450,7 @@ void main() {
       final primaryHarness = _DelayedDisposeHarness();
       final coordinator = ExecutionCoordinator(
         providerCapacities: const {},
-        primary: _runner(primaryHarness, providerId: 'claude', profileId: 'workspace'),
+        primary: _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.host()),
         createWorker: (_) => throw StateError('must not create'),
       );
 
@@ -458,14 +480,14 @@ void main() {
         createWorker: (request) async {
           createStarted.complete();
           await allowCreate.future;
-          return _runner(harness, providerId: request.providerId, profileId: request.profileId);
+          return _runner(harness, providerId: request.providerId, policy: request.policy);
         },
       );
       final acquisition = coordinator.acquire(
         ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           sessionId: 'pending',
         ),
       );
@@ -495,7 +517,7 @@ void main() {
         createWorker: (request) async {
           createStarted.complete();
           await allowCreate.future;
-          return _runner(_TestHarness(), providerId: request.providerId, profileId: request.profileId);
+          return _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
         },
       );
       addTearDown(coordinator.dispose);
@@ -503,7 +525,7 @@ void main() {
         ExecutionRequest(
           surface: ExecutionSurface.task,
           providerId: 'claude',
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           sessionId: 'pending',
         ),
       );
@@ -576,12 +598,14 @@ final class _CoordinatorFixture {
   }) : _terminationConfirmed = terminationConfirmed {
     coordinator = ExecutionCoordinator(
       providerCapacities: capacities,
-      primary: primaryHarness == null ? null : _runner(primaryHarness, providerId: 'claude', profileId: 'primary'),
+      primary: primaryHarness == null
+          ? null
+          : _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.container('primary')),
       admitExecution: (_) async {},
       releaseAdmission: (_) {},
       createWorker: (request) async {
         final harness = _TestHarness(terminationConfirmed: _terminationConfirmed);
-        final runner = _runner(harness, providerId: request.providerId, profileId: request.profileId);
+        final runner = _runner(harness, providerId: request.providerId, policy: request.policy);
         created.add(runner);
         return runner;
       },
@@ -596,14 +620,14 @@ final class _CoordinatorFixture {
   ExecutionRequest request({
     required String sessionId,
     String providerId = 'claude',
-    String profileId = 'workspace',
+    ExecutionPolicy policy = const ExecutionPolicy.host(),
     ExecutionSurface surface = ExecutionSurface.task,
     ExecutionAdmission admission = ExecutionAdmission.wait,
     String? taskId,
   }) => ExecutionRequest(
     surface: surface,
     providerId: providerId,
-    profileId: profileId,
+    policy: policy,
     sessionId: sessionId,
     admission: admission,
     taskId: taskId,
@@ -612,11 +636,11 @@ final class _CoordinatorFixture {
   Future<ExecutionLease> acquire({
     required String sessionId,
     String providerId = 'claude',
-    String profileId = 'workspace',
+    ExecutionPolicy policy = const ExecutionPolicy.host(),
     ExecutionSurface surface = ExecutionSurface.task,
     String? taskId,
   }) async => (await coordinator.acquire(
-    request(sessionId: sessionId, providerId: providerId, profileId: profileId, surface: surface, taskId: taskId),
+    request(sessionId: sessionId, providerId: providerId, policy: policy, surface: surface, taskId: taskId),
   ))!;
 
   Future<void> dispose() async {
@@ -626,12 +650,12 @@ final class _CoordinatorFixture {
   }
 }
 
-TurnRunner _runner(_TestHarness harness, {required String providerId, required String profileId}) => TurnRunner(
+TurnRunner _runner(_TestHarness harness, {required String providerId, required ExecutionPolicy policy}) => TurnRunner(
   harness: harness,
   messages: _FakeMessageService(),
   behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-execution-coordinator-test'),
   providerId: providerId,
-  profileId: profileId,
+  executionPolicy: policy,
 );
 
 class _TestHarness extends FakeAgentHarness {

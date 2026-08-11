@@ -33,7 +33,7 @@ void main() {
         provider: 'codex',
         prompt: 'Inspect the repo',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sandboxOverride: 'read-only',
       );
 

@@ -57,7 +57,7 @@ class ScheduleService implements Reconfigurable {
   final DeliveryService _delivery;
   final MemoryConsolidator? _consolidator;
   final String? _workerProviderId;
-  final String _workerProfileId;
+  final ExecutionPolicy? _workerPolicy;
   final Timer Function(Duration duration, void Function() callback) _timerFactory;
   final DateTime Function() _now;
 
@@ -75,7 +75,7 @@ class ScheduleService implements Reconfigurable {
     MemoryConsolidator? consolidator,
     EventBus? eventBus,
     String? workerProviderId,
-    String workerProfileId = 'workspace',
+    ExecutionPolicy? workerPolicy,
     Timer Function(Duration duration, void Function() callback)? timerFactory,
     DateTime Function()? now,
   }) : _turns = turns,
@@ -85,7 +85,7 @@ class ScheduleService implements Reconfigurable {
        _consolidator = consolidator,
        _eventBus = eventBus,
        _workerProviderId = workerProviderId,
-       _workerProfileId = workerProfileId,
+       _workerPolicy = workerPolicy,
        _timerFactory = timerFactory ?? Timer.new,
        _now = now ?? DateTime.now;
 
@@ -308,7 +308,8 @@ class ScheduleService implements Reconfigurable {
       sessionKey,
       type: SessionType.cron,
       provider: _workerProviderId,
-      securityProfile: _workerProviderId == null ? null : _workerProfileId,
+      securityProfile: _workerProviderId == null ? null : _workerPolicy?.containerProfile,
+      executionMode: _workerProviderId == null ? null : _workerPolicy?.mode,
     );
 
     final userMessage = <String, dynamic>{'role': 'user', 'content': job.prompt};

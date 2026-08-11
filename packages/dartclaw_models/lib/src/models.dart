@@ -1,3 +1,5 @@
+import 'execution_policy.dart';
+
 const _sessionFieldUnset = Object();
 
 /// Classification for how a [Session] was created.
@@ -44,6 +46,13 @@ class Session {
   /// Optional worker isolation profile pinned to this session.
   final String? securityProfile;
 
+  /// Optional execution mode pinned to this session.
+  ///
+  /// Null on sessions written before execution mode became part of pinned
+  /// routing; readers derive it from [securityProfile] and the deployment's
+  /// container availability, then persist the derived value forward.
+  final ExecutionMode? executionMode;
+
   /// When this session record was first created.
   final DateTime createdAt;
 
@@ -58,6 +67,7 @@ class Session {
     this.channelKey,
     this.provider,
     this.securityProfile,
+    this.executionMode,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -70,6 +80,7 @@ class Session {
     if (channelKey != null) 'channelKey': channelKey,
     if (provider != null) 'provider': provider,
     if (securityProfile != null) 'securityProfile': securityProfile,
+    if (executionMode != null) 'executionMode': executionMode!.name,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -85,6 +96,7 @@ class Session {
     channelKey: json['channelKey'] as String?,
     provider: json['provider'] as String?,
     securityProfile: json['securityProfile'] as String?,
+    executionMode: _parseExecutionMode(json['executionMode']),
     createdAt: DateTime.parse(json['createdAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),
   );
@@ -97,6 +109,7 @@ class Session {
     Object? channelKey = _sessionFieldUnset,
     Object? provider = _sessionFieldUnset,
     Object? securityProfile = _sessionFieldUnset,
+    Object? executionMode = _sessionFieldUnset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Session(
@@ -106,9 +119,17 @@ class Session {
     channelKey: identical(channelKey, _sessionFieldUnset) ? this.channelKey : channelKey as String?,
     provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
     securityProfile: identical(securityProfile, _sessionFieldUnset) ? this.securityProfile : securityProfile as String?,
+    executionMode: identical(executionMode, _sessionFieldUnset) ? this.executionMode : executionMode as ExecutionMode?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
+
+  static ExecutionMode? _parseExecutionMode(Object? value) {
+    if (value == null) return null;
+    final mode = value is String ? ExecutionMode.fromYaml(value) : null;
+    if (mode == null) throw FormatException('Unknown session execution mode: $value');
+    return mode;
+  }
 
   static SessionType _parseSessionType(Object? value) {
     if (value == null) return SessionType.user;

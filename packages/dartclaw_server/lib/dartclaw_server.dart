@@ -15,6 +15,7 @@ export 'src/execution_coordinator.dart'
     show
         AdmitExecution,
         CreateExecutionWorker,
+        DestroyContainerAuthority,
         ExecutionAdmission,
         ExecutionCoordinator,
         ExecutionEvent,
@@ -22,12 +23,15 @@ export 'src/execution_coordinator.dart'
         ExecutionLane,
         ExecutionLease,
         ExecutionNow,
+        ExecutionReleaseContext,
+        ExecutionReleaseHook,
         ExecutionRequest,
         ExecutionSnapshot,
         ExecutionSurface,
         ProviderCapacitySnapshot,
         ReleaseExecutionAdmission,
         WorkerCreationException;
+export 'src/execution_policy_resolver.dart' show ExecutionPolicyException, ExecutionPolicyResolver;
 export 'src/security/security_exports.dart' show GoogleJwtVerifier, buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
 export 'src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;

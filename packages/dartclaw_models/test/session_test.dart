@@ -10,6 +10,7 @@ void main() {
       channelKey: 'agent:search:logical:session-1',
       provider: 'codex',
       securityProfile: 'restricted',
+      executionMode: ExecutionMode.container,
       createdAt: createdAt,
       updatedAt: createdAt,
     );
@@ -17,8 +18,18 @@ void main() {
     final decoded = Session.fromJson(session.toJson());
     expect(decoded.provider, 'codex');
     expect(decoded.securityProfile, 'restricted');
+    expect(decoded.executionMode, ExecutionMode.container);
     expect(decoded.copyWith(provider: null, securityProfile: null).toJson(), isNot(contains('provider')));
     expect(decoded.copyWith(provider: null, securityProfile: null).toJson(), isNot(contains('securityProfile')));
+    expect(decoded.copyWith(executionMode: null).toJson(), isNot(contains('executionMode')));
+  });
+
+  test('pinned execution mode is optional for pre-upgrade sessions but never silently coerced', () {
+    final json = {'id': 'session-1', 'createdAt': '2026-08-09T10:00:00.000Z', 'updatedAt': '2026-08-09T10:00:00.000Z'};
+
+    expect(Session.fromJson(json).executionMode, isNull, reason: 'a missing mode is derived on load, not rejected');
+    expect(Session.fromJson({...json, 'executionMode': 'host'}).executionMode, ExecutionMode.host);
+    expect(() => Session.fromJson({...json, 'executionMode': 'vm'}), throwsFormatException);
   });
 
   test('session type accepts supported names and legacy absence but rejects malformed values', () {

@@ -26,6 +26,7 @@ class InMemorySessionService implements SessionService {
     String? channelKey,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     final now = DateTime.now();
     final session = Session(
@@ -34,6 +35,7 @@ class InMemorySessionService implements SessionService {
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
+      executionMode: executionMode,
       createdAt: now,
       updatedAt: now,
     );
@@ -104,20 +106,24 @@ class InMemorySessionService implements SessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     final existingId = _sessionKeys[key];
     if (existingId != null) {
       final session = _sessionsById[existingId];
       if (session != null && session.type != SessionType.archive) {
+        final resolvedMode = executionMode ?? session.executionMode;
         if (session.type != type ||
             session.channelKey != key ||
             session.provider != provider ||
-            session.securityProfile != securityProfile) {
+            session.securityProfile != securityProfile ||
+            session.executionMode != resolvedMode) {
           final migrated = session.copyWith(
             type: type,
             channelKey: key,
             provider: provider,
             securityProfile: securityProfile,
+            executionMode: resolvedMode,
             updatedAt: DateTime.now(),
           );
           _sessionsById[existingId] = migrated;
@@ -133,6 +139,7 @@ class InMemorySessionService implements SessionService {
       channelKey: key,
       provider: provider,
       securityProfile: securityProfile,
+      executionMode: executionMode,
     );
     _sessionKeys[key] = session.id;
     return session;
@@ -158,6 +165,18 @@ class InMemorySessionService implements SessionService {
       return null;
     }
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) async {
+    final session = _sessionsById[id];
+    if (session == null) {
+      return null;
+    }
+    if (session.executionMode == mode) return session;
+    final updated = session.copyWith(executionMode: mode, updatedAt: DateTime.now());
     _sessionsById[id] = updated;
     return updated;
   }

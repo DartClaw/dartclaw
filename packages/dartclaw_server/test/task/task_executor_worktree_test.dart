@@ -50,7 +50,7 @@ void main() {
           behavior: BehaviorFileService(workspaceDir: ctx.workspaceDir),
           sessions: ctx.sessions,
           providerId: request.providerId,
-          profileId: request.profileId,
+          executionPolicy: request.policy,
         ),
       ),
     );

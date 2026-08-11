@@ -4,6 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import '../container/container_dispatcher.dart';
+import '../execution_policy_resolver.dart';
 import 'task_service.dart';
 
 /// Fails running tasks whose execution profile crashed.
@@ -11,9 +12,12 @@ class ContainerTaskFailureSubscriber {
   static final _log = Logger('ContainerTaskFailureSubscriber');
 
   final TaskService _tasks;
+  final ExecutionPolicyResolver? _policyResolver;
   StreamSubscription<ContainerCrashedEvent>? _subscription;
 
-  ContainerTaskFailureSubscriber({required TaskService tasks}) : _tasks = tasks;
+  ContainerTaskFailureSubscriber({required TaskService tasks, ExecutionPolicyResolver? policyResolver})
+    : _tasks = tasks,
+      _policyResolver = policyResolver;
 
   void subscribe(EventBus eventBus) {
     _subscription ??= eventBus.on<ContainerCrashedEvent>().listen((event) {
@@ -29,7 +33,7 @@ class ContainerTaskFailureSubscriber {
   Future<void> _failAffectedTasks(ContainerCrashedEvent event) async {
     final runningTasks = await _tasks.list(status: TaskStatus.running);
     for (final task in runningTasks) {
-      if (resolveProfile(task.type) != event.profileId) continue;
+      if (!_affectedBy(task, event.profileId)) continue;
       try {
         // TaskService.transition() fires TaskStatusChangedEvent automatically.
         await _tasks.transition(
@@ -41,6 +45,21 @@ class ContainerTaskFailureSubscriber {
       } on StateError catch (error, stackTrace) {
         _log.warning('Failed to transition task ${task.id} after container crash', error, stackTrace);
       }
+    }
+  }
+
+  /// Whether [task] was running inside the crashed container profile.
+  ///
+  /// A task routed to host execution is unaffected by a container crash even
+  /// when its task type would otherwise carry that profile.
+  bool _affectedBy(Task task, String crashedProfileId) {
+    final resolver = _policyResolver;
+    if (resolver == null) return resolveProfile(task.type) == crashedProfileId;
+    try {
+      return resolver.resolveForTaskType(task.type).containerProfile == crashedProfileId;
+    } on ExecutionPolicyException {
+      // An unresolvable policy cannot have been running in that container.
+      return false;
     }
   }
 

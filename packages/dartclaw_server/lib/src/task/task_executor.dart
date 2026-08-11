@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../behavior/behavior_file_service.dart';
 import '../container/container_dispatcher.dart';
 import '../execution_coordinator.dart';
+import '../execution_policy_resolver.dart';
 import '../turn_runner.dart' show TurnRunner;
 import 'artifact_collector.dart';
 import 'goal_service.dart';
@@ -63,6 +64,7 @@ class TaskExecutor {
        _identifierPreservation = limits.identifierPreservation,
        _identifierInstructions = limits.identifierInstructions,
        _kv = services.kvService,
+       _policyResolver = services.policyResolver,
        _budgetConfig = limits.budgetConfig,
        _defaultProviderId = limits.defaultProviderId,
        _stallTimeout = limits.stallTimeout,
@@ -79,6 +81,7 @@ class TaskExecutor {
   final SessionService _sessions;
   final MessageService _messages;
   final ExecutionCoordinator _executions;
+  final ExecutionPolicyResolver? _policyResolver;
   final ArtifactCollector _artifactCollector;
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
@@ -216,8 +219,16 @@ class TaskExecutor {
         }
         continue;
       }
-      final profile = resolveProfile(preparedTask.type);
-      final workerProfileKey = '$provider\u0000$profile';
+      final ExecutionPolicy policy;
+      try {
+        policy = _executionPolicyForTask(preparedTask.type);
+      } on ExecutionPolicyException catch (error) {
+        if (_providerUnavailableTaskIds.add(preparedTask.id)) {
+          _recordProviderUnavailable(preparedTask, error.message);
+        }
+        continue;
+      }
+      final workerProfileKey = '$provider\u0000${policy.describe()}';
       if (unavailableWorkerProfiles.contains(workerProfileKey)) {
         continue;
       }
@@ -228,7 +239,7 @@ class TaskExecutor {
           ExecutionRequest(
             surface: isWorkflow ? ExecutionSurface.workflow : ExecutionSurface.task,
             providerId: provider,
-            profileId: profile,
+            policy: policy,
             sessionId: preparedTask.sessionId!,
             admission: ExecutionAdmission.failFast,
             taskId: preparedTask.id,
@@ -283,12 +294,28 @@ class TaskExecutor {
     return _executions.primary?.providerId;
   }
 
+  /// The effective policy for background work carrying no logical-agent
+  /// identity, honoring the configured task-type fallback.
+  ///
+  /// Single-harness, SDK, and standalone compositions carry no resolver and no
+  /// configuration to resolve against. They take the primary runner's real mode
+  /// and, in container mode, the same built-in per-task-type profile default the
+  /// resolver applies — never an operator precedence rule, which only the
+  /// resolver owns.
+  ExecutionPolicy _executionPolicyForTask(TaskType type) {
+    final resolver = _policyResolver;
+    if (resolver != null) return resolver.resolveForTaskType(type);
+    final primary = _executions.primary?.executionPolicy;
+    if (primary == null || !primary.isContainer) return const ExecutionPolicy.host();
+    return ExecutionPolicy.container(resolveProfile(type));
+  }
+
   /// Shared task execution logic for coordinated and single-harness paths.
   Future<void> _executeCore(
     Task runningTask, {
     required int runnerIndex,
     String? provider,
-    String? runnerProfileId,
+    ExecutionPolicy? runnerPolicy,
     required Future<String> Function(
       String sessionId, {
       String? directory,
@@ -317,7 +344,7 @@ class TaskExecutor {
     _log.info(
       'Task execution start: ${task.id} "${task.title}" '
       'type=${task.type.name}, provider=${provider ?? "default"}, '
-      'profile=${runnerProfileId ?? "none"}',
+      'execution=${runnerPolicy?.describe() ?? "unresolved"}',
     );
     WorktreeInfo? worktreeInfo;
     Project? project;
@@ -523,7 +550,7 @@ class TaskExecutor {
             sessionId: session.id,
             pendingMessage: pendingMessage,
             provider: workflowProvider,
-            profileId: runnerProfileId ?? resolveProfile(task.type),
+            policy: runnerPolicy ?? _executionPolicyForTask(task.type),
             workingDirectory: worktreeInfo?.path ?? projectDirForTask,
             modelOverride: modelOverride,
             effortOverride: effortOverride,
@@ -639,7 +666,7 @@ class TaskExecutor {
       final PromptScope promptScope;
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         promptScope = PromptScope.task;
-      } else if (runnerProfileId == 'restricted') {
+      } else if (runnerPolicy?.containerProfile == 'restricted') {
         promptScope = PromptScope.restricted;
       } else {
         promptScope = PromptScope.task;

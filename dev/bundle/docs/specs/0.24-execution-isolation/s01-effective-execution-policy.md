@@ -34,40 +34,40 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02,TI04,TI05] Unchanged configurations preserve the deployment's current execution boundary**
+- [x] **S01 [OC01] [TI01,TI02,TI04,TI05] Unchanged configurations preserve the deployment's current execution boundary**
   - **Given** containers are enabled and no primary, logical-agent, or task-type execution override is configured
   - **When** the primary agent, an ordinary logical agent, the built-in search agent, a coding task, and a research task resolve their execution policies
   - **Then** all resolve to container execution, with the existing workspace/restricted profile defaults unchanged
   - **And** with containers disabled and the same omitted settings, the primary agent, the ordinary logical agent, and the coding task resolve to host execution without a container profile, while the built-in search agent and the research task (whose defaults carry the `restricted` container profile) fail closed at first dispatch/spawn naming the agent or task-type key — startup boots with a warning — remediated by an explicit host execution selection, which drops the mode-conditional built-in profile default
 
-- [ ] **S02 [OC01,OC02] [TI01,TI02,TI03,TI04,TI05] Explicit agent and task-type choices coexist in one deployment**
+- [x] **S02 [OC01,OC02] [TI01,TI02,TI03,TI04,TI05] Explicit agent and task-type choices coexist in one deployment**
   - **Given** a container-enabled deployment whose primary execution is container, whose `coder` logical agent explicitly selects host, and whose coding task-type fallback selects host
   - **When** the primary agent, `coder`, an inheriting logical agent, a coding task, and a research task request execution
   - **Then** `coder` and the coding task resolve to host with no container profile while the primary, inheriting agent, and research task resolve to container with their applicable profiles
 
-- [ ] **S03 [OC02] [TI02,TI03,TI04] Host and container workers are never interchangeable**
+- [x] **S03 [OC02] [TI02,TI03,TI04] Host and container workers are never interchangeable**
   - **Given** two logical agents use the same provider but one resolves to host and the other to the restricted container profile
   - **When** both acquire, release, and reacquire worker capacity
   - **Then** they never reuse each other's worker and each runner reports its real execution mode and container profile, with the host profile absent
   - **And** the released container runner is terminated and destroyed rather than cached, while compatible host-runner
     caching remains unchanged
 
-- [ ] **S04 [OC02] [TI02,TI03,TI05] Background entry points apply the same task-type policy**
+- [x] **S04 [OC02] [TI02,TI03,TI05] Background entry points apply the same task-type policy**
   - **Given** the coding task-type fallback is host and the deployment default is container
   - **When** equivalent coding work enters through an ordinary task, a workflow-owned one-shot, and a scheduled task, including reconstruction after an interrupted execution
   - **Then** each path carries the same host policy through admission, execution, failure attribution, and retry, while an unoverridden research task remains containerized
 
-- [ ] **S05 [OC03] [TI01,TI02,TI04,TI05] Invalid or unavailable boundaries fail closed**
+- [x] **S05 [OC03] [TI01,TI02,TI04,TI05] Invalid or unavailable boundaries fail closed**
   - **Given** configurations that respectively contain an unknown mode, an unknown task-type override, host mode paired with `security_profile: restricted`, container mode while containers are disabled, or a resolved container profile with no manager
   - **When** configuration/startup or the earliest capability-dependent dispatch validation runs
   - **Then** each request is rejected before its turn starts with the affected YAML path or provider/policy identity and accepted remediation, never by substituting host execution
 
-- [ ] **S06 [OC03] [TI06] Deliberate host weakening is visible and diagnostics describe both policy axes**
+- [x] **S06 [OC03] [TI06] Deliberate host weakening is visible and diagnostics describe both policy axes**
   - **Given** containers are enabled and host execution is explicitly selected for `agent.agents.coder` and the coding task type
   - **When** DartClaw starts and reports runner/execution state
   - **Then** startup warnings name both explicit override paths, and diagnostics distinguish `host` with no profile from `container` with `workspace` or `restricted` without exposing secrets
 
-- [ ] **S07 [OC02] [TI03,TI04] Container profiles remain distinct without container-runner caching**
+- [x] **S07 [OC02] [TI03,TI04] Container profiles remain distinct without container-runner caching**
   - **Given** one Claude request resolves to restricted container execution and a later request resolves to workspace
     container execution
   - **When** each request is admitted and released
@@ -76,11 +76,11 @@
 
 ## Structural Criteria
 
-- [ ] `providers.<id>.pool_size` remains the only worker-capacity limit, and the fixed primary lane remains outside it.
-- [ ] Host harness caching remains available, but every live container authority owns a dedicated container/process
+- [x] `providers.<id>.pool_size` remains the only worker-capacity limit, and the fixed primary lane remains outside it.
+- [x] Host harness caching remains available, but every live container authority owns a dedicated container/process
       namespace and harness; container harnesses never enter the reusable worker cache and are destroyed on release.
-- [ ] Identityless task fallback uses the existing `TaskType`; no task-schema or logical-agent-identity migration is introduced.
-- [ ] Execution-boundary configuration is restart-required and does not enter hot-reload handling.
+- [x] Identityless task fallback uses the existing `TaskType`; no task-schema or logical-agent-identity migration is introduced.
+- [x] Execution-boundary configuration is restart-required and does not enter hot-reload handling.
 
 ## Scope & Boundaries
 
@@ -156,15 +156,15 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
 
 ### Implementation Tasks
 
-- [ ] **TI01** Restart-time configuration represents both policy axes and rejects malformed selections
+- [x] **TI01** Restart-time configuration represents both policy axes and rejects malformed selections
   - Extend the existing agent/task config and model seams with `host`/`container`, exact-path validation, known `TaskType` keys, host/profile conflict rejection, value equality, serialization where applicable, and restart-only metadata. Validation runs in the restart-time config load path and is startup-fatal for these keys (the API-path `ConfigValidator` is a rule pattern, not the seam); register the new keys in `ConfigMeta`.
   - **Verify**: Config tests prove accepted primary/logical/task-type selections, omitted-default preservation, invalid mode/type/path diagnostics, and rejection of host plus container-only profile.
 
-- [ ] **TI02** Every execution context resolves one valid effective policy
+- [x] **TI02** Every execution context resolves one valid effective policy
   - Establish one provider-neutral resolver for primary, logical-agent, identityless-task, and deployment-default precedence; preserve `resolveProfile()` defaults for container mode and validate manager/profile availability without fallback.
   - **Verify**: A table-driven resolver matrix proves all precedence branches, container-enabled/disabled defaults, profile invariants, and fail-closed unavailable-container cases from S01, S02, and S05.
 
-- [ ] **TI03** Allocation identity and observability distinguish host from container/profile
+- [x] **TI03** Allocation identity and observability distinguish host from container/profile
   - Carry TI02's policy through `ExecutionRequest`, runner contracts, cache matching, events, snapshots, and `RunnerMetrics`;
     keep compatible host reuse, but make container release perform confirmed termination, invocation of a release-hook
     seam (no-op default in this story; S02 registers pipe/authority revocation into it), container destruction, and
@@ -173,7 +173,7 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
     cached, workspace/restricted non-mixing remains green, cleanup precedes capacity return, diagnostics expose mode plus
     nullable profile, and provider/primary capacity totals are unchanged.
 
-- [ ] **TI04** Primary and logical-agent lifecycles honor their effective policy across reconstruction
+- [x] **TI04** Primary and logical-agent lifecycles honor their effective policy across reconstruction
   - Use TI02 in `HarnessWiring`, persist the complete resolved routing needed by logical-agent sessions, and make
     primary/worker construction select no manager for host and create one dedicated manager/container for each admitted
     container authority. Pre-upgrade sessions whose pinned routing lacks the execution mode derive it on load: containers
@@ -185,15 +185,15 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
     dedicated container cannot be created, and ACP worker construction consuming the shared resolver rather than a
     local profile mapping.
 
-- [ ] **TI05** Identityless background paths consume the same policy
+- [x] **TI05** Identityless background paths consume the same policy
   - Route ordinary tasks, workflow one-shots, scheduled tasks/prompts, advisor, and other configured background turns through TI02 rather than hard-coded `workspace` or direct `resolveProfile()` decisions; retries and failure attribution retain the effective policy.
   - **Verify**: Component tests prove equivalent coding work uses the configured host fallback across task/workflow/scheduler entry points, unoverridden research stays containerized, and no `Task` persistence field for agent identity is added.
 
-- [ ] **TI06** Diagnostics expose deliberate weakening and policy failures safely
+- [x] **TI06** Diagnostics expose deliberate weakening and policy failures safely
   - Emit startup warnings for explicit host overrides only when they weaken a container-enabled default, naming each explicitly overridden YAML path exactly once (`agent.execution` included; inheriting agents do not warn individually); make worker/startup failures and runner output state mode and optional profile separately.
   - **Verify**: CLI/server tests prove all explicit weakening paths are named once, ordinary host defaults do not warn, failures name provider/policy/remediation without secrets, and runner JSON distinguishes host/no-profile from both container profiles.
 
-- [ ] **TI07** ADR-012 records authority-owned container lifecycle before gateway implementation
+- [x] **TI07** ADR-012 records authority-owned container lifecycle before gateway implementation
   - Amend ADR-012 (status becomes Accepted, with explicit lineage) and `dev/state/DECISIONS.md` so profiles remain
     filesystem/capability templates, while each live container authority receives a dedicated container/harness and no
     container runner is cached across release; amend the matching cross-lease amortization statements in
@@ -371,3 +371,36 @@ New:
     dedicated container cannot be created, and ACP worker construction consuming the shared resolver rather than a
     local profile mapping.
 ```
+
+### Run: 2026-08-11 20:01 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- `packages/dartclaw_server/lib/src/container/container_manager.dart:163` — `stop()` ignores the exit codes of both `docker stop` and `docker rm -f`, so a failed removal is indistinguishable from a successful one. Now that container destruction is a security-relevant release step, this deserves a checked teardown; pre-existing and outside this story's touched behavior.
+- `packages/dartclaw_core/lib/src/storage/session_service.dart:172` — `_getOrCreateByKeyLocked` overwrites a session's pinned `provider`/`securityProfile` with `null` whenever a caller omits them (e.g. `getOrCreateMainSession`). The new `executionMode` argument deliberately does not repeat this (a null argument preserves the stored mode), but the two older fields still behave this way.
+- Superseded per-profile-container wording remains in files outside TI07's named surface: `dev/adrs/016-multi-provider-harness-architecture.md:103,108,207`, `dev/architecture/session-state-architecture.md:171`, `dev/adrs/017-multi-project-architecture.md:67`. Left to S04's full documentation synchronization per DECISION NOTE `container-amortization-doc-lineage-scope`.
+- The provider-CLI one-shot path (`workflow_cli_runner.dart` → `claude_cli_provider.dart`/`codex_cli_provider.dart`) still executes through a shared per-profile container rather than a dedicated per-authority one. It holds no harness and no worker lease, and Claude/Codex container launch is explicitly S03's work area; the ADR-012 amendment states this scope boundary rather than claiming coverage it does not have.
+- No test exercises the container-authority success path through `SecurityWiring`/`HarnessWiring` (distinct container names per acquire, release-time destruction, `_workerContainers` bookkeeping). The coordinator-side lifecycle is covered by `execution_container_authority_test.dart`; the CLI glue is not, because `SecurityWiring` exposes no `RunCommand` injection seam and adding one is a production change for testability. Recommended follow-up: add that seam plus `security_wiring_container_authority_test.dart`.
+- S04's clause "including reconstruction after an interrupted execution" is proved at the session level (`turn_manager_execution_policy_test.dart`) but not at the task level; the task-side test covers an admission failure where execution never started.
+
+#### ASSUMPTIONS
+
+- **Containers-disabled contradiction timing.** DECISION NOTE `containers-disabled-profile-disposition` says an operator-configured `security_profile` paired with containers-disabled "is rejected as contradictory". Implemented as a dispatch-time fail-closed rejection rather than a startup-fatal one, because distinguishing an operator-set profile from a built-in default at the cross-section validation point would require adding an explicitness flag to `AgentDefinition`. The explicit-host contradiction (`execution: host` + explicit `security_profile`) *is* startup-fatal, both cases fail closed, and the documented remediation is identical. Startup additionally warns, naming each unrunnable agent and task type.
+- **ACP providers that do not require containers.** A provider with `container_isolation_required: false` previously received a null container manager and therefore ran on the host regardless of deployment policy. It now follows the resolved policy, so a container-enabled deployment containerizes it. `container_isolation_required` is read as "container not *required*", not "container forbidden"; the alternative — downgrading a resolved container policy to host because of a provider declaration — is exactly the silent weakening PRD FR1 and the FIS forbid. This is a behavior change for that configuration and is flagged for the ACP compatibility story, which owns ACP capability declarations.
+- **`ConfigMeta` registration scope.** Only `agent.execution` is registered. `agent.agents.<id>.execution` and `tasks.execution.<task-type>` are dynamic map keys, which the `ConfigMeta` registry cannot express (no existing dynamic key — `providers.<id>.*`, `agents.<id>.*` — is registered either). Both are still validated with exact YAML paths in the restart-time load path.
+- **No-resolver fallback.** `TaskExecutor._executionPolicyForTask` is reached only by SDK, single-harness, and standalone compositions, which have no configuration to resolve against. It takes the primary runner's real mode and, in container mode, the same built-in per-task-type profile default the resolver applies. It reads no configuration and so duplicates no operator precedence rule.
+
+### Run: 2026-08-11 20:13 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Residuals from the post-implementation Critic pass. Each needs a decision this story is not authorized to make; none is a silent-weakening path (the Critic could construct no path where a resolved container policy is replaced by host execution).
+
+- **Container-crash attribution is now inverted (HIGH).** `ContainerHealthMonitor` is still constructed from the shared per-profile managers (`security_wiring.dart`), so the dedicated per-authority containers — every worker container and the primary agent's — are unmonitored, and a dedicated container can die without raising `ContainerCrashedEvent`. Conversely `ContainerTaskFailureSubscriber._affectedBy` maps a crashed `profileId` back through the task-type profile default, so a crash of the now-one-shot-only shared container fails running tasks that were healthy in their own containers. Fixing this needs a decision on whether crash attribution keys on authority/lease identity and whether authority containers register with the monitor.
+- **Per-authority container names are unreclaimable after abnormal exit (HIGH).** Names embed a per-process epoch specifically so they never repeat, but `ContainerManager.start()` reclaims leaks only by removing the *same* deterministic name, and there is no prefix- or label-based sweep. SIGKILL, OOM, or a shutdown-timeout force-exit therefore leaves one running container per in-flight authority, accumulating across restarts. A startup sweep over the `dartclaw-<hash(dataDir)>-` prefix would restore the self-healing the deterministic names used to provide, but its multi-instance safety needs deciding.
+- **`TurnRunner.executionPolicy` defaults to `ExecutionPolicy.host()` (MEDIUM).** Omitting the argument silently declares host on the value that is simultaneously the cache-compatibility identity, the never-cache-container predicate, and the reported execution mode. `_singleHarnessCoordinator` takes that default while its injected harness may be container-backed, so runner JSON can report `host` for a containerized SDK harness. Making it required needs a decision on how the single-harness path derives its real placement.
+- **A pre-upgrade session pinned `restricted` under disabled containers is unrecoverable (MEDIUM).** `resolveForPinnedSession` reports `agent.execution: host` as the remediation, but the resolver reads the *session's* pinned mode, and `sessions_send` never re-pins routing — so the named remediation does not clear the rejection. Fail-closed is correct; the remediation text and the re-pin path are not.
+- **Container destruction is not confirmed and does not gate capacity (MEDIUM).** Harness termination gates the capacity permit (quarantine on unconfirmed teardown) but a failed container destroy only logs `severe`. Symmetry would quarantine on failed destruction; that is a capacity-behavior decision.
+- **Explicit host placement for a task type also drops its `restricted` prompt scope (LOW).** `promptScope` is derived from `runnerPolicy?.containerProfile`, so `tasks.execution.research: host` changes both where the process runs and which system-prompt scope it gets. One operator knob, two effects, only one of them documented.
+- **`SessionService` field asymmetry is now security-relevant (LOW).** `executionMode` treats a null argument as "no opinion", `securityProfile` still writes through — so a caller omitting only the profile on a `container`+`restricted` session leaves `container` with no profile, which `resolveForPinnedSession` then defaults to `workspace`. No reachable production caller does this today.
+- **`Session.fromJson` throws on an unknown `executionMode`** while the sibling `_parseSessionType` defaults leniently. Fail-closed is defensible for a placement value, but a future third mode would make older binaries unable to hydrate those session records at all.

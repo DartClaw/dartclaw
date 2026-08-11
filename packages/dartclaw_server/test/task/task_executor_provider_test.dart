@@ -206,12 +206,18 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskCodexWorkspaceRunner = TurnRunner(
       harness: codexWorkspaceWorker,
       messages: messages,
       behavior: behavior,
       providerId: 'codex',
+      executionPolicy: const ExecutionPolicy.container('workspace'),
     );
     final turns = turnManagerForRunners([primaryRunner, taskCodexWorkspaceRunner]);
     executor = buildExecutor(turns);
@@ -243,12 +249,17 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskCodexRestrictedRunner = TurnRunner(
       harness: codexRestrictedWorker,
       messages: messages,
       behavior: behavior,
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
       providerId: 'codex',
     );
     final turns = turnManagerForRunners([primaryRunner, taskCodexRestrictedRunner]);
@@ -281,13 +292,18 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskClaudeRunner = TurnRunner(
       harness: claudeTaskWorker,
       messages: messages,
       behavior: behavior,
       providerId: 'claude',
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
     );
     final turns = turnManagerForRunners([primaryRunner, taskClaudeRunner]);
     executor = buildExecutor(turns);
@@ -478,6 +494,7 @@ class _SerialSessionService extends SessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     Session? session;
     Object? error;

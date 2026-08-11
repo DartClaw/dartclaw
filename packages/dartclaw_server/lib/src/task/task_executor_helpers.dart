@@ -108,7 +108,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
       runningTask,
       runnerIndex: runnerIndex,
       provider: runner.providerId,
-      runnerProfileId: runner.profileId,
+      runnerPolicy: runner.executionPolicy,
       reserveTurn:
           (
             sessionId, {
@@ -148,7 +148,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
       runningTask,
       runnerIndex: -1,
       provider: lease.request.providerId,
-      runnerProfileId: lease.request.profileId,
+      runnerPolicy: lease.request.policy,
       reserveTurn:
           (
             _, {

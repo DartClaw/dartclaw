@@ -1098,19 +1098,19 @@ The coordinator returns an idempotent `ExecutionLease`. The lease is released ex
 
 ### Compatible-worker lookup
 
-Harness-construction inputs are fixed for a coordinator's lifetime. Within that boundary, normalized provider ID and security profile ID identify compatible workers; callers submit those two facts directly rather than constructing a second configuration identity. The cache lookup order is:
+Harness-construction inputs are fixed for a coordinator's lifetime. Within that boundary, normalized provider ID and the complete effective execution policy identify compatible workers; callers submit those two facts directly rather than constructing a second configuration identity. The cache lookup order is:
 
-1. healthy exact-session worker for the requested provider/profile;
-2. any healthy worker with the same provider/profile;
+1. healthy exact-session host worker for the requested provider and policy;
+2. any healthy host worker with the same provider and identical effective execution policy (container workers are never cached);
 3. create a fresh worker through provider wiring.
 
-Compatibility is the explicit provider/profile match within the immutable composition. A mismatch or unknown health means fresh creation. The cache is opportunistic and has no size, TTL, prewarm, or reuse-policy configuration.
+Compatibility is the explicit provider plus execution-policy match within the immutable composition — a host worker and a container worker are never interchangeable, and neither are container workers built from different profiles. A mismatch or unknown health means fresh creation. The cache is opportunistic and has no size, TTL, prewarm, or reuse-policy configuration.
 
 ### Release, replacement, and quarantine
 
-An idle healthy released worker may return to the cache. Any other worker is stopped and disposed. Replacement is permitted only after the harness confirms teardown of its managed root process. If termination cannot be confirmed, the capacity permit is quarantined: effective provider capacity decreases and DartClaw does not spawn an overlapping replacement. Cached excess is scavenged with the same rule.
+An idle healthy released *host* worker may return to the cache; a container worker never does. Any other worker is stopped and disposed. Replacement is permitted only after the harness confirms teardown of its managed root process. If termination cannot be confirmed, the capacity permit is quarantined: effective provider capacity decreases and DartClaw does not spawn an overlapping replacement. Cached excess is scavenged with the same rule.
 
-Containers are amortized independently. A profile container may remain alive while harness processes are disposed or recreated, and multiple leases may execute through it subject to provider capacity. It owns neither conversation continuity nor execution admission.
+Each live container authority owns a dedicated container (ADR-012, 2026-08-11 amendment). It is created when the authority is admitted and destroyed on release, after confirmed root-process termination and authority revocation, before capacity is returned. A container owns neither conversation continuity nor execution admission.
 
 ### SDK single-harness compatibility
 
@@ -1197,22 +1197,22 @@ The caller resolves the provider-neutral security profile, then submits it as pa
 ExecutionRequest(
   surface: ExecutionSurface.task,
   providerId: normalizedProviderId,
-  profileId: profile,
+  policy: effectivePolicy,
   sessionId: durableSessionId,
 )
 ```
 
-There is no profile or provider fallback. Containers are created and retained per profile independently from execution leases and cached harnesses; keeping a container warm neither reserves provider capacity nor makes it conversation state.
+There is no policy or provider fallback. Each live container authority owns a container created when it is admitted and destroyed when it is released; a container neither reserves provider capacity nor holds conversation state.
 
 ### Container naming
 
-Per-profile containers are uniquely named using a hash of the data directory:
+Containers are uniquely named from a hash of the data directory plus the owning profile and authority:
 
 ```
-dartclaw-<fnv1a8(dataDir)>-<profileId>
+dartclaw-<fnv1a8(dataDir)>-<profileId>[-<authority>]
 ```
 
-Example: `dartclaw-a1b2c3d4-workspace`, `dartclaw-a1b2c3d4-restricted`.
+Example: the shared provider-CLI containers are `dartclaw-a1b2c3d4-workspace` and `dartclaw-a1b2c3d4-restricted`; a dedicated authority container adds a per-process-unique suffix, e.g. `dartclaw-a1b2c3d4-workspace-m9x2k1`.
 
 ### Container health monitoring
 

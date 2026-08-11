@@ -1,3 +1,6 @@
+import 'package:collection/collection.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionMode, TaskType;
+
 /// Configuration for per-task token budget enforcement.
 ///
 /// Provides global defaults for tasks that don't specify their own budget.
@@ -52,6 +55,10 @@ class TaskConfig {
   /// Per-task token budget configuration.
   final TaskBudgetConfig budget;
 
+  /// Execution-mode fallbacks for background tasks that carry no logical-agent
+  /// identity, keyed by task type. Absent types use the deployment default.
+  final Map<TaskType, ExecutionMode> execution;
+
   /// Creates a [TaskConfig] value.
   const TaskConfig({
     this.artifactRetentionDays = 0,
@@ -60,6 +67,7 @@ class TaskConfig {
     this.worktreeStaleTimeoutHours = 24,
     this.worktreeMergeStrategy = 'squash',
     this.budget = const TaskBudgetConfig.defaults(),
+    this.execution = const {},
   });
 
   /// Default configuration.
@@ -74,7 +82,8 @@ class TaskConfig {
           worktreeBaseRef == other.worktreeBaseRef &&
           worktreeStaleTimeoutHours == other.worktreeStaleTimeoutHours &&
           worktreeMergeStrategy == other.worktreeMergeStrategy &&
-          budget == other.budget;
+          budget == other.budget &&
+          const MapEquality<TaskType, ExecutionMode>().equals(execution, other.execution);
 
   @override
   int get hashCode => Object.hash(
@@ -84,5 +93,6 @@ class TaskConfig {
     worktreeStaleTimeoutHours,
     worktreeMergeStrategy,
     budget,
+    const MapEquality<TaskType, ExecutionMode>().hash(execution),
   );
 }

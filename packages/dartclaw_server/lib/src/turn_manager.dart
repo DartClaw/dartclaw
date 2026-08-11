@@ -12,6 +12,7 @@ import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
 import 'execution_coordinator.dart';
+import 'execution_policy_resolver.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_runner.dart';
@@ -96,6 +97,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
 
   final ExecutionCoordinator _executions;
   final SessionService? _sessions;
+  final ExecutionPolicyResolver? _policyResolver;
   late final TurnRunner _primary = _executions.primary!;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
@@ -150,9 +152,13 @@ class TurnManager implements core.TurnManager, Reconfigurable {
          sessions: sessions,
        );
 
-  TurnManager.fromCoordinator({required ExecutionCoordinator coordinator, SessionService? sessions})
-    : _executions = coordinator,
-      _sessions = sessions;
+  TurnManager.fromCoordinator({
+    required ExecutionCoordinator coordinator,
+    SessionService? sessions,
+    ExecutionPolicyResolver? policyResolver,
+  }) : _executions = coordinator,
+       _sessions = sessions,
+       _policyResolver = policyResolver;
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -214,7 +220,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String? model,
     String? effort,
     String? systemPromptOverride,
-    String? workerProfile,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -225,7 +231,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   }) async {
     final lease = await _reserveExecutionForSession(
       sessionId,
-      workerProfile: workerProfile,
+      workerPolicy: workerPolicy,
       taskId: taskId,
       isHumanInput: isHumanInput,
     );
@@ -461,13 +467,13 @@ class TurnManager implements core.TurnManager, Reconfigurable {
 
   Future<ExecutionLease> _reserveExecutionForSession(
     String sessionId, {
-    String? workerProfile,
+    ExecutionPolicy? workerPolicy,
     String? taskId,
     required bool isHumanInput,
   }) async {
     final session = await _sessions?.getSession(sessionId);
     final provider = session?.provider ?? _primary.providerId;
-    final profile = workerProfile ?? session?.securityProfile ?? _primary.profileId;
+    final policy = workerPolicy ?? await _sessionExecutionPolicy(session);
     final isLogicalAgent = session?.type == SessionType.logicalAgent;
     final surface = switch (session?.type) {
       SessionType.cron => ExecutionSurface.scheduler,
@@ -480,7 +486,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
       ExecutionRequest(
         surface: surface,
         providerId: provider,
-        profileId: profile,
+        policy: policy,
         sessionId: sessionId,
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
@@ -489,10 +495,31 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     );
     if (lease != null) return lease;
     throw BusyTurnException(
-      'Provider "$provider" worker capacity unavailable for profile "$profile"; '
+      'Provider "$provider" worker capacity unavailable for ${policy.describe()} execution; '
       'increase providers.$provider.pool_size',
       isSameSession: false,
     );
+  }
+
+  /// Resolves the execution policy pinned to [session].
+  ///
+  /// Sessions without pinned routing follow the primary runner, preserving the
+  /// deployment's effective placement for interactive and inherited work. A
+  /// session pinned before execution mode existed has its mode derived once and
+  /// persisted forward.
+  Future<ExecutionPolicy> _sessionExecutionPolicy(Session? session) async {
+    final resolver = _policyResolver;
+    if (session == null || resolver == null) return _primary.executionPolicy;
+    if (session.executionMode == null && session.securityProfile == null) return _primary.executionPolicy;
+    final policy = resolver.resolveForPinnedSession(
+      sessionId: session.id,
+      executionMode: session.executionMode,
+      securityProfile: session.securityProfile,
+    );
+    if (session.executionMode == null) {
+      await _sessions?.updateExecutionMode(session.id, policy.mode);
+    }
+    return policy;
   }
 }
 

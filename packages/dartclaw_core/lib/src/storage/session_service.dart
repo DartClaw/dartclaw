@@ -27,6 +27,7 @@ class SessionService {
     String? channelKey,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     final id = _uuid.v4();
     final dir = Directory(p.join(baseDir, id));
@@ -39,6 +40,7 @@ class SessionService {
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
+      executionMode: executionMode,
       createdAt: now,
       updatedAt: now,
     );
@@ -131,10 +133,17 @@ class SessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     return _repoLock.acquire(
       p.join(baseDir, '.session_keys.json'),
-      () => _getOrCreateByKeyLocked(key, type: type, provider: provider, securityProfile: securityProfile),
+      () => _getOrCreateByKeyLocked(
+        key,
+        type: type,
+        provider: provider,
+        securityProfile: securityProfile,
+        executionMode: executionMode,
+      ),
     );
   }
 
@@ -165,6 +174,7 @@ class SessionService {
     required SessionType type,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
@@ -176,15 +186,20 @@ class SessionService {
       final session = await getSession(existingId);
       if (session != null && session.type != SessionType.archive) {
         // Lazy migration: update type/channelKey if needed (e.g. old sessions without type)
+        // A null executionMode argument means "caller has no opinion" — never
+        // clear a mode already pinned on disk.
+        final resolvedMode = executionMode ?? session.executionMode;
         if (session.type != type ||
             session.channelKey != key ||
             session.provider != provider ||
-            session.securityProfile != securityProfile) {
+            session.securityProfile != securityProfile ||
+            session.executionMode != resolvedMode) {
           final migrated = session.copyWith(
             type: type,
             channelKey: key,
             provider: provider,
             securityProfile: securityProfile,
+            executionMode: resolvedMode,
           );
           await _updateSession(migrated);
           return migrated;
@@ -201,6 +216,7 @@ class SessionService {
       channelKey: key,
       provider: provider,
       securityProfile: securityProfile,
+      executionMode: executionMode,
     );
     keyIndex[key] = session.id;
     await atomicWriteJson(indexFile, keyIndex);
@@ -228,6 +244,22 @@ class SessionService {
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
+    await atomicWriteJson(metaFile, updated.toJson());
+    return updated;
+  }
+
+  /// Persists the execution mode derived for a session that predates pinned
+  /// execution modes, so later turns reuse the derived value rather than
+  /// re-deriving it against a possibly changed deployment.
+  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) async {
+    if (!isValidUuid(id)) return null;
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) return null;
+
+    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+    final session = Session.fromJson(json);
+    if (session.executionMode == mode) return session;
+    final updated = session.copyWith(executionMode: mode, updatedAt: DateTime.now());
     await atomicWriteJson(metaFile, updated.toJson());
     return updated;
   }

@@ -1,8 +1,28 @@
 part of 'execution_coordinator.dart';
 
 extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
+  /// Tears a worker down in the order the isolation boundary requires:
+  /// harness termination, authority revocation, container destruction. Callers
+  /// return capacity only after this completes.
   Future<void> _disposeWorker(TurnRunner runner, ExecutionRequest request) async {
     await _stopAndDisposeHarness(runner.harness, 'worker');
+    if (runner.executionPolicy.isContainer) {
+      final context = ExecutionReleaseContext(request: request, runner: runner);
+      for (final hook in _releaseHooks) {
+        try {
+          await hook(context);
+        } catch (error, stackTrace) {
+          // Destroying the container is the stronger revocation, so a failed
+          // hook must not prevent it — but it is a security-relevant failure.
+          ExecutionCoordinator._log.severe('Execution release hook failed', error, stackTrace);
+        }
+      }
+      try {
+        await _destroyContainerAuthority?.call(context);
+      } catch (error, stackTrace) {
+        ExecutionCoordinator._log.severe('Failed to destroy container authority', error, stackTrace);
+      }
+    }
     _emit(ExecutionEventKind.disposed, request, ExecutionLane.worker, runner: runner);
     runner.setOutcomeObserver(null);
     _runnerIds.remove(runner);

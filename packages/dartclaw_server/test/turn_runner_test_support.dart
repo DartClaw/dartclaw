@@ -84,13 +84,16 @@ class FastFakeWorker extends AgentHarness {
 /// [providerId] defaults to `claude`; pass another to exercise per-provider
 /// metric grouping.
 class FakeTurnRunner extends TurnRunner {
-  FakeTurnRunner({super.providerId = 'claude', super.profileId = 'workspace', bool supportsCachedTokens = false})
-    : super(
-        harness: FakeAgentHarness(autoTransitionState: false, supportsCachedTokens: supportsCachedTokens),
-        messages: NoOpMessages(),
-        behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-turn-runner-test'),
-        sessions: NoOpSessions(),
-      );
+  FakeTurnRunner({
+    super.providerId = 'claude',
+    super.executionPolicy = const ExecutionPolicy.host(),
+    bool supportsCachedTokens = false,
+  }) : super(
+         harness: FakeAgentHarness(autoTransitionState: false, supportsCachedTokens: supportsCachedTokens),
+         messages: NoOpMessages(),
+         behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-turn-runner-test'),
+         sessions: NoOpSessions(),
+       );
 }
 
 /// No-op [MessageService] for tests that never read messages.

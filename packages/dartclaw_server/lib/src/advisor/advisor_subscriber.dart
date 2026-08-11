@@ -7,6 +7,7 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
 import '../execution_coordinator.dart';
+import '../execution_policy_resolver.dart';
 import '../task/task_service.dart';
 
 /// Identifies why an advisor evaluation was scheduled.
@@ -486,6 +487,7 @@ class AdvisorSubscriber {
   final EventBus _eventBus;
   final ExecutionCoordinator _executions;
   final String _providerId;
+  final ExecutionPolicyResolver? _policyResolver;
   final SessionService _sessions;
   final TaskService _taskService;
   final TurnTraceService? _traceService;
@@ -521,8 +523,10 @@ class AdvisorSubscriber {
     String? model,
     String? effort,
     ChatCardBuilder? googleChatCardBuilder,
+    ExecutionPolicyResolver? policyResolver,
   }) : _executions = executions,
        _providerId = providerId,
+       _policyResolver = policyResolver,
        _eventBus = eventBus,
        _sessions = sessions,
        _taskService = taskService,
@@ -644,17 +648,25 @@ class AdvisorSubscriber {
     try {
       final tasks = await _loadTasks(trigger.taskIds);
       final prompt = await _buildPrompt(trigger, tasks);
+      // Advisor turns carry neither logical-agent identity nor a task type, so
+      // they follow the deployment default.
+      final policy = _policyResolver?.deploymentDefault ?? _executions.primary?.executionPolicy;
+      if (policy == null) {
+        _log.info('Advisor skipped for ${trigger.type.wireName}: no execution policy is available');
+        return;
+      }
       final advisorSession = await _sessions.getOrCreateByKey(
         SessionKey.cronSession(jobId: 'advisor:${trigger.sessionKey}'),
         type: SessionType.cron,
         provider: _providerId,
-        securityProfile: 'workspace',
+        securityProfile: policy.containerProfile,
+        executionMode: policy.mode,
       );
       lease = await _executions.acquire(
         ExecutionRequest(
           surface: ExecutionSurface.advisor,
           providerId: _providerId,
-          profileId: 'workspace',
+          policy: policy,
           sessionId: advisorSession.id,
           admission: ExecutionAdmission.failFast,
         ),

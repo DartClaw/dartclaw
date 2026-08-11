@@ -456,7 +456,7 @@ Minimal Debian Bookworm slim image with only essential packages: `ca-certificate
 
 ### Per-Type Container Isolation (ADR-012)
 
-Different security profiles get separate containers. Multiple tasks of the same profile share one container via `docker exec`.
+A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each live container authority is given its own container built from that template and destroyed on release (ADR-012, 2026-08-11 amendment), so concurrent executions of the same profile never share a PID, `/tmp`, or generated-home namespace. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) is the one exception and still executes through a shared per-profile container; it holds no harness and no worker lease, and is amended when Claude/Codex container parity lands (ADR-012, amendment scope).
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
@@ -482,11 +482,11 @@ custom    → workspace
 
 Global governance runs before `ExecutionCoordinator`. After admission, the coordinator is the only authority that selects the fixed primary-interactive lane or acquires a provider worker lease. Main-agent user/channel turns serialize on the primary lane. Cron/system jobs, advisor turns, tasks, and logical agents consume worker capacity; workflow one-shots consume capacity-only leases.
 
-`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and security profile; all other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/profile, then any healthy worker with the same provider/profile, otherwise fresh. A mismatch or unknown health is treated as fresh.
+`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and one complete effective execution policy — host, or container plus its profile; all other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/policy, then any healthy worker with the same provider/policy, otherwise fresh. A mismatch or unknown health is treated as fresh. Host and container workers are never interchangeable, and neither are container workers built from different profiles.
 
 Released unhealthy workers are stopped and disposed. No replacement is created until teardown of the managed root process is confirmed. If confirmation is unavailable, the slot is quarantined and effective provider capacity decreases. This prevents a failed termination from turning one configured capacity slot into multiple live security principals.
 
-The reusable harness cache is opportunistic and has no security-relaxing knobs. Workflow one-shots never enter it. Containers are amortized independently: a profile container may outlive multiple subprocesses and leases, but it neither carries conversation identity nor changes provider capacity. Lease state, not runner callbacks or cached process presence, is authoritative for active execution and emergency cancellation.
+The reusable harness cache is opportunistic, holds host harnesses only, and has no security-relaxing knobs. Workflow one-shots never enter it. Container harnesses never enter it either (ADR-012, 2026-08-11 amendment): every live container authority owns a dedicated container, and release confirms root-process termination, revokes authority-scoped resources, removes generated state, and destroys the container before capacity is returned. Container lifetime therefore tracks its authority and still neither carries conversation identity nor changes provider capacity. Lease state, not runner callbacks or cached process presence, is authoritative for active execution and emergency cancellation.
 
 ### Multi-Provider Sandbox Interaction
 

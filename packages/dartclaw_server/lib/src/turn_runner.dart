@@ -77,9 +77,9 @@ class TurnRunner implements core.TurnRunner {
   /// Tracks turn IDs that were cancelled due to mid-turn loop detection.
   final Map<String, LoopDetection> _loopDetectedTurns = {};
 
-  /// Security profile this runner's harness executes in (e.g. 'workspace', 'restricted').
+  /// Where this runner's harness actually executes.
   @override
-  final String profileId;
+  final ExecutionPolicy executionPolicy;
 
   /// Agent provider backing this runner's harness (e.g. 'claude', 'codex').
   @override
@@ -145,7 +145,7 @@ class TurnRunner implements core.TurnRunner {
     Duration? globalTimeout,
     Duration outcomeTtl = const Duration(seconds: 30),
     Future<void> Function(String sessionId, BudgetCheckResult result)? budgetWarningNotifier,
-    this.profileId = 'workspace',
+    this.executionPolicy = const ExecutionPolicy.host(),
     this.providerId = 'claude',
   }) : _worker = harness,
        _messages = messages,

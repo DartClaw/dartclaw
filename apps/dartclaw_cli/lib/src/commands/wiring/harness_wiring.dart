@@ -51,6 +51,10 @@ class HarnessWiring {
   late AgentHarness _harness;
   late GuardChain _primaryGuardChain;
   late ExecutionCoordinator _executions;
+  late ExecutionPolicyResolver _policyResolver;
+  late ExecutionPolicy _primaryPolicy;
+  final Map<TurnRunner, ContainerExecutor> _workerContainers = Map<TurnRunner, ContainerExecutor>.identity();
+  ContainerExecutor? _primaryContainer;
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
@@ -81,6 +85,7 @@ class HarnessWiring {
 
   AgentHarness get harness => _harness;
   ExecutionCoordinator get executions => _executions;
+  ExecutionPolicyResolver get policyResolver => _policyResolver;
   HarnessConfig get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
@@ -200,6 +205,16 @@ class HarnessWiring {
       }
     }
     _agentMap = {for (final a in _agentDefs) a.id: a};
+    _policyResolver = ExecutionPolicyResolver(
+      config: config,
+      availableContainerProfiles: _security.availableContainerProfiles,
+    );
+    for (final warning in _policyResolver.hostOverrideWarnings()) {
+      _log.warning(warning);
+    }
+    for (final warning in _policyResolver.failClosedWarnings(agents: _agentDefs)) {
+      _log.warning(warning);
+    }
     _harnessConfig = HarnessConfig(
       disallowedTools: mcpDisallowedTools(
         mcpEnabled: mcpEnabled,
@@ -261,13 +276,14 @@ class HarnessWiring {
         throw StateError(validation.errors.join('\n'));
       }
 
+      _primaryPolicy = _policyResolver.resolveForPrimary(providerId: defaultProviderId);
       _harness = _harnessFactory.create(
         defaultProviderId,
         _buildFactoryConfig(
           executable: _resolveProviderExecutable(config, defaultProviderId),
           harnessConfig: _harnessConfig,
           providerOptions: _providerOptions(config, defaultProviderId),
-          containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
+          containerManager: await _primaryContainerManager(defaultProviderId),
           guardChain: _primaryGuardChain,
           environment: _providerEnvironment(
             config,
@@ -352,12 +368,13 @@ class HarnessWiring {
             : ProviderIdentity.normalize(configuredProvider);
         Session? session;
         if (createSession) {
-          final workerProfile = _logicalAgentWorkerProfile(config, _security, definition, agentProviderId);
+          final policy = _policyResolver.resolveForAgent(definition, providerId: agentProviderId);
           session = await _storage.sessions.getOrCreateByKey(
             sessionId,
             type: SessionType.logicalAgent,
             provider: agentProviderId,
-            securityProfile: workerProfile,
+            securityProfile: policy.containerProfile,
+            executionMode: policy.mode,
           );
         } else {
           session = await _storage.sessions.getByKey(sessionId);
@@ -365,9 +382,17 @@ class HarnessWiring {
             throw StateError('Unknown logical-agent session: $sessionId');
           }
         }
-        if (session.provider == null || session.securityProfile == null) {
-          throw StateError('Logical-agent session is missing pinned execution routing: $sessionId');
+        if (session.provider == null) {
+          throw StateError('Logical-agent session is missing its pinned provider: $sessionId');
         }
+        // A session pinned before execution mode existed carries only a
+        // profile; the resolver derives its mode and TurnManager persists the
+        // derived value forward. A missing mode is never itself a rejection.
+        final sessionPolicy = _policyResolver.resolveForPinnedSession(
+          sessionId: session.id,
+          executionMode: session.executionMode,
+          securityProfile: session.securityProfile,
+        );
 
         final srv = serverRefGetter();
         final turnId = await srv.turns.reserveTurn(
@@ -376,7 +401,7 @@ class HarnessWiring {
           model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
           systemPromptOverride: persona,
-          workerProfile: session.securityProfile,
+          workerPolicy: sessionPolicy,
         );
         try {
           await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
@@ -449,7 +474,7 @@ class HarnessWiring {
       required GuardChain guardChain,
       required TaskToolFilterGuard toolFilter,
       required String providerId,
-      String profileId = 'workspace',
+      required ExecutionPolicy executionPolicy,
     }) => TurnRunner(
       harness: harness,
       messages: _storage.messages,
@@ -475,7 +500,7 @@ class HarnessWiring {
       eventBus: _eventBus,
       turnMonitor: config.harness.turnMonitor,
       globalTimeout: globalTimeout,
-      profileId: profileId,
+      executionPolicy: executionPolicy,
       providerId: providerId,
     );
 
@@ -490,6 +515,7 @@ class HarnessWiring {
       guardChain: _primaryGuardChain,
       toolFilter: primaryFilter,
       providerId: defaultProviderId,
+      executionPolicy: _primaryPolicy,
     );
     _executions = ExecutionCoordinator(
       primary: primaryRunner,
@@ -499,17 +525,30 @@ class HarnessWiring {
       createWorker: (request) async {
         final entry = providerEntries[request.providerId];
         final allowedProfiles = providerProfiles[request.providerId];
-        if (entry == null || allowedProfiles == null || !allowedProfiles.contains(request.profileId)) {
+        final containerProfile = request.policy.containerProfile;
+        if (entry == null ||
+            allowedProfiles == null ||
+            (containerProfile != null && !allowedProfiles.contains(containerProfile))) {
           throw WorkerCreationException(
-            'Provider "${request.providerId}" cannot execute in security profile "${request.profileId}"',
+            'Provider "${request.providerId}" cannot execute as ${request.policy.describe()}',
           );
         }
-        final containerManager = _security.containerManagers[request.profileId];
         final requiresContainer = config.harness.acp[request.providerId]?.containerIsolationRequired ?? false;
-        if (requiresContainer && containerManager == null) {
+        if (requiresContainer && !request.policy.isContainer) {
           throw WorkerCreationException(
-            'ACP provider "${request.providerId}" requires unavailable container profile "${request.profileId}"',
+            'ACP provider "${request.providerId}" requires container isolation, but its resolved policy is host '
+            'execution. Select execution: container for it, or remove its container_isolation requirement.',
           );
+        }
+        ContainerExecutor? containerManager;
+        if (containerProfile != null) {
+          try {
+            containerManager = await _security.acquireContainerAuthority(containerProfile);
+          } catch (error) {
+            throw WorkerCreationException(
+              'Provider "${request.providerId}" requires unavailable container profile "$containerProfile": $error',
+            );
+          }
         }
         final workerFilter = TaskToolFilterGuard();
         final workerGuardChain = _buildRunnerGuardChain(
@@ -518,32 +557,82 @@ class HarnessWiring {
           _security.toolPolicyCascade,
         );
         final workerHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: workerPrompt);
-        final workerHarness = _harnessFactory.create(
-          request.providerId,
-          _buildFactoryConfig(
-            executable: entry.executable,
-            harnessConfig: workerHarnessConfig,
-            providerOptions: entry.options,
-            containerManager: containerManager,
-            guardChain: workerGuardChain,
-            environment: _providerEnvironment(
-              config,
-              request.providerId,
-              _credentialProviderIdForProvider(config, request.providerId),
-              credentialRegistry,
+        try {
+          final workerHarness = _harnessFactory.create(
+            request.providerId,
+            _buildFactoryConfig(
+              executable: entry.executable,
+              harnessConfig: workerHarnessConfig,
+              providerOptions: entry.options,
+              containerManager: containerManager,
+              guardChain: workerGuardChain,
+              environment: _providerEnvironment(
+                config,
+                request.providerId,
+                _credentialProviderIdForProvider(config, request.providerId),
+                credentialRegistry,
+              ),
             ),
-          ),
-        );
-        _wireCompactionCallbacks(workerHarness);
-        return buildRunner(
-          harness: workerHarness,
-          guardChain: workerGuardChain,
-          toolFilter: workerFilter,
-          profileId: request.profileId,
-          providerId: request.providerId,
-        );
+          );
+          _wireCompactionCallbacks(workerHarness);
+          final runner = buildRunner(
+            harness: workerHarness,
+            guardChain: workerGuardChain,
+            toolFilter: workerFilter,
+            executionPolicy: request.policy,
+            providerId: request.providerId,
+          );
+          if (containerManager != null) _workerContainers[runner] = containerManager;
+          return runner;
+        } catch (_) {
+          if (containerManager != null) await _releaseContainerQuietly(containerManager);
+          rethrow;
+        }
+      },
+      destroyContainerAuthority: (context) async {
+        final container = _workerContainers.remove(context.runner);
+        if (container != null) await _security.releaseContainerAuthority(container);
       },
     );
+  }
+
+  /// Creates the container backing the primary harness, or returns `null` when
+  /// the primary agent's resolved policy places it on the host.
+  ///
+  /// The primary harness is a live container authority like any other, so it
+  /// owns a dedicated container rather than sharing a per-profile one. A
+  /// provider that declares a stronger minimum boundary rejects a host policy
+  /// rather than silently upgrading it.
+  Future<ContainerExecutor?> _primaryContainerManager(String providerId) async {
+    final requiresContainer = config.harness.acp[providerId]?.containerIsolationRequired ?? false;
+    if (requiresContainer && !_primaryPolicy.isContainer) {
+      throw StateError(
+        'ACP provider "$providerId" requires container isolation, but agent.execution resolves to host execution',
+      );
+    }
+    final profile = _primaryPolicy.containerProfile;
+    if (profile == null) return null;
+    _primaryContainer = await _security.acquireContainerAuthority(profile);
+    return _primaryContainer;
+  }
+
+  /// Destroys the primary harness's dedicated container, if it has one.
+  ///
+  /// The primary authority lives for the process, so its container is released
+  /// at shutdown rather than per lease.
+  Future<void> disposePrimaryContainer() async {
+    final container = _primaryContainer;
+    if (container == null) return;
+    _primaryContainer = null;
+    await _releaseContainerQuietly(container);
+  }
+
+  Future<void> _releaseContainerQuietly(ContainerExecutor container) async {
+    try {
+      await _security.releaseContainerAuthority(container);
+    } catch (error, stackTrace) {
+      _log.warning('Failed to release container authority after worker creation failed', error, stackTrace);
+    }
   }
 
   HarnessFactoryConfig _buildFactoryConfig({
@@ -832,49 +921,9 @@ List<String> _profilesForProvider(DartclawConfig config, String providerId, List
   return fallbackProfiles;
 }
 
-ContainerExecutor? _containerManagerForProvider(DartclawConfig config, SecurityWiring security, String providerId) {
-  final acpEntry = config.harness.acp[providerId];
-  if (acpEntry == null) {
-    return security.containerManagers['workspace'];
-  }
-  if (!acpEntry.containerIsolationRequired) {
-    return null;
-  }
-  final profile = acpEntry.containerProfile;
-  if (profile == null) {
-    throw StateError('ACP provider "$providerId" requires container isolation without a container_profile');
-  }
-  final profileId = _containerProfileId(profile);
-  final manager = security.containerManagers[profileId];
-  if (manager == null) {
-    throw StateError('ACP provider "$providerId" requires unavailable container profile "$profileId"');
-  }
-  return manager;
-}
-
 String _containerProfileId(AcpContainerProfile profile) {
   return switch (profile) {
     AcpContainerProfile.restricted => 'restricted',
     AcpContainerProfile.workspace => 'workspace',
   };
-}
-
-String _logicalAgentWorkerProfile(
-  DartclawConfig config,
-  SecurityWiring security,
-  AgentDefinition definition,
-  String providerId,
-) {
-  final configured = definition.securityProfile;
-  if (configured != null) {
-    if (configured != 'workspace' && !security.containerManagers.containsKey(configured)) {
-      throw StateError('Logical agent "${definition.id}" requires unavailable security profile "$configured"');
-    }
-    return configured;
-  }
-
-  if (security.containerManagers.isEmpty) return 'workspace';
-
-  final providerProfile = config.harness.acp[providerId]?.containerProfile;
-  return providerProfile == null ? 'workspace' : _containerProfileId(providerProfile);
 }

@@ -14,7 +14,7 @@ final class ExecutionRequest {
   const ExecutionRequest({
     required this.surface,
     required this.providerId,
-    required this.profileId,
+    required this.policy,
     required this.sessionId,
     this.admission = ExecutionAdmission.wait,
     this.isHumanInput = false,
@@ -23,17 +23,23 @@ final class ExecutionRequest {
 
   final ExecutionSurface surface;
   final String providerId;
-  final String profileId;
+
+  /// The complete effective policy resolved for this request.
+  ///
+  /// Together with [providerId] this is the worker compatibility identity: a
+  /// host worker and a container worker are never interchangeable, and neither
+  /// are two container workers built from different profiles.
+  final ExecutionPolicy policy;
   final String sessionId;
   final ExecutionAdmission admission;
   final bool isHumanInput;
   final String? taskId;
 
-  ExecutionRequest _route({String? providerId, String? profileId}) {
+  ExecutionRequest _route({String? providerId, ExecutionPolicy? policy}) {
     return ExecutionRequest(
       surface: surface,
       providerId: providerId ?? this.providerId,
-      profileId: profileId ?? this.profileId,
+      policy: policy ?? this.policy,
       sessionId: sessionId,
       admission: admission,
       isHumanInput: isHumanInput,
@@ -44,6 +50,31 @@ final class ExecutionRequest {
 
 /// Builds an unstarted worker. The coordinator exclusively owns its lifecycle.
 typedef CreateExecutionWorker = Future<TurnRunner> Function(ExecutionRequest request);
+
+/// Identifies a container authority being released.
+final class ExecutionReleaseContext {
+  const ExecutionReleaseContext({required this.request, required this.runner});
+
+  /// The request the released authority was created for.
+  final ExecutionRequest request;
+
+  /// The runner whose harness has already terminated.
+  final TurnRunner runner;
+
+  /// The released authority's effective policy.
+  ExecutionPolicy get policy => runner.executionPolicy;
+}
+
+/// Runs during container-authority release, after the harness process has
+/// terminated and before the container is destroyed.
+///
+/// The seam exists so authority-scoped resources granted to a container (pipes,
+/// bridge authorizations) are revoked while the container still exists but can
+/// no longer run anything. Hooks complete before capacity is returned.
+typedef ExecutionReleaseHook = Future<void> Function(ExecutionReleaseContext context);
+
+/// Destroys the dedicated container backing a released container authority.
+typedef DestroyContainerAuthority = Future<void> Function(ExecutionReleaseContext context);
 
 /// Reserves a logical session before capacity or a runner is acquired.
 typedef AdmitExecution = Future<void> Function(ExecutionRequest request);

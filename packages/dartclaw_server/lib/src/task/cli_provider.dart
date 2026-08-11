@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus, ProcessTerminationResult;
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, TurnProgressAction;
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, PlatformCapabilities, TurnProgressAction;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -263,7 +263,8 @@ final class CliTurnRequest {
   final String workingDirectory;
 
   /// Profile identifier used to look up the container manager.
-  final String profileId;
+  /// The effective execution policy this turn runs under.
+  final ExecutionPolicy policy;
 
   /// Task identifier propagated to progress events, if any.
   final String? taskId;
@@ -328,7 +329,7 @@ final class CliTurnRequest {
   /// Decoded YAML provider configuration for this provider.
   final WorkflowCliProviderConfig providerConfig;
 
-  /// Container executor bound to [profileId], or null when running on the host.
+  /// Container executor bound to [policy], or null when running on the host.
   final ContainerExecutor? containerManager;
 
   /// Process-spawning collaborator; injected so tests can intercept the spawn.
@@ -346,7 +347,7 @@ final class CliTurnRequest {
   const CliTurnRequest({
     required this.prompt,
     required this.workingDirectory,
-    required this.profileId,
+    required this.policy,
     this.taskId,
     this.sessionId,
     this.providerSessionId,

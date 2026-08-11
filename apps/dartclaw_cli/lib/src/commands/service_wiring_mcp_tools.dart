@@ -80,6 +80,7 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
       maxPriorReflections: config.advisor.maxPriorReflections,
       model: config.advisor.model,
       effort: config.advisor.effort,
+      policyResolver: harness.policyResolver,
     );
     advisorSubscriber.subscribe();
   }

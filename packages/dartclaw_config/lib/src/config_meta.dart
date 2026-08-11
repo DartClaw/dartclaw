@@ -298,6 +298,14 @@ abstract final class ConfigMeta {
       nullable: true,
       min: 1,
     ),
+    'agent.execution': FieldMeta(
+      yamlPath: 'agent.execution',
+      jsonKey: 'agent.execution',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+      allowedValues: ['host', 'container'],
+    ),
     'auth.cookie_secure': FieldMeta(
       yamlPath: 'auth.cookie_secure',
       jsonKey: 'auth.cookieSecure',

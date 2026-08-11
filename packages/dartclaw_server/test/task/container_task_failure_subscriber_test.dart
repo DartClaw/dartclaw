@@ -67,4 +67,44 @@ void main() {
     expect(events.map((event) => event.taskId), contains('research-task'));
     expect(events.map((event) => event.taskId), isNot(contains('coding-task')));
   });
+
+  test('a host-routed task is untouched by a container crash carrying its type default profile', () async {
+    // The research task type defaults to the restricted profile, but this
+    // deployment routes it to the host, so it was never inside that container.
+    final hostSubscriber = ContainerTaskFailureSubscriber(
+      tasks: tasks,
+      policyResolver: ExecutionPolicyResolver(
+        config: DartclawConfig.defaults().copyWith(
+          container: const ContainerConfig(enabled: true),
+          tasks: const TaskConfig(execution: {TaskType.research: ExecutionMode.host}),
+        ),
+        availableContainerProfiles: const {'workspace', 'restricted'},
+      ),
+    );
+    addTearDown(hostSubscriber.dispose);
+    await subscriber.dispose();
+    hostSubscriber.subscribe(eventBus);
+
+    await tasks.create(
+      id: 'host-research-task',
+      title: 'Research',
+      description: 'host-routed research task',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await tasks.transition('host-research-task', TaskStatus.running);
+
+    eventBus.fire(
+      ContainerCrashedEvent(
+        profileId: 'restricted',
+        containerName: 'dartclaw-restricted',
+        error: 'Container is no longer running',
+        timestamp: DateTime.now(),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect((await tasks.get('host-research-task'))!.status, TaskStatus.running);
+  });
 }

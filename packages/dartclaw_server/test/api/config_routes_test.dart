@@ -296,6 +296,7 @@ class _FakeSessionService implements SessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     return Session(id: 'session-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
   }
@@ -313,6 +314,7 @@ class _BlockingSessionService extends _FakeSessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     await release.future;
     return super.getOrCreateByKey(key, type: type, provider: provider, securityProfile: securityProfile);

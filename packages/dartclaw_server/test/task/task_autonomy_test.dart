@@ -272,7 +272,6 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: workspaceDir),
         sessions: sessions,
         taskToolFilterGuard: filter,
-        profileId: 'restricted',
       );
       final poolTurns = turnManagerForRunners([turns.executions.primary!, runner]);
 
@@ -372,7 +371,6 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: workspaceDir),
         sessions: sessions,
         taskToolFilterGuard: filter,
-        profileId: 'restricted',
       );
       final poolTurns = turnManagerForRunners([turns.executions.primary!, runner]);
 

@@ -53,6 +53,12 @@ class SecurityWiring implements Reconfigurable {
   CredentialProxy? _credentialProxy;
   ContainerHealthMonitor? _containerHealthMonitor;
   final Map<String, ContainerManager> _containerManagers = {};
+  final Map<String, ContainerManager Function(String containerName)> _containerTemplates = {};
+  // Authority suffixes must not repeat across process restarts: ContainerManager
+  // adopts a healthy same-named container, so a recycled name could hand a new
+  // authority an orphan from a previous run.
+  final String _authorityEpoch = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+  var _nextAuthorityId = 1;
   GuardChain? _guardChain;
   late GuardAuditLogger _auditLogger;
   ContentGuard? _contentGuard;
@@ -71,6 +77,45 @@ class SecurityWiring implements Reconfigurable {
   ContentClassifier? get contentClassifier => _contentClassifier;
   bool get contentGuardFailOpen => _contentGuardFailOpen;
   ToolPolicyCascade get toolPolicyCascade => _toolPolicyCascade;
+
+  /// Container profiles this deployment can actually run.
+  Set<String> get availableContainerProfiles => _containerTemplates.keys.toSet();
+
+  /// Creates and starts a container dedicated to one live execution authority.
+  ///
+  /// Every admitted container execution gets its own container and process
+  /// namespace, so a later authority cannot inherit a predecessor's PIDs,
+  /// temp files, or generated home.
+  Future<ContainerExecutor> acquireContainerAuthority(String profileId) async {
+    final template = _containerTemplates[profileId];
+    if (template == null) {
+      throw StateError('No container profile "$profileId" is available in this deployment');
+    }
+    final manager = template(
+      ContainerManager.generateName(_dataDir, '$profileId-$_authorityEpoch${_nextAuthorityId++}'),
+    );
+    await manager.start();
+    _eventBus.fire(
+      ContainerStartedEvent(profileId: profileId, containerName: manager.containerName, timestamp: DateTime.now()),
+    );
+    return manager;
+  }
+
+  /// Stops and removes a container previously returned by
+  /// [acquireContainerAuthority].
+  Future<void> releaseContainerAuthority(ContainerExecutor authority) async {
+    if (authority is! ContainerManager) return;
+    // ContainerManager.stop() does not surface docker's exit codes, so this
+    // event reports that teardown was attempted, not that it was confirmed.
+    await authority.stop();
+    _eventBus.fire(
+      ContainerStoppedEvent(
+        profileId: authority.profileId,
+        containerName: authority.containerName,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
     // Assigned before anything that can throw: dispose() flushes it, and a
@@ -218,9 +263,11 @@ class SecurityWiring implements Reconfigurable {
     final localPathProjectMounts = _localPathProjectMounts();
     final proxySocketDir = p.join(_dataDir, 'proxy');
     for (final profile in profiles) {
-      _containerManagers[profile.id] = ContainerManager(
+      // A profile is a filesystem/capability template, not a running container:
+      // each live container authority is built from it and owns its own container.
+      _containerTemplates[profile.id] = (containerName) => ContainerManager(
         config: config.container,
-        containerName: ContainerManager.generateName(_dataDir, profile.id),
+        containerName: containerName,
         profileId: profile.id,
         workspaceMounts: profile.id == 'workspace'
             ? [...profile.workspaceMounts, ...localPathProjectMounts]
@@ -230,6 +277,9 @@ class SecurityWiring implements Reconfigurable {
         hostClaudeJsonPath: hostClaudeJsonPath,
         buildContextDir: Directory.current.path,
         workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
+      );
+      _containerManagers[profile.id] = _containerTemplates[profile.id]!(
+        ContainerManager.generateName(_dataDir, profile.id),
       );
     }
     final workspaceContainerManager = _containerManagers['workspace']!;

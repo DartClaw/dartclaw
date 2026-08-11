@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 
+import 'execution_policy.dart';
+
 /// Configuration for a logical agent (e.g. search agent).
 ///
 /// Defines the agent's identity, execution provider, prompt, and tool policy.
@@ -17,7 +19,13 @@ class AgentDefinition {
   final String? provider;
 
   /// Optional worker security profile. Null uses the provider or host default.
+  ///
+  /// Describes container posture only; it never selects host or container
+  /// placement. See [execution].
   final String? securityProfile;
+
+  /// Optional explicit execution mode. Null inherits the primary agent's mode.
+  final ExecutionMode? execution;
 
   /// Explicit allowlist of tools available to the agent.
   final Set<String> allowedTools;
@@ -41,6 +49,7 @@ class AgentDefinition {
     required this.prompt,
     this.provider,
     this.securityProfile,
+    this.execution,
     this.allowedTools = const {},
     this.deniedTools = const {},
     this.maxResponseBytes = 5 * 1024 * 1024,
@@ -103,13 +112,24 @@ class AgentDefinition {
     final profile = yaml['security_profile'];
     final defaultProfile = id == 'search' ? 'restricted' : null;
     String? securityProfile;
+    var profileIsOperatorConfigured = false;
     if (profile == null) {
       securityProfile = defaultProfile;
     } else if (profile is String && const {'workspace', 'restricted'}.contains(profile)) {
       securityProfile = profile;
+      profileIsOperatorConfigured = true;
     } else {
       warns.add('Invalid agents.$id.security_profile: "$profile" – using the default');
       securityProfile = defaultProfile;
+    }
+
+    final execution = _parseExecutionMode(yaml['execution'], 'agent.agents.$id.execution');
+    if (execution == ExecutionMode.host && profileIsOperatorConfigured) {
+      throw FormatException(
+        'agent.agents.$id.execution: host contradicts agent.agents.$id.security_profile: "$securityProfile". '
+        'Container profiles are valid only for container execution — remove the profile or select '
+        'execution: container.',
+      );
     }
     final providerValue = yaml['provider'];
     String? provider;
@@ -134,7 +154,26 @@ class AgentDefinition {
       effort: yaml['effort'] as String?,
       provider: provider,
       securityProfile: securityProfile,
+      execution: execution,
     );
+  }
+
+  /// Parses an `execution:` scalar at [yamlPath], rejecting unknown values.
+  ///
+  /// Returns `null` when the key is absent. Throws [FormatException] naming
+  /// [yamlPath] and the accepted values otherwise.
+  static ExecutionMode? parseExecutionMode(Object? value, String yamlPath) => _parseExecutionMode(value, yamlPath);
+
+  static ExecutionMode? _parseExecutionMode(Object? value, String yamlPath) {
+    if (value == null) return null;
+    final mode = value is String ? ExecutionMode.fromYaml(value) : null;
+    if (mode == null) {
+      throw FormatException(
+        '$yamlPath: "$value" is not a valid execution mode. '
+        'Accepted values: ${ExecutionMode.acceptedYamlValues.join(', ')}.',
+      );
+    }
+    return mode;
   }
 
   @override
@@ -146,6 +185,7 @@ class AgentDefinition {
           prompt == other.prompt &&
           provider == other.provider &&
           securityProfile == other.securityProfile &&
+          execution == other.execution &&
           const SetEquality<String>().equals(allowedTools, other.allowedTools) &&
           const SetEquality<String>().equals(deniedTools, other.deniedTools) &&
           maxResponseBytes == other.maxResponseBytes &&
@@ -159,6 +199,7 @@ class AgentDefinition {
     prompt,
     provider,
     securityProfile,
+    execution,
     const SetEquality<String>().hash(allowedTools),
     const SetEquality<String>().hash(deniedTools),
     maxResponseBytes,

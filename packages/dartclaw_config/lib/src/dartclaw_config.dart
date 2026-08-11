@@ -10,8 +10,10 @@ import 'package:dartclaw_models/dartclaw_models.dart'
         ChannelType,
         ContainerConfig,
         DmScope,
+        ExecutionMode,
         GroupScope,
-        SessionScopeConfig;
+        SessionScopeConfig,
+        TaskType;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
@@ -467,6 +469,7 @@ class DartclawConfig {
       warnings: warns,
     );
 
+    _validateExecutionPolicySelections(config);
     config._primeChannelConfigs();
     return config;
   }

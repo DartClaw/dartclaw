@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProcessTerminationResult;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
@@ -54,7 +54,7 @@ void main() {
           provider: provider,
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           stepName: 'Bound output',
         );
         await pumpEventQueue();
@@ -104,7 +104,7 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
       await pumpEventQueue();
@@ -147,7 +147,7 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.cancelled, isTrue);
@@ -193,7 +193,7 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
 
@@ -249,7 +249,7 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
       await pumpEventQueue();

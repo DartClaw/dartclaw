@@ -31,6 +31,7 @@ void main() {
         'worker_timeout',
         'agent.model',
         'agent.max_turns',
+        'agent.execution',
         'agent.effort',
         'auth.cookie_secure',
         'auth.trusted_proxies',

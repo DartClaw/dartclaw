@@ -49,6 +49,9 @@ WiringResult _assembleWiringResult(
         await workflowService.dispose();
         await alertRouter.cancel();
         await channel.taskNotificationSubscriber?.dispose();
+        // The primary harness's dedicated container is released before the
+        // shared profile containers and the credential proxy go away.
+        await harness.disposePrimaryContainer();
         await security.dispose();
         groupSessionInit.dispose();
         await scopeReconciler.cancel();

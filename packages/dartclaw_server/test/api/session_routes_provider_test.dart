@@ -87,7 +87,12 @@ void main() {
   test('POST /api/sessions/<id>/send returns provider-specific busy error when matching workers are busy', () async {
     final session = await sessions.createSession(type: SessionType.logicalAgent, provider: 'codex');
     final busyLease = await turns.executions.acquire(
-      ExecutionRequest(surface: ExecutionSurface.task, providerId: 'codex', profileId: 'workspace', sessionId: 'busy'),
+      ExecutionRequest(
+        surface: ExecutionSurface.task,
+        providerId: 'codex',
+        policy: const ExecutionPolicy.host(),
+        sessionId: 'busy',
+      ),
     );
     expect(busyLease, isNotNull);
     addTearDown(busyLease!.release);

@@ -20,10 +20,10 @@ ExecutionCoordinator coordinatorForRunners(List<TurnRunner> runners, {Map<String
     releaseAdmission: runners.first.releaseAdmission,
     createWorker: (request) async {
       final index = available.indexWhere(
-        (runner) => runner.providerId == request.providerId && runner.profileId == request.profileId,
+        (runner) => runner.providerId == request.providerId && runner.executionPolicy == request.policy,
       );
       if (index < 0) {
-        throw StateError('No test runner for ${request.providerId}/${request.profileId}');
+        throw StateError('No test runner for ${request.providerId}/${request.policy.describe()}');
       }
       return available.removeAt(index);
     },

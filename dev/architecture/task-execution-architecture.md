@@ -24,7 +24,7 @@ Key design principles:
 - **Decoupled creation and execution** — tasks are queued, not executed inline
 - **Optimistic locking** — version-based concurrency control prevents lost updates
 - **One post-governance execution authority** — task code requests a provider-neutral lease and never manages pool/cache state
-- **Capacity independent from reuse** — per-provider leases bound execution; harnesses and containers are opportunistically amortized
+- **Capacity independent from reuse** — per-provider leases bound execution; host harnesses are opportunistically reused, while container harnesses and their dedicated containers are destroyed on release
 - **Fail-safe budgets** — budget enforcement defaults to open (proceed) on error
 - **Best-effort observability** — event recording never blocks the execution path
 
@@ -329,7 +329,7 @@ Ordinary queued tasks wait for a lease. Nested logical-agent calls use fail-fast
 After the lease is granted, reusable-worker lookup prefers:
 
 1. the exact session with the requested provider/profile;
-2. any healthy worker with the same provider/profile;
+2. any healthy host worker with the same provider and identical effective execution policy (container workers are never cached);
 3. a fresh worker.
 
 A provider/profile mismatch or unknown health means fresh creation. Cache behavior has no configuration knobs. An idle healthy worker may be cached after release; an unhealthy worker is disposed.
@@ -342,7 +342,7 @@ Workflow one-shots are capacity-only. Their direct provider process is lifecycle
 
 ### 4.5 Containers and shutdown
 
-Containers are independently amortized per security profile. A container may stay alive across harness disposal and multiple leases; it does not own session state, reserve provider capacity, or participate in cache matching.
+A security profile is a filesystem/capability template, not a running container (ADR-012, 2026-08-11 amendment). Each live container authority owns a dedicated container that is destroyed when the authority is released, so a container never outlives its harness or serves a second lease. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) is the one exception and still executes through a shared per-profile container; it holds no harness and no worker lease, and is amended when Claude/Codex container parity lands (ADR-012, amendment scope). Containers still do not own session state or reserve provider capacity; the complete execution policy — host, or container plus profile — is what participates in cache matching, and container harnesses are never cached.
 
 Coordinator shutdown stops admission, drains active leases, disposes cached harnesses, then tears down the fixed primary harness. Workflow CLI providers and channel managers still reap their own children. Root-process termination confirmation is a replacement invariant, not merely an operational warning.
 

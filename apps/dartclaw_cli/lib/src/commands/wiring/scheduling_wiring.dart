@@ -73,7 +73,12 @@ class SchedulingWiring {
     required DartclawServer Function() serverRefGetter,
     required TurnManager turns,
     required ContextMonitor contextMonitor,
+    required ExecutionPolicyResolver policyResolver,
   }) async {
+    // Scheduled prompts, heartbeat, and knowledge extraction carry neither
+    // logical-agent identity nor a task type, so they take the deployment
+    // default.
+    final backgroundPolicy = policyResolver.deploymentDefault;
     final journalCron = validateMemoryJournalConfig(config);
     final sessions = _storage.sessions;
     final taskService = _storage.taskService;
@@ -179,6 +184,7 @@ class SchedulingWiring {
         retryAttempts: inboxConfig.retryAttempts,
         processedRetentionDays: inboxConfig.processedRetentionDays,
         workerProviderId: config.agent.provider,
+        workerPolicy: backgroundPolicy,
       );
       _scheduledJobs.add(
         knowledgeInbox.scheduledJob(
@@ -307,6 +313,7 @@ class SchedulingWiring {
         source: 'heartbeat',
         agentName: 'heartbeat',
         providerId: config.agent.provider,
+        policy: backgroundPolicy,
       );
     }
 
@@ -338,6 +345,7 @@ class SchedulingWiring {
         consolidator: _memoryConsolidator!,
         eventBus: _eventBus,
         workerProviderId: config.agent.provider,
+        workerPolicy: backgroundPolicy,
       );
       _scheduleService!.start();
     }
@@ -414,6 +422,7 @@ class SchedulingWiring {
     String message, {
     required SessionType type,
     required String source,
+    required ExecutionPolicy policy,
     String? agentName,
     String? providerId,
   }) async {
@@ -421,7 +430,8 @@ class SchedulingWiring {
       sessionKey,
       type: type,
       provider: providerId,
-      securityProfile: providerId == null ? null : 'workspace',
+      securityProfile: providerId == null ? null : policy.containerProfile,
+      executionMode: providerId == null ? null : policy.mode,
     );
     final userMsg = <String, dynamic>{'role': 'user', 'content': message};
     final srv = serverRef();

@@ -116,7 +116,7 @@ final class _HarnessWiringFixture {
   }) => ExecutionRequest(
     surface: surface,
     providerId: providerId,
-    profileId: 'workspace',
+    policy: const ExecutionPolicy.host(),
     sessionId: sessionId,
     admission: admission,
   );

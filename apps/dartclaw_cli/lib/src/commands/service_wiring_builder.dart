@@ -41,6 +41,7 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..eventBus = ctx.eventBus
     ..authEnabled = harness.authEnabled
     ..executions = harness.executions
+    ..policyResolver = harness.policyResolver
     ..contentGuardDisplay = ContentGuardDisplayParams(
       enabled: config.security.contentGuardEnabled,
       classifier: config.security.contentGuardClassifier,

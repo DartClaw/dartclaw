@@ -22,10 +22,14 @@ final class ExecutionCoordinator {
     bool allowPrimaryBackgroundFallback = false,
     Duration outcomeTtl = const Duration(seconds: 30),
     ExecutionNow? now,
+    Iterable<ExecutionReleaseHook> releaseHooks = const [],
+    DestroyContainerAuthority? destroyContainerAuthority,
   }) : _createWorker = createWorker,
        _admitExecution = admitExecution,
        _releaseAdmission = releaseAdmission,
        _primary = primary,
+       _releaseHooks = List.unmodifiable(releaseHooks),
+       _destroyContainerAuthority = destroyContainerAuthority,
        allowsPrimaryBackgroundFallback = allowPrimaryBackgroundFallback && providerCapacities.isEmpty,
        _outcomes = _OutcomeRetention(outcomeTtl, now ?? DateTime.now),
        _workerGates = {for (final entry in providerCapacities.entries) entry.key: WorkerCapacityGate(entry.value)} {
@@ -43,6 +47,8 @@ final class ExecutionCoordinator {
   final AdmitExecution? _admitExecution;
   final ReleaseExecutionAdmission? _releaseAdmission;
   final TurnRunner? _primary;
+  final List<ExecutionReleaseHook> _releaseHooks;
+  final DestroyContainerAuthority? _destroyContainerAuthority;
   final bool allowsPrimaryBackgroundFallback;
   final _OutcomeRetention _outcomes;
   final WorkerCapacityGate _primaryGate = WorkerCapacityGate(1);
@@ -103,8 +109,9 @@ final class ExecutionCoordinator {
     if (routedRequest.providerId.trim().isEmpty) {
       throw ArgumentError.value(routedRequest.providerId, 'providerId', 'must not be blank');
     }
-    if (routedRequest.profileId.trim().isEmpty) {
-      throw ArgumentError.value(routedRequest.profileId, 'profileId', 'must not be blank');
+    final containerProfile = routedRequest.policy.containerProfile;
+    if (containerProfile != null && containerProfile.trim().isEmpty) {
+      throw ArgumentError.value(containerProfile, 'policy.containerProfile', 'must not be blank');
     }
     if (lane != ExecutionLane.capacityOnly && _admitExecution == null) {
       throw StateError('Primary and worker execution require coordinator-owned admission');
@@ -142,7 +149,7 @@ final class ExecutionCoordinator {
   ExecutionRequest _routeRequest(ExecutionRequest request, ExecutionLane lane) {
     final primary = _primary;
     if (lane != ExecutionLane.primary || primary == null) return request;
-    return request._route(providerId: primary.providerId, profileId: primary.profileId);
+    return request._route(providerId: primary.providerId, policy: primary.executionPolicy);
   }
 
   Future<ExecutionLease?> _acquirePrimary(ExecutionRequest request) async {
@@ -187,10 +194,11 @@ final class ExecutionCoordinator {
       } else {
         await _scavenge(request.providerId, gate, permit);
         runner = await _createWorker(request);
-        final incompatibleIdentity = runner.providerId != request.providerId || runner.profileId != request.profileId;
+        final incompatibleIdentity =
+            runner.providerId != request.providerId || runner.executionPolicy != request.policy;
         if (incompatibleIdentity) {
           await _discardWorker(runner, request, lane, permit);
-          throw StateError('Worker factory returned an incompatible provider or security profile');
+          throw StateError('Worker factory returned an incompatible provider or execution policy');
         }
         try {
           await runner.harness.start();
@@ -260,12 +268,12 @@ final class ExecutionCoordinator {
     var index = _cache.indexWhere(
       (worker) =>
           worker.runner.providerId == request.providerId &&
-          worker.runner.profileId == request.profileId &&
+          worker.runner.executionPolicy == request.policy &&
           worker.lastSessionId == request.sessionId,
     );
     if (index < 0) {
       index = _cache.indexWhere(
-        (worker) => worker.runner.providerId == request.providerId && worker.runner.profileId == request.profileId,
+        (worker) => worker.runner.providerId == request.providerId && worker.runner.executionPolicy == request.policy,
       );
     }
     return index < 0 ? null : _cache.removeAt(index);
@@ -304,7 +312,10 @@ final class ExecutionCoordinator {
     final runner = active.runner;
     var quarantine = false;
     if (runner != null && active.lane == ExecutionLane.worker) {
-      if (!_closing && runner.isReusable && runner.harness.state == WorkerState.idle) {
+      // A container runner owns its container, process namespace, and generated
+      // state; caching it would hand all three to the next authority.
+      final cacheable = !runner.executionPolicy.isContainer;
+      if (cacheable && !_closing && runner.isReusable && runner.harness.state == WorkerState.idle) {
         _cache.add(
           _CachedWorker(
             runner: runner,

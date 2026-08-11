@@ -74,7 +74,7 @@ final class ScenarioTaskHarness {
           behavior: BehaviorFileService(workspaceDir: harness.workspaceDir),
           sessions: harness.sessions,
           providerId: request.providerId,
-          profileId: request.profileId,
+          executionPolicy: request.policy,
         ),
       ),
       sessions: harness.sessions,

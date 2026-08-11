@@ -27,7 +27,7 @@ void main() {
                 provider: 'codex',
                 prompt: 'Test',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepTimeout: const Duration(seconds: 1),
               )
               .then<void>(
@@ -105,7 +105,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
 
@@ -131,7 +131,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(process.killCalled, isTrue);
@@ -155,7 +155,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>()
@@ -181,7 +181,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(isA<StateError>().having((error) => '$error', 'message', contains('stdin close failed'))),
       );
@@ -205,7 +205,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(jsonEncode({'type': 'error', 'message': 'auth failed'}));
@@ -237,7 +237,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Error: codex sandbox denied filesystem access');
@@ -269,7 +269,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Reading additional input from stdin...');
@@ -295,7 +295,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('fatal: Reading additional input from stdin... failed');
@@ -323,7 +323,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(jsonEncode({'type': 'thread.started', 'thread_id': 'codex-after-terminal'}));
@@ -366,7 +366,7 @@ void main() {
             provider: 'codex',
             prompt: 'Test',
             workingDirectory: Directory.systemTemp.path,
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
           );
           await pumpEventQueue();
           process.emitStdout(jsonEncode({'type': 'thread.started', 'thread_id': 'codex-optional-usage'}));
@@ -412,7 +412,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
         providerSessionId: 'codex-resumed',
         usageBaseline: const WorkflowCliUsageBaseline(
@@ -457,14 +457,14 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
       );
       final second = await runner.executeTurn(
         provider: 'codex',
         prompt: 'Test again',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
         providerSessionId: first.providerSessionId,
       );
@@ -506,14 +506,14 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
       );
       final second = await runner.executeTurn(
         provider: 'codex',
         prompt: 'Test again',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
         providerSessionId: 'codex-thread-a',
       );
@@ -552,7 +552,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           sessionId: sessionId,
           providerSessionId: providerSessionId,
         );
@@ -588,7 +588,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>().having(
@@ -614,7 +614,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.exit(17);
@@ -656,7 +656,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sandboxOverride: 'read-only',
       );
 
@@ -701,7 +701,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         jsonSchema: const {
           'type': 'object',
           'properties': {
@@ -734,7 +734,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: workingDirectory.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           jsonSchema: const {'type': 'object'},
         ),
         throwsA(isA<StateError>()),
@@ -764,7 +764,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: const ['shell', 'file_read'],
         readOnly: true,
       );

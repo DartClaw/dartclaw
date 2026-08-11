@@ -22,7 +22,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
 
@@ -48,7 +48,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(process.killCalled, isTrue);
@@ -80,7 +80,7 @@ void main() {
           provider: 'claude',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>()
@@ -105,7 +105,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(
@@ -145,7 +145,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Error: invalid API key; please run /login');
@@ -177,7 +177,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set');
@@ -203,7 +203,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr(
@@ -234,7 +234,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': 'claude-after-terminal'}));
@@ -263,7 +263,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.exit(17);
@@ -305,7 +305,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         model: 'claude-opus-4',
         maxTurns: 3,
       );
@@ -342,7 +342,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         model: 'claude-opus-4',
       );
 
@@ -375,7 +375,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
       );
 
       expect(container.lastWorkingDirectory, '/workspace');
@@ -416,7 +416,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.responseText, 'done');
@@ -459,7 +459,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         taskId: 'task-1',
         sessionId: 'session-1',
       );
@@ -517,7 +517,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(progress.events, hasLength(1));
@@ -535,7 +535,7 @@ void main() {
         provider: 'claude',
         prompt: 'Fix it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -554,7 +554,7 @@ void main() {
         provider: 'claude',
         prompt: 'Write only',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write'],
       );
 
@@ -580,7 +580,7 @@ void main() {
         provider: 'claude',
         prompt: 'Look it up',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['file_read', 'mcp_call'],
       );
 
@@ -600,7 +600,7 @@ void main() {
         provider: 'claude',
         prompt: 'Do it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -626,7 +626,7 @@ void main() {
         provider: 'claude',
         prompt: 'Do it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_write', 'file_edit'],
       );
 
@@ -647,7 +647,7 @@ void main() {
         provider: 'claude',
         prompt: 'Fix it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write'],
       );
 
@@ -664,7 +664,7 @@ void main() {
         provider: 'claude',
         prompt: 'Run',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -684,7 +684,7 @@ void main() {
         provider: 'claude',
         prompt: 'Run',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -716,7 +716,7 @@ void main() {
           provider: 'claude',
           prompt: 'Do it',
           workingDirectory: workingDirectory.path,
-          profileId: 'restricted',
+          policy: const ExecutionPolicy.container('restricted'),
           allowedTools: ['shell', 'file_write', 'file_edit'],
         ),
         throwsA(isA<StateError>().having((e) => e.toString(), 'message', contains('restricted container profile'))),
@@ -744,7 +744,7 @@ void main() {
           provider: 'claude',
           prompt: 'Review',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<Object>().having(

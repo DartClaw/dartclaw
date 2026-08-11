@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
+import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
 import 'turn_outcome.dart';
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
@@ -18,8 +19,8 @@ abstract interface class TurnManager {
 
   TurnOutcome? recentOutcome(String sessionId, String turnId);
 
-  /// Reserves a new turn slot for [sessionId]; [workerProfile] selects the
-  /// worker isolation profile for provider-pinned sessions.
+  /// Reserves a new turn slot for [sessionId]; [workerPolicy] overrides the
+  /// execution placement otherwise derived from the session's pinned routing.
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
@@ -27,7 +28,7 @@ abstract interface class TurnManager {
     String? model,
     String? effort,
     String? systemPromptOverride,
-    String? workerProfile,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,

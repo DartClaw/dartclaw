@@ -252,7 +252,7 @@ void main() {
         sessions: sessions,
         jobs: [],
         workerProviderId: 'codex',
-        workerProfileId: 'restricted',
+        workerPolicy: const ExecutionPolicy.container('restricted'),
       );
 
       await service.executeJobForTesting(intervalJob);
@@ -261,6 +261,7 @@ void main() {
       expect(session?.type, SessionType.cron);
       expect(session?.provider, 'codex');
       expect(session?.securityProfile, 'restricted');
+      expect(session?.executionMode, ExecutionMode.container);
     });
 
     test('successful agent-backed job delivers assistant response text', () async {
@@ -994,6 +995,7 @@ class _FakeSessionService implements SessionService {
     SessionType type = SessionType.user,
     String? provider,
     String? securityProfile,
+    ExecutionMode? executionMode,
   }) async {
     return _keyedSessions.putIfAbsent(
       key,
@@ -1002,6 +1004,7 @@ class _FakeSessionService implements SessionService {
         type: type,
         provider: provider,
         securityProfile: securityProfile,
+        executionMode: executionMode,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ),

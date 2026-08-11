@@ -497,9 +497,11 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
   int? maxTurns = defaults.maxTurns;
   String? model = defaults.model;
   String? effort = defaults.effort;
+  ExecutionMode? execution = defaults.execution;
 
   final agentMap = _sectionMap('agent', yaml, warns);
   if (agentMap != null) {
+    execution = AgentDefinition.parseExecutionMode(agentMap['execution'], 'agent.execution') ?? execution;
     disallowedTools =
         readStringList('disallowed_tools', agentMap, warns, defaultValue: disallowedTools) ?? disallowedTools;
     final providerVal = readString('provider', agentMap, warns);
@@ -583,6 +585,7 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
     model: model,
     effort: effort,
     maxTurns: maxTurns,
+    execution: execution,
     disallowedTools: disallowedTools,
     definitions: definitions,
     history: historyConfig,
@@ -1294,7 +1297,68 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
     worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
     worktreeMergeStrategy: worktreeMergeStrategy,
     budget: budget,
+    execution: _parseTaskExecution(tasksMap, defaults.execution, warns),
   );
+}
+
+/// Rejects explicit `container` execution selections that no enabled container
+/// runtime can satisfy.
+///
+/// Cross-section, so it runs after every section is parsed. Startup-fatal: PRD
+/// FR1 forbids substituting host execution for an unsatisfiable container
+/// request.
+void _validateExecutionPolicySelections(DartclawConfig config) {
+  if (config.container.enabled) return;
+  const remediation =
+      'Set container.enabled: true or select execution: host. '
+      'Container execution is never silently replaced by host execution.';
+  void reject(String yamlPath) {
+    throw FormatException(
+      '$yamlPath: container requires container.enabled: true, but containers are disabled. '
+      '$remediation',
+    );
+  }
+
+  if (config.agent.execution == ExecutionMode.container) reject('agent.execution');
+  for (final definition in config.agent.definitions) {
+    if (definition.execution == ExecutionMode.container) reject('agent.agents.${definition.id}.execution');
+  }
+  for (final entry in config.tasks.execution.entries) {
+    if (entry.value == ExecutionMode.container) reject('tasks.execution.${entry.key.name}');
+  }
+}
+
+/// Parses `tasks.execution.<task-type>` into typed execution-mode fallbacks.
+///
+/// Unknown task-type keys and unknown modes are startup-fatal: an operator
+/// typo must not silently leave a task type on the deployment default.
+Map<TaskType, ExecutionMode> _parseTaskExecution(
+  Map<String, dynamic>? tasksMap,
+  Map<TaskType, ExecutionMode> defaults,
+  List<String> warns,
+) {
+  if (tasksMap == null) return defaults;
+  final executionMap = readMap('execution', tasksMap, warns);
+  if (executionMap == null) return defaults;
+  final knownTypes = TaskType.values.asNameMap();
+  final resolved = <TaskType, ExecutionMode>{};
+  for (final entry in executionMap.entries) {
+    final taskType = knownTypes[entry.key];
+    if (taskType == null) {
+      throw FormatException(
+        'tasks.execution.${entry.key} is not a known task type. '
+        'Accepted task types: ${TaskType.values.map((type) => type.name).join(', ')}.',
+      );
+    }
+    if (entry.value == null) {
+      throw FormatException(
+        'tasks.execution.${entry.key} has no value. '
+        'Accepted values: ${ExecutionMode.acceptedYamlValues.join(', ')}.',
+      );
+    }
+    resolved[taskType] = AgentDefinition.parseExecutionMode(entry.value, 'tasks.execution.${entry.key}')!;
+  }
+  return resolved.isEmpty ? defaults : Map.unmodifiable(resolved);
 }
 
 FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {

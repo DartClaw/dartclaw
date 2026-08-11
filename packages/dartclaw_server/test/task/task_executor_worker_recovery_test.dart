@@ -19,6 +19,7 @@ void main() {
       messages: context.messages,
       behavior: behavior,
       sessions: context.sessions,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
     );
     final poolWorker = FakeTaskWorker()..responseText = 'recovered';
     addTearDown(poolWorker.dispose);
@@ -27,7 +28,7 @@ void main() {
       messages: context.messages,
       behavior: behavior,
       sessions: context.sessions,
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
     );
     var creationAttempts = 0;
     var workerAvailable = false;

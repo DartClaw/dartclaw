@@ -28,8 +28,13 @@ import 'dart:io';
 // (code moved to dartclaw_models/dartclaw_config, dead code removed), lower both
 // numbers back toward actual usage in the same change — do not let the headroom
 // become a permanent allowance. Current usage at re-baseline: ~14880.
-const _coreLocCeiling = 16500;
-const _coreLocWarnThreshold = 15800;
+//
+// 2026-08-11: bumped 16500 -> 17200, warn 15800 -> 16600. The 0.24 execution
+// isolation work put execution-mode policy into the session/turn runtime
+// (core-owned per the two-axis policy in ADR-012); the prior cap had ~26 lines
+// of headroom left. Usage at bump: 16509. See CHANGELOG [Unreleased].
+const _coreLocCeiling = 17200;
+const _coreLocWarnThreshold = 16600;
 // Headroom model (see core LOC note above): current dartclaw_workflow/lib usage
 // at baseline is ~23311. The ceiling carries room for ~2 milestones of workflow
 // engine growth; the warn threshold fires before the cap so growth is planned or
@@ -58,12 +63,14 @@ const _expectedWorkspaceDependencies = <String, Set<String>>{
     'dartclaw_whatsapp',
     'dartclaw_workflow',
   },
+  'dartclaw_bridge': {},
   'dartclaw_config': {'dartclaw_models', 'dartclaw_security'},
   'dartclaw_core': {'dartclaw_config', 'dartclaw_models', 'dartclaw_security'},
   'dartclaw_google_chat': {'dartclaw_config', 'dartclaw_core'},
   'dartclaw_models': {},
   'dartclaw_security': {'dartclaw_models'},
   'dartclaw_server': {
+    'dartclaw_bridge',
     'dartclaw_config',
     'dartclaw_core',
     'dartclaw_google_chat',

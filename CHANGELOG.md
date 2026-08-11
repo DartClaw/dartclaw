@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Background execution uses one bounded authority** – the fixed serialized primary lane serves main user/channel turns, while `providers.<id>.pool_size` is the hard per-provider capacity shared by tasks, cron/system/advisor work, logical agents, and workflow one-shots. Healthy compatible workers may be reused, but cached processes and containers no longer determine capacity.
 - **Human onboarding is transport-independent** – fresh onboarding applies to Web UI and configured messaging-channel conversations while remaining excluded from tasks, scheduled work, workflows, evaluators, advisors, and logical agents.
 - **Provider identity is canonicalized** – provider IDs are trimmed and lowercased across configuration and routing; blank IDs and normalization collisions fail clearly.
+- **Core LOC ceiling raised (16500 → 17200)** – execution-mode policy now lives in the core session/turn runtime as part of the execution-isolation corrections; the previous ceiling had no story headroom left.
 
 ### Fixed
 

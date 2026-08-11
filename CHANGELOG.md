@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.24.0] - 2026-08-10
+## [Unreleased]
 
 ### Added
 
@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MEMORY.md maintenance preserves authored content** – pruning removes only parsed entries selected for archival or deduplication, while titles, prose, separators, plain bullets, and other opaque content remain in place. Multi-paragraph `memory_save` entries now use parser-safe indented continuations and round-trip through pruning and index rebuilds.
+- **Recurring cron jobs wait for their scheduled boundary** – an early timer callback is re-armed for the remaining delay, preventing the same cron occurrence from firing twice.
+- **Daily activity logs contain human-facing turns only** – main, Web, and channel sessions may write tool-using turn summaries; heartbeat, scheduled, task, logical-agent, and archived sessions are excluded. Logged prompts, bounded tool details, and response summaries use explicit resource ceilings and secret redaction instead of tiny display-oriented snippets.
+- **Agent-authored learnings are tracked by default** – generated workspace `.gitignore` rules retain `errors.md` as runtime noise but no longer exclude the capped `learnings.md` knowledge file.
 - **Logical-agent tool and network policies reach live provider calls** – raw and canonical tool names, own-MCP search/fetch/memory semantics, global and agent denies, network overrides, and exact agent attribution now flow through available Claude, Codex, and ACP interception paths. Provider limitations remain explicit.
 - **Worker reuse preserves session isolation** – DartClaw session state remains authoritative across Claude process switching, Codex thread association, and ACP replay, preventing provider-local state from leaking between logical-agent sessions.
 - **No-auth HTTP surfaces fail closed off loopback** – bearerless MCP and local-admin writes require literal loopback hosts; browser-origin checks no longer accept non-local matching `Origin`/`Host` pairs.

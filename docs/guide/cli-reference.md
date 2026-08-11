@@ -281,6 +281,11 @@ dartclaw token rotate
 dartclaw rebuild-index
 ```
 
+Rebuilds the FTS5 memory index from the canonical `workspace/MEMORY.md`, `workspace/MEMORY.archive.md`, and
+`workspace/learnings.md` files. Archived entries retain the `archive` source; active and learning entries use
+`memory_save`. Source entry timestamps determine recent ordering; undated entries sort oldest. Stop DartClaw before
+running the command and leave it stopped until rebuilding completes; the command does not coordinate with a live server.
+
 ## Traces
 
 ### `traces list`
@@ -290,6 +295,8 @@ dartclaw traces list
 dartclaw traces list --provider claude --since 1h --limit 20
 dartclaw traces list --provider claude --since 1h --limit 20 --json
 ```
+
+The human table reports the exact tool-call count. Truncated detail is shown as `<total> (<retained> retained)`.
 
 ### `traces show`
 

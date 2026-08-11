@@ -15,7 +15,7 @@ enum SearchDepth {
   /// Full query with reranking (5-8s)
   deep('query');
 
-  /// Wire value passed to the QMD `mode` query parameter.
+  /// Wire value used to select the QMD query strategy.
   final String value;
   const SearchDepth(this.value);
 
@@ -64,18 +64,21 @@ class QmdSearchBackend implements SearchBackend {
       final results = await manager.query(query, depth: defaultDepth.value, limit: limit);
 
       final wiki = await _wikiSearch?.search(query, limit: limit) ?? const <MemorySearchResult>[];
-      final raw = results.map((r) {
-        // QMD relevance is higher-is-better; the merged list and the FTS5
-        // fallback both sort ascending (lower-is-better, matching wiki/bm25
-        // sentinels). Negate so a more relevant QMD row sorts ahead of a less
-        // relevant one and below wiki-backed results.
-        return MemorySearchResult(
-          text: r['text'] as String? ?? r['content'] as String? ?? '',
-          source: r['source'] as String? ?? r['path'] as String? ?? 'qmd',
-          category: r['category'] as String?,
-          score: -((r['score'] as num?)?.toDouble() ?? 0.0),
-        );
-      });
+      final wikiSources = wiki.map((result) => _sourcePath(result.source)).toSet();
+      final raw = results
+          .map((r) {
+            // QMD relevance is higher-is-better; the merged list and the FTS5
+            // fallback both sort ascending (lower-is-better, matching wiki/bm25
+            // sentinels). Negate so a more relevant QMD row sorts ahead of a less
+            // relevant one and below wiki-backed results.
+            return MemorySearchResult(
+              text: r['text'] as String? ?? r['content'] as String? ?? '',
+              source: r['source'] as String? ?? r['path'] as String? ?? 'qmd',
+              category: r['category'] as String?,
+              score: -((r['score'] as num?)?.toDouble() ?? 0.0),
+            );
+          })
+          .where((result) => !wikiSources.contains(_sourcePath(result.source)));
       final combined = [...wiki, ...raw]..sort((a, b) => a.score.compareTo(b.score));
       return combined.take(limit).toList();
     } catch (e) {
@@ -92,5 +95,11 @@ class QmdSearchBackend implements SearchBackend {
     } catch (e) {
       _log.warning('QMD indexing failed: $e');
     }
+  }
+
+  static String _sourcePath(String source) {
+    final uri = Uri.tryParse(source);
+    final path = uri?.scheme == 'qmd' ? uri!.path.replaceFirst(RegExp(r'^/'), '') : source;
+    return path.replaceFirst(RegExp(r'^\./'), '').replaceAll('\\', '/');
   }
 }

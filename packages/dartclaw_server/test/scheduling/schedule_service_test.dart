@@ -186,7 +186,6 @@ void main() {
     late _ConfigurableTurnManager turns;
     late _FakeSessionService sessions;
     late ScheduledJob intervalJob;
-    late ScheduledJob onceJob;
     late Directory tempDir;
     late List<(String, String)> consolidations;
     late MemoryConsolidator consolidator;
@@ -200,12 +199,6 @@ void main() {
         'schedule': {'type': 'interval', 'minutes': 60},
         'delivery': 'none',
       });
-      onceJob = ScheduledJob(
-        id: 'once-job',
-        prompt: 'One-time task',
-        scheduleType: ScheduleType.once,
-        onceAt: DateTime.now().add(const Duration(milliseconds: 50)),
-      );
       tempDir = Directory.systemTemp.createTempSync('schedule_service_test_');
       File('${tempDir.path}/MEMORY.md').writeAsStringSync('x' * 64);
       consolidations = <(String, String)>[];
@@ -253,6 +246,23 @@ void main() {
       expect(turns.lastAllowedTools, isNull);
     });
 
+    test('prompt job pins its cron session to the configured worker identity', () async {
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: [],
+        workerProviderId: 'codex',
+        workerProfileId: 'restricted',
+      );
+
+      await service.executeJobForTesting(intervalJob);
+
+      final session = sessions._keyedSessions[SessionKey.cronSession(jobId: intervalJob.id)];
+      expect(session?.type, SessionType.cron);
+      expect(session?.provider, 'codex');
+      expect(session?.securityProfile, 'restricted');
+    });
+
     test('successful agent-backed job delivers assistant response text', () async {
       final delivery = RecordingDeliveryService(sessions: sessions);
       turns.responseText = 'assistant summary';
@@ -295,7 +305,10 @@ void main() {
         result: 'manual summary',
         webhookUrl: null,
       ));
-      expect(sessions._keyedSessions, contains(SessionKey.cronSession(jobId: 'daily-summary')));
+      final cronSession = sessions._keyedSessions[SessionKey.cronSession(jobId: 'daily-summary')];
+      expect(cronSession?.type, SessionType.cron);
+      expect(cronSession?.provider, isNull);
+      expect(cronSession?.securityProfile, isNull);
       service.stop();
     });
 
@@ -383,17 +396,136 @@ void main() {
       });
     });
 
+    test('cron timer callback before its boundary does not execute or schedule the same occurrence twice', () async {
+      var now = DateTime(2026, 8, 11, 2, 59, 55);
+      final timers = <_ManualTimer>[];
+      final cronJob = ScheduledJob(
+        id: 'boundary-job',
+        prompt: 'Run once at the boundary',
+        scheduleType: ScheduleType.cron,
+        cronExpression: CronExpression.parse('0 3 * * *'),
+      );
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: [cronJob],
+        now: () => now,
+        timerFactory: (duration, callback) {
+          final timer = _ManualTimer(duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+      )..start();
+
+      expect(timers.single.duration, const Duration(seconds: 5));
+      now = DateTime(2026, 8, 11, 2, 59, 56);
+      timers.single.fire();
+      await pumpEventQueue();
+
+      expect(turns.startTurnCallCount, 0);
+      expect(timers, hasLength(2));
+      expect(timers.last.duration, const Duration(seconds: 4));
+
+      now = DateTime(2026, 8, 11, 3);
+      timers.last.fire();
+      await pumpEventQueue();
+
+      expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('one-time timer callback before its boundary is re-armed', () async {
+      var now = DateTime(2026, 8, 11, 2, 59, 55);
+      final timers = <_ManualTimer>[];
+      final once = ScheduledJob(
+        id: 'once-boundary-job',
+        prompt: 'Run at the boundary',
+        scheduleType: ScheduleType.once,
+        onceAt: DateTime(2026, 8, 11, 3),
+      );
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: [once],
+        now: () => now,
+        timerFactory: (duration, callback) {
+          final timer = _ManualTimer(duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+      )..start();
+
+      expect(timers.single.duration, const Duration(seconds: 5));
+      now = DateTime(2026, 8, 11, 2, 59, 56);
+      timers.single.fire();
+      await pumpEventQueue();
+
+      expect(turns.startTurnCallCount, 0);
+      expect(timers, hasLength(2));
+      expect(timers.last.duration, const Duration(seconds: 4));
+
+      now = DateTime(2026, 8, 11, 3);
+      timers.last.fire();
+      await pumpEventQueue();
+
+      expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('cron reschedule stays after the completed boundary when the clock moves backward', () async {
+      var now = DateTime(2026, 8, 11, 2, 59, 55);
+      final release = Completer<void>();
+      final timers = <_ManualTimer>[];
+      turns.onStartTurn = (_) => release.future;
+      final cronJob = ScheduledJob(
+        id: 'rollback-job',
+        prompt: 'Run once per boundary',
+        scheduleType: ScheduleType.cron,
+        cronExpression: CronExpression.parse('0 3 * * *'),
+      );
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: [cronJob],
+        now: () => now,
+        timerFactory: (duration, callback) {
+          final timer = _ManualTimer(duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+      )..start();
+
+      now = DateTime(2026, 8, 11, 3);
+      timers.single.fire();
+      await pumpEventQueue();
+      expect(turns.startTurnCallCount, 1);
+
+      now = DateTime(2026, 8, 11, 2, 59);
+      release.complete();
+      await pumpEventQueue();
+
+      expect(timers, hasLength(2));
+      expect(timers.last.duration, const Duration(days: 1, minutes: 1));
+      service.stop();
+    });
+
     test('a once fire skipped during an on-demand run is lost', () {
       fakeAsync((async) {
+        final start = DateTime(2026, 8, 11, 3);
         final release = Completer<void>();
         turns.onStartTurn = (_) => release.future;
         final job = ScheduledJob(
           id: 'once-window',
           prompt: 'Run once',
           scheduleType: ScheduleType.once,
-          onceAt: DateTime.now().add(const Duration(minutes: 1)),
+          onceAt: start.add(const Duration(minutes: 1)),
         );
-        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [job])..start();
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [job],
+          now: () => async.getClock(start).now(),
+        )..start();
 
         expect(service.runJobNow('once-window'), RunScheduledJobResult.started);
         async.flushMicrotasks();
@@ -482,12 +614,32 @@ void main() {
     });
 
     test('one-time job does not reschedule after execution', () async {
-      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [onceJob]);
-      service.start();
-      // Wait for the one-time timer to fire (50ms delay)
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      // Turn ran exactly once
+      var now = DateTime(2026, 8, 11, 8);
+      final timers = <_ManualTimer>[];
+      final once = ScheduledJob(
+        id: 'once-job',
+        prompt: 'One-time task',
+        scheduleType: ScheduleType.once,
+        onceAt: now.add(const Duration(minutes: 1)),
+      );
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: [once],
+        now: () => now,
+        timerFactory: (duration, callback) {
+          final timer = _ManualTimer(duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+      )..start();
+
+      now = now.add(const Duration(minutes: 1));
+      timers.single.fire();
+      await pumpEventQueue();
+
       expect(turns.startTurnCallCount, 1);
+      expect(timers, hasLength(1));
       service.stop();
     });
 
@@ -845,10 +997,42 @@ class _FakeSessionService implements SessionService {
   }) async {
     return _keyedSessions.putIfAbsent(
       key,
-      () => Session(id: 'fake-uuid-for-$key', createdAt: DateTime.now(), updatedAt: DateTime.now()),
+      () => Session(
+        id: 'fake-uuid-for-$key',
+        type: type,
+        provider: provider,
+        securityProfile: securityProfile,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
     );
   }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _ManualTimer implements Timer {
+  final Duration duration;
+  final void Function() _callback;
+  var _isActive = true;
+
+  _ManualTimer(this.duration, this._callback);
+
+  void fire() {
+    if (!_isActive) return;
+    _isActive = false;
+    _callback();
+  }
+
+  @override
+  bool get isActive => _isActive;
+
+  @override
+  int get tick => _isActive ? 0 : 1;
+
+  @override
+  void cancel() {
+    _isActive = false;
+  }
 }

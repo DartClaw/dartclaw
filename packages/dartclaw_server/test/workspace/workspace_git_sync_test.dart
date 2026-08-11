@@ -149,7 +149,9 @@ void main() {
       await sync.isGitAvailable();
       await sync.initIfNeeded();
 
-      expect(File('${tmpDir.path}/.gitignore').readAsLinesSync(), containsAll(['custom', 'errors.md', 'learnings.md']));
+      final lines = File('${tmpDir.path}/.gitignore').readAsLinesSync();
+      expect(lines, containsAll(['custom', 'errors.md']));
+      expect(lines, isNot(contains('learnings.md')));
     });
 
     test('adds missing default entries to a cloned repo without duplicating existing entries', () async {
@@ -163,10 +165,28 @@ void main() {
       await sync.initIfNeeded();
 
       final lines = gitignore.readAsLinesSync();
-      expect(lines, containsAll(['custom/', '.env', 'errors.md', 'learnings.md']));
+      expect(lines, containsAll(['custom/', '.env', 'errors.md']));
+      expect(lines, isNot(contains('learnings.md')));
       expect(lines.where((line) => line == '.env'), hasLength(1));
       expect(lines.where((line) => line == 'errors.md'), hasLength(1));
       expect(runner.calls.where((call) => call.$2.first == 'init'), isEmpty);
+    });
+
+    test('preserves a legacy learnings ignore rule in an existing workspace', () async {
+      Directory('${tmpDir.path}/.git').createSync();
+      const custom = 'learnings.md\ncustom/\n!custom/keep.md\n';
+      final gitignore = File('${tmpDir.path}/.gitignore')..writeAsStringSync(custom);
+      runner.setResult('git --version', _ok());
+      final sync = createSync();
+
+      await sync.isGitAvailable();
+      await sync.initIfNeeded();
+      final firstContent = gitignore.readAsStringSync();
+      await sync.initIfNeeded();
+
+      expect(firstContent, endsWith(custom));
+      expect(firstContent.split('\n').where((line) => line == 'learnings.md'), hasLength(1));
+      expect(gitignore.readAsStringSync(), firstContent);
     });
 
     test('places defaults before custom negations and preserves a missing trailing newline', () async {

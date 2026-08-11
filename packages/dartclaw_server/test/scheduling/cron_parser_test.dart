@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
@@ -57,11 +60,42 @@ void main() {
   });
 
   group('CronExpression.nextFrom', () {
+    test('advances monotonically through a real DST fallback', () async {
+      final repoRoot = _findRepoRoot();
+      final result = await Process.run(
+        Platform.resolvedExecutable,
+        ['run', 'packages/dartclaw_server/test/scheduling/fixtures/cron_parser_dst_fallback.dart'],
+        environment: {...Platform.environment, 'TZ': 'America/New_York'},
+        workingDirectory: repoRoot,
+      );
+
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      final occurrences = (jsonDecode(result.stdout as String) as List).cast<Map<String, dynamic>>();
+      expect(occurrences.take(3), [
+        {'local': '2026-11-01T01:59:30.000', 'utc': '2026-11-01T05:59:30.000Z'},
+        {'local': '2026-11-01T01:00:00.000', 'utc': '2026-11-01T06:00:00.000Z'},
+        {'local': '2026-11-01T01:01:00.000', 'utc': '2026-11-01T06:01:00.000Z'},
+      ]);
+      final instants = occurrences.map((occurrence) => DateTime.parse(occurrence['utc']! as String)).toList();
+      expect(instants.toSet(), hasLength(instants.length), reason: 'a cron instant must be returned at most once');
+      for (var i = 1; i < instants.length; i++) {
+        expect(instants[i].isAfter(instants[i - 1]), isTrue, reason: '${instants[i]} must follow ${instants[i - 1]}');
+      }
+      expect(occurrences.last, {'local': '2026-11-01T02:00:00.000', 'utc': '2026-11-01T07:00:00.000Z'});
+    });
+
     test('calculates next occurrence for simple cron', () {
       final cron = CronExpression.parse('0 18 * * *');
       final from = DateTime(2026, 2, 25, 10, 0);
       final next = cron.nextFrom(from);
       expect(next, DateTime(2026, 2, 25, 18, 0));
+    });
+
+    test('preserves UTC reference semantics while skipping ahead', () {
+      final next = CronExpression.parse('0 18 * * *').nextFrom(DateTime.utc(2026, 2, 25, 10));
+
+      expect(next, DateTime.utc(2026, 2, 25, 18));
+      expect(next.isUtc, isTrue);
     });
 
     test('wraps to next day if past time', () {
@@ -140,4 +174,14 @@ void main() {
       expect(CronExpression.parse('* * * * 1').matches(DateTime(2026, 2, 23, 12, 0)), isTrue);
     });
   });
+}
+
+String _findRepoRoot() {
+  var directory = Directory.current;
+  while (true) {
+    if (Directory('${directory.path}/packages/dartclaw_server').existsSync()) return directory.path;
+    final parent = directory.parent;
+    if (parent.path == directory.path) throw StateError('Could not locate the DartClaw repository root');
+    directory = parent;
+  }
 }

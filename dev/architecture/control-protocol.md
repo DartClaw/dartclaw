@@ -632,10 +632,10 @@ Back in _runTurn()
   │ ⑯ Post-turn guard: GuardChain.evaluateBeforeAgentSend()
   │   └─ block → insert "[Response blocked by guard: ...]" → return failed
   │
-  │ ⑰ Apply MessageRedactor (proportional content redaction)
-  │ ⑱ Apply ExplorationSummarizer (type-aware summary or ResultTrimmer fallback)
+  │ ⑰ Apply ExplorationSummarizer (type-aware summary or ResultTrimmer fallback)
+  │ ⑱ Apply MessageRedactor to the persisted summary (proportional content redaction)
   │ ⑲ Persist assistant message to MessageService
-  │ ⑳ Append to daily log (YYYY-MM-DD.md)
+  │ ⑳ Append redacted main/user/channel tool-using turns to daily log (YYYY-MM-DD.md)
   │
   │ ㉑ If ContextMonitor.shouldFlushForCompactionSignal(...): run pre-compaction flush turn
   │

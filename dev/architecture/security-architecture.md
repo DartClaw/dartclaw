@@ -28,6 +28,11 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 | **Cross-execution state reuse** | Reusing a process built for a different session, provider configuration, or security profile | Immutable coordinator composition, exact provider/profile matching, exact-session-first reuse |
 | **Overlapping replacement** | Starting a replacement while the previous managed root process may still be alive | Confirmed root teardown or provider-capacity quarantine |
 
+**Host filesystem assumption:** DartClaw trusts the host OS, runtime user, and filesystem. Agent-supplied paths and
+stable symlinks are still validated at security boundaries, but host-side workspace I/O is not designed to resist a
+process that continuously replaces directory entries while a file operation is already in progress. Atomic writes and
+runtime locks protect crash consistency and cooperating DartClaw writers; they are not a hostile-filesystem sandbox.
+
 ---
 
 ## Defense-in-Depth Layers
@@ -762,12 +767,19 @@ Regex-based redaction for outbound text across all output paths. Catches secrets
 | Anthropic keys | `sk-ant-*` |
 | AWS Access Key ID | `AKIA` + 16 chars |
 | AWS Secret Access Key | `aws_secret_access_key = ...` |
-| Bearer tokens | `Bearer <token>` |
+| Authorization headers | Basic, Bearer, Negotiate, Digest, and AWS4-HMAC-SHA256 credentials |
 | Generic secrets | `api_key: ...`, `secret = ...`, `token: ...`, `password = ...` |
 
-**Redaction strategy**: Proportional reveal — preserves `min(matchLength / 2, 8)` leading characters + `***`. PEM blocks are fully replaced with `[REDACTED]`. The `redact()` method never throws — errors are caught internally and the original text is returned unchanged.
+**Redaction strategy**: Credential assignments preserve their labels and replace values with `***`; quoted JSON values and
+plain `=` assignments are structural, while plain `:` syntax is treated as an assignment only with a map/list delimiter,
+a lowercase line label, a quoted value, or a single-token value. Ambiguous multiword prose stays unchanged. Other matches
+use proportional reveal, preserving `min(matchLength / 2, 8)` leading characters + `***`. PEM blocks are fully replaced
+with `[REDACTED]`. The `redact()` method never throws – errors are caught internally and the original text is returned
+unchanged.
 
 Extra patterns can be added via config (`logging.redact_patterns`).
+This is best-effort pattern matching, not general confidential-data classification; persistence surfaces that use it
+must document their retention and trust boundary.
 
 **Source**: `packages/dartclaw_security/lib/src/message_redactor.dart`
 

@@ -30,7 +30,9 @@ void main() {
                 'cacheReadTokens': 20,
                 'cacheWriteTokens': 5,
                 'totalTokens': 120,
-                'toolCalls': const [],
+                'toolCalls': List.generate(64, (index) => {'name': 'tool-$index'}),
+                'toolCallCount': 70,
+                'toolCallsTruncated': true,
               },
             ],
             'summary': {'traceCount': 1},
@@ -49,6 +51,7 @@ void main() {
       expect(output.join('\n'), contains('trace-1'));
       expect(output.join('\n'), contains('IN_TOKENS'));
       expect(output.join('\n'), contains('CACHE_R'));
+      expect(output.join('\n'), contains('70 (64 retained)'));
       expect(transport.requests.single.uri.queryParameters['provider'], 'claude');
       expect(transport.requests.single.uri.queryParameters['since'], isNotEmpty);
     });

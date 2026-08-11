@@ -19,7 +19,7 @@ typedef CommandRunner =
 class WorkspaceGitSync implements Reconfigurable {
   static final _log = Logger('WorkspaceGitSync');
 
-  static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\nerrors.md\nlearnings.md\n';
+  static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\nerrors.md\n';
 
   final String workspaceDir;
   bool pushEnabled;

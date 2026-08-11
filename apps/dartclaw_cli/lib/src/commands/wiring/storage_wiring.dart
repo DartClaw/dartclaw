@@ -148,7 +148,7 @@ class StorageWiring {
       );
       if (await mgr.isAvailable()) {
         try {
-          await mgr.start();
+          await mgr.activate();
           _qmdManager = mgr;
           _log.info('QMD hybrid search active on ${mgr.baseUrl}');
         } catch (e) {

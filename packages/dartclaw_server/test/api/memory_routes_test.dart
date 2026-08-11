@@ -88,5 +88,35 @@ void main() {
     test('returns 200 with empty body when file does not exist', () async {
       expect(await client.expectText('GET', '/api/memory/files/memory'), isEmpty);
     });
+
+    test('rejects an oversized fixed file without reading its contents', () async {
+      final file = File(p.join(workspaceDir, 'MEMORY.md'));
+      final handle = file.openSync(mode: FileMode.write);
+      try {
+        handle.truncateSync(MemoryFileService.maxReadableFileBytes + 1);
+      } finally {
+        handle.closeSync();
+      }
+
+      await client.expectResponse('GET', '/api/memory/files/memory', status: 500);
+    });
+
+    test('rejects fixed-file symlinks without exposing their targets', () async {
+      final external = File(p.join(tempDir.path, 'outside.md'))..writeAsStringSync('external-secret');
+      for (final target in [
+        (apiName: 'memory', fileName: 'MEMORY.md'),
+        (apiName: 'archive', fileName: 'MEMORY.archive.md'),
+        (apiName: 'errors', fileName: 'errors.md'),
+        (apiName: 'learnings', fileName: 'learnings.md'),
+      ]) {
+        final link = Link(p.join(workspaceDir, target.fileName))..createSync(external.path);
+
+        final response = await client.expectResponse('GET', '/api/memory/files/${target.apiName}', status: 500);
+
+        expect(await response.readAsString(), isNot(contains('external-secret')));
+        expect(external.readAsStringSync(), 'external-secret');
+        link.deleteSync();
+      }
+    }, skip: Platform.isWindows);
   });
 }

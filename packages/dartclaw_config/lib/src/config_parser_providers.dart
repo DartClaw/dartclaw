@@ -26,7 +26,13 @@ SearchConfig _parseSearch(
     }
     final qmdMap = readMap('qmd', searchMap, warns);
     if (qmdMap != null) {
-      qmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
+      final rawQmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
+      final normalizedQmdHost = _normalizeQmdLoopbackHost(rawQmdHost);
+      if (normalizedQmdHost == null) {
+        warns.add('Invalid search.qmd.host: "$rawQmdHost" — using default');
+      } else {
+        qmdHost = normalizedQmdHost;
+      }
       qmdPort = readInt('port', qmdMap, warns, defaultValue: defaults.qmdPort) ?? defaults.qmdPort;
     }
     final depth = readString('default_depth', searchMap, warns);
@@ -65,6 +71,21 @@ SearchConfig _parseSearch(
     defaultDepth: defaultDepth,
     providers: providers,
   );
+}
+
+String? _normalizeQmdLoopbackHost(String host) {
+  var normalized = host.trim().toLowerCase();
+  if (normalized == '[::1]') normalized = '::1';
+  if (normalized == 'localhost' || normalized == '::1') return normalized;
+  final octets = normalized.split('.');
+  final isLoopbackIpv4 =
+      octets.length == 4 &&
+      octets.first == '127' &&
+      octets.every((octet) {
+        final value = int.tryParse(octet);
+        return value != null && value >= 0 && value <= 255 && value.toString() == octet;
+      });
+  return isLoopbackIpv4 ? normalized : null;
 }
 
 ProvidersConfig _parseProviders(

@@ -22,8 +22,8 @@ dart run dartclaw_cli:dartclaw token rotate
 # Rebuild search index
 dart run dartclaw_cli:dartclaw rebuild-index
 
-# Deployment (setup, config, secrets)
-dart run dartclaw_cli:dartclaw deploy setup
+# Initialize, then manage deployment config and secrets
+dart run dartclaw_cli:dartclaw init
 dart run dartclaw_cli:dartclaw deploy config
 dart run dartclaw_cli:dartclaw deploy secrets
 ```

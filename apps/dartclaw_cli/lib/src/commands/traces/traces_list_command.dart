@@ -44,6 +44,11 @@ class TracesListCommand extends ConnectedCommand {
       '  ${'TURN_ID'.padRight(12)}  ${'SESSION'.padRight(12)}  ${'PROVIDER'.padRight(8)}  ${'MODEL'.padRight(12)}  ${'DURATION'.padRight(10)}  ${'IN_TOKENS'.padRight(10)}  ${'OUT_TOKENS'.padRight(10)}  ${'CACHE_R'.padRight(8)}  ${'CACHE_W'.padRight(8)}  TOOLS',
     );
     for (final trace in traces) {
+      final retainedToolCalls = ((trace['toolCalls'] as List?) ?? const []).length;
+      final toolCallCount = (trace['toolCallCount'] as num?)?.toInt() ?? retainedToolCalls;
+      final toolCallSummary = trace['toolCallsTruncated'] == true
+          ? '$toolCallCount ($retainedToolCalls retained)'
+          : '$toolCallCount';
       writeLine(
         '  ${truncate(trace['id']?.toString() ?? '', 12).padRight(12)}  '
         '${truncate(trace['sessionId']?.toString() ?? '', 12).padRight(12)}  '
@@ -54,7 +59,7 @@ class TracesListCommand extends ConnectedCommand {
         '${formatNumber((trace['outputTokens'] as num?)?.toInt() ?? 0).padRight(10)}  '
         '${formatNumber((trace['cacheReadTokens'] as num?)?.toInt() ?? 0).padRight(8)}  '
         '${formatNumber((trace['cacheWriteTokens'] as num?)?.toInt() ?? 0).padRight(8)}  '
-        '${((trace['toolCalls'] as List?) ?? const []).length}',
+        '$toolCallSummary',
       );
     }
   });

@@ -11,7 +11,7 @@ Canonical reference for DartClaw's persistence landscape. Covers all storage mec
 **Files are the source of truth. SQLite is a derived index or relational model.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
-- Search index → SQLite FTS5 (derived from MEMORY.md, rebuildable via `dartclaw rebuild-index`)
+- Search index → SQLite FTS5 (derived from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md`, rebuildable via `dartclaw rebuild-index`)
 - Tasks, goals, artifacts, turn traces, task events → SQLite (authoritative — relational queries on status/type/goal)
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
@@ -45,9 +45,10 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 │       ├── meta.json                 # [JSON]   Session metadata
 │       └── messages.ndjson           # [NDJSON] Conversation transcript (append-only)
 ├── workspace/
-│   ├── MEMORY.md                     # [MD]     Long-term memory (source of truth for search.db)
+│   ├── MEMORY.md                     # [MD]     Active long-term memory (source of truth for search.db)
+│   ├── MEMORY.archive.md             # [MD]     Archived long-term memory (source of truth for search.db)
 │   ├── errors.md                     # [MD]     Auto-populated error log (capped 50)
-│   ├── learnings.md                  # [MD]     Agent-written insights (capped 50)
+│   ├── learnings.md                  # [MD]     Agent-written insights (capped 50; source of truth for search.db)
 │   ├── memory/
 │   │   └── YYYY-MM-DD.md            # [MD]     Daily turn logs
 │   ├── SOUL.md                       # [MD]     Identity/values (read-only by runtime)
@@ -73,6 +74,11 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 | **Structured text** | `MEMORY.md`, `errors.md`, `learnings.md`, daily logs | Temp file → rename or append | Write queue (memory, errors) |
 | **Append-mostly SQLite** | `turns` (in `tasks.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
 | **Append-only SQLite** | `task_events` (in `tasks.db`) | Synchronous insert | `TaskEventService` (WAL) |
+
+Daily turn-log records are byte-bounded at 512 KiB. A date partition retains at most 8 MiB, dropping oldest complete
+records first and leaving an explicit marker. This bounds the queued atomic read-modify-write path.
+Host-side reads of canonical workspace text files fail closed above 64 MiB; daily-log appends apply their tighter 8 MiB
+limit before allocating existing content.
 
 ---
 
@@ -322,15 +328,15 @@ Goal
 MemoryChunk
 ├── id: int (autoincrement)
 ├── text: String
-├── source: String (e.g., "MEMORY.md", "2026-03-12.md")
+├── source: String (e.g., "memory_save", "archive")
 ├── category: String?
 ├── createdAt: DateTime
 └── userId: String (default: "owner")
 ```
 
 **Storage**: `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table)
-**Source of truth**: `workspace/MEMORY.md` + `workspace/memory/*.md` files
-**Rebuild**: `dartclaw rebuild-index` deletes and repopulates from source files
+**Source of truth**: `workspace/MEMORY.md`, `workspace/MEMORY.archive.md`, and `workspace/learnings.md`
+**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically deletes and repopulates from all three canonical files, preserving source entry timestamps; undated entries sort oldest
 
 ### Thread Binding
 
@@ -529,11 +535,11 @@ TurnTrace (turns table)
 ├── cache_write_tokens: int
 ├── is_error: bool
 ├── error_type: String?
-└── tool_calls: String              (JSON array of ToolCallRecord)
+└── tool_calls: String              (JSON records/count envelope; legacy arrays readable)
 ```
 
 **Storage**: `tasks.db` → `turns` table (WAL mode; indexed on `session_id`, `task_id`, `started_at`)
-**Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Zero latency impact on the turn lifecycle. Traces survive entity deletion (no foreign keys).
+**Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`), `dartclaw_storage` (`TurnTraceService`)
 
 **Multi-service co-location note**: `tasks.db` contains eight tables (`tasks`, `agent_executions`, `workflow_step_executions`, `task_artifacts`, `turns`, `task_events`, `goals`, and `kg_facts` plus its `kg_facts_lookup` index) managed by cooperating services (`SqliteTaskRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `TurnTraceService`, `TaskEventService`, `SqliteGoalRepository`, `TemporalKnowledgeGraphService`). Each service uses idempotent bootstrap DDL; destructive migrations require explicit coordination across those services because task-owned runtime columns can move into the shared execution tables.
@@ -696,10 +702,9 @@ WorkflowSummary                              # discovery projection, not persist
                                                    │  (tasks.db)  │
                                                    └──────────────┘
 
-┌─────────────┐  derived from  ┌──────────────────┐
-│ MEMORY.md   │───────────────►│ MemoryChunk (FTS5)│
-│ daily logs  │  (rebuildable) │   (search.db)     │
-└─────────────┘                └──────────────────┘
+┌──────────────────────────────┐  derived from  ┌───────────────────┐
+│ MEMORY.md + archive + learnings│──────────────►│ MemoryChunk (FTS5)│
+└──────────────────────────────┘  (rebuildable) └───────────────────┘
 ```
 
 ### Cross-Store References
@@ -712,7 +717,7 @@ WorkflowSummary                              # discovery projection, not persist
 | `TaskArtifact.taskId` | `Task.id` | Foreign key | **Yes** — `ON DELETE CASCADE` |
 | `TurnTrace.task_id` | `Task.id` | String ID reference | **No** — traces survive task deletion |
 | `TaskEvent.task_id` | `Task.id` | String ID reference | **No** — events survive task deletion |
-| `MemoryChunk` | `MEMORY.md` | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
+| `MemoryChunk` | `MEMORY.md`, `MEMORY.archive.md`, `learnings.md` | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
 | `ThreadBinding.taskId` | `Task.id` | String ID reference | **No** — reconciled on startup (stale bindings pruned) |
 
 ### Lifecycle Dependencies
@@ -725,7 +730,7 @@ WorkflowSummary                              # discovery projection, not persist
 | **Goal deleted** | Tasks referencing the goal retain `goalId` but goal lookup returns null. |
 | **Session archived** | Type changes to `archive`. Messages preserved. Task sessions are protected from automated archival. |
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
-| **Memory pruned** | Entries >90d archived. Search index out of sync until next `rebuild-index`. |
+| **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in `search.db`. |
 | **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
 
 ---
@@ -804,9 +809,9 @@ Services with concurrent callers serialize writes via `StreamController`:
 |---------|-----------|---------|
 | `MessageService` | `StreamController` | Prevent concurrent NDJSON appends |
 | `KvService` | `StreamController<_WriteOp>` | Prevent concurrent kv.json rewrites |
-| `MemoryFileService` | `StreamController<_WriteOp>` | Prevent concurrent MEMORY.md rewrites |
+| `MemoryFileService` / `MemoryPruner` | `StreamController<_WriteOp>` + shared workspace lock | Serialize canonical memory writes, pruning, and their derived-index updates |
 | `ConfigWriter` | `StreamController<_WriteOp>` | Prevent concurrent YAML rewrites |
-| `SelfImprovementService` | (via MemoryFileService) | Shared queue for errors.md/learnings.md |
+| `SelfImprovementService` | `StreamController<_WriteOp>` + shared workspace lock for learnings | Serialize errors/learnings writes; keep capped learnings and their derived-index rows coherent with pruning |
 
 ### Fire-and-Forget Pattern
 
@@ -827,9 +832,9 @@ Append-only logs that must not block the caller:
 | `usage.jsonl` | Rename to `.1` when >10MB | On write |
 | `errors.md` | Keep newest N entries (default: 50) | On write |
 | `learnings.md` | Keep newest N entries (default: 50) | On write |
-| `MEMORY.md` | Pruner archives entries >90d, deduplicates | Nightly cron (`MemoryPruner`) |
+| `MEMORY.md` | Pruner archives recognized entries >90d and deduplicates them; opaque content stays in place | Nightly cron (`MemoryPruner`) |
 | Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
-| `search.db` | Full rebuild from source files | Manual (`dartclaw rebuild-index`) |
+| `search.db` | Full rebuild from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md` | Manual (`dartclaw rebuild-index`) |
 
 ---
 
@@ -855,7 +860,7 @@ sqlite3 ~/.dartclaw/tasks.db "PRAGMA wal_checkpoint(TRUNCATE);"
 
 | Scenario | Recovery |
 |----------|---------|
-| `search.db` corrupted/deleted | `dartclaw rebuild-index` — rebuilt from MEMORY.md + daily logs |
+| `search.db` corrupted/deleted | `dartclaw rebuild-index` — rebuilt from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md` |
 | `tasks.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
 | `state.db` corrupted/deleted | Loss of active-turn crash recovery only. In-flight sessions may miss a recovery banner, but durable message/task data remains intact. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |

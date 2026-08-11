@@ -10,7 +10,7 @@
 - **File-backed services** — workspace-state primitives. `SessionService`, `MessageService` (1-based cursor over `messages.ndjson`), `KvService` (atomic JSON via `atomicWriteJson`).
 - **Logical-agent conversations** — `LogicalAgentSessionService` separates creation (`sessions_spawn`: agent + initial message) from continuation (`sessions_send`: returned session handle + follow-up), while enforcing the content-guard boundary around each result. Provider/profile worker acquisition and bounded lease capacity are host-owned in `dartclaw_server`; core owns no pool or concurrency policy.
 - **Repository contracts** — interface-only persistence ports: `TaskRepository`, `GoalRepository`, `AgentExecutionRepository`, `WorkflowStepExecutionRepository`. Concrete SQLite impls live in `dartclaw_storage`.
-- **Cross-cutting** — `RepoLock` (advisory file lock for shared `.git/` writes), `atomicWriteJson` (the only sanctioned JSON write path), `httpRequest` (`src/util/http_request.dart`; shared one-shot `HttpClient` lifecycle returning `(statusCode, body)` — owns create→open→headers→write→close→utf8-decode→`close(force:true)`, does not interpret status; only for callers that read the full utf8 body and need no response headers/streaming).
+- **Cross-cutting** — `RepoLock` (per-path process mutex for shared mutations), `atomicWriteJson` (the only sanctioned JSON write path), `httpRequest` (`src/util/http_request.dart`; shared one-shot `HttpClient` lifecycle returning `(statusCode, body)` — owns create→open→headers→write→close→utf8-decode→`close(force:true)`, does not interpret status; only for callers that read the full utf8 body and need no response headers/streaming).
 
 ## Shape
 - **Harness**: `HarnessFactory.create` → `start()` (spawns provider binary) → `runTurn(...)` (writes stdin, reads stdout via `ProtocolAdapter`) → `resetSessionContinuity(sessionId)` when a DartClaw session reset must drop provider-side conversation state → `stop()`. Claude restarts when a reused worker changes logical sessions; ACP creates a fresh provider session and injects bounded persisted history. All mutating ops serialized via `_withLock()`; spawn-generation counter discards stale exit handlers.
@@ -25,6 +25,7 @@
 
 ## Conventions
 - Atomic JSON writes go through `src/storage/atomic_write.dart::atomicWriteJson` — temp file + rename with random suffix. Writers to shared `.git/` or `.session_keys.json` must hold `RepoLock` first.
+- `MemoryFileService.appendMemory` and `MemoryPruner.prune` share the canonical-memory workspace lock; external editors must stop DartClaw or coordinate separately.
 - Events: define new types in `src/events/<group>_events.dart`, then add to the sealed-export list in `src/events/dartclaw_event.dart` AND to the explicit `show` clause in the barrel. The list in the barrel is hand-maintained — missing exports break server wiring silently.
 - `BridgeEvent` (provider-facing) and `DartclawEvent` (app-facing) are distinct sealed hierarchies. Don't blur them — `BridgeEvent` only carries protocol-stream signals; rich semantics live on `DartclawEvent`.
 - Harness lifecycle: mutating ops (`start`/`stop`/`restartForExecution`) must be serialized via `_withLock()` future chaining; the spawn-generation counter guards against stale exit handlers.

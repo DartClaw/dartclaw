@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -65,6 +66,33 @@ void main() {
       expect(results.first.text, 'Fallback');
     });
 
+    for (final response in [
+      ('malformed list', '[{"unexpected":true}]'),
+      ('malformed map', '{"results":{"unexpected":true}}'),
+    ]) {
+      test('falls back to FTS5 on ${response.$1} response', () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        server.listen((request) async {
+          await utf8.decoder.bind(request).join();
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(response.$2);
+          await request.response.close();
+        });
+        final fts5 = FakeFts5Backend()
+          ..nextResults = [const MemorySearchResult(text: 'Fallback', source: 'memory', score: -0.5)];
+        final backend = QmdSearchBackend(
+          manager: _RunningQmdManager(port: server.port),
+          fallback: fts5,
+        );
+
+        final results = await backend.search('test');
+
+        expect(results.single.text, 'Fallback');
+        expect(fts5.searchCalls, ['test']);
+      });
+    }
+
     test('indexAfterWrite delegates to QMD manager', () async {
       final fts5 = FakeFts5Backend();
       final qmd = FakeQmdManager();
@@ -116,6 +144,34 @@ Dart async programming synthesized from source.
       ]);
     });
 
+    test('wiki and QMD copies of the same page occupy one result slot', () async {
+      final workspace = Directory.systemTemp.createTempSync('dartclaw_qmd_wiki_dedupe_');
+      addTearDown(() => workspace.deleteSync(recursive: true));
+      Directory(p.join(workspace.path, 'wiki')).createSync(recursive: true);
+      File(p.join(workspace.path, 'wiki', 'dart.md')).writeAsStringSync('''
+---
+provenance: human-authored
+---
+# Dart
+
+Dart async reference.
+''');
+      final qmd = FakeQmdManager()
+        ..nextQueryResult = [
+          {'text': 'QMD duplicate', 'source': 'qmd://memory/wiki/dart.md', 'score': 0.9},
+          {'text': 'Distinct memory', 'source': 'qmd://memory/MEMORY.md', 'score': 0.8},
+        ];
+      final backend = QmdSearchBackend(
+        manager: qmd,
+        fallback: FakeFts5Backend(),
+        wikiSearch: WikiSearchSource(workspaceDir: workspace.path),
+      );
+
+      final results = await backend.search('dart async', limit: 2);
+
+      expect(results.map((result) => result.source), ['wiki/dart.md', 'qmd://memory/MEMORY.md']);
+    });
+
     test('search depth options', () {
       expect(SearchDepth.fromString('fast'), SearchDepth.fast);
       expect(SearchDepth.fromString('standard'), SearchDepth.standard);
@@ -123,4 +179,11 @@ Dart async programming synthesized from source.
       expect(SearchDepth.fromString('unknown'), SearchDepth.standard);
     });
   });
+}
+
+final class _RunningQmdManager extends QmdManager {
+  _RunningQmdManager({required super.port}) : super(host: InternetAddress.loopbackIPv4.address);
+
+  @override
+  bool get isRunning => true;
 }

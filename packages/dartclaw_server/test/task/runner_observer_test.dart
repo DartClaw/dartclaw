@@ -91,8 +91,15 @@ void main() {
       outputTokens: 4,
       cacheReadTokens: 5,
       cacheWriteTokens: 2,
-      toolFailures: const [false, true],
+      toolFailures: List.generate(70, (index) => index == 64),
     );
+    expect(outcome.toolCallCount, 70);
+    expect(outcome.failedToolCallCount, 1);
+    expect(outcome.toolCalls, hasLength(64));
+    expect(outcome.toolCalls.first.name, 'tool-0');
+    expect(outcome.toolCalls[62].name, 'tool-62');
+    expect(outcome.toolCalls.last.name, 'tool-69');
+    expect(outcome.toolCallsTruncated, isTrue);
 
     await lease.runner!.waitForOutcome(outcome.sessionId, outcome.turnId);
     final failedOutcome = await _completeTurn(lease, inputTokens: 3, outputTokens: 2, fail: true);
@@ -105,7 +112,7 @@ void main() {
     expect(metrics.errorCount, 1);
     expect(metrics.cacheReadTokens, 5);
     expect(metrics.cacheWriteTokens, 2);
-    expect(metrics.totalToolCalls, 2);
+    expect(metrics.totalToolCalls, 70);
     expect(metrics.failedToolCalls, 1);
     await lease.release();
   });

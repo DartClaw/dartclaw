@@ -158,8 +158,8 @@ class RunnerObserver {
     metrics.cacheReadTokens += outcome.cacheReadTokens;
     metrics.cacheWriteTokens += outcome.cacheWriteTokens;
     metrics.totalTurnDurationMs += outcome.turnDuration.inMilliseconds;
-    metrics.totalToolCalls += outcome.toolCalls.length;
-    metrics.failedToolCalls += outcome.toolCalls.where((call) => !call.success).length;
+    metrics.totalToolCalls += outcome.toolCallCount;
+    metrics.failedToolCalls += outcome.failedToolCallCount;
   }
 
   List<RunnerMetrics> get metrics {

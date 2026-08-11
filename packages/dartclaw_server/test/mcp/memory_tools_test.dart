@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/mcp/memory_tools.dart';
+import 'package:dartclaw_server/src/memory_handlers.dart' show maxMemorySaveCategoryLength, maxMemorySaveTextLength;
 import 'package:test/test.dart';
 
 void main() {
@@ -11,6 +12,9 @@ void main() {
       expect(tool.inputSchema['type'], 'object');
       final required = tool.inputSchema['required'] as List;
       expect(required, contains('text'));
+      final properties = tool.inputSchema['properties'] as Map<String, dynamic>;
+      expect(properties['text'], containsPair('maxLength', maxMemorySaveTextLength));
+      expect(properties['category'], containsPair('maxLength', maxMemorySaveCategoryLength));
     });
 
     test('invokes handler and returns extracted text', () async {
@@ -35,6 +39,10 @@ void main() {
       expect(tool.description, isNotEmpty);
       final required = tool.inputSchema['required'] as List;
       expect(required, contains('query'));
+      final limit = (tool.inputSchema['properties'] as Map<String, dynamic>)['limit'] as Map<String, dynamic>;
+      expect(limit, containsPair('type', 'integer'));
+      expect(limit, containsPair('minimum', 1));
+      expect(limit, containsPair('maximum', 50));
     });
 
     test('invokes handler and returns extracted text', () async {

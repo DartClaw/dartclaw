@@ -73,6 +73,9 @@ class TurnGuardEvaluator {
     required String turnId,
     required String sessionId,
     required String accumulated,
+    List<ToolCallRecord> toolCalls = const [],
+    int? toolCallCount,
+    int? failedToolCallCount,
   }) async {
     final chain = _guardChain;
     if (chain == null || accumulated.isEmpty) return null;
@@ -99,6 +102,9 @@ class TurnGuardEvaluator {
       sessionId: sessionId,
       status: TurnStatus.failed,
       errorMessage: 'Response blocked by guard: ${verdict.message}',
+      toolCalls: toolCalls,
+      toolCallCount: toolCallCount,
+      failedToolCallCount: failedToolCallCount,
       completedAt: DateTime.now(),
     );
   }
@@ -110,6 +116,9 @@ class TurnGuardEvaluator {
 /// [TurnRunner] only needs to forward the hook events and consume the
 /// accumulated summaries.
 class TurnToolHookCallbackHandler {
+  /// Maximum raw tool events retained per turn: the first 63 plus the latest.
+  static const maxRetainedToolEvents = 64;
+
   final String _sessionId;
   final String _turnId;
   final SessionResetService? _resetService;
@@ -124,7 +133,10 @@ class TurnToolHookCallbackHandler {
   final Map<String, ({String name, String? context, DateTime startedAt})> _pendingToolCalls = {};
   final List<ToolCallRecord> _completedToolCalls = [];
   int _toolCallCount = 0;
+  int _failedToolCallCount = 0;
+  int _unresolvedToolCallCount = 0;
   String? _lastToolName;
+  ToolUseEvent? _lastToolEvent;
 
   TurnToolHookCallbackHandler({
     required String sessionId,
@@ -150,20 +162,35 @@ class TurnToolHookCallbackHandler {
 
   List<ToolCallRecord> get completedToolCalls => _completedToolCalls;
 
+  int get pendingToolCallCount => _pendingToolCalls.length;
+
   int get toolCallCount => _toolCallCount;
+
+  int get failedToolCallCount => _failedToolCallCount;
 
   String? get lastToolName => _lastToolName;
 
+  ToolUseEvent? get lastToolEvent => _lastToolEvent;
+
   void handleToolUse(ToolUseEvent event) {
-    _toolEvents.add(event);
+    _lastToolEvent = event;
+    if (_toolEvents.length < maxRetainedToolEvents) {
+      _toolEvents.add(event);
+    } else {
+      _toolEvents[maxRetainedToolEvents - 1] = event;
+    }
     _progressMonitor?.recordProgress();
     _resetService?.touchActivity(_sessionId);
+    if (!_pendingToolCalls.containsKey(event.toolId) && _pendingToolCalls.length >= maxRetainedToolEvents) {
+      _pendingToolCalls.remove(_pendingToolCalls.keys.last);
+    }
     _pendingToolCalls[event.toolId] = (
       name: event.toolName,
       context: summarizeToolInput(event.toolName, event.input),
       startedAt: DateTime.now(),
     );
     _toolCallCount += 1;
+    _unresolvedToolCallCount += 1;
     _lastToolName = event.toolName;
     _emitProgressEvent(
       ToolStartedProgressEvent(snapshot: _buildSnapshot(), toolName: event.toolName, toolCallCount: _toolCallCount),
@@ -178,13 +205,17 @@ class TurnToolHookCallbackHandler {
   void handleToolResult(ToolResultEvent event) {
     _progressMonitor?.recordProgress();
     _resetService?.touchActivity(_sessionId);
+    if (_unresolvedToolCallCount > 0) {
+      _unresolvedToolCallCount -= 1;
+      if (event.isError) _failedToolCallCount += 1;
+    }
     final pending = _pendingToolCalls.remove(event.toolId);
     if (pending == null) {
       return;
     }
 
     final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
-    _completedToolCalls.add(
+    _retainCompletedToolCall(
       ToolCallRecord(
         name: pending.name,
         success: !event.isError,
@@ -202,7 +233,7 @@ class TurnToolHookCallbackHandler {
     final turnEndedAt = endedAt ?? DateTime.now();
     for (final entry in _pendingToolCalls.entries) {
       final durationMs = turnEndedAt.difference(entry.value.startedAt).inMilliseconds;
-      _completedToolCalls.add(
+      _retainCompletedToolCall(
         ToolCallRecord(
           name: entry.value.name,
           success: false,
@@ -212,6 +243,16 @@ class TurnToolHookCallbackHandler {
         ),
       );
     }
+    _failedToolCallCount += _unresolvedToolCallCount;
+    _unresolvedToolCallCount = 0;
     _pendingToolCalls.clear();
+  }
+
+  void _retainCompletedToolCall(ToolCallRecord record) {
+    if (_completedToolCalls.length < maxRetainedToolEvents) {
+      _completedToolCalls.add(record);
+    } else {
+      _completedToolCalls[maxRetainedToolEvents - 1] = record;
+    }
   }
 }

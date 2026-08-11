@@ -1,18 +1,34 @@
-import 'package:logging/logging.dart';
-
 import 'memory_entry.dart';
 
-final _log = Logger('MemoryEntryParser');
-
 /// Regex matching timestamped memory entries: `- [YYYY-MM-DD HH:MM] ...`
-final memoryTimestampRe = RegExp(r'^\- \[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]');
+final memoryTimestampRe = RegExp(r'^\- \[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\] ');
+final _memoryFenceRe = RegExp(r'^ {0,3}(`{3,}|~{3,})');
+bool _isIndented(String line) => line.startsWith(' ') || line.startsWith('\t');
 
-/// Parses MEMORY.md content into structured [MemoryEntry] instances.
-///
-/// Recognizes `## category` headers and `- [timestamp] text` entries.
-/// Continuation lines (non-blank, non-header, non-entry) are appended to
-/// the current entry. Undated entries (no recognized timestamp) get a null
-/// [MemoryEntry.timestamp].
+class _MemoryFenceTracker {
+  String? _token;
+  bool get isOpen => _token != null;
+  ({bool consumed, bool opened}) consume(String line, {required bool canOpen}) {
+    final match = _memoryFenceRe.firstMatch(line);
+    final token = match?.group(1);
+    final open = _token;
+    if (open != null) {
+      if (token != null &&
+          token[0] == open[0] &&
+          token.length >= open.length &&
+          line.substring(match!.end).trim().isEmpty) {
+        _token = null;
+      }
+      return (consumed: true, opened: false);
+    }
+    if (token == null || !canOpen) return (consumed: false, opened: false);
+    _token = token;
+    return (consumed: true, opened: true);
+  }
+}
+
+/// Parses category headers, timestamped entries, and indented continuations.
+/// Unrecognized timestamps produce undated entries.
 List<MemoryEntry> parseMemoryEntries(String content) {
   final lines = content.split('\n');
   final entries = <MemoryEntry>[];
@@ -20,65 +36,114 @@ List<MemoryEntry> parseMemoryEntries(String content) {
   final blockLines = <String>[];
   DateTime? currentTimestamp;
   StringBuffer? currentText;
-
+  int? currentSourceStart;
+  final pendingBlankLines = <String>[];
+  final fences = _MemoryFenceTracker();
   void flushEntry() {
     if (currentText != null && blockLines.isNotEmpty) {
       final rawBlock = blockLines.join('\n');
       final rawText = currentText.toString().trim();
       if (rawText.isNotEmpty) {
         entries.add(
-          MemoryEntry(timestamp: currentTimestamp, category: currentCategory, rawText: rawText, rawBlock: rawBlock),
+          MemoryEntry(
+            timestamp: currentTimestamp,
+            category: currentCategory,
+            rawText: rawText,
+            rawBlock: rawBlock,
+            sourceStart: currentSourceStart,
+            sourceEnd: currentSourceStart == null ? null : currentSourceStart! + rawBlock.length,
+          ),
         );
       }
     }
     blockLines.clear();
+    pendingBlankLines.clear();
     currentText = null;
     currentTimestamp = null;
+    currentSourceStart = null;
   }
 
+  var lineOffset = 0;
   for (final line in lines) {
+    final currentLineOffset = lineOffset;
+    lineOffset += line.length + 1;
+    final fence = fences.consume(line, canOpen: currentText == null || !_isIndented(line));
+    if (fence.consumed) {
+      if (fence.opened) flushEntry();
+      continue;
+    }
     if (line.startsWith('## ')) {
       flushEntry();
       currentCategory = line.substring(3).trim();
       continue;
     }
-
     if (line.startsWith('- [')) {
       flushEntry();
+      currentSourceStart = currentLineOffset;
       final match = memoryTimestampRe.firstMatch(line);
       if (match != null) {
         final datePart = match.group(1)!;
         final timePart = match.group(2)!;
-        try {
-          currentTimestamp = DateTime.parse('${datePart}T$timePart:00');
-        } catch (e) {
-          currentTimestamp = null;
-          _log.warning('Failed to parse timestamp from line: $line ($e)');
+        final parsed = DateTime.tryParse('${datePart}T$timePart:00');
+        if (parsed != null && parsed.toIso8601String().startsWith('${datePart}T$timePart:')) {
+          currentTimestamp = parsed;
         }
-        // Extract text after "] "
-        final closeBracket = line.indexOf('] ', 2);
-        if (closeBracket != -1) {
-          currentText = StringBuffer(line.substring(closeBracket + 2).trim());
-        } else {
-          currentText = StringBuffer();
-        }
+        currentText = StringBuffer(line.substring(match.end).trim());
       } else {
-        // Entry starts with "- [" but doesn't match timestamp pattern
-        currentTimestamp = null;
         currentText = StringBuffer(line.substring(2).trim());
       }
       blockLines.add(line);
       continue;
     }
-
-    // Continuation line
-    if (currentText != null && line.trim().isNotEmpty) {
-      currentText!.write('\n');
-      currentText!.write(line.trim());
-      blockLines.add(line);
+    if (currentText == null) continue;
+    if (line.trim().isEmpty) {
+      pendingBlankLines.add(line);
+      continue;
     }
+    if (_isIndented(line)) {
+      currentText!.write('\n' * pendingBlankLines.length);
+      blockLines.addAll(pendingBlankLines);
+      pendingBlankLines.clear();
+      currentText!.write('\n');
+      currentText!.write(line.startsWith('  ') ? line.substring(2) : line.substring(1));
+      blockLines.add(line);
+      continue;
+    }
+    flushEntry();
   }
   flushEntry();
-
   return entries;
+}
+
+/// Finds a safe insertion point for [category], ignoring fenced headings.
+({int? headerIndex, int insertIndex, bool hasUnclosedFence}) findMemoryCategoryInsertion(
+  List<String> lines,
+  String category,
+) {
+  final fences = _MemoryFenceTracker();
+  int? headerIndex;
+  int? openFenceIndex;
+  var hasCurrentEntry = false;
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final fence = fences.consume(line, canOpen: !hasCurrentEntry || !_isIndented(line));
+    if (fence.opened) openFenceIndex = i;
+    if (fence.consumed) {
+      if (fence.opened) hasCurrentEntry = false;
+      if (!fences.isOpen) openFenceIndex = null;
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      hasCurrentEntry = false;
+      if (headerIndex != null) return (headerIndex: headerIndex, insertIndex: i, hasUnclosedFence: false);
+      if (line.substring(3).trim() == category) headerIndex = i;
+      continue;
+    }
+    if (line.trim().isNotEmpty && !_isIndented(line)) hasCurrentEntry = line.startsWith('- [');
+  }
+  return (
+    headerIndex: headerIndex,
+    insertIndex: openFenceIndex ?? lines.length,
+    hasUnclosedFence: openFenceIndex != null,
+  );
 }

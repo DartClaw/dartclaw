@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import '../memory_handlers.dart' show maxMemorySaveCategoryLength, maxMemorySaveTextLength, maxMemorySearchResults;
 import 'mcp_utils.dart';
 
 /// Callback type matching the memory handler signature from
@@ -22,8 +23,12 @@ class MemorySaveTool implements McpTool {
   Map<String, dynamic> get inputSchema => {
     'type': 'object',
     'properties': {
-      'text': {'type': 'string', 'description': 'The text to save'},
-      'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
+      'text': {'type': 'string', 'maxLength': maxMemorySaveTextLength, 'description': 'The text to save'},
+      'category': {
+        'type': 'string',
+        'maxLength': maxMemorySaveCategoryLength,
+        'description': 'Category (e.g. preferences, project)',
+      },
     },
     'required': ['text'],
     'additionalProperties': false,
@@ -53,7 +58,13 @@ class MemorySearchTool implements McpTool {
     'type': 'object',
     'properties': {
       'query': {'type': 'string', 'description': 'Search query'},
-      'limit': {'type': 'number', 'description': 'Max results (default 5)'},
+      'limit': {
+        'type': 'integer',
+        'description': 'Number of results (1-$maxMemorySearchResults, default 5)',
+        'default': 5,
+        'minimum': 1,
+        'maximum': maxMemorySearchResults,
+      },
     },
     'required': ['query'],
     'additionalProperties': false,

@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show MemoryEntry, parseMemoryEntries;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show MemoryEntry, MemoryFileService, RepoLock, parseMemoryEntries, secureWriteFileSync;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -16,6 +18,7 @@ typedef PruneResult = ({int entriesArchived, int duplicatesRemoved, int entriesR
 /// Undated entries are preserved (never archived or removed as duplicates).
 class MemoryPruner {
   static final _log = Logger('MemoryPruner');
+  static final _workspaceMemoryLock = RepoLock();
   static const _emptyResult = (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
 
   /// Workspace directory containing `MEMORY.md` and `MEMORY.archive.md`.
@@ -26,97 +29,147 @@ class MemoryPruner {
 
   /// Age threshold in days after which entries are archived.
   final int archiveAfterDays;
+  final void Function(File target, String contents) _writeFile;
+  String? _resolvedWorkspaceDir;
 
   /// Creates a pruner that operates on the given [workspaceDir].
-  MemoryPruner({required this.workspaceDir, required this.memoryService, this.archiveAfterDays = 90});
+  MemoryPruner({
+    required this.workspaceDir,
+    required this.memoryService,
+    this.archiveAfterDays = 90,
+    void Function(File target, String contents)? writeFileForTesting,
+  }) : _writeFile =
+           writeFileForTesting ??
+           ((target, contents) => secureWriteFileSync(target, contents, restrictPermissions: false));
 
-  String get _memoryPath => p.join(workspaceDir, 'MEMORY.md');
-  String get _archivePath => p.join(workspaceDir, 'MEMORY.archive.md');
+  /// Deduplicates and archives parsed entries while preserving opaque source content.
+  Future<PruneResult> prune() {
+    final root = _workspaceRoot();
+    final lockRoot = root ?? p.absolute(workspaceDir);
+    return _workspaceMemoryLock.acquire(p.join(lockRoot, 'MEMORY.md'), () => _pruneLocked(root));
+  }
 
-  /// Runs the full pruning cycle: deduplicate, archive old entries, rewrite MEMORY.md.
-  Future<PruneResult> prune() async {
-    final file = File(_memoryPath);
-    if (!file.existsSync()) {
-      _log.info('MEMORY.md does not exist, skipping prune');
+  Future<PruneResult> _pruneLocked(String? root) async {
+    if (root == null) {
+      memoryService.replaceSourceRows(const [], sources: const {'memory_save', 'archive'});
+      _log.info('Workspace does not exist, skipping prune');
       return _emptyResult;
     }
-
-    final content = file.readAsStringSync();
-    if (content.trim().isEmpty) {
-      _log.info('MEMORY.md is empty, skipping prune');
-      return _emptyResult;
-    }
+    final file = File(p.join(root, 'MEMORY.md'));
+    final content = MemoryFileService.readRegularFile(file) ?? '';
 
     final entries = parseMemoryEntries(content);
-    if (entries.isEmpty) return _emptyResult;
-
-    // Step 1: Deduplication
     final deduped = removeDuplicates(entries);
     final duplicatesRemoved = entries.length - deduped.length;
 
-    // Step 2: Partition by age
     final (:keep, :archive) = partitionByAge(deduped, archiveAfterDays);
 
-    // Step 3: Archive old entries
-    if (archive.isNotEmpty) {
-      try {
-        _appendToArchive(archive);
-      } catch (e) {
-        _log.severe('Failed to write MEMORY.archive.md, aborting prune: $e');
-        return (
-          entriesArchived: 0,
-          duplicatesRemoved: 0,
-          entriesRemaining: entries.length,
-          finalSizeBytes: content.length,
-        );
-      }
-
-      // Step 4: Index archived entries in FTS5
-      for (final entry in archive) {
-        try {
-          memoryService.insertChunk(text: entry.rawText, source: 'archive', category: entry.category);
-        } catch (e) {
-          _log.warning('Failed to index archived entry: $e');
-        }
-      }
+    final hasChanges = archive.isNotEmpty || duplicatesRemoved > 0;
+    final newContent = hasChanges ? _removeEntriesFromSource(content, entries, keep) : content;
+    if (newContent == null) {
+      throw StateError('Parsed MEMORY.md entries could not be mapped back to their source');
     }
 
-    // Step 5: Rewrite MEMORY.md with remaining entries
-    final newContent = reconstructMemoryMd(keep);
-    _atomicWrite(File(_memoryPath), newContent);
+    final archiveUpdate = archive.isEmpty ? null : _prepareArchiveUpdate(root, archive);
+    final archiveContent =
+        archiveUpdate?.updated ??
+        archiveUpdate?.existing ??
+        MemoryFileService.readRegularFile(File(p.join(root, 'MEMORY.archive.md'))) ??
+        '';
+    final learningsContent = MemoryFileService.readRegularFile(File(p.join(root, 'learnings.md'))) ?? '';
+    final canonicalRows = [
+      ..._indexEntries(parseMemoryEntries(newContent), source: 'memory_save'),
+      ..._indexEntries(parseMemoryEntries(archiveContent), source: 'archive'),
+      ..._indexEntries(parseMemoryEntries(learningsContent), source: 'memory_save', category: 'learning'),
+    ];
+
+    var archiveWritten = false;
+    var sourceWritten = false;
+    try {
+      if (archiveUpdate?.updated case final updated?) {
+        _writeFile(archiveUpdate!.file, updated);
+        archiveWritten = true;
+      }
+      if (hasChanges) {
+        _writeFile(file, newContent);
+        sourceWritten = true;
+      }
+      memoryService.replaceSourceRows(canonicalRows, sources: const {'memory_save', 'archive'});
+    } catch (error, stackTrace) {
+      final rollbackError = _rollbackEffects(
+        archiveUpdate,
+        sourceFile: file,
+        existingSource: content,
+        updatedSource: newContent,
+        archiveWritten: archiveWritten,
+        sourceWritten: sourceWritten,
+      );
+      if (rollbackError != null) {
+        Error.throwWithStackTrace(
+          StateError('Memory prune failed: $error; rollback failed: $rollbackError'),
+          stackTrace,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
 
     _log.info(
       'Pruned MEMORY.md: ${archive.length} archived, '
       '$duplicatesRemoved deduped, '
-      '${keep.length} remaining (${newContent.length}B)',
+      '${keep.length} remaining (${utf8.encode(newContent).length}B)',
     );
 
     return (
       entriesArchived: archive.length,
       duplicatesRemoved: duplicatesRemoved,
       entriesRemaining: keep.length,
-      finalSizeBytes: newContent.length,
+      finalSizeBytes: utf8.encode(newContent).length,
     );
   }
 
-  /// Removes exact duplicates by normalized text, keeping the newest entry.
-  /// Undated entries are treated as newest (never removed as duplicates).
+  String? _removeEntriesFromSource(String content, List<MemoryEntry> entries, List<MemoryEntry> keep) {
+    final retained = Set<MemoryEntry>.identity()..addAll(keep);
+    final removalRanges = <({int start, int end})>[];
+    var searchOffset = 0;
+
+    for (final entry in entries) {
+      final start = entry.sourceStart;
+      final blockEnd = entry.sourceEnd;
+      if (start == null || blockEnd == null || start < searchOffset || blockEnd > content.length) return null;
+      if (content.substring(start, blockEnd) != entry.rawBlock) return null;
+      var end = blockEnd;
+      if (end < content.length && content.codeUnitAt(end) == 0x0A) end++;
+      if (!retained.contains(entry)) removalRanges.add((start: start, end: end));
+      searchOffset = end;
+    }
+
+    final result = StringBuffer();
+    var copyOffset = 0;
+    for (final range in removalRanges) {
+      result.write(content.substring(copyOffset, range.start));
+      copyOffset = range.end;
+    }
+    result.write(content.substring(copyOffset));
+    return result.toString();
+  }
+
+  /// Removes exact duplicates by normalized text, keeping the newest dated entry.
   List<MemoryEntry> removeDuplicates(List<MemoryEntry> entries) {
-    final seen = <String, int>{}; // normalizedText -> index of best entry
+    final seen = <String, int>{};
     final result = List<MemoryEntry?>.from(entries);
 
     for (var i = 0; i < entries.length; i++) {
+      if (entries[i].timestamp == null) continue;
       final norm = entries[i].normalizedText;
       final existing = seen[norm];
       if (existing != null) {
-        // Decide which to keep: prefer undated (treated as newest), then newer timestamp
         final existingEntry = entries[existing];
         final currentEntry = entries[i];
         if (_isNewer(currentEntry, existingEntry)) {
-          result[existing] = null; // remove older
+          result[existing] = null;
           seen[norm] = i;
         } else {
-          result[i] = null; // remove current (older)
+          result[i] = null;
         }
       } else {
         seen[norm] = i;
@@ -126,13 +179,7 @@ class MemoryPruner {
     return result.whereType<MemoryEntry>().toList();
   }
 
-  /// Returns true if [a] should be kept over [b] (a is "newer").
-  bool _isNewer(MemoryEntry a, MemoryEntry b) => switch ((a.timestamp, b.timestamp)) {
-    (null, DateTime()) => true, // undated beats dated
-    (DateTime(), null) => false,
-    (null, null) => false, // keep existing
-    (final ta?, final tb?) => ta.isAfter(tb),
-  };
+  bool _isNewer(MemoryEntry a, MemoryEntry b) => a.timestamp!.isAfter(b.timestamp!);
 
   /// Partitions entries into keep/archive lists based on age threshold.
   /// Undated entries always stay in keep list.
@@ -174,27 +221,97 @@ class MemoryPruner {
     return buf.toString();
   }
 
-  void _appendToArchive(List<MemoryEntry> entries) {
-    final archiveFile = File(_archivePath);
-    final buf = StringBuffer();
-    final dateStr = DateTime.now().toUtc().toIso8601String().substring(0, 10);
-    buf.writeln('## Archived [$dateStr]');
-    for (final entry in entries) {
-      buf.writeln(entry.rawBlock);
+  ({File file, String? existing, String? updated}) _prepareArchiveUpdate(String root, List<MemoryEntry> entries) {
+    final archiveFile = File(p.join(root, 'MEMORY.archive.md'));
+    final previous = MemoryFileService.readRegularFile(archiveFile);
+    final existing = previous ?? '';
+    final archivedEntries = parseMemoryEntries(existing);
+    final archivedIdentities = archivedEntries
+        .map((entry) => (category: entry.category, rawBlock: entry.rawBlock))
+        .toSet();
+    final newEntries = entries
+        .where((entry) => !archivedIdentities.contains((category: entry.category, rawBlock: entry.rawBlock)))
+        .toList();
+    if (newEntries.isEmpty) return (file: archiveFile, existing: previous, updated: null);
+    if (MemoryFileService.hasUnclosedFence(existing)) {
+      throw const FormatException('Cannot append to MEMORY.archive.md after an unclosed fenced block');
     }
-    buf.writeln();
 
-    if (archiveFile.existsSync()) {
-      archiveFile.writeAsStringSync(buf.toString(), mode: FileMode.append);
-    } else {
-      archiveFile.parent.createSync(recursive: true);
-      archiveFile.writeAsStringSync(buf.toString());
+    final separator = existing.isEmpty || existing.endsWith('\n\n')
+        ? ''
+        : existing.endsWith('\n')
+        ? '\n'
+        : '\n\n';
+    final updated = '$existing$separator${reconstructMemoryMd(newEntries)}';
+    return (file: archiveFile, existing: previous, updated: updated);
+  }
+
+  Iterable<MemoryIndexRow> _indexEntries(
+    Iterable<MemoryEntry> entries, {
+    required String source,
+    String? category,
+  }) sync* {
+    for (final entry in entries) {
+      yield* MemoryService.indexRows(
+        text: entry.rawText,
+        source: source,
+        category: category ?? entry.category,
+        createdAt: entry.timestamp,
+      );
     }
   }
 
-  static void _atomicWrite(File target, String content) {
-    final tempFile = File('${target.path}.tmp');
-    tempFile.writeAsStringSync(content);
-    tempFile.renameSync(target.path);
+  Object? _rollbackEffects(
+    ({File file, String? existing, String? updated})? archiveUpdate, {
+    required File sourceFile,
+    required String existingSource,
+    required String updatedSource,
+    required bool archiveWritten,
+    required bool sourceWritten,
+  }) {
+    Object? rollbackError;
+    if (sourceWritten && updatedSource != existingSource) {
+      try {
+        _writeFile(sourceFile, existingSource);
+      } catch (error) {
+        rollbackError = error;
+      }
+    }
+    final update = archiveUpdate;
+    if (archiveWritten && update?.updated != null) {
+      try {
+        final existing = update!.existing;
+        if (existing == null) {
+          if (update.file.existsSync()) update.file.deleteSync();
+        } else {
+          _writeFile(update.file, existing);
+        }
+      } catch (error) {
+        rollbackError ??= error;
+      }
+    }
+    return rollbackError;
+  }
+
+  String? _workspaceRoot() {
+    if (_resolvedWorkspaceDir case final resolved?) {
+      final type = FileSystemEntity.typeSync(resolved, followLinks: false);
+      if (type == FileSystemEntityType.notFound) return null;
+      if (type != FileSystemEntityType.directory) {
+        throw FileSystemException('Workspace root is not a directory', resolved);
+      }
+      return resolved;
+    }
+    final directory = Directory(p.absolute(workspaceDir));
+    final type = FileSystemEntity.typeSync(directory.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return null;
+    if (type != FileSystemEntityType.directory && type != FileSystemEntityType.link) {
+      throw FileSystemException('Workspace root is not a directory', directory.path);
+    }
+    final resolved = directory.resolveSymbolicLinksSync();
+    if (FileSystemEntity.typeSync(resolved, followLinks: false) != FileSystemEntityType.directory) {
+      throw FileSystemException('Workspace root does not resolve to a directory', directory.path);
+    }
+    return _resolvedWorkspaceDir = p.normalize(resolved);
   }
 }

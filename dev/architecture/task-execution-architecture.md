@@ -390,7 +390,10 @@ Result of a completed turn:
 | `cacheReadTokens` | `int` | Prompt cache read tokens |
 | `cacheWriteTokens` | `int` | Prompt cache write tokens |
 | `turnDuration` | `Duration` | Wall-clock turn time |
-| `toolCalls` | `List<ToolCallRecord>` | Tool invocations during the turn |
+| `toolCalls` | `List<ToolCallRecord>` | Bounded invocation detail (first 63 plus latest) |
+| `toolCallCount` | `int` | Exact invocation count |
+| `failedToolCallCount` | `int` | Exact failed or incomplete invocation count |
+| `toolCallsTruncated` | `bool` | Whether bounded detail omits records |
 | `loopDetection` | `LoopDetection?` | Non-null when cancelled due to loop |
 | `responseText` | `String?` | Agent's final response text |
 | `errorMessage` | `String?` | Error details on failure |
@@ -740,7 +743,10 @@ Rich per-turn record persisted to SQLite (`dartclaw_core`):
 | `cacheWriteTokens` | `int` | Cache write tokens |
 | `isError` | `bool` | Whether the turn failed |
 | `errorType` | `String?` | Error classification |
-| `toolCalls` | `List<ToolCallRecord>` | Detailed tool call records |
+| `toolCalls` | `List<ToolCallRecord>` | Bounded records (first 63 plus latest) |
+| `toolCallCount` | `int` | Exact invocation count |
+| `failedToolCallCount` | `int` | Exact failed or incomplete invocation count |
+| `toolCallsTruncated` | `bool` | Whether bounded detail omits records |
 
 ### 9.2 Storage
 
@@ -767,7 +773,7 @@ CREATE TABLE turns (
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     is_error           INTEGER NOT NULL DEFAULT 0,
     error_type         TEXT,
-    tool_calls         TEXT
+    tool_calls         TEXT  -- JSON envelope; legacy JSON arrays remain readable
 );
 ```
 
@@ -775,7 +781,7 @@ CREATE TABLE turns (
 
 `GET /api/traces` supports filtering by `taskId`, `sessionId`, `runnerId`, `model`, `provider`, `since`, `until`, plus pagination (`limit`, `offset`).
 
-Returns `TraceQueryResult`: paginated trace list + `TurnTraceSummary` aggregates (total tokens, total duration, total tool calls, trace count) over the full filtered result set.
+Returns `TraceQueryResult`: paginated trace list + `TurnTraceSummary` aggregates (total tokens, total duration, exact total tool calls, trace count) over the full filtered result set.
 
 Introduced in 0.14.
 

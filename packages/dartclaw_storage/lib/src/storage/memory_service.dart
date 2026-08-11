@@ -1,8 +1,27 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult;
+import 'package:dartclaw_core/dartclaw_core.dart' show MemoryFileService, MemorySearchResult;
 import 'package:sqlite3/sqlite3.dart';
+
+/// One canonical row in the derived memory search index.
+final class MemoryIndexRow {
+  /// Normalized chunk text used by FTS5 and exact-identity operations.
+  final String text;
+
+  /// Canonical source label such as `memory_save` or `archive`.
+  final String source;
+
+  /// Memory category retained from the source entry.
+  final String? category;
+
+  /// Source entry time; undated entries use a deterministic oldest sentinel.
+  final DateTime createdAt;
+
+  /// Creates one derived index row.
+  const MemoryIndexRow({required this.text, required this.source, required this.category, required this.createdAt});
+}
 
 /// Manages the FTS5 memory search index backed by SQLite.
 class MemoryService {
+  static final _undatedCreatedAt = DateTime.utc(1);
   final Database _db;
 
   /// Creates a [MemoryService] backed by [_db] and initializes the FTS5 schema.
@@ -62,20 +81,70 @@ class MemoryService {
   }
 
   /// Inserts a new memory chunk and returns its row id.
-  int insertChunk({required String text, required String source, String? category, String userId = 'owner'}) {
+  int insertChunk({
+    required String text,
+    required String source,
+    String? category,
+    DateTime? createdAt,
+    String userId = 'owner',
+  }) {
     if (text.trim().isEmpty) {
       throw ArgumentError('text must not be empty or blank');
     }
     if (source.trim().isEmpty) {
       throw ArgumentError('source must not be empty or blank');
     }
-    _db.execute('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)', [
+    if (createdAt == null) {
+      _db.execute('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)', [
+        text,
+        source,
+        category,
+        userId,
+      ]);
+    } else {
+      _db.execute('INSERT INTO memory_chunks (text, source, category, created_at, user_id) VALUES (?, ?, ?, ?, ?)', [
+        text,
+        source,
+        category,
+        createdAt.toIso8601String(),
+        userId,
+      ]);
+    }
+    return _db.lastInsertRowId;
+  }
+
+  /// Inserts a chunk only when the same indexed identity is absent.
+  bool insertChunkIfAbsent({
+    required String text,
+    required String source,
+    String? category,
+    DateTime? createdAt,
+    String userId = 'owner',
+  }) {
+    if (text.trim().isEmpty) throw ArgumentError('text must not be empty or blank');
+    if (source.trim().isEmpty) throw ArgumentError('source must not be empty or blank');
+    _db.execute(
+      '''
+      INSERT INTO memory_chunks (text, source, category, created_at, user_id)
+      SELECT ?, ?, ?, COALESCE(?, datetime('now')), ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM memory_chunks WHERE text = ? AND source = ? AND category IS ? AND user_id = ?
+      )
+    ''',
+      [text, source, category, createdAt?.toIso8601String(), userId, text, source, category, userId],
+    );
+    return _db.updatedRows > 0;
+  }
+
+  /// Deletes the exact indexed identity used by [insertChunkIfAbsent].
+  bool deleteChunkIdentity({required String text, required String source, String? category, String userId = 'owner'}) {
+    _db.execute('DELETE FROM memory_chunks WHERE text = ? AND source = ? AND category IS ? AND user_id = ?', [
       text,
       source,
       category,
       userId,
     ]);
-    return _db.lastInsertRowId;
+    return _db.updatedRows > 0;
   }
 
   /// Searches memory chunks using FTS5 BM25 ranking.
@@ -144,16 +213,93 @@ class MemoryService {
     return _db.updatedRows;
   }
 
+  /// Normalizes one canonical file entry into its stable search-index rows.
+  static List<MemoryIndexRow> indexRows({
+    required String text,
+    required String source,
+    required String? category,
+    required DateTime? createdAt,
+  }) {
+    final normalized = MemoryFileService.stripMarkdown(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'));
+    return MemoryFileService.splitParagraphs(normalized)
+        .where((chunk) => chunk.trim().isNotEmpty)
+        .map(
+          (chunk) => MemoryIndexRow(
+            text: chunk,
+            source: source,
+            category: category,
+            createdAt: createdAt ?? _undatedCreatedAt,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   /// Replaces all chunks for [userId] with [chunks].
-  void rebuildIndex(List<({String text, String source, String? category})> chunks, {String userId = 'owner'}) {
-    _db.execute('DELETE FROM memory_chunks WHERE user_id = ?', [userId]);
-    final stmt = _db.prepare('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)');
+  void rebuildIndex(Iterable<MemoryIndexRow> chunks, {String userId = 'owner'}) => _replaceRows(
+    chunks,
+    deleteSql: 'DELETE FROM memory_chunks WHERE user_id = ?',
+    deleteArgs: [userId],
+    userId: userId,
+  );
+
+  /// Atomically replaces rows from [sources] while preserving other sources.
+  void replaceSourceRows(Iterable<MemoryIndexRow> rows, {required Set<String> sources, String userId = 'owner'}) {
+    if (sources.isEmpty) throw ArgumentError.value(sources, 'sources', 'must not be empty');
+    final replacements = rows.toList(growable: false);
+    if (replacements.any((row) => !sources.contains(row.source))) {
+      throw ArgumentError.value(rows, 'rows', 'must belong to the replaced sources');
+    }
+    final placeholders = List.filled(sources.length, '?').join(', ');
+    _replaceRows(
+      replacements,
+      deleteSql: 'DELETE FROM memory_chunks WHERE user_id = ? AND source IN ($placeholders)',
+      deleteArgs: [userId, ...sources],
+      userId: userId,
+    );
+  }
+
+  /// Atomically replaces one source/category slice while preserving other rows.
+  void replaceCategoryRows(
+    Iterable<MemoryIndexRow> rows, {
+    required String source,
+    required String? category,
+    String userId = 'owner',
+  }) {
+    final replacements = rows.toList(growable: false);
+    if (replacements.any((row) => row.source != source || row.category != category)) {
+      throw ArgumentError.value(rows, 'rows', 'must belong to the replaced source and category');
+    }
+    _replaceRows(
+      replacements,
+      deleteSql: 'DELETE FROM memory_chunks WHERE user_id = ? AND source = ? AND category IS ?',
+      deleteArgs: [userId, source, category],
+      userId: userId,
+    );
+  }
+
+  void _replaceRows(
+    Iterable<MemoryIndexRow> rows, {
+    required String deleteSql,
+    required List<Object?> deleteArgs,
+    required String userId,
+  }) {
+    _db.execute('BEGIN IMMEDIATE');
     try {
-      for (final chunk in chunks) {
-        stmt.execute([chunk.text, chunk.source, chunk.category, userId]);
+      _db.execute(deleteSql, deleteArgs);
+      final stmt = _db.prepare(
+        'INSERT INTO memory_chunks (text, source, category, created_at, user_id) VALUES (?, ?, ?, ?, ?)',
+      );
+      try {
+        for (final chunk in rows) {
+          stmt.execute([chunk.text, chunk.source, chunk.category, chunk.createdAt.toIso8601String(), userId]);
+        }
+      } finally {
+        stmt.close();
       }
-    } finally {
-      stmt.close();
+      _db.execute('COMMIT');
+    } catch (_) {
+      if (!_db.autocommit) _db.execute('ROLLBACK');
+      rethrow;
     }
   }
 

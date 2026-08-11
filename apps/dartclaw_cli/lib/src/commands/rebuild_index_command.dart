@@ -22,7 +22,7 @@ class RebuildIndexCommand extends Command<void> {
   String get name => 'rebuild-index';
 
   @override
-  String get description => 'Rebuild FTS5 memory search index from MEMORY.md';
+  String get description => 'Rebuild FTS5 memory search index offline (stop DartClaw first)';
 
   @override
   Future<void> run() async {
@@ -32,27 +32,47 @@ class RebuildIndexCommand extends Command<void> {
     for (final w in config.warnings) {
       write('WARNING: $w');
     }
+    write('WARNING: DartClaw must remain stopped until rebuild-index completes.');
 
     final memoryPath = p.join(config.workspaceDir, 'MEMORY.md');
-    final file = File(memoryPath);
-    if (!file.existsSync()) {
-      write('No MEMORY.md found at $memoryPath');
-      return;
-    }
-
-    final entries = MemoryFileService.parseMemoryFile(memoryPath);
-    if (entries.isEmpty) {
-      write('MEMORY.md is empty — nothing to index');
-      return;
+    final archivePath = p.join(config.workspaceDir, 'MEMORY.archive.md');
+    final learningsPath = p.join(config.workspaceDir, 'learnings.md');
+    final memoryEntries = _readEntries(memoryPath);
+    final archiveEntries = _readEntries(archivePath);
+    final learningEntries = _readEntries(learningsPath);
+    if (![memoryPath, archivePath, learningsPath].any((path) => File(path).existsSync())) {
+      write('No MEMORY.md, MEMORY.archive.md, or learnings.md found in ${config.workspaceDir}');
     }
 
     final db = _searchDbFactory(config.searchDbPath);
     try {
       final memory = MemoryService(db);
-      memory.rebuildIndex(entries.map((e) => (text: e.text, source: 'memory_save', category: e.category)).toList());
-      write('Rebuilt index: ${entries.length} entries from $memoryPath');
+      final rows = [
+        ..._indexRows(memoryEntries, source: 'memory_save'),
+        ..._indexRows(archiveEntries, source: 'archive'),
+        ..._indexRows(learningEntries, source: 'memory_save', category: 'learning'),
+      ];
+      memory.rebuildIndex(rows);
+      final total = rows.length;
+      write('Rebuilt index: $total entries from MEMORY.md, MEMORY.archive.md, and learnings.md');
     } finally {
       db.close();
+    }
+  }
+
+  List<MemoryEntry> _readEntries(String path) {
+    final content = MemoryFileService.readRegularFile(File(path));
+    return content == null ? const [] : parseMemoryEntries(content);
+  }
+
+  Iterable<MemoryIndexRow> _indexRows(List<MemoryEntry> entries, {required String source, String? category}) sync* {
+    for (final entry in entries) {
+      yield* MemoryService.indexRows(
+        text: entry.rawText,
+        source: source,
+        category: category ?? entry.category,
+        createdAt: entry.timestamp,
+      );
     }
   }
 }

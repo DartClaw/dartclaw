@@ -88,12 +88,14 @@ class TurnRunner implements core.TurnRunner {
   final _progressController = StreamController<TurnProgressEvent>.broadcast();
   Duration _statusTickInterval = Duration.zero;
   final Map<String, TurnProgressSnapshot Function()> _turnProgressSnapshots = {};
+  final _turnToolHooks = Map<String, TurnToolHookCallbackHandler>.of(const {});
 
   final Map<String, TurnContext> _activeTurns = {};
   final Set<String> _cancelledTurns = {};
   final Set<String> _cancellingTurns = {};
   final Set<String> _externallyAdmittedTurns = {};
   final Set<String> _externallyCompletedTurns = {};
+  final _postProviderTurns = <String>{};
   final Set<String> _acceptedCancelCleanupPending = {};
   final Map<String, Future<void>> _acceptedCancelRecovery = {};
   final Map<String, ({TurnOutcome outcome, DateTime expiresAt})> _recentOutcomes = {};
@@ -461,7 +463,13 @@ class TurnRunner implements core.TurnRunner {
   Future<void> cancelTurn(String sessionId) async {
     final turnId = _activeTurns[sessionId]?.turnId;
     if (turnId == null) return;
-    await cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false);
+    try {
+      await cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false);
+    } on TurnCancelException catch (e) {
+      if (e.code != 'TURN_NOT_CANCELLABLE') rethrow;
+      final settlement = waitForExecutionSettled(sessionId, turnId);
+      await settlement;
+    }
   }
 
   @override

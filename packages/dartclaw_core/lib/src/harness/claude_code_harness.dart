@@ -25,7 +25,6 @@ import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'tool_policy.dart';
-// Claude CLI configuration
 
 List<String> _buildClaudeArgs({
   String? model,
@@ -78,30 +77,18 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Platform policy used for executable lookup and process semantics.
   final PlatformCapabilities platformCapabilities;
 
-  /// Memory handler callbacks. Used for `sdkMcpServers` fallback in chat mode
-  /// (no MCP server). When `harnessConfig.mcpServerUrl` is set, memory tools
-  /// are served via the `/mcp` HTTP endpoint instead.
+  /// Memory handlers exposed through the SDK fallback when no HTTP MCP server is configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
-  /// Callback fired when Claude Code's own permission layer denies a tool call.
-  ///
-  /// Receives the native tool name and an optional reason string. Wired by
-  /// `HarnessWiring` to emit a [ToolPermissionDeniedEvent] on the EventBus.
-  /// Null when permission-denied events are not being observed.
+  /// Called with the native tool name and reason when Claude denies tool use.
   final void Function(String toolName, String? reason)? onPermissionDenied;
 
-  /// Invoked when a `PreCompact` hook callback is received.
-  ///
-  /// Parameters: `(sessionId, trigger)`. The wiring layer connects this to
-  /// `EventBus.fire(CompactionStartingEvent(...))`.
+  /// Called with the session ID and trigger before compaction.
   void Function(String sessionId, String trigger)? onCompactionStarting;
 
-  /// Invoked when a `compact_boundary` system message is received on stdout.
-  ///
-  /// Parameters: `(trigger, preTokens)`. The wiring layer connects this to
-  /// `EventBus.fire(CompactionCompletedEvent(...))`.
+  /// Called with the trigger and pre-compaction token count at the boundary.
   void Function(String trigger, int? preTokens)? onCompactionCompleted;
 
   static final _log = Logger('ClaudeCodeHarness');
@@ -121,7 +108,6 @@ class ClaudeCodeHarness extends BaseHarness {
   String? _processAppendSystemPrompt;
   int? _processMaxTurns;
 
-  /// Completer for the initialize handshake response.
   Completer<Map<String, dynamic>>? _initCompleter;
 
   ClaudeCodeHarness({
@@ -186,7 +172,6 @@ class ClaudeCodeHarness extends BaseHarness {
 
   /// Session ID assigned by the claude binary after init.
   String? get sessionId => _sessionId;
-  // Lifecycle
 
   @override
   Future<void> start() => startLifecycle(
@@ -282,7 +267,6 @@ class ClaudeCodeHarness extends BaseHarness {
       }
       _containerMcpConfigPath = null;
     }
-    // Clean up MCP config temp file.
     final mcpPath = _mcpConfigPath;
     if (mcpPath != null) {
       try {
@@ -293,7 +277,6 @@ class ClaudeCodeHarness extends BaseHarness {
       _mcpConfigPath = null;
     }
   }
-  // turn()
 
   @override
   Future<Map<String, dynamic>> turn({
@@ -310,8 +293,8 @@ class ClaudeCodeHarness extends BaseHarness {
   }) async {
     final desiredHostWorkingDirectory = _resolveHostWorkingDirectory(directory);
     final desiredWorkingDirectory = _resolveWorkingDirectory(directory);
-    final desiredModel = _resolveModel(model);
-    final desiredEffort = _resolveEffort(effort);
+    final desiredModel = _resolveProviderOption(model, harnessConfig.model);
+    final desiredEffort = _resolveProviderOption(effort, harnessConfig.effort);
     final desiredAppendSystemPrompt = _resolveAppendSystemPrompt(systemPrompt);
     final desiredMaxTurns = _resolveMaxTurns(maxTurns);
 
@@ -386,7 +369,7 @@ class ClaudeCodeHarness extends BaseHarness {
         systemPrompt: promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty ? systemPrompt : null,
         resume: resume,
       );
-      _writeLine(payload);
+      writeJsonLine(payload);
 
       final result = await _turnCompleter!.future.timeout(
         turnTimeout,
@@ -413,24 +396,19 @@ class ClaudeCodeHarness extends BaseHarness {
       _activeAgentId = null;
     }
   }
-  // Internal: start, auth, handshake
 
   Future<void> _startInternal() async {
     _turnsSinceStart = 0;
     _conversationSessionId = null;
     final cm = containerManager;
     if (cm == null) {
-      ProcessResult claudeResult;
+      ProcessResult? claudeResult;
       try {
         claudeResult = await commandProbe(claudeExecutable, const ['--version']);
       } on ProcessException {
-        throw UnsupportedCapabilityError(
-          capability: 'Claude harness executable',
-          attemptedContext: '$claudeExecutable --version',
-          remediation: 'Install "$claudeExecutable" and ensure it is available on PATH.',
-        );
+        // Reported through the same capability error as an invalid probe result.
       }
-      if (claudeResult.exitCode != 0 || '${claudeResult.stdout}'.trim().isEmpty) {
+      if (claudeResult == null || claudeResult.exitCode != 0 || '${claudeResult.stdout}'.trim().isEmpty) {
         throw UnsupportedCapabilityError(
           capability: 'Claude harness executable',
           attemptedContext: '$claudeExecutable --version',
@@ -438,17 +416,14 @@ class ClaudeCodeHarness extends BaseHarness {
         );
       }
 
-      // Verify authentication.
       await _verifyAuth();
     }
 
-    // Build clean env: inherit parent env, strip nesting-detection vars.
     final env = Map<String, String>.from(_environment);
     for (final key in claudeNestingEnvVars) {
       env.remove(key);
     }
 
-    // Write MCP config temp file if internal MCP server is configured.
     final mcpUrl = harnessConfig.mcpServerUrl;
     final mcpToken = harnessConfig.mcpGatewayToken;
     String? mcpConfigPath;
@@ -499,7 +474,6 @@ class ClaudeCodeHarness extends BaseHarness {
       mcpConfigArgPath = mcpConfigPath;
     }
 
-    // Spawn claude process: containerized or direct.
     final nativePermissionMode = ClaudeSettingsBuilder.buildPermissionMode(providerOptions);
     final nativeSettings = ClaudeSettingsBuilder.buildSettings(
       providerOptions,
@@ -547,7 +521,6 @@ class ClaudeCodeHarness extends BaseHarness {
     );
     _log.info('Claude process spawned (generation: $generation, pid: ${process.pid})');
 
-    // Initialize handshake.
     await _sendInitialize();
 
     currentState = WorkerState.idle;
@@ -568,23 +541,13 @@ class ClaudeCodeHarness extends BaseHarness {
     return translated;
   }
 
-  String _resolveHostWorkingDirectory(String? directory) {
-    if (directory == null || directory.trim().isEmpty) {
-      return cwd;
-    }
-    return directory;
-  }
+  String _resolveHostWorkingDirectory(String? directory) =>
+      directory == null || directory.trim().isEmpty ? cwd : directory;
 
-  String? _resolveModel(String? override) {
+  String? _resolveProviderOption(String? override, String? fallback) {
     final trimmed = override?.trim();
     if (trimmed != null && trimmed.isNotEmpty) return trimmed;
-    return harnessConfig.model;
-  }
-
-  String? _resolveEffort(String? override) {
-    final trimmed = override?.trim();
-    if (trimmed != null && trimmed.isNotEmpty) return trimmed;
-    return harnessConfig.effort;
+    return fallback;
   }
 
   String? _resolveAppendSystemPrompt(String override) {
@@ -664,7 +627,6 @@ class ClaudeCodeHarness extends BaseHarness {
     });
   }
 
-  /// Verifies that ANTHROPIC_API_KEY or Claude CLI OAuth session is available.
   Future<void> _verifyAuth() async {
     final hasApiKey = _environment['ANTHROPIC_API_KEY']?.trim().isNotEmpty ?? false;
     if (hasApiKey) return;
@@ -678,7 +640,7 @@ class ClaudeCodeHarness extends BaseHarness {
           return;
         }
       } on FormatException {
-        // JSON parse failed — fall through to error.
+        // Malformed status is treated as unauthenticated.
       }
     }
 
@@ -690,7 +652,6 @@ class ClaudeCodeHarness extends BaseHarness {
     );
   }
 
-  /// Sends the initialize control_request and waits for the response.
   Future<void> _sendInitialize() async {
     _initCompleter = Completer<Map<String, dynamic>>();
 
@@ -698,7 +659,7 @@ class ClaudeCodeHarness extends BaseHarness {
     _log.info('Sending initialize (id: $requestId)...');
 
     final sdkMcpServers = _buildMemorySdkMcpServers();
-    _writeLine(
+    writeJsonLine(
       _adapter.buildInitializeRequest(
         requestId: requestId,
         hooks: {
@@ -749,7 +710,6 @@ class ClaudeCodeHarness extends BaseHarness {
     }
   }
 
-  /// Builds `sdkMcpServers` map for memory tools in chat mode (no MCP server).
   Map<String, dynamic> _buildMemorySdkMcpServers() {
     final save = onMemorySave;
     final search = onMemorySearch;
@@ -780,7 +740,13 @@ class ClaudeCodeHarness extends BaseHarness {
                 'type': 'object',
                 'properties': {
                   'query': {'type': 'string', 'description': 'Search query'},
-                  'limit': {'type': 'number', 'description': 'Max results (default 5)'},
+                  'limit': {
+                    'type': 'integer',
+                    'description': 'Number of results (1-50, default 5)',
+                    'default': 5,
+                    'minimum': 1,
+                    'maximum': 50,
+                  },
                 },
                 'required': ['query'],
               },
@@ -795,7 +761,6 @@ class ClaudeCodeHarness extends BaseHarness {
       },
     };
   }
-  // JSONL message routing
 
   @override
   void handleProcessStdoutLine(String line) {
@@ -808,7 +773,6 @@ class ClaudeCodeHarness extends BaseHarness {
         return;
       }
       if (json == null) {
-        // Not a control_response JSON — fall through to normal parsing.
         _log.fine('Non-JSON or non-control_response line during init');
       }
     }
@@ -904,7 +868,6 @@ class ClaudeCodeHarness extends BaseHarness {
       turnCompleter.completeError(StateError('Claude process exited with code $exitCode'));
     }
   }
-  // Control request handling
 
   void _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) {
     switch (subtype) {
@@ -915,13 +878,13 @@ class ClaudeCodeHarness extends BaseHarness {
           // can_use_tool requests, and guard evaluation runs via PreToolUse hooks.
           _log.warning('Unexpected can_use_tool request while permissions are skipped');
           final toolUseId = data['tool_use_id'] as String?;
-          _writeLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: toolUseId));
+          writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: toolUseId));
           return;
         }
 
         final allow = toolPolicy == ToolApprovalPolicy.allowAll;
         final toolUseId = data['tool_use_id'] as String?;
-        _writeLine(_adapter.buildApprovalResponse(requestId, allow: allow, toolUseId: toolUseId));
+        writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: allow, toolUseId: toolUseId));
         return;
 
       case 'hook_callback':
@@ -929,13 +892,11 @@ class ClaudeCodeHarness extends BaseHarness {
         return;
 
       default:
-        _writeLine(_adapter.buildGenericResponse(requestId));
+        writeJsonLine(_adapter.buildGenericResponse(requestId));
         return;
     }
   }
 
-  /// Routes hook_callback by event type: PreToolUse (guard + credential strip),
-  /// PostToolUse (audit logging), or PreCompact (compaction notification).
   void _handleHookCallback(String requestId, Map<String, dynamic> data) {
     final hookInput = data['input'];
     if (hookInput is! Map<String, dynamic>) {
@@ -992,8 +953,6 @@ class ClaudeCodeHarness extends BaseHarness {
     _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
   }
 
-  /// Handles the `PreCompact` hook callback: invokes [onCompactionStarting]
-  /// and responds with `allow: true` (compaction is non-blocking).
   void _handlePreCompactCallback(String requestId, Map<String, dynamic>? hookInput) {
     final sessionId = hookInput?['session_id'] as String? ?? _sessionId ?? '';
     final trigger = hookInput?['trigger'] as String? ?? 'auto';
@@ -1041,7 +1000,6 @@ class ClaudeCodeHarness extends BaseHarness {
       return;
     }
 
-    // Credential stripping for Bash tool
     final envMap = toolInput['env'] as Map<String, dynamic>?;
     if (envMap != null && envMap.containsKey('ANTHROPIC_API_KEY')) {
       final sanitizedEnv = Map<String, dynamic>.from(envMap)..remove('ANTHROPIC_API_KEY');
@@ -1060,7 +1018,7 @@ class ClaudeCodeHarness extends BaseHarness {
 
   bool _tryWriteHookResponse(String requestId, Map<String, dynamic> response) {
     try {
-      _writeLine(response);
+      writeJsonLine(response);
       return true;
     } catch (error, stackTrace) {
       _log.severe('Failed to write Claude hook response for $requestId: $error', error, stackTrace);
@@ -1104,10 +1062,5 @@ class ClaudeCodeHarness extends BaseHarness {
       _log.fine('Tool response parse failed: $e');
     }
     return <String, dynamic>{};
-  }
-  // Helpers
-
-  void _writeLine(Map<String, dynamic> json) {
-    writeJsonLine(json);
   }
 }

@@ -2,33 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-final _tempSuffixRand = Random();
+final _tempSuffixRand = Random.secure();
 
-/// Atomically writes [json] to [target] via random temp file + rename.
-/// Last writer wins; callers needing read-modify-write safety must lock above.
-Future<void> atomicWriteJson(File target, Object json) async {
-  final suffix = '${DateTime.now().microsecondsSinceEpoch}-${_tempSuffixRand.nextInt(0x7fffffff).toRadixString(16)}';
-  final tempFile = File('${target.path}.$suffix.tmp');
-  try {
-    await tempFile.writeAsString(jsonEncode(json));
-    await tempFile.rename(target.path);
-  } catch (_) {
-    if (tempFile.existsSync()) {
-      try {
-        await tempFile.delete();
-      } catch (_) {}
-    }
-    rethrow;
-  }
-}
-
+/// Atomically writes [value]; last writer wins without caller locking.
+Future<void> atomicWriteJson(File f, Object value) => secureWriteFile(f, jsonEncode(value), restrictPermissions: false);
 String _tempSuffix() =>
-    '${DateTime.now().microsecondsSinceEpoch}-${_tempSuffixRand.nextInt(0x7fffffff).toRadixString(16)}';
+    List.generate(4, (_) => _tempSuffixRand.nextInt(0x7fffffff).toRadixString(16).padLeft(8, '0')).join();
 
-/// Atomically writes [contents], optionally chmoding the temp file before write.
+/// Atomically writes [contents], preserving an existing regular target's POSIX permissions.
 Future<void> secureWriteFile(File target, String contents, {bool restrictPermissions = true}) =>
     _secureWriteFile(target, contents, restrictPermissions: restrictPermissions, chmod: chmodOwnerOnly);
-
 Future<void> _secureWriteFile(
   File target,
   String contents, {
@@ -36,19 +19,23 @@ Future<void> _secureWriteFile(
   required Future<void> Function(String path) chmod,
 }) async {
   final tempFile = File('${target.path}.${_tempSuffix()}.tmp');
+  RandomAccessFile? handle;
   try {
-    if (restrictPermissions) {
-      await tempFile.create(exclusive: true);
-      await chmod(tempFile.path);
-    }
-    await tempFile.writeAsString(contents, flush: true);
+    handle = await tempFile.open(mode: FileMode.writeOnly);
+    final mode = _replacementMode(target, restrictPermissions);
+    final tempMode = Platform.isWindows ? mode : (await tempFile.stat()).mode & 0x1ff;
+    if (mode == 0x180 && tempMode != mode) await chmod(tempFile.path);
+    if (mode != null && mode != 0x180 && tempMode != mode) await _chmodMode(tempFile.path, mode);
+    await handle.writeString(contents);
+    await handle.flush();
+    await handle.close();
+    handle = null;
     await tempFile.rename(target.path);
   } catch (_) {
-    if (tempFile.existsSync()) {
-      try {
-        await tempFile.delete();
-      } catch (_) {}
-    }
+    try {
+      await handle?.close();
+    } catch (_) {}
+    _deleteTempSync(tempFile);
     rethrow;
   }
 }
@@ -56,7 +43,6 @@ Future<void> _secureWriteFile(
 /// Synchronous counterpart to [secureWriteFile].
 void secureWriteFileSync(File target, String contents, {bool restrictPermissions = true}) =>
     _secureWriteFileSync(target, contents, restrictPermissions: restrictPermissions, chmod: chmodOwnerOnlySync);
-
 void _secureWriteFileSync(
   File target,
   String contents, {
@@ -64,21 +50,37 @@ void _secureWriteFileSync(
   required void Function(String path) chmod,
 }) {
   final tempFile = File('${target.path}.${_tempSuffix()}.tmp');
+  RandomAccessFile? handle;
   try {
-    if (restrictPermissions) {
-      tempFile.createSync(exclusive: true);
-      chmod(tempFile.path);
-    }
-    tempFile.writeAsStringSync(contents, flush: true);
+    handle = tempFile.openSync(mode: FileMode.writeOnly);
+    final mode = _replacementMode(target, restrictPermissions);
+    final tempMode = Platform.isWindows ? mode : tempFile.statSync().mode & 0x1ff;
+    if (mode == 0x180 && tempMode != mode) chmod(tempFile.path);
+    if (mode != null && mode != 0x180 && tempMode != mode) _chmodModeSync(tempFile.path, mode);
+    handle.writeStringSync(contents);
+    handle.flushSync();
+    handle.closeSync();
+    handle = null;
     tempFile.renameSync(target.path);
   } catch (_) {
-    if (tempFile.existsSync()) {
-      try {
-        tempFile.deleteSync();
-      } catch (_) {}
-    }
+    try {
+      handle?.closeSync();
+    } catch (_) {}
+    _deleteTempSync(tempFile);
     rethrow;
   }
+}
+
+int? _replacementMode(File target, bool restrictPermissions) {
+  if (restrictPermissions || Platform.isWindows) return restrictPermissions ? 0x180 : null;
+  if (FileSystemEntity.typeSync(target.path, followLinks: false) != FileSystemEntityType.file) return null;
+  return target.statSync().mode & 0x1ff;
+}
+
+void _deleteTempSync(File tempFile) {
+  try {
+    tempFile.deleteSync();
+  } catch (_) {}
 }
 
 Future<void> secureWriteFileWithChmodForTesting(
@@ -86,30 +88,27 @@ Future<void> secureWriteFileWithChmodForTesting(
   String contents,
   Future<void> Function(String path) chmod,
 ) => _secureWriteFile(target, contents, restrictPermissions: true, chmod: chmod);
-
 void secureWriteFileSyncWithChmodForTesting(File target, String contents, void Function(String path) chmod) =>
     _secureWriteFileSync(target, contents, restrictPermissions: true, chmod: chmod);
 
-/// Restricts [path] to owner read/write only (`chmod 600`) on POSIX.
-/// No-op on Windows. Throws [StateError] if the chmod process fails.
-Future<void> chmodOwnerOnly(String path) async {
-  if (Platform.isWindows) return;
-  final result = await Process.run('chmod', ['600', path]);
-  if (result.exitCode != 0) {
-    throw StateError(_chmodFailureMessage(path, result));
-  }
-}
+/// Restricts [path] to mode 600 on POSIX; no-op on Windows.
+Future<void> chmodOwnerOnly(String path) => Platform.isWindows ? Future.value() : _chmodMode(path, 0x180);
 
 /// Synchronous counterpart to [chmodOwnerOnly].
-void chmodOwnerOnlySync(String path) {
-  if (Platform.isWindows) return;
-  final result = Process.runSync('chmod', ['600', path]);
-  if (result.exitCode != 0) {
-    throw StateError(_chmodFailureMessage(path, result));
-  }
+void chmodOwnerOnlySync(String path) => _chmodModeSync(path, Platform.isWindows ? null : 0x180);
+
+Future<void> _chmodMode(String path, int mode) async {
+  final modeText = mode.toRadixString(8).padLeft(3, '0');
+  final result = await Process.run('chmod', [modeText, path]);
+  if (result.exitCode != 0) throw StateError(_chmodFailureMessage(path, modeText, result));
 }
 
-String _chmodFailureMessage(String path, ProcessResult result) {
-  final stderr = (result.stderr as String? ?? '').trim();
-  return 'Failed to chmod 600 $path: ${stderr.isEmpty ? 'chmod exited ${result.exitCode}' : stderr}';
+void _chmodModeSync(String path, int? mode) {
+  if (mode == null) return;
+  final modeText = mode.toRadixString(8).padLeft(3, '0');
+  final result = Process.runSync('chmod', [modeText, path]);
+  if (result.exitCode != 0) throw StateError(_chmodFailureMessage(path, modeText, result));
 }
+
+String _chmodFailureMessage(String path, String mode, ProcessResult result) =>
+    'Failed to chmod $mode $path: ${('${result.stderr}').trim().isEmpty ? 'chmod exited ${result.exitCode}' : '${result.stderr}'.trim()}';

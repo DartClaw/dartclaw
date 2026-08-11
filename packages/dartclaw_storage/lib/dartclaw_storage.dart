@@ -8,7 +8,7 @@
 library;
 
 // Storage services
-export 'src/storage/memory_service.dart' show MemoryService;
+export 'src/storage/memory_service.dart' show MemoryIndexRow, MemoryService;
 export 'src/storage/search_db.dart' show SearchDbFactory, openSearchDb, openSearchDbInMemory;
 export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
 export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;

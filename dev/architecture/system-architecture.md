@@ -380,7 +380,7 @@ Layer 1:  Credential isolation (Claude API keys stay behind CredentialProxy; Cod
 | `NetworkGuard` | `security/network_guard.dart` | Domain allowlist + SSRF detection (DNS resolution + address range validation) |
 | `ContentGuard` | `security/content_guard.dart` | LLM-based content classification at agent boundary (Haiku) |
 | `InputSanitizer` | `security/input_sanitizer.dart` | Length cap + regex scrub on inbound channel messages |
-| `MessageRedactor` | `security/message_redactor.dart` | Pattern-based redaction of secrets/PII in logged output |
+| `MessageRedactor` | `security/message_redactor.dart` | Best-effort pattern-based redaction of secrets in logged output |
 | `GuardAuditLogger` | `security/guard_audit.dart` | Date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup |
 | `ContainerManager` | `container/container_manager.dart` | Docker lifecycle: create, start, exec, stop. Per-security-profile containers |
 | `ContentClassifier` | `security/content_classifier.dart` | Pluggable backends: `ClaudeBinaryClassifier` (default) or `AnthropicApiClassifier` |
@@ -576,19 +576,21 @@ The shipped alert classification model covers guard blocks, container crashes, n
 #### Memory & Search
 
 ```
-MEMORY.md ──(source of truth)──► search.db (FTS5 index, rebuildable)
-daily logs  ─────────────────────┘
+MEMORY.md + MEMORY.archive.md + learnings.md ──(sources of truth)──► search.db (FTS5 index, rebuildable)
 ```
+
+Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
+union that `dartclaw rebuild-index` restores.
 
 | Component | File | Role |
 |-----------|------|------|
-| `MemoryFileService` | `memory/memory_file.dart` | Read/write MEMORY.md with size cap and atomic writes |
-| `SelfImprovementService` | `memory/self_improvement.dart` | Auto-populate `errors.md` on failures, route `learnings.md` via memory_save |
-| `MemoryPruner` | `memory/memory_pruner.dart` | Archive entries >90d, exact dedup, keep under cap |
-| `MemoryService` | `storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
-| `SearchDb` | `storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
-| `Fts5SearchBackend` | `search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
-| `QmdSearchBackend` | `search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar for neural reranking |
+| `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Read/write MEMORY.md with queued atomic writes |
+| `SelfImprovementService` | `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures, route `learnings.md` via memory_save |
+| `MemoryPruner` | `packages/dartclaw_storage/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
+| `MemoryService` | `packages/dartclaw_storage/lib/src/storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
+| `SearchDb` | `packages/dartclaw_storage/lib/src/storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
+| `Fts5SearchBackend` | `packages/dartclaw_storage/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
+| `QmdSearchBackend` | `packages/dartclaw_storage/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
 
 Memory MCP tools (`memory_save`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 

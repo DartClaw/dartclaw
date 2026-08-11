@@ -75,6 +75,9 @@ class Session {
   };
 
   /// Reconstructs a [Session] from persisted JSON data.
+  ///
+  /// A missing legacy `type` defaults to [SessionType.user]. Throws
+  /// [FormatException] when a present type is not a supported string value.
   factory Session.fromJson(Map<String, dynamic> json) => Session(
     id: json['id'] as String,
     title: json['title'] as String?,
@@ -108,10 +111,12 @@ class Session {
   );
 
   static SessionType _parseSessionType(Object? value) {
-    if (value is String) {
-      return SessionType.values.asNameMap()[value] ?? SessionType.user;
+    if (value == null) return SessionType.user;
+    if (value case final String name) {
+      final type = SessionType.values.asNameMap()[name];
+      if (type != null) return type;
     }
-    return SessionType.user; // backward compat default
+    throw FormatException('Unknown session type: $value');
   }
 }
 

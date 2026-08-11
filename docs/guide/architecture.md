@@ -185,13 +185,15 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
         └── YYYY-MM-DD.md            # Daily turn logs
 ```
 
-Mutable files use atomic writes (temp file + rename) to prevent corruption on crash. Services with concurrent callers serialize writes via Dart `StreamController` queues.
+Mutable files use atomic writes (temp file + rename) to prevent corruption on crash. Services with concurrent callers
+serialize writes via Dart `StreamController` queues; canonical memory saves, learning saves, pruning, and their index
+updates also share a workspace write lock.
 
 ### SQLite
 
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
-| `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from MEMORY.md, rebuildable via `dartclaw rebuild-index` |
+| `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md`, rebuildable via `dartclaw rebuild-index` |
 | `tasks.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
 | `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
 
@@ -205,7 +207,7 @@ The restart path is covered by the integration-tagged crash-recovery smoke test 
 
 ### Memory Search
 
-When the agent calls `memory_save`, text is appended to `MEMORY.md`, stripped of markdown, split into paragraph-sized chunks, and inserted into the FTS5 index. `memory_search` queries the index and returns BM25-ranked results. A nightly `MemoryPruner` archives entries older than 90 days and removes exact duplicates to keep the index focused.
+When the agent calls `memory_save`, text is appended to `MEMORY.md` – or to `learnings.md` for the `learning` category – stripped of markdown, split into paragraph-sized chunks, and inserted into the FTS5 index. `memory_search` queries the index and returns BM25-ranked results. A nightly `MemoryPruner` archives entries older than 90 days and removes exact duplicates to keep the index focused.
 
 For more detail on memory configuration, see the [Search guide](search.md).
 

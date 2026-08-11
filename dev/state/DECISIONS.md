@@ -18,7 +18,6 @@
 |----|-------|--------|-------|
 | [002](../adrs/002-file-based-storage.md) | File-Based Storage with Lightweight Search Index | Accepted (implemented) | Storage |
 | [003](../adrs/003-coding-task-support-and-agent-extensibility.md) | Coding Task Support and Agent Extensibility | Accepted (mechanism partially superseded by Direct Bridge and 0.24 logical-agent sessions) | Agent extensibility |
-| [004](../adrs/004-vector-search-approach.md) | Vector Search Approach for Hybrid Memory | Accepted (implemented) | Search / memory |
 | [005](../adrs/005-whatsapp-integration.md) | WhatsApp Integration Approach | Accepted (implemented) | Channels |
 | [006](../adrs/006-http-auth-scope.md) | HTTP Auth Scope and Mechanism | Accepted (implemented) | Security / auth |
 | [007](../adrs/007-system-prompt-architecture.md) | System Prompt Architecture | Proposed | Agent prompts |
@@ -64,6 +63,7 @@
 | [047](../adrs/047-embedded-binary-assets.md) | Embedded Binary Assets — Generated Dart Source Replaces the Sidecar/Download Model | Accepted (implemented 0.20.1; single-file framing amended by ADR-048) (amended 2026-08-06 — generated at build time, no longer committed) | Distribution / assets |
 | [048](../adrs/048-release-builds-dart-build-bundled-sqlite.md) | Release Builds Use `dart build cli` with Bundled SQLite | Accepted (implemented; ships post-0.20.1) | Distribution / build |
 | [049](../adrs/049-typed-platform-capability-surface.md) | Typed Platform Capability Surface | Accepted (targets 0.21) | Platform / runtime capability policy |
+| [050](../adrs/050-native-hybrid-search.md) | Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost | Accepted (targets 0.25 Phase B) | Search / memory |
 
 ## Superseded
 
@@ -75,6 +75,7 @@
 | Prior Decision | Superseded By | Notes |
 |----------------|---------------|-------|
 | [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md) — SDK Integration Strategy and Security Architecture (Option C: Dart→Deno→claude) | Phase 0 Direct Bridge Migration (2026-02-25) — Option D+ | Fully superseded. The Deno worker layer was eliminated; Dart spawns the native `claude` binary directly via the JSONL control protocol. |
+| [ADR-004](../adrs/004-vector-search-approach.md) — Vector Search Approach for Hybrid Memory | [ADR-050](../adrs/050-native-hybrid-search.md) | Superseded. QMD remains the shipped opt-in path only through ADR-050's Phase B deprecation window. |
 | [ADR-003](../adrs/003-coding-task-support-and-agent-extensibility.md) §mechanism — SDK-JS options (partial) | Phase 0 Direct Bridge Migration (2026-02-25) | Partial. Mechanism moved from SDK JS options to the JSONL control protocol; the layered-extensibility / `.claude/` ecosystem core decisions remain in force. |
 | [ADR-003](../adrs/003-coding-task-support-and-agent-extensibility.md) §programmatic provider-native agents (partial) | Logical-agent orchestration decision (2026-08-09) | Partial. Durable DartClaw sessions, host policy, and shared worker capacity replace the Claude-native agent payload as the orchestration contract; provider ecosystems and adapter capabilities remain in force. |
 | [ADR-016](../adrs/016-multi-provider-harness-architecture.md) §per-provider adapter (ACP family) (partial) | [ADR-037](../adrs/037-universal-acp-harness.md) | Partial amendment. "One `ProtocolAdapter` per provider" is replaced for the ACP family by a single universal `AcpHarness`; the tool taxonomy and `HarnessFactory` remain, while execution lifecycle follows ADR-016 Part 4. |

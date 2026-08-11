@@ -164,6 +164,33 @@ void main() {
     expect(restored.toolCalls, isEmpty);
   });
 
+  test('exact tool counters and retained-detail truncation round-trip', () {
+    final records = List.generate(
+      64,
+      (index) => ToolCallRecord(name: 'tool-$index', success: index != 10, durationMs: index),
+    );
+    final trace = TurnTrace(
+      id: 'id-bounded-tools',
+      sessionId: 'sess-bounded-tools',
+      startedAt: start,
+      endedAt: end,
+      toolCalls: records,
+      toolCallCount: 70,
+      failedToolCallCount: 2,
+    );
+
+    final json = trace.toJson();
+    expect(json['toolCallCount'], 70);
+    expect(json['failedToolCallCount'], 2);
+    expect(json['toolCallsTruncated'], isTrue);
+
+    final restored = TurnTrace.fromJson(json);
+    expect(restored.toolCallCount, 70);
+    expect(restored.failedToolCallCount, 2);
+    expect(restored.toolCalls, hasLength(64));
+    expect(restored.toolCallsTruncated, isTrue);
+  });
+
   test('equality and hashCode based on identity fields', () {
     final a = TurnTrace(id: 'id-9', sessionId: 'sess-9', startedAt: start, endedAt: end);
     final b = TurnTrace(id: 'id-9', sessionId: 'sess-9', startedAt: start, endedAt: end);

@@ -372,6 +372,8 @@ extension _TaskExecutorHelpers on TaskExecutor {
           isError: outcome.status != TurnStatus.completed,
           errorType: outcome.status != TurnStatus.completed ? outcome.errorMessage : null,
           toolCalls: outcome.toolCalls,
+          toolCallCount: outcome.toolCallCount,
+          failedToolCallCount: outcome.failedToolCallCount,
         ),
       );
     } catch (error, stackTrace) {

@@ -306,13 +306,13 @@ Source: `packages/dartclaw_config/lib/src/usage_config.dart`
 
 ### Turn Traces
 
-Each agent turn produces a `TurnTrace` record: `id`, `sessionId`, `taskId`, `runnerId`, `model`, `provider`, `startedAt`/`endedAt`, `inputTokens`/`outputTokens`, `cacheReadTokens`/`cacheWriteTokens`, `isError`/`errorType`, and `toolCalls` (`List<ToolCallRecord>`). Computed properties: `totalTokens`, `durationMs`.
+Each agent turn produces a `TurnTrace` record with identity, timing, token and error fields, bounded `toolCalls` detail, exact `toolCallCount`/`failedToolCallCount`, and `toolCallsTruncated`. Computed properties include `totalTokens` and `durationMs`.
 
 Source: `packages/dartclaw_core/lib/src/turn/turn_trace.dart`
 
 ### TurnTraceService
 
-SQLite-backed persistence in `turns` table (co-located in tasks.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. Query API filters by task/session/runner/model/provider/time range with pagination (max 500). Returns traces + aggregate `TurnTraceSummary` (total tokens, duration, tool call count). Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`. The connected CLI `traces list` / `traces show` commands are thin clients over the same query surface.
+SQLite-backed persistence in `turns` table (co-located in tasks.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
 
 Source: `packages/dartclaw_storage/lib/src/storage/turn_trace_service.dart`
 
@@ -441,7 +441,8 @@ Source: `packages/dartclaw_server/lib/src/task/task_progress_tracker.dart`
 ### RunnerObserver
 
 Per-runner cumulative metrics remain attached to current reusable runners: `tokensConsumed`, `turnsCompleted`,
-`errorCount`, `cacheReadTokens`, `cacheWriteTokens`, `totalTurnDurationMs`, `totalToolCalls`, and `failedToolCalls`.
+`errorCount`, `cacheReadTokens`, `cacheWriteTokens`, `totalTurnDurationMs`, exact `totalToolCalls`, and exact
+`failedToolCalls`.
 `TurnRunner` emits each terminal outcome once through `ExecutionCoordinator`, which keys the outcome to the active runner
 ID before `RunnerObserver` accumulates it. The same coordinator event stream is authoritative for busy/free/current
 task/current session state. Disposal is delivered before the coordinator and observer remove the runner from their

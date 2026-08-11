@@ -43,6 +43,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         unawaited(cancelTurnById(sessionId, turnId, TurnCancelReason.automationCancel, enforceCanCancel: false));
       },
     );
+    _turnToolHooks[turnId] = toolHooks;
     _turnProgressSnapshots[sessionId] = buildSnapshot;
     _RuntimeWaitTracker? runtimeWait;
 
@@ -135,17 +136,26 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
           onStuck: () => _emitWaitState(sessionId, TurnWaitState.stuck),
         );
         _runtimeWaits[sessionId] = runtimeWait;
-        final result = await _worker.turn(
-          sessionId: sessionId,
-          agentId: TurnRunner._harnessAgentId(turnCtx?.agentName),
-          messages: messages,
-          systemPrompt: systemPrompt,
-          directory: turnCtx?.directory,
-          model: turnCtx?.model,
-          effort: turnCtx?.effort,
-          maxTurns: turnCtx?.maxTurns,
-          resume: resume,
-        );
+        late final Map<String, dynamic> result;
+        try {
+          result = await _worker.turn(
+            sessionId: sessionId,
+            agentId: TurnRunner._harnessAgentId(turnCtx?.agentName),
+            messages: messages,
+            systemPrompt: systemPrompt,
+            directory: turnCtx?.directory,
+            model: turnCtx?.model,
+            effort: turnCtx?.effort,
+            maxTurns: turnCtx?.maxTurns,
+            resume: resume,
+          );
+        } finally {
+          _postProviderTurns.add(turnId);
+          runtimeWait.dispose();
+          runtimeWait = null;
+          _runtimeWaits.remove(sessionId);
+          progressMonitor?.stop();
+        }
         if (_externallyCompletedTurns.remove(turnId)) {
           outcome = TurnOutcome(
             turnId: turnId,
@@ -233,6 +243,9 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             turnId: turnId,
             sessionId: sessionId,
             accumulated: providerError,
+            toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+            toolCallCount: toolHooks.toolCallCount,
+            failedToolCallCount: toolHooks.failedToolCallCount,
           );
           if (sendOutcome != null) {
             outcome = sendOutcome;
@@ -252,6 +265,8 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             cacheWriteTokens: cacheWriteTokens,
             turnDuration: stopwatch.elapsed,
             toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+            toolCallCount: toolHooks.toolCallCount,
+            failedToolCallCount: toolHooks.failedToolCallCount,
             completedAt: DateTime.now(),
           );
           return;
@@ -262,6 +277,9 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             turnId: turnId,
             sessionId: sessionId,
             accumulated: accumulated,
+            toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+            toolCallCount: toolHooks.toolCallCount,
+            failedToolCallCount: toolHooks.failedToolCallCount,
           );
           if (sendOutcome != null) {
             outcome = sendOutcome;
@@ -280,38 +298,44 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             cacheWriteTokens: cacheWriteTokens,
             turnDuration: stopwatch.elapsed,
             toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+            toolCallCount: toolHooks.toolCallCount,
+            failedToolCallCount: toolHooks.failedToolCallCount,
             completedAt: DateTime.now(),
           );
           return;
         }
 
-        final redacted = _redactor?.redact(accumulated) ?? accumulated;
-        final trimmed = _explorationSummarizer.summarizeOrTrim(
-          redacted,
-          fileHint: _lastToolFileHint(toolHooks.toolEvents),
+        final summary = _explorationSummarizer.summarizeOrTrim(
+          accumulated,
+          fileHint: _lastToolFileHint(toolHooks.lastToolEvent),
         );
-        await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: trimmed);
+        final persistedResponse = _redactor?.redact(summary) ?? summary;
+        await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: persistedResponse);
         await _sessions?.touchUpdatedAt(sessionId);
         outcome = TurnOutcome(
           turnId: turnId,
           sessionId: sessionId,
           status: TurnStatus.completed,
-          responseText: trimmed,
+          responseText: persistedResponse,
           inputTokens: result['input_tokens'] as int? ?? 0,
           outputTokens: result['output_tokens'] as int? ?? 0,
           cacheReadTokens: cacheReadTokens,
           cacheWriteTokens: cacheWriteTokens,
           turnDuration: stopwatch.elapsed,
           toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+          toolCallCount: toolHooks.toolCallCount,
+          failedToolCallCount: toolHooks.failedToolCallCount,
           completedAt: DateTime.now(),
         );
 
         try {
           await _appendDailyLog(
             sessionId: sessionId,
-            userMessage: userMessage,
+            source: source,
+            userMessage: userMessageFull,
             toolEvents: toolHooks.toolEvents,
-            result: redacted,
+            toolEventCount: toolHooks.toolCallCount,
+            result: summary,
           );
         } catch (e) {
           TurnRunner._log.warning('Failed to write daily log', e);
@@ -353,11 +377,16 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             TurnRunner._log.warning('Failed to persist partial message after turn failure: $e');
           }
         }
+        toolHooks.finalizePendingToolCalls();
         outcome = TurnOutcome(
           turnId: turnId,
           sessionId: sessionId,
           status: wasCancelled ? TurnStatus.cancelled : TurnStatus.failed,
           errorMessage: wasCancelled ? null : 'Turn execution failed',
+          turnDuration: stopwatch.elapsed,
+          toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+          toolCallCount: toolHooks.toolCallCount,
+          failedToolCallCount: toolHooks.failedToolCallCount,
           completedAt: DateTime.now(),
           loopDetection: loopDetection,
         );
@@ -406,9 +435,11 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             _emitWaitState(sessionId, TurnWaitState.cancelled);
         }
       }
-      // All reads of this set (711, 748, catch at 897) run before finally, so an
-      // unconditional remove here only closes the leak on throw/early-return paths.
+      // Normal completion and cancellation inspect this set before finally; this
+      // unconditional removal also covers throw and early-return paths.
       _externallyCompletedTurns.remove(turnId);
+      _postProviderTurns.remove(turnId);
+      _turnToolHooks.remove(turnId);
       if (!cancelCleanupPending) _cancellingTurns.remove(turnId);
       if (activeStillThisTurn && !cancelCleanupPending) {
         _activeTurns.remove(sessionId);

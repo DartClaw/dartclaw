@@ -49,30 +49,41 @@ class CronExpression {
   /// Searches minute by minute up to 2 years. Throws [StateError] if no
   /// match found (e.g. impossible expression like Feb 30).
   DateTime nextFrom(DateTime from) {
-    var candidate = DateTime(from.year, from.month, from.day, from.hour, from.minute).add(const Duration(minutes: 1));
+    var candidate = from
+        .subtract(Duration(seconds: from.second, milliseconds: from.millisecond, microseconds: from.microsecond))
+        .add(const Duration(minutes: 1));
     final limit = from.add(const Duration(days: 730));
 
     while (candidate.isBefore(limit)) {
       if (matches(candidate)) return candidate;
 
-      // Skip ahead intelligently
       if (!months.contains(candidate.month)) {
-        // Jump to next valid month
-        candidate = DateTime(candidate.year, candidate.month + 1);
+        candidate = _advanceTo(candidate, year: candidate.year, month: candidate.month + 1);
         continue;
       }
       if (!daysOfMonth.contains(candidate.day) || !daysOfWeek.contains(candidate.weekday % 7)) {
-        candidate = DateTime(candidate.year, candidate.month, candidate.day + 1);
+        candidate = _advanceTo(candidate, year: candidate.year, month: candidate.month, day: candidate.day + 1);
         continue;
       }
       if (!hours.contains(candidate.hour)) {
-        candidate = DateTime(candidate.year, candidate.month, candidate.day, candidate.hour + 1);
+        candidate = _advanceTo(
+          candidate,
+          year: candidate.year,
+          month: candidate.month,
+          day: candidate.day,
+          hour: candidate.hour + 1,
+        );
         continue;
       }
       candidate = candidate.add(const Duration(minutes: 1));
     }
 
     throw StateError('No matching time found within 2 years for cron expression');
+  }
+
+  static DateTime _advanceTo(DateTime current, {required int year, required int month, int day = 1, int hour = 0}) {
+    final proposed = current.isUtc ? DateTime.utc(year, month, day, hour) : DateTime(year, month, day, hour);
+    return proposed.isAfter(current) ? proposed : current.add(const Duration(minutes: 1));
   }
 
   /// Returns a human-readable description of this cron expression.

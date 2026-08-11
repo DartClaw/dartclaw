@@ -20,4 +20,15 @@ void main() {
     expect(decoded.copyWith(provider: null, securityProfile: null).toJson(), isNot(contains('provider')));
     expect(decoded.copyWith(provider: null, securityProfile: null).toJson(), isNot(contains('securityProfile')));
   });
+
+  test('session type accepts supported names and legacy absence but rejects malformed values', () {
+    final json = {'id': 'session-1', 'createdAt': '2026-08-09T10:00:00.000Z', 'updatedAt': '2026-08-09T10:00:00.000Z'};
+
+    expect(Session.fromJson(json).type, SessionType.user);
+    for (final type in SessionType.values) {
+      expect(Session.fromJson({...json, 'type': type.name}).type, type);
+    }
+    expect(() => Session.fromJson({...json, 'type': 'future-system'}), throwsFormatException);
+    expect(() => Session.fromJson({...json, 'type': 1}), throwsFormatException);
+  });
 }

@@ -74,6 +74,10 @@ extension TurnRunnerCancellation on TurnRunner {
       return const TurnCancelResult(status: TurnWaitState.cancelled, releasedSessionLock: false);
     }
 
+    if (_postProviderTurns.contains(turnId)) {
+      throw const TurnCancelException('TURN_NOT_CANCELLABLE', 'Turn is not cancellable', statusCode: 409);
+    }
+
     if (enforceCanCancel) {
       final snapshot = turnStatus(sessionId);
       if (!snapshot.canCancel) {
@@ -86,8 +90,8 @@ extension TurnRunnerCancellation on TurnRunner {
     _cancelledTurns.add(turnId);
     _externallyCompletedTurns.add(turnId);
     _acceptedCancelCleanupPending.add(turnId);
-    await _completeAcceptedCancel(sessionId, turnId);
-    final recovery = _restartWorkerAfterAcceptedCancel(turnId);
+    final recoveryCompleter = Completer<void>();
+    final recovery = recoveryCompleter.future;
     _acceptedCancelRecovery[sessionId] = recovery;
     unawaited(
       recovery
@@ -97,6 +101,18 @@ extension TurnRunnerCancellation on TurnRunner {
             }
           })
           .catchError((Object _) {}),
+    );
+    try {
+      await _completeAcceptedCancel(sessionId, turnId);
+    } catch (e, st) {
+      recoveryCompleter.completeError(e, st);
+      rethrow;
+    }
+    unawaited(
+      _restartWorkerAfterAcceptedCancel(turnId).then(
+        (_) => recoveryCompleter.complete(),
+        onError: (Object e, StackTrace st) => recoveryCompleter.completeError(e, st),
+      ),
     );
     return TurnCancelResult(
       status: TurnWaitState.cancelled,
@@ -124,6 +140,9 @@ extension TurnRunnerCancellation on TurnRunner {
       throw StateError('Worker recovery failed after accepted turn cancel for session $sessionId: $e');
     }
   }
+
+  @visibleForTesting
+  bool hasAcceptedCancelRecovery(String sessionId) => _acceptedCancelRecovery.containsKey(sessionId);
 
   /// Scans [TurnStateStore] for orphaned turns from a previous crash.
   Future<List<String>> detectAndCleanOrphanedTurns() async {
@@ -191,10 +210,15 @@ extension TurnRunnerCancellation on TurnRunner {
     final active = _activeTurns[sessionId];
     if (active == null || active.turnId != turnId) return;
     final completedAt = DateTime.now();
+    final toolHooks = _turnToolHooks[turnId];
+    toolHooks?.finalizePendingToolCalls(endedAt: completedAt);
     final outcome = TurnOutcome(
       turnId: turnId,
       sessionId: sessionId,
       status: TurnStatus.cancelled,
+      toolCalls: List.unmodifiable(toolHooks?.completedToolCalls ?? const <ToolCallRecord>[]),
+      toolCallCount: toolHooks?.toolCallCount,
+      failedToolCallCount: toolHooks?.failedToolCallCount,
       completedAt: completedAt,
     );
     _rememberRecentOutcome(outcome, taskId: active.taskId, cachedAt: completedAt);

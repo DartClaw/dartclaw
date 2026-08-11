@@ -413,7 +413,7 @@ Supports filtering by `taskId`, `sessionId`, `provider`, `since`, `until`, `limi
 GET /api/traces/:id
 ```
 
-Returns a single persisted turn trace, including token totals, duration, and tool call records.
+Returns a single persisted turn trace, including token totals, duration, bounded `toolCalls` detail, exact `toolCallCount` and `failedToolCallCount`, and `toolCallsTruncated`. When truncated, detail contains the first 63 records plus the latest.
 
 ### Workflows
 
@@ -680,8 +680,8 @@ These tools are available to the agent during conversations. They're exposed via
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `memory_save` | `text` (required), `category` (optional) | Save text to persistent memory. Categories: general, preferences, facts, etc. |
-| `memory_search` | `query` (required), `limit` (optional, default 5) | Search memory using FTS5 full-text search. Returns ranked results. |
+| `memory_save` | `text` (required, up to 65,536 characters), `category` (optional, up to 64 characters) | Save text to persistent memory. Categories: general, preferences, facts, etc. |
+| `memory_search` | `query` (required), `limit` (optional integer, 1–50, default 5) | Search memory using FTS5 full-text search. Out-of-range integers that reach the runtime are clamped. Returns ranked results. |
 | `memory_read` | – | Read the full contents of MEMORY.md |
 
 The agent decides when to use these tools based on the conversation context. Memory persists across sessions.

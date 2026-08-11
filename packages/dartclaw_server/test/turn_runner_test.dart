@@ -3,7 +3,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
-import 'package:dartclaw_server/src/concurrency/session_lock_manager.dart' show SessionLockTimerFactory;
+import 'package:dartclaw_server/src/concurrency/session_lock_manager.dart'
+    show SessionLockManager, SessionLockTimerFactory;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner, TurnRunnerExecution;
 import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -19,7 +20,7 @@ TurnRunner _buildRunner({
   required AgentHarness harness,
   required MessageService messages,
   required String workspaceDir,
-  required SessionService sessions,
+  SessionService? sessions,
   required TurnStateStore turnState,
   required KvService kvService,
   SessionResetService? resetService,
@@ -33,6 +34,10 @@ TurnRunner _buildRunner({
   TaskToolFilterGuard? taskToolFilterGuard,
   SessionLockTimerFactory? turnMonitorTimerFactory,
   DateTime Function()? turnMonitorNow,
+  MemoryFileService? memoryFile,
+  MessageRedactor? redactor,
+  SessionLockManager? lockManager,
+  ExplorationSummarizer? explorationSummarizer,
 }) {
   return TurnRunner(
     harness: harness,
@@ -52,7 +57,21 @@ TurnRunner _buildRunner({
     taskToolFilterGuard: taskToolFilterGuard,
     turnMonitorTimerFactory: turnMonitorTimerFactory,
     turnMonitorNow: turnMonitorNow,
+    memoryFile: memoryFile,
+    redactor: redactor,
+    lockManager: lockManager,
+    explorationSummarizer: explorationSummarizer,
   );
+}
+
+class _ObservingSessionLockManager extends SessionLockManager {
+  void Function()? beforeRelease;
+
+  @override
+  void release(String sessionId) {
+    beforeRelease?.call();
+    super.release(sessionId);
+  }
 }
 
 class _TurnMonitorFakeTime {
@@ -174,6 +193,587 @@ void main() {
     expect(runner.isActive(session.id), isFalse);
   });
 
+  test('redacts response assignments without dropping trailing instructions', () async {
+    final redactingRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      redactor: MessageRedactor(),
+    );
+    scheduleTurnCompletion(
+      worker,
+      responseText:
+          'password=secret and then restart the service.\n'
+          'Password: "correct horse battery".\n'
+          'wrapper: {encryption_key: opaque-encryption-key, JWTSigningKey: opaque-jwt-key, '
+          'RSAEncryptionKey: opaque-rsa-key}\n'
+          '{"access_tokens":["alpha","beta"]}',
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await redactingRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Show the safe instructions'},
+    ]);
+    final outcome = await redactingRunner.waitForOutcome(session.id, turnId);
+
+    const expected =
+        'password=*** and then restart the service.\n'
+        'Password: ***.\n'
+        'wrapper: {encryption_key: ***, JWTSigningKey: ***, RSAEncryptionKey: ***}\n'
+        '{"access_tokens":"***"}';
+    expect(outcome.responseText, expected);
+    expect((await messages.getMessages(session.id)).single.content, expected);
+  });
+
+  test('post-provider persistence has one non-cancellable settlement owner', () async {
+    final guardStarted = Completer<void>();
+    final releaseGuard = Completer<void>();
+    final guard = FakeGuard(
+      evaluator: (context) async {
+        if (context.hookPoint == 'beforeAgentSend') {
+          guardStarted.complete();
+          await releaseGuard.future;
+        }
+        return GuardVerdict.pass();
+      },
+    );
+    final settlingRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      guardChain: GuardChain(guards: [guard]),
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('settled response'));
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await settlingRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'settle safely'},
+    ]);
+    await guardStarted.future;
+
+    expect(settlingRunner.turnStatus(session.id).canCancel, isFalse);
+    await expectLater(
+      settlingRunner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false),
+      throwsA(isA<TurnCancelException>()),
+    );
+    var lifecycleCancelCompleted = false;
+    final lifecycleCancel = settlingRunner.cancelTurn(session.id).then((_) => lifecycleCancelCompleted = true);
+    await pumpEventQueue();
+    expect(lifecycleCancelCompleted, isFalse);
+
+    releaseGuard.complete();
+    await lifecycleCancel;
+    final outcome = await settlingRunner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect((await messages.getMessages(session.id)).single.content, 'settled response');
+  });
+
+  test('daily logs retain complete human turns and exclude every system session type', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+      redactor: MessageRedactor(extraPatterns: [r'custom_credential=[^,\s)]+']),
+    );
+
+    Future<void> runToolTurn(
+      SessionType type,
+      String response, {
+      List<ToolUseEvent>? toolEvents,
+      String? userMessage,
+      String? sessionTitle,
+    }) async {
+      final session = await sessions.createSession(type: type);
+      if (sessionTitle != null) await sessions.updateTitle(session.id, sessionTitle);
+      unawaited(() async {
+        await worker.turnInvoked;
+        for (final event
+            in toolEvents ??
+                [
+                  ToolUseEvent(toolName: 'shell', toolId: 'tool-${type.name}', input: {'command': 'inspect workspace'}),
+                ]) {
+          worker.emit(event);
+        }
+        worker.emit(DeltaEvent(response));
+        await pumpEventQueue();
+        worker.completeSuccess(turnResult());
+      }());
+      final turnId = await logRunner.startTurn(session.id, [
+        {'role': 'user', 'content': userMessage ?? 'Run ${type.name} turn'},
+      ], source: type.name);
+      await logRunner.waitForOutcome(session.id, turnId);
+    }
+
+    await runToolTurn(SessionType.main, 'Main conversation result');
+    await runToolTurn(SessionType.channel, 'Channel conversation result');
+    final completeSummary = 'Human-facing summary ${'with complete detail ' * 10}'.trim();
+    final structuredSecretCases = [
+      (key: 'api_keys', value: 'opaque-api-keys'),
+      (key: 'secret_key', value: 'opaque-secret-key'),
+      (key: 'secrets', value: 'opaque-secrets'),
+      (key: 'access_tokens', value: 'opaque-access-tokens'),
+      (key: 'passwords', value: 'opaque-passwords'),
+      (key: 'authorizations', value: 'opaque-authorizations'),
+      (key: 'cookies', value: 'opaque-cookies'),
+      (key: 'credentials', value: 'opaque-credentials'),
+      (key: 'private_keys', value: 'opaque-private-keys'),
+      (key: 'POSTGRES_PASSWORD', value: 'opaque-postgres-password'),
+      (key: 'GITHUB_TOKEN', value: 'opaque-github-token'),
+      (key: 'SERVICE_CREDENTIALS', value: 'opaque-service-credentials'),
+      (key: 'refreshTokens', value: 'opaque-refresh-token'),
+      (key: 'AWS_SECRET_ACCESS_KEY', value: 'opaque-aws-secret-key'),
+      (key: 'encryption_key', value: 'opaque-encryption-key'),
+      (key: 'signingKey', value: 'opaque-signing-key'),
+      (key: 'JWTSigningKey', value: 'opaque-jwt-signing-key'),
+      (key: 'RSAEncryptionKey', value: 'opaque-rsa-encryption-key'),
+    ];
+    final safeStructuredCases = [
+      (key: 'credential_mode', value: 'safe-credential-mode'),
+      (key: 'secret_keeper', value: 'safe-secret-keeper'),
+      (key: 'token_count', value: 'safe-token-count'),
+      (key: 'max_tokens', value: 'safe-max-tokens'),
+      (key: 'completion_tokens', value: 'safe-completion-tokens'),
+      (key: 'password_policy', value: 'safe-password-policy'),
+      (key: 'hasPrivateKey', value: false),
+      (key: 'requiresDatabasePassword', value: false),
+      (key: 'supportsClientSecret', value: true),
+      (key: 'isSetCookie', value: false),
+    ];
+    await runToolTurn(
+      SessionType.user,
+      '$completeSummary Bearer result-secret-token Reset your password: use Settings, then sign in again.\n'
+      'POSTGRES_PASSWORD=result secret suffix max_tokens=8192\n'
+      'password=result-secret and then restart the service.\n'
+      'Password: "correct horse battery".\nToken: result-token',
+      userMessage:
+          'Use sk-ant-daily-log-secret and access_tokens=correct horse battery max_tokens=4096\n'
+          'Authorization: Basic dXNlci11c2VyLXNlY3JldA==\n'
+          'Inline api_key: user-inline-secret\n'
+          'My password: "inline password passphrase"\n'
+          'Credentials are Token: inline-token-secret\n## forged user',
+      sessionTitle: 'password=title secret suffix\n## forged title',
+      toolEvents: [
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'tool-write-first',
+          input: {'path': 'notes.md', 'content': 'first\n paragraph'},
+        ),
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'tool-write-second',
+          input: {'path': 'notes.md', 'content': 'second\n paragraph'},
+        ),
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'tool-write-secret',
+          input: {
+            'first': 'sk_test_first-field-secret',
+            'nested': {'password': 'nested-field-secret'},
+            'last': 'api_key=last-field-secret',
+            'credentialJson':
+                '{"password":"json-password-secret","Token":"json-token-secret",'
+                '"api_key":"json-api-secret","max_tokens":4096}',
+            'OPENAI_API_KEY': 'opaque-openai-secret',
+            'client_secret': 'opaque-client-secret',
+            'access_token': 'opaque-access-secret',
+            'custom_credential': 'contextual-secret',
+            'headers': {
+              'Authorization': 'Basic opaque-basic-credential',
+              'COOKIE': 'session=opaque-cookie-value',
+              'Set-Cookie': ['session=opaque-set-cookie', 'csrf=opaque-csrf-cookie'],
+            },
+            'nestedCredentials': [
+              {'proxyAuthorization': 'Basic opaque-proxy-credential'},
+              {'privateKey': 'opaque-private-key'},
+            ],
+            for (final secret in structuredSecretCases) secret.key: secret.value,
+            'structured': [
+              for (final secret in structuredSecretCases)
+                {
+                  'wrapper': {secret.key: '${secret.value}-nested'},
+                },
+            ],
+            for (final safe in safeStructuredCases) safe.key: safe.value,
+            'safeNested': {
+              'max_tokens': 'safe-nested-max-tokens',
+              'password_policy': 'safe-nested-password-policy',
+              'hasPrivateKey': false,
+              'supportsClientSecret': true,
+            },
+          },
+        ),
+        ToolUseEvent(toolName: 'shell', toolId: 'tool-collision-scalar', input: {'a': 'x, b=y'}),
+        ToolUseEvent(toolName: 'shell', toolId: 'tool-collision-map', input: {'a': 'x', 'b': 'y'}),
+        ToolUseEvent(
+          toolName: 'shell\n## forged tool',
+          toolId: 'tool-multi-word-secret',
+          input: {'password': 'tool secret suffix', 'path': 'trailing-safe.md'},
+        ),
+        ToolUseEvent(
+          toolName: 'shell',
+          toolId: 'tool-middle-secret',
+          input: {'path': 'leading-safe.md', 'token': 'middle secret suffix', 'mode': 'trailing-safe-mode'},
+        ),
+      ],
+    );
+    for (final type in [SessionType.cron, SessionType.task, SessionType.logicalAgent, SessionType.archive]) {
+      await runToolTurn(type, 'Excluded ${type.name} result');
+    }
+
+    final dailyLogs = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().toList();
+    expect(dailyLogs, hasLength(1));
+    final content = dailyLogs.single.readAsStringSync();
+    expect(content, contains('Main conversation result'));
+    expect(content, contains('Channel conversation result'));
+    expect(content, contains(completeSummary));
+    expect(content, contains('file_write(path=notes.md, content=first paragraph)'));
+    expect(content, contains('file_write(path=notes.md, content=second paragraph)'));
+    expect(content, contains('Settings, then sign in again.'));
+    expect(content, contains('path=trailing-safe.md'));
+    expect(content, contains('path=leading-safe.md'));
+    expect(content, contains('mode=trailing-safe-mode'));
+    expect(content, contains('access_tokens=*** max_tokens=4096'));
+    expect(content, contains('Inline api_key: ***'));
+    expect(content, contains(r'My password: ***\nCredentials are Token: ***\n## forged user'));
+    expect(content, contains('POSTGRES_PASSWORD=*** max_tokens=8192'));
+    expect(content, contains('password=*** and then restart the service.'));
+    expect(content, contains('Password: ***'));
+    expect(content, contains('api_keys=***'));
+    expect(content, contains('nested={password: ***}'));
+    expect(content, contains('wrapper: {encryption_key: ***}'));
+    expect(content, contains('wrapper: {signingKey: ***}'));
+    expect(content, contains('wrapper: {JWTSigningKey: ***}'));
+    expect(content, contains('wrapper: {RSAEncryptionKey: ***}'));
+    expect(content, contains(r'\"max_tokens\":4096'));
+    expect(RegExp(RegExp.escape('shell(a=x, b=y)')).allMatches(content), hasLength(2));
+    expect(content, contains('***'));
+    for (final secret in [
+      'title-secret',
+      'daily-log-secret',
+      'result-secret-token',
+      'first-field-secret',
+      'nested-field-secret',
+      'last-field-secret',
+      'opaque-openai-secret',
+      'opaque-client-secret',
+      'opaque-access-secret',
+      'contextual-secret',
+      'opaque-basic-credential',
+      'opaque-cookie-value',
+      'opaque-set-cookie',
+      'opaque-csrf-cookie',
+      'opaque-proxy-credential',
+      'opaque-private-key',
+      'correct horse battery',
+      'title secret suffix',
+      'tool secret suffix',
+      'middle secret suffix',
+      'result secret suffix',
+      'result title case passphrase',
+      'result-token',
+      'user-inline-secret',
+      'inline password passphrase',
+      'inline-token-secret',
+      'dXNlci11c2VyLXNlY3JldA==',
+      'json-password-secret',
+      'json-token-secret',
+      'json-api-secret',
+      for (final secret in structuredSecretCases) secret.value,
+    ]) {
+      expect(content, isNot(contains(secret)), reason: secret);
+    }
+    for (final safe in safeStructuredCases) {
+      expect(content, contains('${safe.key}=${safe.value}'), reason: safe.key);
+    }
+    expect(content, contains('max_tokens: safe-nested-max-tokens'));
+    expect(content, contains('password_policy: safe-nested-password-policy'));
+    expect(content, contains('hasPrivateKey: false'));
+    expect(content, contains('supportsClientSecret: true'));
+    expect(RegExp(r'^## ', multiLine: true).allMatches(content), hasLength(3));
+    expect(content, contains(r'\n## forged user'));
+    expect(content, contains(r'\n## forged title'));
+    expect(content, contains(r'\n## forged tool'));
+    for (final type in [SessionType.cron, SessionType.task, SessionType.logicalAgent, SessionType.archive]) {
+      expect(content, isNot(contains('Excluded ${type.name} result')));
+    }
+  });
+
+  test('daily log tool serialization truncates adversarial depth, breadth, event count, and bytes', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+    );
+
+    Future<void> runToolTurn(List<ToolUseEvent> toolEvents) async {
+      final session = await sessions.createSession(type: SessionType.user);
+      unawaited(() async {
+        await worker.turnInvoked;
+        for (final event in toolEvents) {
+          worker.emit(event);
+        }
+        worker.emit(DeltaEvent('Bounded result'));
+        await pumpEventQueue();
+        worker.completeSuccess(turnResult());
+      }());
+      final turnId = await logRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'Exercise log bounds'},
+      ]);
+      await logRunner.waitForOutcome(session.id, turnId);
+    }
+
+    final recursive = <String, dynamic>{};
+    recursive['self'] = recursive;
+    await runToolTurn([
+      ToolUseEvent(
+        toolName: 'bounded_structure',
+        toolId: 'bounded-structure',
+        input: {'deep': recursive, 'wide': List.generate(1000, (index) => 'item-$index')},
+      ),
+    ]);
+    await runToolTurn([
+      for (var index = 0; index < 100; index++)
+        ToolUseEvent(toolName: 'event_$index', toolId: 'event-$index', input: {'index': index}),
+    ]);
+    await runToolTurn([
+      ToolUseEvent(
+        toolName: 'bounded_bytes',
+        toolId: 'bounded-bytes',
+        input: {'content': '${'x' * (200 * 1024)}TAIL_SENTINEL'},
+      ),
+    ]);
+
+    final dailyLog = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single;
+    final content = dailyLog.readAsStringSync();
+    expect(content, contains('[truncated: recursion depth]'));
+    expect(content, contains('[truncated: collection items]'));
+    expect(content, contains('[truncated: tool events]'));
+    expect(content, contains('[truncated: serialized bytes]'));
+    expect(content, isNot(contains('event_64')));
+    expect(content, isNot(contains('TAIL_SENTINEL')));
+    expect(dailyLog.lengthSync(), lessThan(80 * 1024));
+  });
+
+  test('daily log entry construction bounds title, user, and result before JSON encoding', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+      explorationSummarizer: ExplorationSummarizer(
+        trimmer: ResultTrimmer(maxBytes: 256 * 1024),
+        thresholdTokens: 1000000,
+      ),
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    await sessions.updateTitle(session.id, '${'\u0000' * (2 * 1024)}TITLE_TAIL_SENTINEL');
+    final oversizedUser = '${'\u0000' * (64 * 1024)}USER_TAIL_SENTINEL';
+    final oversizedResult = '${'\u0000' * (32 * 1024)}RESULT_TAIL_SENTINEL';
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'shell', toolId: 'bounded-entry', input: {'command': 'inspect'}));
+      worker.emit(DeltaEvent(oversizedResult));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': oversizedUser},
+    ]);
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    final dailyLog = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single;
+    final content = dailyLog.readAsStringSync();
+    expect(RegExp(RegExp.escape('[truncated: serialized bytes]')).allMatches(content), hasLength(3));
+    expect(content, isNot(contains('TITLE_TAIL_SENTINEL')));
+    expect(content, isNot(contains('USER_TAIL_SENTINEL')));
+    expect(content, isNot(contains('RESULT_TAIL_SENTINEL')));
+    expect(dailyLog.lengthSync(), lessThan(MemoryFileService.maxDailyLogEntryBytes));
+
+    String oversizedPem(int payloadBytes, String sentinel) =>
+        '-----BEGIN PRIVATE KEY-----\n${'A' * payloadBytes}\n-----END PRIVATE KEY-----$sentinel';
+    final pemSession = await sessions.createSession(type: SessionType.user);
+    await sessions.updateTitle(pemSession.id, oversizedPem(2 * 1024, 'PEM_TITLE_TAIL'));
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'bounded-pem',
+          input: {'content': oversizedPem(70 * 1024, 'PEM_TOOL_TAIL')},
+        ),
+      );
+      worker.emit(DeltaEvent(oversizedPem(32 * 1024, 'PEM_RESULT_TAIL')));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final pemTurnId = await logRunner.startTurn(pemSession.id, [
+      {'role': 'user', 'content': oversizedPem(64 * 1024, 'PEM_USER_TAIL')},
+    ]);
+    await logRunner.waitForOutcome(pemSession.id, pemTurnId);
+
+    final pemContent = dailyLog.readAsStringSync();
+    expect(RegExp(RegExp.escape('[REDACTED]')).allMatches(pemContent).length, greaterThanOrEqualTo(4));
+    expect(pemContent, isNot(contains('-----BEGIN PRIVATE KEY-----')));
+    for (final sentinel in ['PEM_TITLE_TAIL', 'PEM_USER_TAIL', 'PEM_RESULT_TAIL', 'PEM_TOOL_TAIL']) {
+      expect(pemContent, isNot(contains(sentinel)), reason: sentinel);
+    }
+  });
+
+  test('daily logs skip Web turns whose persisted user message is unavailable', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'file_read', toolId: 'tool-web-missing-message', input: {'path': 'notes.md'}));
+      worker.emit(DeltaEvent('Notes reviewed'));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Expanded attachment content'},
+    ], source: 'web');
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    expect(Directory(p.join(workspaceDir, 'memory')).existsSync(), isFalse);
+  });
+
+  test('daily logging fails closed without session metadata', () async {
+    final isolatedWorkspace = p.join(tempDir.path, 'workspace-without-sessions');
+    final memoryFile = MemoryFileService(baseDir: isolatedWorkspace);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+    );
+    final session = await sessions.createSession(type: SessionType.main);
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'shell', toolId: 'tool-no-session', input: {'command': 'inspect'}));
+      worker.emit(DeltaEvent('Must not be logged'));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Run without session metadata'},
+    ]);
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    expect(Directory(p.join(isolatedWorkspace, 'memory')).existsSync(), isFalse);
+  });
+
+  test('daily logging fails closed for an unknown persisted session type', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    final metadata = File(p.join(sessionsDir, session.id, 'meta.json'));
+    metadata.writeAsStringSync(metadata.readAsStringSync().replaceFirst('"type":"user"', '"type":"future-system"'));
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'shell', toolId: 'tool-unknown-session', input: {'command': 'inspect'}));
+      worker.emit(DeltaEvent('Must not be logged'));
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Run with unknown session metadata'},
+    ]);
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    expect(Directory(p.join(workspaceDir, 'memory')).existsSync(), isFalse);
+  });
+
+  test('daily logs use the persisted Web message instead of expanded attachment content', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Inspect the attached notes');
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'file_read', toolId: 'tool-web-attachment', input: {'path': 'attachment'}));
+      worker.emit(DeltaEvent('Attachment reviewed'));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {
+        'role': 'user',
+        'content':
+            'Inspect the attached notes\n\n'
+            '[rich_input_context]\nattachment body: confidential-attachment-payload',
+      },
+    ], source: 'web');
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    final dailyLog = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single.readAsStringSync();
+    expect(dailyLog, contains('Inspect the attached notes'));
+    expect(dailyLog, isNot(contains('confidential-attachment-payload')));
+    expect(dailyLog, isNot(contains('rich_input_context')));
+  });
+
   test('logical-agent persona override reaches the harness verbatim', () async {
     scheduleTurnCompletion(worker, responseText: 'logical agent');
     final session = await sessions.createSession(type: SessionType.logicalAgent);
@@ -209,9 +809,9 @@ void main() {
     expect(worker.lastAgentId, isNull);
   });
 
-  test('per-turn toolless policy is applied session-scoped during the turn and cleared after (TD-109)', () async {
-    // Regression guard for TD-109: the untrusted knowledge-inbox extraction turn
-    // dispatches with allowedTools:['__knowledge_inbox_no_tools__'] + readOnly.
+  test('per-turn toolless policy is applied session-scoped during the turn and cleared after', () async {
+    // The untrusted knowledge-inbox extraction turn dispatches with a closed
+    // tool allowlist and read-only policy.
     // TurnRunner must apply that per-turn policy to the session BEFORE the harness
     // runs and clear it after, so a prompt-injected source cannot induce tool use
     // — without the enforcement leaking onto concurrent turns on other sessions.
@@ -255,7 +855,7 @@ void main() {
     // allowlist (not read-only) was applied to the extraction session.
     expect(midTurnScoped?.isBlock, isTrue);
     // The restriction is session-scoped: a concurrent turn on another session is
-    // unaffected (the leak TD-109 warned about).
+    // unaffected.
     expect(midTurnConcurrent?.isPass, isTrue);
     // Policy cleared after the turn — the extraction session is unrestricted again.
     expect((await probeFetch(session.id)).isPass, isTrue);
@@ -520,7 +1120,7 @@ void main() {
     await secondOutcome;
   });
 
-  test('S07/TI10 reports provider_turn from provider progress before global timeout', () async {
+  test('reports provider_turn from provider progress before global timeout', () async {
     final bus = EventBus();
     final events = <TurnWaitStateChangedEvent>[];
     final sub = bus.on<TurnWaitStateChangedEvent>().listen(events.add);
@@ -556,7 +1156,7 @@ void main() {
     await runner.waitForOutcome(session.id, turnId);
   });
 
-  test('S07/TI10 reports tool_approval as cancellable only after stale threshold', () async {
+  test('reports tool_approval as cancellable only after stale threshold', () async {
     runner = monitoredRunner(worker);
     final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
@@ -586,7 +1186,7 @@ void main() {
     await runner.waitForOutcome(session.id, turnId);
   });
 
-  test('S07/TI10 keeps non-stale tool_approval non-cancellable while session lock wait is visible', () async {
+  test('keeps non-stale tool_approval non-cancellable while session lock wait is visible', () async {
     runner = monitoredRunner(worker);
     final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
@@ -628,7 +1228,7 @@ void main() {
     await queuedOutcome;
   });
 
-  test('S07/TI10 clears tool_approval when approval is answered', () async {
+  test('clears tool_approval when approval is answered', () async {
     runner = monitoredRunner(worker);
     final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
@@ -652,7 +1252,7 @@ void main() {
     await runner.waitForOutcome(session.id, turnId);
   });
 
-  test('S07/TI10 reports unknown for unclassified active-turn stall', () async {
+  test('reports unknown for unclassified active-turn stall', () async {
     runner = monitoredRunner(worker);
     final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
@@ -698,6 +1298,12 @@ void main() {
     ]);
     final outcomeFuture = runner.waitForOutcome(session.id, turnId);
     await raceWorker.turnInvoked;
+    for (var index = 0; index < 70; index++) {
+      final toolId = 'cancel-tool-$index';
+      raceWorker.emit(ToolUseEvent(toolName: 'tool-$index', toolId: toolId, input: const {}));
+      raceWorker.emit(ToolResultEvent(toolId: toolId, output: 'done', isError: index == 64));
+    }
+    await pumpEventQueue();
     await turnMonitorTime.elapseAsync(const Duration(milliseconds: 15));
     expect(runner.turnStatus(session.id).state, TurnWaitState.waiting);
 
@@ -740,6 +1346,13 @@ void main() {
     expect(raceWorker.stopCalled, isTrue);
     expect(raceWorker.startCalled, isTrue);
     expect(outcome.status, TurnStatus.cancelled);
+    expect(outcome.toolCallCount, 70);
+    expect(outcome.failedToolCallCount, 1);
+    expect(outcome.toolCalls, hasLength(64));
+    expect(outcome.toolCalls.first.name, 'tool-0');
+    expect(outcome.toolCalls[62].name, 'tool-62');
+    expect(outcome.toolCalls.last.name, 'tool-69');
+    expect(outcome.toolCallsTruncated, isTrue);
     expect(settlementCompleted, isTrue);
     expect(runner.activeTurnId(session.id), nextTurnId);
     expect(thirdReserveCompleted, isFalse);
@@ -938,6 +1551,37 @@ void main() {
 
     hangingWorker.completeSuccess(turnResult());
     expect((await runner.waitForOutcome(session.id, nextTurnId)).status, TurnStatus.completed);
+  });
+
+  test('accepted cancel installs recovery before releasing the session lock', () async {
+    final hangingWorker = HangingCancelHarness();
+    addTearDown(hangingWorker.dispose);
+    final lockManager = _ObservingSessionLockManager();
+    runner = _buildRunner(
+      harness: hangingWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      lockManager: lockManager,
+    );
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Cleanup hangs'},
+    ]);
+    await hangingWorker.turnInvoked;
+
+    var barrierPresentAtRelease = false;
+    lockManager.beforeRelease = () {
+      barrierPresentAtRelease = runner.hasAcceptedCancelRecovery(session.id);
+    };
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false);
+    await hangingWorker.cancelStarted.future.timeout(const Duration(seconds: 1));
+    expect(barrierPresentAtRelease, isTrue);
+
+    hangingWorker.cancelCompleter.complete();
   });
 
   test('accepted cancel releases the session when restart fails after a pending provider cancel', () async {

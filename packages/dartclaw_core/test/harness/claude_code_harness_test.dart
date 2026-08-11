@@ -1424,6 +1424,44 @@ void main() {
         final preCompactEntry = (hooks['PreCompact'] as List).first as Map<String, dynamic>;
         expect(preCompactEntry['hookCallbackIds'], contains('hook_pre_compact'));
       });
+
+      test('memory search SDK schema advertises the bounded integer limit', () async {
+        late CapturingFakeProcess fake;
+        Future<Map<String, dynamic>> memoryHandler(Map<String, dynamic> _) async => {};
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          onMemorySave: memoryHandler,
+          onMemorySearch: memoryHandler,
+          onMemoryRead: memoryHandler,
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final initRequest = fake.capturedStdinJson.firstWhere(
+          (message) => message['type'] == 'control_request' && (message['request'] as Map?)?['subtype'] == 'initialize',
+        );
+        final request = initRequest['request'] as Map<String, dynamic>;
+        final servers = request['sdkMcpServers'] as Map<String, dynamic>;
+        final server = servers['dartclaw'] as Map<String, dynamic>;
+        final tools = server['tools'] as List<dynamic>;
+        final search = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_search');
+        final schema = search['input_schema'] as Map<String, dynamic>;
+        final limit = (schema['properties'] as Map<String, dynamic>)['limit'] as Map<String, dynamic>;
+        expect(limit, containsPair('type', 'integer'));
+        expect(limit, containsPair('minimum', 1));
+        expect(limit, containsPair('maximum', 50));
+      });
     });
 
     // ----- SIGKILL escalation during stop --------------------------------

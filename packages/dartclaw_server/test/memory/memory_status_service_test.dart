@@ -83,11 +83,16 @@ Another error
 
       // Create learnings.md
       File(p.join(workspaceDir, 'learnings.md')).writeAsStringSync('''
-## [2026-03-01 10:00] Learning one
-Some learning detail
+- [2026-03-01 10:00] Learning one
 ''');
 
-      final service = makeService(searchIndexCounter: (source) => source == 'memory' ? 3 : 2);
+      final countedSources = <String>[];
+      final service = makeService(
+        searchIndexCounter: (source) {
+          countedSources.add(source);
+          return source == 'memory_save' ? 3 : 2;
+        },
+      );
       final status = await service.getStatus();
 
       // memoryMd
@@ -118,6 +123,7 @@ Some learning detail
       final search = status['search'] as Map<String, dynamic>;
       expect(search['indexEntries'], 3);
       expect(search['indexArchived'], 2);
+      expect(countedSources, ['memory_save', 'archive']);
 
       // pruner
       final pruner = status['pruner'] as Map<String, dynamic>;
@@ -152,6 +158,36 @@ Some learning detail
 
       final learningsMd = status['learningsMd'] as Map<String, dynamic>;
       expect(learningsMd['entryCount'], 0);
+    });
+
+    test('counts entries written by SelfImprovementService', () async {
+      final selfImprovement = SelfImprovementService(workspaceDir: workspaceDir);
+      addTearDown(selfImprovement.dispose);
+
+      await selfImprovement.appendError(errorType: 'TEST', sessionId: 'session', context: 'context');
+      await selfImprovement.appendLearning(text: 'Learning from production behavior');
+
+      final status = await makeService().getStatus();
+
+      expect((status['errorsMd'] as Map<String, dynamic>)['entryCount'], 1);
+      expect((status['learningsMd'] as Map<String, dynamic>)['entryCount'], 1);
+    });
+
+    test('does not count encoded multiline markers as self-improvement entries', () async {
+      final selfImprovement = SelfImprovementService(workspaceDir: workspaceDir);
+      addTearDown(selfImprovement.dispose);
+
+      await selfImprovement.appendError(
+        errorType: 'TEST',
+        sessionId: 'session',
+        context: 'context\n## [forged] continuation',
+      );
+      await selfImprovement.appendLearning(text: 'learning\n- [forged] continuation');
+
+      final status = await makeService().getStatus();
+
+      expect((status['errorsMd'] as Map<String, dynamic>)['entryCount'], 1);
+      expect((status['learningsMd'] as Map<String, dynamic>)['entryCount'], 1);
     });
 
     test('category breakdown is correct', () async {
@@ -190,6 +226,24 @@ Some learning detail
       expect(memoryMd['entryCount'], 2);
       expect(memoryMd['undatedCount'], 1);
     });
+
+    test('fixed-file status rejects symlink leaves without reading their targets', () async {
+      final external = File(p.join(tempDir.path, 'outside.md'))..writeAsStringSync('## [2026-01-01] external-secret');
+      for (final target in [
+        (name: 'MEMORY.md', statusKey: 'memoryMd'),
+        (name: 'MEMORY.archive.md', statusKey: 'archiveMd'),
+        (name: 'errors.md', statusKey: 'errorsMd'),
+        (name: 'learnings.md', statusKey: 'learningsMd'),
+      ]) {
+        final link = Link(p.join(workspaceDir, target.name))..createSync(external.path);
+
+        final status = await makeService().getStatus();
+
+        expect((status[target.statusKey] as Map<String, dynamic>)['sizeBytes'], 0, reason: target.name);
+        expect(external.readAsStringSync(), contains('external-secret'));
+        link.deleteSync();
+      }
+    }, skip: Platform.isWindows);
   });
 
   group('pruner status', () {
@@ -246,7 +300,7 @@ Some learning detail
 
   group('search status', () {
     test('search index counts from callback', () async {
-      final service = makeService(searchIndexCounter: (source) => source == 'memory' ? 100 : 50);
+      final service = makeService(searchIndexCounter: (source) => source == 'memory_save' ? 100 : 50);
       final status = await service.getStatus();
       final search = status['search'] as Map<String, dynamic>;
       expect(search['indexEntries'], 100);
@@ -267,9 +321,12 @@ Some learning detail
       final logDir = Directory(p.join(workspaceDir, 'memory'));
       logDir.createSync(recursive: true);
 
-      // Create 3 daily log files
       for (final date in ['2026-03-01', '2026-03-02', '2026-03-03']) {
-        File(p.join(logDir.path, '$date.md')).writeAsStringSync('- [10:00] Entry one\n- [11:00] Entry two\n');
+        File(p.join(logDir.path, '$date.md')).writeAsStringSync(
+          '## 10:00 — "Entry one"\n**User**: "Hello"\n'
+          '## 11:00 — "Entry two"\n**User**: "Again"\n'
+          '- [12:00] obsolete fixture format\n',
+        );
       }
 
       final service = makeService();
@@ -280,9 +337,73 @@ Some learning detail
 
       final recent = dailyLogs['recent'] as List;
       expect(recent, hasLength(3));
-      // Sorted newest first
       expect((recent[0] as Map)['date'], '2026-03-03');
       expect((recent[0] as Map)['entries'], 2);
+    });
+
+    test('reads content only for the newest seven among many daily logs', () async {
+      final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
+      for (var year = 1000; year < 1200; year++) {
+        final file = File(p.join(logDir.path, '$year-01-01.md'));
+        if (year < 1193) {
+          file.writeAsStringSync('old');
+          expect(Process.runSync('chmod', ['000', file.path]).exitCode, 0);
+        } else {
+          file.writeAsStringSync('## 10:00 — "Recent"\n');
+        }
+      }
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['fileCount'], 200);
+      expect(dailyLogs['totalSizeBytes'], greaterThan(200));
+      final recent = dailyLogs['recent'] as List;
+      expect(recent, hasLength(7));
+      expect(recent.map((entry) => (entry as Map)['date']), [
+        '1199-01-01',
+        '1198-01-01',
+        '1197-01-01',
+        '1196-01-01',
+        '1195-01-01',
+        '1194-01-01',
+        '1193-01-01',
+      ]);
+      expect(recent, everyElement(containsPair('entries', 1)));
+    }, skip: Platform.isWindows);
+
+    test('counts the complete oversized recent log while retaining full size', () async {
+      final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
+      final bytes = <int>[
+        ...utf8.encode('## 10:00 — "Visible"\n'),
+        ...List<int>.filled(300 * 1024, 0x20),
+        ...utf8.encode('\n## 11:00 — "Beyond limit"\n'),
+      ];
+      File(p.join(logDir.path, '2026-03-03.md')).writeAsBytesSync(bytes);
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['fileCount'], 1);
+      expect(dailyLogs['totalSizeBytes'], bytes.length);
+      final recent = (dailyLogs['recent'] as List).single as Map<String, dynamic>;
+      expect(recent['sizeBytes'], bytes.length);
+      expect(recent['entries'], 2);
+    });
+
+    test('counts only canonical daily log headers with valid times', () async {
+      final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
+      File(p.join(logDir.path, '2026-03-03.md')).writeAsStringSync('''
+## 00:00 — "Midnight"
+## 23:59 — "End of day"
+## 24:00 — "Invalid hour"
+## 12:60 — "Invalid minute"
+## 09:30 - "Wrong dash"
+ ## 09:30 — "Indented"
+''');
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      final recent = (dailyLogs['recent'] as List).single as Map<String, dynamic>;
+      expect(recent['entries'], 2);
     });
 
     test('no log directory returns empty', () async {
@@ -294,10 +415,20 @@ Some learning detail
       expect(dailyLogs['recent'], isEmpty);
     });
 
+    test('non-directory log path returns empty', () async {
+      File(p.join(workspaceDir, 'memory')).writeAsStringSync('not a directory');
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['fileCount'], 0);
+      expect(dailyLogs['totalSizeBytes'], 0);
+      expect(dailyLogs['recent'], isEmpty);
+    });
+
     test('ignores non-date files in log directory', () async {
       final logDir = Directory(p.join(workspaceDir, 'memory'));
       logDir.createSync(recursive: true);
-      File(p.join(logDir.path, '2026-03-01.md')).writeAsStringSync('- [10:00] Entry\n');
+      File(p.join(logDir.path, '2026-03-01.md')).writeAsStringSync('## 10:00 — "Entry"\n');
       File(p.join(logDir.path, 'notes.md')).writeAsStringSync('Not a log\n');
       File(p.join(logDir.path, 'readme.txt')).writeAsStringSync('ignore\n');
 
@@ -306,5 +437,30 @@ Some learning detail
       final dailyLogs = status['dailyLogs'] as Map<String, dynamic>;
       expect(dailyLogs['fileCount'], 1);
     });
+
+    test('rejects a symlinked log directory without reading its target', () async {
+      final externalDir = Directory(p.join(tempDir.path, 'external-memory'))..createSync();
+      final external = File(p.join(externalDir.path, '2026-03-01.md'))..writeAsStringSync('## 10:00 — "External"\n');
+      Link(p.join(workspaceDir, 'memory')).createSync(externalDir.path);
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['fileCount'], 0);
+      expect(dailyLogs['recent'], isEmpty);
+      expect(external.readAsStringSync(), contains('External'));
+    }, skip: Platform.isWindows);
+
+    test('rejects symlinked dated leaves without reading their targets', () async {
+      final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync();
+      File(p.join(logDir.path, '2026-03-02.md')).writeAsStringSync('## 10:00 — "Local"\n');
+      final external = File(p.join(tempDir.path, 'external-daily.md'))..writeAsStringSync('## 11:00 — "External"\n');
+      Link(p.join(logDir.path, '2026-03-03.md')).createSync(external.path);
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['fileCount'], 1);
+      expect((dailyLogs['recent'] as List).single, containsPair('date', '2026-03-02'));
+      expect(external.readAsStringSync(), contains('External'));
+    }, skip: Platform.isWindows);
   });
 }

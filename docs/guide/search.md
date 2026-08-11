@@ -59,7 +59,9 @@ Content is truncated to 50KB before classification.
 
 ## Memory Search
 
-Memory search reads the FTS5 index over `MEMORY.md` plus synthesized `wiki/` pages. For when those stores actually get written -- and why a fresh instance returns no results -- see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
+Memory search combines the FTS5 index over `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md` with a separately merged
+file lookup over synthesized `wiki/` pages. For when those stores actually get written – and why a fresh instance returns
+no results – see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
 
 ### FTS5 (Default)
 
@@ -67,7 +69,11 @@ Built-in full-text search using SQLite FTS5 with BM25 ranking. Zero external dep
 
 ### QMD Hybrid Search (Opt-in)
 
-QMD adds vector search for semantic matching. DartClaw manages the QMD daemon lifecycle.
+QMD adds vector search for semantic matching. DartClaw manages the QMD daemon lifecycle and supports stable QMD 2.5.3
+or later 2.x releases. Startup uses QMD's explicit global `index`, verifies `collection show memory` maps to the exact workspace
+with the recursive `**/*.md` mask, then completes both the initial update and embedding pass. Queries use QMD's structured
+REST contract; daemon binding is restricted to literal loopback hosts (`localhost`, `127.x.x.x`, or `::1`), and shutdown
+uses `qmd mcp stop`.
 
 ```yaml
 search:
@@ -85,6 +91,9 @@ search:
 | `deep` | Full query + reranking | 5-8s |
 
 If QMD becomes unreachable, DartClaw falls back to FTS5 silently.
+
+If startup reports that the existing `memory` collection uses the legacy `*.md` mask, run
+`qmd --index index collection remove memory`, then restart DartClaw. Startup recreates the collection with `**/*.md`.
 
 ### Memory Consolidation
 

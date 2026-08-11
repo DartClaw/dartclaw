@@ -58,6 +58,8 @@ class ScheduleService implements Reconfigurable {
   final MemoryConsolidator? _consolidator;
   final String? _workerProviderId;
   final String _workerProfileId;
+  final Timer Function(Duration duration, void Function() callback) _timerFactory;
+  final DateTime Function() _now;
 
   final Map<String, Timer> _timers = {};
   final Set<String> _running = {};
@@ -74,6 +76,8 @@ class ScheduleService implements Reconfigurable {
     EventBus? eventBus,
     String? workerProviderId,
     String workerProfileId = 'workspace',
+    Timer Function(Duration duration, void Function() callback)? timerFactory,
+    DateTime Function()? now,
   }) : _turns = turns,
        _sessions = sessions,
        _jobs = jobs,
@@ -81,7 +85,9 @@ class ScheduleService implements Reconfigurable {
        _consolidator = consolidator,
        _eventBus = eventBus,
        _workerProviderId = workerProviderId,
-       _workerProfileId = workerProfileId;
+       _workerProfileId = workerProfileId,
+       _timerFactory = timerFactory ?? Timer.new,
+       _now = now ?? DateTime.now;
 
   /// Schedule all jobs. Calculates next fire time for each and sets timers.
   void start() {
@@ -168,11 +174,12 @@ class ScheduleService implements Reconfigurable {
     }
   }
 
-  void _scheduleNext(ScheduledJob job) {
+  void _scheduleNext(ScheduledJob job, {DateTime? completedCronBoundary}) {
     _timers[job.id]?.cancel();
 
-    final now = DateTime.now();
-    Duration? delay;
+    final now = _now();
+    late final DateTime fireAt;
+    late final Duration delay;
 
     switch (job.scheduleType) {
       case ScheduleType.cron:
@@ -182,7 +189,11 @@ class ScheduleService implements Reconfigurable {
           return;
         }
         try {
-          final next = cron.nextFrom(now);
+          final reference = completedCronBoundary != null && completedCronBoundary.isAfter(now)
+              ? completedCronBoundary
+              : now;
+          final next = cron.nextFrom(reference);
+          fireAt = next;
           delay = next.difference(now);
           _log.info('Job "${job.id}": next fire at $next (${delay.inMinutes}m)');
         } on StateError catch (e) {
@@ -197,6 +208,7 @@ class ScheduleService implements Reconfigurable {
           return;
         }
         delay = Duration(minutes: minutes);
+        fireAt = now.add(delay);
         _log.info('Job "${job.id}": next fire in ${delay.inMinutes}m');
 
       case ScheduleType.once:
@@ -209,23 +221,33 @@ class ScheduleService implements Reconfigurable {
           _log.warning('Job "${job.id}": one-time schedule at $at is in the past — skipping');
           return;
         }
+        fireAt = at;
         delay = at.difference(now);
         _log.info('Job "${job.id}": one-time fire at $at (${delay.inMinutes}m)');
     }
 
-    _timers[job.id] = Timer(delay, () {
-      unawaited(_executeJob(job));
+    _armTimer(job, fireAt, delay, guardBoundary: job.scheduleType != ScheduleType.interval);
+  }
+
+  void _armTimer(ScheduledJob job, DateTime fireAt, Duration delay, {required bool guardBoundary}) {
+    _timers[job.id] = _timerFactory(delay.isNegative ? Duration.zero : delay, () {
+      final remaining = fireAt.difference(_now());
+      if (guardBoundary && remaining > Duration.zero) {
+        _armTimer(job, fireAt, remaining, guardBoundary: true);
+        return;
+      }
+      unawaited(_executeJob(job, scheduledFor: guardBoundary ? fireAt : null));
     });
   }
 
-  Future<void> _executeJob(ScheduledJob job) async {
+  Future<void> _executeJob(ScheduledJob job, {DateTime? scheduledFor}) async {
     if (_paused.contains(job.id)) {
       _log.info('Job "${job.id}": paused — skipping fire');
       return;
     }
     if (_running.contains(job.id)) {
       _log.warning('Job "${job.id}": still running from previous fire — skipping');
-      _reschedule(job);
+      _reschedule(job, completedCronBoundary: scheduledFor);
       return;
     }
 
@@ -236,7 +258,7 @@ class ScheduleService implements Reconfigurable {
       await _executeWithRetry(job);
     } finally {
       _running.remove(job.id);
-      _reschedule(job);
+      _reschedule(job, completedCronBoundary: scheduledFor);
     }
   }
 
@@ -323,7 +345,7 @@ class ScheduleService implements Reconfigurable {
   // Exposed for wiring tests that need to assert composition-root jobs.
   List<ScheduledJob> get jobsForTesting => List.unmodifiable(_jobs);
 
-  void _reschedule(ScheduledJob job) {
+  void _reschedule(ScheduledJob job, {DateTime? completedCronBoundary}) {
     if (!_started || _paused.contains(job.id)) return;
 
     // One-time jobs don't reschedule
@@ -333,6 +355,6 @@ class ScheduleService implements Reconfigurable {
       return;
     }
 
-    _scheduleNext(job);
+    _scheduleNext(job, completedCronBoundary: completedCronBoundary);
   }
 }

@@ -8,8 +8,10 @@ import 'package:path/path.dart' as p;
 
 import '../scheduling/cron_parser.dart';
 import '../scheduling/schedule_service.dart';
+import 'workspace_file_reader.dart';
 
 final _log = Logger('MemoryStatusService');
+final _dailyLogHeader = RegExp(r'^## (?:[01]\d|2[0-3]):[0-5]\d — ');
 
 /// Callback to count search index entries by source.
 ///
@@ -28,6 +30,7 @@ class MemoryStatusService {
   final KvService kvService;
   final SearchIndexCounter? searchIndexCounter;
   final ScheduleService? scheduleService;
+  final WorkspaceFileReader _workspaceFiles;
 
   MemoryStatusService({
     required this.workspaceDir,
@@ -35,17 +38,17 @@ class MemoryStatusService {
     required this.kvService,
     this.searchIndexCounter,
     this.scheduleService,
-  });
+  }) : _workspaceFiles = WorkspaceFileReader(workspaceDir);
 
   /// Returns the complete memory status response.
   Future<Map<String, dynamic>> getStatus() async {
     final memoryMd = _getMemoryMdStatus();
     final archiveMd = _getArchiveStatus();
-    final errorsMd = _getSelfImprovementStatus(p.join(workspaceDir, 'errors.md'), cap: 50);
-    final learningsMd = _getSelfImprovementStatus(p.join(workspaceDir, 'learnings.md'), cap: 50);
+    final errorsMd = _getSelfImprovementStatus('errors.md', entryPrefix: '## [', cap: 50);
+    final learningsMd = _getSelfImprovementStatus('learnings.md', entryPrefix: '- [', cap: 50);
     final search = _getSearchStatus();
     final pruner = await _getPrunerStatus();
-    final dailyLogs = _getDailyLogsStatus();
+    final dailyLogs = await _getDailyLogsStatus();
 
     return {
       'memoryMd': memoryMd,
@@ -60,15 +63,10 @@ class MemoryStatusService {
   }
 
   Map<String, dynamic> _getMemoryMdStatus() {
-    final filePath = p.join(workspaceDir, 'MEMORY.md');
-    final file = File(filePath);
-    if (!file.existsSync()) {
-      return _emptyMemoryMdStatus();
-    }
-
     try {
-      final content = file.readAsStringSync();
-      final sizeBytes = file.lengthSync();
+      final snapshot = _workspaceFiles.read('MEMORY.md');
+      if (snapshot == null) return _emptyMemoryMdStatus();
+      final content = snapshot.content;
       final entries = parseMemoryEntries(content);
 
       // Category breakdown
@@ -96,7 +94,7 @@ class MemoryStatusService {
       }
 
       return {
-        'sizeBytes': sizeBytes,
+        'sizeBytes': snapshot.sizeBytes,
         'entryCount': entries.length,
         'oldestEntry': oldest?.toIso8601String(),
         'newestEntry': newest?.toIso8601String(),
@@ -120,44 +118,34 @@ class MemoryStatusService {
   };
 
   Map<String, dynamic> _getArchiveStatus() {
-    final filePath = p.join(workspaceDir, 'MEMORY.archive.md');
-    final file = File(filePath);
-    if (!file.existsSync()) {
-      return {'sizeBytes': 0, 'entryCount': 0};
-    }
-
     try {
-      final content = file.readAsStringSync();
-      final sizeBytes = file.lengthSync();
+      final snapshot = _workspaceFiles.read('MEMORY.archive.md');
+      if (snapshot == null) return {'sizeBytes': 0, 'entryCount': 0};
+      final content = snapshot.content;
       final entries = parseMemoryEntries(content);
-      return {'sizeBytes': sizeBytes, 'entryCount': entries.length};
+      return {'sizeBytes': snapshot.sizeBytes, 'entryCount': entries.length};
     } catch (e) {
       _log.warning('Failed to read MEMORY.archive.md: $e');
       return {'sizeBytes': 0, 'entryCount': 0};
     }
   }
 
-  Map<String, dynamic> _getSelfImprovementStatus(String filePath, {required int cap}) {
-    final file = File(filePath);
-    if (!file.existsSync()) {
-      return {'entryCount': 0, 'cap': cap, 'sizeBytes': 0};
-    }
-
+  Map<String, dynamic> _getSelfImprovementStatus(String name, {required String entryPrefix, required int cap}) {
     try {
-      final content = file.readAsStringSync();
-      final sizeBytes = file.lengthSync();
-      // Count entries: lines starting with "## [" (errors.md/learnings.md use this format)
-      final entryCount = content.split('\n').where((l) => l.startsWith('## [')).length;
-      return {'entryCount': entryCount, 'cap': cap, 'sizeBytes': sizeBytes};
+      final snapshot = _workspaceFiles.read(name);
+      if (snapshot == null) return {'entryCount': 0, 'cap': cap, 'sizeBytes': 0};
+      final content = snapshot.content;
+      final entryCount = content.split('\n').where((line) => line.startsWith(entryPrefix)).length;
+      return {'entryCount': entryCount, 'cap': cap, 'sizeBytes': snapshot.sizeBytes};
     } catch (e) {
-      _log.warning('Failed to read $filePath: $e');
+      _log.warning('Failed to read $name: $e');
       return {'entryCount': 0, 'cap': cap, 'sizeBytes': 0};
     }
   }
 
   Map<String, dynamic> _getSearchStatus() {
     try {
-      final indexEntries = _countSearchEntries('memory');
+      final indexEntries = _countSearchEntries('memory_save');
       final indexArchived = _countSearchEntries('archive');
       final dbSizeBytes = _getSearchDbSize();
 
@@ -248,9 +236,9 @@ class MemoryStatusService {
     // but we keep this self-contained to avoid parameter threading)
     int? undatedCount;
     try {
-      final memFile = File(p.join(workspaceDir, 'MEMORY.md'));
-      if (memFile.existsSync()) {
-        final entries = parseMemoryEntries(memFile.readAsStringSync());
+      final snapshot = _workspaceFiles.read('MEMORY.md');
+      if (snapshot != null) {
+        final entries = parseMemoryEntries(snapshot.content);
         undatedCount = entries.where((e) => e.timestamp == null).length;
       }
     } catch (e) {
@@ -306,40 +294,50 @@ class MemoryStatusService {
     }
   }
 
-  Map<String, dynamic> _getDailyLogsStatus() {
-    final logDir = Directory(p.join(workspaceDir, 'memory'));
-    if (!logDir.existsSync()) {
-      return {'fileCount': 0, 'totalSizeBytes': 0, 'recent': <Map<String, dynamic>>[]};
-    }
-
+  Future<Map<String, dynamic>> _getDailyLogsStatus() async {
     try {
       final datePattern = RegExp(r'^\d{4}-\d{2}-\d{2}\.md$');
-      final logFiles =
-          logDir.listSync().whereType<File>().where((f) => datePattern.hasMatch(p.basename(f.path))).toList()
-            ..sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
-
+      var fileCount = 0;
       var totalSizeBytes = 0;
-      final recent = <Map<String, dynamic>>[];
+      final recentFiles = <WorkspaceFileEntry>[];
 
-      for (var i = 0; i < logFiles.length; i++) {
-        final file = logFiles[i];
-        final sizeBytes = file.lengthSync();
-        totalSizeBytes += sizeBytes;
-
-        // Include last 7 in recent list
-        if (i < 7) {
-          final name = p.basenameWithoutExtension(file.path);
-          final content = file.readAsStringSync();
-          final entries = content.split('\n').where((l) => l.startsWith('- [')).length;
-          recent.add({'date': name, 'entries': entries, 'sizeBytes': sizeBytes});
-        }
+      await for (final file in _workspaceFiles.readDirectory('memory', include: datePattern.hasMatch)) {
+        fileCount++;
+        totalSizeBytes += file.sizeBytes;
+        recentFiles.add(file);
+        recentFiles.sort((a, b) => b.name.compareTo(a.name));
+        if (recentFiles.length > 7) recentFiles.removeLast();
       }
 
-      return {'fileCount': logFiles.length, 'totalSizeBytes': totalSizeBytes, 'recent': recent};
+      final recent = <Map<String, dynamic>>[];
+      for (final file in recentFiles) {
+        var entryCount = 0;
+        try {
+          entryCount = await _countDailyLogEntries(file.name);
+        } catch (e) {
+          _log.fine('Failed to read daily log ${file.name}: $e');
+        }
+        recent.add({'date': p.basenameWithoutExtension(file.name), 'entries': entryCount, 'sizeBytes': file.sizeBytes});
+      }
+      return {'fileCount': fileCount, 'totalSizeBytes': totalSizeBytes, 'recent': recent};
     } catch (e) {
       _log.warning('Failed to enumerate daily logs: $e');
       return {'fileCount': 0, 'totalSizeBytes': 0, 'recent': <Map<String, dynamic>>[]};
     }
+  }
+
+  Future<int> _countDailyLogEntries(String name) async {
+    var count = 0;
+
+    final lines = _workspaceFiles
+        .streamDirectoryFileBytes('memory', name)
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    await for (final line in lines) {
+      if (_dailyLogHeader.hasMatch(line)) count++;
+    }
+
+    return count;
   }
 
   static List<dynamic>? _parseJsonArray(String raw) {

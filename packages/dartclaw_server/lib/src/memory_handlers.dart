@@ -8,6 +8,15 @@ import 'behavior/self_improvement_service.dart';
 
 final _log = Logger('MemoryHandlers');
 
+/// Maximum number of results accepted by `memory_search`.
+const maxMemorySearchResults = 50;
+
+/// Maximum character count accepted by `memory_save` for one text value.
+const maxMemorySaveTextLength = 64 * 1024;
+
+/// Maximum character count accepted by `memory_save` for a category.
+const maxMemorySaveCategoryLength = 64;
+
 /// Creates memory bridge handler closures for wiring into AgentHarness.
 ({
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
@@ -26,31 +35,75 @@ createMemoryHandlers({
       if (text.trim().isEmpty) {
         throw ArgumentError('text must not be empty');
       }
-      final category = _sanitizeCategory((params['category'] as String?) ?? 'general');
-      final stripped = MemoryFileService.stripMarkdown(text);
-      final chunks = MemoryFileService.splitParagraphs(stripped);
+      if (text.length > maxMemorySaveTextLength) {
+        throw ArgumentError('text must not exceed $maxMemorySaveTextLength characters');
+      }
+      final rawCategory = (params['category'] as String?) ?? 'general';
+      if (rawCategory.length > maxMemorySaveCategoryLength) {
+        throw ArgumentError('category must not exceed $maxMemorySaveCategoryLength characters');
+      }
+      final category = _sanitizeCategory(rawCategory);
+      final savedAt = DateTime.now();
+      final rows = MemoryService.indexRows(text: text, source: 'memory_save', category: category, createdAt: savedAt);
 
       // Route learning category to learnings.md instead of MEMORY.md
       if (category == 'learning' && selfImprovement != null) {
-        await selfImprovement.appendLearning(text: text);
+        await selfImprovement.appendLearning(
+          text: text,
+          timestamp: savedAt,
+          afterWrite: (retainedContent) async {
+            try {
+              final activeLearningEntries = parseMemoryEntries(
+                await memoryFile.readMemory(),
+              ).where((entry) => entry.category == 'learning');
+              final retainedRows = [
+                for (final entry in [...activeLearningEntries, ...parseMemoryEntries(retainedContent)])
+                  ...MemoryService.indexRows(
+                    text: entry.rawText,
+                    source: 'memory_save',
+                    category: 'learning',
+                    createdAt: entry.timestamp,
+                  ),
+              ];
+              memory.replaceCategoryRows(retainedRows, source: 'memory_save', category: 'learning');
+            } catch (e) {
+              _log.warning('Failed to reconcile learning memory chunks: $e');
+            }
+          },
+        );
       } else {
-        await memoryFile.appendMemory(text: text, category: category);
-      }
-
-      for (final chunk in chunks) {
-        try {
-          memory.insertChunk(text: chunk, source: 'memory_save', category: category);
-        } catch (e) {
-          // SQLite index failure after file write — rebuild-index CLI is recovery path
-          _log.warning('Failed to index memory chunk: $e');
-        }
+        await memoryFile.appendMemory(
+          text: text,
+          category: category,
+          timestamp: savedAt,
+          afterWrite: (canonicalTimestamp) {
+            for (final row in MemoryService.indexRows(
+              text: text,
+              source: 'memory_save',
+              category: category,
+              createdAt: canonicalTimestamp,
+            )) {
+              try {
+                memory.insertChunk(
+                  text: row.text,
+                  source: row.source,
+                  category: row.category,
+                  createdAt: row.createdAt,
+                );
+              } catch (e) {
+                // SQLite index failure after file write — rebuild-index CLI is recovery path
+                _log.warning('Failed to index memory chunk: $e');
+              }
+            }
+          },
+        );
       }
 
       await searchBackend.indexAfterWrite();
 
       return {
         'content': [
-          {'type': 'text', 'text': 'Saved ${chunks.length} chunk(s) to memory.'},
+          {'type': 'text', 'text': 'Saved ${rows.length} chunk(s) to memory.'},
         ],
       };
     },
@@ -64,7 +117,7 @@ createMemoryHandlers({
         };
       }
 
-      final limit = (params['limit'] as num?)?.toInt() ?? 5;
+      final limit = _memorySearchLimit(params['limit']);
       final sanitized = _sanitizeFts5Query(query);
       if (sanitized == '""') {
         return {
@@ -97,6 +150,15 @@ createMemoryHandlers({
       };
     },
   );
+}
+
+int _memorySearchLimit(Object? value) {
+  if (value == null) return 5;
+  if (value is int) return value.clamp(1, maxMemorySearchResults);
+  if (value is! double || !value.isFinite || value != value.truncateToDouble()) {
+    throw ArgumentError.value(value, 'limit', 'must be a finite integer');
+  }
+  return value.clamp(1, maxMemorySearchResults).toInt();
 }
 
 /// Sanitizes category to lowercase alphanumeric + hyphens.

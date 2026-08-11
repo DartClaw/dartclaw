@@ -19,6 +19,7 @@ final class ExecutionRequest {
     this.admission = ExecutionAdmission.wait,
     this.isHumanInput = false,
     this.taskId,
+    this.logicalAgentId,
   });
 
   final ExecutionSurface surface;
@@ -35,6 +36,13 @@ final class ExecutionRequest {
   final bool isHumanInput;
   final String? taskId;
 
+  /// The logical agent this execution runs as, when one owns the turn.
+  ///
+  /// Part of the execution principal: an agent's authorized capabilities are
+  /// derived from its definition, so the identity has to reach whatever grants
+  /// them.
+  final String? logicalAgentId;
+
   ExecutionRequest _route({String? providerId, ExecutionPolicy? policy}) {
     return ExecutionRequest(
       surface: surface,
@@ -44,6 +52,7 @@ final class ExecutionRequest {
       admission: admission,
       isHumanInput: isHumanInput,
       taskId: taskId,
+      logicalAgentId: logicalAgentId,
     );
   }
 }

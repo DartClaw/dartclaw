@@ -81,7 +81,10 @@ class WiringResult {
   final bool authEnabled;
   final TokenService? tokenService;
   final EventBus eventBus;
-  final Map<String, ContainerManager> containerManagers;
+
+  /// Leases a dedicated container authority for one containerized execution,
+  /// or `null` in host-only deployments.
+  final ContainerAuthorityProvider? containerAuthorities;
   final Future<void> Function() shutdownExtras;
   final Future<void> Function()? prepareExecutionShutdown;
   final ProjectService projectService;
@@ -111,7 +114,7 @@ class WiringResult {
     required this.authEnabled,
     required this.tokenService,
     required this.eventBus,
-    required this.containerManagers,
+    required this.containerAuthorities,
     required this.shutdownExtras,
     this.prepareExecutionShutdown,
     required this.projectService,
@@ -391,6 +394,9 @@ class ServiceWiring {
       platformCapabilities: platformCapabilities,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
+      // Server ref resolved lazily – the MCP registry exists only after the
+      // server is built, while authorities are created at turn time.
+      mcpHandlerRef: () => ctx.serverRefGetter().mcpHandler,
     );
     await security.wire(agentDefs: agentDefs);
     return security;
@@ -426,7 +432,7 @@ class ServiceWiring {
       eventBus: ctx.eventBus,
       storage: storage,
       project: project,
-      containerManagers: security.containerManagers,
+      containerAuthorities: security.containersEnabled ? security.acquireContainerAuthority : null,
     );
     await task.wirePreServer();
     return task;

@@ -3,7 +3,8 @@ import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
-import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowCliProviderConfig, WorkflowCliRunner;
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show ContainerAuthorityLease, ContainerAuthorityProvider, WorkflowCliProviderConfig, WorkflowCliRunner;
 import 'package:dartclaw_server/src/task/cli_provider.dart' show CliProvider, CliTurnRequest;
 import 'package:dartclaw_server/src/task/workflow_cli_runner.dart'
     show WorkflowCliProcessStarter, WorkflowCliTurnResult;
@@ -72,15 +73,34 @@ WorkflowCliProcessStarter codexStub({
   };
 }
 
+/// Leases [container] for every container-policy turn, recording releases so a
+/// test can prove the authority does not outlive the turn.
+ContainerAuthorityProvider fakeContainerAuthorities(ContainerExecutor container, {List<String>? released}) =>
+    (principal) async => FakeContainerAuthorityLease(container, released ?? <String>[], principal.sessionId);
+
+/// A lease over a pre-built container executor.
+final class FakeContainerAuthorityLease implements ContainerAuthorityLease {
+  FakeContainerAuthorityLease(this.container, this.released, this.sessionId);
+
+  @override
+  final ContainerExecutor container;
+
+  final List<String> released;
+  final String sessionId;
+
+  @override
+  Future<void> release() async => released.add(sessionId);
+}
+
 WorkflowCliRunner claudeRunner({
   WorkflowCliProcessStarter? processStarter,
   Map<String, dynamic> options = const {},
-  Map<String, ContainerExecutor> containerManagers = const {},
+  ContainerExecutor? container,
   EventBus? eventBus,
 }) {
   return WorkflowCliRunner(
     providers: {'claude': WorkflowCliProviderConfig(executable: 'claude', options: options)},
-    containerManagers: containerManagers,
+    containerAuthorities: container == null ? null : fakeContainerAuthorities(container),
     eventBus: eventBus,
     processStarter: processStarter,
   );
@@ -89,12 +109,12 @@ WorkflowCliRunner claudeRunner({
 WorkflowCliRunner codexRunner({
   WorkflowCliProcessStarter? processStarter,
   Map<String, dynamic> options = const {},
-  Map<String, ContainerExecutor> containerManagers = const {},
+  ContainerExecutor? container,
   EventBus? eventBus,
 }) {
   return WorkflowCliRunner(
     providers: {'codex': WorkflowCliProviderConfig(executable: 'codex', options: options)},
-    containerManagers: containerManagers,
+    containerAuthorities: container == null ? null : fakeContainerAuthorities(container),
     eventBus: eventBus,
     processStarter: processStarter,
   );

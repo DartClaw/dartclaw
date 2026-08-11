@@ -48,6 +48,13 @@ jobs:
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
 
+      # Windows builds run the generator directly; every other target gets both
+      # steps from build.sh. The bridge must exist before the generator runs.
+      - name: Cross-compile container bridge
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash dev/tools/build_bridge.sh --embed
+
       - name: Generate embedded assets
         if: runner.os == 'Windows'
         run: dart run dev/tools/embed_assets.dart

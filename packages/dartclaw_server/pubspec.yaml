@@ -19,6 +19,8 @@ resolution: workspace
 dependencies:
   anthropic_sdk_dart: ^2.2.0
   crypto: ^3.0.7
+  dartclaw_bridge:
+    path: ../dartclaw_bridge
   dartclaw_config:
     path: ../dartclaw_config
   dartclaw_core:

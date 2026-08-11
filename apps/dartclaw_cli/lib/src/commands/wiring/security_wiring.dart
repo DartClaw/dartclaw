@@ -10,8 +10,9 @@ import '../serve_command.dart' show ExitFn;
 
 /// Constructs and exposes security-layer services.
 ///
-/// Owns container setup (credential proxy, container managers, health monitor),
-/// guard chain, content guard, audit subscriber, and session lifecycle subscriber.
+/// Owns container setup (host gateway, container authority lifecycle, health
+/// monitor), guard chain, content guard, audit subscriber, and session
+/// lifecycle subscriber.
 ///
 /// **Security reload seam** — two participants are registered with [ConfigNotifier]:
 ///
@@ -33,7 +34,9 @@ class SecurityWiring implements Reconfigurable {
     PlatformCapabilities? platformCapabilities,
     ConfigNotifier? configNotifier,
     MessageRedactor? messageRedactor,
+    McpProtocolHandler Function()? mcpHandlerRef,
   }) : _dataDir = dataDir,
+       _mcpHandlerRef = mcpHandlerRef,
        _eventBus = eventBus,
        _exitFn = exitFn,
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
@@ -48,11 +51,16 @@ class SecurityWiring implements Reconfigurable {
   final ConfigNotifier? _configNotifier;
   final MessageRedactor? _messageRedactorForRegistration;
 
+  /// Resolved lazily: the MCP handler exists only after the server is built,
+  /// while authorities are created at turn time.
+  final McpProtocolHandler Function()? _mcpHandlerRef;
+
   static final _log = Logger('SecurityWiring');
 
-  CredentialProxy? _credentialProxy;
+  HostGateway? _gateway;
+  BridgeBinaryProvisioner? _bridgeBinaries;
+  String? _bridgeBinaryPath;
   ContainerHealthMonitor? _containerHealthMonitor;
-  final Map<String, ContainerManager> _containerManagers = {};
   final Map<String, ContainerManager Function(String containerName)> _containerTemplates = {};
   // Authority suffixes must not repeat across process restarts: ContainerManager
   // adopts a healthy same-named container, so a recycled name could hand a new
@@ -68,9 +76,11 @@ class SecurityWiring implements Reconfigurable {
   GuardAuditSubscriber? _guardAuditSubscriber;
   SessionLifecycleSubscriber? _sessionLifecycleSubscriber;
 
-  CredentialProxy? get credentialProxy => _credentialProxy;
+  HostGateway? get gateway => _gateway;
   ContainerHealthMonitor? get containerHealthMonitor => _containerHealthMonitor;
-  Map<String, ContainerManager> get containerManagers => Map.unmodifiable(_containerManagers);
+
+  /// Whether this deployment can run container executions at all.
+  bool get containersEnabled => _gateway != null;
   GuardChain? get guardChain => _guardChain;
   GuardAuditLogger get auditLogger => _auditLogger;
   ContentGuard? get contentGuard => _contentGuard;
@@ -81,41 +91,75 @@ class SecurityWiring implements Reconfigurable {
   /// Container profiles this deployment can actually run.
   Set<String> get availableContainerProfiles => _containerTemplates.keys.toSet();
 
-  /// Creates and starts a container dedicated to one live execution authority.
+  Map<String, CanonicalTool> _mcpToolCanonicals = const {};
+
+  /// Binds the canonical-name mapping bridged MCP authorization uses.
   ///
-  /// Every admitted container execution gets its own container and process
-  /// namespace, so a later authority cannot inherit a predecessor's PIDs,
-  /// temp files, or generated home.
-  Future<ContainerExecutor> acquireContainerAuthority(String profileId) async {
-    final template = _containerTemplates[profileId];
-    if (template == null) {
+  /// Harness wiring owns the mapping and sets it during its own wire, which
+  /// still precedes any container authority.
+  set mcpToolCanonicals(Map<String, CanonicalTool> value) => _mcpToolCanonicals = Map.unmodifiable(value);
+
+  /// Creates a container dedicated to one live execution authority, with its
+  /// host mediation established.
+  ///
+  /// Every admitted container execution gets its own container, process
+  /// namespace, and bridge processes, so a later authority cannot inherit a
+  /// predecessor's PIDs, temp files, generated home, or pipes. The lease is
+  /// returned only after every required surface has handshaked and is
+  /// listening — a turn never starts on a partial boundary.
+  Future<ContainerAuthorityLease> acquireContainerAuthority(
+    GatewayPrincipal principal, {
+    Set<String> allowedMcpTools = const {},
+  }) async {
+    final profileId = principal.containerProfile;
+    final template = profileId == null ? null : _containerTemplates[profileId];
+    final gateway = _gateway;
+    if (template == null || gateway == null) {
       throw StateError('No container profile "$profileId" is available in this deployment');
     }
+
     final manager = template(
       ContainerManager.generateName(_dataDir, '$profileId-$_authorityEpoch${_nextAuthorityId++}'),
     );
-    await manager.start();
-    _eventBus.fire(
-      ContainerStartedEvent(profileId: profileId, containerName: manager.containerName, timestamp: DateTime.now()),
+    final authority = gateway.register(principal: principal, allowedMcpTools: allowedMcpTools);
+    final lease = _ContainerAuthorityLease(
+      manager: manager,
+      authority: authority,
+      gateway: gateway,
+      eventBus: _eventBus,
+      monitor: _containerHealthMonitor,
     );
-    return manager;
+    try {
+      await manager.start();
+      _eventBus.fire(
+        ContainerStartedEvent(
+          profileId: manager.profileId,
+          containerName: manager.containerName,
+          timestamp: DateTime.now(),
+        ),
+      );
+      _containerHealthMonitor?.watch(manager.containerName, manager);
+      for (final surface in authority.requiredSurfaces) {
+        final channel = await manager.startBridge(surface, bridgePortFor(surface));
+        try {
+          gateway.attach(authority, surface, channel);
+        } catch (_) {
+          // Nothing owns the process until the pipe does.
+          await channel.close();
+          rethrow;
+        }
+      }
+      await authority.ready.timeout(_bridgeReadyTimeout);
+    } catch (_) {
+      await lease.release();
+      rethrow;
+    }
+    return lease;
   }
 
-  /// Stops and removes a container previously returned by
-  /// [acquireContainerAuthority].
-  Future<void> releaseContainerAuthority(ContainerExecutor authority) async {
-    if (authority is! ContainerManager) return;
-    // ContainerManager.stop() does not surface docker's exit codes, so this
-    // event reports that teardown was attempted, not that it was confirmed.
-    await authority.stop();
-    _eventBus.fire(
-      ContainerStoppedEvent(
-        profileId: authority.profileId,
-        containerName: authority.containerName,
-        timestamp: DateTime.now(),
-      ),
-    );
-  }
+  /// How long a bridge has to handshake and start listening before the
+  /// authority is abandoned. Startup is local process work, not model work.
+  static const _bridgeReadyTimeout = Duration(seconds: 30);
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
     // Assigned before anything that can throw: dispose() flushes it, and a
@@ -261,67 +305,87 @@ class SecurityWiring implements Reconfigurable {
       SecurityProfile.restricted,
     ];
     final localPathProjectMounts = _localPathProjectMounts();
-    final proxySocketDir = p.join(_dataDir, 'proxy');
-    for (final profile in profiles) {
-      // A profile is a filesystem/capability template, not a running container:
-      // each live container authority is built from it and owns its own container.
-      _containerTemplates[profile.id] = (containerName) => ContainerManager(
-        config: config.container,
-        containerName: containerName,
-        profileId: profile.id,
-        workspaceMounts: profile.id == 'workspace'
-            ? [...profile.workspaceMounts, ...localPathProjectMounts]
-            : profile.workspaceMounts,
-        localPathAllowlist: config.projects.localPathAllowlist,
-        proxySocketDir: proxySocketDir,
-        hostClaudeJsonPath: hostClaudeJsonPath,
-        buildContextDir: Directory.current.path,
-        workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
-      );
-      _containerManagers[profile.id] = _containerTemplates[profile.id]!(
-        ContainerManager.generateName(_dataDir, profile.id),
-      );
-    }
-    final workspaceContainerManager = _containerManagers['workspace']!;
+    // A profile is a filesystem/capability template, not a running container:
+    // each live container authority is built from it and owns its own
+    // container, bridge processes, and generated state.
+    ContainerManager buildManager(SecurityProfile profile, String containerName) => ContainerManager(
+      config: config.container,
+      containerName: containerName,
+      profileId: profile.id,
+      workspaceMounts: profile.id == 'workspace'
+          ? [...profile.workspaceMounts, ...localPathProjectMounts]
+          : profile.workspaceMounts,
+      localPathAllowlist: config.projects.localPathAllowlist,
+      bridgeBinaryPath: _bridgeBinaryPath,
+      hostClaudeJsonPath: hostClaudeJsonPath,
+      buildContextDir: Directory.current.path,
+      workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
+    );
 
-    if (!await workspaceContainerManager.isDockerAvailable()) {
+    final probe = buildManager(SecurityProfile.restricted, 'dartclaw-probe');
+    if (!await probe.isDockerAvailable()) {
       _log.severe('Docker is required when container.enabled: true');
       _log.severe('Install or start Docker: https://docs.docker.com/get-docker/');
       _exitFn(1);
     }
+    await probe.ensureImage();
 
-    final proxyApiKey = Platform.environment['ANTHROPIC_API_KEY']?.trim();
-    _credentialProxy = CredentialProxy(socketPath: p.join(_dataDir, 'proxy', 'proxy.sock'), apiKey: proxyApiKey);
-    await _credentialProxy!.start();
-
+    final architecture = await probe.serverArchitecture();
+    if (architecture == null) {
+      _log.severe('Unsupported Docker engine architecture; no container bridge binary ships for it');
+      _exitFn(1);
+    }
+    _bridgeBinaries = BridgeBinaryProvisioner(dataDir: _dataDir);
     try {
-      await workspaceContainerManager.ensureImage();
-      for (final entry in _containerManagers.entries) {
-        await entry.value.start();
-        _eventBus.fire(
-          ContainerStartedEvent(
-            profileId: entry.key,
-            containerName: entry.value.containerName,
-            timestamp: DateTime.now(),
-          ),
-        );
-      }
-    } catch (e) {
-      for (final manager in _containerManagers.values) {
-        try {
-          await manager.stop();
-        } catch (stopErr) {
-          _log.fine('Error stopping container during startup failure cleanup', stopErr);
-        }
-      }
-      await _credentialProxy!.stop();
-      rethrow;
+      _bridgeBinaryPath = await _bridgeBinaries!.ensureAvailable(architecture);
+    } on StateError catch (error) {
+      _log.severe('Container isolation cannot start: ${error.message}');
+      _exitFn(1);
     }
 
-    _containerHealthMonitor = ContainerHealthMonitor(containerManagers: _containerManagers, eventBus: _eventBus);
-    _containerHealthMonitor!.start();
+    for (final profile in profiles) {
+      _containerTemplates[profile.id] = (containerName) => buildManager(profile, containerName);
+    }
 
-    _log.info('Container isolation enabled — ${_containerManagers.length} profiles (image: ${config.container.image})');
+    _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
+    _gateway = HostGateway(
+      providerAdapters: _buildProviderAdapters(),
+      mcpHandler: _mcpHandlerRef,
+      mcpToolCanonicals: () => _mcpToolCanonicals,
+      onDenied: _auditGatewayDenial,
+    );
+
+    _log.info(
+      'Container isolation enabled — ${_containerTemplates.length} profiles, host-mediated '
+      'linux-$architecture bridge (image: ${config.container.image})',
+    );
+  }
+
+  Map<String, ProviderMediator> _buildProviderAdapters() {
+    final registry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    // Each adapter owns one fixed upstream. Nothing downstream — least of all a
+    // container — can retarget it, and there is deliberately no configuration
+    // knob to point a credentialed adapter somewhere else.
+    return {
+      'claude': AnthropicMessagesAdapter(apiKey: () => registry.getApiKey('claude')),
+      'codex': OpenAiResponsesAdapter(apiKey: () => registry.getApiKey('codex')),
+    };
+  }
+
+  /// Routes a bridge refusal into the existing guard audit trail.
+  void _auditGatewayDenial(GatewayPrincipal principal, String reason) {
+    _eventBus.fire(
+      GuardBlockEvent(
+        guardName: 'host-gateway',
+        guardCategory: 'isolation',
+        verdict: 'block',
+        verdictMessage: reason,
+        hookPoint: 'bridge',
+        agentId: principal.logicalAgentId,
+        sessionId: principal.sessionId,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   List<String> _localPathProjectMounts() {
@@ -437,27 +501,72 @@ class SecurityWiring implements Reconfigurable {
   }
 
   Future<void> dispose() async {
-    for (final entry in _containerManagers.entries) {
-      try {
-        await entry.value.stop();
-        _eventBus.fire(
-          ContainerStoppedEvent(
-            profileId: entry.key,
-            containerName: entry.value.containerName,
-            timestamp: DateTime.now(),
-          ),
-        );
-      } catch (e) {
-        _log.fine('Error stopping container ${entry.key} during shutdown', e);
-      }
-    }
-    await _credentialProxy?.stop();
     await _containerHealthMonitor?.stop();
+    // Revoking every live authority also kills its bridge processes; the
+    // containers themselves are destroyed by their own leases.
+    await _gateway?.dispose();
     await _guardAuditSubscriber?.cancel();
     await _sessionLifecycleSubscriber?.cancel();
     // Cancelling stops new verdicts; queued NDJSON appends are fire-and-forget
     // and would otherwise be lost or half-written at shutdown.
     await _auditLogger.flush();
+  }
+}
+
+/// One container authority's container, bridges, and registration held together.
+///
+/// Release order is the isolation order: stop watching (so teardown is not a
+/// crash), revoke the pipes while the container still exists but can no longer
+/// use them, then destroy the container. Every step runs even if an earlier one
+/// fails, and repeat calls are no-ops.
+class _ContainerAuthorityLease implements ContainerAuthorityLease {
+  _ContainerAuthorityLease({
+    required this.manager,
+    required this.authority,
+    required HostGateway gateway,
+    required EventBus eventBus,
+    required ContainerHealthMonitor? monitor,
+  }) : _gateway = gateway,
+       _eventBus = eventBus,
+       _monitor = monitor;
+
+  static final _log = Logger('ContainerAuthorityLease');
+
+  final ContainerManager manager;
+  final GatewayAuthority authority;
+  final HostGateway _gateway;
+  final EventBus _eventBus;
+  final ContainerHealthMonitor? _monitor;
+
+  bool _released = false;
+
+  @override
+  ContainerExecutor get container => manager;
+
+  @override
+  Future<void> release() async {
+    if (_released) return;
+    _released = true;
+    _monitor?.unwatch(manager.containerName);
+    try {
+      await _gateway.revoke(authority);
+    } catch (error, stackTrace) {
+      _log.severe('Failed to revoke gateway authority ${authority.id}', error, stackTrace);
+    }
+    try {
+      // ContainerManager.stop() does not surface docker's exit codes, so this
+      // event reports that teardown was attempted, not that it was confirmed.
+      await manager.stop();
+      _eventBus.fire(
+        ContainerStoppedEvent(
+          profileId: manager.profileId,
+          containerName: manager.containerName,
+          timestamp: DateTime.now(),
+        ),
+      );
+    } catch (error, stackTrace) {
+      _log.severe('Failed to destroy container ${manager.containerName}', error, stackTrace);
+    }
   }
 }
 

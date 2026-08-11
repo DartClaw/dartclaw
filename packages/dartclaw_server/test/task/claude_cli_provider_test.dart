@@ -6,6 +6,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, NullIoSink;
 import 'package:test/test.dart';
 
+import 'workflow_cli_runner_test_support.dart' show fakeContainerAuthorities;
+
 void main() {
   group('ClaudeCliProvider', () {
     test('cancelInflight converts a teardown-killed process to a cancelled result', () async {
@@ -368,7 +370,7 @@ void main() {
 
       final runner = WorkflowCliRunner(
         providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
-        containerManagers: {'workspace': container},
+        containerAuthorities: fakeContainerAuthorities(container),
       );
 
       await runner.executeTurn(
@@ -708,7 +710,7 @@ void main() {
         providers: const {
           'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'approval': 'never'}),
         },
-        containerManagers: {'restricted': container},
+        containerAuthorities: fakeContainerAuthorities(container),
       );
 
       await expectLater(

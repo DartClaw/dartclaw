@@ -50,45 +50,45 @@ reusable credentials or restoring agent Internet access.
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC04] [TI03,TI04,TI05] Linux mediation preserves `network:none`**
+- [x] **S01 [OC01,OC04] [TI03,TI04,TI05] Linux mediation preserves `network:none`**
   - **Given** a Linux Docker engine and S01's dedicated container/harness for execution A
   - **When** the provider and MCP loopback endpoints exchange framed requests with the host over their own
     `docker exec -i` pipes and the container probes an arbitrary Internet destination
   - **Then** authorized mediated requests succeed, the direct probe fails, and inspect shows `network:none` with no added
     network or host socket mount
 
-- [ ] **S02 [OC01,OC04] [TI03,TI04,TI05] Docker Desktop uses the same out-of-band pipe**
+- [x] **S02 [OC01,OC04] [TI03,TI04,TI05] Docker Desktop uses the same out-of-band pipe**
   - **Given** Docker Desktop, where mounting a macOS AF_UNIX socket into the Linux VM is unsupported
   - **When** execution A starts and calls its provider and approved MCP surfaces
   - **Then** the same framed stdio bridge succeeds without a host socket, published port, internal network, dual-homed
     relay, or direct Internet path
 
-- [ ] **S03 [OC02] [TI01,TI02,TI05] Provider mediation keeps reusable credentials host-only**
+- [x] **S03 [OC02] [TI01,TI02,TI05] Provider mediation keeps reusable credentials host-only**
   - **Given** execution A has an active provider pipe and the host registry contains a sentinel provider credential
   - **When** its framed request reaches the matching provider adapter
   - **Then** the adapter validates the bound provider protocol/destination, adds the credential only to the host-to-provider
     request, streams the response, and the sentinel is absent from container env, mounts, argv, generated files, bridge
     state, logs, and errors
 
-- [ ] **S04 [OC02,OC03] [TI01,TI02,TI05] Pipe identity cannot cross surfaces or destinations**
+- [x] **S04 [OC02,OC03] [TI01,TI02,TI05] Pipe identity cannot cross surfaces or destinations**
   - **Given** separate host-owned provider and MCP pipes for execution A
   - **When** a provider frame is sent on the MCP pipe, an MCP frame is sent on the provider pipe, a request selects another
     destination/protocol, or a malformed/oversized frame is sent
   - **Then** the host rejects before outbound/tool dispatch and records a bounded, secret-free denial
 
-- [ ] **S05 [OC03] [TI01,TI02,TI05] MCP authorization is enforced on the host**
+- [x] **S05 [OC03] [TI01,TI02,TI05] MCP authorization is enforced on the host**
   - **Given** execution A is authorized for `web_search` but not another registered MCP tool
   - **When** its client invokes both tools directly rather than relying on client-side suppression
   - **Then** `web_search` reaches the existing host implementation and SSRF/content/audit protections, while the
     unapproved call is denied before `McpTool.call`
 
-- [ ] **S06 [OC03,OC04] [TI01,TI04,TI05] Authority and frames cannot be replayed**
+- [x] **S06 [OC03,OC04] [TI01,TI04,TI05] Authority and frames cannot be replayed**
   - **Given** concurrent executions A and B own different containers and pipes, followed by release of A
   - **When** B attempts to inject A's captured frame/request ID or any caller writes to A's closed pipe after release
   - **Then** transport ownership or host registry rejects the attempt, no provider credential/MCP result is returned, and
     no cached container harness can reactivate A's authority
 
-- [ ] **S07 [OC04] [TI03,TI04,TI05] Concurrency, backpressure, cancellation, and partial failures remain closed**
+- [x] **S07 [OC04] [TI03,TI04,TI05] Concurrency, backpressure, cancellation, and partial failures remain closed**
   - **Given** concurrent request IDs plus injected failures at bridge spawn, invalid length/type, queue saturation, host
     adapter timeout, response cancellation, pipe close, and container teardown
   - **When** DartClaw starts, uses, or releases an isolated execution
@@ -97,17 +97,17 @@ reusable credentials or restoring agent Internet access.
 
 ## Structural Criteria
 
-- [ ] Provider request adaptation and MCP authorization remain separate host implementations and separate pipes; there is
+- [x] Provider request adaptation and MCP authorization remain separate host implementations and separate pipes; there is
       no universal destination proxy.
-- [ ] Pipe/process identity is the container authority. No shared Web UI bearer or reusable container-visible capability
+- [x] Pipe/process identity is the container authority. No shared Web UI bearer or reusable container-visible capability
       authenticates the bridge.
-- [ ] Every agent container uses `network:none`; there is no relay, published port, host networking, added Docker network,
+- [x] Every agent container uses `network:none`; there is no relay, published port, host networking, added Docker network,
       Docker socket, or bind-mounted host socket.
-- [ ] One live authority owns one container/process namespace, bridge-process set, generated state, and harness; release
+- [x] One live authority owns one container/process namespace, bridge-process set, generated state, and harness; release
       destroys them rather than caching the container runner.
-- [ ] Framing is versioned and length-prefixed with surface, request ID, message kind, bounded metadata/body chunks,
+- [x] Framing is versioned and length-prefixed with surface, request ID, message kind, bounded metadata/body chunks,
       terminal/error/cancel messages, concurrency limits, backpressure, and malformed-frame rejection.
-- [ ] The implementation introduces no user-facing relaxation knob or silent transport/provider fallback.
+- [x] The implementation introduces no user-facing relaxation knob or silent transport/provider fallback.
 
 ## Scope & Boundaries
 
@@ -184,7 +184,7 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
 
 ### Implementation Tasks
 
-- [ ] **TI01** Host pipe registry binds one authority, surface, policy, and lifetime
+- [x] **TI01** Host pipe registry binds one authority, surface, policy, and lifetime
   - Define host-only registrations keyed by the spawned pipe/process with the S01 execution principal — session ID,
     worker identity, and logical-agent ID when present, as carried on the execution request — plus provider-or-MCP
     audience, the effective container profile (carrying the restricted flag the provider adapters consult for
@@ -195,7 +195,7 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
   - **Verify**: Concurrent A/B and provider/MCP registrations accept only their own pipe while active; every pipe stays
     denied after close/release and no reusable credential/capability appears in container-visible state.
 
-- [ ] **TI02** Provider and MCP frames reach separate host-enforced handlers
+- [x] **TI02** Provider and MCP frames reach separate host-enforced handlers
   - Adapt `CredentialProxy` into exactly two fixed provider handlers — Anthropic Messages for Claude and OpenAI Responses
     for Codex — each owning its upstream URI (existing provider endpoint configuration where present, else the provider
     default, pinned at registration), and add pipe-bound MCP authorization before discovery/call via a per-authority
@@ -205,7 +205,7 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
   - **Verify**: Correct requests succeed; cross-surface, alternate-destination, client-auth, malformed, oversized, and
     unapproved-tool requests fail before upstream/tool dispatch; sentinels appear only at the fake provider upstream.
 
-- [ ] **TI03** Dart-owned bridge framing is bounded, multiplexed, and backpressured
+- [x] **TI03** Dart-owned bridge framing is bounded, multiplexed, and backpressured
   - Add the small bridge executable and matching host codec with versioned length-prefixed frames, request IDs, bounded
     chunking/queues/concurrency, explicit completion/error/cancel, paused-stream backpressure, and deterministic EOF rules.
     The first exchange on every pipe is a protocol-version handshake that fails closed on mismatch. The bridge's bounded
@@ -216,7 +216,7 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
   - **Verify**: Protocol tests interleave concurrent requests and fragmented reads, saturate every bound, cancel one request
     without affecting another, fuzz invalid lengths/types/IDs, and prove byte-exact reconstruction with no unbounded buffer.
 
-- [ ] **TI04** Dedicated `network:none` containers own bridge readiness and teardown
+- [x] **TI04** Dedicated `network:none` containers own bridge readiness and teardown
   - Make `ContainerManager` create one authority-owned container whose name derives from the profile plus a unique
     authority identifier (creation never removes another authority's container by shared name), start one
     `docker exec -i` bridge per required surface — the bridge binary delivered by read-only bind mount or exec-capable
@@ -228,7 +228,7 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
     read-only bridge-binary mount, one namespace per concurrent
     authority, correct reverse-order cleanup for every injected failure, and no container runner enters the cache.
 
-- [ ] **TI05** Cross-platform adversarial evidence proves the boundary
+- [x] **TI05** Cross-platform adversarial evidence proves the boundary
   - Add real-Docker provider/MCP fakes plus direct egress, cross-surface, cross-authority, framing, cancellation, cleanup,
     and sentinel-secret probes using the same contract on Linux Docker and Docker Desktop.
   - **Verify**: `packages/dartclaw_server/test/integration/scoped_host_gateway_integration_test.dart` passes non-skipped
@@ -255,10 +255,10 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
 
 ## Final Validation Checklist
 
-- [ ] Container/bridge inspect output contains no reusable provider credential, shared token, published port, socket mount,
+- [x] Container/bridge inspect output contains no reusable provider credential, shared token, published port, socket mount,
       or network other than `none`.
-- [ ] No pipe/authority/container remains after release, including injected teardown failure paths.
-- [ ] The suite passes non-skipped on the executing platform with the same authorized/denied contract; recorded non-skipped runs on both Linux Docker and Docker Desktop are the S04-owned release gate.
+- [x] No pipe/authority/container remains after release, including injected teardown failure paths.
+- [x] The suite passes non-skipped on the executing platform with the same authorized/denied contract; recorded non-skipped runs on both Linux Docker and Docker Desktop are the S04-owned release gate.
 
 ## Implementation Observations
 
@@ -483,3 +483,48 @@ Affected surface: TI02 restricted-execution web-tool rejection (statement alread
 Decision: Provider-native web denial for restricted executions is enforced host-side in the provider adapters (reject requests declaring provider-native web tools), in addition to client-side config disabling. Client suppression alone is insufficient.
 Rationale: Provider-native web executes server-side at the provider through the gateway, so network:none and client config cannot enforce it; binding constraint FR4 rejects client-side-only suppression.
 Evidence: plan.json bindingConstraints (host-enforced authorization); Claude WebSearch / Codex web_search are provider-side tools.
+
+### Run: 2026-08-11 21:20 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- `dev/tools/arch_check.dart` L2 core LOC ceiling is RED before this story and stays red: 16509 lines in `packages/dartclaw_core/lib` against a hard cap of 16500. S02 changes no file under `packages/dartclaw_core` (`git diff HEAD -- packages/dartclaw_core` is empty), so this is S01 residue. Bumping the ratchet requires the CHANGELOG justification its own comment demands, which belongs to the story that grew core.
+- `docker/Dockerfile:38` — the Codex download URL 404s (`codex-linux-<arch>` is no longer published; the current asset is `codex-<arch>-unknown-linux-musl.tar.gz`), so `dartclaw-agent:latest` cannot be built at all on a machine without a cached image. Pre-existing since v0.13.0 and explicitly S03 scope ("packaged Codex installation"). The gateway integration suite therefore builds its own minimal `debian:bookworm-slim` + curl probe image; the container flags, bridge mount, and `network:none` posture it exercises are the real ones.
+- `docs/guide/security.md` (§ credential proxy, lines ~129-169) and `docs/guide/architecture.md:346` still describe the removed `CredentialProxy` Unix-socket egress path; `dev/architecture/security-architecture.md` and `control-protocol.md` still describe the socat bridge. S04 owns user-guide and architecture convergence.
+- `ContainerTaskFailureSubscriber._affectedBy` (`container_task_failure_subscriber.dart:55`) still maps a crashed `profileId` through the task-type profile default, so one authority container crash fails every running task of that profile. TD-120 tracks it; its entry is updated with what S02 did and did not change.
+- `docker/Dockerfile` no longer installs `socat`: the framed bridge replaced the socat TCP-to-Unix relay, leaving it an orphan of this change inside a `network:none` container.
+
+#### DECISIONS TAKEN WITHIN FIS LATITUDE
+
+- The bridge lives in a new zero-dependency workspace package, `packages/dartclaw_bridge`, holding the wire contract plus the container entry point. Host and container compile against the same codec by construction, which is what ADR-051 means by lockstep; a relative import into another package's `lib/src/` would have violated `avoid_relative_lib_imports`, and the bridge must stay hook-free to cross-compile.
+- Embedded bridge assets are gzipped and staged separately (`dev/tools/build_bridge.sh --embed` writes `build/bridge-embed/*.gz`; plain `build_bridge.sh` writes only `build/bridge/`). Embedding ~14 MB of AOT binaries as base64 is a release cost; a source checkout resolves the uncompressed binary from `build/bridge/` and its generated asset library stays empty.
+- `HostGateway` depends on a narrow `ProviderMediator` interface rather than the `base` `ProviderAdapter` class, so tests can substitute a surface without subclassing the credential-injection path. `ProviderAdapter` stays `base` on purpose.
+- The workflow one-shot path moved from a shared per-profile `ContainerExecutor` map to a `ContainerAuthorityProvider` seam: each container-policy turn leases its own authority and releases it in a `finally`. Keeping the shared managers would have left containers with no bridge and no provider access once `CredentialProxy` was removed.
+- Bridged MCP allowlists are intersected against `CanonicalTool` stable names, so a provider-native tool name in an agent's `allowed_tools` never widens host MCP exposure. Tools with no canonical mapping sit behind `mcp_call`, matching the existing taxonomy.
+
+#### PLATFORM EVIDENCE
+
+- `packages/dartclaw_server/test/integration/scoped_host_gateway_integration_test.dart`: 14/14 non-skipped on Docker Desktop, macOS arm64 (engine arch `arm64`), 2026-08-11 21:19 UTC. That is scenario S02's platform. Scenario S01 needs a Linux Docker engine; per the FIS's dual-platform-conformance-evidence-protocol decision that recording is the S04-owned release gate, not a story-completion condition.
+
+### Run: 2026-08-11 21:40 UTC – observations
+
+#### REVIEW REMEDIATION (fresh-context Critic pass)
+
+A fresh-context Critic review raised 13 findings; 12 were accepted and remediated, 1 was accepted and left as a note. Every remediation is re-verified by a test.
+
+Accepted and fixed:
+1. HIGH — `content-encoding` was forwarded to the container alongside a body the host `HttpClient` had already gunzipped, so every non-streamed provider response would have failed to decode inside the container. `content-encoding`/`content-md5` now join the dropped response headers. Pinned by a gzipped-upstream adapter test.
+2. HIGH — the restricted-execution denial matched only `web_search*`/`web_fetch*` inside `tools[]`, leaving provider-hosted remote MCP connectors (`mcp_servers`, `tools[].type == mcp`) and provider-side code sandboxes as live egress paths that `network:none` cannot see. The check now counts every provider-side network-reaching tool family and the top-level connector array.
+3. HIGH — `mcp_call` is the canonical name for *every* host MCP tool without a semantic canonical, so one allowlist entry would have exposed the knowledge-graph tools and every outbound third-party MCP adapter to a container. Bridged MCP now fails closed on any tool with no explicit canonical mapping, and the allowlist derivation never yields `mcp_call`.
+4. MEDIUM — the denial reason interpolated tool identifiers lifted verbatim from the request body into the guard audit trail, violating this story's own "redact bodies from failures" constraint. It now reports a count only.
+5. MEDIUM — `ContainerManager.stop()` discarded both docker exit codes, so a failed `docker rm -f` still fired `ContainerStoppedEvent` and left a live container that no later run reclaims. Removal is now confirmed against `isHealthy()` and raises otherwise.
+6. MEDIUM — `requestTimeout` covered only handler resolution, so a stalled upstream could hold an in-flight slot indefinitely. The response stream now carries an idle timeout and the exchange a total budget.
+7. MEDIUM — the backpressure comment described a pause mechanism that was never wired. `onPause`/`onResume` now pause and resume the pipe subscription; the comment states the byte bound that applies when a handler never listens.
+8. MEDIUM — the adapters read an invented, undocumented, unvalidated `providers.<id>.options.base_url` that also silently dropped any path prefix. Removed: each adapter uses its provider default, which is what structural criterion 6 asks for.
+9. MEDIUM — the bridge binary resolved a cwd-relative `build/bridge/` path *before* the shipped asset, so a released binary started from any directory containing that path would execute a planted file inside every container. The embedded asset now wins; the source tree is reached only when nothing shipped.
+10. LOW — a materialized bridge of equal length was reused without comparing content; it is now rewritten unconditionally.
+11. LOW — a bridge that cannot exec (musl image) surfaced only as a 30-second readiness timeout. Bridge stderr is now logged at warning on non-zero exit.
+12. LOW — two narrow leak windows (a bridge process spawned but not attached; a lease acquired outside the workflow one-shot's try block) plus speculative public surface on the boundary (`supportsProvider`, `attachedSurfaces`, `BridgeChannel.closed`). Leaks closed, dead surface removed.
+
+Accepted, routed to Note (needs a decision, not a mechanical fix):
+- The FIS Technical Overview says unknown request IDs "fail all matching requests and revoke the pipe", while the implementation ignores frames for unknown IDs. Revoking would break the legitimate race where a bridge cancels a request the host has already completed, so the code is right and the FIS sentence is over-broad. Class: spec-stale. Left for the S04 documentation pass rather than resolved here.

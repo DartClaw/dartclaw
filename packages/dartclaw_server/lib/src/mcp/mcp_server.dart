@@ -6,18 +6,42 @@ import 'package:logging/logging.dart';
 
 import '../version.dart';
 
+/// Authorization for one MCP caller, applied before discovery and dispatch.
+///
+/// The caller's identity is established by the transport that owns this policy
+/// — for containerized executions, the host-owned bridge pipe — never by
+/// anything in the request.
+abstract interface class McpCallerPolicy {
+  /// Whether [toolName] is visible and callable for this caller.
+  bool allows(String toolName);
+
+  /// Records a refused `tools/call`. Discovery filtering is not a refusal.
+  void onDenied(String toolName);
+}
+
 /// MCP protocol handler implementing JSON-RPC 2.0 over Streamable HTTP.
 ///
 /// Handles `initialize`, `notifications/initialized`, `tools/list`, and
 /// `tools/call` methods. Tools are registered at startup via [registerTool].
 class McpProtocolHandler {
+  McpProtocolHandler() : _tools = {}, _policy = null;
+
+  McpProtocolHandler._scoped(this._tools, this._policy) : _started = true;
+
   static final _log = Logger('McpProtocolHandler');
 
   static const _protocolVersion = '2025-03-26';
   static const _serverName = 'dartclaw';
 
-  final Map<String, McpTool> _tools = {};
+  final Map<String, McpTool> _tools;
+  final McpCallerPolicy? _policy;
   bool _started = false;
+
+  /// A handler over the same registered tools, authorized for one caller.
+  ///
+  /// The tool map is shared by reference so late registrations stay visible;
+  /// the scoped view is read-only and cannot register.
+  McpProtocolHandler scopedTo(McpCallerPolicy policy) => McpProtocolHandler._scoped(_tools, policy);
 
   /// Register a tool. Must be called before the server starts handling requests.
   void registerTool(McpTool tool) {
@@ -111,7 +135,9 @@ class McpProtocolHandler {
   }
 
   String _handleToolsList(Object id) {
+    final policy = _policy;
     final tools = _tools.values
+        .where((t) => policy == null || policy.allows(t.name))
         .map((t) => {'name': t.name, 'description': t.description, 'inputSchema': t.inputSchema})
         .toList();
     return _successResponse(id, {'tools': tools});
@@ -123,9 +149,22 @@ class McpProtocolHandler {
       return _errorResponse(id, -32602, 'Invalid params: missing "name"');
     }
 
+    // Authorization precedes the registry lookup, and denied and unregistered
+    // names answer identically — a scoped caller learns nothing about tools it
+    // may not use, whether or not they exist.
+    final policy = _policy;
+    if (policy != null && !policy.allows(name)) {
+      policy.onDenied(name);
+      return _errorResponse(id, -32601, 'Tool not available: $name');
+    }
+
     final tool = _tools[name];
     if (tool == null) {
-      return _errorResponse(id, -32602, 'Unknown tool: $name');
+      return _errorResponse(
+        id,
+        policy == null ? -32602 : -32601,
+        policy == null ? 'Unknown tool: $name' : 'Tool not available: $name',
+      );
     }
 
     final args = params['arguments'] as Map<String, dynamic>? ?? {};

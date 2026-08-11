@@ -53,8 +53,9 @@ class HarnessWiring {
   late ExecutionCoordinator _executions;
   late ExecutionPolicyResolver _policyResolver;
   late ExecutionPolicy _primaryPolicy;
-  final Map<TurnRunner, ContainerExecutor> _workerContainers = Map<TurnRunner, ContainerExecutor>.identity();
-  ContainerExecutor? _primaryContainer;
+  final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
+      Map<TurnRunner, ContainerAuthorityLease>.identity();
+  ContainerAuthorityLease? _primaryContainer;
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
@@ -205,6 +206,9 @@ class HarnessWiring {
       }
     }
     _agentMap = {for (final a in _agentDefs) a.id: a};
+    // Bridged MCP authorization resolves registered tool names through the
+    // same canonical taxonomy the guard cascade uses.
+    _security.mcpToolCanonicals = _ownMcpToolCanonicals;
     _policyResolver = ExecutionPolicyResolver(
       config: config,
       availableContainerProfiles: _security.availableContainerProfiles,
@@ -247,7 +251,8 @@ class HarnessWiring {
     late final Map<String, List<String>> providerProfiles;
     late final Map<String, int> providerCapacities;
     try {
-      final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
+      final available = _security.availableContainerProfiles;
+      final profileIds = available.isEmpty ? ['workspace'] : available.toList(growable: false);
       providerEntries = _effectiveWorkerProviderEntries(config, acpAgents, acpValidationResults);
       _providerStatusEntries = providerEntries;
       providerProfiles = {
@@ -299,14 +304,8 @@ class HarnessWiring {
       _log.severe('Failed to start harness', e, st);
       await _storage.memoryFile.dispose();
       await _storage.turnStateStore.dispose();
-      for (final manager in _security.containerManagers.values) {
-        try {
-          await manager.stop();
-        } catch (stopErr) {
-          _log.fine('Error stopping container during harness startup failure cleanup', stopErr);
-        }
-      }
-      await _security.credentialProxy?.stop();
+      await _releaseContainerQuietly(_primaryContainer);
+      _primaryContainer = null;
       await _storage.dispose();
       _exitFn(1);
     }
@@ -540,16 +539,26 @@ class HarnessWiring {
             'execution. Select execution: container for it, or remove its container_isolation requirement.',
           );
         }
-        ContainerExecutor? containerManager;
+        ContainerAuthorityLease? lease;
         if (containerProfile != null) {
           try {
-            containerManager = await _security.acquireContainerAuthority(containerProfile);
+            lease = await _security.acquireContainerAuthority(
+              GatewayPrincipal(
+                sessionId: request.sessionId,
+                providerId: request.providerId,
+                policy: request.policy,
+                logicalAgentId: request.logicalAgentId,
+                taskId: request.taskId,
+              ),
+              allowedMcpTools: _bridgedMcpToolsFor(request.logicalAgentId),
+            );
           } catch (error) {
             throw WorkerCreationException(
               'Provider "${request.providerId}" requires unavailable container profile "$containerProfile": $error',
             );
           }
         }
+        final containerManager = lease?.container;
         final workerFilter = TaskToolFilterGuard();
         final workerGuardChain = _buildRunnerGuardChain(
           _security.guardChain,
@@ -582,16 +591,15 @@ class HarnessWiring {
             executionPolicy: request.policy,
             providerId: request.providerId,
           );
-          if (containerManager != null) _workerContainers[runner] = containerManager;
+          if (lease != null) _workerContainers[runner] = lease;
           return runner;
         } catch (_) {
-          if (containerManager != null) await _releaseContainerQuietly(containerManager);
+          await _releaseContainerQuietly(lease);
           rethrow;
         }
       },
       destroyContainerAuthority: (context) async {
-        final container = _workerContainers.remove(context.runner);
-        if (container != null) await _security.releaseContainerAuthority(container);
+        await _workerContainers.remove(context.runner)?.release();
       },
     );
   }
@@ -610,10 +618,33 @@ class HarnessWiring {
         'ACP provider "$providerId" requires container isolation, but agent.execution resolves to host execution',
       );
     }
-    final profile = _primaryPolicy.containerProfile;
-    if (profile == null) return null;
-    _primaryContainer = await _security.acquireContainerAuthority(profile);
-    return _primaryContainer;
+    if (!_primaryPolicy.isContainer) return null;
+    _primaryContainer = await _security.acquireContainerAuthority(
+      GatewayPrincipal(sessionId: _primaryAuthoritySessionId, providerId: providerId, policy: _primaryPolicy),
+    );
+    return _primaryContainer!.container;
+  }
+
+  /// The primary lane has no session of its own; its authority is still one
+  /// principal, named so audit entries can be told apart from worker turns.
+  static const _primaryAuthoritySessionId = 'primary';
+
+  /// Canonical MCP tool names an agent's containerized execution may reach.
+  ///
+  /// Deny-by-default: only an explicit agent allowlist exposes anything, and
+  /// only entries that name a canonical tool participate — a provider-native
+  /// tool name in `allowed_tools` says nothing about host MCP.
+  Set<String> _bridgedMcpToolsFor(String? agentId) {
+    final definition = agentId == null ? null : _agentMap[agentId];
+    if (definition == null || definition.allowedTools.isEmpty) return const {};
+    // `mcp_call` names every tool without a semantic canonical, so it can
+    // never act as a bridged grant.
+    final canonicalNames = {
+      for (final tool in CanonicalTool.values)
+        if (tool != CanonicalTool.mcpCall) tool.stableName,
+    };
+    final denied = {...definition.deniedTools, ...config.agent.disallowedTools};
+    return definition.allowedTools.where(canonicalNames.contains).toSet().difference(denied);
   }
 
   /// Destroys the primary harness's dedicated container, if it has one.
@@ -621,17 +652,18 @@ class HarnessWiring {
   /// The primary authority lives for the process, so its container is released
   /// at shutdown rather than per lease.
   Future<void> disposePrimaryContainer() async {
-    final container = _primaryContainer;
-    if (container == null) return;
+    final lease = _primaryContainer;
+    if (lease == null) return;
     _primaryContainer = null;
-    await _releaseContainerQuietly(container);
+    await _releaseContainerQuietly(lease);
   }
 
-  Future<void> _releaseContainerQuietly(ContainerExecutor container) async {
+  Future<void> _releaseContainerQuietly(ContainerAuthorityLease? lease) async {
+    if (lease == null) return;
     try {
-      await _security.releaseContainerAuthority(container);
+      await lease.release();
     } catch (error, stackTrace) {
-      _log.warning('Failed to release container authority after worker creation failed', error, stackTrace);
+      _log.warning('Failed to release container authority', error, stackTrace);
     }
   }
 

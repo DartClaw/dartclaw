@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
-    socat \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1000 dartclaw && \

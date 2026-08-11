@@ -189,7 +189,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s02-scoped-host-gateway.md",
       "owner": null,
       "scope": "Replace the Anthropic-only socket assumption with one host-owned gateway lifecycle and surface-separated bounded framed stdio pipes over docker exec, while keeping provider request adapters separate from principal-scoped MCP capabilities; bind authorization out of band to the owning container authority and prove framing, backpressure, denied egress, tool access and replay on Linux and Docker Desktop.",

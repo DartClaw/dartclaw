@@ -183,7 +183,7 @@ void main() {
         containerName: 'dartclaw-test1234-restricted',
         profileId: 'restricted',
         workspaceMounts: const [],
-        proxySocketDir: '/tmp/proxy',
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async {
           dockerCalls.add([exe, ...args]);
@@ -352,7 +352,7 @@ void main() {
         containerName: 'dartclaw-test1234-$profileId',
         profileId: profileId,
         workspaceMounts: const [],
-        proxySocketDir: '/tmp/proxy',
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async {
           if (args.first == 'inspect') return ProcessResult(0, 0, 'true\n', '');

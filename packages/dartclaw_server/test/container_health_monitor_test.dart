@@ -12,7 +12,7 @@ ContainerManager _makeManager({required String profileId, required bool Function
     containerName: 'test-$profileId',
     profileId: profileId,
     workspaceMounts: [],
-    proxySocketDir: '/tmp',
+    bridgeBinaryPath: '/tmp/dartclaw-bridge',
     runCommand: (executable, arguments) async {
       // Respond to `docker inspect --format {{.State.Running}} <name>`
       if (arguments.contains('inspect')) {
@@ -35,12 +35,9 @@ void main() {
       final events = <DartclawEvent>[];
       eventBus.on<ContainerCrashedEvent>().listen(events.add);
 
-      final monitor = ContainerHealthMonitor(
-        containerManagers: {'workspace': manager},
-        eventBus: eventBus,
-        interval: const Duration(milliseconds: 50),
-      );
-      monitor.start();
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager);
 
       // Let it settle with healthy state
       await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -69,12 +66,9 @@ void main() {
       eventBus.on<ContainerCrashedEvent>().listen(crashEvents.add);
       eventBus.on<ContainerStartedEvent>().listen(startEvents.add);
 
-      final monitor = ContainerHealthMonitor(
-        containerManagers: {'restricted': manager},
-        eventBus: eventBus,
-        interval: const Duration(milliseconds: 50),
-      );
-      monitor.start();
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager);
 
       // First poll detects healthy→unhealthy (initial state is assumed healthy)
       await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -97,12 +91,9 @@ void main() {
       final events = <DartclawEvent>[];
       eventBus.on<ContainerLifecycleEvent>().listen(events.add);
 
-      final monitor = ContainerHealthMonitor(
-        containerManagers: {'workspace': manager},
-        eventBus: eventBus,
-        interval: const Duration(milliseconds: 50),
-      );
-      monitor.start();
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager);
       await Future<void>.delayed(const Duration(milliseconds: 200));
       await monitor.stop();
 
@@ -111,15 +102,66 @@ void main() {
       await eventBus.dispose();
     });
 
+    test('an unwatched container produces no crash event when it is torn down', () async {
+      var healthy = true;
+      final manager = _makeManager(profileId: 'workspace', isRunning: () => healthy);
+      final eventBus = EventBus();
+      final events = <ContainerCrashedEvent>[];
+      eventBus.on<ContainerCrashedEvent>().listen(events.add);
+
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // Release deregisters before teardown, so the container disappearing is
+      // a normal release rather than a crash.
+      monitor.unwatch(manager.containerName);
+      healthy = false;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await monitor.stop();
+
+      expect(events, isEmpty);
+      expect(monitor.watchedContainers, isEmpty);
+
+      await eventBus.dispose();
+    });
+
+    test('watches concurrent authorities of the same profile independently', () async {
+      var firstHealthy = true;
+      final first = _makeManager(profileId: 'workspace', isRunning: () => firstHealthy);
+      final second = ContainerManager(
+        config: ContainerConfig(enabled: true, image: 'test:latest'),
+        containerName: 'test-workspace-2',
+        profileId: 'workspace',
+        workspaceMounts: [],
+        runCommand: (executable, arguments) async => ProcessResult(0, 0, 'true\n', ''),
+      );
+      final eventBus = EventBus();
+      final events = <ContainerCrashedEvent>[];
+      eventBus.on<ContainerCrashedEvent>().listen(events.add);
+
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(first.containerName, first)
+        ..watch(second.containerName, second);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      firstHealthy = false;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await monitor.stop();
+
+      expect(events.map((e) => e.containerName), ['test-workspace']);
+
+      await eventBus.dispose();
+    });
+
     test('stop cancels periodic timer', () async {
       final manager = _makeManager(profileId: 'workspace', isRunning: () => true);
       final eventBus = EventBus();
-      final monitor = ContainerHealthMonitor(
-        containerManagers: {'workspace': manager},
-        eventBus: eventBus,
-        interval: const Duration(milliseconds: 50),
-      );
-      monitor.start();
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager);
       await monitor.stop();
 
       // After stop, no more polling should happen — verify no crash

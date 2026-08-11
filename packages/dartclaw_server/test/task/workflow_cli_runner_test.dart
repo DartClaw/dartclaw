@@ -887,7 +887,7 @@ void main() {
         containerRoot: '/workspace',
         stdout: jsonEncode({'session_id': 'claude-session-container', 'result': 'ok'}),
       );
-      final runner = claudeRunner(containerManagers: {'workspace': container});
+      final runner = claudeRunner(container: container);
 
       await runner.executeTurn(
         provider: 'claude',
@@ -907,7 +907,7 @@ void main() {
           'settings': fixture.settingsPath,
           'sandbox': {'enabled': true},
         },
-        containerManagers: {'workspace': fixture.container},
+        container: fixture.container,
       );
 
       await runner.executeTurn(
@@ -924,10 +924,7 @@ void main() {
 
     test('translates plain path-based Claude settings for containerized one-shot runs without overlays', () async {
       final fixture = await claudeSettingsContainerFixture('workflow-cli-runner-claude-settings-plain');
-      final runner = claudeRunner(
-        options: {'settings': fixture.settingsPath},
-        containerManagers: {'workspace': fixture.container},
-      );
+      final runner = claudeRunner(options: {'settings': fixture.settingsPath}, container: fixture.container);
 
       await runner.executeTurn(
         provider: 'claude',
@@ -946,10 +943,7 @@ void main() {
         'workflow-cli-runner-claude-settings-relative',
         relativeSettingsPath: p.join('.claude', 'settings.json'),
       );
-      final runner = claudeRunner(
-        options: const {'settings': '.claude/settings.json'},
-        containerManagers: {'workspace': fixture.container},
-      );
+      final runner = claudeRunner(options: const {'settings': '.claude/settings.json'}, container: fixture.container);
 
       await runner.executeTurn(
         provider: 'claude',
@@ -1307,7 +1301,7 @@ void main() {
 
       final container = FakeContainerExecutor(hostRoot: workingDirectory.path, containerRoot: '/workspace');
 
-      final runner = codexRunner(containerManagers: {'workspace': container});
+      final runner = codexRunner(container: container);
 
       await runner.executeTurn(
         provider: 'codex',

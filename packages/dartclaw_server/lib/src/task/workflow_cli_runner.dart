@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
+
+import '../container/container_authority.dart';
+import '../container/gateway/gateway_models.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, ProviderIdentity, TurnProgressAction;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
@@ -172,31 +175,48 @@ class WorkflowCliTurnResult {
 /// in [providers].
 class WorkflowCliRunner {
   final Map<String, WorkflowCliProviderConfig> providers;
-  final Map<String, ContainerExecutor> containerManagers;
+
+  /// Leases a dedicated container authority for one container-policy turn.
+  ///
+  /// `null` in host-only deployments; a container policy then fails rather
+  /// than silently running on the host.
+  final ContainerAuthorityProvider? containerAuthorities;
   final EventBus? _eventBus;
   final WorkflowCliProcessStarter _processStarter;
   final Uuid _uuid;
   final Map<String, CliProvider> _providerImpls;
 
-  /// Selects the container backing [policy], or `null` for host execution.
+  /// Leases the container backing [policy], or `null` for host execution.
   ///
-  /// A container policy whose profile has no manager is rejected rather than
-  /// silently run on the host.
-  ContainerExecutor? _containerManagerFor(ExecutionPolicy policy) {
+  /// Each one-shot turn gets its own authority, so two concurrent workflow
+  /// steps never share a container, a bridge, or generated state.
+  Future<ContainerAuthorityLease?> _leaseContainer(
+    ExecutionPolicy policy, {
+    required String provider,
+    required String? sessionId,
+    required String? taskId,
+  }) async {
     if (!policy.isContainer) return null;
-    final manager = containerManagers[policy.containerProfile];
-    if (manager == null) {
+    final acquire = containerAuthorities;
+    if (acquire == null) {
       throw StateError(
-        'Workflow one-shot requires container profile "${policy.containerProfile}", but no container manager is '
-        'available for it. Enable container.enabled: true or select host execution for this task type.',
+        'Workflow one-shot requires container profile "${policy.containerProfile}", but this deployment has no '
+        'container mediation. Enable container.enabled: true or select host execution for this task type.',
       );
     }
-    return manager;
+    return acquire(
+      GatewayPrincipal(
+        sessionId: sessionId ?? taskId ?? 'workflow-one-shot',
+        providerId: provider,
+        policy: policy,
+        taskId: taskId,
+      ),
+    );
   }
 
   WorkflowCliRunner({
     required this.providers,
-    this.containerManagers = const <String, ContainerExecutor>{},
+    this.containerAuthorities,
     EventBus? eventBus,
     WorkflowCliProcessStarter? processStarter,
     Uuid? uuid,
@@ -298,44 +318,48 @@ class WorkflowCliRunner {
     }
     var rootProcessTerminationReported = false;
     final observer = onRootProcessTerminationConfirmed;
-    final req = CliTurnRequest(
-      prompt: prompt,
-      workingDirectory: workingDirectory,
-      policy: policy,
-      taskId: taskId,
-      sessionId: sessionId,
-      providerSessionId: providerSessionId,
-      model: model,
-      effort: effort,
-      stepName: stepName,
-      stallTimeout: stallTimeout,
-      stallAction: stallAction,
-      stepTimeout: stepTimeout,
-      allowedTools: allowedTools,
-      readOnly: readOnly,
-      maxTurns: maxTurns,
-      onRootProcessTerminationConfirmed: observer == null
-          ? null
-          : (confirmed) async {
-              rootProcessTerminationReported = true;
-              await observer(confirmed);
-            },
-      jsonSchema: jsonSchema,
-      appendSystemPrompt: appendSystemPrompt,
-      sandboxOverride: sandboxOverride,
-      extraEnvironment: extraEnvironment,
-      usageBaseline: usageBaseline,
-      providerConfig: providerConfig,
-      containerManager: _containerManagerFor(policy),
-      processStarter: _processStarter,
-      eventBus: _eventBus,
-      uuid: _uuid,
-      log: Logger('WorkflowCliRunner'),
-    );
+    final lease = await _leaseContainer(policy, provider: provider, sessionId: sessionId, taskId: taskId);
     try {
+      final req = CliTurnRequest(
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        policy: policy,
+        taskId: taskId,
+        sessionId: sessionId,
+        providerSessionId: providerSessionId,
+        model: model,
+        effort: effort,
+        stepName: stepName,
+        stallTimeout: stallTimeout,
+        stallAction: stallAction,
+        stepTimeout: stepTimeout,
+        allowedTools: allowedTools,
+        readOnly: readOnly,
+        maxTurns: maxTurns,
+        onRootProcessTerminationConfirmed: observer == null
+            ? null
+            : (confirmed) async {
+                rootProcessTerminationReported = true;
+                await observer(confirmed);
+              },
+        jsonSchema: jsonSchema,
+        appendSystemPrompt: appendSystemPrompt,
+        sandboxOverride: sandboxOverride,
+        extraEnvironment: extraEnvironment,
+        usageBaseline: usageBaseline,
+        providerConfig: providerConfig,
+        containerManager: lease?.container,
+        processStarter: _processStarter,
+        eventBus: _eventBus,
+        uuid: _uuid,
+        log: Logger('WorkflowCliRunner'),
+      );
       return await impl.run(req);
     } finally {
       if (observer != null && !rootProcessTerminationReported) await observer(false);
+      // The authority outlives nothing: the container and its bridges go away
+      // with the turn, on success and failure alike.
+      await lease?.release();
     }
   }
 

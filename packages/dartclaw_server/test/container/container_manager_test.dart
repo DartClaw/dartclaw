@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_bridge/dartclaw_bridge.dart' show BridgeSurface;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
@@ -80,7 +81,7 @@ void main() {
       await expectLater(manager.ensureImage(), throwsA(isA<StateError>()));
     });
 
-    test('start creates container with hardened args and starts socat bridge', () async {
+    test('start creates a network:none container whose only host object is the read-only bridge', () async {
       final calls = <List<String>>[];
       final manager = _manager(
         config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
@@ -104,7 +105,7 @@ void main() {
           '--cap-drop',
           'ALL',
           '-e',
-          'ANTHROPIC_BASE_URL=http://localhost:8080',
+          'ANTHROPIC_BASE_URL=http://127.0.0.1:8080',
           '-v',
           '/tmp/workspace:/workspace:rw',
           '-v',
@@ -112,21 +113,23 @@ void main() {
           '-v',
           '/tmp/shared:/shared:ro',
           '-v',
-          '/tmp/proxy:/var/run/dartclaw',
+          '/tmp/dartclaw-bridge:/opt/dartclaw/dartclaw-bridge:ro',
           '-v',
           '/tmp/.claude.json:/home/dartclaw/.claude.json:ro',
         ]),
       );
       expect(create, containsAll(['sleep', 'infinity']));
-      expect(
-        calls.any(
-          (call) =>
-              call.join(' ') ==
-              'docker exec -d $workspaceContainerName socat TCP-LISTEN:8080,fork,reuseaddr '
-                  'UNIX-CLIENT:/var/run/dartclaw/proxy.sock',
-        ),
-        isTrue,
-      );
+
+      // The container gets no socket, no published port, no added network, and
+      // no egress-capable relay — only the read-only bridge binary.
+      final createCommand = create.join(' ');
+      expect(createCommand, isNot(contains('/var/run/docker.sock')));
+      expect(createCommand, isNot(contains('.sock')));
+      expect(createCommand, isNot(contains('-p ')));
+      expect(createCommand, isNot(contains('--publish')));
+      expect(createCommand, isNot(contains('--network host')));
+      expect(calls.any((call) => call.contains('socat')), isFalse);
+      expect(calls.any((call) => call.contains('-d')), isFalse, reason: 'no detached in-container helper');
     });
 
     test('start creates restricted container with no workspace mounts', () async {
@@ -168,7 +171,7 @@ void main() {
           '-v',
           '/tmp/shared:/shared:ro',
           '-v',
-          '/tmp/proxy:/var/run/dartclaw',
+          '/tmp/dartclaw-bridge:/opt/dartclaw/dartclaw-bridge:ro',
         ]),
       );
     });
@@ -264,10 +267,85 @@ void main() {
       expect(manager.buildContextDir, Directory.current.path);
     });
 
-    test('startSocatBridge throws on failure', () async {
-      final manager = _manager(run: (executable, arguments) async => ProcessResult(1, 1, '', 'boom'));
+    test('stop reports a container it could not destroy', () async {
+      final manager = _manager(
+        run: (executable, arguments) async {
+          if (arguments.first == 'rm') return ProcessResult(1, 1, '', 'device or resource busy');
+          if (arguments.first == 'inspect') return ProcessResult(1, 0, 'true\n', '');
+          return ProcessResult(1, 0, '', '');
+        },
+      );
 
-      await expectLater(manager.startSocatBridge(), throwsA(isA<StateError>()));
+      // A surviving container keeps its authority's mounts and root process,
+      // and its per-authority name is never reused, so silence would strand it.
+      await expectLater(
+        manager.stop(),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Failed to destroy container'))),
+      );
+    });
+
+    test('stop stays quiet when removal raced an already-gone container', () async {
+      final manager = _manager(
+        run: (executable, arguments) async {
+          if (arguments.first == 'rm') return ProcessResult(1, 1, '', 'No such container');
+          if (arguments.first == 'inspect') return ProcessResult(1, 1, '', 'No such container');
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.stop();
+    });
+
+    test('startBridge execs the delivered bridge for the requested surface and port', () async {
+      final started = <List<String>>[];
+      final manager = _manager(
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+        start:
+            (
+              executable,
+              arguments, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              started.add([executable, ...arguments]);
+              return FakeProcess();
+            },
+      );
+
+      await manager.startBridge(BridgeSurface.mcp, 8081);
+
+      expect(started.single, [
+        'docker',
+        'exec',
+        '-i',
+        workspaceContainerName,
+        '/opt/dartclaw/dartclaw-bridge',
+        '--surface=mcp',
+        '--port=8081',
+      ]);
+    });
+
+    test('startBridge refuses when no bridge binary was delivered', () async {
+      final manager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: workspaceContainerName,
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        runCommand: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+      );
+
+      await expectLater(
+        manager.startBridge(BridgeSurface.provider, 8080),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('no bridge binary'))),
+      );
+    });
+
+    test('serverArchitecture maps the docker engine arch onto a shipped bridge variant', () async {
+      expect(await _manager(run: (_, _) async => ProcessResult(1, 0, 'aarch64\n', '')).serverArchitecture(), 'arm64');
+      expect(await _manager(run: (_, _) async => ProcessResult(1, 0, 'amd64\n', '')).serverArchitecture(), 'x64');
+      expect(await _manager(run: (_, _) async => ProcessResult(1, 0, 'riscv64\n', '')).serverArchitecture(), isNull);
+      expect(await _manager(run: (_, _) async => ProcessResult(1, 1, '', 'boom')).serverArchitecture(), isNull);
     });
 
     test('start no-ops when container already healthy', () async {
@@ -397,7 +475,7 @@ ContainerManager _manager({
     profileId: profileId,
     workspaceMounts: workspaceMounts,
     localPathAllowlist: localPathAllowlist,
-    proxySocketDir: '/tmp/proxy',
+    bridgeBinaryPath: '/tmp/dartclaw-bridge',
     hostClaudeJsonPath: '/tmp/.claude.json',
     buildContextDir: buildContextDir,
     workingDir: workingDir,

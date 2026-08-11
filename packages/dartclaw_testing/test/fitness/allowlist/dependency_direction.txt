@@ -20,6 +20,7 @@ dartclaw_core -> dartclaw_security  # Core exposes security-adjacent contracts.
 dartclaw_google_chat -> dartclaw_config  # Channel config uses config package.
 dartclaw_google_chat -> dartclaw_core  # Channel implementation uses core channel contracts.
 dartclaw_security -> dartclaw_models  # Security uses shared model primitives.
+dartclaw_server -> dartclaw_bridge  # Host side of the container bridge shares its wire contract.
 dartclaw_server -> dartclaw_config  # Server composition reads config.
 dartclaw_server -> dartclaw_core  # Server implements core runtime contracts.
 dartclaw_server -> dartclaw_google_chat  # Server wires Google Chat channel.

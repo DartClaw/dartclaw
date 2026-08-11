@@ -36,7 +36,7 @@ WiringResult _assembleWiringResult(
     authEnabled: harness.authEnabled,
     tokenService: harness.tokenService,
     eventBus: ctx.eventBus,
-    containerManagers: security.containerManagers,
+    containerAuthorities: security.containersEnabled ? security.acquireContainerAuthority : null,
     projectService: project.projectService,
     configNotifier: ctx.configNotifier,
     outboundMcpPool: outboundMcpPool,

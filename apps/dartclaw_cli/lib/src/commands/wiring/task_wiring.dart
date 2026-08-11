@@ -68,19 +68,19 @@ class TaskWiring {
     required EventBus eventBus,
     required StorageWiring storage,
     ProjectWiring? project,
-    Map<String, ContainerExecutor> containerManagers = const <String, ContainerExecutor>{},
+    ContainerAuthorityProvider? containerAuthorities,
   }) : _dataDir = dataDir,
        _eventBus = eventBus,
        _storage = storage,
        _project = project,
-       _containerManagers = containerManagers;
+       _containerAuthorities = containerAuthorities;
 
   final DartclawConfig config;
   final String _dataDir;
   final EventBus _eventBus;
   final StorageWiring _storage;
   final ProjectWiring? _project;
-  final Map<String, ContainerExecutor> _containerManagers;
+  final ContainerAuthorityProvider? _containerAuthorities;
 
   static final _log = Logger('TaskWiring');
 
@@ -206,7 +206,7 @@ class TaskWiring {
             options: _providerOptionsForWorkflow(config, providerId),
           ),
       },
-      containerManagers: _containerManagers,
+      containerAuthorities: _containerAuthorities,
       eventBus: _eventBus,
     );
 

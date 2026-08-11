@@ -234,6 +234,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
       workerPolicy: workerPolicy,
       taskId: taskId,
       isHumanInput: isHumanInput,
+      agentName: agentName,
     );
     final runner = lease.runner!;
     try {
@@ -470,6 +471,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     ExecutionPolicy? workerPolicy,
     String? taskId,
     required bool isHumanInput,
+    String? agentName,
   }) async {
     final session = await _sessions?.getSession(sessionId);
     final provider = session?.provider ?? _primary.providerId;
@@ -491,6 +493,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
         taskId: taskId,
+        logicalAgentId: isLogicalAgent ? agentName : null,
       ),
     );
     if (lease != null) return lease;

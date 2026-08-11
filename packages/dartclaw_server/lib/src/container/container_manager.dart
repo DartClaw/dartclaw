@@ -1,10 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_bridge/dartclaw_bridge.dart' show BridgeSurface;
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, canonicalizePathWithExistingAncestors;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
+
+import 'bridge_binary.dart';
+import 'gateway/gateway_models.dart';
+import 'gateway/process_bridge_channel.dart';
 
 /// Testable callback used for one-shot CLI commands such as `docker inspect`.
 typedef RunCommand = Future<ProcessResult> Function(String executable, List<String> arguments);
@@ -25,7 +31,6 @@ typedef StartCommand =
 /// and `docker exec` for each turn to avoid per-turn container startup.
 class ContainerManager implements ContainerExecutor {
   static final _log = Logger('ContainerManager');
-  static const _proxyPort = 8080;
 
   final ContainerConfig config;
   final String containerName;
@@ -33,7 +38,11 @@ class ContainerManager implements ContainerExecutor {
   final String profileId;
   final List<String> workspaceMounts;
   final List<String> localPathAllowlist;
-  final String proxySocketDir;
+
+  /// Host path of the Linux bridge executable delivered read-only into the
+  /// container, or `null` when this deployment has no host mediation.
+  final String? bridgeBinaryPath;
+
   final String? hostClaudeJsonPath;
   final String buildContextDir;
   @override
@@ -47,7 +56,7 @@ class ContainerManager implements ContainerExecutor {
     required this.profileId,
     required this.workspaceMounts,
     this.localPathAllowlist = const [],
-    required this.proxySocketDir,
+    this.bridgeBinaryPath,
     this.hostClaudeJsonPath,
     String? buildContextDir,
     this.workingDir = '/project',
@@ -121,9 +130,11 @@ class ContainerManager implements ContainerExecutor {
       '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m',
       '--security-opt', 'no-new-privileges',
       ...workspaceMounts.expand((mount) => ['-v', mount]),
-      '-v', '$proxySocketDir:/var/run/dartclaw',
+      // The only host object the container gets is a read-only executable the
+      // host controls: no socket, no writable channel, no network attachment.
+      if (bridgeBinaryPath != null) ...['-v', '$bridgeBinaryPath:${BridgeBinaryProvisioner.containerPath}:ro'],
       if (hostClaudeJsonPath != null) ...['-v', '$hostClaudeJsonPath:/home/dartclaw/.claude.json:ro'],
-      '-e', 'ANTHROPIC_BASE_URL=http://localhost:$_proxyPort',
+      '-e', 'ANTHROPIC_BASE_URL=http://127.0.0.1:$providerBridgePort',
       ...effectiveExtraMounts.expand((m) => ['-v', m]),
       ...config.extraArgs,
       config.image,
@@ -140,29 +151,52 @@ class ContainerManager implements ContainerExecutor {
       throw StateError('Failed to start container: ${startResult.stderr}');
     }
 
-    await startSocatBridge();
     _log.info('Container $containerName ($profileId) started');
   }
 
-  /// Start the in-container TCP-to-Unix-socket bridge for Claude API requests.
-  Future<void> startSocatBridge() async {
-    final result = await _run('docker', [
-      'exec',
-      '-d',
-      containerName,
-      'socat',
-      'TCP-LISTEN:$_proxyPort,fork,reuseaddr',
-      'UNIX-CLIENT:/var/run/dartclaw/proxy.sock',
-    ]);
-    if (result.exitCode != 0) {
-      throw StateError('Failed to start socat bridge: ${result.stderr}');
+  /// Reports the Docker engine's architecture, which decides which bridge
+  /// variant the container can execute.
+  ///
+  /// The engine, not the host process, is authoritative: a macOS arm64 host
+  /// can run an amd64 Linux engine.
+  Future<String?> serverArchitecture() async {
+    final result = await _run('docker', ['version', '--format', '{{.Server.Arch}}']);
+    if (result.exitCode != 0) return null;
+    return BridgeBinaryProvisioner.architectureFor(result.stdout as String);
+  }
+
+  /// Starts one long-lived in-container bridge process for [surface].
+  ///
+  /// The returned channel *is* the authority for that surface: it exists only
+  /// as long as this process does, and nothing inside the container can create
+  /// another one.
+  Future<BridgeChannel> startBridge(BridgeSurface surface, int port) async {
+    if (bridgeBinaryPath == null) {
+      throw StateError('Container $containerName has no bridge binary, so it cannot reach host mediation');
     }
+    final process = await _start('docker', [
+      'exec',
+      '-i',
+      containerName,
+      BridgeBinaryProvisioner.containerPath,
+      '--surface=${surface.name}',
+      '--port=$port',
+    ], includeParentEnvironment: true);
+    return ProcessBridgeChannel(process, label: '$containerName/${surface.name}');
   }
 
   /// Stop and remove the container.
+  ///
+  /// Throws when removal cannot be confirmed. A container that outlives its
+  /// authority still holds that authority's mounts and root process, and its
+  /// name is never reused, so nothing else would ever reclaim it — the caller
+  /// has to hear about it.
   Future<void> stop() async {
     await _run('docker', ['stop', '-t', '5', containerName]);
-    await _run('docker', ['rm', '-f', containerName]);
+    final removal = await _run('docker', ['rm', '-f', containerName]);
+    if (removal.exitCode != 0 && await isHealthy()) {
+      throw StateError('Failed to destroy container $containerName: ${removal.stderr}');
+    }
     _log.info('Container $containerName ($profileId) stopped and removed');
   }
 

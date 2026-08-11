@@ -6,15 +6,13 @@
 
 ### 0.24 — Logical-Agent Correctness & Scheduling Operability
 
-**Status: Release-ready; awaiting tag.** Logical-agent execution now applies configured tool/network
-policy, persona, provider, model, effort, and security profile through durable provider-pinned sessions. One execution
-coordinator owns the fixed primary lane and hard per-provider worker capacity, while process reuse remains an
-opportunistic cache. The release also adds the opt-in `memory.journal` job and safe on-demand prompt-job execution
-through CLI, API, and Web UI. Implementation, simplification, full workspace gates, visual validation, and the final
-production-feedback review are complete. Native Windows Claude 2.1.226 passed allowed and denied shell, file, web, and
-MCP checks.
-Codex 0.139.0 passed every claimed command, file-change, and MCP approval category after one-shot approval hardening;
-native Codex web search remains outside interception because it emits no approval request.
+**Status: Release correction in progress; tag blocked.** Logical-agent execution, scheduling, and the supplemental memory
+model plan are complete or in flight, but production feedback exposed a release-blocking execution-isolation gap. The
+parallel `dev/bundle/docs/specs/0.24-execution-isolation/` bundle must deliver per-agent host/container selection,
+provider-neutral enforcement, host-owned credentials, and scoped host capabilities before the tag. Native Windows Claude
+2.1.226 passed allowed and denied shell, file, web, and MCP checks. Codex 0.139.0 passed every claimed command,
+file-change, and MCP approval category after one-shot approval hardening; restricted execution must not rely on native
+Codex web search because it remains outside host interception.
 
 ## Planned
 

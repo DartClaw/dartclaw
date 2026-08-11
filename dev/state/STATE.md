@@ -3,17 +3,19 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-11 12:26 CEST
+Last Updated: 2026-08-11 14:41 CEST
 
 ## Current Phase
 
-**Phase 1: Canonical corpus**
+**Phase 1: Parallel 0.24 release corrections**
 
-**Status**: On Track
+**Status**: At Risk
 
 ## Current Focus
 
 - Execute the supplemental 0.24 Memory Model plan from `dev/bundle/docs/specs/0.24/`, beginning with the canonical corpus.
+- Execute the provider-neutral isolation plan from `dev/bundle/docs/specs/0.24-execution-isolation/`; the 0.24 tag remains
+  blocked until its host/container, credential, capability, and conformance stories pass.
 - Continue paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
 
 ## Active Stories
@@ -35,6 +37,8 @@ Last Updated: 2026-08-11 12:26 CEST
 
 ## Recent Decisions
 
+- The 0.24 execution-isolation correction remains a separate plan bundle from the existing 0.24 memory work; neither plan
+  may silently absorb or invalidate the other.
 - Design-system gaps are fixed canon-first in `dev/design-system/` and synced downstream; page-specific workarounds are
   not accepted.
 - 0.25 uses current-schema bootstrap plus a compatibility gate; no migration runner is planned during pre-alpha

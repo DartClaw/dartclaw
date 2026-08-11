@@ -24,9 +24,10 @@ temporarily unrecoverable, without presenting absence of evidence as health.
 - `dev/bundle/docs/specs/0.24/plan.json#stories.7` – S08 scope, dependency, risk, source references, assets, and
   deleted-index startup note.
 - `dev/bundle/docs/specs/0.24/plan.json#sharedDecisions` – file-canonical corpus, single revision/mutation authority,
-  stable locator, stopped-edit reconciliation, and release-simplicity contracts shared with S08.
-- `dev/bundle/docs/specs/0.24/plan.json#bindingConstraints` – applicable FR5 natural-query ownership, FR6
-  fresh-sibling replacement, FR8 simplicity, and trusted-host fault boundary.
+  stable locator, fixed memory safety ceilings, and stopped-edit reconciliation contracts shared with S08.
+- `dev/bundle/docs/specs/0.24/plan.json#bindingConstraints` – applicable FR5 natural-query ownership, FR6 fixed
+  observation-partition/traversal/best-50 ceilings with explicit degradation signals, FR8 simplicity, and trusted-host
+  fault boundary.
 - `dev/bundle/docs/specs/0.24/prd.md#fr5-retrieval-citation-and-index-integrity` – separate canonical/index outcomes,
   exact live/rebuilt convergence, health clearing, and no fabricated zero status.
 - `dev/bundle/docs/specs/0.24/prd.md#fr6-maintenance-limits-and-recovery` – fresh-sibling rebuild, validation, atomic
@@ -48,9 +49,13 @@ temporarily unrecoverable, without presenting absence of evidence as health.
 - `dev/adrs/002-file-based-storage.md#key-design-choices` – canonical files remain authoritative and `search.db` remains
   disposable and reconstructable.
 - `dev/architecture/data-model.md#memory-chunk-search-index` – current FTS5 row ownership, owner scope, canonical
-  sources, normalization inputs, and rebuild relationship.
+  sources, normalization inputs, and rebuild relationship. Its three native index sources (`MEMORY.md`,
+  `MEMORY.archive.md`, `learnings.md`) are the pre-0.24 shape: learnings is now a canonical role inside the S02 corpus,
+  so S08 projects and reconciles the canonical role set rather than a separate learnings file.
 - `dev/architecture/data-model.md#backup--recovery` – current `search.db` recovery promise and distinction from
-  authoritative databases.
+  authoritative databases. S08 obsoletes its in-place three-native-file rebuild description; correcting that text is
+  deferred to S12's documentation-convergence task (`s12-memory-governance-and-cleanup.md` TI04), which already names
+  `dev/architecture/data-model.md` in its sync scope – S08 changes no architecture document itself.
 - `dev/architecture/observability-operations-architecture.md#3-health-monitoring` – existing health aggregation seam and
   public status vocabulary that index health must augment truthfully.
 
@@ -80,7 +85,8 @@ temporarily unrecoverable, without presenting absence of evidence as health.
 - [ ] **S03 [OC02] [TI01,TI02,TI05] Canonical success with index failure persists degradation until exact repair**
   - **Given** collection revision `41` is healthy and an S05 apply has a controlled index failure after canonical
     revision `42` commits
-  - **When** the apply result, a fresh process status read, a partial index retry, and then a complete reconciliation are
+  - **When** the apply result, a fresh process status read, a partial index retry (re-running the incremental projection
+    for the failed subset only, never a sibling rebuild), and then a complete reconciliation are
     observed
   - **Then** canonical revision `42` and its exact changed IDs remain durable, the result and persisted status report
     canonical success plus `degraded` index with the failing stage and repair action, restart and partial retry remain
@@ -95,12 +101,15 @@ temporarily unrecoverable, without presenting absence of evidence as health.
     consumer labels the old index current, and success or failure settles to `healthy` or `degraded` respectively;
     an interrupted prior attempt does not reopen as still actively rebuilding
 
-- [ ] **S05 [OC02,OC04] [TI02,TI03] Supported stopped-runtime topic and observation changes reconcile before healthy index use**
+- [ ] **S05 [OC02,OC04] [TI02,TI03] Supported stopped-runtime topic, learning, and observation changes reconcile before healthy index use**
   - **Given** collection revision `51` and a healthy matching index, followed independently by a supported manual topic
-    edit, a dated observation-partition edit, and deletion of a dated observation partition while the runtime is stopped
+    edit, a supported manual learning-role edit (learnings are canonical, so they reconcile exactly like any other
+    canonical role rather than as a separate native source), a dated observation-partition edit, and deletion of a dated
+    observation partition while the runtime is stopped
   - **When** startup runs the S03/S02 canonical preflight and then initializes derived search for each case
   - **Then** the change validates and advances the canonical collection exactly once to revision `52`, the full derived
-    index reconciles to that revision before it can be described as healthy, edited observation rows match the new source,
+    index reconciles to that revision before it can be described as healthy, edited observation and learning rows match
+    the new canonical source,
     deleted-observation rows and locators are absent, and invalid edits instead leave canonical bytes and the previous
     target untouched while reporting non-healthy recovery-required state
 
@@ -127,9 +136,13 @@ temporarily unrecoverable, without presenting absence of evidence as health.
 
 - [ ] Canonical Markdown, S02 collection revision, and S02 full-union fingerprint remain authoritative; index-health
   evidence is derived coordination state and introduces no content store, revision authority, package, or database.
-- [ ] Live mutation, pruning, migration, startup reconciliation, and full rebuild use one canonical-to-index projection;
-  validation compares the complete scoped row multiset, including every identity, locator, role/topic, entry revision,
-  provenance/source reference, timestamp, normalized chunk, and `userId` supplied by the prerequisite contract.
+- [ ] Live mutation, pruning, migration, startup reconciliation, and full rebuild share one canonical-to-index projection
+  contract – identical normalization, chunking, and row identity – realized by two write paths: the incremental
+  projection writer for live post-commit indexing, and the sibling-build/validate/swap reconciler for startup
+  reconciliation, `rebuild-index`, and degradation clearing. Validation compares the complete scoped row multiset,
+  including every identity, locator, role/topic, entry revision, provenance/source reference, timestamp, normalized
+  chunk, and `userId` supplied by the prerequisite contract. That projected scope excludes the canonical `audit` role,
+  which is never an index source, so an audit-only canonical change reconciles to zero derived rows.
 - [ ] Rebuild creates its sibling in the target directory, validates and closes it before replacement, never opens
   corrupt target bytes to construct the replacement, and leaves safely recognizable interrupted artifacts.
 - [ ] FTS5 remains the 0.24 derived-index recovery target; QMD receives no health authority, canonical schema,
@@ -174,9 +187,11 @@ S03/S02 canonical startup preflight runs before any `search.db` open, yielding t
 fingerprint, and exact index projection. Index health compares those facts with the last completely validated target;
 known divergence is degraded, active reconciliation is rebuilding, and unavailable evidence is unknown. A reconciler
 populates a uniquely recognizable sibling beside `search.db`, validates SQLite/FTS integrity plus the complete expected
-row multiset, closes it, and atomically replaces the target. The live post-commit hook and offline command use this same
-path. Health records canonical success independently, persists failure reason and safe action, and clears only after the
-current full union validates – never after a partial write or count succeeds.
+row multiset, closes it, and atomically replaces the target. Live post-commit indexing and the offline command share one canonical-to-index projection contract – identical
+normalization, chunking, and row identity – not one write path: live post-commit indexing applies the incremental
+projection writer, while the sibling-build/validate/swap reconciler serves startup reconciliation, `rebuild-index`, and
+degradation clearing. Health records canonical success independently, persists failure reason and safe action, and
+clears only after the current full union validates – never after a partial write or count succeeds.
 
 ## Code Patterns & External References
 
@@ -184,18 +199,26 @@ current full union validates – never after a partial write or count succeeds.
 # type | path#anchor | why needed (intent)
 file | packages/dartclaw_storage/lib/src/storage/memory_service.dart#MemoryService.rebuildIndex | Reuse canonical normalization and transaction rollback; move full recovery outside an in-place target transaction
 file | packages/dartclaw_storage/lib/src/storage/search_db.dart#openSearchDb | Existing injectable DB-open seam for proving target-versus-sibling paths
-file | apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart#RebuildIndexCommand.run | Current three-source offline command and target-in-place behavior to replace with shared recovery
+file | apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart#RebuildIndexCommand.run | Current three-native-file offline command (MEMORY.md, MEMORY.archive.md, learnings.md) and target-in-place behavior to replace with shared recovery over the canonical role set – learnings is a canonical role, not a separate index source
 file | apps/dartclaw_cli/lib/src/commands/wiring/storage_wiring.dart#StorageWiring.wire | Current startup opens/creates search.db before canonical/index reconciliation
 file | packages/dartclaw_server/lib/src/memory/memory_status_service.dart#MemoryStatusService._getSearchStatus | Current status/count failures collapse to zero and need typed health evidence
 file | packages/dartclaw_core/lib/src/concurrency/repo_lock.dart#RepoLock.acquire | Existing normalized cooperating-concurrency authority from S02
 file | packages/dartclaw_core/lib/src/storage/atomic_write.dart#secureWriteFile | Existing same-directory sibling/atomic-replacement convention for file-backed coordination evidence
-test | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Green three-source normalization, timestamp, empty-corpus, and symlink parity fixtures to retain
-test | apps/dartclaw_cli/test/commands/serve_command_test.dart#search database open failure prints clear startup error | Green startup failure-reporting seam to preserve while adding pre-open recovery
+test | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Green normalization, timestamp, empty-corpus, and symlink parity fixtures to retain; their three-native-file layout is legacy input, since learnings now projects as a canonical role
+test | apps/dartclaw_cli/test/commands/serve_command_test.dart#search database open failure prints clear startup error | Expectation to CHANGE, not preserve: under the settled boot-degraded behavior a search-database open failure must no longer abort startup, so rewrite this case to assert a degraded boot and re-point its clear-startup-error assertion at the canonical-corpus-unreadable case – the only remaining fail-closed startup path. The underlying startup failure-reporting seam is what survives
 test | packages/dartclaw_server/test/memory/memory_status_service_test.dart#search status | Current count/status contract to make truthful without inventing zero
 ```
 
 ## Constraints & Gotchas
 
+- **Audit role is canonical but unprojected**: S01's closed role vocabulary also contains `audit`. The canonical audit
+  document `workspace/MEMORY.audit.md` is canonical in every structural sense – codec-rendered, validated, an inventory
+  and fingerprint member whose writes advance the collection revision inside the same S02 transaction as the removal –
+  but it is deliberately NOT an index source: deletion audits are operational records, not searchable memory content,
+  and projecting them would work against the content-free deletion guarantee. The canonical role set S08 projects and
+  reconciles therefore excludes `audit`; an audit-only revision advance is an expected canonical change that produces
+  no derived rows, and complete-union parity is evaluated over the projected roles alone rather than by expecting audit
+  rows.
 - **Health semantics**: `healthy` requires current canonical revision/fingerprint, successful complete row-parity and
   SQLite/FTS validation; `degraded` means a known mismatch/failure; `rebuilding` means work is active now; `unknown`
   means evidence could not be established. A stale interrupted marker is never proof of active rebuilding.
@@ -208,53 +231,73 @@ test | packages/dartclaw_server/test/memory/memory_status_service_test.dart#sear
   create a missing empty file. A valid empty corpus still reaches healthy through the same reconstruction and validation.
 - **Swap portability**: Close every sibling/target handle before replacement and inject filesystem operations for tests;
   use temp directories and Dart APIs rather than shell `stat`, `chmod`, sleeps, or platform-specific skips.
-- **Settled failed-startup behavior**: If no usable prior target exists and fresh validation/swap fails, startup fails
-  closed after persisting/reporting degraded recovery guidance; this story does not invent an empty fallback backend.
+- **Settled failed-startup behavior**: A derived-index fault never fails startup. If no usable prior target exists and
+  fresh validation/swap fails, the server boots degraded after persisting degraded recovery guidance and reports it
+  loudly through `dartclaw status`, startup logs, and the health state S11's Memory UI consumes. Canonical memory –
+  prompt context, capture, and apply – keeps working because it never depends on the derived index; this story does not
+  invent an empty fallback backend, and no consumer may read the unusable index as healthy or as an empty result set.
+  Startup still fails closed when the canonical corpus itself is unreadable – that is the only remaining startup-error
+  case.
 
 ## Implementation Plan
 
 ### Implementation Tasks
 
 - [ ] **TI01** Index health has one truthful and durable state contract
-  - Reuse S02's coordination seam for revision/fingerprint evidence and expose exact `healthy`, `degraded`, `rebuilding`,
-    and `unknown` semantics, last validated reconciliation, failure stage/reason, and safe action without adding a store.
-  - **Verify**: Focused transition/reopen tests prove S01–S04, including valid empty zero, unavailable nullable counts,
-    persisted post-commit degradation, interrupted rebuilding recovery, and the complete-reconciliation-only clear rule.
+  - Reuse story S02's coordination seam for revision/fingerprint evidence and expose exact `healthy`, `degraded`,
+    `rebuilding`, and `unknown` semantics, last validated reconciliation, failure stage/reason, and safe action without
+    adding a store.
+  - **Verify**: Focused transition/reopen tests prove scenarios S01–S04, including valid empty zero, unavailable
+    nullable counts, persisted post-commit degradation, interrupted rebuilding recovery, and the
+    complete-reconciliation-only clear rule.
 
 - [ ] **TI02** Canonical reconciliation produces one completely validated current index
-  - Consume S02's current revision, fingerprint, and canonical projection plus S05's canonical-commit outcome under the
-    shared authority; populate and validate a fresh index before publishing success, preserving every prerequisite
-    identity/provenance field exactly.
-  - **Verify**: Component tests prove S03–S07 by comparing the complete expected/actual scoped row multiset and health
-    evidence after live apply, migration/prune parity, stopped-runtime topic and observation edits, stopped-runtime
-    observation deletion with stale-row removal, partial retry, full reconciliation, empty corpus, and validation failure.
+  - Consume story S02's current revision, fingerprint, and canonical projection plus story S05's canonical-commit
+    outcome under the shared authority; drive live post-commit indexing through the incremental projection writer and
+    startup reconciliation, `rebuild-index`, and degradation clearing through the fresh-sibling build/validate/swap
+    reconciler, validating before publishing success and preserving every prerequisite identity/provenance field exactly
+    across both paths.
+  - **Verify**: Component tests prove scenarios S03–S07 by comparing the complete expected/actual scoped row multiset
+    and health evidence after live apply, migration/prune parity, stopped-runtime topic, learning, and observation
+    edits, stopped-runtime observation deletion with stale-row removal, partial retry, full reconciliation, empty
+    corpus, validation failure, and an audit-document write that advances the collection revision while producing no
+    derived row.
 
 - [ ] **TI03** Startup exposes no derived index as healthy before canonical and index reconciliation
-  - Order `StorageWiring.wire` after S03/S02 preflight, detect missing/corrupt/stale targets before normal target open,
-    and use TI02 recovery before constructing ordinary search consumers or reporting current health.
-  - **Verify**: Production-shaped startup tests prove S05–S06 with supported/invalid topic edits, dated-observation edits,
-    dated-observation deletion, an absent target plus nonempty canonical corpus, a valid empty corpus, random corrupt
-    bytes, exact ordering barriers, and no prompt/search/status consumer observing healthy before reconciliation settles.
+  - Order `StorageWiring.wire` after the story S03/S02 canonical preflight, detect missing/corrupt/stale targets before
+    normal target open, and use TI02 recovery before constructing ordinary search consumers or reporting current health.
+    When recovery cannot produce a usable index, boot degraded rather than aborting: canonical prompt context, capture,
+    and apply stay available while status, logs, and downstream health report `degraded` with recovery guidance. Startup
+    aborts only when the canonical corpus itself is unreadable.
+  - **Verify**: Production-shaped startup tests prove scenarios S05–S06 with supported/invalid topic and learning-role
+    edits, dated-observation edits, dated-observation deletion, an absent target plus nonempty canonical corpus, a valid
+    empty corpus, random corrupt bytes, exact ordering barriers, and no prompt/search/status consumer observing healthy
+    before reconciliation settles; an unrecoverable derived index boots degraded with canonical prompt context, capture,
+    and apply still working, while an unreadable canonical corpus remains the only startup abort.
 
 - [ ] **TI04** Offline rebuild is reconstructive and preserves prior safe state
   - Make `RebuildIndexCommand` delegate to TI02's sibling/validate/close/swap path and return the canonical revision,
     exact indexed-row outcome, resulting health, and actionable failure while retaining the stopped-runtime precondition.
-  - **Verify**: CLI tests prove S07 for corrupt, deleted, older-valid, empty, and archive/learning-inclusive targets;
-    success reopens the swapped target at exact parity and failure leaves target/canonical bytes unchanged before retry.
+  - **Verify**: CLI tests prove scenario S07 for corrupt, deleted, older-valid, empty, and role-complete targets
+    covering every canonical role including archive and learning, and assert that a corpus holding audit entries
+    produces no audit rows because the audit role is not an index source; success reopens the swapped target at exact
+    parity and failure leaves target/canonical bytes unchanged before retry.
 
 - [ ] **TI05** Runtime and operator status preserve health uncertainty
   - Feed TI01 evidence into the existing memory-status seam so successful zero, stale prior counts, active rebuild, known
-    degradation, and unavailable collection/count evidence remain distinct; leave S11 presentation expansion downstream.
-  - **Verify**: Service and API tests prove S01–S04: all four states serialize with revisions/reason/action, count/read
-    exceptions yield unknown/null rather than zero, and canonical-success/index-degraded survives a service restart.
+    degradation, and unavailable collection/count evidence remain distinct; leave story S11's presentation expansion
+    downstream.
+  - **Verify**: Service and API tests prove scenarios S01–S04: all four states serialize with revisions/reason/action,
+    count/read exceptions yield unknown/null rather than zero, and canonical-success/index-degraded survives a service
+    restart.
 
 - [ ] **TI06** Recovery faults prove the real portable transitions
   - Add table-driven temp-workspace seams around sibling create/populate/validate/close/swap and health publication, using
     real file-backed SQLite for parity and injected failures only at the named transitions.
-  - **Verify**: The matrix proves S06–S07 without sleeps, shell filesystem commands, or platform skips; each failure
-    asserts canonical bytes, target bytes/absence, health, sibling cleanup, retry convergence, closed handles, and exact
-    source identity/provenance; dependency/reference scans prove no new package, database, or QMD semantics, and focused
-    core/storage/server/CLI plus workspace gates pass on supported CI platforms.
+  - **Verify**: The matrix proves scenarios S06–S07 without sleeps, shell filesystem commands, or platform skips; each
+    failure asserts canonical bytes, target bytes/absence, health, sibling cleanup, retry convergence, closed handles,
+    and exact source identity/provenance; dependency/reference scans prove no new package, database, or QMD semantics,
+    and focused core/storage/server/CLI plus workspace gates pass on supported CI platforms.
 
 ### Testing Strategy
 
@@ -272,4 +315,158 @@ test | packages/dartclaw_server/test/memory/memory_status_service_test.dart#sear
 > _Managed by exec-spec post-implementation – append-only. Tag semantics: see the AndThen FIS mutability contract. Spec
 > authors leave this section empty._
 
-_No observations recorded yet._
+#### DECISION NOTE: live-indexing-path
+
+Decision-Key: live-indexing-path
+Altitude: fis-local
+Affected surface: ## Technical Overview (live/offline "same path" sentence); ## Structural Criteria (criterion 2); ## Acceptance Scenarios S03 (When leg – partial-retry definition); ## Implementation Tasks TI02 (reconciliation bullet)
+Decision: Live post-commit indexing uses the incremental projection writer; the fresh-sibling build/validate/swap reconciler is used only by startup reconciliation, `rebuild-index`, and degradation clearing. The two write paths share one canonical-to-index projection contract – identical normalization, chunking, and row identity – so live and rebuilt indexes converge exactly. "Partial index retry" in scenario S03 means re-running the incremental projection for the failed subset, never a sibling rebuild.
+Rationale: Owner-ratified preflight resolution – the Technical Overview's "same path" sentence contradicted Structural Criterion 2 and PRD FR5 by reading as one write path; naming the shared thing as the projection contract rather than the writer preserves exact live/rebuilt convergence without forcing every commit through a full sibling rebuild.
+Evidence: Preflight 0.24 ratified resolutions (owner-approved 2026-08-11), S08 item 30.
+
+#### DECISION NOTE: failed-startup-fail-closed
+
+Decision-Key: failed-startup-fail-closed
+Altitude: fis-local
+Affected surface: ## Constraints & Gotchas ("Settled failed-startup behavior" bullet); ## Code Patterns & External References (serve_command_test startup-error row); ## Implementation Tasks TI03 (startup bullet + Verify)
+Decision: Startup does NOT fail when the derived index is unusable. When no usable prior target exists and fresh validation/swap fails, the server boots degraded and reports loudly through `dartclaw status`, startup logs, and the health state S11's Memory UI consumes, after persisting degraded recovery guidance. Canonical memory – prompt context, capture, and apply – keeps working throughout because it never depends on the derived index, and no consumer may read the missing index as healthy or as an empty result set. The remaining fail-closed startup case is an unreadable CANONICAL corpus, which is the scope the preserved `serve_command_test` startup-error expectation now covers.
+Rationale: Owner redirect of the previously drafted fail-closed bullet – refusing to boot over a disposable, reconstructable artifact takes the whole runtime down for a fault that costs only search; loud degraded reporting preserves the "absence of evidence is not health" guarantee (OC01/OC02) at far lower blast radius. ADR-002 already classifies `search.db` as disposable and reconstructable.
+Evidence: Preflight 0.24 ratified resolutions (owner-approved 2026-08-11), S08 item 31 (REDIRECTED by the owner).
+
+Old:
+```
+- **Settled failed-startup behavior**: If no usable prior target exists and fresh validation/swap fails, startup fails
+  closed after persisting/reporting degraded recovery guidance; this story does not invent an empty fallback backend.
+```
+New:
+```
+- **Settled failed-startup behavior**: A derived-index fault never fails startup. If no usable prior target exists and
+  fresh validation/swap fails, the server boots degraded after persisting degraded recovery guidance and reports it
+  loudly through `dartclaw status`, startup logs, and the health state S11's Memory UI consumes. Canonical memory –
+  prompt context, capture, and apply – keeps working because it never depends on the derived index; this story does not
+  invent an empty fallback backend, and no consumer may read the unusable index as healthy or as an empty result set.
+  Startup still fails closed when the canonical corpus itself is unreadable – that is the only remaining startup-error
+  case.
+```
+Old:
+```
+test | apps/dartclaw_cli/test/commands/serve_command_test.dart#search database open failure prints clear startup error | Green startup failure-reporting seam to preserve while adding pre-open recovery
+```
+New:
+```
+test | apps/dartclaw_cli/test/commands/serve_command_test.dart#search database open failure prints clear startup error | Green startup failure-reporting seam to preserve while adding pre-open recovery, rescoped to the canonical-corpus-unreadable case – a derived-index fault now boots degraded instead of aborting
+```
+Old:
+```
+  - Order `StorageWiring.wire` after S03/S02 preflight, detect missing/corrupt/stale targets before normal target open,
+    and use TI02 recovery before constructing ordinary search consumers or reporting current health.
+```
+New:
+```
+  - Order `StorageWiring.wire` after S03/S02 preflight, detect missing/corrupt/stale targets before normal target open,
+    and use TI02 recovery before constructing ordinary search consumers or reporting current health. When recovery
+    cannot produce a usable index, boot degraded rather than aborting: canonical prompt context, capture, and apply stay
+    available while status, logs, and downstream health report `degraded` with recovery guidance. Startup aborts only
+    when the canonical corpus itself is unreadable.
+```
+Old:
+```
+  - **Verify**: Production-shaped startup tests prove S05–S06 with supported/invalid topic edits, dated-observation edits,
+    dated-observation deletion, an absent target plus nonempty canonical corpus, a valid empty corpus, random corrupt
+    bytes, exact ordering barriers, and no prompt/search/status consumer observing healthy before reconciliation settles.
+```
+New:
+```
+  - **Verify**: Production-shaped startup tests prove S05–S06 with supported/invalid topic edits, dated-observation edits,
+    dated-observation deletion, an absent target plus nonempty canonical corpus, a valid empty corpus, random corrupt
+    bytes, exact ordering barriers, and no prompt/search/status consumer observing healthy before reconciliation settles;
+    an unrecoverable derived index boots degraded with canonical prompt context, capture, and apply still working, while
+    an unreadable canonical corpus remains the only startup abort.
+```
+
+#### DECISION NOTE: learnings-canonical-role
+
+Decision-Key: learnings-canonical-role
+Altitude: fis-local
+Affected surface: ## Required Context (data-model `#memory-chunk-search-index` bullet); ## Acceptance Scenarios S05 (Given + Then legs); ## Code Patterns & External References (rebuild_index_command row + rebuild_index_command_test row); ## Implementation Tasks TI02 Verify, TI03 Verify, TI04 Verify
+Decision: Runtime learnings are a canonical ROLE inside the S02 corpus – stable identity, validation, revision, and fingerprint participation – not a separate native index source. S08 therefore projects, reconciles, and validates the canonical role set (index, topic, archive, observation, learning, wiki, kg) rather than the pre-0.24 three native files (`MEMORY.md`, `MEMORY.archive.md`, `learnings.md`), and a supported stopped-runtime learning-document edit reconciles and advances the collection revision exactly like a topic or observation edit.
+Rationale: Cross-cutting owner-ratified consequence of S01's learnings-canonical-role decision, which supersedes the "learnings retains its native format and identity" premise everywhere. If S08 kept learnings as a separate native source, its stopped-runtime reconciliation would bypass the single revision/fingerprint authority and its rebuild parity check would compare against a role set the validator does not know.
+Evidence: Preflight 0.24 ratified resolutions (owner-approved 2026-08-11), cross-cutting decision `learnings-canonical-role` (S01 item 4, consumed by S08); current three-native-file behavior at `apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart:39-57`.
+
+Old:
+```
+- `dev/architecture/data-model.md#memory-chunk-search-index` – current FTS5 row ownership, owner scope, canonical
+  sources, normalization inputs, and rebuild relationship.
+```
+New:
+```
+- `dev/architecture/data-model.md#memory-chunk-search-index` – current FTS5 row ownership, owner scope, canonical
+  sources, normalization inputs, and rebuild relationship. Its three native index sources (`MEMORY.md`,
+  `MEMORY.archive.md`, `learnings.md`) are the pre-0.24 shape: learnings is now a canonical role inside the S02 corpus,
+  so S08 projects and reconciles the canonical role set rather than a separate learnings file.
+```
+Old:
+```
+  - **Given** collection revision `51` and a healthy matching index, followed independently by a supported manual topic
+    edit, a dated observation-partition edit, and deletion of a dated observation partition while the runtime is stopped
+```
+New:
+```
+  - **Given** collection revision `51` and a healthy matching index, followed independently by a supported manual topic
+    edit, a supported manual learning-role edit (learnings are canonical, so they reconcile exactly like any other
+    canonical role rather than as a separate native source), a dated observation-partition edit, and deletion of a dated
+    observation partition while the runtime is stopped
+```
+Old:
+```
+    index reconciles to that revision before it can be described as healthy, edited observation rows match the new source,
+```
+New:
+```
+    index reconciles to that revision before it can be described as healthy, edited observation and learning rows match
+    the new canonical source,
+```
+Old:
+```
+file | apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart#RebuildIndexCommand.run | Current three-source offline command and target-in-place behavior to replace with shared recovery
+```
+New:
+```
+file | apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart#RebuildIndexCommand.run | Current three-native-file offline command (MEMORY.md, MEMORY.archive.md, learnings.md) and target-in-place behavior to replace with shared recovery over the canonical role set – learnings is a canonical role, not a separate index source
+```
+Old:
+```
+test | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Green three-source normalization, timestamp, empty-corpus, and symlink parity fixtures to retain
+```
+New:
+```
+test | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Green normalization, timestamp, empty-corpus, and symlink parity fixtures to retain; their three-native-file layout is legacy input, since learnings now projects as a canonical role
+```
+Old:
+```
+    evidence after live apply, migration/prune parity, stopped-runtime topic and observation edits, stopped-runtime
+    observation deletion with stale-row removal, partial retry, full reconciliation, empty corpus, and validation failure.
+```
+New:
+```
+    evidence after live apply, migration/prune parity, stopped-runtime topic, learning, and observation edits,
+    stopped-runtime observation deletion with stale-row removal, partial retry, full reconciliation, empty corpus, and
+    validation failure.
+```
+Old:
+```
+with supported/invalid topic edits, dated-observation edits,
+```
+New:
+```
+with supported/invalid topic and learning-role edits, dated-observation edits,
+```
+Old:
+```
+  - **Verify**: CLI tests prove S07 for corrupt, deleted, older-valid, empty, and archive/learning-inclusive targets;
+```
+New:
+```
+  - **Verify**: CLI tests prove S07 for corrupt, deleted, older-valid, empty, and role-complete targets covering every
+    canonical role including archive and learning;
+```

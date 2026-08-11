@@ -19,7 +19,7 @@
 - `dev/bundle/docs/specs/0.24/plan.json#stories.6` – exact S07 scope, P3/W6 placement, S05 dependency, risk, notes, and asset provenance.
 - `dev/bundle/docs/specs/0.24/plan.json#sharedDecisions.0` – canonical corpus contract shared with every retrieval and index lifecycle.
 - `dev/bundle/docs/specs/0.24/plan.json#sharedDecisions.3` – stable locator and backend-owned natural-language query contract.
-- `dev/bundle/docs/specs/0.24/plan.json#sharedDecisions.5` – fixed scan budgets and best-50-after-ranking output ceiling.
+- `dev/bundle/docs/specs/0.24/plan.json#sharedDecisions.5` – best-50-after-ranking output ceiling, plus the fixed scan budgets that story S10 introduces later and this story must not pre-empt.
 - `dev/bundle/docs/specs/0.24/plan.json#sharedDecisions.7` – 0.24/0.25 release boundary and no-new-infrastructure decision.
 - `dev/bundle/docs/specs/0.24/plan.json#bindingConstraints.0` – FR1 file-canonical authority constraint.
 - `dev/bundle/docs/specs/0.24/plan.json#bindingConstraints.4` – FR5 natural-language/backend-encoding constraint.
@@ -66,19 +66,20 @@
   - **Proof**: `packages/dartclaw_storage/test/storage/memory_service_test.dart#search returns only chunks for the specified userId` – green – parity/regression for the underlying user filter
 
 - [ ] **S04 [OC03] [TI01,TI04] One request returns wiki synthesis once, ahead of same-topic personal memory, with native provenance intact**
-  - **Given** more than 50 matching wiki and personal-memory candidates, a highest-precedence source-backed `llm-authored` wiki page at the last path admitted by S10's 1,000-file/64-MiB scan budget, and an instrumented selected backend that can also observe the wiki file
-  - **When** `memory_search`, Knowledge Hub, or Context Research performs one request
-  - **Then** exactly one request-level owner traverses/composes wiki, ranks every candidate admitted by the scan budget with the final comparator, and returns the best 50 without stopping at the first 50 matches
+  - **Given** more than 50 matching wiki and personal-memory candidates, a highest-precedence source-backed `llm-authored` wiki page at the last path the traversal in force admits, and an instrumented selected backend that can also observe the wiki file
+  - **When** `memory_search` with its `limit` pinned to 50, Knowledge Hub, or Context Research performs one request
+  - **Then** exactly one request-level owner traverses/composes wiki, ranks every candidate the traversal in force admits with the final comparator, and returns the best 50 for that pinned limit without stopping at the first 50 matches
   - **And** the late native wiki-path result occupies one slot ahead of raw personal memory, the source-backed provenance and untrusted-synthesis label survive, and no recursive second scan or QMD copy consumes another result/quota slot
+  - **And** the QMD copy collapses into that wiki slot through path-normalized identity LOOKUP of its path against the already-admitted native row – the sanctioned mechanism – while a QMD hit matching no canonical or native row is returned with its native uncited locator and no canonical locator is manufactured from its path or text
   - **Proof**: `packages/dartclaw_storage/test/search/wiki_search_source_test.dart#source-backed llm-authored wiki result is labeled untrusted but still outranks raw memory` – green – parity/regression for precedence and provenance labeling
-  - **Proof**: `packages/dartclaw_storage/test/search/qmd_search_backend_test.dart#wiki and QMD copies of the same page occupy one result slot` – green – parity/regression for duplicate suppression
+  - **Proof**: `packages/dartclaw_storage/test/search/qmd_search_backend_test.dart#wiki and QMD copies of the same page occupy one result slot` – green – parity/regression for duplicate suppression at its current backend-internal home; TI04 moves wiki composition out of `QmdSearchBackend`, so this proof relocates to the request composition seam's test with its assertions intact
 
 - [ ] **S05 [OC03] [TI02,TI03,TI04] A failed retrieval constituent remains visible while healthy constituents still return canonical results**
   - **Given** matching canonical sources and one injected failure at a time in QMD, FTS5 memory, wiki, KG, or inbox retrieval
   - **When** the applicable MCP, Knowledge Hub, or Context Research request completes
   - **Then** surviving results keep their roles, locators, ordering, and provenance; the exact failed constituent appears once in `degradedLayers` or the Hub equivalent; and a QMD-to-FTS5 fallback remains visibly `qmd`-degraded rather than looking fully healthy
-  - **Proof**: `packages/dartclaw_server/test/mcp/context_research_tool_test.dart#S07 TI03 TI06 failed KG layer is reported while wiki and memory still synthesize` – green – parity/regression for partial-layer survival
-  - **Proof**: `packages/dartclaw_server/test/knowledge/knowledge_hub_service_test.dart#S06 isolates a failed KG query and keeps surviving layer results` – green – parity/regression for Hub failure isolation
+  - **Proof**: `packages/dartclaw_server/test/mcp/context_research_tool_test.dart#S07 TI03 TI06 failed KG layer is reported while wiki and memory still synthesize` – green – parity/regression for partial-layer survival. The `S07 TI03 TI06` prefix is part of the existing test name, carried over from an earlier milestone's numbering; it does not refer to this FIS's scenario or task IDs
+  - **Proof**: `packages/dartclaw_server/test/knowledge/knowledge_hub_service_test.dart#S06 isolates a failed KG query and keeps surviving layer results` – green – parity/regression for Hub failure isolation. The `S06` prefix is part of the existing test name from an earlier milestone's numbering, not this FIS's scenario S06
 
 - [ ] **S06 [OC02,OC04] [TI01,TI05,TI06] Live, migrated, pruned, archived, and rebuilt rows preserve one source identity**
   - **Given** a canonical personal entry with Unicode/CRLF Markdown, provenance, topic, UUID, revision, and owner scope
@@ -94,7 +95,7 @@
   - **Then** a submitted blank search returns the documented empty/no-sources outcome without invoking a backend, invalid locators return explicit unresolved/not-found state, and no caller substitutes a whole file, derived row, first match, or healthy-zero result
   - **And** an omitted Knowledge Hub query remains its existing bounded browse operation and is not treated as a submitted search
   - **Proof**: `packages/dartclaw_server/test/memory_handlers_test.dart#onSearch returns empty message for empty query` – green – parity/regression for the current empty-query boundary
-  - **Proof**: `packages/dartclaw_server/test/mcp/context_research_tool_test.dart#S02 TI04 fabricated citation is flagged unattributed and resolver is reusable` – green – parity/regression for unresolved citation handling
+  - **Proof**: `packages/dartclaw_server/test/mcp/context_research_tool_test.dart#S02 TI04 fabricated citation is flagged unattributed and resolver is reusable` – green – parity/regression for unresolved citation handling. The `S02 TI04` prefix is part of the existing test name from an earlier milestone's numbering, not this FIS's scenario S02 or task TI04
 
 ## Structural Criteria
 
@@ -103,14 +104,14 @@
 - [ ] No new package, database, daemon, scheduler, approval framework, or speculative provider/search abstraction is introduced.
 - [ ] Locator resolution proves current identity/existence only and never upgrades a cited statement into semantic truth.
 - [ ] Existing wiki/KG write policy and native source ownership remain unchanged.
-- [ ] The 50-result ceiling is output top-K only: every candidate admitted by S10's file/byte scan budget reaches the final comparator, so filesystem order cannot exclude a later higher-ranked wiki result.
+- [ ] The 50-result ceiling is output top-K only: every candidate the traversal in force admits reaches the final comparator, so filesystem order cannot exclude a later higher-ranked wiki result. Story S07 adds no admission ceiling of its own – story S10 later introduces the 1,000-file/64 MiB ceilings, and this criterion must hold unchanged once they are in force.
 
 ## Scope & Boundaries
 
 ### Work Areas
 
-- S04 canonical derived-row and role/locator/provenance result values plus the `SearchBackend` contract
-- FTS5, QMD fallback, and wiki query/ranking adapters
+- Story S04's canonical derived-row and role/locator/provenance result values plus the `SearchBackend` contract
+- FTS5, QMD fallback, and wiki query/ranking adapters, including removal of the optional `WikiSearchSource` that `Fts5SearchBackend` and `QmdSearchBackend` each embed and compose today
 - MCP memory handlers, Context Research, Knowledge Hub, and citation-source resolution
 - Live apply/observe, legacy migration, pruning, and offline rebuild index projection callers
 - Shared storage/server/CLI contract and lifecycle fixtures
@@ -118,21 +119,21 @@
 ### What We're NOT Doing
 
 - Native hybrid/vector search, embeddings, a new search package, or QMD schema/deprecation work – ADR-050 assigns these to 0.25.
-- Fresh-sibling rebuild validation/swap, index-health persistence, deleted/corrupt startup recovery, or status clearing – S08 owns recovery mechanics; S07 owns source-identity parity consumed by them.
-- New archive/wiki/topic/observation byte, file-count, or aggregate processing limits – S10 owns resource boundaries.
-- New dashboard design, status/count presentation, recovery UX, or final documentation convergence – S11/S12 own those surfaces.
+- Fresh-sibling rebuild validation/swap, index-health persistence, deleted/corrupt startup recovery, or status clearing – story S08 owns recovery mechanics; this story owns source-identity parity consumed by them.
+- New archive/wiki/topic/observation byte, file-count, or aggregate processing limits, including the traversal admission ceilings – story S10 owns resource boundaries.
+- New dashboard design, status/count presentation, recovery UX, or final documentation convergence – stories S11/S12 own those surfaces.
 - Wiki/KG mutation, synthesis policy, or autonomous stewardship – existing knowledge writers remain unchanged and richer policy stays in 0.27.
 
 ## Architecture Decision
 
-**Approach**: Reuse S04's canonical search result as the only derived identity, keep natural-language encoding inside each FTS5/QMD/wiki adapter, and give each top-level retrieval request exactly one composition owner that invokes personal-memory and wiki retrieval once before final ranking and citation assembly.
+**Approach**: Reuse story S04's canonical search result as the only derived identity, keep natural-language encoding inside each FTS5/QMD/wiki adapter, and give each top-level retrieval request exactly one composition owner that invokes personal-memory and wiki retrieval once before final ranking and citation assembly.
 **Why this over alternatives**: Caller sanitization, result-local resolvers, duplicate recursive scans, or QMD-specific identity would recreate the drift this story removes and add transitional architecture.
 
 ## Technical Overview
 
-The host binds `owner`, validates query/limit, and passes the same trimmed natural-language string to role-specific retrievers. FTS5 owns literal `MATCH` encoding; QMD owns only its existing request/fallback protocol; wiki owns its term matching. Each recursive retriever ranks every candidate admitted by S10's file/byte scan budget; the request composition seam merges them once, applies the final comparator, returns the best 50, keeps wiki precedence/provenance, and carries per-constituent degradation to MCP, Hub, and Context Research. The output ceiling never stops scanning at the first 50 matches.
+The host binds `owner`, validates query/limit, and passes the same trimmed natural-language string to role-specific retrievers. FTS5 owns literal `MATCH` encoding; QMD owns only its existing request/fallback protocol; wiki owns its term matching. Each recursive retriever ranks every candidate its traversal admits; the request composition seam merges them once, applies the final comparator, selects the output top-K, keeps wiki precedence/provenance, and carries per-constituent degradation to MCP, Hub, and Context Research. The output ceiling never stops scanning at the first 50 matches. Story S07 introduces no admission ceiling – story S10 later adds the 1,000-file/64 MiB ceilings, and this composition is unchanged by them because it ranks whatever the traversal in force admitted.
 
-Canonical index projection supplies role, locator, provenance, scope, and applicable entry metadata before storage. Search consumers never derive identity from chunk IDs, file labels, scores, or QMD paths. The citation resolver reopens canonical personal entries and native wiki/KG/inbox sources independently of the current result set; failure leaves the reference unresolved/unattributed. The same projection feeds every live and rebuild writer.
+Canonical index projection supplies role, locator, provenance, scope, and applicable entry metadata before storage. Search consumers never derive identity from chunk IDs, file labels, scores, or QMD paths; a normalized QMD path may only LOOK UP an already-canonical or native row, never mint a locator, and an unmatched QMD hit keeps its native uncited locator. The citation resolver reopens canonical entries in every canonical role – learnings included – through the corpus authority, and native wiki/KG/inbox sources through their own owners, independently of the current result set; failure leaves the reference unresolved/unattributed. The same projection feeds every live and rebuild writer.
 
 ## Code Patterns & External References
 
@@ -140,8 +141,8 @@ Canonical index projection supplies role, locator, provenance, scope, and applic
 # type | path#anchor | why needed (intent)
 file | packages/dartclaw_config/lib/src/search_backend.dart#SearchBackend | Current backend boundary and user-scope seam; preserve until the planned 0.25 ownership move
 file | packages/dartclaw_storage/lib/src/storage/memory_service.dart#MemoryService.indexRows | Existing shared live/rebuild normalization and chunking projection to evolve with canonical identity
-file | packages/dartclaw_storage/lib/src/search/fts5_search_backend.dart#Fts5SearchBackend.search | Move lexical escaping here and preserve BM25 ordering
-file | packages/dartclaw_storage/lib/src/search/qmd_search_backend.dart#QmdSearchBackend.search | Preserve selected-backend/fallback behavior without adding locator semantics
+file | packages/dartclaw_storage/lib/src/search/fts5_search_backend.dart#Fts5SearchBackend.search | Move lexical escaping here and preserve BM25 ordering; also the embedded optional `WikiSearchSource` composition to remove
+file | packages/dartclaw_storage/lib/src/search/qmd_search_backend.dart#QmdSearchBackend.search | Preserve selected-backend/fallback behavior without adding locator semantics; also the embedded optional `WikiSearchSource` composition and its backend-internal wiki/QMD path dedupe to remove
 file | packages/dartclaw_storage/lib/src/search/wiki_search_source.dart#WikiSearchSource.search | Native wiki path, provenance label, and ranking source
 file | packages/dartclaw_server/lib/src/memory_handlers.dart#createMemoryHandlers | MCP search caller currently performing FTS-specific encoding
 file | packages/dartclaw_server/lib/src/mcp/context_research_tool.dart#ContextResearchTool._retrieve | Current duplicate wiki traversal, layer degradation, candidate dedupe, and resolver assembly
@@ -153,11 +154,12 @@ file | apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart#RebuildInde
 ## Constraints & Gotchas
 
 - **Backend-only encoding**: callers may trim and reject blank input but must not quote, strip, rewrite, expand, or interpret natural-language tokens; each role-specific backend owns its complete encoding.
-- **Identity is role plus locator**: personal-memory locators are canonical entry UUIDs, wiki locators are normalized workspace-relative native paths, and KG locators remain fact IDs. File labels, categories, source strings, offsets, chunk IDs, and scores are not identity.
-- **Wiki provenance and precedence**: source-backed wiki synthesis stays ahead of same-topic raw personal memory but keeps its native provenance/trust label; rank every scan-admitted candidate before selecting the best 50 so a late path cannot lose that precedence; precedence never promotes wiki into personal memory.
+- **Identity is role plus locator**: every canonical role – learnings included, since 0.24 makes learnings canonical rather than a native file source – uses canonical entry locators (stable entry UUIDs); wiki locators are normalized workspace-relative native paths, and KG locators remain fact IDs. File labels, categories, source strings, offsets, chunk IDs, scores, and `learnings.md`-style file or heading anchors are not identity.
+- **Output count, stated once**: the returned count is `min(requested-or-surface-default, 50)`, selected only AFTER ranking every admitted candidate. `memory_search` defaults to 5 per request and clamps any supplied `limit` to `maxMemorySearchResults` (50); Knowledge Hub derives its bound from page size, and Context Research from its candidate limit. "Best 50" everywhere in this FIS names that hard output ceiling – never a guaranteed page size and never a scan cutoff.
+- **Wiki provenance and precedence**: source-backed wiki synthesis stays ahead of same-topic raw personal memory but keeps its native provenance/trust label; rank every admitted candidate before selecting the output top-K so a late path cannot lose that precedence; precedence never promotes wiki into personal memory.
 - **Single-owner scope**: model/UI inputs do not accept `userId`; production binds `owner` through every personal index query and resolver. Context Research `scope` remains a synthesis hint, not an authorization or tenancy selector.
-- **Degradation is additive**: use existing layer wire names (`memory`, `wiki`, `kg`, `inbox`) and `qmd` for selected-QMD fallback; deduplicate labels without erasing surviving results or persistent index-health state owned by S08.
-- **QMD boundary**: consume S04's canonical result projection and existing FTS fallback; never manufacture a locator from QMD path/text. A result that cannot satisfy canonical locator validation cannot escape as a cited result.
+- **Degradation is additive**: use existing layer wire names (`memory`, `wiki`, `kg`, `inbox`) and `qmd` for selected-QMD fallback; deduplicate labels without erasing surviving results or persistent index-health state owned by story S08.
+- **QMD boundary**: consume S04's canonical result projection and existing FTS fallback. Path-normalized identity LOOKUP of a QMD hit against existing canonical/native rows is SANCTIONED and belongs to the request composition seam rather than to QMD – it is what recognizes a QMD hit as a copy of an already-indexed page. What stays BANNED is MANUFACTURING a locator from QMD path/text: a hit matching no existing row is returned with its native, uncited locator and never a synthesized canonical one, and an uncited result is never presented as a resolved citation.
 - **Settled constraint – blank search**: an explicitly submitted empty/whitespace query produces an empty/no-sources response without backend work; Knowledge Hub's omitted-query browse remains distinct and bounded.
 
 ## Implementation Plan
@@ -165,37 +167,110 @@ file | apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart#RebuildInde
 ### Implementation Tasks
 
 - [ ] **TI01** Derived rows and search results retain canonical role, locator, provenance, and owner identity
-  - Extend S04's result/projection seam at `packages/dartclaw_storage/lib/src/storage/memory_service.dart#MemoryService.indexRows`; personal rows carry canonical entry identity/revision while wiki keeps native fields, with no authoritative state added to `search.db`.
-  - **Verify**: S02, S03, and S06 pass; focused value/schema tests reject generic or role-mismatched locators and architecture checks confirm canonical Markdown remains authoritative with no new package/database.
+  - Extend story S04's result/projection seam at `packages/dartclaw_storage/lib/src/storage/memory_service.dart#MemoryService.indexRows`; personal rows carry canonical entry identity/revision while wiki keeps native fields, with no authoritative state added to `search.db`.
+  - **Verify**: Scenarios S02, S03, and S06 pass; focused value/schema tests reject generic or role-mismatched locators, and architecture checks confirm canonical Markdown remains authoritative and that Structural Criterion 3 holds in full – no new package, database, daemon, scheduler, approval framework, or speculative provider/search abstraction.
 
 - [ ] **TI02** Every retrieval adapter accepts natural language and reports its own degraded outcome
   - Move all FTS5 encoding out of callers into `Fts5SearchBackend.search`; preserve QMD's existing request/fallback and wiki term handling while returning additive degradation metadata through the shared search outcome.
-  - **Verify**: S01, S05, and S07 pass through the shared punctuation/empty/failure matrix, including visible `qmd` fallback and no caller-specific sanitizer; a QMD surface scan finds no new canonical field, locator parser, or corpus rule.
+  - **Verify**: Scenarios S01, S05, and S07 pass through the shared punctuation/empty/failure matrix, including visible `qmd` fallback and no caller-specific sanitizer; a QMD surface scan finds no new canonical field, locator parser, or corpus rule.
 
 - [ ] **TI03** MCP, Knowledge Hub, and Context Research expose one owner-scoped search contract
-  - Route the three production consumers through S04's typed result/outcome seam, inject `owner`, preserve per-surface bounds, and map role/locator/provenance without deriving identity from source labels.
-  - **Verify**: S01–S03, S05, and S07 pass at handler/service level; captured calls prove identical raw queries and owner scope while returned canonical membership agrees across consumers.
+  - Route the three production consumers through story S04's typed result/outcome seam, inject `owner`, preserve per-surface bounds, and map role/locator/provenance without deriving identity from source labels.
+  - **Verify**: Scenarios S01–S03, S05, and S07 pass at handler/service level; captured calls prove identical raw queries and owner scope while returned canonical membership agrees across consumers.
 
 - [ ] **TI04** Wiki synthesis is composed once per request with precedence, provenance, and output top-K intact
-  - Give each request one composition site around the selected personal backend plus `WikiSearchSource`; remove backend-plus-direct recursive duplication from `ContextResearchTool._retrieve`, rank every candidate admitted by S10's scan budget before selecting the best 50, and keep QMD copies from occupying a second slot.
-  - **Verify**: S04 and S05 pass with an instrumented wiki source proving one traversal, full ranking of scan-admitted candidates, inclusion of a highest-ranked late-path wiki result among the best 50, native provenance, duplicate suppression, and surviving personal results on wiki failure; no wiki/KG write contract changes.
+  - Give each request one composition site around the selected personal backend plus `WikiSearchSource`. Remove wiki composition from every place that performs it today: the embedded optional `WikiSearchSource` in `Fts5SearchBackend.search`, the embedded optional `WikiSearchSource` and its backend-internal wiki/QMD path dedupe in `QmdSearchBackend.search`, and the backend-plus-direct recursive duplication in `ContextResearchTool._retrieve`. Wiki traversal, wiki/QMD duplicate collapse, and the final comparator then all live in that one request seam.
+  - Rank every candidate the traversal in force admits before selecting the output top-K, and keep QMD copies from occupying a second slot. Story S10 later supplies the admission ceilings; story S07 supplies none.
+  - Relocate the wiki/QMD duplicate-suppression proof with the behavior it proves: it is bound to `qmd_search_backend_test.dart` because the dedupe is backend-internal today, and it moves to the request composition seam's test with its assertions intact rather than being deleted. The `WikiSearchSource` unit proof stays where it is – that source is unchanged, only its callers move.
+  - **Verify**: Scenarios S04 and S05 pass with an instrumented wiki source proving one traversal per request across all three callers and both backends, full ranking of every admitted candidate, inclusion of a highest-ranked late-path wiki result in the output top-K, native provenance, duplicate suppression from its relocated home, and surviving personal results on wiki failure; a backend surface scan finds no remaining `WikiSearchSource` reference in `Fts5SearchBackend` or `QmdSearchBackend`; no wiki/KG write contract changes.
 
 - [ ] **TI05** Citation resolution reopens canonical sources independently of retrieved candidates
-  - Evolve `CitationSourceResolver` composition so personal UUIDs resolve through the S01–S05 corpus authority and wiki/KG/inbox locators through their native owners; result membership alone never resolves a citation.
-  - **Verify**: S02, S06, and S07 pass through Context Research and Knowledge Hub attribution, including active/archive personal entries, native wiki paths, missing sources, layer mismatches, and the explicit existence-not-semantic-truth invariant.
+  - Evolve `CitationSourceResolver` composition so canonical entry UUIDs from every canonical role – learnings included – resolve through the S01–S05 corpus authority and wiki/KG/inbox locators through their native owners; result membership alone never resolves a citation.
+  - **Verify**: Scenarios S02, S06, and S07 pass through Context Research and Knowledge Hub attribution, including active/archive personal entries, native wiki paths, missing sources, layer mismatches, and the explicit existence-not-semantic-truth invariant.
 
 - [ ] **TI06** Every index lifecycle uses one canonical normalization, chunking, and identity projection
-  - Make live apply/observe, S03 migration, pruning, and `RebuildIndexCommand.run` consume TI01's projection for the complete supported canonical union; S08 may change rebuild transport/health but not row identity.
-  - **Verify**: S06 passes by comparing complete logical rows after each lifecycle and full rebuild while allowing only derived row IDs/scores to differ; existing rebuild, pruner, migration, and canonical mutation suites remain green.
+  - Make live apply/observe, story S03's migration, pruning, and `RebuildIndexCommand.run` consume TI01's projection for the complete supported canonical union; story S08 may change rebuild transport/health but not row identity.
+  - **Verify**: Scenario S06 passes by comparing complete logical rows after each lifecycle and full rebuild while allowing only derived row IDs/scores to differ; existing rebuild, pruner, migration, and canonical mutation suites remain green.
 
 ### Testing Strategy
 
 - [TI01,TI02,TI03] Use one table-driven contract corpus across the MCP handler, Hub service, Context Research, real in-memory FTS5, and QMD/wiki fakes. Capture raw query and host scope before adapter encoding; compare canonical membership rather than engine-specific score order.
-- [TI04,TI05] Inject counting/throwing retrievers and real temp-workspace canonical files. Assert exact traversal count, late-path high-rank retention after best-50 selection, per-layer degradation, role/locator resolver dispatch, and unattributed behavior without using result membership as the resolver fixture.
-- [TI06] Build one fixed canonical lifecycle fixture through live mutation, S03 migration, pruning/archive, and CLI-equivalent full projection; compare role, locator, provenance, entry metadata, owner scope, normalized text, and chunk ordinal while ignoring disposable SQLite IDs/rank.
+- [TI04,TI05] Inject counting/throwing retrievers and real temp-workspace canonical files. Assert exact traversal count across both backends and all three callers, late-path high-rank retention after output top-K selection, per-layer degradation, role/locator resolver dispatch, and unattributed behavior without using result membership as the resolver fixture.
+- [TI06] Build one fixed canonical lifecycle fixture through live mutation, story S03's migration, pruning/archive, and CLI-equivalent full projection; compare role, locator, provenance, entry metadata, owner scope, normalized text, and chunk ordinal while ignoring disposable SQLite IDs/rank.
 
 ## Implementation Observations
 
 > _Managed by exec-spec post-implementation – append-only. Tag semantics: see the AndThen FIS mutability contract. Spec authors leave this section empty._
 
-_No observations recorded yet._
+#### DECISION NOTE: qmd-identity-lookup-sanction
+
+Decision-Key: qmd-identity-lookup-sanction
+Altitude: fis-local
+Affected surface: Technical Overview (derived-identity sentence, 2nd paragraph); Constraints & Gotchas ("QMD boundary" bullet); Acceptance Scenario S04 (second **And** bullet)
+Decision: Path-normalized identity LOOKUP of a QMD hit against existing canonical/native rows is explicitly SANCTIONED and lives in the request composition seam (TI04), not inside QMD – it is the mechanism that recognizes a QMD hit as a copy of an already-indexed page. What remains BANNED is MANUFACTURING a canonical locator from QMD path or text: a QMD hit that matches no existing row is returned with its native, uncited locator rather than being dropped or given a synthesized canonical one, and an uncited result is never presented as a resolved citation.
+Rationale: Scenario S04 requires a QMD copy of a wiki page to collapse into the wiki slot, which is impossible without the lookup, while the FIS's "cannot escape as a cited result" wording banned the lookup and the uncited passthrough alike – a self-contradiction against its own duplicate-suppression proof. The owner ratified the lookup/manufacture split as the settled boundary.
+Evidence: Scenario S04 proof `packages/dartclaw_storage/test/search/qmd_search_backend_test.dart#wiki and QMD copies of the same page occupy one result slot` requires cross-source identity matching; Structural Criterion 2 ("QMD gains no ... locator parser") stays satisfied because the lookup is owned by the composition seam named in TI04, not by QMD.
+
+Old:
+```
+Search consumers never derive identity from chunk IDs, file labels, scores, or QMD paths.
+```
+New:
+```
+Search consumers never derive identity from chunk IDs, file labels, scores, or QMD paths; a normalized QMD path may only LOOK UP an already-canonical or native row, never mint a locator, and an unmatched QMD hit keeps its native uncited locator.
+```
+
+Old:
+```
+- **QMD boundary**: consume S04's canonical result projection and existing FTS fallback; never manufacture a locator from QMD path/text. A result that cannot satisfy canonical locator validation cannot escape as a cited result.
+```
+New:
+```
+- **QMD boundary**: consume S04's canonical result projection and existing FTS fallback. Path-normalized identity LOOKUP of a QMD hit against existing canonical/native rows is SANCTIONED and belongs to the request composition seam rather than to QMD – it is what recognizes a QMD hit as a copy of an already-indexed page. What stays BANNED is MANUFACTURING a locator from QMD path/text: a hit matching no existing row is returned with its native, uncited locator and never a synthesized canonical one, and an uncited result is never presented as a resolved citation.
+```
+
+Old:
+```
+  - **And** the late native wiki-path result occupies one slot ahead of raw personal memory, the source-backed provenance and untrusted-synthesis label survive, and no recursive second scan or QMD copy consumes another result/quota slot
+```
+New:
+```
+  - **And** the late native wiki-path result occupies one slot ahead of raw personal memory, the source-backed provenance and untrusted-synthesis label survive, and no recursive second scan or QMD copy consumes another result/quota slot
+  - **And** the QMD copy collapses into that wiki slot through path-normalized identity LOOKUP of its path against the already-admitted native row – the sanctioned mechanism – while a QMD hit matching no canonical or native row is returned with its native uncited locator and no canonical locator is manufactured from its path or text
+```
+
+#### DECISION NOTE: learnings-canonical-role
+
+Decision-Key: learnings-canonical-role
+Altitude: fis-local
+Affected surface: Constraints & Gotchas ("Identity is role plus locator" bullet); Technical Overview (citation-resolver sentence, 2nd paragraph); Implementation Tasks TI05 (resolver-composition step)
+Decision: Runtime learnings are a CANONICAL ROLE in the 0.24 memory model, so a retrieved learning carries the ordinary canonical entry locator (stable entry UUID) and resolves through the canonical corpus authority – never a `learnings.md` file path, heading anchor, or native-source owner. Only wiki, KG, and inbox remain native-identity sources in S07; every canonical role, learnings included, is addressed by canonical entry locator.
+Rationale: The cross-cutting 0.24 decision supersedes the earlier "learnings retain their native format and identity" premise, which S01 replaced with stable identity, validation, revision, and fingerprint participation. S07 never named learnings at all: its identity contract enumerated only personal-memory/wiki/KG and its resolver dispatch only personal UUIDs vs wiki/KG/inbox, leaving learnings unassigned and inviting a file-level locator implementation that the ratified model forbids.
+Evidence: A full-text search of this FIS for "learn" returns no hit, so no explicit native-identity claim existed to delete – the correction is enumerative, closing the gap in the three surfaces that partition canonical-locator sources from native-identity sources.
+
+Old:
+```
+- **Identity is role plus locator**: personal-memory locators are canonical entry UUIDs, wiki locators are normalized workspace-relative native paths, and KG locators remain fact IDs. File labels, categories, source strings, offsets, chunk IDs, and scores are not identity.
+```
+New:
+```
+- **Identity is role plus locator**: every canonical role – learnings included, since 0.24 makes learnings canonical rather than a native file source – uses canonical entry locators (stable entry UUIDs); wiki locators are normalized workspace-relative native paths, and KG locators remain fact IDs. File labels, categories, source strings, offsets, chunk IDs, scores, and `learnings.md`-style file or heading anchors are not identity.
+```
+
+Old:
+```
+The citation resolver reopens canonical personal entries and native wiki/KG/inbox sources independently of the current result set; failure leaves the reference unresolved/unattributed.
+```
+New:
+```
+The citation resolver reopens canonical entries in every canonical role – learnings included – through the corpus authority, and native wiki/KG/inbox sources through their own owners, independently of the current result set; failure leaves the reference unresolved/unattributed.
+```
+
+Old:
+```
+  - Evolve `CitationSourceResolver` composition so personal UUIDs resolve through the S01–S05 corpus authority and wiki/KG/inbox locators through their native owners; result membership alone never resolves a citation.
+```
+New:
+```
+  - Evolve `CitationSourceResolver` composition so canonical entry UUIDs from every canonical role – learnings included – resolve through the S01–S05 corpus authority and wiki/KG/inbox locators through their native owners; result membership alone never resolves a citation.
+```

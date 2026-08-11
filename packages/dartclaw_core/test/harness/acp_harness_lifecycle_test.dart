@@ -456,13 +456,16 @@ final class _RecordingContainerExecutor implements ContainerExecutor {
   bool get hasProjectMount => false;
 
   @override
+  String get generatedStateDir => '/host/state';
+
+  @override
+  String get providerBridgeUrl => 'http://127.0.0.1:8080';
+
+  @override
+  String? get mcpBridgeUrl => null;
+
+  @override
   String? containerPathForHostPath(String hostPath) => null;
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {

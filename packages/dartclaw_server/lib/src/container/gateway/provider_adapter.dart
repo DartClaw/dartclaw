@@ -9,6 +9,16 @@ import 'gateway_models.dart';
 /// What the gateway needs from a provider surface: it answers requests and owns
 /// an upstream client it must release.
 abstract interface class ProviderMediator implements GatewaySurfaceHandler {
+  /// Why this adapter cannot mediate for a container right now, or `null` when
+  /// it can.
+  ///
+  /// Read at authority registration so an unusable provider configuration is
+  /// refused before a container exists – not discovered mid-turn, by which
+  /// point the execution has already been admitted on a promise the host
+  /// cannot keep. The reason is surfaced to operators, so it must name the
+  /// remedy without naming any credential.
+  String? get unavailableReason;
+
   Future<void> dispose();
 }
 
@@ -47,6 +57,16 @@ abstract base class ProviderAdapter implements ProviderMediator {
 
   /// Request paths this provider's protocol defines. Anything else is refused.
   Set<String> get allowedPaths;
+
+  /// How an operator configures the host credential this adapter injects.
+  String get credentialRemediation;
+
+  @override
+  String? get unavailableReason {
+    final key = _apiKey();
+    if (key != null && key.isNotEmpty) return null;
+    return 'containerized "$providerId" has no host-held credential to mediate with. $credentialRemediation';
+  }
 
   /// Applies the provider's authentication to a host-to-provider request.
   void authenticate(HttpClientRequest request, String apiKey);
@@ -196,6 +216,14 @@ final class AnthropicMessagesAdapter extends ProviderAdapter {
   @override
   Set<String> get allowedPaths => const {'/v1/messages', '/v1/messages/count_tokens'};
 
+  /// OAuth and setup-token logins are deliberately absent here: neither has a
+  /// mediation contract that keeps the login material on the host, so
+  /// containerized Claude supports host-held API-key mediation only.
+  @override
+  String get credentialRemediation =>
+      'Set ANTHROPIC_API_KEY on the host for container execution, or select execution: host for this agent – '
+      'OAuth and setup-token authentication are supported for host execution only.';
+
   @override
   void authenticate(HttpClientRequest request, String apiKey) {
     request.headers.set('x-api-key', apiKey);
@@ -216,6 +244,10 @@ final class OpenAiResponsesAdapter extends ProviderAdapter {
   Set<String> get allowedPaths => const {'/v1/responses'};
 
   @override
+  String get credentialRemediation =>
+      'Set OPENAI_API_KEY on the host for container execution, or select execution: host for this agent.';
+
+  @override
   void authenticate(HttpClientRequest request, String apiKey) {
     request.headers.set('authorization', 'Bearer $apiKey');
   }
@@ -227,10 +259,15 @@ final class OpenAiResponsesAdapter extends ProviderAdapter {
 /// Provider-side tool families that reach the network on the caller's behalf.
 ///
 /// Matching is by prefix because both providers version these identifiers
-/// (`web_search_20250305`). Remote-connector declarations are counted too: a
-/// provider-hosted MCP connector is an egress path that `network:none` cannot
-/// see, let alone contain.
-const _networkToolPrefixes = {'web_search', 'web_fetch', 'mcp', 'code_execution', 'code_interpreter'};
+/// (`web_search_20250305`).
+///
+/// Deliberately no `mcp` prefix: a client's *own* MCP tools serialize as
+/// ordinary tool declarations named `mcp__<server>__<tool>` and execute in the
+/// container against the scoped bridge, which is exactly what a restricted
+/// execution is supposed to use. Provider-hosted remote connectors – the ones
+/// that really are an egress path `network:none` cannot see – arrive in the
+/// separate top-level `mcp_servers` array and are counted there.
+const _networkToolPrefixes = {'web_search', 'web_fetch', 'code_execution', 'code_interpreter'};
 
 /// Counts the provider-side network-reaching tools a request declares.
 ///

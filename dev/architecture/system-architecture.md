@@ -369,7 +369,7 @@ Layer 5:  OS-level container isolation (Docker kernel namespaces)
 Layer 4:  Network isolation (network:none + Dart credential proxy)
 Layer 3:  Guard chain (command/file/network/content/input sanitizer)
 Layer 2:  Prompt-level safety rules (AGENTS.md, hardcoded rules)
-Layer 1:  Credential isolation (Claude API keys stay behind CredentialProxy; Codex/ACP credentials are provider-scoped)
+Layer 1:  Credential isolation (container provider traffic is mediated by the host gateway; credentials stay host-side)
 ```
 
 | Component | File | Role |

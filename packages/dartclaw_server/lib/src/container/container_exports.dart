@@ -2,7 +2,7 @@ export 'bridge_binary.dart' show BridgeBinaryProvisioner;
 export 'container_authority.dart' show ContainerAuthorityLease, ContainerAuthorityProvider;
 export 'container_dispatcher.dart' show resolveProfile;
 export 'container_health_monitor.dart' show ContainerHealthMonitor;
-export 'container_manager.dart' show ContainerManager, RunCommand, StartCommand;
+export 'container_manager.dart' show ContainerManager, RunCommand, StartCommand, containerGeneratedStatePath;
 export 'docker_validator.dart' show DockerValidator;
 export 'gateway/gateway_models.dart'
     show

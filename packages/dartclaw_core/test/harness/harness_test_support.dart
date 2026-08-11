@@ -8,7 +8,7 @@ import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
 import 'package:test/test.dart';
 
 /// Capture-only [Guard] that records every [GuardContext] it evaluates and
@@ -125,7 +125,7 @@ class SwitchableFailingSink implements IOSink {
 }
 
 class FakeClaudeContainerExecutor implements ContainerExecutor {
-  FakeClaudeContainerExecutor({required this.hostRoot, required this.containerRoot});
+  FakeClaudeContainerExecutor({required this.hostRoot, required this.containerRoot, this.mcpBridgeUrl});
 
   @override
   final String profileId = 'workspace';
@@ -136,19 +136,27 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   @override
   final bool hasProjectMount = true;
 
+  @override
+  late final String generatedStateDir = Directory('$hostRoot/.dartclaw-state').absolute.path;
+
+  @override
+  final String providerBridgeUrl = 'http://127.0.0.1:8080';
+
+  @override
+  final String? mcpBridgeUrl;
+
   final String hostRoot;
   final String containerRoot;
   late List<String> lastCommand;
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
+  Map<String, String>? lastEnv;
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
+    lastEnv = env == null ? null : Map<String, String>.from(env);
+    if (command.length == 2 && command[1] == '--version') {
+      return makeVersionProbeProcess('claude 1.0.0');
+    }
     final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
@@ -171,7 +179,9 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   }
 
   @override
-  Future<void> start() async {}
+  Future<void> start() async {
+    Directory(generatedStateDir).createSync(recursive: true);
+  }
 
   @override
   String? containerPathForHostPath(String hostPath) {

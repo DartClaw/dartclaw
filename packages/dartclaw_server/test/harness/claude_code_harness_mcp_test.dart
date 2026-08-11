@@ -4,10 +4,12 @@ import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
+import 'package:dartclaw_server/src/container/gateway/gateway_models.dart' show mcpBridgePort;
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
-import 'package:dartclaw_core/src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
+import 'package:dartclaw_core/src/harness/claude_protocol.dart'
+    show claudeHardeningEnvVars, containerClaudePlaceholderApiKey;
 import 'package:dartclaw_core/src/harness/harness_config.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,30 @@ ClaudeCodeHarness _mcpHarness(FakeProcess process, {void Function(List<String>, 
       environment: {'ANTHROPIC_API_KEY': 'sk-test'},
       harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
     );
+
+/// Distinct sentinels for every host-side secret a containerized launch must
+/// never expose, so a leak names its own source.
+const _hostApiKeySentinel = 'sk-ant-HOST-API-KEY-SENTINEL';
+const _hostOauthSentinel = 'oauth-HOST-LOGIN-SENTINEL';
+const _sharedMcpBearerSentinel = 'shared-operator-MCP-BEARER-SENTINEL';
+
+/// A `docker exec` stand-in that answers the executable probe and then serves
+/// the harness process, recording the argument vector of the real spawn.
+StartCommand _containerStartCommand(FakeProcess process, {void Function(List<String>)? onSpawn}) =>
+    (
+      exe,
+      args, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+      bool includeParentEnvironment = true,
+    }) async {
+      if (args.last == '--version') return makeVersionProbeProcess('claude 1.0.0');
+      onSpawn?.call(args);
+      scheduleMicrotask(() {
+        process.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+      });
+      return process;
+    };
 
 void _expectSecurityExecArgs(List<String> args) {
   for (final entry in claudeHardeningEnvVars.entries) {
@@ -173,8 +199,10 @@ void main() {
       expect(File(mcpConfigPath!).existsSync(), isFalse);
     });
 
-    test('restricted container copies MCP config into /tmp when /project is unavailable', () async {
+    test('containerized MCP config names only the scoped bridge and carries no bearer', () async {
       final fake = _bufferedFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
       final dockerCalls = <List<String>>[];
       List<String>? capturedExecArgs;
 
@@ -183,6 +211,8 @@ void main() {
         containerName: 'dartclaw-test1234-restricted',
         profileId: 'restricted',
         workspaceMounts: const [],
+        generatedStateDir: stateDir.path,
+        hasMcpBridge: true,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async {
@@ -192,47 +222,214 @@ void main() {
           }
           return ProcessResult(0, 0, '', '');
         },
-        startCommand:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedExecArgs = args;
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        startCommand: _containerStartCommand(fake, onSpawn: (args) => capturedExecArgs = args),
       );
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
-        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
+        environment: {'ANTHROPIC_API_KEY': _hostApiKeySentinel},
+        // Host MCP settings, which a containerized launch must not use: the
+        // shared operator bearer is exactly what the scoped bridge replaces.
+        harnessConfig: const HarnessConfig(
+          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
+          mcpGatewayToken: _sharedMcpBearerSentinel,
+        ),
         containerManager: containerManager,
       );
 
       await harness.start();
 
-      expect(capturedExecArgs, contains('--mcp-config'));
       final mcpConfigIdx = capturedExecArgs!.indexOf('--mcp-config');
+      expect(mcpConfigIdx, isNot(-1));
       final containerConfigPath = capturedExecArgs![mcpConfigIdx + 1];
-      expect(containerConfigPath, startsWith('/tmp/'));
-      expect(containerConfigPath, isNot(contains('/project/')));
+      expect(containerConfigPath, startsWith('$containerGeneratedStatePath/'));
 
-      final copyCall = dockerCalls.firstWhere((call) => call.length > 1 && call[1] == 'cp');
-      expect(copyCall[3], equals('dartclaw-test1234-restricted:$containerConfigPath'));
-      expect(File(copyCall[2]).existsSync(), isTrue);
+      final hostConfig = File(
+        '${stateDir.path}/${containerConfigPath.substring(containerGeneratedStatePath.length + 1)}',
+      );
+      expect(hostConfig.existsSync(), isTrue);
+      final written = hostConfig.readAsStringSync();
+      expect(written, contains('http://127.0.0.1:$mcpBridgePort/mcp'));
+      expect(written, isNot(contains('127.0.0.1:3000')));
+      expect(written, isNot(contains(_sharedMcpBearerSentinel)));
+      expect(written, isNot(contains('Authorization')));
+
+      // Delivered by the bind mount, so no in-container copy is involved.
+      expect(dockerCalls.where((call) => call.length > 1 && call[1] == 'cp'), isEmpty);
 
       await harness.stop();
-      final cleanupCall = dockerCalls.firstWhere((call) => call.length > 1 && call[1] == 'exec');
-      expect(cleanupCall, ['docker', 'exec', 'dartclaw-test1234-restricted', 'rm', '-f', containerConfigPath]);
-      expect(File(copyCall[2]).existsSync(), isFalse);
+      expect(hostConfig.existsSync(), isFalse);
+      await harness.dispose();
+    });
+
+    test('no MCP server is configured when the authority was granted no tools', () async {
+      final fake = _bufferedFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
+      List<String>? capturedExecArgs;
+
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-restricted-notools',
+        profileId: 'restricted',
+        workspaceMounts: const [],
+        generatedStateDir: stateDir.path,
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
+        workingDir: '/tmp',
+        runCommand: (exe, args) async =>
+            args.first == 'inspect' ? ProcessResult(0, 0, 'true\n', '') : ProcessResult(0, 0, '', ''),
+        startCommand: _containerStartCommand(fake, onSpawn: (args) => capturedExecArgs = args),
+      );
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': _hostApiKeySentinel},
+        harnessConfig: const HarnessConfig(
+          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
+          mcpGatewayToken: _sharedMcpBearerSentinel,
+        ),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      expect(capturedExecArgs, isNot(contains('--mcp-config')));
+      expect(stateDir.listSync(), isEmpty);
+
+      await harness.dispose();
+    });
+
+    test('containerized spawn carries a placeholder key so the CLI reaches the bridge', () async {
+      // With no key at all the claude CLI refuses at its own local auth gate
+      // (`duration_api_ms: 0`, "Not logged in") and never reaches the provider
+      // bridge, so mediation could never happen.
+      final fake = _bufferedFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
+      List<String>? capturedExecArgs;
+
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-workspace-placeholder',
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        generatedStateDir: stateDir.path,
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
+        workingDir: '/tmp',
+        runCommand: (exe, args) async =>
+            args.first == 'inspect' ? ProcessResult(0, 0, 'true\n', '') : ProcessResult(0, 0, '', ''),
+        startCommand: _containerStartCommand(fake, onSpawn: (args) => capturedExecArgs = args),
+      );
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': _hostApiKeySentinel},
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      expect(capturedExecArgs, contains('ANTHROPIC_API_KEY=$containerClaudePlaceholderApiKey'));
+      // The placeholder is not, and must never be, the host credential.
+      expect(containerClaudePlaceholderApiKey, isNot(_hostApiKeySentinel));
+      expect(capturedExecArgs!.join(' '), isNot(contains(_hostApiKeySentinel)));
+
+      await harness.dispose();
+    });
+
+    test('a container granted no MCP tools is not handed the SDK memory tools instead', () async {
+      // Deny-by-default must not invert: less authority cannot mean more
+      // declared tools.
+      final fake = _bufferedCapturingFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
+
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-restricted-nosdk',
+        profileId: 'restricted',
+        workspaceMounts: const [],
+        generatedStateDir: stateDir.path,
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
+        workingDir: '/tmp',
+        runCommand: (exe, args) async =>
+            args.first == 'inspect' ? ProcessResult(0, 0, 'true\n', '') : ProcessResult(0, 0, '', ''),
+        startCommand: _containerStartCommand(fake),
+      );
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': _hostApiKeySentinel},
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+        onMemorySave: (payload) async => {'saved': payload},
+        onMemorySearch: (payload) async => {'searched': payload},
+        onMemoryRead: (payload) async => {'read': payload},
+      );
+
+      await harness.start();
+
+      final initialize = fake.capturedStdinJson.firstWhere((message) => message['type'] == 'control_request');
+      final request = initialize['request'] as Map<String, dynamic>;
+      expect(request.containsKey('sdkMcpServers'), isFalse);
+
+      await harness.dispose();
+    });
+
+    test('containerized spawn carries no provider credential or shared bearer', () async {
+      final fake = _bufferedFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
+      List<String>? capturedExecArgs;
+
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-workspace-secrets',
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        generatedStateDir: stateDir.path,
+        hasMcpBridge: true,
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
+        workingDir: '/tmp',
+        runCommand: (exe, args) async =>
+            args.first == 'inspect' ? ProcessResult(0, 0, 'true\n', '') : ProcessResult(0, 0, '', ''),
+        startCommand: _containerStartCommand(fake, onSpawn: (args) => capturedExecArgs = args),
+      );
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': _hostApiKeySentinel, 'CLAUDE_CODE_OAUTH_TOKEN': _hostOauthSentinel},
+        harnessConfig: const HarnessConfig(
+          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
+          mcpGatewayToken: _sharedMcpBearerSentinel,
+        ),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      final rendered = capturedExecArgs!.join('\u0000');
+      for (final sentinel in [_hostApiKeySentinel, _hostOauthSentinel, _sharedMcpBearerSentinel]) {
+        expect(rendered, isNot(contains(sentinel)));
+      }
+      for (final entry in stateDir.listSync().whereType<File>()) {
+        final contents = entry.readAsStringSync();
+        for (final sentinel in [_hostApiKeySentinel, _hostOauthSentinel, _sharedMcpBearerSentinel]) {
+          expect(contents, isNot(contains(sentinel)));
+        }
+      }
+
       await harness.dispose();
     });
 
@@ -347,31 +544,21 @@ void main() {
   group('harness spawn hardening', () {
     ContainerManager makeContainerManager(String profileId, List<String> capturedArgs) {
       final fake = _bufferedFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
       return ContainerManager(
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-$profileId',
         profileId: profileId,
         workspaceMounts: const [],
+        generatedStateDir: stateDir.path,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async {
           if (args.first == 'inspect') return ProcessResult(0, 0, 'true\n', '');
           return ProcessResult(0, 0, '', '');
         },
-        startCommand:
-            (
-              exe,
-              args, {
-              String? workingDirectory,
-              Map<String, String>? environment,
-              bool includeParentEnvironment = true,
-            }) async {
-              capturedArgs.addAll(args);
-              scheduleMicrotask(() {
-                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-              });
-              return fake;
-            },
+        startCommand: _containerStartCommand(fake, onSpawn: capturedArgs.addAll),
       );
     }
 

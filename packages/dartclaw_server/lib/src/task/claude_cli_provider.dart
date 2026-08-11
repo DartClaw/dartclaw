@@ -4,8 +4,19 @@ import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ClaudeSettingsBuilder, ContainerExecutor, WorkflowCliTurnProgressEvent, intValue, stringValue;
+    show
+        ClaudeSettingsBuilder,
+        ContainerExecutor,
+        WorkflowCliTurnProgressEvent,
+        chmodOwnerOnlySync,
+        claudeHardeningEnvVars,
+        containerClaudeExecutable,
+        containerClaudePlaceholderApiKey,
+        containerExecutableRuns,
+        intValue,
+        stringValue;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import '../container/security_profile.dart';
 import 'workflow_cli_runner.dart';
@@ -34,15 +45,33 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
     final command = _buildCommand(req);
-    final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, req.containerManager);
+    final container = req.containerManager;
+    final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, container);
 
     // `spawnEnvOverride` is merged last so a full-access run's env-scrub opt-out
     // wins over both the provider's hardening env and any per-step extras.
-    final env = <String, String>{
-      ...req.providerConfig.environment,
-      ...?req.extraEnvironment,
-      ...command.spawnEnvOverride,
-    };
+    //
+    // A containerized spawn starts from the hardening set instead of the host
+    // environment: the provider credential, host login state, and shared MCP
+    // bearer all live in that host environment and none of them may cross.
+    // `ANTHROPIC_BASE_URL` is set on the container itself and points only at
+    // this authority's provider bridge.
+    final env = container == null
+        ? <String, String>{...req.providerConfig.environment, ...?req.extraEnvironment, ...command.spawnEnvOverride}
+        : <String, String>{
+            ...claudeHardeningEnvVars,
+            // Satisfies the CLI's local auth gate only; the host adapter
+            // replaces it with the real credential. Without any key the client
+            // refuses before it ever reaches the provider bridge.
+            'ANTHROPIC_API_KEY': containerClaudePlaceholderApiKey,
+            if (container.profileId == SecurityProfile.restricted.id) 'CLAUDE_CODE_SIMPLE': '1',
+            ...containerExtraEnvironment(req.extraEnvironment, container),
+            ...command.spawnEnvOverride,
+          };
+
+    if (container != null) {
+      await verifyContainerCliExecutable(container, command.executable);
+    }
 
     final stopwatch = Stopwatch()..start();
     Process? process;
@@ -55,7 +84,7 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
         arguments: command.arguments,
         workingDirectory: resolvedWorkDir,
         environment: env,
-        containerManager: req.containerManager,
+        containerManager: container,
         processStarter: req.processStarter,
       );
       trackInflightProcess(process);
@@ -207,7 +236,10 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
     final taskPolicy = fullAccess
         ? const _ClaudeTaskPolicy.empty()
         : _ClaudeTaskPolicy(req.allowedTools, readOnly: req.readOnly);
-    final options = _optionsWithTaskPolicy(providerOptions, taskPolicy);
+    final options = _withDeniedNativeWebTools(
+      _optionsWithTaskPolicy(providerOptions, taskPolicy),
+      req.containerManager,
+    );
     final configuredPermissionMode =
         ClaudeSettingsBuilder.buildPermissionMode(options) ?? ClaudeProviderOptions.approvalPermissionMode(options);
     final permissionMode = _rejectInteractivePermissionMode(
@@ -255,13 +287,47 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
       if (req.effort != null && req.effort!.trim().isNotEmpty) ...['--effort', req.effort!],
       if (permissionMode != null) ...['--permission-mode', permissionMode] else '--dangerously-skip-permissions',
       if (settings != null) ...['--settings', settings],
+      if (_scopedMcpConfigPath(req) case final mcpConfigPath?) ...['--mcp-config', mcpConfigPath],
       req.prompt,
     ];
     return (
-      executable: req.providerConfig.executable,
+      executable: resolveCliExecutable(req.providerConfig.executable, req.containerManager, containerClaudeExecutable),
       arguments: args,
       spawnEnvOverride: fullAccess ? _fullAccessEnvOverride : const <String, String>{},
     );
+  }
+
+  /// Writes this execution's MCP client config and returns its container path.
+  ///
+  /// Returns `null` on the host – the workflow one-shot path exposes no MCP
+  /// server there – and in a container whose authority was granted no tools.
+  /// The config names only the authority's own bridge and carries no bearer:
+  /// the pipe is the identity, and the host decides what it may reach.
+  String? _scopedMcpConfigPath(CliTurnRequest req) {
+    final container = req.containerManager;
+    final bridgeUrl = container?.mcpBridgeUrl;
+    if (container == null || bridgeUrl == null) return null;
+    final hostPath = p.join(container.generatedStateDir, 'dartclaw-mcp-config-${req.uuid.v4()}.json');
+    // Resolve before writing, so a misconfigured mount leaves no orphan file.
+    final containerPath = container.containerPathForHostPath(hostPath);
+    if (containerPath == null) {
+      throw StateError('Generated MCP config is not mounted in the container: $hostPath');
+    }
+    // Create empty, tighten to owner-only, then write – the same order the
+    // long-lived path uses, so this file never widens if it ever gains a
+    // credential.
+    final file = File(hostPath)..createSync();
+    chmodOwnerOnlySync(hostPath);
+    file.writeAsStringSync(
+      jsonEncode({
+        'mcpServers': {
+          'dartclaw': {'type': 'http', 'url': bridgeUrl},
+        },
+      }),
+    );
+    // No per-file cleanup: the generated-state directory is destroyed with the
+    // container when the authority is released.
+    return containerPath;
   }
 
   WorkflowCliTurnResult _parse(String stdout, {required Duration fallbackDuration}) {
@@ -542,6 +608,21 @@ Map<String, dynamic> _optionsWithTaskPolicy(Map<String, dynamic> options, _Claud
   return next;
 }
 
+/// Denies Claude's provider-native web tools for a restricted container.
+///
+/// They execute at the provider rather than in the container, so `network:none`
+/// cannot contain them. The host adapter is the enforcement point and refuses
+/// requests declaring them; denying them here keeps the client from asking.
+/// Workspace containers keep them – their MCP access is still bridge-scoped.
+Map<String, dynamic> _withDeniedNativeWebTools(Map<String, dynamic> options, ContainerExecutor? container) {
+  if (container?.profileId != SecurityProfile.restricted.id) return options;
+  final next = Map<String, dynamic>.from(options);
+  final permissions = _normalizeMap(next['permissions']);
+  permissions['deny'] = {..._stringList(permissions['deny']), 'WebSearch', 'WebFetch'}.toList()..sort();
+  next['permissions'] = permissions;
+  return next;
+}
+
 Map<String, dynamic> _normalizeMap(Object? value) {
   if (value is Map<String, dynamic>) return Map<String, dynamic>.from(value);
   if (value is Map) return value.map((key, value) => MapEntry('$key', value));
@@ -680,6 +761,52 @@ String resolveContainerWorkDir(String workingDirectory, ContainerExecutor? conta
     throw StateError('Requested working directory is not mounted in the container: $workingDirectory');
   }
   return translated;
+}
+
+/// The binary a containerized one-shot actually runs.
+///
+/// A configured host path does not exist in the image, so an unqualified name
+/// resolves to the image's own binary. An explicit path is treated as a
+/// deliberate pin and passed through, matching the long-lived harnesses.
+String resolveCliExecutable(String configured, ContainerExecutor? container, String imageExecutable) =>
+    container == null || configured.contains('/') ? configured : imageExecutable;
+
+/// Host-computed per-step environment, translated for a containerized spawn.
+///
+/// The container branch drops the host *provider* environment, but not the
+/// per-step contract the host owns – `DARTCLAW_STEP_ARTIFACTS_DIR` and the
+/// merge-resolve variables are computed host-side for every workflow task and
+/// read back afterwards. An absolute path that the container cannot see is
+/// refused rather than passed through: a step that writes its report to a
+/// non-existent directory reports success and loses the artifact.
+Map<String, String> containerExtraEnvironment(Map<String, String>? extra, ContainerExecutor container) {
+  if (extra == null || extra.isEmpty) return const {};
+  final translated = <String, String>{};
+  for (final entry in extra.entries) {
+    if (!p.isAbsolute(entry.value)) {
+      translated[entry.key] = entry.value;
+      continue;
+    }
+    final containerPath = container.containerPathForHostPath(entry.value);
+    if (containerPath == null) {
+      throw StateError('Step environment path ${entry.key} is not mounted in the container: ${entry.value}');
+    }
+    translated[entry.key] = containerPath;
+  }
+  return translated;
+}
+
+/// Rejects a containerized spawn whose packaged CLI cannot run.
+///
+/// Admission-time, matching the long-lived harnesses: an image without a
+/// runnable provider binary is statically detectable and must not be
+/// discovered part-way through a turn.
+Future<void> verifyContainerCliExecutable(ContainerExecutor container, String executable) async {
+  if (await containerExecutableRuns(container, executable)) return;
+  throw StateError(
+    'Packaged CLI "$executable" is not runnable in the ${container.profileId} container. '
+    'Rebuild the DartClaw agent image, or select host execution for this task type.',
+  );
 }
 
 /// Spawns a CLI process via the [containerManager] exec path or the

@@ -73,6 +73,8 @@ void main() {
       containerName: 'dartclaw-gwtest-${DateTime.now().microsecondsSinceEpoch}-${sessionId.hashCode.abs()}',
       profileId: profile,
       workspaceMounts: const [],
+      generatedStateDir: Directory.systemTemp.createTempSync('dartclaw-gwstate-').path,
+      hasMcpBridge: allowedMcpTools.isNotEmpty,
       bridgeBinaryPath: bridgeBinary,
       buildContextDir: repoRoot,
       workingDir: '/tmp',
@@ -107,7 +109,7 @@ void main() {
       expect(upstream.lastHeaders['x-api-key'], _sentinelCredential);
     });
 
-    test('inspect shows network none and only the read-only bridge mount', () async {
+    test('inspect shows network none and only the two sanctioned host mounts', () async {
       final authority = await startAuthority();
 
       final inspect = await authority.inspect();
@@ -117,10 +119,17 @@ void main() {
       expect(config['NetworkMode'], 'none');
       expect(config['PortBindings'], anyOf(isNull, isEmpty));
       expect((inspect['NetworkSettings'] as Map<String, Object?>)['Ports'], anyOf(isNull, isEmpty));
-      expect(mounts, hasLength(1));
-      expect(mounts.single['Destination'], '/opt/dartclaw/dartclaw-bridge');
-      expect(mounts.single['RW'], isFalse);
-      expect(mounts.single['Source'], isNot(contains('.sock')));
+
+      // Exactly two: the read-only bridge executable and this authority's own
+      // generated-state scratch. Anything else would be a host object the
+      // container was not meant to reach.
+      final byDestination = {for (final mount in mounts) mount['Destination'] as String: mount};
+      expect(byDestination.keys, unorderedEquals(['/opt/dartclaw/dartclaw-bridge', containerGeneratedStatePath]));
+      expect(byDestination['/opt/dartclaw/dartclaw-bridge']!['RW'], isFalse);
+      expect(byDestination[containerGeneratedStatePath]!['RW'], isTrue);
+      for (final mount in mounts) {
+        expect(mount['Source'], isNot(contains('.sock')));
+      }
     });
 
     test('a direct Internet probe from the container fails', () async {

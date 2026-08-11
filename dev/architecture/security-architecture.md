@@ -15,7 +15,7 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 | **Prompt injection** | Adversarial input via channels (WhatsApp, Signal, Google Chat) attempting to override system instructions or extract sensitive data | InputSanitizer, ContentGuard |
 | **Command injection** | Agent executing destructive commands (`rm -rf /`, fork bombs) or shell-escape chains | CommandGuard, container isolation |
 | **Data exfiltration** | Agent piping secrets to external servers via curl, base64-encoded POST, or pipe-to-shell patterns | NetworkGuard, container `network:none` |
-| **Credential theft** | Agent accessing API keys, SSH keys, cloud credentials from the host filesystem | CredentialProxy, FileGuard, container mount scoping |
+| **Credential theft** | Agent accessing API keys, SSH keys, cloud credentials from the host filesystem | Host-owned provider mediation, FileGuard, container mount scoping |
 | **SSRF** | Agent or MCP tools fetching internal/private network addresses to probe infrastructure | WebFetchTool SSRF hardening, DNS resolution checks |
 | **Unauthorized access** | Unauthenticated users accessing the web UI/API, or unauthorized contacts messaging via channels | AuthMiddleware, DmAccessController |
 | **Supply chain** | Malicious dependencies in the runtime chain | Zero npm/Node.js architecture, minimal deps |
@@ -57,7 +57,7 @@ runtime locks protect crash consistency and cooperating DartClaw writers; they a
 │  ToolPolicyGuard · TaskFileGuard · GuardChain (pipeline)                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                       Layer 2: NETWORK CONTROLS                         │
-│  Docker network:none · CredentialProxy (Unix socket) · socat bridge     │
+│  Docker network:none · HostGateway · framed stdio bridge (docker exec)   │
 │  Domain allowlist · SSRF protection (WebFetchTool)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                     Layer 1: OS / CONTAINER ISOLATION                   │
@@ -68,7 +68,7 @@ runtime locks protect crash consistency and cooperating DartClaw writers; they a
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Each layer operates independently. A failure at one layer does not compromise the others. For example, even if a guard is bypassed, the container's `network:none` prevents data exfiltration, and the credential proxy ensures API keys never exist inside the container.
+Each layer operates independently. A failure at one layer does not compromise the others. For example, even if a guard is bypassed, the container's `network:none` prevents data exfiltration, and host-owned provider mediation ensures API keys never exist inside the container.
 
 ### Pragmatic Mode
 
@@ -450,7 +450,7 @@ docker create \
 
 ### Container Image
 
-Minimal Debian Bookworm slim image with only essential packages: `ca-certificates`, `curl`, `git`, `socat`. Runs as non-root user `dartclaw` (uid 1000). Claude CLI installed via official installer script.
+Minimal Debian Bookworm slim image with only essential packages: `ca-certificates`, `curl`, `git`. Runs as non-root user `dartclaw` (uid 1000). Claude CLI is installed via the official installer script; Codex is installed from a pinned release archive whose per-architecture sha256 is verified before install, and the build runs `codex --version` before succeeding. The image ships no provider home: containerized Codex is always pointed at a generated auth-clean one.
 
 **Source**: `docker/Dockerfile`
 
@@ -520,9 +520,11 @@ and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL wh
 
 The agent needs API access to provider backends, but API keys must never be exposed to the wrong execution boundary. A compromised agent with shell access could trivially read environment variables or files containing credentials if credentials were injected into the wrong place.
 
-### The Solution: Credential Proxy
+### The Solution: Host-Owned Provider Mediation
 
-The Dart host runs a `CredentialProxy` — an HTTP proxy on a Unix socket that injects API credentials into outbound requests. The container connects to this proxy via a `socat` TCP-to-Unix-socket bridge. This remains the boundary for containerized Claude Code deployments.
+The Dart host runs a `HostGateway`. Every live container authority registers with it and receives one bridge pipe per
+surface; the pipe – not any frame the container sends – determines the principal, the upstream, the credential, and the
+tool policy. The container is given a loopback endpoint and nothing else.
 
 This boundary is POSIX-only. DartClaw does not replace it with a weaker native-Windows credential transport; native
 Windows container isolation remains unavailable until an equivalent fail-closed design covers credential transport,
@@ -531,47 +533,62 @@ Windows ACLs, and Docker host behavior.
 ```
 Container (network:none)                     Host
 ┌──────────────────────────┐           ┌──────────────────────┐
-│ claude binary            │           │ CredentialProxy      │
-│   ANTHROPIC_BASE_URL=    │           │   socketPath:        │
-│   http://localhost:8080  │──socat──▶ │   /run/dartclaw/     │
-│                          │  bridge   │   proxy.sock         │
-│ socat TCP-LISTEN:8080    │           │                      │
-│   → UNIX-CLIENT:         │           │ Injects:             │
-│     /var/run/dartclaw/   │           │   x-api-key: <key>   │
-│     proxy.sock           │           │   Authorization:     │
-└──────────────────────────┘           │     Bearer <key>     │
+│ claude / codex binary    │           │ HostGateway          │
+│   endpoint:              │           │   one authority per  │
+│   http://127.0.0.1:8080  │           │   live execution     │
+│                          │  docker   │                      │
+│ dartclaw-bridge          │  exec -i  │ ProviderAdapter      │
+│   (read-only mount,      ├──────────▶│   pins upstream      │
+│    host-owned process)   │  framed   │   drops client auth  │
+│                          │  stdio    │   injects x-api-key  │
+└──────────────────────────┘           │     / Bearer         │
                                        │                      │
                                        │   → api.anthropic.com│
+                                       │   → api.openai.com   │
                                        └──────────────────────┘
 ```
 
 **Key properties**:
-- Unix socket is `chmod 600` (owner-only) to prevent other host processes from injecting credential headers
-- Container has no network access except through the proxy
-- API keys never exist inside the container environment or filesystem
-- Supports both API-key mode (key injected by proxy) and OAuth/setup-token mode (host `~/.claude.json` mounted read-only, proxy forwards existing auth headers unchanged)
-- Proxy tracks request/error counts for observability
-- The proxy path is unchanged for containerized Claude Code and remains the canonical host-side credential boundary
+- The container's only host object is the read-only bridge executable plus its own per-authority generated-state
+  directory; there is no socket mount, published port, or network attachment
+- Provider credentials never exist inside the container environment, filesystem, arguments, or generated configuration
+- The adapter pins the upstream origin and the allowed request paths, so a container cannot retarget its own traffic
+- Authority is execution-scoped: release revokes the pipes, deletes generated state, and destroys the container, so
+  nothing captured from one execution can be replayed by another
+- Restricted executions are refused provider-side network tools (web search/fetch, remote MCP connectors) host-side,
+  because those run at the provider where `network:none` cannot contain them
+
+### Provider Authentication in Container Mode
+
+| Provider | Container mode | Host mode |
+|----------|----------------|-----------|
+| Claude | Host-held `ANTHROPIC_API_KEY` only, injected by the Anthropic Messages adapter | API key, OAuth, or setup token |
+| Codex | Generated auth-clean home selecting a custom Responses provider at the gateway with `requires_openai_auth = false`; the OpenAI Responses adapter supplies the upstream key | API key or Codex CLI auth |
+
+Containerized Claude supports API-key mediation only: OAuth and setup-token logins have no credential-free mediation
+contract, so those container executions are rejected at admission rather than downgraded, and the host `~/.claude.json`
+is no longer mounted anywhere.
+
+Containerized Codex uses a third home lifecycle, distinct from the host system home and the isolated seeded home: it is
+created fresh per execution in the authority's generated-state directory, never seeded with authentication, and deleted
+on stop, crash, cancellation, and failed startup. This is load-bearing – a logged-in Codex forwards its saved bearer to
+a custom provider even with client authentication disabled, so only a never-seeded home is safe.
 
 ### Multi-Provider Credential Management
 
 DartClaw resolves credentials per provider family through `CredentialRegistry`, which is keyed by provider ID/family rather than by a single global provider assumption. The registry maps Claude to Anthropic credentials and Codex to OpenAI credentials, with environment-variable fallback when configured secrets are not present.
 
-Credential handling is then adapted to the provider boundary:
+Credential handling is then adapted to the execution boundary rather than to the provider:
 
-- Claude Code in a container keeps using `CredentialProxy`; the host injects credentials into outbound requests and the agent container never receives raw keys in its environment.
-- Codex uses direct environment-variable injection at subprocess startup, so the resolved provider credential is passed to the Codex process instead of being proxied through the container bridge.
-- Startup validation checks that required provider credentials are available before a harness is started, so a missing provider secret fails fast instead of surfacing as a late request-time error.
+- Container executions of either provider are mediated by their host adapter and receive no credential.
+- Host executions of either provider use direct environment-variable injection at subprocess startup.
+- Startup validation checks that required provider credentials are available before a harness is started, so a missing provider secret fails fast instead of surfacing as a late request-time error. A container execution whose adapter has no host credential is refused at authority registration, before any container exists.
 
-This keeps the container/proxy model intact for Claude while allowing Codex to use the simpler direct-env path documented in ADR-016.
-
-**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_server/lib/src/container/credential_proxy.dart`
-
-**Diagram**: Credential Proxy (Excalidraw) — source in private repo: `docs/diagrams/credential-proxy.excalidraw`
+**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_server/lib/src/container/gateway/`
 
 ### Git Credential Integration
 
-Project management introduces a separate credential path for git operations — clone, fetch, and push — that is distinct from the API credential proxy.
+Project management introduces a separate credential path for git operations – clone, fetch, and push – that is distinct from the mediated provider path.
 
 **Reference-based model**: `projects:` config references credentials by name (e.g., `credentials: github-ssh-key`). The credential store holds the actual key; `projects.json` stores only the reference name. This means credential rotation does not require touching project config.
 
@@ -586,7 +603,7 @@ Project management introduces a separate credential path for git operations — 
 - Git credentials never appear in `projects.json`, `dartclaw.yaml`, or any other persisted file — only the reference name is stored
 - Credential resolution happens inside the Isolate, not in the main event loop
 - `MessageRedactor` covers any credential-adjacent strings that might surface in agent output
-- Git operations run on the host, not inside the container — they do not have access to the API credential proxy and do not need it
+- Git operations run on the host, not inside the container – they do not have access to the mediated provider path and do not need it
 
 **Source**: `packages/dartclaw_server/lib/src/task/project_service.dart`
 

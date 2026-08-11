@@ -539,6 +539,7 @@ class HarnessWiring {
             'execution. Select execution: container for it, or remove its container_isolation requirement.',
           );
         }
+        final bridgedMcpTools = _bridgedMcpToolsFor(request.logicalAgentId);
         ContainerAuthorityLease? lease;
         if (containerProfile != null) {
           try {
@@ -550,7 +551,7 @@ class HarnessWiring {
                 logicalAgentId: request.logicalAgentId,
                 taskId: request.taskId,
               ),
-              allowedMcpTools: _bridgedMcpToolsFor(request.logicalAgentId),
+              allowedMcpTools: bridgedMcpTools,
             );
           } catch (error) {
             throw WorkerCreationException(
@@ -565,7 +566,15 @@ class HarnessWiring {
           workerFilter,
           _security.toolPolicyCascade,
         );
-        final workerHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: workerPrompt);
+        final workerHarnessConfig = _harnessConfig.copyWith(
+          appendSystemPrompt: workerPrompt,
+          disallowedTools: workerDisallowedTools(
+            containerProfile: containerProfile,
+            bridgedMcpTools: bridgedMcpTools,
+            hostDisallowedTools: _harnessConfig.disallowedTools,
+            userDisallowedTools: config.agent.disallowedTools,
+          ),
+        );
         try {
           final workerHarness = _harnessFactory.create(
             request.providerId,
@@ -779,6 +788,30 @@ class HarnessWiring {
       );
     };
   }
+}
+
+/// Tools a worker must refuse, resolved against the MCP surface it will really
+/// have.
+///
+/// A provider-native web tool is suppressed only where a host tool actually
+/// replaces it. On the host that is the deployment MCP endpoint, already folded
+/// into [hostDisallowedTools]. In a container it is the execution-scoped
+/// bridge, so a container granted no bridged search keeps its native tool
+/// rather than ending up with neither – the silent capability loss the
+/// no-fallback rule exists to prevent. Restricted containers lose native web
+/// separately and deliberately, at the harness.
+List<String> workerDisallowedTools({
+  required String? containerProfile,
+  required Set<String> bridgedMcpTools,
+  required List<String> hostDisallowedTools,
+  required List<String> userDisallowedTools,
+}) {
+  if (containerProfile == null) return hostDisallowedTools;
+  return mcpDisallowedTools(
+    mcpEnabled: bridgedMcpTools.isNotEmpty,
+    searchEnabled: bridgedMcpTools.contains(CanonicalTool.webSearch.stableName),
+    userDisallowed: userDisallowedTools,
+  );
 }
 
 /// Creates a per-runner [GuardChain] layering the runner's [filter] after all

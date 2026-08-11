@@ -4,12 +4,20 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowCliTurnProgressEvent, stringValue;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show CodexEnvironment, ContainerExecutor, WorkflowCliTurnProgressEvent, containerCodexExecutable, stringValue;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import 'claude_cli_provider.dart' show resolveContainerWorkDir, startCliProcess;
+import '../container/security_profile.dart';
+import 'claude_cli_provider.dart'
+    show
+        containerExtraEnvironment,
+        resolveCliExecutable,
+        resolveContainerWorkDir,
+        startCliProcess,
+        verifyContainerCliExecutable;
 import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
@@ -37,12 +45,29 @@ class CodexCliProvider extends ProcessBackedCliProvider {
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
+    final container = req.containerManager;
+    // A containerized turn never reads the user's Codex home: it gets a freshly
+    // created, never-seeded one holding only generated client configuration,
+    // destroyed with the authority.
+    final codexHome = container == null ? null : _buildContainerHome(req, container);
+    if (container != null) {
+      await verifyContainerCliExecutable(
+        container,
+        resolveCliExecutable(req.providerConfig.executable, container, containerCodexExecutable),
+      );
+    }
+    await codexHome?.setup();
     final built = _buildCommand(req);
     final command = built.command;
     final String? tempSchemaPath = built.tempSchemaPath;
-    final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, req.containerManager);
+    final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, container);
 
-    final env = req.extraEnvironment == null || req.extraEnvironment!.isEmpty
+    // The host environment stays on the host. In container mode the process is
+    // given only its generated home pointer, so no provider credential, host
+    // login state, or shared MCP bearer can reach it through the spawn env.
+    final env = container != null
+        ? {...codexHome!.environmentOverrides(), ...containerExtraEnvironment(req.extraEnvironment, container)}
+        : req.extraEnvironment == null || req.extraEnvironment!.isEmpty
         ? req.providerConfig.environment
         : {...req.providerConfig.environment, ...req.extraEnvironment!};
 
@@ -192,7 +217,32 @@ class CodexCliProvider extends ProcessBackedCliProvider {
           _log.warning('Failed to delete temporary Codex schema file at $tempSchemaPath', error, stackTrace);
         }
       }
+      await codexHome?.cleanup();
     }
+  }
+
+  /// Builds this turn's auth-clean container home.
+  ///
+  /// The custom Responses provider it generates points only at the authority's
+  /// own provider bridge and disables client-side authentication: the container
+  /// holds no credential, and the host gateway supplies the upstream one.
+  CodexEnvironment _buildContainerHome(CliTurnRequest req, ContainerExecutor container) {
+    final hostHome = p.join(container.generatedStateDir, 'codex-home-${req.uuid.v4()}');
+    final containerHome = container.containerPathForHostPath(hostHome);
+    if (containerHome == null) {
+      throw StateError('Codex container home is not mounted in the container: $hostHome');
+    }
+    return CodexEnvironment.containerAuthClean(
+      developerInstructions: req.appendSystemPrompt ?? '',
+      hostHomePath: hostHome,
+      containerHomePath: containerHome,
+      gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+      // Provider-side web search escapes `network:none` because it runs at the
+      // provider. Host mediation refuses it for restricted executions anyway;
+      // turning it off here keeps the client from asking.
+      nativeWebSearch: container.profileId != SecurityProfile.restricted.id,
+      mcpServerUrl: container.mcpBridgeUrl,
+    );
   }
 
   /// Exposed for command-vector assertions without spawning a process.
@@ -291,7 +341,10 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     if (req.effort != null && req.effort!.trim().isNotEmpty) {
       args.addAll(['-c', 'model_reasoning_effort="${req.effort}"']);
     }
-    if (req.appendSystemPrompt != null && req.appendSystemPrompt!.trim().isNotEmpty) {
+    // In container mode the instructions travel in the generated home's
+    // config.toml alongside the custom provider block, so no launch flag is
+    // needed and the two cannot disagree.
+    if (req.containerManager == null && req.appendSystemPrompt != null && req.appendSystemPrompt!.trim().isNotEmpty) {
       args.addAll(['-c', 'developer_instructions=${jsonEncode(req.appendSystemPrompt)}']);
     }
     if (sandboxDecision.sandbox != null) {
@@ -317,7 +370,12 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       args.addAll(['resume', req.providerSessionId!]);
     }
     args.add(req.prompt);
-    return _CodexCommand((req.providerConfig.executable, args), tempSchemaPath: schemaPath);
+    final executable = resolveCliExecutable(
+      req.providerConfig.executable,
+      req.containerManager,
+      containerCodexExecutable,
+    );
+    return _CodexCommand((executable, args), tempSchemaPath: schemaPath);
   }
 
   bool _handleLine(String line, _CodexStreamState state, {required CliTurnRequest req, bool emitProgress = false}) {

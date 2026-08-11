@@ -16,16 +16,19 @@ final class _FakeContainerExecutor implements ContainerExecutor {
   @override
   final bool hasProjectMount = true;
 
+  @override
+  final String generatedStateDir = '/host/state';
+
+  @override
+  final String providerBridgeUrl = 'http://127.0.0.1:8080';
+
+  @override
+  final String? mcpBridgeUrl = null;
+
   const _FakeContainerExecutor();
 
   @override
   String? containerPathForHostPath(String hostPath) => hostPath;
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) {
@@ -80,6 +83,18 @@ void main() {
       expect(claude.onMemorySave, isNotNull);
       expect(claude.onMemorySearch, isNotNull);
       expect(claude.onMemoryRead, isNotNull);
+    });
+
+    test('gives the codex harness the same container as claude', () {
+      // Without this the effective policy would silently mean host execution
+      // for one provider and container execution for the other.
+      const containerManager = _FakeContainerExecutor();
+      final harness = HarnessFactory().create(
+        'codex',
+        const HarnessFactoryConfig(cwd: '/tmp/workspace', containerManager: containerManager),
+      );
+
+      expect((harness as CodexHarness).containerManager, same(containerManager));
     });
 
     test('passes claude providerOptions through the factory config', () {

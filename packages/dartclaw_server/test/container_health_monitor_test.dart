@@ -12,6 +12,7 @@ ContainerManager _makeManager({required String profileId, required bool Function
     containerName: 'test-$profileId',
     profileId: profileId,
     workspaceMounts: [],
+    generatedStateDir: '/tmp/dartclaw-state-$profileId',
     bridgeBinaryPath: '/tmp/dartclaw-bridge',
     runCommand: (executable, arguments) async {
       // Respond to `docker inspect --format {{.State.Running}} <name>`
@@ -135,6 +136,7 @@ void main() {
         containerName: 'test-workspace-2',
         profileId: 'workspace',
         workspaceMounts: [],
+        generatedStateDir: '/tmp/dartclaw-state-workspace-2',
         runCommand: (executable, arguments) async => ProcessResult(0, 0, 'true\n', ''),
       );
       final eventBus = EventBus();

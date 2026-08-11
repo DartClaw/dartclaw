@@ -19,4 +19,8 @@ abstract interface class ContainerAuthorityLease {
 /// Implementations must not return until mediation is usable — a turn that
 /// starts against a half-established surface would fail mid-conversation with
 /// no way to distinguish it from a provider outage.
-typedef ContainerAuthorityProvider = Future<ContainerAuthorityLease> Function(GatewayPrincipal principal);
+/// [allowedMcpTools] holds canonical tool names, resolved host-side from the
+/// execution's effective tool policy. Empty – the default – starts no MCP
+/// surface at all, so a container reaches no host tool unless one was granted.
+typedef ContainerAuthorityProvider =
+    Future<ContainerAuthorityLease> Function(GatewayPrincipal principal, {Set<String> allowedMcpTools});

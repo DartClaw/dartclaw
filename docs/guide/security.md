@@ -9,7 +9,7 @@ User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider
                            │                        │
                      Guard Chain              Claude container path:
                      Audit Logger              network:none
-                     Content Guard             CredentialProxy
+                     Content Guard             Host Gateway
                                                Mount Allowlist
                                               Codex: provider approval
                                               ACP relay/unverified: restricted container
@@ -124,9 +124,11 @@ Cookie-authenticated browser sessions are defended against cross-site request fo
 - **Same-origin Origin/Host check.** For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the server compares the request's `Origin` (or `Referer`) authority against its own `Host` and returns **403** on mismatch or when neither header is present. No-auth local-admin writes additionally require both the configured server host and request `Host` to be literal loopback hosts; matching non-local `Origin` and `Host` values are rejected. Origin-less loopback API clients remain supported. API clients using a Bearer token are exempt.
 - **Security headers.** Every response carries a strict `Content-Security-Policy` (including `form-action 'self'` and `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and HSTS when `gateway.hsts` is enabled.
 
-## Credential Proxy
+## Host-Mediated Provider Credentials
 
-The credential proxy currently secures the Claude/Anthropic container path. The Dart host runs a `CredentialProxy` on a Unix socket that injects authentication headers into outbound Anthropic API requests. The container's `network:none` means this proxy is the **sole egress path** for that flow — there is no direct internet access from the Claude container.
+Provider credentials stay on the host. A containerized agent never receives an API key, a login file, or a reusable
+token – it is given a loopback endpoint, and the host decides what that endpoint reaches and what authentication it
+carries. The container keeps `network:none`, so this mediated path is its **only** way to a provider.
 
 ### How It Works
 
@@ -134,46 +136,58 @@ The credential proxy currently secures the Claude/Anthropic container path. The 
 Container (network:none)                          Host
 ┌────────────────────────────┐             ┌───────────────────────┐
 │                            │             │                       │
-│  claude binary             │             │  CredentialProxy      │
-│    ANTHROPIC_BASE_URL=     │             │    Unix socket:       │
-│    http://localhost:8080   │             │    <data>/proxy/      │
-│          │                 │             │    proxy.sock         │
-│          ▼                 │             │    (chmod 600)        │
-│  socat bridge              │  bind-mount │                       │
-│    TCP-LISTEN:8080 ────────┼─────────────┼──► Injects headers:  │
-│    → UNIX-CLIENT:          │             │      x-api-key        │
-│      /var/run/dartclaw/    │             │      Authorization    │
-│      proxy.sock            │             │          │            │
-│                            │             │          ▼            │
-└────────────────────────────┘             │  api.anthropic.com   │
+│  claude / codex binary     │             │  HostGateway          │
+│    endpoint:               │             │    one authority per   │
+│    http://127.0.0.1:8080   │             │    live execution      │
+│          │                 │             │          │            │
+│          ▼                 │             │          ▼            │
+│  dartclaw-bridge           │ docker exec │  Provider adapter     │
+│    (read-only, host-owned) ├──── -i ────►│    pins the upstream  │
+│                            │  stdio pipe │    injects the key    │
+│                            │             │          │            │
+└────────────────────────────┘             │          ▼            │
+                                           │  api.anthropic.com /  │
+                                           │  api.openai.com       │
                                            └───────────────────────┘
 ```
 
-1. **Dart host** starts `CredentialProxy` on `<dataDir>/proxy/proxy.sock` with `chmod 600` (owner-only access). The API key is held in host memory only.
-2. **Container** is created with `--network none`. The socket directory is bind-mounted into the container at `/var/run/dartclaw/`.
-3. **socat** runs inside the container, bridging a local TCP port to the Unix socket: `TCP-LISTEN:8080 → UNIX-CLIENT:/var/run/dartclaw/proxy.sock`.
-4. **`ANTHROPIC_BASE_URL`** environment variable points the `claude` binary at the socat listener (`http://localhost:8080`).
-5. When the Claude agent makes an API call, the request flows through the chain. The proxy injects `x-api-key` and `Authorization: Bearer` headers before forwarding to `api.anthropic.com` over HTTPS.
+1. Each live container authority gets its own container and its own bridge processes. Nothing is shared between
+   executions, and nothing survives one.
+2. The only host object in the container is the **read-only** `dartclaw-bridge` executable. There is no socket mount,
+   no published port, and no network attachment.
+3. The bridge listens on container loopback and forwards bounded, framed traffic to the host over the `docker exec -i`
+   pipe the host opened. It chooses no destination and holds no credential.
+4. On the host, the adapter bound to that pipe pins the upstream origin, drops any client-supplied credential header,
+   and injects the host-held key before forwarding over HTTPS.
 
 ### Authentication Modes
 
-| Mode | When | Behavior |
-|------|------|----------|
-| **API key** | `ANTHROPIC_API_KEY` is configured | Proxy injects `x-api-key` and `Authorization: Bearer <key>` headers |
-| **OAuth passthrough** | No API key (OAuth or setup token) | Proxy forwards existing auth headers from the `claude` binary unchanged |
+| Provider | Container mode | Host mode |
+|----------|----------------|-----------|
+| **Claude** | Host-held `ANTHROPIC_API_KEY` only. The adapter injects `x-api-key`; the container sees neither the key nor `~/.claude.json` | API key, OAuth login, or setup token |
+| **Codex** | A generated auth-clean home selects a custom Responses provider pointed at the host gateway with client authentication disabled. The host adapter supplies the upstream key | API key or the Codex CLI's own auth |
 
-In OAuth mode, the host's `~/.claude.json` is mounted read-only into the container so the `claude` binary can authenticate directly. The proxy acts as a transparent relay without adding credentials.
+Containerized Claude supports **API-key mediation only**. OAuth and setup-token logins have no credential-free
+mediation contract, so a container execution configured that way is rejected before the turn starts, naming host
+execution as the supported alternative – it is never silently downgraded. Set `ANTHROPIC_API_KEY` on the host for
+container mode, or select `execution: host` for that agent.
 
-> Codex and ACP providers do not use this Anthropic-specific credential proxy path. Codex uses the Codex CLI's own auth flow or `CODEX_API_KEY`; ACP agents use their configured provider's credential mechanism.
+The containerized Codex home is created fresh for each execution, contains only generated client configuration, and is
+deleted when the authority is released. The host's `~/.codex/` is never mounted or copied: a logged-in Codex will
+forward its saved bearer even when the client is told not to authenticate, so the only safe container home is one that
+was never seeded.
 
-For production, prefer API-key based credentials managed by the service environment or secret manager rather than interactive login state. Use `ANTHROPIC_API_KEY` for Claude/Anthropic, `CODEX_API_KEY` for Codex/OpenAI, and provider-specific secrets for ACP targets such as Goose or Vibe. The credential boundary is provider-specific: `CredentialProxy` isolates Claude container credentials, Codex receives only its resolved API key or CLI auth context, and ACP agents receive only the environment or files needed for that configured agent.
+For production, prefer API keys managed by the service environment or a secret manager over interactive login state.
 
 ### Security Properties
 
-- **Key isolation** — API keys never exist inside the container (not in env vars, filesystem, or process memory)
-- **Owner-only socket** — `chmod 600` prevents other host processes from connecting
-- **Sole egress** — `network:none` means the Unix socket is the only way out of the container
-- **Observability** — the proxy tracks request and error counts for health monitoring
+- **Key isolation** – provider credentials never exist inside the container: not in environment variables, mounted or
+  generated files, command arguments, or generated client configuration
+- **No shared token** – containers receive no shared operator MCP bearer; the execution-scoped pipe is the identity
+- **Pinned destination** – the adapter owns the upstream origin and the allowed request paths, so a container cannot
+  name where its traffic goes
+- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container
+- **Non-replayable** – authority is bound to one execution and revoked on release; a captured pipe cannot be revived
 
 ## ACP and Logical-Agent Security Modes
 

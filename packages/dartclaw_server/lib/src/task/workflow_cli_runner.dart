@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, ContainerExecutor, EventBus;
 
 import '../container/container_authority.dart';
 import '../container/gateway/gateway_models.dart';
@@ -22,6 +22,22 @@ export 'cli_provider.dart'
         RootProcessTerminationObserver,
         StructuredTurnLimitProvider,
         WorkflowCliUsageBaseline;
+
+/// Canonical MCP tool names a containerized execution may reach, given the
+/// tool policy in force for it.
+///
+/// Deny-by-default: only entries naming a canonical tool participate, so a
+/// provider-native tool name says nothing about host MCP. `mcp_call` names
+/// every tool without a semantic canonical, so it can never act as a grant –
+/// one allowlist entry would otherwise open the whole registry.
+Set<String> bridgedMcpToolsFor(List<String>? allowedTools) {
+  if (allowedTools == null || allowedTools.isEmpty) return const {};
+  final canonicalNames = {
+    for (final tool in CanonicalTool.values)
+      if (tool != CanonicalTool.mcpCall) tool.stableName,
+  };
+  return allowedTools.map((tool) => tool.trim()).where(canonicalNames.contains).toSet();
+}
 
 /// Starts a CLI provider subprocess and returns the long-lived [Process].
 typedef WorkflowCliProcessStarter =
@@ -195,6 +211,7 @@ class WorkflowCliRunner {
     required String provider,
     required String? sessionId,
     required String? taskId,
+    required List<String>? allowedTools,
   }) async {
     if (!policy.isContainer) return null;
     final acquire = containerAuthorities;
@@ -211,6 +228,7 @@ class WorkflowCliRunner {
         policy: policy,
         taskId: taskId,
       ),
+      allowedMcpTools: bridgedMcpToolsFor(allowedTools),
     );
   }
 
@@ -318,7 +336,13 @@ class WorkflowCliRunner {
     }
     var rootProcessTerminationReported = false;
     final observer = onRootProcessTerminationConfirmed;
-    final lease = await _leaseContainer(policy, provider: provider, sessionId: sessionId, taskId: taskId);
+    final lease = await _leaseContainer(
+      policy,
+      provider: provider,
+      sessionId: sessionId,
+      taskId: taskId,
+      allowedTools: allowedTools,
+    );
     try {
       final req = CliTurnRequest(
         prompt: prompt,

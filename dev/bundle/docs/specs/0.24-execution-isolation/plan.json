@@ -219,7 +219,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s03-claude-and-codex-container-parity.md",
       "owner": null,
       "scope": "Make long-lived and workflow-owned Claude and Codex honor the effective boundary, route provider traffic through their host-owned adapters, reject Claude OAuth/setup-token container mode, give restricted Codex an auth-clean home and pinned working binary, connect both clients to scoped host MCP, disable unmediated native web fallback, and verify actual placement and secret absence.",

@@ -125,7 +125,7 @@ export 'src/harness/merge_resolve_env_vars.dart'
         mergeResolveTokenCeilingEnvVar,
         mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
-export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
+export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars, containerClaudePlaceholderApiKey;
 export 'src/harness/process_lifecycle.dart' show ProcessTerminationResult, SequentialLock, killWithEscalation;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
 export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
@@ -153,7 +153,8 @@ export 'src/memory/memory_file_service.dart' show MemoryFileService;
 export 'src/memory/memory_entry.dart' show MemoryEntry;
 export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries;
 
-export 'src/container/container_executor.dart' show ContainerExecutor, containerClaudeExecutable;
+export 'src/container/container_executor.dart'
+    show ContainerExecutor, containerClaudeExecutable, containerCodexExecutable, containerExecutableRuns;
 export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
 export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;

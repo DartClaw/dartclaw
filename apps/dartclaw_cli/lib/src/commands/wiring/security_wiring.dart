@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
@@ -61,7 +60,7 @@ class SecurityWiring implements Reconfigurable {
   BridgeBinaryProvisioner? _bridgeBinaries;
   String? _bridgeBinaryPath;
   ContainerHealthMonitor? _containerHealthMonitor;
-  final Map<String, ContainerManager Function(String containerName)> _containerTemplates = {};
+  final Map<String, _ContainerTemplate> _containerTemplates = {};
   // Authority suffixes must not repeat across process restarts: ContainerManager
   // adopts a healthy same-named container, so a recycled name could hand a new
   // authority an orphan from a previous run.
@@ -118,9 +117,14 @@ class SecurityWiring implements Reconfigurable {
       throw StateError('No container profile "$profileId" is available in this deployment');
     }
 
+    final containerName = ContainerManager.generateName(_dataDir, '$profileId-$_authorityEpoch${_nextAuthorityId++}');
     final manager = template(
-      ContainerManager.generateName(_dataDir, '$profileId-$_authorityEpoch${_nextAuthorityId++}'),
+      containerName,
+      generatedStateDir: p.join(_dataDir, 'containers', containerName),
+      hasMcpBridge: allowedMcpTools.isNotEmpty,
     );
+    // Registration rejects a provider this deployment cannot mediate – an
+    // unusable Claude auth mode included – before any container is created.
     final authority = gateway.register(principal: principal, allowedMcpTools: allowedMcpTools);
     final lease = _ContainerAuthorityLease(
       manager: manager,
@@ -262,38 +266,21 @@ class SecurityWiring implements Reconfigurable {
       _exitFn(1);
     }
 
-    final apiKey = Platform.environment['ANTHROPIC_API_KEY']?.trim();
-    String? hostClaudeJsonPath;
-    if (apiKey == null || apiKey.isEmpty) {
-      final authResult = await Process.run(config.server.claudeExecutable, ['auth', 'status']);
-      if (authResult.exitCode != 0) {
-        _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-        _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
-        _exitFn(1);
-      }
-      try {
-        final status = jsonDecode(authResult.stdout as String) as Map<String, dynamic>;
-        if (status['loggedIn'] != true) {
-          _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-          _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
-          _exitFn(1);
-        }
-      } on FormatException {
-        _log.severe('Unable to verify Claude auth status for container mode');
-        _exitFn(1);
-      }
-
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-      if (home == null) {
-        _log.severe('Cannot locate HOME to mount Claude OAuth credentials into the container');
-        _exitFn(1);
-      }
-      final claudeJson = File(p.join(home, '.claude.json'));
-      if (!claudeJson.existsSync()) {
-        _log.severe('Claude OAuth appears configured, but ~/.claude.json was not found');
-        _exitFn(1);
-      }
-      hostClaudeJsonPath = claudeJson.path;
+    // Containerized Claude is mediated by the host adapter, which needs a
+    // host-held API key. OAuth/setup-token has no credential-free mediation
+    // contract, so it is a host-execution mode only. This is a warning, not a
+    // startup failure: a deployment may legitimately run only Codex or only
+    // host Claude. The rejection itself happens at authority registration.
+    final claudeApiKey = CredentialRegistry(
+      credentials: config.credentials,
+      env: Platform.environment,
+    ).getApiKey('claude');
+    if (claudeApiKey == null || claudeApiKey.isEmpty) {
+      _log.warning(
+        'No host-held Claude API key is configured – containerized Claude executions will be rejected. '
+        'Set ANTHROPIC_API_KEY for container mode, or select execution: host for Claude agents '
+        '(OAuth/setup-token authentication is supported for host execution only).',
+      );
     }
 
     final profiles = [
@@ -308,21 +295,31 @@ class SecurityWiring implements Reconfigurable {
     // A profile is a filesystem/capability template, not a running container:
     // each live container authority is built from it and owns its own
     // container, bridge processes, and generated state.
-    ContainerManager buildManager(SecurityProfile profile, String containerName) => ContainerManager(
+    ContainerManager buildManager(
+      SecurityProfile profile,
+      String containerName, {
+      required String generatedStateDir,
+      bool hasMcpBridge = false,
+    }) => ContainerManager(
       config: config.container,
       containerName: containerName,
       profileId: profile.id,
       workspaceMounts: profile.id == 'workspace'
           ? [...profile.workspaceMounts, ...localPathProjectMounts]
           : profile.workspaceMounts,
+      generatedStateDir: generatedStateDir,
+      hasMcpBridge: hasMcpBridge,
       localPathAllowlist: config.projects.localPathAllowlist,
       bridgeBinaryPath: _bridgeBinaryPath,
-      hostClaudeJsonPath: hostClaudeJsonPath,
       buildContextDir: Directory.current.path,
       workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
     );
 
-    final probe = buildManager(SecurityProfile.restricted, 'dartclaw-probe');
+    final probe = buildManager(
+      SecurityProfile.restricted,
+      'dartclaw-probe',
+      generatedStateDir: p.join(_dataDir, 'containers', 'dartclaw-probe'),
+    );
     if (!await probe.isDockerAvailable()) {
       _log.severe('Docker is required when container.enabled: true');
       _log.severe('Install or start Docker: https://docs.docker.com/get-docker/');
@@ -344,7 +341,8 @@ class SecurityWiring implements Reconfigurable {
     }
 
     for (final profile in profiles) {
-      _containerTemplates[profile.id] = (containerName) => buildManager(profile, containerName);
+      _containerTemplates[profile.id] = (containerName, {required generatedStateDir, required hasMcpBridge}) =>
+          buildManager(profile, containerName, generatedStateDir: generatedStateDir, hasMcpBridge: hasMcpBridge);
     }
 
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
@@ -569,6 +567,10 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
     }
   }
 }
+
+/// Builds one live authority's container from a profile template.
+typedef _ContainerTemplate =
+    ContainerManager Function(String containerName, {required String generatedStateDir, required bool hasMcpBridge});
 
 /// Bridges [MessageRedactor] (in dartclaw_security, which cannot depend on
 /// dartclaw_core) to the [Reconfigurable] interface (in dartclaw_core).

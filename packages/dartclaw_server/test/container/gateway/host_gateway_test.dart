@@ -18,6 +18,35 @@ void main() {
       );
     });
 
+    test('rejects containerized Claude at admission when the host holds no API key', () {
+      // OAuth/setup-token: the host CLI is logged in, but no key exists for the
+      // adapter to mediate with. Nothing may be admitted on that promise.
+      final gateway = HostGateway(providerAdapters: {'claude': AnthropicMessagesAdapter(apiKey: () => null)});
+
+      expect(
+        () => gateway.register(principal: principal(providerId: 'claude')),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('no host-held credential'),
+              contains('ANTHROPIC_API_KEY'),
+              contains('execution: host'),
+              contains('OAuth'),
+            ),
+          ),
+        ),
+      );
+      expect(gateway.liveAuthorityCount, 0);
+    });
+
+    test('admits containerized Claude once a host API key exists', () {
+      final gateway = HostGateway(providerAdapters: {'claude': AnthropicMessagesAdapter(apiKey: () => 'sk-ant-host')});
+
+      expect(gateway.register(principal: principal(providerId: 'claude')).isRevoked, isFalse);
+    });
+
     test('starts an MCP surface only for an authority that has an allowlist', () {
       final gateway = HostGateway(providerAdapters: {'claude': _EchoAdapter()}, mcpHandler: McpProtocolHandler.new);
 
@@ -302,6 +331,9 @@ final class _EchoAdapter implements ProviderMediator {
   }
 
   @override
+  String? get unavailableReason => null;
+
+  @override
   Future<void> dispose() async {}
 }
 
@@ -315,6 +347,9 @@ final class _PrincipalEchoAdapter implements ProviderMediator {
     await request.readBody(maxBytes: 4096);
     return GatewayResponse(status: 200, body: Stream.value(utf8.encode(request.principal.sessionId)));
   }
+
+  @override
+  String? get unavailableReason => null;
 
   @override
   Future<void> dispose() async {}
@@ -335,6 +370,9 @@ final class _BlockingAdapter implements ProviderMediator {
     final body = await _gate.future;
     return GatewayResponse(status: 200, body: Stream.value(utf8.encode(body)));
   }
+
+  @override
+  String? get unavailableReason => null;
 
   @override
   Future<void> dispose() async {}

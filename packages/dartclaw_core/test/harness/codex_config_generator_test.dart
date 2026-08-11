@@ -60,6 +60,34 @@ void main() {
       expect(config, isNot(contains('bearer_token_env_var')));
     });
 
+    test('selects the custom Responses gateway provider with client auth disabled', () {
+      final config = CodexConfigGenerator.generate(
+        developerInstructions: 'be careful',
+        gatewayBaseUrl: 'http://127.0.0.1:8080/v1',
+      );
+
+      expect(config, contains('model_provider = "dartclaw"'));
+      expect(config, contains('[model_providers.dartclaw]'));
+      expect(config, contains('base_url = "http://127.0.0.1:8080/v1"'));
+      expect(config, contains('wire_api = "responses"'));
+      expect(config, contains('requires_openai_auth = false'));
+    });
+
+    test('leaves provider selection to Codex when no gateway is configured', () {
+      final config = CodexConfigGenerator.generate(developerInstructions: 'host run');
+
+      expect(config, isNot(contains('model_provider')));
+      expect(config, isNot(contains('model_providers')));
+    });
+
+    test('turns off provider-native web search only when asked', () {
+      expect(
+        CodexConfigGenerator.generate(developerInstructions: 'x', nativeWebSearch: false),
+        contains('[tools]\nweb_search = false'),
+      );
+      expect(CodexConfigGenerator.generate(developerInstructions: 'x'), isNot(contains('web_search')));
+    });
+
     test('handles empty developer instructions', () {
       final config = CodexConfigGenerator.generate(developerInstructions: '');
 

@@ -157,6 +157,33 @@ void main() {
       expect(upstream.requestCount, 0, reason: 'network:none cannot contain a tool that runs at the provider');
     });
 
+    test("a restricted execution's own scoped-bridge MCP tools are not provider-side web", () async {
+      // Claude declares its bridge tools as ordinary client tools named
+      // `mcp__<server>__<tool>`; they execute in the container against the
+      // scoped bridge, which is exactly what a restricted execution is meant to
+      // use. Counting them as provider-side egress 403s the whole request and
+      // makes the approved-research path unreachable.
+      final adapter = _anthropic(upstream);
+      addTearDown(adapter.dispose);
+
+      final response = await adapter.handle(
+        _request(
+          path: '/v1/messages',
+          profile: 'restricted',
+          body: jsonEncode({
+            'model': 'claude',
+            'tools': [
+              {'name': 'mcp__dartclaw__web_fetch', 'input_schema': <String, dynamic>{}},
+              {'name': 'mcp__dartclaw__brave_search', 'input_schema': <String, dynamic>{}},
+            ],
+          }),
+        ),
+      );
+
+      expect(response.status, 200);
+      expect(upstream.requestCount, 1);
+    });
+
     test('allows the same request for a workspace execution', () async {
       final adapter = _anthropic(upstream);
       addTearDown(adapter.dispose);

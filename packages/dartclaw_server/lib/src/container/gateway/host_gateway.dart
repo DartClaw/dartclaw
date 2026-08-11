@@ -100,6 +100,12 @@ final class HostGateway {
         'Provider "${principal.providerId}" has no host mediation adapter, so it cannot run in a container',
       );
     }
+    // Admission-time, not request-time: an execution must never be started on
+    // mediation the host already knows it cannot perform.
+    final unavailable = adapter.unavailableReason;
+    if (unavailable != null) {
+      throw StateError(unavailable);
+    }
     if (allowedMcpTools.isNotEmpty && _mcpHandler == null) {
       throw StateError('Host gateway has no MCP registry, so bridged MCP tools cannot be authorized');
     }

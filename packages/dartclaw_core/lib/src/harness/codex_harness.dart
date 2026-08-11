@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import '../bridge/bridge_events.dart';
+import '../container/container_executor.dart';
 import '../worker/worker_state.dart';
 
 import 'agent_harness.dart';
@@ -69,6 +71,13 @@ class CodexHarness extends BaseHarness {
   /// Platform policy used for executable lookup and process semantics.
   final PlatformCapabilities platformCapabilities;
 
+  /// Container this harness executes in, or `null` for host execution.
+  ///
+  /// Set by the effective execution policy, never inferred: a Codex harness
+  /// given a container executes there or fails, and one given `null` executes
+  /// on the host. There is no third behavior.
+  final ContainerExecutor? containerManager;
+
   static final _log = Logger('CodexHarness');
 
   final Map<String, ({String threadId, String? instructions})> _threads = {};
@@ -102,6 +111,7 @@ class CodexHarness extends BaseHarness {
     this.guardChain,
     CodexProtocolAdapter? adapter,
     PlatformCapabilities? platformCapabilities,
+    this.containerManager,
     Duration killGracePeriod = const Duration(seconds: 2),
     Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
@@ -138,17 +148,13 @@ class CodexHarness extends BaseHarness {
     beforeStart: () async {
       isStopping = false;
       await _cleanupEnvironment();
-      await _verifyCodexExecutable(executable, commandProbe);
-      _environment = CodexEnvironment(
-        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
-        mcpServerUrl: harnessConfig.mcpServerUrl,
-        mcpGatewayToken: harnessConfig.mcpGatewayToken,
-        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
-        platformCapabilities: platformCapabilities,
-      );
+      if (containerManager == null) {
+        await _verifyCodexExecutable(executable, commandProbe);
+      }
     },
     start: () async {
       try {
+        await _prepareEnvironment();
         await _environment!.setup();
         await _spawnProcess();
         await _initialize();
@@ -160,6 +166,73 @@ class CodexHarness extends BaseHarness {
       }
     },
   );
+
+  /// Builds the Codex home lifecycle for the effective execution location.
+  ///
+  /// The container is started first: its generated-state mount has to exist
+  /// before the auth-clean home can be written into it.
+  Future<void> _prepareEnvironment() async {
+    final container = containerManager;
+    if (container == null) {
+      _environment = CodexEnvironment(
+        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+        mcpServerUrl: harnessConfig.mcpServerUrl,
+        mcpGatewayToken: harnessConfig.mcpGatewayToken,
+        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
+        platformCapabilities: platformCapabilities,
+      );
+      return;
+    }
+
+    await container.start();
+    if (!await containerExecutableRuns(container, _containerExecutable)) {
+      _throwMissingCodexExecutable('$_containerExecutable (container ${container.profileId})');
+    }
+    final hostHome = p.join(container.generatedStateDir, 'codex-home');
+    final containerHome = container.containerPathForHostPath(hostHome);
+    if (containerHome == null) {
+      throw StateError('Codex container home is not mounted in the container: $hostHome');
+    }
+    _environment = CodexEnvironment.containerAuthClean(
+      developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+      hostHomePath: hostHome,
+      containerHomePath: containerHome,
+      gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+      // Provider-side web search escapes `network:none` because it runs at the
+      // provider. Host mediation refuses it for restricted executions anyway;
+      // turning it off here keeps the client from asking.
+      nativeWebSearch: container.profileId != 'restricted',
+      mcpServerUrl: container.mcpBridgeUrl,
+      platformCapabilities: platformCapabilities,
+    );
+  }
+
+  /// The binary the container image ships, unless an absolute path was pinned.
+  String get _containerExecutable => executable.contains('/') ? executable : containerCodexExecutable;
+
+  /// Where the harness's own process runs.
+  ///
+  /// A restricted container deliberately mounts no workspace, so an unmapped
+  /// default cwd is the expected state, not an error: it resolves to the
+  /// profile's own working directory rather than leaking a host path into the
+  /// container.
+  String _resolveDefaultWorkingDirectory() {
+    final container = containerManager;
+    if (container == null) return cwd;
+    return container.containerPathForHostPath(cwd) ?? container.workingDir;
+  }
+
+  /// Translates a directory a turn explicitly asked for, refusing an unmounted
+  /// one rather than silently running somewhere else.
+  String _resolveRequestedWorkingDirectory(String hostDirectory) {
+    final container = containerManager;
+    if (container == null) return hostDirectory;
+    final translated = container.containerPathForHostPath(hostDirectory);
+    if (translated == null) {
+      throw StateError('Requested working directory is not mounted in the container: $hostDirectory');
+    }
+    return translated;
+  }
 
   @override
   Future<Map<String, dynamic>> turn({
@@ -232,7 +305,7 @@ class CodexHarness extends BaseHarness {
         settings: CodexSettings.buildDynamicSettings(
           model: model ?? harnessConfig.model,
           effort: effort ?? harnessConfig.effort,
-          cwd: directory,
+          cwd: directory == null || directory.trim().isEmpty ? null : _resolveRequestedWorkingDirectory(directory),
           sandbox: _stringProviderOption('sandbox'),
           approval: _stringProviderOption('approval'),
         ),
@@ -369,8 +442,6 @@ class CodexHarness extends BaseHarness {
   }
 
   Future<void> _spawnProcess() async {
-    final spawnEnvironment = <String, String>{...environment, ...?_environment?.environmentOverrides()};
-
     // Build app-server args with sandbox permissions from provider options.
     // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
     // sandbox must be configured at process startup via `-c sandbox_permissions`.
@@ -384,15 +455,29 @@ class CodexHarness extends BaseHarness {
       }
     }
 
-    final process = await processFactory(
-      executable,
-      args,
-      workingDirectory: cwd,
-      environment: spawnEnvironment,
-      includeParentEnvironment: false,
-    );
+    final workingDirectory = _resolveDefaultWorkingDirectory();
+    final container = containerManager;
+    final Process process;
+    if (container == null) {
+      process = await processFactory(
+        executable,
+        args,
+        workingDirectory: workingDirectory,
+        environment: <String, String>{...environment, ...?_environment?.environmentOverrides()},
+        includeParentEnvironment: false,
+      );
+    } else {
+      // The host environment stays on the host: the container process gets
+      // only the generated home pointer, so no provider credential, host login
+      // path, or shared MCP bearer can reach it through the spawn env.
+      process = await container.exec(
+        [_containerExecutable, ...args],
+        workingDirectory: workingDirectory,
+        env: _environment?.environmentOverrides() ?? const <String, String>{},
+      );
+    }
 
-    _log.info('Codex process spawned (pid: ${process.pid}, cwd: $cwd)');
+    _log.info('Codex process spawned (pid: ${process.pid}, cwd: $workingDirectory)');
     attachProcess(process, dropEmptyStdoutLines: true);
   }
 
@@ -401,6 +486,12 @@ class CodexHarness extends BaseHarness {
     await cancelTrackedSubscriptions();
     _threads.clear();
     try {
+      // Same path as a cold start, so a restart re-verifies the container and
+      // rebuilds its auth-clean home instead of respawning against whatever
+      // state the crashed process left behind.
+      await _cleanupEnvironment();
+      await _prepareEnvironment();
+      await _environment!.setup();
       await _spawnProcess();
       await _initialize();
       currentState = WorkerState.idle;

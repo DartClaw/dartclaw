@@ -54,13 +54,13 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01,TI02] Effective placement is identical across provider and execution surface**
+- [x] **S01 [OC01] [TI01,TI02] Effective placement is identical across provider and execution surface**
   - **Given** S01 resolves one host execution and one container execution for each of Claude and Codex, exercised through both the long-lived harness/coordinator path and the workflow-owned one-shot path
   - **When** each execution starts and runs a location probe
   - **Then** all eight process observations prove the requested host or managed-container namespace and effective profile, with no provider-specific reinterpretation, host substitution, or container substitution
   - **And** container work directories resolve inside the selected profile container while host work directories retain their host path semantics
 
-- [ ] **S02 [OC02] [TI03] Containerized Claude uses only verified API-key mediation**
+- [x] **S02 [OC02] [TI03] Containerized Claude uses only verified API-key mediation**
   - **Given** host-held `ANTHROPIC_API_KEY` and the effective boundary set to container
   - **When** a long-lived or workflow-owned Claude turn reaches the Anthropic API through S02's Claude adapter
   - **Then** the request succeeds with host-applied authentication and the adapter accepts only the intended provider protocol/destination
@@ -68,25 +68,25 @@
   - **And** an OAuth/setup-token-only host configuration is rejected before spawn with deliberate host execution as the
     supported alternative
 
-- [ ] **S03 [OC02] [TI04] Containerized Codex uses an auth-clean custom Responses provider**
+- [x] **S03 [OC02] [TI04] Containerized Codex uses an auth-clean custom Responses provider**
   - **Given** a fresh per-process Codex home with no mounted host Codex home, copied `auth.json`, login database, provider API key, or reusable token
   - **When** long-lived `codex app-server` or workflow-owned `codex exec` starts in a container and calls the configured model
   - **Then** ephemeral launch overrides select DartClaw's custom Responses provider, point it only at S02's Codex gateway, use the Responses wire API, and disable Codex/OpenAI authentication at the client boundary
   - **And** the host gateway supplies upstream authentication while captured container requests carry no `Authorization` header and the same environment/file/argument/config/output inspection used by S02 finds no provider credential or host login state
 
-- [ ] **S04 [OC03] [TI05] Restricted Claude and Codex reach only approved scoped MCP research tools**
+- [x] **S04 [OC03] [TI05] Restricted Claude and Codex reach only approved scoped MCP research tools**
   - **Given** a restricted execution whose effective principal is authorized for one registered search tool and `web_fetch`, but not another registered MCP tool
   - **When** either provider discovers and calls the approved tools through S02's execution-scoped host bridge
   - **Then** search/fetch execute on the host through the existing MCP router, guard, SSRF/content, audit, and search-provider boundaries and return their normal bounded results
   - **And** the bridge authorizes the exact effective principal, session, worker, MCP surface, and tool set for that execution only; a second execution cannot replay its authority
 
-- [ ] **S05 [OC03] [TI05,TI06] Native web, unapproved MCP, and arbitrary network access stay closed**
+- [x] **S05 [OC03] [TI05,TI06] Native web, unapproved MCP, and arbitrary network access stay closed**
   - **Given** either provider runs in the restricted container with scoped MCP enabled
   - **When** it attempts provider-native web search/fetch, the denied MCP tool, direct DNS/TCP/HTTP access, or reuse of another execution's bridge authority
   - **Then** every attempt is denied and audited without invoking the provider-native web path, joining an egress-capable network, or treating bridge reachability as general network access
   - **And** absence or denial of an approved MCP search provider never falls back to native provider search, direct Internet, a broader shared MCP endpoint, or host execution
 
-- [ ] **S06 [OC04] [TI02,TI03,TI04,TI05,TI06] Provider and bridge failures remain explicit and secret-free**
+- [x] **S06 [OC04] [TI02,TI03,TI04,TI05,TI06] Provider and bridge failures remain explicit and secret-free**
   - **Given** one failure at a time: missing container manager, mismatched profile, Claude OAuth/setup-token container auth,
     unrunnable packaged CLI, unavailable provider adapter, unavailable MCP bridge, expired execution authority, or
     container restart
@@ -96,18 +96,18 @@
 
 ## Structural Criteria
 
-- [ ] S01 remains the sole owner of effective execution policy and worker identity; provider adapters consume its result unchanged and cannot select a boundary themselves.
-- [ ] S02 remains the sole owner of provider-gateway and execution-scoped framed-pipe transport/authority; S03 configures
+- [x] S01 remains the sole owner of effective execution policy and worker identity; provider adapters consume its result unchanged and cannot select a boundary themselves.
+- [x] S02 remains the sole owner of provider-gateway and execution-scoped framed-pipe transport/authority; S03 configures
       provider clients against its loopback endpoints rather than adding another proxy, token service, or network.
-- [ ] Containerized Codex always uses a newly created, permission-restricted home — generated host-side in the per-execution state directory and bind-mounted read-write into the container through S02's ContainerManager create path (this story supplies the home path and contents), never the host user's Codex home — that contains only required generated client configuration, is enumerated in mount/secret inspection, and is deleted on stop, crash, cancellation, and failed startup; host-mode Codex retains its existing user-home behavior.
-- [ ] Neither container mode copies or mounts host provider homes/auth files nor injects provider credentials through environment, arguments, settings, MCP headers, or bridge URLs.
-- [ ] Every containerized provider harness owns its dedicated S01 container and is disposed/destroyed on authority release;
+- [x] Containerized Codex always uses a newly created, permission-restricted home — generated host-side in the per-execution state directory and bind-mounted read-write into the container through S02's ContainerManager create path (this story supplies the home path and contents), never the host user's Codex home — that contains only required generated client configuration, is enumerated in mount/secret inspection, and is deleted on stop, crash, cancellation, and failed startup; host-mode Codex retains its existing user-home behavior.
+- [x] Neither container mode copies or mounts host provider homes/auth files nor injects provider credentials through environment, arguments, settings, MCP headers, or bridge URLs.
+- [x] Every containerized provider harness owns its dedicated S01 container and is disposed/destroyed on authority release;
       it never enters the reusable worker cache.
-- [ ] The container image pins an exact Codex version and per-architecture sha256 checksum from the release's current Linux archive naming for every supported Docker architecture; the build verifies the checksum before install and executes `codex --version` before succeeding, and `latest` or unchecksummed fetches are rejected.
-- [ ] Every containerized Claude and Codex execution exposes only the execution-scoped DartClaw MCP endpoint with the deny-by-default tool inventory authorized for the effective principal; restricted configuration additionally disables provider-native web capabilities, while workspace-profile containers retain them.
-- [ ] Container processes retain Docker `network:none` and reach S02 only through their surface-separated loopback bridge
+- [x] The container image pins an exact Codex version and per-architecture sha256 checksum from the release's current Linux archive naming for every supported Docker architecture; the build verifies the checksum before install and executes `codex --version` before succeeding, and `latest` or unchecksummed fetches are rejected.
+- [x] Every containerized Claude and Codex execution exposes only the execution-scoped DartClaw MCP endpoint with the deny-by-default tool inventory authorized for the effective principal; restricted configuration additionally disables provider-native web capabilities, while workspace-profile containers retain them.
+- [x] Container processes retain Docker `network:none` and reach S02 only through their surface-separated loopback bridge
       processes and host-controlled stdio pipes; host-mode behavior and existing host guard chains remain intact.
-- [ ] Conformance evidence observes real process/container placement and runtime surfaces; configuration labels or mocked profile selection alone are insufficient.
+- [x] Conformance evidence observes real process/container placement and runtime surfaces; configuration labels or mocked profile selection alone are insufficient.
 
 ## Scope & Boundaries
 
@@ -189,19 +189,19 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
 
 ### Implementation Tasks
 
-- [ ] **TI01** Long-lived Claude and Codex honor the effective execution descriptor
+- [x] **TI01** Long-lived Claude and Codex honor the effective execution descriptor
   - Carry S01's effective location/profile and S02 mediation inputs through `HarnessWiring` and `HarnessFactoryConfig`; make Codex use `ContainerExecutor` for executable probing, spawn, cwd translation, restart, cancellation, and confirmed teardown just as Claude does.
   - **Verify**: S01 passes for the host/container × Claude/Codex long-lived matrix; real location probes and container exec
     capture agree with the effective descriptor, a missing/mismatched executor fails before a turn, and released container
     harnesses are destroyed rather than cached.
 
-- [ ] **TI02** Workflow-owned Claude and Codex preserve the same placement and lifecycle rules
+- [x] **TI02** Workflow-owned Claude and Codex preserve the same placement and lifecycle rules
   - Feed the execution descriptor and S02 mediation inputs into `WorkflowCliRunner`; keep both CLI providers on the selected `ContainerExecutor` through schema/temp-file translation, root-process observation, cancellation, and failure cleanup.
   - **Verify**: S01 and S06 pass for workflow one-shots with actual host/container process probes, correct
     restricted/workspace cwd behavior, confirmed root-process termination, pipe/home cleanup, container destruction, and no
     host retry after container failure.
 
-- [ ] **TI03** Containerized Claude authenticates only through its host adapter
+- [x] **TI03** Containerized Claude authenticates only through its host adapter
   - Configure both Claude launch surfaces for S02's loopback provider endpoint and remove container exposure of API keys
     and host Claude auth files. Support host-held `ANTHROPIC_API_KEY` only; reject OAuth/setup-token container mode with
     deliberate host execution as remediation.
@@ -209,11 +209,11 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
     host-applied authentication and destination/protocol restriction while sentinel scans find no provider/login secret on
     any enumerated container surface.
 
-- [ ] **TI04** Containerized Codex launches from an auth-clean home through a custom Responses provider
+- [x] **TI04** Containerized Codex launches from an auth-clean home through a custom Responses provider
   - Add a non-seeding Codex home lifecycle and shared ephemeral custom-provider override builder used by app-server and exec; target S02's Codex gateway with Responses and disabled client auth, and update the image to a non-floating verified Linux archive for each supported architecture.
   - **Verify**: S03 and S06 pass for both Codex surfaces; captured requests lack `Authorization`, host gateway requests contain the expected upstream auth, teardown removes generated homes, amd64/arm64 image builds run `codex --version`, and a wrong asset/version fails the build or admission.
 
-- [ ] **TI05** Containerized provider clients expose only their scoped host MCP inventory
+- [x] **TI05** Containerized provider clients expose only their scoped host MCP inventory
   - Generate provider-specific MCP/native-tool launch settings from S02's loopback/pipe descriptor for both long-lived and
     workflow surfaces and for both container profiles; start no network relay, explicitly disable Claude/Codex native web
     paths for restricted executions, and leave workspace-profile native web enabled while its MCP access still flows only
@@ -223,7 +223,7 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
     workspace container retains it; bridge loss does not trigger fallback, and container inspect shows `network:none`
     with no extra attachment.
 
-- [ ] **TI06** Conformance suites prove runtime placement, denial, cleanup, and secret absence
+- [x] **TI06** Conformance suites prove runtime placement, denial, cleanup, and secret absence
   - Add a shared provider/surface matrix fixture with sentinel provider credentials/login files and a sentinel shared operator MCP bearer, actual Docker namespace probes, captured provider/MCP requests, inspectable argv/env/mounts/generated homes, bridge authority replay, and injected startup/runtime failures.
   - **Verify**: all six scenarios pass non-skipped on the executing platform for story completion, with recorded evidence on both Linux Docker and Docker Desktop owned by S04's release conformance gate; focused unit tests
     cover launch construction and cleanup, integration tests exercise real provider-compatible fakes through Docker, and
@@ -484,3 +484,37 @@ New:
 - **One effective decision**: use the S01 location/profile attached to the execution request for construction, reuse, restart, and workflow one-shots. Never recalculate from task type or provider options.
 - **One identity vocabulary**: "worker identity", "execution principal", and "effective principal" name the same S01 execution identity; "S02's Claude adapter/provider endpoint" is the Anthropic Messages adapter and "S02's Codex gateway" is the OpenAI Responses adapter.
 ```
+
+### Run: 2026-08-12 01:34 CEST
+
+#### DISCOVERED REQUIREMENTS
+
+- **Containerized Claude needs a local placeholder key to reach its own bridge.** With no `ANTHROPIC_API_KEY`
+  present at all, the claude CLI refuses at its own local auth gate before issuing any request
+  (`duration_api_ms: 0`, `result: "Not logged in · Please run /login"`, verified live against claude 2.1.228), so
+  host mediation could never occur and Scenario S02 is unreachable. Containerized launches therefore export the
+  non-secret constant `containerClaudePlaceholderApiKey`; the host adapter drops every client-supplied credential
+  header and injects the real host key last, so the placeholder cannot reach a provider. Recorded as an OPEN
+  reconciliation-ledger entry against PRD FR3's "without receiving the key" wording.
+- **Provider-native web suppression must follow the effective MCP surface, not the deployment flag.** The
+  deployment-level derivation suppresses `WebFetch`/`WebSearch` because the host MCP endpoint replaces them. A
+  container's replacement is its scoped bridge, so a container granted no bridged search would have had neither a
+  native nor a bridged web tool - the silent capability loss Scenario S05 exists to prevent. `workerDisallowedTools`
+  now derives container suppression from the granted bridged tool set.
+
+#### NOTICED BUT NOT TOUCHING
+
+- `packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart` fails on this machine
+  (HTTP 500 on session send) because it needs live provider credentials. Confirmed pre-existing by running it
+  unchanged at the S02 baseline commit ce746bb6 in a scratch worktree.
+- `dev/architecture/system-architecture.md:823-843` still carries the removed socat/`CredentialProxy` topology in its
+  tree diagrams and flow narrative. The one-line summaries were corrected; the diagram rewrite is S02-era drift.
+- `ContainerExecutor.hasProjectMount` has no production consumer outside the interface declaration and test fakes.
+- Container restart re-creates a container without re-establishing its bridge pipes
+  (`ContainerManager.start()` `docker create`s a fresh container when the old one is gone, but nothing re-attaches the
+  `docker exec -i` bridges). Fails closed, but surfaces as a provider error rather than a mediation failure. The Codex
+  half of the asymmetry was fixed in this run (`_restartAfterCrash` now runs the container preparation path); the
+  adopt-vs-create split in `ContainerExecutor.start()` is a design decision that needs its own story.
+- Generated-state directories under `<dataDir>/containers/` are removed by `ContainerManager.stop()` but never swept,
+  so an authority whose process dies without teardown leaves one behind. Same shape as TD-121's leaked-container
+  entry and belongs with it.

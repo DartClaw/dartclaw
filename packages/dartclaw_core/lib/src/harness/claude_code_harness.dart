@@ -94,7 +94,6 @@ class ClaudeCodeHarness extends BaseHarness {
   static final _log = Logger('ClaudeCodeHarness');
 
   String? _mcpConfigPath;
-  String? _containerMcpConfigPath;
   int _turnsSinceStart = 0;
   String? _conversationSessionId;
   String? _sessionId;
@@ -258,15 +257,8 @@ class ClaudeCodeHarness extends BaseHarness {
       process: process,
     );
 
-    final containerMcpPath = _containerMcpConfigPath;
-    if (containerMcpPath != null) {
-      try {
-        await containerManager?.deleteFileInContainer(containerMcpPath);
-      } catch (e) {
-        _log.fine('Failed to delete container MCP config: $e');
-      }
-      _containerMcpConfigPath = null;
-    }
+    // The container sees the generated config through a bind mount, so the
+    // host-side delete removes it from both sides at once.
     final mcpPath = _mcpConfigPath;
     if (mcpPath != null) {
       try {
@@ -417,6 +409,15 @@ class ClaudeCodeHarness extends BaseHarness {
       }
 
       await _verifyAuth();
+    } else {
+      await cm.start();
+      if (!await containerExecutableRuns(cm, _containerExecutable)) {
+        throw UnsupportedCapabilityError(
+          capability: 'Claude harness executable',
+          attemptedContext: '$_containerExecutable --version (container ${cm.profileId})',
+          remediation: 'Rebuild the DartClaw agent image so it ships a runnable claude binary.',
+        );
+      }
     }
 
     final env = Map<String, String>.from(_environment);
@@ -424,20 +425,20 @@ class ClaudeCodeHarness extends BaseHarness {
       env.remove(key);
     }
 
-    final mcpUrl = harnessConfig.mcpServerUrl;
-    final mcpToken = harnessConfig.mcpGatewayToken;
+    // Containerized Claude reaches host MCP only through this authority's
+    // scoped bridge, and identifies itself by the pipe rather than a bearer –
+    // the shared operator token stays on the host. A null bridge URL means the
+    // authority was granted no tools, so no MCP server is configured at all.
+    final mcpUrl = cm == null ? harnessConfig.mcpServerUrl : cm.mcpBridgeUrl;
+    final mcpToken = cm == null ? harnessConfig.mcpGatewayToken : null;
     String? mcpConfigPath;
     String? mcpConfigArgPath;
     if (mcpUrl != null) {
       final suffix = DateTime.now().microsecondsSinceEpoch;
-      late final String hostConfigPath;
-      if (cm != null) {
-        final tempDir = Directory(p.join(cwd, '.agent_temp'));
-        await tempDir.create(recursive: true);
-        hostConfigPath = p.join(tempDir.path, 'dartclaw-mcp-config-$suffix.json');
-      } else {
-        hostConfigPath = p.join(Directory.systemTemp.path, 'dartclaw-mcp-config-$suffix.json');
-      }
+      final hostConfigPath = p.join(
+        cm == null ? Directory.systemTemp.path : cm.generatedStateDir,
+        'dartclaw-mcp-config-$suffix.json',
+      );
       final configFile = File(hostConfigPath);
       final configJson = jsonEncode({
         'mcpServers': {
@@ -456,22 +457,15 @@ class ClaudeCodeHarness extends BaseHarness {
       await chmodOwnerOnly(configFile.path);
       await configFile.writeAsString(configJson, flush: true);
       _log.fine('Wrote MCP config to $mcpConfigPath');
-    }
 
-    if (cm != null) {
-      await cm.start();
-      if (mcpConfigPath != null) {
-        final filename = p.basename(mcpConfigPath);
-        if (cm.hasProjectMount) {
-          mcpConfigArgPath = p.posix.join('/project', '.agent_temp', filename);
-        } else {
-          mcpConfigArgPath = p.posix.join('/tmp', filename);
-          _containerMcpConfigPath = mcpConfigArgPath;
-          await cm.copyFileToContainer(mcpConfigPath, mcpConfigArgPath);
+      if (cm != null) {
+        mcpConfigArgPath = cm.containerPathForHostPath(mcpConfigPath);
+        if (mcpConfigArgPath == null) {
+          throw StateError('Generated MCP config is not mounted in the container: $mcpConfigPath');
         }
+      } else {
+        mcpConfigArgPath = mcpConfigPath;
       }
-    } else {
-      mcpConfigArgPath = mcpConfigPath;
     }
 
     final nativePermissionMode = ClaudeSettingsBuilder.buildPermissionMode(providerOptions);
@@ -494,13 +488,20 @@ class ClaudeCodeHarness extends BaseHarness {
     );
     final Process process;
     if (cm != null) {
-      final containerExecutable = claudeExecutable.contains('/') ? claudeExecutable : containerClaudeExecutable;
+      // The container process gets no host environment: the provider
+      // credential, the host login path, and the shared MCP bearer all stay
+      // outside the boundary. `ANTHROPIC_BASE_URL` is set on the container
+      // itself and points only at this authority's provider bridge.
       final containerEnv = <String, String>{
         ...claudeHardeningEnvVars,
+        // Satisfies the CLI's local auth gate only; the host adapter replaces
+        // it with the real credential. Without any key the client refuses
+        // before it ever reaches the provider bridge.
+        'ANTHROPIC_API_KEY': containerClaudePlaceholderApiKey,
         if (cm.profileId == 'restricted') 'CLAUDE_CODE_SIMPLE': '1',
       };
       process = await cm.exec(
-        [containerExecutable, ...args],
+        [_containerExecutable, ...args],
         workingDirectory: _processWorkingDirectory,
         env: containerEnv,
       );
@@ -529,7 +530,11 @@ class ClaudeCodeHarness extends BaseHarness {
   String _resolveWorkingDirectory(String? directory) {
     if (directory == null || directory.trim().isEmpty) {
       final cm = containerManager;
-      return cm?.containerPathForHostPath(cwd) ?? cwd;
+      if (cm == null) return cwd;
+      // A restricted container deliberately mounts no workspace, so an unmapped
+      // default cwd is the expected state. Falling back to the profile's own
+      // working directory keeps a host path from crossing into the container.
+      return cm.containerPathForHostPath(cwd) ?? cm.workingDir;
     }
 
     final cm = containerManager;
@@ -543,6 +548,19 @@ class ClaudeCodeHarness extends BaseHarness {
 
   String _resolveHostWorkingDirectory(String? directory) =>
       directory == null || directory.trim().isEmpty ? cwd : directory;
+
+  /// The binary the container image ships, unless an absolute path was pinned.
+  String get _containerExecutable => claudeExecutable.contains('/') ? claudeExecutable : containerClaudeExecutable;
+
+  /// Provider-native web tools a restricted container must not use.
+  ///
+  /// They execute at the provider rather than in the container, so
+  /// `network:none` cannot contain them. The host adapter is the enforcement
+  /// point and refuses requests declaring them; suppressing them here keeps the
+  /// client from asking and is defense in depth, not the boundary. Workspace
+  /// containers keep them – their MCP access is still bridge-scoped.
+  List<String> get _deniedNativeWebTools =>
+      containerManager?.profileId == 'restricted' ? const ['WebSearch', 'WebFetch'] : const [];
 
   String? _resolveProviderOption(String? override, String? fallback) {
     final trimmed = override?.trim();
@@ -695,9 +713,16 @@ class ClaudeCodeHarness extends BaseHarness {
         },
         initializeFields: {
           ...harnessConfig.toInitializeFields(),
+          if (_deniedNativeWebTools.isNotEmpty)
+            'disallowedTools': [...harnessConfig.disallowedTools, ..._deniedNativeWebTools],
           if (_processMaxTurns != null) 'maxTurns': _processMaxTurns,
         },
-        sdkMcpServers: harnessConfig.mcpServerUrl == null && sdkMcpServers.isNotEmpty ? sdkMcpServers : null,
+        // Gated on the boundary, not the URL: a container whose authority was
+        // granted no tools has a null bridge URL, and must end up with *less*
+        // exposure, not the SDK memory tools deny-by-default excluded.
+        sdkMcpServers: containerManager == null && harnessConfig.mcpServerUrl == null && sdkMcpServers.isNotEmpty
+            ? sdkMcpServers
+            : null,
       ),
     );
 

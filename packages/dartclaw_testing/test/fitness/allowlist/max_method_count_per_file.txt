@@ -1,12 +1,13 @@
 apps/dartclaw_cli/lib/src/commands/init/init_command.dart  # 53 methods; shrink to <=40 by 0.16.6 CLI init decomposition.
 apps/dartclaw_cli/lib/src/commands/service/service_backend.dart  # 41 methods; shrink to <=40 by 0.16.6 service command cleanup.
+apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart  # 42 methods (+1: container-effective disallowed-tool derivation); shrink to <=40 by harness wiring decomposition.
 apps/dartclaw_cli/lib/src/commands/service_wiring_workflow.dart  # 50 methods (0.20 workflow bootstrap rename); shrink to <=40 by service wiring cleanup.
 apps/dartclaw_cli/lib/src/commands/workflow/workflow_git_support.dart  # 75 methods; shrink to <=40 by workflow git support split (+10 in S03: shared ref/branch/cleanup helpers and publish pre-push commit path).
 apps/dartclaw_cli/lib/src/commands/workflow/cli_progress_printer.dart  # 49 methods (0.20 why-paused + blocked/interrupted lines; +1: stepSettled live-entry retirement); shrink to <=40 by workflow CLI progress-renderer decomposition.
 apps/dartclaw_cli/lib/src/dartclaw_api_client.dart  # 50 methods; shrink to <=40 by 0.16.6 API client decomposition.
 packages/dartclaw_config/lib/src/config_parser.dart  # 44 methods (+2: memory journal map and schedule validation); shrink to <=40 by config parser decomposition.
 packages/dartclaw_core/lib/src/harness/claude_code_harness.dart  # 55 methods (+5: direct executable probe and bounded lifecycle cleanup); shrink to <=40 by harness cleanup.
-packages/dartclaw_core/lib/src/harness/codex_harness.dart  # 50 methods (+4: project-trust warning and bounded lifecycle handling); shrink to <=40 by harness cleanup.
+packages/dartclaw_core/lib/src/harness/codex_harness.dart  # 56 methods (+4: project-trust warning and bounded lifecycle handling; +6: container home preparation, image executable, and default/requested cwd translation); shrink to <=40 by harness cleanup.
 packages/dartclaw_core/lib/src/harness/acp_harness.dart  # 45 methods (+2: bounded initialization and turn deadlines); shrink to <=40 by folding reverse-call handlers into a collaborator.
 packages/dartclaw_server/lib/src/advisor/advisor_subscriber.dart  # 55 methods; shrink to <=40 by 0.16.6 advisor decomposition.
 packages/dartclaw_server/lib/src/api/config_api_routes.dart  # 163 methods; shrink to <=40 by route decomposition.

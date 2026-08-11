@@ -8,7 +8,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
 import 'package:dartclaw_server/src/task/cli_provider.dart' show CliProvider, CliTurnRequest;
 import 'package:dartclaw_server/src/task/workflow_cli_runner.dart'
     show WorkflowCliProcessStarter, WorkflowCliTurnResult;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, makeVersionProbeProcess;
 import 'package:test/test.dart';
 
 const readOnlyShellAllow = [
@@ -75,8 +75,15 @@ WorkflowCliProcessStarter codexStub({
 
 /// Leases [container] for every container-policy turn, recording releases so a
 /// test can prove the authority does not outlive the turn.
-ContainerAuthorityProvider fakeContainerAuthorities(ContainerExecutor container, {List<String>? released}) =>
-    (principal) async => FakeContainerAuthorityLease(container, released ?? <String>[], principal.sessionId);
+ContainerAuthorityProvider fakeContainerAuthorities(
+  ContainerExecutor container, {
+  List<String>? released,
+  List<Set<String>>? grantedMcpTools,
+}) => (principal, {Set<String> allowedMcpTools = const {}}) async {
+  grantedMcpTools?.add(allowedMcpTools);
+  await container.start();
+  return FakeContainerAuthorityLease(container, released ?? <String>[], principal.sessionId);
+};
 
 /// A lease over a pre-built container executor.
 final class FakeContainerAuthorityLease implements ContainerAuthorityLease {
@@ -97,10 +104,13 @@ WorkflowCliRunner claudeRunner({
   Map<String, dynamic> options = const {},
   ContainerExecutor? container,
   EventBus? eventBus,
+  List<Set<String>>? grantedMcpTools,
 }) {
   return WorkflowCliRunner(
     providers: {'claude': WorkflowCliProviderConfig(executable: 'claude', options: options)},
-    containerAuthorities: container == null ? null : fakeContainerAuthorities(container),
+    containerAuthorities: container == null
+        ? null
+        : fakeContainerAuthorities(container, grantedMcpTools: grantedMcpTools),
     eventBus: eventBus,
     processStarter: processStarter,
   );
@@ -111,10 +121,13 @@ WorkflowCliRunner codexRunner({
   Map<String, dynamic> options = const {},
   ContainerExecutor? container,
   EventBus? eventBus,
+  List<Set<String>>? grantedMcpTools,
 }) {
   return WorkflowCliRunner(
     providers: {'codex': WorkflowCliProviderConfig(executable: 'codex', options: options)},
-    containerAuthorities: container == null ? null : fakeContainerAuthorities(container),
+    containerAuthorities: container == null
+        ? null
+        : fakeContainerAuthorities(container, grantedMcpTools: grantedMcpTools),
     eventBus: eventBus,
     processStarter: processStarter,
   );
@@ -193,24 +206,31 @@ final class RecordingCliProvider implements CliProvider {
 }
 
 class FakeContainerExecutor implements ContainerExecutor {
-  FakeContainerExecutor({required this.hostRoot, required this.containerRoot, String? stdout})
-    : stdout =
-          stdout ??
-          '${jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'})}\n'
-              '${jsonEncode({
-                'type': 'item.completed',
-                'item': {
-                  'type': 'agent_message',
-                  'text': jsonEncode({
-                    'items': [
-                      {'path': 'lib/main.dart'},
-                    ],
-                  }),
-                },
-              })}';
+  FakeContainerExecutor({
+    required this.hostRoot,
+    required this.containerRoot,
+    this.profileId = 'workspace',
+    this.mcpBridgeUrl,
+    this.executableRunnable = true,
+    String? stdout,
+  }) : generatedStateDir = Directory('$hostRoot/.dartclaw-state').absolute.path,
+       stdout =
+           stdout ??
+           '${jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'})}\n'
+               '${jsonEncode({
+                 'type': 'item.completed',
+                 'item': {
+                   'type': 'agent_message',
+                   'text': jsonEncode({
+                     'items': [
+                       {'path': 'lib/main.dart'},
+                     ],
+                   }),
+                 },
+               })}';
 
   @override
-  final String profileId = 'workspace';
+  final String profileId;
 
   @override
   final String workingDir = '/workspace';
@@ -218,25 +238,43 @@ class FakeContainerExecutor implements ContainerExecutor {
   @override
   final bool hasProjectMount = true;
 
+  @override
+  final String generatedStateDir;
+
+  @override
+  final String providerBridgeUrl = 'http://127.0.0.1:8080';
+
+  @override
+  final String? mcpBridgeUrl;
+
+  /// `false` fakes an image whose packaged CLI cannot run.
+  final bool executableRunnable;
+
   final String hostRoot;
   final String containerRoot;
   final String stdout;
   late List<String> lastCommand;
   String? lastWorkingDirectory;
+  Map<String, String>? lastEnv;
+
+  /// Observes the spawn while its generated state still exists – the authority
+  /// destroys that state as soon as the turn ends.
+  void Function(List<String> command)? onExec;
 
   @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
+  Future<void> start() async {
+    Directory(generatedStateDir).createSync(recursive: true);
+  }
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
     lastWorkingDirectory = workingDirectory;
+    lastEnv = env == null ? null : Map<String, String>.from(env);
+    if (command.length == 2 && command[1] == '--version') {
+      return executableRunnable ? makeVersionProbeProcess('1.0.0') : makeVersionProbeProcess('', exitCode: 127);
+    }
+    onExec?.call(lastCommand);
     final escapedStdout = stdout.replaceAll("'", "'\\''");
     return Process.start('/bin/sh', ['-lc', "printf '%s' '$escapedStdout'"]);
   }

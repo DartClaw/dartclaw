@@ -25,6 +25,9 @@ typedef StartCommand =
       bool includeParentEnvironment,
     });
 
+/// Container mount point for one authority's generated client configuration.
+const containerGeneratedStatePath = '/home/dartclaw/.dartclaw';
+
 /// Manages Docker container lifecycle for agent isolation.
 ///
 /// Uses `docker create` + `docker start` for fast container restart,
@@ -43,7 +46,13 @@ class ContainerManager implements ContainerExecutor {
   /// container, or `null` when this deployment has no host mediation.
   final String? bridgeBinaryPath;
 
-  final String? hostClaudeJsonPath;
+  @override
+  final String generatedStateDir;
+
+  /// Whether this authority was granted host MCP tools, which is what decides
+  /// if an MCP bridge exists to configure a client against.
+  final bool hasMcpBridge;
+
   final String buildContextDir;
   @override
   final String workingDir;
@@ -55,9 +64,10 @@ class ContainerManager implements ContainerExecutor {
     required this.containerName,
     required this.profileId,
     required this.workspaceMounts,
+    required this.generatedStateDir,
+    this.hasMcpBridge = false,
     this.localPathAllowlist = const [],
     this.bridgeBinaryPath,
-    this.hostClaudeJsonPath,
     String? buildContextDir,
     this.workingDir = '/project',
     RunCommand? runCommand,
@@ -65,6 +75,15 @@ class ContainerManager implements ContainerExecutor {
   }) : buildContextDir = buildContextDir ?? Directory.current.path,
        _run = runCommand ?? Process.run,
        _start = startCommand ?? Process.start;
+
+  @override
+  String get providerBridgeUrl => 'http://127.0.0.1:$providerBridgePort';
+
+  @override
+  String? get mcpBridgeUrl => hasMcpBridge ? 'http://127.0.0.1:$mcpBridgePort/mcp' : null;
+
+  /// The generated-state mount, written as a Docker `-v` spec.
+  String get _generatedStateMount => '$generatedStateDir:$containerGeneratedStatePath:rw';
 
   /// Format: `dartclaw-<stableHash(dataDir)>-<profileId>`
   static String generateName(String dataDir, String profileId) {
@@ -120,6 +139,7 @@ class ContainerManager implements ContainerExecutor {
     // Remove stale container if exists
     await _run('docker', ['rm', '-f', containerName]);
     _validateLocalPathProjectMounts();
+    await _createGeneratedStateDir();
 
     final args = [
       'create',
@@ -133,8 +153,10 @@ class ContainerManager implements ContainerExecutor {
       // The only host object the container gets is a read-only executable the
       // host controls: no socket, no writable channel, no network attachment.
       if (bridgeBinaryPath != null) ...['-v', '$bridgeBinaryPath:${BridgeBinaryProvisioner.containerPath}:ro'],
-      if (hostClaudeJsonPath != null) ...['-v', '$hostClaudeJsonPath:/home/dartclaw/.claude.json:ro'],
-      '-e', 'ANTHROPIC_BASE_URL=http://127.0.0.1:$providerBridgePort',
+      // Per-authority scratch for generated client configuration. No host home
+      // is ever mounted: provider login state stays outside the boundary.
+      '-v', _generatedStateMount,
+      '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
       ...effectiveExtraMounts.expand((m) => ['-v', m]),
       ...config.extraArgs,
       config.image,
@@ -194,10 +216,42 @@ class ContainerManager implements ContainerExecutor {
   Future<void> stop() async {
     await _run('docker', ['stop', '-t', '5', containerName]);
     final removal = await _run('docker', ['rm', '-f', containerName]);
+    // Generated state is deleted whether or not removal succeeded: a leaked
+    // container must not also leave a readable generated home behind.
+    await _deleteGeneratedStateDir();
     if (removal.exitCode != 0 && await isHealthy()) {
       throw StateError('Failed to destroy container $containerName: ${removal.stderr}');
     }
     _log.info('Container $containerName ($profileId) stopped and removed');
+  }
+
+  /// Creates an empty, owner-only generated-state directory.
+  ///
+  /// Recreated from scratch on every start so a restarted container cannot
+  /// inherit configuration written for an earlier one.
+  Future<void> _createGeneratedStateDir() async {
+    final directory = Directory(generatedStateDir);
+    if (await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
+    await directory.create(recursive: true);
+    if (!Platform.isWindows) {
+      final result = await Process.run('chmod', ['700', generatedStateDir]);
+      if (result.exitCode != 0) {
+        throw StateError('Failed to restrict permissions on $generatedStateDir: ${result.stderr}');
+      }
+    }
+  }
+
+  Future<void> _deleteGeneratedStateDir() async {
+    try {
+      final directory = Directory(generatedStateDir);
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    } catch (error, stackTrace) {
+      _log.warning('Failed to delete generated state for $containerName', error, stackTrace);
+    }
   }
 
   /// Restricted containers keep non-workspace mounts but never get access to
@@ -208,22 +262,6 @@ class ContainerManager implements ContainerExecutor {
 
   @override
   bool get hasProjectMount => _hasContainerMountTarget('/project');
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {
-    final result = await _run('docker', ['cp', hostPath, '$containerName:$containerPath']);
-    if (result.exitCode != 0) {
-      throw StateError('Failed to copy file into container: ${result.stderr}');
-    }
-  }
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {
-    final result = await _run('docker', ['exec', containerName, 'rm', '-f', containerPath]);
-    if (result.exitCode != 0) {
-      throw StateError('Failed to delete file in container: ${result.stderr}');
-    }
-  }
 
   /// Execute a command inside the running container, returning a Process
   /// for JSONL communication.
@@ -277,7 +315,7 @@ class ContainerManager implements ContainerExecutor {
   }
 
   bool _hasContainerMountTarget(String containerPath) {
-    for (final mount in [...workspaceMounts, ...effectiveExtraMounts]) {
+    for (final mount in [...workspaceMounts, ...effectiveExtraMounts, _generatedStateMount]) {
       final parts = mount.split(':');
       if (parts.length >= 2 && parts[1] == containerPath) {
         return true;
@@ -298,7 +336,7 @@ class ContainerManager implements ContainerExecutor {
   @override
   String? containerPathForHostPath(String hostPath) {
     final normalizedHostPath = canonicalizePathWithExistingAncestors(hostPath);
-    for (final mount in [...workspaceMounts, ...effectiveExtraMounts]) {
+    for (final mount in [...workspaceMounts, ...effectiveExtraMounts, _generatedStateMount]) {
       final parts = mount.split(':');
       if (parts.length < 2) continue;
       final hostRoot = canonicalizePathWithExistingAncestors(parts[0]);

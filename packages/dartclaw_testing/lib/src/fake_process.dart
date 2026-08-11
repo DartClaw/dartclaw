@@ -234,3 +234,21 @@ class _LineRecordingIOSink implements IOSink {
     return null;
   }
 }
+
+/// A [FakeProcess] answering a `<binary> --version` probe: one stdout line then
+/// a clean exit.
+///
+/// Buffered (non-broadcast) streams, so the answer survives until the prober
+/// subscribes. Pass a non-zero [exitCode] or a blank [version] to fake a binary
+/// that is present but unrunnable.
+FakeProcess makeVersionProbeProcess(String version, {int exitCode = 0}) {
+  final process = FakeProcess(
+    stdoutController: StreamController<List<int>>(),
+    stderrController: StreamController<List<int>>(),
+  );
+  scheduleMicrotask(() {
+    if (version.isNotEmpty) process.emitStdout(version);
+    process.exit(exitCode);
+  });
+  return process;
+}

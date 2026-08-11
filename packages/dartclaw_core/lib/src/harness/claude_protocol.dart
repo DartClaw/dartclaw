@@ -29,6 +29,17 @@ const claudeHardeningEnvVars = <String, String>{
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
 };
 
+/// Placeholder `ANTHROPIC_API_KEY` for a containerized Claude launch.
+///
+/// Not a credential, and deliberately not one: the claude CLI refuses at its
+/// own local auth gate before making any request when no key is present at all
+/// – `duration_api_ms: 0`, "Not logged in" – so a containerized client that is
+/// meant to be mediated would never reach the host bridge. This value only
+/// satisfies that local check. The host adapter drops every client-supplied
+/// credential header and injects the real host key last, so this string cannot
+/// reach a provider.
+const containerClaudePlaceholderApiKey = 'dartclaw-host-mediated-no-credential';
+
 // ---------------------------------------------------------------------------
 // Sealed class hierarchy for claude binary JSONL messages
 // ---------------------------------------------------------------------------

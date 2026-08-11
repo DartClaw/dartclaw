@@ -264,5 +264,6 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     guardChain: config.guardChain,
     adapter: CodexProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
+    containerManager: config.containerManager,
   );
 }

@@ -343,7 +343,7 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 | Layer | Mechanism |
 |-------|-----------|
 | **Container isolation** | Docker kernel namespaces (PID, network, mount, user). The primary security boundary. |
-| **Credential isolation** | Claude/Anthropic API keys use the Unix socket `CredentialProxy`, keeping the Claude container environment clean. Codex and ACP credentials are provider-specific and scoped to the selected provider boundary. |
+| **Credential isolation** | Containerized Claude and Codex reach their provider only through the host gateway, so no provider credential enters the container. Host executions receive their provider-scoped credential directly. |
 | **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
 | **Message redaction** | Outbound secret/PII redaction via configurable patterns |
 | **Audit logging** | All guard verdicts logged to date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup. Viewable in the health dashboard. |

@@ -6,7 +6,7 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, NullIoSink;
 import 'package:test/test.dart';
 
-import 'workflow_cli_runner_test_support.dart' show fakeContainerAuthorities;
+import 'workflow_cli_runner_test_support.dart' show FakeContainerExecutor, fakeContainerAuthorities;
 
 void main() {
   group('ClaudeCliProvider', () {
@@ -362,7 +362,7 @@ void main() {
         if (await workingDirectory.exists()) await workingDirectory.delete(recursive: true);
       });
 
-      final container = _FakeContainerExecutor(
+      final container = FakeContainerExecutor(
         hostRoot: workingDirectory.path,
         containerRoot: '/workspace',
         stdout: _streamJsonStdout({'session_id': 'claude-container-provider', 'result': 'ok'}),
@@ -701,7 +701,7 @@ void main() {
       addTearDown(() async {
         if (await workingDirectory.exists()) await workingDirectory.delete(recursive: true);
       });
-      final container = _FakeContainerExecutor(
+      final container = FakeContainerExecutor(
         hostRoot: workingDirectory.path,
         containerRoot: '/workspace',
         profileId: 'restricted',
@@ -892,53 +892,4 @@ Map<String, dynamic> _assistantEvent({
       },
     },
   };
-}
-
-class _FakeContainerExecutor implements ContainerExecutor {
-  @override
-  final String profileId;
-  @override
-  final String workingDir = '/workspace';
-  @override
-  final bool hasProjectMount = true;
-
-  final String hostRoot;
-  final String containerRoot;
-  final String stdout;
-  late List<String> lastCommand;
-  String? lastWorkingDirectory;
-
-  _FakeContainerExecutor({
-    required this.hostRoot,
-    required this.containerRoot,
-    this.profileId = 'workspace',
-    String? stdout,
-  }) : stdout = stdout ?? _streamJsonStdout({'session_id': 'fake', 'result': 'ok'});
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
-
-  @override
-  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
-    lastCommand = List<String>.from(command);
-    lastWorkingDirectory = workingDirectory;
-    final escaped = stdout.replaceAll("'", "'\\''");
-    return Process.start('/bin/sh', ['-lc', "printf '%s' '$escaped'"]);
-  }
-
-  @override
-  String? containerPathForHostPath(String hostPath) {
-    final normalizedHostPath = File(hostPath).absolute.path;
-    final normalizedHostRoot = Directory(hostRoot).absolute.path;
-    if (normalizedHostPath == normalizedHostRoot) return containerRoot;
-    if (!normalizedHostPath.startsWith('$normalizedHostRoot${Platform.pathSeparator}')) return null;
-    final relative = normalizedHostPath.substring(normalizedHostRoot.length + 1).replaceAll('\\', '/');
-    return '$containerRoot/$relative';
-  }
 }

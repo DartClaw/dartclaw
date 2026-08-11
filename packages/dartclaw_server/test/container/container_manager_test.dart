@@ -115,7 +115,7 @@ void main() {
           '-v',
           '/tmp/dartclaw-bridge:/opt/dartclaw/dartclaw-bridge:ro',
           '-v',
-          '/tmp/.claude.json:/home/dartclaw/.claude.json:ro',
+          '${manager.generatedStateDir}:$containerGeneratedStatePath:rw',
         ]),
       );
       expect(create, containsAll(['sleep', 'infinity']));
@@ -130,6 +130,75 @@ void main() {
       expect(createCommand, isNot(contains('--network host')));
       expect(calls.any((call) => call.contains('socat')), isFalse);
       expect(calls.any((call) => call.contains('-d')), isFalse, reason: 'no detached in-container helper');
+      // No host provider home is mounted: login state stays outside the boundary.
+      expect(createCommand, isNot(contains('.claude.json')));
+      expect(createCommand, isNot(contains('.codex')));
+    });
+
+    test('start creates the generated-state directory empty and owner-only', () async {
+      final stateDir = Directory(p.join(Directory.systemTemp.createTempSync('cm-state-').path, 'authority'));
+      addTearDown(() {
+        final parent = stateDir.parent;
+        if (parent.existsSync()) parent.deleteSync(recursive: true);
+      });
+      // Residue a previous authority could have left behind.
+      stateDir.createSync(recursive: true);
+      File(p.join(stateDir.path, 'stale.toml')).writeAsStringSync('leftover');
+
+      final manager = _manager(
+        generatedStateDir: stateDir.path,
+        run: (executable, arguments) async =>
+            arguments.first == 'inspect' ? ProcessResult(1, 1, '', 'missing') : ProcessResult(1, 0, '', ''),
+      );
+
+      await manager.start();
+
+      expect(stateDir.existsSync(), isTrue);
+      expect(stateDir.listSync(), isEmpty);
+      if (!Platform.isWindows) {
+        expect(stateDir.statSync().modeString(), 'rwx------');
+      }
+    });
+
+    test('stop destroys the generated state along with the container', () async {
+      final stateDir = Directory(p.join(Directory.systemTemp.createTempSync('cm-state-').path, 'authority'));
+      addTearDown(() {
+        final parent = stateDir.parent;
+        if (parent.existsSync()) parent.deleteSync(recursive: true);
+      });
+
+      final manager = _manager(
+        generatedStateDir: stateDir.path,
+        run: (executable, arguments) async =>
+            arguments.first == 'inspect' ? ProcessResult(1, 1, '', 'missing') : ProcessResult(1, 0, '', ''),
+      );
+      await manager.start();
+      File(p.join(stateDir.path, 'config.toml')).writeAsStringSync('generated');
+
+      await manager.stop();
+
+      expect(stateDir.existsSync(), isFalse);
+    });
+
+    test('exposes container-loopback bridge URLs, and none for MCP without a grant', () {
+      Future<ProcessResult> noDocker(String executable, List<String> arguments) async => ProcessResult(1, 0, '', '');
+
+      expect(_manager(run: noDocker).providerBridgeUrl, 'http://127.0.0.1:8080');
+      expect(_manager(run: noDocker).mcpBridgeUrl, isNull);
+      expect(_manager(run: noDocker, hasMcpBridge: true).mcpBridgeUrl, 'http://127.0.0.1:8081/mcp');
+    });
+
+    test('translates a generated-state host path into its container path', () {
+      final manager = _manager(
+        generatedStateDir: '/host/state',
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+      );
+
+      expect(manager.containerPathForHostPath('/host/state'), containerGeneratedStatePath);
+      expect(
+        manager.containerPathForHostPath('/host/state/codex-home/config.toml'),
+        '$containerGeneratedStatePath/codex-home/config.toml',
+      );
     });
 
     test('start creates restricted container with no workspace mounts', () async {
@@ -332,6 +401,7 @@ void main() {
         containerName: workspaceContainerName,
         profileId: 'workspace',
         workspaceMounts: const [],
+        generatedStateDir: '/tmp/dartclaw-state',
         runCommand: (executable, arguments) async => ProcessResult(1, 0, '', ''),
       );
 
@@ -381,22 +451,6 @@ void main() {
       expect(calls, [
         ['docker', 'stop', '-t', '5', workspaceContainerName],
         ['docker', 'rm', '-f', workspaceContainerName],
-      ]);
-    });
-
-    test('deleteFileInContainer removes copied container files', () async {
-      final calls = <List<String>>[];
-      final manager = _manager(
-        run: (executable, arguments) async {
-          calls.add([executable, ...arguments]);
-          return ProcessResult(1, 0, '', '');
-        },
-      );
-
-      await manager.deleteFileInContainer('/tmp/dartclaw-mcp-config-123.json');
-
-      expect(calls, [
-        ['docker', 'exec', workspaceContainerName, 'rm', '-f', '/tmp/dartclaw-mcp-config-123.json'],
       ]);
     });
 
@@ -468,15 +522,18 @@ ContainerManager _manager({
   List<String> localPathAllowlist = const [],
   String? buildContextDir = '/tmp/project',
   String workingDir = '/project',
+  String generatedStateDir = '/tmp/dartclaw-state',
+  bool hasMcpBridge = false,
 }) {
   return ContainerManager(
     config: config,
     containerName: containerName,
     profileId: profileId,
     workspaceMounts: workspaceMounts,
+    generatedStateDir: generatedStateDir,
+    hasMcpBridge: hasMcpBridge,
     localPathAllowlist: localPathAllowlist,
     bridgeBinaryPath: '/tmp/dartclaw-bridge',
-    hostClaudeJsonPath: '/tmp/.claude.json',
     buildContextDir: buildContextDir,
     workingDir: workingDir,
     runCommand: run,

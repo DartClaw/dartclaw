@@ -12,11 +12,19 @@ const _homeDirectoryRemediation = 'Set HOME or USERPROFILE before starting DartC
 
 /// Manages a Codex worker home directory and its config files.
 ///
-/// By default ([useSystemCodexHome] = `true`), the worker subprocess inherits
-/// the user's standard `~/.codex/` — no temp dir, no config mutation. Set
-/// [useSystemCodexHome] to `false` to opt into the isolated-temp-dir model
-/// that seeds authentication from `~/.codex/` and writes DartClaw-specific
-/// `developer_instructions` + MCP server entries into a per-worker `config.toml`.
+/// Three distinct lifecycles, and they must stay distinct:
+///
+/// - **System home** ([useSystemCodexHome] = `true`, the default): the worker
+///   subprocess inherits the user's standard `~/.codex/` – no temp dir, no
+///   config mutation.
+/// - **Isolated seeded home** ([useSystemCodexHome] = `false`): a per-worker
+///   temp `CODEX_HOME` seeded with authentication copied from `~/.codex/`, plus
+///   generated `developer_instructions` and MCP entries.
+/// - **Container auth-clean home** ([CodexEnvironment.containerAuthClean]): a
+///   freshly created home inside one container authority's generated-state
+///   directory that is *never* seeded and holds only generated client
+///   configuration. Seeding it would hand the container a reusable login, which
+///   is exactly the boundary container mode exists to keep.
 class CodexEnvironment {
   final String developerInstructions;
   final String? mcpServerUrl;
@@ -31,7 +39,21 @@ class CodexEnvironment {
   /// isolated temp `CODEX_HOME` is created with authentication from `~/.codex/`.
   final bool useSystemCodexHome;
 
+  /// Host path of the auth-clean home, or `null` outside container mode.
+  final String? _containerHostHome;
+
+  /// Path the auth-clean home is mounted at inside the container.
+  final String? _containerHomePath;
+
+  /// Base URL of the container-loopback provider bridge, published to Codex as
+  /// a custom Responses provider with client authentication disabled.
+  final String? _gatewayBaseUrl;
+
+  /// Whether Codex keeps its provider-side web search in container mode.
+  final bool _nativeWebSearch;
+
   Directory? _tempDirectory;
+  Directory? _containerDirectory;
 
   CodexEnvironment({
     required this.developerInstructions,
@@ -40,17 +62,47 @@ class CodexEnvironment {
     this.agentsMdContent,
     this.useSystemCodexHome = true,
     PlatformCapabilities? platformCapabilities,
-  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities();
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _containerHostHome = null,
+       _containerHomePath = null,
+       _gatewayBaseUrl = null,
+       _nativeWebSearch = true;
 
-  bool get isSetup => useSystemCodexHome || _tempDirectory != null;
-
-  /// Prepares the Codex worker home.
+  /// A never-seeded home for one containerized execution.
   ///
-  /// - [useSystemCodexHome] = `true`: returns `.codex` under the resolved home
-  ///   without mutating anything; the subprocess inherits the parent environment.
-  /// - [useSystemCodexHome] = `false`: creates an isolated temp dir, seeds
-  ///   authentication from `~/.codex/`, and writes a standalone `config.toml`.
+  /// [hostHomePath] is created fresh under the authority's generated-state
+  /// directory and is visible to the container at [containerHomePath].
+  /// [gatewayBaseUrl] is the container-loopback provider bridge; no upstream
+  /// URL and no credential is ever written here.
+  CodexEnvironment.containerAuthClean({
+    required this.developerInstructions,
+    required String hostHomePath,
+    required String containerHomePath,
+    required String gatewayBaseUrl,
+    required bool nativeWebSearch,
+    this.mcpServerUrl,
+    this.agentsMdContent,
+    PlatformCapabilities? platformCapabilities,
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       useSystemCodexHome = false,
+       mcpGatewayToken = null,
+       _containerHostHome = hostHomePath,
+       _containerHomePath = containerHomePath,
+       _gatewayBaseUrl = gatewayBaseUrl,
+       _nativeWebSearch = nativeWebSearch;
+
+  bool get isContainerAuthClean => _containerHostHome != null;
+
+  bool get isSetup => isContainerAuthClean ? _containerDirectory != null : useSystemCodexHome || _tempDirectory != null;
+
+  /// Prepares the Codex worker home for the configured lifecycle.
+  ///
+  /// Returns the host path of the home. In container mode the process sees it
+  /// at the container path instead – see [environmentOverrides].
   Future<String> setup() async {
+    if (isContainerAuthClean) {
+      return _setupContainerHome();
+    }
     if (useSystemCodexHome) {
       final home = platformCapabilities.homeDirectory;
       if (home == null) {
@@ -110,6 +162,50 @@ class CodexEnvironment {
     }
   }
 
+  /// Creates the auth-clean container home and writes only generated config.
+  ///
+  /// No authentication seeding step exists on this path by construction – the
+  /// home starts empty and receives nothing but `config.toml` and `AGENTS.md`.
+  Future<String> _setupContainerHome() async {
+    final existing = _containerDirectory;
+    if (existing != null) {
+      return existing.path;
+    }
+
+    final directory = Directory(_containerHostHome!);
+    if (await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
+    await directory.create(recursive: true);
+    try {
+      await _chmod700(directory.path);
+      await File(p.join(directory.path, 'config.toml')).writeAsString(
+        CodexConfigGenerator.generate(
+          developerInstructions: developerInstructions,
+          mcpServerUrl: mcpServerUrl,
+          gatewayBaseUrl: _gatewayBaseUrl,
+          nativeWebSearch: _nativeWebSearch,
+        ),
+        flush: true,
+      );
+      final agentsContent = agentsMdContent;
+      if (agentsContent != null) {
+        await File(p.join(directory.path, 'AGENTS.md')).writeAsString(agentsContent, flush: true);
+      }
+      _containerDirectory = directory;
+      return directory.path;
+    } catch (_) {
+      // Startup write failed – the partially-built home must not survive to be
+      // mounted into a container.
+      try {
+        if (directory.existsSync()) {
+          directory.deleteSync(recursive: true);
+        }
+      } catch (_) {} // Best-effort cleanup on setup failure; original error is reraised below.
+      rethrow;
+    }
+  }
+
   /// Returns environment variables required for the Codex subprocess.
   ///
   /// When [useSystemCodexHome] is `true`, `CODEX_HOME` is NOT overridden — the
@@ -117,7 +213,14 @@ class CodexEnvironment {
   /// The MCP bearer token env var is still exported when configured, since it
   /// is consumed by whatever MCP entry the user has already placed in their
   /// `~/.codex/config.toml`.
+  ///
+  /// Container mode points `CODEX_HOME` at the container-visible path and
+  /// exports no bearer at all: the execution-scoped bridge is the authority.
   Map<String, String> environmentOverrides() {
+    if (isContainerAuthClean) {
+      return _containerDirectory == null ? const {} : {'CODEX_HOME': _containerHomePath!};
+    }
+
     final mcpBearerEntry = (mcpGatewayToken != null && mcpGatewayToken!.trim().isNotEmpty)
         ? <String, String>{CodexConfigGenerator.defaultMcpBearerTokenEnvVar: mcpGatewayToken!}
         : const <String, String>{};
@@ -134,20 +237,20 @@ class CodexEnvironment {
     return {'CODEX_HOME': tempDirectory.path, ...mcpBearerEntry};
   }
 
-  /// Deletes the isolated temp directory. Safe to call repeatedly.
+  /// Deletes the generated home. Safe to call repeatedly.
   /// No-op when [useSystemCodexHome] is `true`.
   Future<void> cleanup() async {
-    final tempDirectory = _tempDirectory;
+    final directories = [_tempDirectory, _containerDirectory].nonNulls.toList(growable: false);
     _tempDirectory = null;
-    if (tempDirectory == null) {
-      return;
-    }
+    _containerDirectory = null;
 
-    try {
-      if (await tempDirectory.exists()) {
-        await tempDirectory.delete(recursive: true);
-      }
-    } catch (_) {} // Best-effort temp-dir cleanup on teardown.
+    for (final directory in directories) {
+      try {
+        if (await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+      } catch (_) {} // Best-effort generated-home cleanup on teardown.
+    }
   }
 
   Future<void> _chmod700(String path) async {

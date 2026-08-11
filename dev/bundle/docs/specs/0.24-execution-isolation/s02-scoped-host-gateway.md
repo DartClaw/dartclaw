@@ -41,6 +41,8 @@ reusable credentials or restoring agent Internet access.
 
 - `dev/adrs/039-outbound-mcp-trust-boundary-and-transport.md#decision` – precedent for a small, Dart-owned, auditable MCP
   trust boundary.
+- `dev/adrs/051-container-bridge-binary-packaging.md` – governs bridge build, shipping, container delivery, and handshake.
+- `dev/adrs/047-embedded-binary-assets.md` – the shipping mechanism ADR-051 extends.
 - `dev/architecture/security-architecture.md#ssrf-hardening-webfetchtool` – existing host network guardrails that remain
   on the network-performing side.
 - `dev/architecture/control-protocol.md#mcp-integration` – current shared MCP URL/token configuration that cannot become
@@ -112,7 +114,7 @@ reusable credentials or restoring agent Internet access.
 ### Work Areas
 
 - Host-gateway lifecycle, per-authority pipe registry, and provider adapters under existing container/server boundaries
-- Small Dart-owned loopback HTTP-to-framed-stdio bridge executable included in the agent image
+- Small Dart-owned loopback HTTP-to-framed-stdio bridge executable, cross-compiled for linux-x64/arm64 at release time, shipped with DartClaw, and mounted read-only (or copied to an exec-capable tmpfs) at container create — the agent image stays Dart-free
 - Principal-scoped MCP dispatch before tool discovery/call
 - `ContainerManager` long-lived `docker exec -i` process/pipe lifecycle under `network:none`
 - CLI composition that admits a container turn only after every required bridge surface is ready
@@ -144,7 +146,7 @@ fixed maximum of in-flight requests without interleaving; length-prefixed metada
 cancel frames, bounded queues, and paused stream subscriptions enforce backpressure. EOF, malformed frames, unknown IDs,
 or process/container exit fail all matching requests and revoke the pipe.
 
-Provider adapters own fixed upstream URI/protocol and reusable credentials. MCP frames carry the principal/tool policy
+Provider adapters own fixed upstream URI/protocol and reusable credentials, and apply per-authority audit and the existing capacity/usage accounting to all pipe traffic; processes inside a container share their authority's trust domain, so any in-container caller of the loopback bridge is mediated identically (accepted, documented residual risk). MCP frames carry the principal/tool policy
 bound to their host pipe; `tools/list` filters and `tools/call` independently authorizes before dispatch. S01 guarantees no
 sibling process from another authority shares the container namespace. Admission starts the dedicated container, bridge
 processes, and host readers before the harness; release terminates the harness, closes/revokes pipes, removes generated
@@ -183,35 +185,56 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
 ### Implementation Tasks
 
 - [ ] **TI01** Host pipe registry binds one authority, surface, policy, and lifetime
-  - Define host-only registrations keyed by the spawned pipe/process with S01 principal/session/worker identity,
-    provider-or-MCP audience, allowed MCP tools, readiness, active requests, and permanent revocation state.
+  - Define host-only registrations keyed by the spawned pipe/process with the S01 execution principal — session ID,
+    worker identity, and logical-agent ID when present, as carried on the execution request — plus provider-or-MCP
+    audience, the effective container profile (carrying the restricted flag the provider adapters consult for
+    native-web rejection), the allowed MCP tool set (canonical tool names, derived host-side from the effective agent definition's
+    allowed/denied tools at registration; absent an explicit allowlist no tools are exposed), readiness, active requests,
+    and permanent revocation state. The host maps canonical names to registered tool implementations through the existing
+    canonical taxonomy at dispatch.
   - **Verify**: Concurrent A/B and provider/MCP registrations accept only their own pipe while active; every pipe stays
     denied after close/release and no reusable credential/capability appears in container-visible state.
 
 - [ ] **TI02** Provider and MCP frames reach separate host-enforced handlers
-  - Adapt `CredentialProxy` into fixed provider handlers and add pipe-bound MCP authorization before discovery/call. Strip
-    client auth headers before host credential injection; never accept arbitrary targets or the shared operator token.
+  - Adapt `CredentialProxy` into exactly two fixed provider handlers — Anthropic Messages for Claude and OpenAI Responses
+    for Codex — each owning its upstream URI (existing provider endpoint configuration where present, else the provider
+    default, pinned at registration), and add pipe-bound MCP authorization before discovery/call via a per-authority
+    protocol-handler instance bound at pipe registration. Strip client auth headers before host credential injection;
+    never accept arbitrary targets or the shared operator token; reject restricted executions' provider requests that
+    declare provider-native web tools; emit authorization denials through the existing guard audit sink.
   - **Verify**: Correct requests succeed; cross-surface, alternate-destination, client-auth, malformed, oversized, and
     unapproved-tool requests fail before upstream/tool dispatch; sentinels appear only at the fake provider upstream.
 
 - [ ] **TI03** Dart-owned bridge framing is bounded, multiplexed, and backpressured
   - Add the small bridge executable and matching host codec with versioned length-prefixed frames, request IDs, bounded
     chunking/queues/concurrency, explicit completion/error/cancel, paused-stream backpressure, and deterministic EOF rules.
+    The first exchange on every pipe is a protocol-version handshake that fails closed on mismatch. The bridge's bounded
+    HTTP/1.1 server supports keep-alive; connections beyond the in-flight cap receive bounded queuing then rejection, and
+    client disconnect cancels the matching in-flight request. The bridge is cross-compiled for linux-x64/arm64 in
+    `dev/tools/build.sh` and the release workflow, shipped via the ADR-047 embedded-asset mechanism, and materialized
+    arch-matched by the host per ADR-051.
   - **Verify**: Protocol tests interleave concurrent requests and fragmented reads, saturate every bound, cancel one request
     without affecting another, fuzz invalid lengths/types/IDs, and prove byte-exact reconstruction with no unbounded buffer.
 
 - [ ] **TI04** Dedicated `network:none` containers own bridge readiness and teardown
-  - Make `ContainerManager` create one authority-owned container, start one `docker exec -i` bridge per required surface,
-    wait for loopback readiness, then admit the harness. Release confirms root termination, revokes/closes pipes, removes
+  - Make `ContainerManager` create one authority-owned container whose name derives from the profile plus a unique
+    authority identifier (creation never removes another authority's container by shared name), start one
+    `docker exec -i` bridge per required surface — the bridge binary delivered by read-only bind mount or exec-capable
+    tmpfs copy per ADR-051 — wait for loopback readiness and a successful protocol handshake, then
+    admit the harness. Health monitoring is authority-keyed and deregisters on release before teardown so a normal
+    release is never attributed as a crash. Release confirms root termination, revokes/closes pipes, removes
     generated state, and destroys the container idempotently on success, failure, cancellation, or quarantine.
-  - **Verify**: Captured Docker calls and inspect output prove no networks/sockets/ports/relays, one namespace per concurrent
+  - **Verify**: Captured Docker calls and inspect output prove no networks/sockets/ports/relays beyond the sanctioned
+    read-only bridge-binary mount, one namespace per concurrent
     authority, correct reverse-order cleanup for every injected failure, and no container runner enters the cache.
 
 - [ ] **TI05** Cross-platform adversarial evidence proves the boundary
   - Add real-Docker provider/MCP fakes plus direct egress, cross-surface, cross-authority, framing, cancellation, cleanup,
     and sentinel-secret probes using the same contract on Linux Docker and Docker Desktop.
-  - **Verify**: `packages/dartclaw_server/test/integration/scoped_host_gateway_integration_test.dart` records non-skipped
-    passing evidence on both platforms; authorized calls succeed and every egress/tool/replay/framing/secret probe fails.
+  - **Verify**: `packages/dartclaw_server/test/integration/scoped_host_gateway_integration_test.dart` passes non-skipped
+    on the executing platform for story completion; authorized calls succeed and every egress/tool/replay/framing/secret
+    probe fails. Recorded non-skipped evidence on both Linux Docker and Docker Desktop is a 0.24 release-completion gate
+    owned by S04's conformance matrix via the release checklist.
 
 ### Testing Strategy
 
@@ -219,7 +242,9 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
   and idempotent lifecycle without Docker.
 - Use existing fake command/process seams for exact Docker construction and cleanup assertions.
 - Keep the real-Docker suite integration-tagged and self-cleaning. Local absence may skip a developer run, but 0.24 release
-  completion requires recorded non-skipped Linux Docker and Docker Desktop evidence.
+  completion requires recorded non-skipped Linux Docker and Docker Desktop evidence. Scenario S01 is provable only on
+  Linux Docker hosts and scenario S02 only on Docker Desktop; the off-platform scenario's evidence lands with that
+  release gate rather than story completion.
 
 ### Execution Contract
 
@@ -233,8 +258,228 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
 - [ ] Container/bridge inspect output contains no reusable provider credential, shared token, published port, socket mount,
       or network other than `none`.
 - [ ] No pipe/authority/container remains after release, including injected teardown failure paths.
-- [ ] Non-skipped Linux Docker and Docker Desktop runs pass the same authorized/denied contract.
+- [ ] The suite passes non-skipped on the executing platform with the same authorized/denied contract; recorded non-skipped runs on both Linux Docker and Docker Desktop are the S04-owned release gate.
 
 ## Implementation Observations
 
-_No observations recorded yet._
+#### DECISION NOTE: mcp-principal-identity-source
+Decision-Key: mcp-principal-identity-source
+Altitude: project-decision
+Affected surface: TI01 host pipe registry identity, profile, and tool-policy source
+Decision: The execution principal is the S01 execution identity carried on the execution request — session ID, worker identity, logical-agent ID when present — and the registration additionally records the effective container profile (carrying the restricted flag the provider adapters consult for native-web rejection). Effective tool policy derives host-side at registration from the agent definition's allowed/denied tools using canonical names, mapped via the existing taxonomy at dispatch; absent an explicit allowlist, no tools are exposed.
+Rationale: TI02's restricted-execution web-tool rejection needs a carrier field in the registration record; the re-check found none.
+Evidence: Re-check item 5; earlier evidence stands (ExecutionRequest fields; interview-ratified deny-by-default).
+
+Old:
+```
+    worker identity, and logical-agent ID when present, as carried on the execution request — plus provider-or-MCP
+    audience, the allowed MCP tool set
+```
+New:
+```
+    worker identity, and logical-agent ID when present, as carried on the execution request — plus provider-or-MCP
+    audience, the effective container profile (carrying the restricted flag the provider adapters consult for
+    native-web rejection), the allowed MCP tool set
+```
+
+#### DECISION NOTE: provider-adapter-set-and-upstream-uri
+Decision-Key: provider-adapter-set-and-upstream-uri
+Altitude: fis-local
+Affected surface: TI02 provider handlers and MCP authorization structure
+Decision: S02 delivers exactly two provider adapters — Anthropic Messages (Claude) and OpenAI Responses (Codex). Each owns its upstream URI, taken from existing provider endpoint configuration where present, else the provider default, pinned at adapter registration. MCP authorization uses a per-authority protocol-handler instance bound at pipe registration; denials emit through the existing guard audit sink; restricted executions' provider requests declaring provider-native web tools are rejected host-side.
+Rationale: S03 consumes precisely these two endpoints; per-authority handler instances avoid threading caller context through the shared body-only handler; adapter-side web-tool rejection is the only host-enforced denial (client suppression is explicitly insufficient per binding constraint).
+Evidence: `credential_proxy.dart` hardcodes only Anthropic; `McpProtocolHandler.handleRequest(String body)` has no caller parameter; PRD FR4 requires audited policy denial.
+
+Old:
+```
+  - Adapt `CredentialProxy` into fixed provider handlers and add pipe-bound MCP authorization before discovery/call. Strip
+    client auth headers before host credential injection; never accept arbitrary targets or the shared operator token.
+```
+New:
+```
+  - Adapt `CredentialProxy` into exactly two fixed provider handlers — Anthropic Messages for Claude and OpenAI Responses
+    for Codex — each owning its upstream URI (existing provider endpoint configuration where present, else the provider
+    default, pinned at registration), and add pipe-bound MCP authorization before discovery/call via a per-authority
+    protocol-handler instance bound at pipe registration. Strip client auth headers before host credential injection;
+    never accept arbitrary targets or the shared operator token; reject restricted executions' provider requests that
+    declare provider-native web tools; emit authorization denials through the existing guard audit sink.
+```
+
+#### DECISION NOTE: bridge-executable-packaging
+Decision-Key: bridge-executable-packaging
+Altitude: adr
+Affected surface: Work Areas bridge bullet; TI03 build/ship; TI04 delivery and conformance enumeration; Deeper Context references
+Decision: Per ADR-051: the bridge is cross-compiled for linux-x64/arm64 in `dev/tools/build.sh` and the release workflow, shipped via the ADR-047 embedded-asset mechanism, materialized arch-matched by the host, and delivered into the container by read-only bind mount or exec-capable tmpfs copy at create. Conformance inspection enumerates the sanctioned read-only bridge-binary mount as expected (it is not a socket mount or network attachment). Protocol-version handshake fails closed on mismatch. Earlier Work Areas/TI03 amendments stand.
+Rationale: Re-check found the build/delivery mechanism had no owning task text and the inspection assertions would read the sanctioned mount as a violation.
+Evidence: ADR-051 and research appendix; ADR-047 shipping mechanism.
+
+Old:
+```
+    client disconnect cancels the matching in-flight request.
+```
+New:
+```
+    client disconnect cancels the matching in-flight request. The bridge is cross-compiled for linux-x64/arm64 in
+    `dev/tools/build.sh` and the release workflow, shipped via the ADR-047 embedded-asset mechanism, and materialized
+    arch-matched by the host per ADR-051.
+```
+
+Old:
+```
+    `docker exec -i` bridge per required surface, wait for loopback readiness and a successful protocol handshake, then
+```
+New:
+```
+    `docker exec -i` bridge per required surface — the bridge binary delivered by read-only bind mount or exec-capable
+    tmpfs copy per ADR-051 — wait for loopback readiness and a successful protocol handshake, then
+```
+
+Old:
+```
+  - **Verify**: Captured Docker calls and inspect output prove no networks/sockets/ports/relays, one namespace per concurrent
+```
+New:
+```
+  - **Verify**: Captured Docker calls and inspect output prove no networks/sockets/ports/relays beyond the sanctioned
+    read-only bridge-binary mount, one namespace per concurrent
+```
+
+Old:
+```
+- `dev/adrs/039-outbound-mcp-trust-boundary-and-transport.md#decision` – precedent for a small, Dart-owned, auditable MCP
+  trust boundary.
+```
+New:
+```
+- `dev/adrs/039-outbound-mcp-trust-boundary-and-transport.md#decision` – precedent for a small, Dart-owned, auditable MCP
+  trust boundary.
+- `dev/adrs/051-container-bridge-binary-packaging.md` – governs bridge build, shipping, container delivery, and handshake.
+- `dev/adrs/047-embedded-binary-assets.md` – the shipping mechanism ADR-051 extends.
+```
+
+#### DECISION NOTE: per-authority-container-naming
+Decision-Key: per-authority-container-naming
+Altitude: fis-local
+Affected surface: TI04 container creation/lifecycle
+Decision: Container names derive from the profile plus a unique authority identifier; creation never removes another authority's container by shared name. Readiness includes the protocol handshake. Health monitoring becomes authority-keyed and deregisters on release before teardown, so a normal release is never attributed as a crash.
+Rationale: Today's `generateName(dataDir, profileId)` is profile-keyed and `start()` runs `docker rm -f <name>`, which would let concurrent same-profile authorities destroy each other; the profile-keyed health monitor would log every normal release as a crash.
+Evidence: `container_manager.dart:61-64,112`; `container_health_monitor.dart:16-63`.
+
+Old:
+```
+  - Make `ContainerManager` create one authority-owned container, start one `docker exec -i` bridge per required surface,
+    wait for loopback readiness, then admit the harness. Release confirms root termination, revokes/closes pipes, removes
+    generated state, and destroys the container idempotently on success, failure, cancellation, or quarantine.
+```
+New:
+```
+  - Make `ContainerManager` create one authority-owned container whose name derives from the profile plus a unique
+    authority identifier (creation never removes another authority's container by shared name), start one
+    `docker exec -i` bridge per required surface, wait for loopback readiness and a successful protocol handshake, then
+    admit the harness. Health monitoring is authority-keyed and deregisters on release before teardown so a normal
+    release is never attributed as a crash. Release confirms root termination, revokes/closes pipes, removes
+    generated state, and destroys the container idempotently on success, failure, cancellation, or quarantine.
+```
+
+#### DECISION NOTE: dual-platform-conformance-evidence-protocol
+Decision-Key: dual-platform-conformance-evidence-protocol
+Altitude: project-decision
+Affected surface: TI05 Verify; Final Validation Checklist; Testing Strategy platform scoping
+Decision: Story completion requires the integration suite passing non-skipped on the executing platform; recorded non-skipped evidence on BOTH Linux Docker and Docker Desktop is the S04-owned 0.24 release-completion gate via the release checklist. Scenario S01 is provable only on Linux Docker hosts and scenario S02 only on Docker Desktop; the off-platform scenario's evidence lands with the release gate, not story completion. Applies bundle-wide (TI05 amendment already applied and stands).
+Rationale: One execution host cannot honestly satisfy both platform scenarios or the old checklist line; the graded protocol needed to reach all three surfaces that state completion conditions.
+Evidence: Re-check found the checklist line and platform-split scenarios unreconciled.
+
+Old:
+```
+- [ ] Non-skipped Linux Docker and Docker Desktop runs pass the same authorized/denied contract.
+```
+New:
+```
+- [ ] The suite passes non-skipped on the executing platform with the same authorized/denied contract; recorded non-skipped runs on both Linux Docker and Docker Desktop are the S04-owned release gate.
+```
+
+Old:
+```
+- Keep the real-Docker suite integration-tagged and self-cleaning. Local absence may skip a developer run, but 0.24 release
+  completion requires recorded non-skipped Linux Docker and Docker Desktop evidence.
+```
+New:
+```
+- Keep the real-Docker suite integration-tagged and self-cleaning. Local absence may skip a developer run, but 0.24 release
+  completion requires recorded non-skipped Linux Docker and Docker Desktop evidence. Scenario S01 is provable only on
+  Linux Docker hosts and scenario S02 only on Docker Desktop; the off-platform scenario's evidence lands with that
+  release gate rather than story completion.
+```
+
+#### DECISION NOTE: in-container-bridge-caller-constraint
+Decision-Key: in-container-bridge-caller-constraint
+Altitude: project-decision
+Affected surface: Technical Overview provider-adapter paragraph
+Decision: All processes inside a container share their authority's trust domain; any in-container caller of the loopback bridge is mediated identically — per-authority audit and the EXISTING capacity/usage accounting apply to all pipe traffic. No new budget-enforcement mechanism is introduced by this story. In-container process separation is out of scope — accepted, documented residual risk.
+Rationale: The earlier wording's "budget" implied an unowned new mechanism contradicting the plan's "provider capacity accounting remains unchanged"; audit plus existing accounting is what host-side mediation actually provides.
+Evidence: Re-check found "budget" appears nowhere else in the FIS and no mechanism exists.
+
+Old:
+```
+Provider adapters own fixed upstream URI/protocol and reusable credentials, and apply per-authority accounting, budget, and audit to all pipe traffic; processes inside a container share their authority's trust domain, so any in-container caller of the loopback bridge is mediated identically (accepted, documented residual risk).
+```
+New:
+```
+Provider adapters own fixed upstream URI/protocol and reusable credentials, and apply per-authority audit and the existing capacity/usage accounting to all pipe traffic; processes inside a container share their authority's trust domain, so any in-container caller of the loopback bridge is mediated identically (accepted, documented residual risk).
+```
+
+#### DECISION NOTE: mcp-bridge-default-tool-policy
+Decision-Key: mcp-bridge-default-tool-policy
+Altitude: requirements
+Affected surface: TI01 registry tool exposure (statement already present)
+Decision: Bridged MCP is deny-by-default for all container profiles; only explicitly configured allowlists expose tools. Ratified by the operator in preflight interview.
+Rationale: The empty-allowlist=allow-all convention would expose steward tools to containers; no container can reach host MCP today, so deny-by-default preserves all working behavior.
+Evidence: `tool_policy_cascade.dart:44` allow-all convention; unreachable container MCP URL today.
+
+#### DECISION NOTE: mcp-tool-namespace-for-allowlist
+Decision-Key: mcp-tool-namespace-for-allowlist
+Altitude: fis-local
+Affected surface: TI01 canonical-name mapping (statement already present)
+Decision: Allowlists use canonical tool names (web_search, web_fetch); the host maps canonical names to registered implementations (brave_search, tavily_search, web_fetch) via the existing canonical taxonomy at dispatch.
+Rationale: Aligns bridge policy with the established policy vocabulary instead of registry-internal names.
+Evidence: `_ownMcpToolCanonicals` in CLI wiring is the existing mapping.
+
+#### DECISION NOTE: mcp-denial-audit-sink
+Decision-Key: mcp-denial-audit-sink
+Altitude: project-decision
+Affected surface: TI02 denial auditing (statement already present)
+Decision: Bridge authorization denials emit through the existing guard audit sink as audited policy denials; no new audit channel.
+Rationale: PRD FR4 requires audited denial; the guard audit sink is the established channel.
+Evidence: `McpProtocolHandler` performs no auditing today.
+
+#### DECISION NOTE: container-health-monitor-fate
+Decision-Key: container-health-monitor-fate
+Altitude: fis-local
+Affected surface: TI04 health monitoring (statement already present)
+Decision: Health monitoring is authority-keyed; release deregisters before teardown so normal release is not a crash event.
+Rationale: Profile-keyed monitoring would log every per-authority release as a crash, breaking PRD FR2 crash attribution.
+Evidence: `container_health_monitor.dart` keys by profileId and fires ContainerCrashedEvent on unhealthy transitions.
+
+#### DECISION NOTE: bridge-http-connection-and-cancel-semantics
+Decision-Key: bridge-http-connection-and-cancel-semantics
+Altitude: fis-local
+Affected surface: TI03 bridge HTTP contract (statement already present)
+Decision: The bridge's bounded HTTP/1.1 server supports keep-alive; connections beyond the in-flight cap get bounded queuing then rejection; client disconnect cancels the matching in-flight request.
+Rationale: Sharp defaults an executor can implement without inventing connection semantics.
+Evidence: Scenario AS07 requires cancellation reach the matching request without naming a trigger.
+
+#### DECISION NOTE: mcp-caller-policy-structure
+Decision-Key: mcp-caller-policy-structure
+Altitude: fis-local
+Affected surface: TI02 handler structure (statement already present)
+Decision: A per-authority protocol-handler instance is bound at pipe registration; the shared body-only handler signature is not threaded with caller parameters.
+Rationale: Pipe identity IS the authority, so instance binding is the smallest structure that carries caller policy.
+Evidence: `mcp_server.dart:44` handleRequest(String body) has no caller parameter.
+
+#### DECISION NOTE: native-web-denial-enforcement-point
+Decision-Key: native-web-denial-enforcement-point
+Altitude: project-decision
+Affected surface: TI02 restricted-execution web-tool rejection (statement already present)
+Decision: Provider-native web denial for restricted executions is enforced host-side in the provider adapters (reject requests declaring provider-native web tools), in addition to client-side config disabling. Client suppression alone is insufficient.
+Rationale: Provider-native web executes server-side at the provider through the gateway, so network:none and client config cannot enforce it; binding constraint FR4 rejects client-side-only suppression.
+Evidence: plan.json bindingConstraints (host-enforced authorization); Claude WebSearch / Codex web_search are provider-side tools.

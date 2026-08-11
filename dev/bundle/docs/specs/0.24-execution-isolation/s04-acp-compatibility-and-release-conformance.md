@@ -9,7 +9,7 @@
 
 **Expected Outcomes**:
 
-- [OC01] ACP registrations run only on launch surfaces and execution boundaries whose required isolation, credential, and host-capability mechanisms they explicitly declare and can uphold.
+- [OC01] ACP registrations run only where their computed 0.24 compatibility permits — explicit host execution on the long-lived surface — while container-required registrations and every ACP container combination are unavailable fail-closed with actionable diagnostics.
 - [OC02] Ordinary and workflow-owned execution apply the same compatibility decision, rejecting unsupported combinations before a turn without discarding a required container manager or falling back to host execution.
 - [OC03] Startup and runtime diagnostics identify deliberate host execution and unavailable provider/mode combinations with actionable, secret-free remediation.
 - [OC04] Operators and maintainers receive runtime-backed cross-provider conformance evidence plus aligned ADR, architecture, user, configuration, task, security, and release documentation.
@@ -23,7 +23,7 @@
 - `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#user-flows` – operator-visible startup validation, mixed execution, mediated research, and unsupported-provider recovery flow.
 - `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#decisions-log` – direct Claude/Codex support, declared ACP compatibility, host-owned credentials, separate host capabilities, and fail-closed compatibility decisions.
 - `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#fr3-host-owned-provider-credentials` – container credential compatibility must be explicit; absent adapters make the ACP combination unavailable rather than copying credentials.
-- `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#fr4-scoped-host-capabilities` – host authorization, execution/principal lifetime, tool scoping, and no-egress constraints applicable to ACP capability declarations.
+- `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#fr4-scoped-host-capabilities` – host authorization, execution/principal lifetime, tool scoping, and no-egress constraints applicable to the ACP compatibility computation.
 - `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md#architecture-decision` – consume the resolved execution policy and worker identity unchanged; do not reconstruct or substitute them.
 - `dev/bundle/docs/specs/0.24-execution-isolation/s02-scoped-host-gateway.md#architecture-decision` – consume the separate provider-gateway and scoped host-capability authorities without generalizing them into one proxy.
 - `dev/bundle/docs/specs/0.24-execution-isolation/s03-claude-and-codex-container-parity.md#architecture-decision` – preserve direct Claude/Codex parity and use it as the conformance baseline, not as an implicit ACP adapter.
@@ -40,27 +40,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02] [TI01,TI02] A declared-compatible ACP registration runs at its requested boundary on each supported launch surface**
-  - **Given** a verified ACP registration declares the launch surfaces, host/container modes, provider-credential mechanism, and host-capability mechanism it supports
-  - **When** an ordinary execution or workflow-owned execution requests a combination included in that declaration
-  - **Then** admission selects the resolved S01 boundary unchanged, the ACP process runs at that real location, and only the declared credential and capability paths are available
-  - **And** a launch surface lacking an ACP adapter is not advertised as compatible merely because the long-lived ACP harness exists
+- [ ] **S01 [OC01,OC02] [TI01,TI02] A compatible ACP registration runs at its requested boundary on its supported launch surface**
+  - **Given** a direct/verified ACP registration whose agents resolve to an explicit host execution selection under the effective S01 policy
+  - **When** an ordinary long-lived execution requests that combination and a workflow-owned execution requests the same registration
+  - **Then** admission selects the resolved S01 boundary unchanged, the ACP process runs at that real host location on the long-lived surface, and the workflow surface reports its explicit unsupported-surface verdict
+  - **And** container execution for any ACP registration is an unavailable 0.24 combination reported at startup, never silently substituted, and a launch surface lacking an ACP adapter is not advertised as compatible merely because the long-lived ACP harness exists
 
 - [ ] **S02 [OC01,OC02] [TI01,TI02] Relay or unverified ACP never loses its required container manager**
   - **Given** an ACP registration is relay or unverified and therefore requires the restricted or workspace container profile
-  - **When** primary, logical-agent, ordinary-task, or supported workflow construction creates its harness/process
-  - **Then** construction receives the exact manager selected by the effective container policy and the process is observed inside that container
-  - **And** a missing manager rejects before turn start instead of passing `null`, launching on the host, or weakening the registration
+  - **When** startup validates the provider/execution matrix, and any construction path is nevertheless reached
+  - **Then** the registration is unavailable in 0.24 with an actionable diagnostic naming the missing container credential/capability mediation, and no path discards a required manager, launches the process on the host, or weakens the registration
+  - **And** the factory independently fails closed if container-required construction is ever reached without its manager
   - **Proof**: `packages/dartclaw_core/test/harness/harness_factory_test.dart#container-required ACP agents fail closed without a container manager` – green – parity/regression
 
 - [ ] **S03 [OC01,OC02,OC03] [TI01,TI03] Unsupported ACP credential or host-capability combinations fail at startup**
-  - **Given** separate registrations that request container execution without a compatible provider-credential adapter, require unavailable host capabilities, declare an unsupported launch surface, or conflict with the resolved execution mode/profile
+  - **Given** separate registrations that request container execution (unavailable for every ACP registration in 0.24), request a surface with no ACP implementation, or conflict with the resolved execution mode/profile
   - **When** DartClaw validates the complete provider/execution matrix at startup
   - **Then** every affected combination is unavailable before admission, with the provider ID, requested mode/profile, exact configuration path, missing mechanism, and remediation reported
   - **And** no credential is copied into the container, shared steward token exposed, direct egress enabled, or host execution substituted
 
 - [ ] **S04 [OC02,OC03] [TI02,TI03] Standalone and workflow entry points return the same compatibility verdict**
-  - **Given** one compatible and one incompatible combination for each configured provider family and execution mode
+  - **Given** one compatible and one incompatible combination for each provider family with a supported surface on the path under test, and the unsupported-surface verdict for families without one
   - **When** equivalent work is requested through the ordinary long-lived/task path and the workflow one-shot path
   - **Then** both surfaces either enforce the same real placement and mediation mechanisms or reject the same unsupported combination before process spawn
   - **And** failures preserve capacity, cleanup, retry, and attribution semantics without surface-specific fallback
@@ -72,7 +72,7 @@
   - **And** diagnostics contain no provider credential, bridge authority, request payload, host login material, or generated secret-bearing configuration
 
 - [ ] **S06 [OC04] [TI04] The release conformance matrix proves success and denial at runtime**
-  - **Given** Claude, Codex, and each ACP combination advertised as supported, across logical agents, ordinary tasks, and applicable workflow one-shots
+  - **Given** every combination in the TI04 release matrix — Claude and Codex host/container on long-lived and workflow surfaces, direct/verified ACP host-only on the long-lived surface — across logical agents, ordinary tasks, and applicable workflow one-shots
   - **When** the release conformance suite exercises host/container success, incompatible-policy rejection, missing mediation, direct-egress denial, scoped-capability denial, cross-execution replay, startup failure, and cleanup
   - **Then** evidence observes actual process placement, provider request behavior, host authorization, network denial, and terminal failure rather than relying on profile labels or generated configuration alone
   - **And** any failed advertised path blocks release readiness
@@ -80,7 +80,7 @@
 - [ ] **S07 [OC04] [TI05] Public and internal documentation describes the implemented boundary consistently**
   - **Given** the completed runtime and conformance matrix
   - **When** an operator reads configuration, agent, task, and security guides and a maintainer reads the architecture, ADR registry/lineage, and changelog
-  - **Then** each distinguishes execution mode, container profile, provider credential mediation, host capability mediation, direct Claude/Codex support, and declared ACP compatibility without promising adapters for arbitrary ACP binaries
+  - **Then** each distinguishes execution mode, container profile, provider credential mediation, host capability mediation, direct Claude/Codex support, and the computed 0.24 ACP posture (host-only, no containerized ACP) without promising adapters for arbitrary ACP binaries
 
 ## Structural Criteria
 
@@ -95,7 +95,7 @@
 
 ### Work Areas
 
-- ACP registration/configuration capability declarations and validation
+- ACP registration compatibility computation and startup validation
 - ACP harness/factory and CLI composition across effective host/container policies
 - Workflow/ordinary provider launch compatibility and fail-closed admission
 - Startup diagnostics and provider execution-status surfaces
@@ -104,7 +104,7 @@
 
 ### What We're NOT Doing
 
-- Adding credential or MCP adapters for every ACP binary – 0.24 supports only explicitly implemented and declared mechanisms.
+- Adding credential or MCP adapters for any ACP binary – 0.24 supports no containerized ACP; per-agent verified onboarding is a post-0.24 path.
 - Changing S01 policy precedence, S02 transport/authority, or S03 Claude/Codex adapters – this story validates and composes those completed contracts.
 - Re-enabling ACP host terminal reverse-calls – ADR-037 keeps them disabled pending complete process-tree containment.
 - Adding container egress, a general forwarding proxy, or reusable credentials inside containers – these contradict the binding security constraints.
@@ -112,12 +112,12 @@
 
 ## Architecture Decision
 
-**Approach**: Make ACP compatibility an explicit registration contract over launch surface, execution mode/profile, provider-credential mediation, and host-capability mediation; validate the complete matrix after S01 policy resolution and before process admission.
-**Why this over alternatives**: Inferring support from binary identity, topology, or a nullable manager recreates the current false-claim/fallback risk; declaration plus runtime conformance permits narrow support without promising universal ACP compatibility.
+**Approach**: Compute ACP compatibility from existing registration fields (topology, verification, `container_isolation_required`, `container_profile`) intersected with the resolved S01 policy — container combinations are unavailable in 0.24 and host combinations require an explicit host selection — validating the complete matrix after S01 policy resolution and before process admission.
+**Why this over alternatives**: A new declaration schema would promise container credential and host-capability mechanisms no ACP binary has verified against the two provider adapters, recreating the false-claim risk; computed fail-closed compatibility plus runtime conformance permits narrow, honest support without promising universal ACP compatibility, and a nullable manager never decides placement.
 
 ## Technical Overview
 
-ACP topology classification answers whether guard mediation may be claimed; it does not by itself prove that a requested execution surface can launch the process, authenticate its model provider, or reach approved host capabilities. The registration contract must therefore describe those distinct compatibility axes and startup must intersect them with the resolved S01 policy and available S02 mechanisms. Compatibility never manufactures a missing adapter.
+ACP topology classification answers whether guard mediation may be claimed; it does not by itself prove that a requested execution surface can launch the process, authenticate its model provider, or reach approved host capabilities. In 0.24 no ACP registration can satisfy the container credential/capability requirements (S02's two adapters are provider-verified for Claude and Codex clients only), so startup computes compatibility from existing registration fields intersected with the resolved S01 policy: container combinations are unavailable, and host combinations require the effective policy to select host explicitly. Compatibility never manufactures a missing adapter, and containerizing a direct registration would also silently disable its reverse-call guard mediation — a downgrade this posture forecloses, leaving ADR-037's claims intact.
 
 Long-lived/ordinary and workflow-owned execution remain distinct launch implementations, but consume one compatibility verdict. A surface with no ACP implementation is unavailable for that registration rather than routed through a built-in Claude/Codex adapter. Conformance then proves every advertised success and denial with real placement and mediation observations, and the resulting support boundary becomes the single source for diagnostics and documentation.
 
@@ -128,6 +128,8 @@ Long-lived/ordinary and workflow-owned execution remain distinct launch implemen
 file | packages/dartclaw_config/lib/src/harness_config.dart#AcpAgentConfig | Existing ACP topology, verification, and required-container declaration seam
 file | packages/dartclaw_config/lib/src/config_parser_harness.dart#_parseHarness | Exact-path ACP parsing and validation pattern
 file | packages/dartclaw_core/lib/src/harness/harness_factory.dart#registerAcpAgent | Current ACP construction can conditionally discard a supplied manager
+file | apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart#_containerManagerForProvider | Returns null for non-required ACP before the factory; primary-path site of the manager-discard defect
+file | apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart#_providerEnvironment | Injects provider API keys into harness env reaching containerManager.exec — the existing containerized-ACP credential leak the unavailability rule and a regression assertion must close
 file | packages/dartclaw_core/lib/src/harness/acp_harness.dart#AcpHarness | Host/container stdio launch and reverse-call lifecycle
 file | apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart#HarnessWiring | Startup ACP validation, provider matrix, primary/worker construction, status, and diagnostics
 file | apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart#_validateConfiguredAcpTargets | Existing runtime-evidence validation to extend with execution compatibility
@@ -142,7 +144,7 @@ file | apps/dartclaw_cli/test/commands/wiring/harness_wiring_test.dart#configure
 - **Critical**: ACP topology, credential transport, host capabilities, launch surface, and execution location are independent axes – one compatible axis must not imply the others.
 - **Critical**: A supplied container manager is required authority, not an optional optimization – factory code must not discard it because a separate boolean is false.
 - **Constraint**: Validate operator policy first, then provider/platform compatibility – failures reject the resolved request and never select a replacement policy.
-- **Constraint**: Standalone and workflow paths may have different adapters but must consume the same verdict; absence of a workflow ACP adapter is an explicit unsupported surface.
+- **Constraint**: Standalone and workflow paths may have different adapters but must consume the same verdict; an unsupported surface is itself a verdict value both paths report identically, so per-family compatible combinations exist only for families with at least one supported surface on each path (Claude and Codex in 0.24).
 - **Constraint**: Diagnostics and conformance captures operate on sentinel credentials/authorities and must redact values from output, exceptions, snapshots, and logs.
 - **Avoid**: Treating generated config, profile IDs, or fake manager selection as placement proof – use process/container and captured-traffic evidence.
 
@@ -151,20 +153,20 @@ file | apps/dartclaw_cli/test/commands/wiring/harness_wiring_test.dart#configure
 ### Implementation Tasks
 
 - [ ] **TI01** ACP registrations express and validate enforceable compatibility
-  - Extend `AcpAgentConfig` and its parser/validator with the minimum declarations needed to distinguish supported launch surfaces, execution modes/profiles, provider-credential mediation, and host-capability mediation; preserve topology/verification as a separate security claim.
-  - **Verify**: Table-driven config tests prove accepted declarations and exact-path rejection for missing, contradictory, unknown, or unavailable mechanisms from S01 and S03, with omitted declarations granting no new support.
+  - Implement the 0.24 ACP posture: no containerized ACP execution. Introduce no new declaration axes; startup computes each registration's compatibility from its existing fields (topology, verification, `container_isolation_required`, `container_profile`) intersected with the resolved S01 policy. Container-required registrations (relay/unverified always, and any direct registration setting `container_isolation_required: true`) are unavailable with an actionable diagnostic naming the missing container credential/capability mediation; other direct/verified registrations run only where the effective policy selects explicit host execution, and a container-default deployment must select host explicitly per agent (the conflict is rejected, never silently weakened). Validation errors for these rules are startup-fatal with exact paths; topology/verification remains a separate security claim.
+  - **Verify**: Table-driven config tests prove the computed compatibility matrix — container-required registrations unavailable with exact-path diagnostics, direct registrations rejected under container policy without an explicit host selection, startup-fatal errors for posture violations — and that no existing registration field grants container support.
 
 - [ ] **TI02** Every ACP launch consumes the resolved boundary and required manager unchanged
   - Apply TI01 after S01 resolution in `HarnessWiring`, `HarnessFactory.registerAcpAgent`, and any supported workflow adapter; never conditionally erase a manager selected by container policy, and reject surfaces without an implementation before spawn.
   - **Verify**: S01, S02, and S04 pass with real/fake process placement across primary, logical-agent, ordinary-task, and applicable workflow paths; missing managers/adapters fail pre-turn and capacity/cleanup remain correct.
 
 - [ ] **TI03** Startup compatibility and deliberate-boundary diagnostics are actionable and secret-free
-  - Build one startup inventory from resolved policy, ACP declarations, available S02 mechanisms, platform/container availability, and supported launch adapters; feed both admission and operator-visible diagnostics from that inventory.
+  - Build one startup inventory from resolved policy, the computed ACP compatibility, available S02 mechanisms, platform/container availability, and supported launch adapters; the inventory type lives in `dartclaw_core` and is composed/populated in CLI wiring, feeding admission directly and operator-visible diagnostics by extending S01's TI06 emission path (one emission point; S01's tests are updated rather than duplicated).
   - **Verify**: S03–S05 pass, including exact provider/config-path/mode/mechanism/remediation output, one warning per explicit host weakening, stable rejection classes across ordinary/workflow entry points, and sentinel-secret absence.
 
 - [ ] **TI04** Runtime conformance covers every advertised provider/surface boundary
-  - Extend the S03 placement/mediation fixtures into a release matrix for Claude, Codex, and declared-supported ACP, including logical agents, ordinary tasks, applicable workflows, success, denial, replay, startup failure, and cleanup.
-  - **Verify**: S06 records non-skipped passing results on Linux Docker and Docker Desktop; tests fail if labels change
+  - Extend the S03 placement/mediation fixtures into the explicit release matrix — Claude {host, container} and Codex {host, container} on both long-lived and workflow one-shot surfaces, plus direct/verified ACP {host, long-lived only, explicit selection} — with every other provider/mode/surface combination exercised as a required-denial path, including logical agents, ordinary tasks, success, denial, replay, startup failure, and cleanup.
+  - **Verify**: S06 passes non-skipped on the executing platform, with recorded evidence on both Linux Docker and Docker Desktop required for 0.24 release completion via the release checklist; tests fail if labels change
     without real placement, a required manager is dropped, credentials appear in a container, direct egress/native search
     succeeds, host authorization is bypassed, or an advertised path lacks execution evidence.
 
@@ -172,8 +174,9 @@ file | apps/dartclaw_cli/test/commands/wiring/harness_wiring_test.dart#configure
   - Verify S01's ADR-012/`DECISIONS.md` lineage and synchronize control/task/security/configuration architecture,
     `docs/guide/{agents,configuration,security,tasks}.md`, and `CHANGELOG.md` with TI04's actual boundary; preserve ADR-037's
     topology-scoped claims and avoid universal ACP promises.
-  - **Verify**: S07 passes through a documentation claim inventory mapped to conformance cases; S01's ADR-012 lineage is
-    present, 0.24 release notes name mixed execution and corrected restricted research behavior, and every documented
+  - **Verify**: S07 passes through a documentation claim inventory (a transient execution artifact — a docs-claim to conformance-case mapping recorded in this story's implementation observations and PR description, not a tracked repo file) mapped to conformance cases; S01's ADR-012 lineage is
+    present, 0.24 release notes name mixed execution, corrected restricted research behavior, and the ACP
+    container-support breaking change with its migration path, and every documented
     provider/mode/surface is backed by TI04.
 
 ### Testing Strategy
@@ -187,12 +190,268 @@ file | apps/dartclaw_cli/test/commands/wiring/harness_wiring_test.dart#configure
 
 ## Final Validation Checklist
 
-- [ ] The recorded pre-S01 Git tree object for `dev/bundle/docs/specs/0.24/` equals the final tree object; a clean final
-      worktree diff alone is insufficient.
+- [ ] The pre-S01 baseline for `dev/bundle/docs/specs/0.24/` — a deterministic content hash of that directory's
+      working-tree state, captured by the S01 executor immediately before S01 begins and recorded as S01's first
+      implementation observation — equals the same hash of the final state; a clean final worktree diff alone is
+      insufficient, and HEAD's tree object is not the baseline because the directory already carries uncommitted edits.
 - [ ] Every provider/mode/surface claim in changed docs and release notes maps to a passing TI04 runtime conformance case.
 
 ## Implementation Observations
 
 > _Managed by exec-spec post-implementation – append-only. Tag semantics: see the AndThen FIS data contract. Spec authors leave this section empty._
 
-_No observations recorded yet._
+#### DECISION NOTE: acp-container-posture
+Decision-Key: acp-container-posture
+Altitude: requirements
+Affected surface: TI01; Technical Overview; Architecture Decision; Expected Outcome OC01; Work Areas; Required Context; What We're NOT Doing; ACP acceptance scenarios (first three) incl. S01 title prose and S07 Then; Code Patterns
+Decision: 0.24 supports no containerized ACP execution. Container-required registrations (relay/unverified always, and any direct registration setting `container_isolation_required: true`) are unavailable fail-closed with actionable diagnostics; other direct/verified registrations run only where the effective policy selects explicit host execution (conflicts rejected, never weakened). No new declaration axes — compatibility is computed from existing registration fields intersected with resolved S01 policy. Per-agent verified onboarding is the intended post-0.24 path. All body surfaces now state the computed posture; the declaration-contract wording is removed everywhere.
+Rationale: The re-check found the Architecture Decision, OC01, scenario S03's Given, S01's title prose, S07's Then, Work Areas, Required Context, and What We're NOT Doing still teaching the rejected declaration model; this replacement propagates the ratified posture to every surface. Earlier TI01/Technical Overview/scenario-body/Code Patterns amendments stand.
+Evidence: Prior note's evidence stands (verified credential leak; nulled reverse-call handlers; competitive research).
+
+Old:
+```
+**Approach**: Make ACP compatibility an explicit registration contract over launch surface, execution mode/profile, provider-credential mediation, and host-capability mediation; validate the complete matrix after S01 policy resolution and before process admission.
+**Why this over alternatives**: Inferring support from binary identity, topology, or a nullable manager recreates the current false-claim/fallback risk; declaration plus runtime conformance permits narrow support without promising universal ACP compatibility.
+```
+New:
+```
+**Approach**: Compute ACP compatibility from existing registration fields (topology, verification, `container_isolation_required`, `container_profile`) intersected with the resolved S01 policy — container combinations are unavailable in 0.24 and host combinations require an explicit host selection — validating the complete matrix after S01 policy resolution and before process admission.
+**Why this over alternatives**: A new declaration schema would promise container credential and host-capability mechanisms no ACP binary has verified against the two provider adapters, recreating the false-claim risk; computed fail-closed compatibility plus runtime conformance permits narrow, honest support without promising universal ACP compatibility, and a nullable manager never decides placement.
+```
+
+Old:
+```
+- [OC01] ACP registrations run only on launch surfaces and execution boundaries whose required isolation, credential, and host-capability mechanisms they explicitly declare and can uphold.
+```
+New:
+```
+- [OC01] ACP registrations run only where their computed 0.24 compatibility permits — explicit host execution on the long-lived surface — while container-required registrations and every ACP container combination are unavailable fail-closed with actionable diagnostics.
+```
+
+Old:
+```
+  - **Given** separate registrations that request container execution without a compatible provider-credential adapter, require unavailable host capabilities, declare an unsupported launch surface, or conflict with the resolved execution mode/profile
+```
+New:
+```
+  - **Given** separate registrations that request container execution (unavailable for every ACP registration in 0.24), request a surface with no ACP implementation, or conflict with the resolved execution mode/profile
+```
+
+Old:
+```
+- [ ] **S01 [OC01,OC02] [TI01,TI02] A declared-compatible ACP registration runs at its requested boundary on each supported launch surface**
+```
+New:
+```
+- [ ] **S01 [OC01,OC02] [TI01,TI02] A compatible ACP registration runs at its requested boundary on its supported launch surface**
+```
+
+Old:
+```
+  - **Then** each distinguishes execution mode, container profile, provider credential mediation, host capability mediation, direct Claude/Codex support, and declared ACP compatibility without promising adapters for arbitrary ACP binaries
+```
+New:
+```
+  - **Then** each distinguishes execution mode, container profile, provider credential mediation, host capability mediation, direct Claude/Codex support, and the computed 0.24 ACP posture (host-only, no containerized ACP) without promising adapters for arbitrary ACP binaries
+```
+
+Old:
+```
+- ACP registration/configuration capability declarations and validation
+```
+New:
+```
+- ACP registration compatibility computation and startup validation
+```
+
+Old:
+```
+- Adding credential or MCP adapters for every ACP binary – 0.24 supports only explicitly implemented and declared mechanisms.
+```
+New:
+```
+- Adding credential or MCP adapters for any ACP binary – 0.24 supports no containerized ACP; per-agent verified onboarding is a post-0.24 path.
+```
+
+Old:
+```
+- `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#fr4-scoped-host-capabilities` – host authorization, execution/principal lifetime, tool scoping, and no-egress constraints applicable to ACP capability declarations.
+```
+New:
+```
+- `dev/bundle/docs/specs/0.24-execution-isolation/prd.md#fr4-scoped-host-capabilities` – host authorization, execution/principal lifetime, tool scoping, and no-egress constraints applicable to the ACP compatibility computation.
+```
+
+Old:
+```
+Relay/unverified (container-required) registrations are unavailable with an actionable diagnostic naming the missing container credential/capability mediation; direct/verified registrations run only where
+```
+New:
+```
+Container-required registrations (relay/unverified always, and any direct registration setting `container_isolation_required: true`) are unavailable with an actionable diagnostic naming the missing container credential/capability mediation; other direct/verified registrations run only where
+```
+
+#### DECISION NOTE: advertised-support-matrix-authority
+Decision-Key: advertised-support-matrix-authority
+Altitude: requirements
+Affected surface: TI04 matrix enumeration; Scenario S06 Given
+Decision: The advertised 0.24 support matrix is the TI04 enumeration — Claude {host, container} and Codex {host, container} on long-lived and workflow one-shot surfaces; direct/verified ACP {host, long-lived only, explicit selection}; all other combinations required-denial. Scenario S06's Given now references the TI04 matrix directly, removing the circular "advertised as supported" definition.
+Rationale: The unamended Given kept the circularity the note's own evidence identified.
+Evidence: TI04 as amended.
+
+Old:
+```
+  - **Given** Claude, Codex, and each ACP combination advertised as supported, across logical agents, ordinary tasks, and applicable workflow one-shots
+```
+New:
+```
+  - **Given** every combination in the TI04 release matrix — Claude and Codex host/container on long-lived and workflow surfaces, direct/verified ACP host-only on the long-lived surface — across logical agents, ordinary tasks, and applicable workflow one-shots
+```
+
+#### DECISION NOTE: dual-platform-conformance-evidence-protocol
+Decision-Key: dual-platform-conformance-evidence-protocol
+Altitude: project-decision
+Affected surface: TI04 Verify completion criterion
+Decision: TI04's suite passes non-skipped on the executing platform for story completion; recorded non-skipped evidence on both Linux Docker and Docker Desktop is the 0.24 release-completion gate, executed via the release checklist. Same graded protocol as S02 TI05 and S03 TI06.
+Rationale: A single execution host cannot honestly produce two-platform evidence in-run.
+Evidence: S02 Testing Strategy carve-out; no Docker-probing test gate exists.
+
+Old:
+```
+  - **Verify**: S06 records non-skipped passing results on Linux Docker and Docker Desktop; tests fail if labels change
+```
+New:
+```
+  - **Verify**: S06 passes non-skipped on the executing platform, with recorded evidence on both Linux Docker and Docker Desktop required for 0.24 release completion via the release checklist; tests fail if labels change
+```
+
+#### DECISION NOTE: memory-bundle-baseline-recording-owner
+Decision-Key: memory-bundle-baseline-recording-owner
+Altitude: fis-local
+Affected surface: Final Validation Checklist baseline gate
+Decision: The pre-S01 baseline is a deterministic content hash of the WORKING-TREE state of `dev/bundle/docs/specs/0.24/`, captured by the S01 executor immediately before S01 begins and recorded as S01's first implementation observation; S04 compares the final state against that recorded hash. HEAD's tree object is explicitly NOT the baseline.
+Rationale: The directory already differs from HEAD in the working tree (parallel memory-work edits), so the previously implied HEAD tree object would produce a false failure; the gate had no recorder, storage location, or owner.
+Evidence: `git status` shows dev/bundle/docs/specs/0.24/*.md modified while HEAD:dev/bundle/docs/specs/0.24 = 39028034d15e3df272191adedad8f6feb717f0de.
+
+Old:
+```
+- [ ] The recorded pre-S01 Git tree object for `dev/bundle/docs/specs/0.24/` equals the final tree object; a clean final
+      worktree diff alone is insufficient.
+```
+New:
+```
+- [ ] The pre-S01 baseline for `dev/bundle/docs/specs/0.24/` — a deterministic content hash of that directory's
+      working-tree state, captured by the S01 executor immediately before S01 begins and recorded as S01's first
+      implementation observation — equals the same hash of the final state; a clean final worktree diff alone is
+      insufficient, and HEAD's tree object is not the baseline because the directory already carries uncommitted edits.
+```
+
+#### DECISION NOTE: surface-unavailability-vs-verdict-parity
+Decision-Key: surface-unavailability-vs-verdict-parity
+Altitude: fis-local
+Affected surface: Constraints & Gotchas parity constraint; Scenario S04 Given
+Decision: An unsupported surface is itself a verdict value both entry points report identically; parity means consuming the same verdict. Scenario S04's Given now scopes compatible combinations to families with a supported surface on the path under test and asserts the unsupported-surface verdict for the rest.
+Rationale: The unamended Given still demanded one compatible combination per family on every path, which ACP cannot satisfy on the workflow surface.
+Evidence: Workflow runner registers only claude/codex.
+
+Old:
+```
+  - **Given** one compatible and one incompatible combination for each configured provider family and execution mode
+```
+New:
+```
+  - **Given** one compatible and one incompatible combination for each provider family with a supported surface on the path under test, and the unsupported-surface verdict for families without one
+```
+
+#### DECISION NOTE: startup-compatibility-inventory-ownership
+Decision-Key: startup-compatibility-inventory-ownership
+Altitude: project-decision
+Affected surface: TI03 inventory placement and diagnostics wiring
+Decision: The startup compatibility inventory type lives in `dartclaw_core` (no CLI dependency); CLI wiring composes and populates it. Operator diagnostics are fed by extending S01's TI06 emission path to consume the inventory — one emission point, S01's tests updated rather than a duplicate emitter.
+Rationale: Placement decides whether core gains a CLI-layer dependency; a second emitter would either double-warn or break S01's warn-once tests.
+Evidence: TI03 spans config/core/CLI with no named home; S01 TI06 already owns and tests weakening warnings.
+
+Old:
+```
+  - Build one startup inventory from resolved policy, ACP declarations, available S02 mechanisms, platform/container availability, and supported launch adapters; feed both admission and operator-visible diagnostics from that inventory.
+```
+New:
+```
+  - Build one startup inventory from resolved policy, the computed ACP compatibility, available S02 mechanisms, platform/container availability, and supported launch adapters; the inventory type lives in `dartclaw_core` and is composed/populated in CLI wiring, feeding admission directly and operator-visible diagnostics by extending S01's TI06 emission path (one emission point; S01's tests are updated rather than duplicated).
+```
+
+#### DECISION NOTE: documentation-claim-inventory-artifact
+Decision-Key: documentation-claim-inventory-artifact
+Altitude: fis-local
+Affected surface: TI05 Verify claim-inventory mechanism
+Decision: The documentation claim inventory is a transient execution artifact — a docs-claim to conformance-case mapping recorded in this story's implementation observations and PR description — not a tracked repo file.
+Rationale: Gives S07 an observable without inventing a new tracked artifact class outside the spec lifecycle.
+Evidence: dev/state/SPEC-LIFECYCLE.md defines no such artifact.
+
+Old:
+```
+  - **Verify**: S07 passes through a documentation claim inventory mapped to conformance cases; S01's ADR-012 lineage is
+```
+New:
+```
+  - **Verify**: S07 passes through a documentation claim inventory (a transient execution artifact — a docs-claim to conformance-case mapping recorded in this story's implementation observations and PR description, not a tracked repo file) mapped to conformance cases; S01's ADR-012 lineage is
+```
+
+#### DECISION NOTE: acp-declaration-schema-minimal
+Decision-Key: acp-declaration-schema-minimal
+Altitude: project-decision
+Affected surface: TI01 registration schema and Verify
+Decision: No new ACP YAML declaration axes in 0.24; compatibility is computed from existing fields. TI01's Verify tests the computed matrix — container-required unavailability with exact-path diagnostics, direct-under-container-policy rejection absent an explicit host selection, startup-fatal posture violations — and asserts no existing field grants container support.
+Rationale: The old Verify referenced declarations that no longer exist and was unexecutable against the amended task.
+Evidence: TI01 as amended.
+
+Old:
+```
+  - **Verify**: Table-driven config tests prove accepted declarations and exact-path rejection for missing, contradictory, unknown, or unavailable mechanisms from S01 and S03, with omitted declarations granting no new support.
+```
+New:
+```
+  - **Verify**: Table-driven config tests prove the computed compatibility matrix — container-required registrations unavailable with exact-path diagnostics, direct registrations rejected under container policy without an explicit host selection, startup-fatal errors for posture violations — and that no existing registration field grants container support.
+```
+
+#### DECISION NOTE: acp-guard-mediation-under-container-execution
+Decision-Key: acp-guard-mediation-under-container-execution
+Altitude: adr
+Affected surface: Technical Overview (statement already present)
+Decision: Resolved without an ADR amendment: container execution for direct/guard-mediated ACP is an unavailable combination in 0.24, so the reverse-call mediation downgrade cannot occur and ADR-037's topology-scoped claims remain intact unchanged.
+Rationale: The posture forecloses the conflicting state; amending ADR-037 for a foreclosed state would be speculative.
+Evidence: `acp_harness.dart` nulls reverse-call handlers under a container manager — unreachable under the 0.24 posture, and the factory fail-closed assertion guards regression.
+
+#### DECISION NOTE: acp-existing-registration-migration-posture
+Decision-Key: acp-existing-registration-migration-posture
+Altitude: requirements
+Affected surface: TI01 (statement present); TI05 release-notes duty
+Decision: Existing relay/unverified (container-required) ACP registrations break at 0.24 startup with actionable diagnostics — a deliberate, documented breaking change justified by the credential leak it closes. TI05's release-notes verify now names the ACP container-support breaking change and its migration path explicitly.
+Rationale: The zero-pair form was invalid — TI05 did not state the release-notes duty; the breaking change must not ship undocumented.
+Evidence: Verified credential injection into containerized ACP env; PRD: an unenforced label is worse than an explicit unsupported error.
+
+Old:
+```
+    present, 0.24 release notes name mixed execution and corrected restricted research behavior, and every documented
+```
+New:
+```
+    present, 0.24 release notes name mixed execution, corrected restricted research behavior, and the ACP
+    container-support breaking change with its migration path, and every documented
+```
+
+#### DECISION NOTE: acp-config-invalid-declaration-failure-mode
+Decision-Key: acp-config-invalid-declaration-failure-mode
+Altitude: project-decision
+Affected surface: TI01 validation failure mode (statement already present)
+Decision: Violations of the 0.24 ACP posture rules are startup-fatal with exact configuration paths; pre-existing lenient parsing of unrelated ACP fields is unchanged in this story.
+Rationale: Consistent with S01's startup-fatal execution-policy validation; converting all legacy leniency is out of scope.
+Evidence: config_parser_harness.dart warn-and-skip behavior documented in review.
+
+#### DECISION NOTE: startup-weakening-warning-ownership
+Decision-Key: startup-weakening-warning-ownership
+Altitude: fis-local
+Affected surface: TI03 diagnostics wiring (statement already present)
+Decision: S01 TI06's emission path remains the single warning emitter; S04 extends it to consume the startup inventory rather than adding a second emitter.
+Rationale: Two emitters would double-warn or break S01's warn-once tests.
+Evidence: TI03 as amended.

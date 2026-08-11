@@ -64,6 +64,7 @@
 | [048](../adrs/048-release-builds-dart-build-bundled-sqlite.md) | Release Builds Use `dart build cli` with Bundled SQLite | Accepted (implemented; ships post-0.20.1) | Distribution / build |
 | [049](../adrs/049-typed-platform-capability-surface.md) | Typed Platform Capability Surface | Accepted (targets 0.21) | Platform / runtime capability policy |
 | [050](../adrs/050-native-hybrid-search.md) | Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost | Accepted (targets 0.25 Phase B) | Search / memory |
+| [051](../adrs/051-container-bridge-binary-packaging.md) | Container Bridge Binary Packaging — Release-Time Cross-Compile, Host-Shipped, Mounted at Create | Accepted (targets 0.24 execution-isolation correction) | Distribution / container isolation |
 
 ## Superseded
 

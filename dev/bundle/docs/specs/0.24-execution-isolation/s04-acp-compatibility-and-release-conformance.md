@@ -497,3 +497,37 @@ Each provider/mode/surface claim in the changed docs, mapped to the conformance 
 - **Dual-engine container conformance evidence is a release gate** — `dev/guidelines/RELEASE_PREPARATION.md` → the gate itself; the matrix suite fails if any named fixture is renamed, removed, or `@Skip`-ped.
 
 No documented provider/mode/surface combination lacks a mapped case, and no mapped case is currently red.
+
+### Run: 2026-08-12 01:22 UTC – observations
+
+#### DEVIATION: memory-bundle baseline artifact
+
+Final Validation item 1 names a working-tree content hash captured by the S01
+executor as its first implementation observation. S01 recorded no such hash;
+the pre-S01 record that exists is the orchestrator's Git tree object
+`4756662b085a3f62c9b6e433121e6ac36a9039a1` in
+`.agent_temp/exec-plan-0.24-execution-isolation-baseline.txt` — the artifact
+form decision note `memory-bundle-baseline-recording-owner` explicitly
+rejected. S04 verified the outcome by an equivalent chain instead: the last
+commit touching the directory (422a1b65) is an ancestor of HEAD and carries
+the same tree object; no story commit touched the directory; the worktree is
+clean for it; and its final deterministic content hash is
+`fc890d13f7b2eb0d4241365db0db180b4e22e65d37e570f25a30afc1710d5e56`.
+
+The one gap that chain leaves — uncommitted edits present at the instant the
+tree object was recorded would not have been captured — is closed by
+orchestrator-held evidence: orchestrator verified `git status --short` clean
+across the repo immediately before recording the baseline tree object and
+before S01 began; working-tree state == HEAD tree at capture. Final content
+hash `fc890d13f7b2eb0d4241365db0db180b4e22e65d37e570f25a30afc1710d5e56`
+recorded for future comparisons. A clean worktree at capture makes the tree
+object measure exactly what the prescribed working-tree hash would have
+measured, so the decision note's failure mode is refuted by a witness rather
+than assumed improbable. Item checked: the mechanism was substituted, the
+capture moment is witnessed.
+
+Every link in that chain was re-verified independently by the ops writer before
+this block was appended (baseline file contents, `422a1b65:dev/bundle/docs/specs/0.24`
+tree object, `HEAD:dev/bundle/docs/specs/0.24` tree object, ancestry, empty
+`git status --porcelain` for the directory, zero story-commit touches, and the
+16-file content hash, which reproduced byte-for-byte).

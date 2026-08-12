@@ -106,6 +106,68 @@ void main() {
     });
   });
 
+  group('S01 an inherited host mode never discards a configured profile', () {
+    const configuredRestricted = AgentDefinition(
+      id: 'search',
+      description: 'searches',
+      prompt: 'search',
+      securityProfile: 'restricted',
+      profileIsOperatorConfigured: true,
+    );
+
+    for (final containersEnabled in [true, false]) {
+      test(
+        'agent.execution: host is rejected for it with containers ${containersEnabled ? 'enabled' : 'disabled'}',
+        () {
+          final resolver = resolverFor(
+            containersEnabled: containersEnabled,
+            primary: ExecutionMode.host,
+            agents: const [configuredRestricted],
+          );
+
+          expect(
+            () => resolver.resolveForAgent(configuredRestricted, providerId: 'claude'),
+            throwsA(
+              isA<ExecutionPolicyException>().having(
+                (error) => error.message,
+                'message',
+                allOf(contains('search'), contains('restricted'), contains('agent.execution: host')),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    test('the rejected agent is named at startup so it is not first seen at dispatch', () {
+      final warnings = resolverFor(
+        primary: ExecutionMode.host,
+        agents: const [configuredRestricted],
+      ).failClosedWarnings(agents: const [configuredRestricted]);
+
+      expect(warnings.where((warning) => warning.contains('"search"')), hasLength(1));
+    });
+
+    test('a default profile is still dropped by the inherited mode, as before', () {
+      // searchAgent carries the built-in restricted default, not an operator
+      // choice, so `agent.execution: host` legitimately places it on the host.
+      final resolver = resolverFor(primary: ExecutionMode.host, agents: const [searchAgent]);
+
+      expect(resolver.resolveForAgent(searchAgent, providerId: 'claude'), const ExecutionPolicy.host());
+      expect(resolver.hostOverrideWarnings().where((warning) => warning.contains('agent.execution')), hasLength(1));
+    });
+
+    test('an inherited container mode keeps the configured profile', () {
+      expect(
+        resolverFor(
+          primary: ExecutionMode.container,
+          agents: const [configuredRestricted],
+        ).resolveForAgent(configuredRestricted, providerId: 'claude'),
+        const ExecutionPolicy.container('restricted'),
+      );
+    });
+  });
+
   group('S02 explicit agent and task-type choices coexist', () {
     const inheritingAgent = AgentDefinition(id: 'reviewer', description: 'reviews', prompt: 'review');
     const hostAgent = AgentDefinition(
@@ -195,19 +257,21 @@ void main() {
   });
 
   group('provider-declared container profiles resolve through the shared resolver', () {
-    ExecutionPolicyResolver acpResolver(AcpContainerProfile profile) => ExecutionPolicyResolver(
-      config: DartclawConfig.defaults().copyWith(
-        container: const ContainerConfig(enabled: true),
-        harness: HarnessConfig(
-          acp: AcpConfig(
-            agents: {
-              'goose': AcpAgentConfig(binary: 'goose', containerIsolationRequired: true, containerProfile: profile),
-            },
+    ExecutionPolicyResolver acpResolver(AcpContainerProfile profile, {ExecutionMode? primary}) =>
+        ExecutionPolicyResolver(
+          config: DartclawConfig.defaults().copyWith(
+            container: const ContainerConfig(enabled: true),
+            agent: AgentConfig(execution: primary),
+            harness: HarnessConfig(
+              acp: AcpConfig(
+                agents: {
+                  'goose': AcpAgentConfig(binary: 'goose', containerIsolationRequired: true, containerProfile: profile),
+                },
+              ),
+            ),
           ),
-        ),
-      ),
-      availableContainerProfiles: workspaceAndRestricted,
-    );
+          availableContainerProfiles: workspaceAndRestricted,
+        );
 
     test('an ACP declared restricted profile is applied without a local mapping', () {
       expect(
@@ -241,6 +305,27 @@ void main() {
       expect(
         acpResolver(AcpContainerProfile.restricted).resolveForPrimary(providerId: 'claude'),
         const ExecutionPolicy.container('workspace'),
+      );
+    });
+
+    test('an inherited host mode is rejected rather than discarding the ACP declared profile', () {
+      // `harness.acp.<id>.container_profile` is operator YAML exactly as an
+      // agent's own `security_profile` is, so inheriting host must fail the
+      // same way instead of silently dropping the boundary.
+      const inheritingAgent = AgentDefinition(id: 'search', description: 'searches', prompt: 'search');
+
+      expect(
+        () => acpResolver(
+          AcpContainerProfile.restricted,
+          primary: ExecutionMode.host,
+        ).resolveForAgent(inheritingAgent, providerId: 'goose'),
+        throwsA(
+          isA<ExecutionPolicyException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('search'), contains('restricted'), contains('agent.execution: host')),
+          ),
+        ),
       );
     });
   });
@@ -294,6 +379,34 @@ void main() {
         ).resolveForPinnedSession(sessionId: 's1', securityProfile: 'restricted'),
         throwsA(isA<ExecutionPolicyException>().having((error) => error.message, 'message', contains('s1'))),
       );
+    });
+
+    test('a rejection offers only remediations that can re-place a pinned session', () {
+      // The resolver reads the session's own pinned routing, so no
+      // `agent.execution` value can change the outcome for this session.
+      final rejections = [
+        () => resolverFor(
+          containersEnabled: false,
+        ).resolveForPinnedSession(sessionId: 's1', securityProfile: 'restricted'),
+        () => resolverFor(containersEnabled: false).resolveForPinnedSession(
+          sessionId: 's1',
+          executionMode: ExecutionMode.container,
+          securityProfile: 'restricted',
+        ),
+      ];
+
+      for (final rejection in rejections) {
+        expect(
+          rejection,
+          throwsA(
+            isA<ExecutionPolicyException>().having(
+              (error) => error.message,
+              'message',
+              allOf(contains('container.enabled: true'), isNot(contains('agent.execution'))),
+            ),
+          ),
+        );
+      }
     });
   });
 

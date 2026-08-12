@@ -203,8 +203,9 @@ enum AcpSecurityClassification {
   /// Verified direct-provider configuration may claim guard mediation.
   guardMediated,
 
-  /// Relay/unverified configuration must run inside an enforced container boundary.
-  containerIsolationOnly,
+  /// Configuration claiming no guard mediation. ACP has no mediated container
+  /// execution, so every registration that reaches a turn runs on the host.
+  hostOnly,
 }
 
 /// Immutable config for one ACP agent registration.
@@ -250,9 +251,8 @@ class AcpAgentConfig {
   });
 
   /// Derived security classification.
-  AcpSecurityClassification get securityClassification => requiresGuardMediation
-      ? AcpSecurityClassification.guardMediated
-      : AcpSecurityClassification.containerIsolationOnly;
+  AcpSecurityClassification get securityClassification =>
+      requiresGuardMediation ? AcpSecurityClassification.guardMediated : AcpSecurityClassification.hostOnly;
 
   @override
   bool operator ==(Object other) =>

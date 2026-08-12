@@ -41,14 +41,25 @@ final class ContainerCrashedEvent extends ContainerLifecycleEvent {
   /// Error string or crash reason.
   final String error;
 
+  /// The task whose execution held the crashed container, when it was leased
+  /// for one.
+  ///
+  /// A container belongs to exactly one execution authority, so this is what
+  /// crash attribution keys on. `null` means the authority was not a task's —
+  /// the primary lane or a logical-agent session — and no task is affected.
+  final String? taskId;
+
   /// Creates a container-crashed event.
   ContainerCrashedEvent({
     required super.profileId,
     required super.containerName,
     required this.error,
     required super.timestamp,
+    this.taskId,
   });
 
   @override
-  String toString() => 'ContainerCrashedEvent(profile: $profileId, container: $containerName, error: $error)';
+  String toString() =>
+      'ContainerCrashedEvent(profile: $profileId, container: $containerName, '
+      '${taskId == null ? '' : 'task: $taskId, '}error: $error)';
 }

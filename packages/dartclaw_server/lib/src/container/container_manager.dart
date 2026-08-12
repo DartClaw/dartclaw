@@ -28,6 +28,10 @@ typedef StartCommand =
 /// Container mount point for one authority's generated client configuration.
 const containerGeneratedStatePath = '/home/dartclaw/.dartclaw';
 
+/// Container mount point for the host-owned artifacts directory an execution
+/// writes its durable outputs to.
+const containerArtifactsPath = '/artifacts';
+
 /// Manages Docker container lifecycle for agent isolation.
 ///
 /// Uses `docker create` + `docker start` for fast container restart,
@@ -49,6 +53,14 @@ class ContainerManager implements ContainerExecutor {
   @override
   final String generatedStateDir;
 
+  /// Host directory this execution writes durable artifacts to, mounted
+  /// read-write at [containerArtifactsPath].
+  ///
+  /// The host computes the path, creates it, and reads the results back after
+  /// the execution, so it must be reachable from inside the boundary. `null`
+  /// when the execution has no artifacts contract.
+  final String? artifactsDir;
+
   /// Whether this authority was granted host MCP tools, which is what decides
   /// if an MCP bridge exists to configure a client against.
   final bool hasMcpBridge;
@@ -65,6 +77,7 @@ class ContainerManager implements ContainerExecutor {
     required this.profileId,
     required this.workspaceMounts,
     required this.generatedStateDir,
+    this.artifactsDir,
     this.hasMcpBridge = false,
     this.localPathAllowlist = const [],
     this.bridgeBinaryPath,
@@ -84,6 +97,12 @@ class ContainerManager implements ContainerExecutor {
 
   /// The generated-state mount, written as a Docker `-v` spec.
   String get _generatedStateMount => '$generatedStateDir:$containerGeneratedStatePath:rw';
+
+  /// The artifacts mount, written as a Docker `-v` spec, when one exists.
+  String? get _artifactsMount => artifactsDir == null ? null : '$artifactsDir:$containerArtifactsPath:rw';
+
+  /// Every host object this container can see, as Docker `-v` specs.
+  List<String> get _allMounts => [...workspaceMounts, ...effectiveExtraMounts, _generatedStateMount, ?_artifactsMount];
 
   /// Format: `dartclaw-<stableHash(dataDir)>-<profileId>`
   static String generateName(String dataDir, String profileId) {
@@ -128,12 +147,29 @@ class ContainerManager implements ContainerExecutor {
     }
   }
 
+  /// Whether this manager has already created (or adopted) its container.
+  bool _created = false;
+
   /// Create and start the container with security flags.
+  ///
+  /// Single-use: once a container exists, a later call either finds it healthy
+  /// or throws. A container authority is one container, one pipe set, one
+  /// lifetime — the bridges are `docker exec` processes that died with the
+  /// container and host-gateway revocation is permanent, so recreating the
+  /// container here would hand a harness a live shell behind dead mediation.
+  /// The execution must acquire a new authority instead.
   @override
   Future<void> start() async {
     if (await isHealthy()) {
       _log.info('Container $containerName ($profileId) already running');
+      _created = true;
       return;
+    }
+    if (_created) {
+      throw StateError(
+        'Container $containerName ($profileId) is no longer running. Its host bridges died with it and cannot be '
+        'reattached; this execution needs a new container authority.',
+      );
     }
 
     // Remove stale container if exists
@@ -156,6 +192,9 @@ class ContainerManager implements ContainerExecutor {
       // Per-authority scratch for generated client configuration. No host home
       // is ever mounted: provider login state stays outside the boundary.
       '-v', _generatedStateMount,
+      // Host-owned artifacts destination: the execution writes its durable
+      // outputs where the host reads them back from, inside the boundary.
+      if (_artifactsMount case final mount?) ...['-v', mount],
       '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
       ...effectiveExtraMounts.expand((m) => ['-v', m]),
       ...config.extraArgs,
@@ -173,6 +212,7 @@ class ContainerManager implements ContainerExecutor {
       throw StateError('Failed to start container: ${startResult.stderr}');
     }
 
+    _created = true;
     _log.info('Container $containerName ($profileId) started');
   }
 
@@ -315,7 +355,7 @@ class ContainerManager implements ContainerExecutor {
   }
 
   bool _hasContainerMountTarget(String containerPath) {
-    for (final mount in [...workspaceMounts, ...effectiveExtraMounts, _generatedStateMount]) {
+    for (final mount in _allMounts) {
       final parts = mount.split(':');
       if (parts.length >= 2 && parts[1] == containerPath) {
         return true;
@@ -336,7 +376,7 @@ class ContainerManager implements ContainerExecutor {
   @override
   String? containerPathForHostPath(String hostPath) {
     final normalizedHostPath = canonicalizePathWithExistingAncestors(hostPath);
-    for (final mount in [...workspaceMounts, ...effectiveExtraMounts, _generatedStateMount]) {
+    for (final mount in _allMounts) {
       final parts = mount.split(':');
       if (parts.length < 2) continue;
       final hostRoot = canonicalizePathWithExistingAncestors(parts[0]);

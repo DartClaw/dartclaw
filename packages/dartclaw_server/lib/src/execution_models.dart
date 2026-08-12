@@ -20,6 +20,7 @@ final class ExecutionRequest {
     this.isHumanInput = false,
     this.taskId,
     this.logicalAgentId,
+    this.allowedTools,
   });
 
   final ExecutionSurface surface;
@@ -43,6 +44,13 @@ final class ExecutionRequest {
   /// them.
   final String? logicalAgentId;
 
+  /// The tool policy already in force for this execution, when it carries one
+  /// of its own rather than a logical agent's.
+  ///
+  /// Background work has no agent definition to derive capability from, so this
+  /// is what a container authority's host-tool grant is resolved against.
+  final List<String>? allowedTools;
+
   ExecutionRequest _route({String? providerId, ExecutionPolicy? policy}) {
     return ExecutionRequest(
       surface: surface,
@@ -53,6 +61,7 @@ final class ExecutionRequest {
       isHumanInput: isHumanInput,
       taskId: taskId,
       logicalAgentId: logicalAgentId,
+      allowedTools: allowedTools,
     );
   }
 }

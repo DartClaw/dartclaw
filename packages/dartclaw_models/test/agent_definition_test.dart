@@ -58,7 +58,27 @@ void main() {
         }, warns);
 
         expect(agent.securityProfile, 'workspace');
+        expect(agent.profileIsOperatorConfigured, isTrue);
         expect(warns, isEmpty);
+      });
+
+      test('a defaulted profile is distinguishable from an operator-configured one', () {
+        // The resolver may drop a default profile when a host mode is inherited
+        // but must reject discarding a configured one.
+        final warns = <String>[];
+
+        expect(AgentDefinition.fromYaml('search', const {}, warns).profileIsOperatorConfigured, isFalse);
+        expect(
+          AgentDefinition.fromYaml('search', const {
+            'security_profile': 'restricted',
+          }, warns).profileIsOperatorConfigured,
+          isTrue,
+        );
+        expect(
+          AgentDefinition.fromYaml('search', const {'security_profile': 'nonsense'}, warns).profileIsOperatorConfigured,
+          isFalse,
+          reason: 'an invalid value falls back to the default, which is not operator-configured',
+        );
       });
 
       test('defaults search to restricted and other agents to provider default', () {

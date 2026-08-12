@@ -1,8 +1,13 @@
+import 'dart:io';
+
+import 'package:dartclaw_core/dartclaw_core.dart' show MessageService;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'execution_coordinator_test_support.dart';
+import 'turn_manager_test_support.dart';
 import 'turn_runner_test_support.dart';
 
 /// Session routing across reconstruction.
@@ -40,6 +45,36 @@ void main() {
     sessions: sessions,
     policyResolver: resolverFor(containersEnabled: containersEnabled),
   );
+
+  group('the single-harness composition reports where its harness runs', () {
+    late Directory tempDir;
+
+    setUp(() => tempDir = Directory.systemTemp.createTempSync('dartclaw_single_harness_policy_test_'));
+    tearDown(() => tempDir.deleteSync(recursive: true));
+
+    TurnManager singleHarnessTurns({ExecutionPolicy? executionPolicy}) => TurnManager(
+      messages: MessageService(baseDir: tempDir.path),
+      worker: FakeWorkerService(),
+      behavior: BehaviorFileService(workspaceDir: p.join(tempDir.path, 'workspace')),
+      executionPolicy: executionPolicy ?? const ExecutionPolicy.host(),
+    );
+
+    test('a container-backed harness is not reported as running on the host', () {
+      // The policy is the runner's reported placement, its reuse identity, and
+      // the never-cache-container predicate — omitting it mislabels all three.
+      final turns = singleHarnessTurns(executionPolicy: const ExecutionPolicy.container('restricted'));
+      addTearDown(turns.executions.dispose);
+
+      expect(turns.executions.primary!.executionPolicy, const ExecutionPolicy.container('restricted'));
+    });
+
+    test('an undeclared policy stays host, the placement an SDK host composes by default', () {
+      final turns = singleHarnessTurns();
+      addTearDown(turns.executions.dispose);
+
+      expect(turns.executions.primary!.executionPolicy, const ExecutionPolicy.host());
+    });
+  });
 
   test('a session pinned without an execution mode derives container mode and persists it forward', () async {
     final session = await sessions.createSession(type: SessionType.logicalAgent, securityProfile: 'restricted');

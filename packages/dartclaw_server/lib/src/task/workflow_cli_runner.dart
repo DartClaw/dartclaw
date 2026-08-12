@@ -219,6 +219,7 @@ class WorkflowCliRunner {
     required String? sessionId,
     required String? taskId,
     required List<String>? allowedTools,
+    required String? artifactsDir,
   }) async {
     if (!policy.isContainer) return null;
     final acquire = containerAuthorities;
@@ -236,6 +237,7 @@ class WorkflowCliRunner {
         taskId: taskId,
       ),
       allowedMcpTools: bridgedMcpToolsFor(allowedTools),
+      artifactsDir: artifactsDir,
     );
   }
 
@@ -360,6 +362,7 @@ class WorkflowCliRunner {
     String? appendSystemPrompt,
     String? sandboxOverride,
     Map<String, String>? extraEnvironment,
+    String? artifactsDir,
     WorkflowCliUsageBaseline usageBaseline = const WorkflowCliUsageBaseline(),
   }) async {
     // Compatibility first: an unavailable combination reports the same verdict
@@ -383,6 +386,7 @@ class WorkflowCliRunner {
       sessionId: sessionId,
       taskId: taskId,
       allowedTools: allowedTools,
+      artifactsDir: artifactsDir,
     );
     try {
       final req = CliTurnRequest(

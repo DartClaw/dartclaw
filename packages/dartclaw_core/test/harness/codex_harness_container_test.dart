@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show UnsupportedCapabilityError;
+import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_core/src/container/container_executor.dart';
+import 'package:dartclaw_core/src/harness/codex_environment.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
@@ -111,6 +112,9 @@ CodexHarness _harness(
   environment:
       environment ?? {'OPENAI_API_KEY': _hostApiKeySentinel, 'CODEX_HOME': '/home/tester/.codex', 'PATH': '/usr/bin'},
   harnessConfig: harnessConfig,
+  // Points the seeding lifecycle's source at the temp root, so a host home
+  // planted below is genuinely copyable and the assertion can fail.
+  platformCapabilities: PlatformCapabilities(environment: {'HOME': container.hostRoot}),
   commandProbe: (exe, args) async => throw StateError('containerized Codex must not probe the host binary'),
   delayFactory: noOpDelay,
   killGracePeriod: Duration.zero,
@@ -126,6 +130,27 @@ Future<void> _start(CodexHarness harness, _RecordingCodexContainer container) as
   await waitForSentMessage(process, 'initialize');
   process.emitInitializeResponse(id: latestRequestId(process, 'initialize'));
   await startFuture;
+}
+
+/// Plants a credentialed host home where the *seeded* lifecycle copies from,
+/// and proves that lifecycle really does copy it – without the control,
+/// "was not copied" would pass against an unreadable source.
+Future<void> _plantCredentialedHostHome(Directory root) async {
+  Directory(p.join(root.path, '.codex')).createSync(recursive: true);
+  File(p.join(root.path, '.codex', 'auth.json')).writeAsStringSync('{"token":"$_hostAuthJsonSentinel"}');
+
+  final seeded = CodexEnvironment(
+    developerInstructions: 'control',
+    useSystemCodexHome: false,
+    platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path}),
+  );
+  final seededHome = await seeded.setup();
+  addTearDown(seeded.cleanup);
+  expect(
+    File(p.join(seededHome, 'auth.json')).readAsStringSync(),
+    contains(_hostAuthJsonSentinel),
+    reason: 'control: the seeded lifecycle must copy this source, or the auth-clean assertion proves nothing',
+  );
 }
 
 void main() {
@@ -193,9 +218,7 @@ void main() {
 
   group('auth-clean container home', () {
     test('is created fresh and unseeded even from a credentialed host home', () async {
-      // A host home that a seeding lifecycle would have copied from.
-      final hostCodexHome = Directory(p.join(root.path, 'host-codex'))..createSync(recursive: true);
-      File(p.join(hostCodexHome.path, 'auth.json')).writeAsStringSync('{"token":"$_hostAuthJsonSentinel"}');
+      await _plantCredentialedHostHome(root);
 
       final harness = _harness(container);
       await _start(harness, container);
@@ -311,12 +334,15 @@ void main() {
       await harness.stop();
     });
 
-    test('keeps provider-native web search for a workspace container', () async {
+    test('disables provider-native web search for a workspace container too', () async {
+      // Web search runs at the provider, so `network:none` cannot contain it in
+      // any profile and the host gateway 403s every request declaring one.
+      // Leaving it on for workspace would make each turn fail at the gateway.
       final workspace = _RecordingCodexContainer(hostRoot: root.path, profileId: 'workspace');
       final harness = _harness(workspace);
       await _start(harness, workspace);
 
-      expect(workspace.codexConfig, isNot(contains('web_search = false')));
+      expect(workspace.codexConfig, contains('web_search = false'));
 
       await harness.stop();
     });
@@ -335,9 +361,9 @@ void main() {
 
     const sentinels = [_hostApiKeySentinel, _hostAuthJsonSentinel, _sharedMcpBearerSentinel];
     final surfaces = <String>[
-      for (final command in scoped.commands) command.join(' '),
+      for (final command in scoped.commands) command.join('\n'),
       for (final environment in scoped.environments)
-        environment?.entries.map((entry) => '${entry.key}=${entry.value}').join(' ') ?? '',
+        environment?.entries.map((entry) => '${entry.key}=${entry.value}').join('\n') ?? '',
       for (final entry in scoped.codexHome.listSync().whereType<File>()) entry.readAsStringSync(),
     ];
     for (final surface in surfaces) {

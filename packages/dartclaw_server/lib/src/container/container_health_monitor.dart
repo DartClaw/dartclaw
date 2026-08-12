@@ -22,6 +22,7 @@ class ContainerHealthMonitor {
 
   final Map<String, ContainerManager> _watched = {};
   final Map<String, bool> _lastHealthy = {};
+  final Map<String, String> _taskIds = {};
   Timer? _timer;
 
   /// Container names currently monitored.
@@ -35,15 +36,21 @@ class ContainerHealthMonitor {
   }
 
   /// Begins monitoring one live authority's container.
-  void watch(String containerName, ContainerManager manager) {
+  ///
+  /// [taskId] identifies the execution the authority was leased for, so a crash
+  /// is attributed to that execution alone rather than to every task sharing
+  /// its profile.
+  void watch(String containerName, ContainerManager manager, {String? taskId}) {
     _watched[containerName] = manager;
     _lastHealthy[containerName] = true;
+    if (taskId != null) _taskIds[containerName] = taskId;
   }
 
   /// Stops monitoring a container. Call before teardown, not after.
   void unwatch(String containerName) {
     _watched.remove(containerName);
     _lastHealthy.remove(containerName);
+    _taskIds.remove(containerName);
   }
 
   Future<void> stop() async {
@@ -51,6 +58,7 @@ class ContainerHealthMonitor {
     _timer = null;
     _watched.clear();
     _lastHealthy.clear();
+    _taskIds.clear();
   }
 
   Future<void> _checkHealth() async {
@@ -72,6 +80,7 @@ class ContainerHealthMonitor {
               containerName: containerName,
               error: 'Container is no longer running',
               timestamp: DateTime.now(),
+              taskId: _taskIds[containerName],
             ),
           );
         } else if (!wasHealthy && healthy) {

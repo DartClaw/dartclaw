@@ -24,6 +24,13 @@ class AgentDefinition {
   /// placement. See [execution].
   final String? securityProfile;
 
+  /// Whether [securityProfile] was configured by the operator for this agent
+  /// rather than supplied as a built-in default.
+  ///
+  /// A host execution mode the agent inherits may drop a default profile, but
+  /// never a configured one — that combination is rejected as contradictory.
+  final bool profileIsOperatorConfigured;
+
   /// Optional explicit execution mode. Null inherits the primary agent's mode.
   final ExecutionMode? execution;
 
@@ -49,6 +56,7 @@ class AgentDefinition {
     required this.prompt,
     this.provider,
     this.securityProfile,
+    this.profileIsOperatorConfigured = false,
     this.execution,
     this.allowedTools = const {},
     this.deniedTools = const {},
@@ -154,6 +162,7 @@ class AgentDefinition {
       effort: yaml['effort'] as String?,
       provider: provider,
       securityProfile: securityProfile,
+      profileIsOperatorConfigured: profileIsOperatorConfigured,
       execution: execution,
     );
   }
@@ -185,6 +194,7 @@ class AgentDefinition {
           prompt == other.prompt &&
           provider == other.provider &&
           securityProfile == other.securityProfile &&
+          profileIsOperatorConfigured == other.profileIsOperatorConfigured &&
           execution == other.execution &&
           const SetEquality<String>().equals(allowedTools, other.allowedTools) &&
           const SetEquality<String>().equals(deniedTools, other.deniedTools) &&
@@ -199,6 +209,7 @@ class AgentDefinition {
     prompt,
     provider,
     securityProfile,
+    profileIsOperatorConfigured,
     execution,
     const SetEquality<String>().hash(allowedTools),
     const SetEquality<String>().hash(deniedTools),

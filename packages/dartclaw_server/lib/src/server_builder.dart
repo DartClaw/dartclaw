@@ -88,6 +88,16 @@ class DartclawServerBuilder {
   /// [executions] is set — managed runners carry their own filters.
   TaskToolFilterGuard? taskToolFilterGuard;
 
+  /// Where the injected [worker] actually runs, for the non-pool [buildTurns]
+  /// path.
+  ///
+  /// It is the runner's reported placement and its worker-reuse identity, so a
+  /// host that composed a container-backed harness itself must set it — the
+  /// builder cannot infer placement from an already-constructed [worker].
+  /// Defaults to host execution, which is what an SDK host composes otherwise.
+  /// Ignored when [executions] is set — managed runners carry their own policy.
+  ExecutionPolicy executionPolicy = const ExecutionPolicy.host();
+
   KvService? kv;
   MessageRedactor? redactor;
   SelfImprovementService? selfImprovement;
@@ -200,6 +210,7 @@ class DartclawServerBuilder {
             turnMonitor: config?.harness.turnMonitor ?? const TurnMonitorConfig.defaults(),
             globalTimeout: config == null ? null : Duration(seconds: config!.server.workerTimeout),
             eventBus: eventBus,
+            executionPolicy: executionPolicy,
           );
     resetService?.bindSessionContinuityResetter(_cachedTurns!.resetSessionContinuity);
     return _cachedTurns!;

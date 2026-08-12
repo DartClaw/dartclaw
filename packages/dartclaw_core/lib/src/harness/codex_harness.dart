@@ -199,9 +199,9 @@ class CodexHarness extends BaseHarness {
       containerHomePath: containerHome,
       gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
       // Provider-side web search escapes `network:none` because it runs at the
-      // provider. Host mediation refuses it for restricted executions anyway;
+      // provider. Host mediation refuses it for every containerized execution;
       // turning it off here keeps the client from asking.
-      nativeWebSearch: container.profileId != 'restricted',
+      nativeWebSearch: false,
       mcpServerUrl: container.mcpBridgeUrl,
       platformCapabilities: platformCapabilities,
     );

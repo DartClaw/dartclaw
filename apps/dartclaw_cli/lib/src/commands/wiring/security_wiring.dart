@@ -109,6 +109,7 @@ class SecurityWiring implements Reconfigurable {
   Future<ContainerAuthorityLease> acquireContainerAuthority(
     GatewayPrincipal principal, {
     Set<String> allowedMcpTools = const {},
+    String? artifactsDir,
   }) async {
     final profileId = principal.containerProfile;
     final template = profileId == null ? null : _containerTemplates[profileId];
@@ -122,6 +123,7 @@ class SecurityWiring implements Reconfigurable {
       containerName,
       generatedStateDir: p.join(_dataDir, 'containers', containerName),
       hasMcpBridge: allowedMcpTools.isNotEmpty,
+      artifactsDir: artifactsDir,
     );
     // Registration rejects a provider this deployment cannot mediate – an
     // unusable Claude auth mode included – before any container is created.
@@ -142,7 +144,7 @@ class SecurityWiring implements Reconfigurable {
           timestamp: DateTime.now(),
         ),
       );
-      _containerHealthMonitor?.watch(manager.containerName, manager);
+      _containerHealthMonitor?.watch(manager.containerName, manager, taskId: principal.taskId);
       for (final surface in authority.requiredSurfaces) {
         final channel = await manager.startBridge(surface, bridgePortFor(surface));
         try {
@@ -299,6 +301,7 @@ class SecurityWiring implements Reconfigurable {
       SecurityProfile profile,
       String containerName, {
       required String generatedStateDir,
+      String? artifactsDir,
       bool hasMcpBridge = false,
     }) => ContainerManager(
       config: config.container,
@@ -308,6 +311,7 @@ class SecurityWiring implements Reconfigurable {
           ? [...profile.workspaceMounts, ...localPathProjectMounts]
           : profile.workspaceMounts,
       generatedStateDir: generatedStateDir,
+      artifactsDir: artifactsDir,
       hasMcpBridge: hasMcpBridge,
       localPathAllowlist: config.projects.localPathAllowlist,
       bridgeBinaryPath: _bridgeBinaryPath,
@@ -341,8 +345,14 @@ class SecurityWiring implements Reconfigurable {
     }
 
     for (final profile in profiles) {
-      _containerTemplates[profile.id] = (containerName, {required generatedStateDir, required hasMcpBridge}) =>
-          buildManager(profile, containerName, generatedStateDir: generatedStateDir, hasMcpBridge: hasMcpBridge);
+      _containerTemplates[profile.id] =
+          (containerName, {required generatedStateDir, required hasMcpBridge, required artifactsDir}) => buildManager(
+            profile,
+            containerName,
+            generatedStateDir: generatedStateDir,
+            artifactsDir: artifactsDir,
+            hasMcpBridge: hasMcpBridge,
+          );
     }
 
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
@@ -552,8 +562,8 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
       _log.severe('Failed to revoke gateway authority ${authority.id}', error, stackTrace);
     }
     try {
-      // ContainerManager.stop() does not surface docker's exit codes, so this
-      // event reports that teardown was attempted, not that it was confirmed.
+      // stop() throws when removal cannot be confirmed, so this event is only
+      // reached once the container is gone.
       await manager.stop();
       _eventBus.fire(
         ContainerStoppedEvent(
@@ -570,7 +580,12 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
 
 /// Builds one live authority's container from a profile template.
 typedef _ContainerTemplate =
-    ContainerManager Function(String containerName, {required String generatedStateDir, required bool hasMcpBridge});
+    ContainerManager Function(
+      String containerName, {
+      required String generatedStateDir,
+      required String? artifactsDir,
+      required bool hasMcpBridge,
+    });
 
 /// Bridges [MessageRedactor] (in dartclaw_security, which cannot depend on
 /// dartclaw_core) to the [Reconfigurable] interface (in dartclaw_core).

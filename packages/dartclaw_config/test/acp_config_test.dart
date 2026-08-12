@@ -204,7 +204,7 @@ harness:
       expect(rejected.warnings, anyElement(contains('container_isolation_required: true')));
       expect(accepted.harness.acp['goose']!.containerProfile, AcpContainerProfile.restricted);
       expect(accepted.harness.acp['vibe']!.containerProfile, AcpContainerProfile.workspace);
-      expect(accepted.harness.acp['goose']!.securityClassification, AcpSecurityClassification.containerIsolationOnly);
+      expect(accepted.harness.acp['goose']!.securityClassification, AcpSecurityClassification.hostOnly);
       expect(accepted.warnings, isEmpty);
     });
   });

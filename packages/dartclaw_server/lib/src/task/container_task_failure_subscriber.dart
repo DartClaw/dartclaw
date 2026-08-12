@@ -33,7 +33,7 @@ class ContainerTaskFailureSubscriber {
   Future<void> _failAffectedTasks(ContainerCrashedEvent event) async {
     final runningTasks = await _tasks.list(status: TaskStatus.running);
     for (final task in runningTasks) {
-      if (!_affectedBy(task, event.profileId)) continue;
+      if (!_affectedBy(task, event)) continue;
       try {
         // TaskService.transition() fires TaskStatusChangedEvent automatically.
         await _tasks.transition(
@@ -48,19 +48,23 @@ class ContainerTaskFailureSubscriber {
     }
   }
 
-  /// Whether [task] was running inside the crashed container profile.
+  /// Whether [task] was running inside the crashed container.
   ///
-  /// A task routed to host execution is unaffected by a container crash even
-  /// when its task type would otherwise carry that profile.
-  bool _affectedBy(Task task, String crashedProfileId) {
+  /// Every container belongs to exactly one execution authority, so an event
+  /// naming the authority's task fails that task and no other — a second
+  /// research task in its own healthy container keeps running. An event naming
+  /// no task came from an authority no task owns (the primary lane, a
+  /// logical-agent session) and affects nothing.
+  ///
+  /// The profile match survives only for compositions with no resolver and no
+  /// per-authority attribution, where the built-in task-type profile default is
+  /// the only identity available.
+  bool _affectedBy(Task task, ContainerCrashedEvent event) {
+    final crashedTaskId = event.taskId;
+    if (crashedTaskId != null) return crashedTaskId == task.id;
     final resolver = _policyResolver;
-    if (resolver == null) return resolveProfile(task.type) == crashedProfileId;
-    try {
-      return resolver.resolveForTaskType(task.type).containerProfile == crashedProfileId;
-    } on ExecutionPolicyException {
-      // An unresolvable policy cannot have been running in that container.
-      return false;
-    }
+    if (resolver != null) return false;
+    return resolveProfile(task.type) == event.profileId;
   }
 
   Map<String, dynamic> _withErrorSummary(Map<String, dynamic> configJson, String error) =>

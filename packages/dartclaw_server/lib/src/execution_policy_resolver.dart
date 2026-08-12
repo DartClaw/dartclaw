@@ -65,12 +65,24 @@ final class ExecutionPolicyResolver {
 
   /// Resolves a logical agent's policy, inheriting the primary agent's mode
   /// when [definition] declares none.
-  ExecutionPolicy resolveForAgent(AgentDefinition definition, {required String providerId}) => _resolve(
-    explicitMode: definition.execution ?? _config.agent.execution,
-    containerProfile: definition.securityProfile ?? _providerContainerProfile(providerId) ?? neutralContainerProfile,
-    subject: 'logical agent "${definition.id}"',
-    yamlPath: 'agent.agents.${definition.id}.execution',
-  );
+  ///
+  /// A profile the agent does not declare itself falls back to the one its
+  /// provider's ACP registration declares. That registration is operator YAML
+  /// as much as `security_profile` is, so an inherited host mode must reject
+  /// rather than discard it.
+  ExecutionPolicy resolveForAgent(AgentDefinition definition, {required String providerId}) {
+    final acpProfile = _providerContainerProfile(providerId);
+    return _resolve(
+      explicitMode: definition.execution,
+      inheritedMode: _config.agent.execution,
+      profileIsOperatorConfigured: definition.securityProfile != null
+          ? definition.profileIsOperatorConfigured
+          : acpProfile != null,
+      containerProfile: definition.securityProfile ?? acpProfile ?? neutralContainerProfile,
+      subject: 'logical agent "${definition.id}"',
+      yamlPath: 'agent.agents.${definition.id}.execution',
+    );
+  }
 
   /// Resolves the fallback policy for a background task with no logical-agent
   /// identity, honoring the `tasks.execution.<task-type>` override.
@@ -88,6 +100,10 @@ final class ExecutionPolicyResolver {
   /// the pinned profile, and the caller persists the derived value forward. A
   /// missing mode alone is never a rejection, but a pinned container-only
   /// profile that this deployment cannot run still fails closed.
+  ///
+  /// Both axes come from the session row rather than from configuration, so a
+  /// rejection names only remediations that can re-place an already-pinned
+  /// session.
   ExecutionPolicy resolveForPinnedSession({
     required String sessionId,
     ExecutionMode? executionMode,
@@ -97,7 +113,7 @@ final class ExecutionPolicyResolver {
       explicitMode: executionMode,
       containerProfile: securityProfile ?? neutralContainerProfile,
       subject: 'session "$sessionId"',
-      yamlPath: 'agent.execution',
+      yamlPath: null,
     );
   }
 
@@ -126,8 +142,9 @@ final class ExecutionPolicyResolver {
     return List.unmodifiable(warnings);
   }
 
-  /// Startup warnings for contexts that will fail closed at first dispatch
-  /// because their container-only profile default has no host equivalent.
+  /// Startup warnings for contexts that will fail closed at first dispatch —
+  /// a container-only profile with no host equivalent, an inherited host mode
+  /// that would discard a configured profile, or an unavailable profile.
   ///
   /// Startup stays bootable so an unconfigured deployment upgrades without an
   /// outage, but the operator learns which agent or task type is unrunnable
@@ -137,7 +154,6 @@ final class ExecutionPolicyResolver {
   /// definitions that never appear in configuration; it defaults to the
   /// configured definitions.
   List<String> failClosedWarnings({Iterable<AgentDefinition>? agents}) {
-    if (_config.container.enabled) return const [];
     final warnings = <String>[];
     for (final definition in agents ?? _config.agent.definitions) {
       final providerId = definition.provider ?? _config.agent.provider;
@@ -222,30 +238,53 @@ final class ExecutionPolicyResolver {
     };
   }
 
+  /// [explicitMode] is the mode selected at [yamlPath] — the subject's own key.
+  /// [inheritedMode] is the deployment-level `agent.execution` a subject may
+  /// fall back to; only a subject that can inherit passes it.
+  /// [yamlPath] is null when the subject's placement is pinned rather than
+  /// configured, which removes that path from every remediation.
   ExecutionPolicy _resolve({
     required ExecutionMode? explicitMode,
     required String containerProfile,
     required String subject,
-    required String yamlPath,
+    required String? yamlPath,
+    ExecutionMode? inheritedMode,
+    bool profileIsOperatorConfigured = false,
   }) {
-    final mode = explicitMode ?? (_config.container.enabled ? ExecutionMode.container : ExecutionMode.host);
+    final mode =
+        explicitMode ?? inheritedMode ?? (_config.container.enabled ? ExecutionMode.container : ExecutionMode.host);
     if (mode == ExecutionMode.host) {
-      // A deliberate host selection drops mode-conditional profile defaults;
-      // an unselected host default cannot silently discard a stronger one.
+      // A host mode selected for the subject itself drops mode-conditional
+      // profile defaults; a defaulted or inherited one cannot silently discard
+      // a profile the subject was configured with.
       if (explicitMode == null && containerProfile != neutralContainerProfile) {
-        throw ExecutionPolicyException(
-          'Cannot run $subject on the host: its container profile "$containerProfile" has no host equivalent, and '
-          'container isolation is disabled. Enable container.enabled: true, or set $yamlPath: host to run it on the '
-          'host without that profile.',
-        );
+        if (inheritedMode == null) {
+          final remediation = yamlPath == null
+              ? 'Enable container.enabled: true — the profile is pinned to it, so configuration cannot re-place it.'
+              : 'Enable container.enabled: true, or set $yamlPath: host to run it on the host without that profile.';
+          throw ExecutionPolicyException(
+            'Cannot run $subject on the host: its container profile "$containerProfile" has no host equivalent, and '
+            'container isolation is disabled. $remediation',
+          );
+        }
+        if (profileIsOperatorConfigured) {
+          throw ExecutionPolicyException(
+            'Cannot run $subject on the host: agent.execution: host would discard its configured container profile '
+            '"$containerProfile". Container profiles are valid only for container execution — remove the profile, or '
+            'set $yamlPath: container to keep it.',
+          );
+        }
       }
       return const ExecutionPolicy.host();
     }
     if (!_availableContainerProfiles.contains(containerProfile)) {
+      final hostEscape = yamlPath == null ? '.' : ' or set $yamlPath: host.';
+      final remediation = _availableContainerProfiles.isEmpty
+          ? 'Container isolation is unavailable — enable container.enabled: true$hostEscape'
+          : 'Available profiles: ${(_availableContainerProfiles.toList()..sort()).join(', ')}.';
       throw ExecutionPolicyException(
         'Cannot run $subject in container profile "$containerProfile": no container manager is available for it. '
-        '${_availableContainerProfiles.isEmpty ? 'Container isolation is unavailable — enable container.enabled: true '
-                  'or set $yamlPath: host.' : 'Available profiles: ${(_availableContainerProfiles.toList()..sort()).join(', ')}.'}',
+        '$remediation',
       );
     }
     return ExecutionPolicy.container(containerProfile);

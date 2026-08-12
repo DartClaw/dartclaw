@@ -556,8 +556,9 @@ Container (network:none)                     Host
 - The adapter pins the upstream origin and the allowed request paths, so a container cannot retarget its own traffic
 - Authority is execution-scoped: release revokes the pipes, deletes generated state, and destroys the container, so
   nothing captured from one execution can be replayed by another
-- Restricted executions are refused provider-side network tools (web search/fetch, remote MCP connectors) host-side,
-  because those run at the provider where `network:none` cannot contain them
+- Every containerized execution, whichever profile, is refused provider-side network tools (web search/fetch, remote MCP
+  connectors) host-side, because those run at the provider where `network:none` cannot contain them. Each adapter counts
+  them in its own protocol shape; a request body the host cannot decode is refused rather than forwarded unchecked
 
 ### Provider Authentication in Container Mode
 

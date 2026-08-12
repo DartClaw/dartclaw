@@ -243,6 +243,7 @@ class TaskExecutor {
             sessionId: preparedTask.sessionId!,
             admission: ExecutionAdmission.failFast,
             taskId: preparedTask.id,
+            allowedTools: _allowedTools(preparedTask),
           ),
         );
       } on StateError catch (error) {

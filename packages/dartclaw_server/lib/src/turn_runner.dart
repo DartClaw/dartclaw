@@ -78,6 +78,11 @@ class TurnRunner implements core.TurnRunner {
   final Map<String, LoopDetection> _loopDetectedTurns = {};
 
   /// Where this runner's harness actually executes.
+  ///
+  /// Defaults to host execution, so a caller wiring a container-backed harness
+  /// must pass the resolved policy — it is the reported placement, the
+  /// worker-reuse identity, and the predicate that keeps container-backed
+  /// runners out of the reuse cache.
   @override
   final ExecutionPolicy executionPolicy;
 

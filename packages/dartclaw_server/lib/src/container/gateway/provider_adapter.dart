@@ -71,10 +71,11 @@ abstract base class ProviderAdapter implements ProviderMediator {
   /// Applies the provider's authentication to a host-to-provider request.
   void authenticate(HttpClientRequest request, String apiKey);
 
-  /// How many provider-side network-reaching tools [body] declares.
+  /// How many provider-side network-reaching tools [body] declares, in this
+  /// adapter's own protocol shape.
   ///
   /// These execute at the provider rather than in the container, so
-  /// `network:none` cannot contain them and a restricted execution must be
+  /// `network:none` cannot contain them and any containerized execution must be
   /// refused before the request leaves the host. Only the count is returned:
   /// the declarations are container-authored strings and must not reach a log
   /// or an audit entry.
@@ -93,12 +94,14 @@ abstract base class ProviderAdapter implements ProviderMediator {
     }
 
     final rawBody = await _collect(request);
-    if (request.principal.isRestricted) {
-      final declared = countNetworkTools(_tryDecode(rawBody));
+    // Every container profile gets this check: `network:none` is applied to all
+    // of them, so the provider pipe is the only egress any of them has.
+    if (request.principal.containerProfile != null) {
+      final declared = countNetworkTools(_decodeBody(rawBody));
       if (declared > 0) {
         throw GatewayDenied(
           status: 403,
-          reason: 'restricted execution declared $declared provider-side network tool(s)',
+          reason: 'containerized execution declared $declared provider-side network tool(s)',
         );
       }
     }
@@ -147,12 +150,20 @@ abstract base class ProviderAdapter implements ProviderMediator {
     return headers;
   }
 
-  static Object? _tryDecode(List<int> body) {
+  /// Decodes a request body so its tool declarations can be counted.
+  ///
+  /// A body the host cannot read is refused rather than forwarded: the network
+  /// tool check is the only thing standing between a container and provider-run
+  /// egress, and an undecodable body would silently count zero.
+  static Object? _decodeBody(List<int> body) {
     if (body.isEmpty) return null;
     try {
       return jsonDecode(utf8.decode(body));
     } on FormatException {
-      return null;
+      throw const GatewayDenied(
+        status: 400,
+        reason: 'request body is not decodable JSON, so its provider-side tool declarations cannot be checked',
+      );
     }
   }
 
@@ -168,9 +179,12 @@ abstract base class ProviderAdapter implements ProviderMediator {
 
   /// Client-supplied headers that must never reach the provider: credentials
   /// the container should not be able to choose, routing headers that could
-  /// redirect the request, and hop-by-hop headers the host re-derives.
+  /// redirect the request, hop-by-hop headers the host re-derives, and any
+  /// framing the host did not apply — the body is forwarded as the plain JSON
+  /// the tool check read, so a declared encoding would describe other bytes.
   static const _droppedRequestHeaders = {
     'authorization',
+    'content-encoding',
     'x-api-key',
     'openai-api-key',
     'api-key',
@@ -229,8 +243,17 @@ final class AnthropicMessagesAdapter extends ProviderAdapter {
     request.headers.set('x-api-key', apiKey);
   }
 
+  /// Messages declares provider-hosted remote MCP connectors in a top-level
+  /// `mcp_servers` array, separate from the client tools in `tools`.
   @override
-  int countNetworkTools(Object? body) => _countNetworkTools(body);
+  int countNetworkTools(Object? body) {
+    var declared = _countNetworkToolFamilies(body);
+    if (body is Map<Object?, Object?>) {
+      final connectors = body['mcp_servers'];
+      if (connectors is List<Object?>) declared += connectors.length;
+    }
+    return declared;
+  }
 }
 
 /// OpenAI Responses mediation for containerized Codex.
@@ -252,8 +275,12 @@ final class OpenAiResponsesAdapter extends ProviderAdapter {
     request.headers.set('authorization', 'Bearer $apiKey');
   }
 
+  /// Responses has no `mcp_servers` array: it declares provider-hosted remote
+  /// MCP connectors as an ordinary `tools` entry of `type: mcp` carrying a
+  /// `server_url`. The match is exact on `type` alone – a client's own bridge
+  /// tools are named `mcp__<server>__<tool>` and must keep passing.
   @override
-  int countNetworkTools(Object? body) => _countNetworkTools(body);
+  int countNetworkTools(Object? body) => _countNetworkToolFamilies(body, extra: (tool) => tool['type'] == 'mcp');
 }
 
 /// Provider-side tool families that reach the network on the caller's behalf.
@@ -265,29 +292,27 @@ final class OpenAiResponsesAdapter extends ProviderAdapter {
 /// ordinary tool declarations named `mcp__<server>__<tool>` and execute in the
 /// container against the scoped bridge, which is exactly what a restricted
 /// execution is supposed to use. Provider-hosted remote connectors – the ones
-/// that really are an egress path `network:none` cannot see – arrive in the
-/// separate top-level `mcp_servers` array and are counted there.
+/// that really are an egress path `network:none` cannot see – are shaped
+/// differently per protocol and are counted by each adapter.
 const _networkToolPrefixes = {'web_search', 'web_fetch', 'code_execution', 'code_interpreter'};
 
-/// Counts the provider-side network-reaching tools a request declares.
+/// Counts entries in the top-level `tools` array that name a network-reaching
+/// tool family, plus any an adapter's [extra] protocol-specific test accepts.
 ///
-/// Both protocols declare server-side tools in a top-level `tools` array whose
-/// entries carry a `type` (and, for Anthropic, a `name`); Anthropic also takes
-/// remote connectors in a top-level `mcp_servers` array.
-int _countNetworkTools(Object? body) {
-  if (body is! Map) return 0;
-  var declared = 0;
-  final connectors = body['mcp_servers'];
-  if (connectors is List) declared += connectors.length;
+/// Both protocols declare server-side tools there, keyed by `type` (and, for
+/// Anthropic, `name`).
+int _countNetworkToolFamilies(Object? body, {bool Function(Map<Object?, Object?> tool)? extra}) {
+  if (body is! Map<Object?, Object?>) return 0;
   final tools = body['tools'];
-  if (tools is! List) return declared;
+  if (tools is! List<Object?>) return 0;
+  var declared = 0;
   for (final tool in tools) {
-    if (tool is! Map) continue;
-    final matches = const ['type', 'name'].any((field) {
+    if (tool is! Map<Object?, Object?>) continue;
+    final namesFamily = const ['type', 'name'].any((field) {
       final value = tool[field];
       return value is String && _networkToolPrefixes.any(value.startsWith);
     });
-    if (matches) declared++;
+    if (namesFamily || (extra?.call(tool) ?? false)) declared++;
   }
   return declared;
 }

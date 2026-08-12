@@ -158,6 +158,29 @@ void main() {
       await eventBus.dispose();
     });
 
+    test('a crash names the execution the authority was leased for', () async {
+      var healthy = true;
+      final manager = _makeManager(profileId: 'restricted', isRunning: () => healthy);
+      final eventBus = EventBus();
+      final events = <ContainerCrashedEvent>[];
+      eventBus.on<ContainerCrashedEvent>().listen(events.add);
+
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager, taskId: 'research-task-a');
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      healthy = false;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await monitor.stop();
+
+      // Attribution travels with the event: without it the subscriber can only
+      // guess from the profile and fails every task that shares it.
+      expect(events.single.taskId, 'research-task-a');
+
+      await eventBus.dispose();
+    });
+
     test('stop cancels periodic timer', () async {
       final manager = _makeManager(profileId: 'workspace', isRunning: () => true);
       final eventBus = EventBus();

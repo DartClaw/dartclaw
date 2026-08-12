@@ -608,14 +608,14 @@ Map<String, dynamic> _optionsWithTaskPolicy(Map<String, dynamic> options, _Claud
   return next;
 }
 
-/// Denies Claude's provider-native web tools for a restricted container.
+/// Denies Claude's provider-native web tools for any containerized turn.
 ///
 /// They execute at the provider rather than in the container, so `network:none`
-/// cannot contain them. The host adapter is the enforcement point and refuses
-/// requests declaring them; denying them here keeps the client from asking.
-/// Workspace containers keep them – their MCP access is still bridge-scoped.
+/// cannot contain them in any profile, and the host adapter refuses every
+/// request declaring them. Denying them here keeps the client from asking; the
+/// bridged MCP grant is a container's only web path.
 Map<String, dynamic> _withDeniedNativeWebTools(Map<String, dynamic> options, ContainerExecutor? container) {
-  if (container?.profileId != SecurityProfile.restricted.id) return options;
+  if (container == null) return options;
   final next = Map<String, dynamic>.from(options);
   final permissions = _normalizeMap(next['permissions']);
   permissions['deny'] = {..._stringList(permissions['deny']), 'WebSearch', 'WebFetch'}.toList()..sort();

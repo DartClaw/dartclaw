@@ -4,7 +4,12 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
 import 'package:dartclaw_server/dartclaw_server.dart'
-    show ContainerAuthorityLease, ContainerAuthorityProvider, WorkflowCliProviderConfig, WorkflowCliRunner;
+    show
+        ContainerAuthorityLease,
+        ContainerAuthorityProvider,
+        WorkflowCliProviderConfig,
+        WorkflowCliRunner,
+        containerArtifactsPath;
 import 'package:dartclaw_server/src/task/cli_provider.dart' show CliProvider, CliTurnRequest;
 import 'package:dartclaw_server/src/task/workflow_cli_runner.dart'
     show WorkflowCliProcessStarter, WorkflowCliTurnResult;
@@ -79,8 +84,13 @@ ContainerAuthorityProvider fakeContainerAuthorities(
   ContainerExecutor container, {
   List<String>? released,
   List<Set<String>>? grantedMcpTools,
-}) => (principal, {Set<String> allowedMcpTools = const {}}) async {
+  List<String?>? mountedArtifactsDirs,
+}) => (principal, {Set<String> allowedMcpTools = const {}, String? artifactsDir}) async {
   grantedMcpTools?.add(allowedMcpTools);
+  mountedArtifactsDirs?.add(artifactsDir);
+  // The real authority mounts the artifacts dir when it creates the container,
+  // so the fake only becomes able to translate that path once leased with one.
+  if (container is FakeContainerExecutor) container.artifactsDir = artifactsDir;
   await container.start();
   return FakeContainerAuthorityLease(container, released ?? <String>[], principal.sessionId);
 };
@@ -253,6 +263,9 @@ class FakeContainerExecutor implements ContainerExecutor {
   final String hostRoot;
   final String containerRoot;
   final String stdout;
+
+  /// Host artifacts dir the leasing authority mounted, mapped to `/artifacts`.
+  String? artifactsDir;
   late List<String> lastCommand;
   String? lastWorkingDirectory;
   Map<String, String>? lastEnv;
@@ -282,6 +295,15 @@ class FakeContainerExecutor implements ContainerExecutor {
   @override
   String? containerPathForHostPath(String hostPath) {
     final normalizedHostPath = File(hostPath).absolute.path;
+    final artifacts = artifactsDir;
+    if (artifacts != null) {
+      final normalizedArtifacts = Directory(artifacts).absolute.path;
+      if (normalizedHostPath == normalizedArtifacts) return containerArtifactsPath;
+      if (normalizedHostPath.startsWith('$normalizedArtifacts${Platform.pathSeparator}')) {
+        final relative = normalizedHostPath.substring(normalizedArtifacts.length + 1).replaceAll('\\', '/');
+        return '$containerArtifactsPath/$relative';
+      }
+    }
     final normalizedHostRoot = Directory(hostRoot).absolute.path;
     if (normalizedHostPath == normalizedHostRoot) {
       return containerRoot;

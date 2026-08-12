@@ -422,6 +422,40 @@ void main() {
         expect(container.lastCommand, containsAll(['--settings', '/workspace/claude-settings.json']));
       });
 
+      test('suppresses provider-native web tools for a workspace container', () async {
+        // The tools run at the provider, outside `network:none`, so the host
+        // gateway 403s any request declaring one — in every profile, not just
+        // restricted. Declaring them would fail the turn, not enable it.
+        final hostRoot = await Directory.systemTemp.createTemp('claude-container-web-tools');
+        addTearDown(() async {
+          if (await hostRoot.exists()) {
+            await hostRoot.delete(recursive: true);
+          }
+        });
+        final container = FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+
+        final h = ClaudeCodeHarness(
+          cwd: hostRoot.path,
+          processFactory: defaultClaudeProcessFactory,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          harnessConfig: const HarnessConfig(disallowedTools: ['Computer']),
+          containerManager: container,
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final initialize = container.spawned!.capturedStdinJson.firstWhere(
+          (message) => (message['request'] as Map?)?['subtype'] == 'initialize',
+        );
+        expect(
+          ((initialize['request'] as Map)['disallowedTools'] as List).cast<String>(),
+          containsAll(['Computer', 'WebSearch', 'WebFetch']),
+        );
+      });
+
       test('translates plain path-based settings for containerized execution without overlays', () async {
         final hostRoot = await Directory.systemTemp.createTemp('claude-settings-container-plain');
         addTearDown(() async {

@@ -184,23 +184,75 @@ void main() {
       expect(upstream.requestCount, 1);
     });
 
-    test('allows the same request for a workspace execution', () async {
+    test('refuses the same request for a workspace execution', () async {
+      // Both profiles run under `network:none`, so the provider pipe is the
+      // only egress either has: a workspace container that could declare
+      // provider-run web tools would make the documented sole-egress property
+      // false for the shipped default.
       final adapter = _anthropic(upstream);
       addTearDown(adapter.dispose);
 
-      final response = await adapter.handle(
+      await expectLater(
+        adapter.handle(
+          _request(
+            path: '/v1/messages',
+            body: jsonEncode({
+              'tools': [
+                {'type': 'web_search_20250305'},
+              ],
+            }),
+          ),
+        ),
+        throwsA(isA<GatewayDenied>().having((e) => e.status, 'status', 403)),
+      );
+      expect(upstream.requestCount, 0);
+    });
+
+    test('refuses a body it cannot decode instead of forwarding it unchecked', () async {
+      final adapter = _anthropic(upstream);
+      addTearDown(adapter.dispose);
+
+      await expectLater(
+        adapter.handle(
+          _request(
+            path: '/v1/messages',
+            profile: 'restricted',
+            rawBody: gzip.encode(
+              utf8.encode(
+                jsonEncode({
+                  'tools': [
+                    {'type': 'web_search_20250305'},
+                  ],
+                }),
+              ),
+            ),
+            headers: {
+              'content-encoding': const ['gzip'],
+            },
+          ),
+        ),
+        throwsA(isA<GatewayDenied>().having((e) => e.status, 'status', 400)),
+      );
+      expect(upstream.requestCount, 0, reason: 'a body the tool check cannot read must not reach the provider');
+    });
+
+    test('drops a client-declared request encoding', () async {
+      final adapter = _anthropic(upstream);
+      addTearDown(adapter.dispose);
+
+      await adapter.handle(
         _request(
           path: '/v1/messages',
-          body: jsonEncode({
-            'tools': [
-              {'type': 'web_search_20250305'},
-            ],
-          }),
+          body: '{}',
+          headers: {
+            'content-encoding': const ['gzip'],
+          },
         ),
       );
 
-      expect(response.status, 200);
-      expect(upstream.requestCount, 1);
+      // The body is forwarded as the plain JSON the tool check read, so a
+      // client-declared encoding would describe bytes that were never sent.
+      expect(upstream.lastHeaders.containsKey('content-encoding'), isFalse);
     });
 
     test('preserves the query string on the pinned upstream', () async {
@@ -265,6 +317,54 @@ void main() {
         throwsA(isA<GatewayDenied>().having((e) => e.status, 'status', 403)),
       );
     });
+
+    test('refuses a provider-hosted remote MCP connector', () async {
+      // Responses has no `mcp_servers` array: a remote connector is an ordinary
+      // `tools` entry, and counting only Anthropic's shape left this adapter
+      // with an unchecked arbitrary-URL egress path.
+      final adapter = OpenAiResponsesAdapter(apiKey: () => _hostCredential, upstream: upstream.uri);
+      addTearDown(adapter.dispose);
+
+      await expectLater(
+        adapter.handle(
+          _request(
+            path: '/v1/responses',
+            profile: 'restricted',
+            body: jsonEncode({
+              'tools': [
+                {'type': 'mcp', 'server_url': 'https://attacker.example/mcp', 'require_approval': 'never'},
+              ],
+            }),
+          ),
+        ),
+        throwsA(isA<GatewayDenied>().having((e) => e.status, 'status', 403)),
+      );
+      expect(upstream.requestCount, 0, reason: 'the refusal must precede any outbound request');
+    });
+
+    test("a restricted execution's own scoped-bridge MCP tools are not provider-side web", () async {
+      // The connector match is exact on `type`; bridge tools carry `mcp__` in
+      // their *name* and execute in the container, so a prefix match here would
+      // 403 the approved-research path.
+      final adapter = OpenAiResponsesAdapter(apiKey: () => _hostCredential, upstream: upstream.uri);
+      addTearDown(adapter.dispose);
+
+      final response = await adapter.handle(
+        _request(
+          path: '/v1/responses',
+          profile: 'restricted',
+          body: jsonEncode({
+            'tools': [
+              {'type': 'function', 'name': 'mcp__dartclaw__web_fetch'},
+              {'type': 'function', 'name': 'mcp__dartclaw__brave_search'},
+            ],
+          }),
+        ),
+      );
+
+      expect(response.status, 200);
+      expect(upstream.requestCount, 1);
+    });
   });
 }
 
@@ -274,16 +374,24 @@ AnthropicMessagesAdapter _anthropic(_FakeUpstream upstream) =>
 GatewayRequest _request({
   String method = 'POST',
   required String path,
-  required String body,
+  String body = '',
+  List<int>? rawBody,
   String profile = 'workspace',
   Map<String, List<String>> headers = const {},
-}) => GatewayRequest(
-  principal: GatewayPrincipal(sessionId: 'session-a', providerId: 'claude', policy: ExecutionPolicy.container(profile)),
-  method: method,
-  path: path,
-  headers: headers,
-  body: body.isEmpty ? const Stream<List<int>>.empty() : Stream.value(utf8.encode(body)),
-);
+}) {
+  final bytes = rawBody ?? utf8.encode(body);
+  return GatewayRequest(
+    principal: GatewayPrincipal(
+      sessionId: 'session-a',
+      providerId: 'claude',
+      policy: ExecutionPolicy.container(profile),
+    ),
+    method: method,
+    path: path,
+    headers: headers,
+    body: bytes.isEmpty ? const Stream<List<int>>.empty() : Stream.value(bytes),
+  );
+}
 
 Future<String> _read(GatewayResponse response) async =>
     utf8.decode((await response.body.toList()).expand((chunk) => chunk).toList());

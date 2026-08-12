@@ -26,7 +26,84 @@ void main() {
     await tasks.dispose();
   });
 
-  test('fails only tasks routed to the crashed profile', () async {
+  /// Two research tasks, each in its own restricted container authority.
+  Future<void> createTwoRunningResearchTasks() async {
+    for (final id in ['research-task-a', 'research-task-b']) {
+      await tasks.create(
+        id: id,
+        title: 'Research',
+        description: 'restricted task',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await tasks.transition(id, TaskStatus.running);
+    }
+  }
+
+  test('a crash fails the one task whose container died, not its profile siblings', () async {
+    final resolvedSubscriber = ContainerTaskFailureSubscriber(
+      tasks: tasks,
+      policyResolver: ExecutionPolicyResolver(
+        config: DartclawConfig.defaults().copyWith(container: const ContainerConfig(enabled: true)),
+        availableContainerProfiles: const {'workspace', 'restricted'},
+      ),
+    );
+    addTearDown(resolvedSubscriber.dispose);
+    await subscriber.dispose();
+    resolvedSubscriber.subscribe(eventBus);
+    await createTwoRunningResearchTasks();
+
+    eventBus.fire(
+      ContainerCrashedEvent(
+        profileId: 'restricted',
+        containerName: 'dartclaw-abc-restricted-1',
+        error: 'Container is no longer running',
+        timestamp: DateTime.now(),
+        taskId: 'research-task-a',
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect((await tasks.get('research-task-a'))!.status, TaskStatus.failed);
+    expect(
+      (await tasks.get('research-task-b'))!.status,
+      TaskStatus.running,
+      reason: 'its own container is healthy and its turn is still in flight',
+    );
+  });
+
+  test('a crash of an authority no task owns fails nothing', () async {
+    final resolvedSubscriber = ContainerTaskFailureSubscriber(
+      tasks: tasks,
+      policyResolver: ExecutionPolicyResolver(
+        config: DartclawConfig.defaults().copyWith(container: const ContainerConfig(enabled: true)),
+        availableContainerProfiles: const {'workspace', 'restricted'},
+      ),
+    );
+    addTearDown(resolvedSubscriber.dispose);
+    await subscriber.dispose();
+    resolvedSubscriber.subscribe(eventBus);
+    await createTwoRunningResearchTasks();
+
+    // The primary lane's own authority: profile-shaped like the research
+    // containers, owned by no task.
+    eventBus.fire(
+      ContainerCrashedEvent(
+        profileId: 'restricted',
+        containerName: 'dartclaw-abc-restricted-9',
+        error: 'Container is no longer running',
+        timestamp: DateTime.now(),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect((await tasks.get('research-task-a'))!.status, TaskStatus.running);
+    expect((await tasks.get('research-task-b'))!.status, TaskStatus.running);
+  });
+
+  test('without per-authority attribution, tasks routed to the crashed profile still fail', () async {
     await tasks.create(
       id: 'coding-task',
       title: 'Coding',

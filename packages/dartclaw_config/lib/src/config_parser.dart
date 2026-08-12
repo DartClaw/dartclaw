@@ -1297,7 +1297,7 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
     worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
     worktreeMergeStrategy: worktreeMergeStrategy,
     budget: budget,
-    execution: _parseTaskExecution(tasksMap, defaults.execution, warns),
+    execution: _parseTaskExecution(tasksMap, defaults.execution),
   );
 }
 
@@ -1330,16 +1330,23 @@ void _validateExecutionPolicySelections(DartclawConfig config) {
 
 /// Parses `tasks.execution.<task-type>` into typed execution-mode fallbacks.
 ///
-/// Unknown task-type keys and unknown modes are startup-fatal: an operator
-/// typo must not silently leave a task type on the deployment default.
+/// A malformed section, unknown task-type keys, and unknown modes are all
+/// startup-fatal: an operator typo must not silently leave a task type on the
+/// deployment default.
 Map<TaskType, ExecutionMode> _parseTaskExecution(
   Map<String, dynamic>? tasksMap,
   Map<TaskType, ExecutionMode> defaults,
-  List<String> warns,
 ) {
   if (tasksMap == null) return defaults;
-  final executionMap = readMap('execution', tasksMap, warns);
-  if (executionMap == null) return defaults;
+  final rawExecution = tasksMap['execution'];
+  if (rawExecution == null) return defaults;
+  if (rawExecution is! Map) {
+    throw FormatException(
+      'tasks.execution must be a map of task type to execution mode, not "${rawExecution.runtimeType}". '
+      'Accepted task types: ${TaskType.values.map((type) => type.name).join(', ')}.',
+    );
+  }
+  final executionMap = Map<String, dynamic>.from(rawExecution);
   final knownTypes = TaskType.values.asNameMap();
   final resolved = <TaskType, ExecutionMode>{};
   for (final entry in executionMap.entries) {

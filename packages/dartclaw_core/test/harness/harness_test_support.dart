@@ -150,6 +150,10 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   late List<String> lastCommand;
   Map<String, String>? lastEnv;
 
+  /// The most recent spawned (non-probe) process, for reading what the harness
+  /// wrote to the container's stdin.
+  CapturingFakeProcess? spawned;
+
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
@@ -157,7 +161,11 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
     if (command.length == 2 && command[1] == '--version') {
       return makeVersionProbeProcess('claude 1.0.0');
     }
-    final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
+    final fake = spawned = CapturingFakeProcess(
+      stdoutController: StreamController<List<int>>(),
+      completeExitOnKill: true,
+      closeStreamsOnExit: false,
+    );
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });

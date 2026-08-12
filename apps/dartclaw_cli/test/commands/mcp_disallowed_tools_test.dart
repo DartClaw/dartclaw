@@ -35,7 +35,6 @@ void main() {
       expect(
         workerDisallowedTools(
           containerProfile: null,
-          bridgedMcpTools: const {},
           hostDisallowedTools: const ['WebFetch', 'WebSearch'],
           userDisallowedTools: const [],
         ),
@@ -43,46 +42,27 @@ void main() {
       );
     });
 
-    test('a container granted no bridged tools keeps its provider-native web', () {
-      // Otherwise the container has neither a bridged nor a native web tool:
-      // the silent capability loss the no-fallback rule forbids.
-      expect(
-        workerDisallowedTools(
-          containerProfile: 'workspace',
-          bridgedMcpTools: const {},
-          hostDisallowedTools: const ['WebFetch', 'WebSearch'],
-          userDisallowedTools: const [],
-        ),
-        isEmpty,
-      );
-    });
-
-    test('a container suppresses only the native tools its bridge actually replaces', () {
-      expect(
-        workerDisallowedTools(
-          containerProfile: 'restricted',
-          bridgedMcpTools: const {'web_fetch'},
-          hostDisallowedTools: const [],
-          userDisallowedTools: const [],
-        ),
-        ['WebFetch'],
-      );
-      expect(
-        workerDisallowedTools(
-          containerProfile: 'restricted',
-          bridgedMcpTools: const {'web_fetch', 'web_search'},
-          hostDisallowedTools: const [],
-          userDisallowedTools: const [],
-        ),
-        ['WebFetch', 'WebSearch'],
-      );
+    test('every container profile loses provider-native web, whatever its bridge serves', () {
+      // The tools run at the provider, outside `network:none`, so the host
+      // gateway 403s any request declaring one — keeping them would only move
+      // the failure to the agent's first call.
+      for (final profile in ['workspace', 'restricted']) {
+        expect(
+          workerDisallowedTools(
+            containerProfile: profile,
+            hostDisallowedTools: const [],
+            userDisallowedTools: const [],
+          ),
+          containsAll(['WebFetch', 'WebSearch']),
+          reason: 'profile "$profile" must not declare a native web tool the gateway refuses',
+        );
+      }
     });
 
     test('user-configured denials survive into a container', () {
       expect(
         workerDisallowedTools(
           containerProfile: 'workspace',
-          bridgedMcpTools: const {},
           hostDisallowedTools: const [],
           userDisallowedTools: const ['Computer'],
         ),

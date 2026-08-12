@@ -102,6 +102,9 @@ final class WorkflowOneShotRunner {
     // any merge-resolve entries (distinct names, no collision) so the agent's
     // shell tool call resolves $DARTCLAW_STEP_ARTIFACTS_DIR from the process env.
     final extraEnvironment = <String, String>{...?mergeResolveEnv, ...?stepArtifactsEnv};
+    // A containerized step must be able to write where the host reads back, so
+    // the artifacts dir crosses the boundary as a mount, not just as a path.
+    final stepArtifactsDir = WorkflowTaskConfig.readStepArtifactsDir(task);
     // The host owns the per-step artifacts dir: create it before the first turn
     // so agents (and the review skill's no-mkdir precheck) can rely on it.
     for (final dir in (stepArtifactsEnv ?? const <String, String>{}).values) {
@@ -179,6 +182,7 @@ final class WorkflowOneShotRunner {
         appendSystemPrompt: appendSystemPrompt,
         sandboxOverride: sandboxOverride,
         extraEnvironment: extraEnvironment,
+        artifactsDir: stepArtifactsDir,
         usageBaseline: sessionUsageBaseline,
         onRootProcessTerminationConfirmed: observeRootProcessTermination,
       );
@@ -224,6 +228,7 @@ final class WorkflowOneShotRunner {
         appendSystemPrompt: null,
         sandboxOverride: sandboxOverride,
         extraEnvironment: extraEnvironment,
+        artifactsDir: stepArtifactsDir,
         usageBaseline: sessionUsageBaseline,
         onRootProcessTerminationConfirmed: observeRootProcessTermination,
       );

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show containerClaudeExecutable, containerClaudePlaceholderApiKey, containerCodexExecutable;
+import 'package:dartclaw_server/dartclaw_server.dart' show containerArtifactsPath;
 import 'package:dartclaw_server/src/task/workflow_cli_runner.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -163,7 +164,34 @@ void main() {
       expect(container.lastEnv!['DARTCLAW_MERGE_RESOLVE_STORY_BRANCH'], 'story/s03');
     });
 
-    test('an unmapped step-artifacts path is refused rather than silently dropped', () async {
+    test('the production step-artifacts dir is mounted, so the step spawns and writes where the host reads', () async {
+      // Production shape: a sibling of the workspace under the data dir, in no
+      // profile's mount set until the authority mounts it for this execution.
+      final dataDir = Directory(p.join(workingDirectory.path, 'data'))..createSync(recursive: true);
+      final stepArtifactsDir = Directory(
+        p.join(dataDir.path, 'workflows', 'runs', 'run-1', 'runtime-artifacts', 'steps', 'review'),
+      )..createSync(recursive: true);
+      final container = containerFor(stdout: _claudeResult);
+
+      await runnerFor('claude', container).executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: workingDirectory.path,
+        policy: const ExecutionPolicy.container('workspace'),
+        extraEnvironment: {'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir.path},
+        artifactsDir: stepArtifactsDir.path,
+      );
+
+      expect(container.lastEnv!['DARTCLAW_STEP_ARTIFACTS_DIR'], containerArtifactsPath);
+      // What the step writes there lands in the host dir the extractor reads.
+      File(p.join(stepArtifactsDir.path, 'report.md')).writeAsStringSync('# report');
+      expect(
+        container.containerPathForHostPath(p.join(stepArtifactsDir.path, 'report.md')),
+        '$containerArtifactsPath/report.md',
+      );
+    });
+
+    test('an unmapped operator-supplied path is refused rather than silently dropped', () async {
       final container = containerFor(stdout: _claudeResult);
 
       await expectLater(
@@ -172,13 +200,13 @@ void main() {
           prompt: 'Review this',
           workingDirectory: workingDirectory.path,
           policy: const ExecutionPolicy.container('workspace'),
-          extraEnvironment: {'DARTCLAW_STEP_ARTIFACTS_DIR': '/elsewhere/on/the/host'},
+          extraEnvironment: {'OPERATOR_REPORT_DIR': '/elsewhere/on/the/host'},
         ),
         throwsA(
           isA<StateError>().having(
             (e) => e.message,
             'message',
-            allOf(contains('DARTCLAW_STEP_ARTIFACTS_DIR'), contains('not mounted')),
+            allOf(contains('OPERATOR_REPORT_DIR'), contains('not mounted')),
           ),
         ),
       );
@@ -222,7 +250,9 @@ void main() {
       expect(config, isNot(contains('api.openai.com')));
     });
 
-    test('disables provider-native web search only for the restricted profile', () async {
+    test('disables provider-native web search for every container profile', () async {
+      // It runs at the provider, outside `network:none`, so the host gateway
+      // 403s any request declaring it — from workspace as much as restricted.
       final restricted = containerFor(stdout: _codexEvents, profileId: 'restricted');
       late String restrictedConfig;
       restricted.onExec = (_) => restrictedConfig = capturedHomeFiles(restricted)['config.toml']!;
@@ -234,7 +264,7 @@ void main() {
       await runTurn(runnerFor('codex', workspace), 'codex');
 
       expect(restrictedConfig, contains('web_search = false'));
-      expect(workspaceConfig, isNot(contains('web_search = false')));
+      expect(workspaceConfig, contains('web_search = false'));
     });
 
     test('deletes the generated home when the turn ends', () async {
@@ -312,11 +342,13 @@ void main() {
       expect(denyRules(container), containsAll(['WebFetch', 'WebSearch']));
     });
 
-    test('workspace claude keeps the native web tools', () async {
+    test('workspace claude denies the native web tools too', () async {
+      // Same reason as restricted: they execute at the provider, so the host
+      // gateway refuses them whatever profile the container runs under.
       final container = containerFor(stdout: _claudeResult);
       await runTurn(runnerFor('claude', container), 'claude');
 
-      expect(container.lastCommand, isNot(contains('--settings')));
+      expect(denyRules(container), containsAll(['WebFetch', 'WebSearch']));
     });
   });
 

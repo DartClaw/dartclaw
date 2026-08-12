@@ -22,5 +22,11 @@ abstract interface class ContainerAuthorityLease {
 /// [allowedMcpTools] holds canonical tool names, resolved host-side from the
 /// execution's effective tool policy. Empty – the default – starts no MCP
 /// surface at all, so a container reaches no host tool unless one was granted.
+/// [artifactsDir] is the host directory this execution must be able to write
+/// its durable outputs to; it is mounted read-write into the container.
 typedef ContainerAuthorityProvider =
-    Future<ContainerAuthorityLease> Function(GatewayPrincipal principal, {Set<String> allowedMcpTools});
+    Future<ContainerAuthorityLease> Function(
+      GatewayPrincipal principal, {
+      Set<String> allowedMcpTools,
+      String? artifactsDir,
+    });

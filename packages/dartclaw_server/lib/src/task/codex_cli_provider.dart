@@ -10,7 +10,6 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import '../container/security_profile.dart';
 import 'claude_cli_provider.dart'
     show
         containerExtraEnvironment,
@@ -238,9 +237,9 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       containerHomePath: containerHome,
       gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
       // Provider-side web search escapes `network:none` because it runs at the
-      // provider. Host mediation refuses it for restricted executions anyway;
+      // provider. Host mediation refuses it for every containerized execution;
       // turning it off here keeps the client from asking.
-      nativeWebSearch: container.profileId != SecurityProfile.restricted.id,
+      nativeWebSearch: false,
       mcpServerUrl: container.mcpBridgeUrl,
     );
   }

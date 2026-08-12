@@ -258,6 +258,11 @@ class HarnessWiring {
     )) {
       _log.warning(warning);
     }
+    // Reports an agent allowed a host tool this deployment cannot serve at
+    // startup rather than at that agent's first container turn.
+    for (final definition in _agentDefs) {
+      _bridgedMcpToolsFor(agentId: definition.id);
+    }
     final acpValidationResults = await _validateConfiguredAcpTargets(config, acpAgents);
     for (final entry in acpAgents.entries) {
       if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
@@ -302,13 +307,24 @@ class HarnessWiring {
       }
 
       _primaryPolicy = _policyResolver.resolveForPrimary(providerId: defaultProviderId);
+      // The primary lane's own grant, and the disallow list resolved against
+      // the MCP surface it will really have — a containerized primary that is
+      // granted no bridged search keeps its native one instead of losing both.
+      final primaryBridgedMcpTools = _primaryPolicy.isContainer ? _primaryBridgedMcpTools() : const <String>{};
+      final primaryHarnessConfig = _harnessConfig.copyWith(
+        disallowedTools: workerDisallowedTools(
+          containerProfile: _primaryPolicy.containerProfile,
+          hostDisallowedTools: _harnessConfig.disallowedTools,
+          userDisallowedTools: config.agent.disallowedTools,
+        ),
+      );
       _harness = _harnessFactory.create(
         defaultProviderId,
         _buildFactoryConfig(
           executable: _resolveProviderExecutable(config, defaultProviderId),
-          harnessConfig: _harnessConfig,
+          harnessConfig: primaryHarnessConfig,
           providerOptions: _providerOptions(config, defaultProviderId),
-          containerManager: await _primaryContainerManager(defaultProviderId),
+          containerManager: await _primaryContainerManager(defaultProviderId, allowedMcpTools: primaryBridgedMcpTools),
           guardChain: _primaryGuardChain,
           environment: _providerEnvironment(
             config,
@@ -560,9 +576,13 @@ class HarnessWiring {
         if (!verdict.isSupported) {
           throw WorkerCreationException(verdict.message);
         }
-        final bridgedMcpTools = _bridgedMcpToolsFor(request.logicalAgentId);
+        final bridgedMcpTools = _bridgedMcpToolsFor(
+          agentId: request.logicalAgentId,
+          allowedTools: request.allowedTools,
+        );
         ContainerAuthorityLease? lease;
         if (containerProfile != null) {
+          _warnIfUngranted(bridgedMcpTools, request: request, containerProfile: containerProfile);
           try {
             lease = await _security.acquireContainerAuthority(
               GatewayPrincipal(
@@ -591,7 +611,6 @@ class HarnessWiring {
           appendSystemPrompt: workerPrompt,
           disallowedTools: workerDisallowedTools(
             containerProfile: containerProfile,
-            bridgedMcpTools: bridgedMcpTools,
             hostDisallowedTools: _harnessConfig.disallowedTools,
             userDisallowedTools: config.agent.disallowedTools,
           ),
@@ -641,7 +660,7 @@ class HarnessWiring {
   /// owns a dedicated container rather than sharing a per-profile one. A
   /// provider whose resolved boundary this deployment cannot enforce rejects
   /// before any container exists rather than running somewhere else.
-  Future<ContainerExecutor?> _primaryContainerManager(String providerId) async {
+  Future<ContainerExecutor?> _primaryContainerManager(String providerId, {required Set<String> allowedMcpTools}) async {
     final verdict = _executionInventory.verdictFor(
       providerId: providerId,
       surface: ProviderLaunchSurface.longLived,
@@ -653,6 +672,7 @@ class HarnessWiring {
     if (!_primaryPolicy.isContainer) return null;
     _primaryContainer = await _security.acquireContainerAuthority(
       GatewayPrincipal(sessionId: _primaryAuthoritySessionId, providerId: providerId, policy: _primaryPolicy),
+      allowedMcpTools: allowedMcpTools,
     );
     return _primaryContainer!.container;
   }
@@ -661,23 +681,94 @@ class HarnessWiring {
   /// principal, named so audit entries can be told apart from worker turns.
   static const _primaryAuthoritySessionId = 'primary';
 
-  /// Canonical MCP tool names an agent's containerized execution may reach.
+  /// Canonical MCP tool names one containerized execution may reach.
   ///
-  /// Deny-by-default: only an explicit agent allowlist exposes anything, and
-  /// only entries that name a canonical tool participate — a provider-native
-  /// tool name in `allowed_tools` says nothing about host MCP.
-  Set<String> _bridgedMcpToolsFor(String? agentId) {
+  /// Deny-by-default: only an explicit allowlist exposes anything — the logical
+  /// agent's `allowed_tools`, or the tool policy already in force for the task
+  /// — and only entries that name a canonical tool participate, since a
+  /// provider-native tool name says nothing about host MCP.
+  /// The tool policy authorizing an execution, before any canonical or
+  /// servability filtering — `null` when the execution carries none at all.
+  Set<String>? _requestedToolPolicy({String? agentId, List<String>? allowedTools}) =>
+      (agentId == null ? null : _agentMap[agentId])?.allowedTools ?? allowedTools?.toSet();
+
+  Set<String> _bridgedMcpToolsFor({String? agentId, List<String>? allowedTools}) {
     final definition = agentId == null ? null : _agentMap[agentId];
-    if (definition == null || definition.allowedTools.isEmpty) return const {};
+    final requested = _requestedToolPolicy(agentId: agentId, allowedTools: allowedTools);
+    if (requested == null || requested.isEmpty) return const {};
     // `mcp_call` names every tool without a semantic canonical, so it can
     // never act as a bridged grant.
     final canonicalNames = {
       for (final tool in CanonicalTool.values)
         if (tool != CanonicalTool.mcpCall) tool.stableName,
     };
-    final denied = {...definition.deniedTools, ...config.agent.disallowedTools};
-    return definition.allowedTools.where(canonicalNames.contains).toSet().difference(denied);
+    final denied = {...?definition?.deniedTools, ...config.agent.disallowedTools};
+    final granted = requested.where(canonicalNames.contains).toSet().difference(denied);
+    return _servableGrant(granted, subject: agentId == null ? 'This deployment' : 'Agent "$agentId"');
   }
+
+  /// The primary lane's bridged grant.
+  ///
+  /// The primary agent is the deployment itself, not a scoped logical agent:
+  /// on the host it reaches the whole registered MCP surface, so containerizing
+  /// it must not silently drop web and memory capability. Session-spawning
+  /// tools stay out — orchestrating other executions is not a capability a
+  /// container needs to keep working.
+  Set<String> _primaryBridgedMcpTools() {
+    final semantic = {for (final tool in _semanticMcpTools) ?_ownMcpToolCanonicals[tool.name]?.stableName};
+    return semantic.difference(config.agent.disallowedTools.toSet());
+  }
+
+  /// Drops grants no registered host tool can serve, naming each one once.
+  ///
+  /// A canonical the deployment does not implement — `web_search` with no
+  /// configured `search.providers` — would otherwise be granted, suppress the
+  /// provider-native tool that could have replaced it, and fail only when the
+  /// agent first calls it.
+  Set<String> _servableGrant(Set<String> granted, {required String subject}) {
+    final servable = {for (final canonical in _ownMcpToolCanonicals.values) canonical.stableName};
+    for (final tool in granted.difference(servable)) {
+      if (!_warnedUnservableGrants.add('$subject/$tool')) continue;
+      _log.warning(
+        '$subject is allowed host MCP tool "$tool", but this deployment registers no such tool – '
+        'containerized executions will run without it. '
+        'Configure the provider that serves it (for example search.providers.* for web_search).',
+      );
+    }
+    return granted.intersection(servable);
+  }
+
+  /// Reports a containerized execution that was meant to reach host tools but
+  /// reaches none.
+  ///
+  /// Bridged MCP is deny-by-default, so an ordinary workspace coding task with
+  /// no tool policy is capability-free *by design* — warning on it would fire
+  /// on every default-config containerized turn. Two cases are real capability
+  /// loss instead: the `restricted` profile, whose whole point is web-shaped
+  /// work with no workspace to fall back on, and an execution whose configured
+  /// policy asked for host tools that all turned out unservable.
+  void _warnIfUngranted(
+    Set<String> bridgedMcpTools, {
+    required ExecutionRequest request,
+    required String containerProfile,
+  }) {
+    if (bridgedMcpTools.isNotEmpty) return;
+    final grantConfigured =
+        _requestedToolPolicy(agentId: request.logicalAgentId, allowedTools: request.allowedTools)?.isNotEmpty ?? false;
+    if (containerProfile != SecurityProfile.restricted.id && !grantConfigured) return;
+    final subject = request.logicalAgentId == null
+        ? '${request.surface.name} executions'
+        : 'Logical agent "${request.logicalAgentId}"';
+    if (!_warnedUnservableGrants.add('ungranted $subject $containerProfile')) return;
+    _log.warning(
+      '$subject run in container profile "$containerProfile" with no host MCP tools: '
+      'nothing was allowed, so they reach no search, fetch, or memory capability. '
+      'Allow the canonical tools they need (an agent\'s allowed_tools, or the task\'s tool policy), '
+      'or select host execution for them.',
+    );
+  }
+
+  final Set<String> _warnedUnservableGrants = {};
 
   /// Destroys the primary harness's dedicated container, if it has one.
   ///
@@ -816,25 +907,20 @@ class HarnessWiring {
 /// Tools a worker must refuse, resolved against the MCP surface it will really
 /// have.
 ///
-/// A provider-native web tool is suppressed only where a host tool actually
-/// replaces it. On the host that is the deployment MCP endpoint, already folded
-/// into [hostDisallowedTools]. In a container it is the execution-scoped
-/// bridge, so a container granted no bridged search keeps its native tool
-/// rather than ending up with neither – the silent capability loss the
-/// no-fallback rule exists to prevent. Restricted containers lose native web
-/// separately and deliberately, at the harness.
+/// On the host a provider-native web tool is suppressed only where the
+/// deployment MCP endpoint replaces it, already folded into
+/// [hostDisallowedTools]. Every container loses both of them regardless of what
+/// its bridge serves: they run at the provider rather than in the container, so
+/// `network:none` cannot contain them and the host gateway refuses any request
+/// declaring one. Keeping a native tool the gateway would 403 buys no
+/// capability — it only moves the failure to the agent's first call.
 List<String> workerDisallowedTools({
   required String? containerProfile,
-  required Set<String> bridgedMcpTools,
   required List<String> hostDisallowedTools,
   required List<String> userDisallowedTools,
 }) {
   if (containerProfile == null) return hostDisallowedTools;
-  return mcpDisallowedTools(
-    mcpEnabled: bridgedMcpTools.isNotEmpty,
-    searchEnabled: bridgedMcpTools.contains(CanonicalTool.webSearch.stableName),
-    userDisallowed: userDisallowedTools,
-  );
+  return [...userDisallowedTools, 'WebFetch', 'WebSearch'];
 }
 
 /// Creates a per-runner [GuardChain] layering the runner's [filter] after all

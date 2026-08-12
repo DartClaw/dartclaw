@@ -189,7 +189,9 @@ For production, prefer API keys managed by the service environment or a secret m
 - **No shared token** – containers receive no shared operator MCP bearer; the execution-scoped pipe is the identity
 - **Pinned destination** – the adapter owns the upstream origin and the allowed request paths, so a container cannot
   name where its traffic goes
-- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container
+- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container, and the pipe refuses
+  any request declaring a provider-side network tool (web search/fetch, remote MCP connectors), which would otherwise run
+  at the provider where `network:none` cannot reach it. This applies to every container profile, not just `restricted`
 - **Non-replayable** – authority is bound to one execution and revoked on release; a captured pipe cannot be revived
 
 ## ACP and Logical-Agent Security Modes

@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Host Claude login mounted into containers (breaking)** – `~/.claude.json` is no longer bind-mounted into agent containers; no host login material crosses the boundary. Containerized Claude is mediated by the host adapter, which needs a host-held API key, so an OAuth/setup-token-only host warns at startup and refuses each containerized Claude turn. **Migration:** set `ANTHROPIC_API_KEY`, or give the affected agents and task types `execution: host`.
 - **Preview delegation surfaces (breaking)** – `delegate_to_agent`, `delegation.*`, `SessionDelegate`, `SubagentLimits`, delegation config exports, and provider-native agent registration are removed. Use `sessions_spawn` and handle-based `sessions_send`.
 - **Legacy capacity and observability surfaces (breaking)** – `tasks.max_concurrent` and `HarnessPool` are replaced by provider `pool_size` and `ExecutionCoordinator`; CLI `agents`, `/api/agents`, SSE `agent_state`, and agent observer/events become `runners`, `/api/runners`, `runner_state`, and runner equivalents.
 - **Obsolete `AgentDefinition` controls (breaking, SDK)** – per-agent spawn/concurrency/session-store fields, arbitrary initialize-payload extras, and `toInitializePayload()` are removed; logical agents use shared worker capacity and host-owned orchestration.

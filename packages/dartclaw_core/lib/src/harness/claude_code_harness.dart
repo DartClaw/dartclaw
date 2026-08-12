@@ -552,15 +552,14 @@ class ClaudeCodeHarness extends BaseHarness {
   /// The binary the container image ships, unless an absolute path was pinned.
   String get _containerExecutable => claudeExecutable.contains('/') ? claudeExecutable : containerClaudeExecutable;
 
-  /// Provider-native web tools a restricted container must not use.
+  /// Provider-native web tools no containerized execution may use.
   ///
   /// They execute at the provider rather than in the container, so
-  /// `network:none` cannot contain them. The host adapter is the enforcement
-  /// point and refuses requests declaring them; suppressing them here keeps the
-  /// client from asking and is defense in depth, not the boundary. Workspace
-  /// containers keep them – their MCP access is still bridge-scoped.
-  List<String> get _deniedNativeWebTools =>
-      containerManager?.profileId == 'restricted' ? const ['WebSearch', 'WebFetch'] : const [];
+  /// `network:none` cannot contain them, and every profile's provider pipe is
+  /// mediated by a host adapter that refuses any request declaring them. This
+  /// suppression keeps the client from asking at all; the bridged MCP grant is
+  /// the only web path a container has.
+  List<String> get _deniedNativeWebTools => containerManager == null ? const [] : const ['WebSearch', 'WebFetch'];
 
   String? _resolveProviderOption(String? override, String? fallback) {
     final trimmed = override?.trim();

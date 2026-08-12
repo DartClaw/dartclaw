@@ -1,6 +1,7 @@
 @Tags(['integration', 'slow'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
@@ -135,16 +136,19 @@ void main() {
   });
 
   group('generated state and host homes', () {
-    test('the generated-state mount is the only writable host object', () async {
+    test('the workspace and its generated state are the only host objects mounted', () async {
       final manager = await startContainer();
 
-      final mounts = await _inspect(manager.containerName, '{{json .Mounts}}');
-      expect(mounts, contains(containerGeneratedStatePath));
-      // No host provider home is bind-mounted in. The image's own installer
-      // state at `/home/dartclaw/.claude.json` is baked into the layer and is
-      // not host login material, so the mount list is the thing to assert on.
-      expect(mounts, isNot(contains('.claude.json')));
-      expect(mounts, isNot(contains('/.codex')));
+      final mounts = (jsonDecode(await _inspect(manager.containerName, '{{json .Mounts}}')) as List<Object?>)
+          .cast<Map<String, Object?>>();
+
+      // Bounding the whole set is the point: no host provider home is mounted
+      // in. The image's own installer state at `/home/dartclaw/.claude.json` is
+      // baked into the layer and is not host login material.
+      final byDestination = {for (final mount in mounts) mount['Destination'] as String: mount};
+      expect(byDestination.keys, unorderedEquals(['/project', containerGeneratedStatePath]));
+      expect(byDestination['/project']!['RW'], isTrue);
+      expect(byDestination[containerGeneratedStatePath]!['RW'], isTrue);
       expect(
         await _execOutput(manager, ['cat', '/home/dartclaw/.claude.json']),
         allOf(isNot(contains('oauthAccount')), isNot(contains('accessToken'))),

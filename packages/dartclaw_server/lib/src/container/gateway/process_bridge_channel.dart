@@ -11,14 +11,14 @@ import 'gateway_models.dart';
 /// host holds its stdio, and killing it revokes the surface outright.
 final class ProcessBridgeChannel implements BridgeChannel {
   ProcessBridgeChannel(this._process, {required this.label}) {
-    _process.stderr.listen((bytes) => _stderr.write(String.fromCharCodes(bytes)));
+    _process.stderr.listen((bytes) => _retainStderr(String.fromCharCodes(bytes)));
     unawaited(
       _process.exitCode.then((code) {
         _exited = true;
         if (code == 0) return;
         // The usual cause is an image whose loader cannot run the bridge, which
         // otherwise surfaces only as a readiness timeout with no reason.
-        final detail = _stderr.toString().trim();
+        final detail = _stderr.trim();
         _log.warning('$label bridge exited with code $code${detail.isEmpty ? '' : ': $detail'}');
       }),
     );
@@ -26,14 +26,28 @@ final class ProcessBridgeChannel implements BridgeChannel {
 
   static final _log = Logger('ProcessBridgeChannel');
 
+  /// How much bridge stderr is kept for the exit diagnostic.
+  ///
+  /// The stream is container-controlled and read only at a non-zero exit, so it
+  /// is retained as a bounded tail rather than accumulated in full — the fatal
+  /// error a bridge prints is the last thing it writes.
+  static const stderrRetainedChars = 4096;
+
   final Process _process;
   final String label;
-  final StringBuffer _stderr = StringBuffer();
+  String _stderr = '';
 
   bool _exited = false;
 
   @override
   Stream<List<int>> get incoming => _process.stdout;
+
+  void _retainStderr(String chunk) {
+    final combined = _stderr + chunk;
+    _stderr = combined.length <= stderrRetainedChars
+        ? combined
+        : combined.substring(combined.length - stderrRetainedChars);
+  }
 
   @override
   Future<void> send(List<int> bytes) async {

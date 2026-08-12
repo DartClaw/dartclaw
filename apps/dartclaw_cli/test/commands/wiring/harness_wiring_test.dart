@@ -998,12 +998,12 @@ void main() {
     expect(factory.supports('missing_acp_agent'), isFalse);
     expect(
       harnessWiring!.providerStatusEntries['goose']!.options['acp_validation_result'],
-      containsPair('securityClassification', 'container_isolation_only'),
+      containsPair('securityClassification', 'host_only'),
     );
     expect(harnessWiring!.providerStatusEntries['goose']!.options['acp_validation_owned'], isTrue);
     expect(
       harnessWiring!.providerStatusEntries['vibe']!.options['acp_validation_result'],
-      containsPair('securityClassification', 'container_isolation_only'),
+      containsPair('securityClassification', 'host_only'),
     );
   });
 

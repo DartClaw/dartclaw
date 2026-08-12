@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
@@ -43,11 +44,10 @@ final class GatewayPrincipal {
   final String? taskId;
 
   /// The container profile this authority runs under, or `null` on the host.
+  ///
+  /// Every profile runs under `network:none`, so a non-null value is what makes
+  /// an execution subject to the provider-side network-tool refusal.
   String? get containerProfile => policy.containerProfile;
-
-  /// Restricted executions lose provider-native web tools, which run at the
-  /// provider rather than in the container and so escape `network:none`.
-  bool get isRestricted => policy.containerProfile == 'restricted';
 
   /// A stable, secret-free identifier for logs and audit entries.
   String describe() {
@@ -80,6 +80,10 @@ final class GatewayRequest {
   final Stream<List<int>> body;
 
   /// Collects the body into a string, refusing anything beyond [maxBytes].
+  ///
+  /// Decoded as UTF-8, the wire encoding both bridge surfaces use: a byte-wise
+  /// decode would silently mangle every non-ASCII argument into text that still
+  /// parses as JSON.
   Future<String> readBody({required int maxBytes}) async {
     final builder = <int>[];
     await for (final chunk in body) {
@@ -88,7 +92,11 @@ final class GatewayRequest {
         throw const GatewayDenied(status: 413, reason: 'request body exceeds the bridge limit');
       }
     }
-    return String.fromCharCodes(builder);
+    try {
+      return utf8.decode(builder);
+    } on FormatException {
+      throw const GatewayDenied(status: 400, reason: 'request body is not valid UTF-8');
+    }
   }
 }
 

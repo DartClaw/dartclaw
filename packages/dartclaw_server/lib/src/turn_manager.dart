@@ -103,6 +103,12 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
 
   /// Composes a single primary harness for SDK and test hosts.
+  ///
+  /// [executionPolicy] must describe where [worker] actually runs: it is the
+  /// runner's reported placement, its worker-reuse identity, and the predicate
+  /// that keeps container-backed runners out of the reuse cache. It defaults to
+  /// host execution because that is what an SDK host composes unless it wired a
+  /// containerized harness itself.
   TurnManager({
     required MessageService messages,
     required AgentHarness worker,
@@ -125,6 +131,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     TurnMonitorConfig turnMonitor = const TurnMonitorConfig.defaults(),
     Duration? globalTimeout,
     Duration outcomeTtl = const Duration(seconds: 30),
+    ExecutionPolicy executionPolicy = const ExecutionPolicy.host(),
   }) : this.fromCoordinator(
          coordinator: _singleHarnessCoordinator(
            messages: messages,
@@ -148,6 +155,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
            turnMonitor: turnMonitor,
            globalTimeout: globalTimeout,
            outcomeTtl: outcomeTtl,
+           executionPolicy: executionPolicy,
          ),
          sessions: sessions,
        );
@@ -548,6 +556,7 @@ ExecutionCoordinator _singleHarnessCoordinator({
   required TurnMonitorConfig turnMonitor,
   required Duration? globalTimeout,
   required Duration outcomeTtl,
+  required ExecutionPolicy executionPolicy,
 }) {
   final primary = TurnRunner(
     harness: worker,
@@ -571,6 +580,7 @@ ExecutionCoordinator _singleHarnessCoordinator({
     turnMonitor: turnMonitor,
     globalTimeout: globalTimeout,
     outcomeTtl: outcomeTtl,
+    executionPolicy: executionPolicy,
   );
   return ExecutionCoordinator(
     providerCapacities: const {},

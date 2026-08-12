@@ -158,6 +158,25 @@ tasks:
       );
     });
 
+    test('a scalar tasks.execution is rejected rather than warned-and-dropped', () {
+      // Plausible typo, since every sibling execution key *is* a scalar —
+      // dropping it would silently leave every task type on the deployment
+      // default.
+      expect(
+        () => loadYaml('''
+tasks:
+  execution: host
+'''),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('tasks.execution'), contains('map'), contains('coding')),
+          ),
+        ),
+      );
+    });
+
     test('unknown task-type mode names the task-type path', () {
       expect(
         () => loadYaml('''

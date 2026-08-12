@@ -38,7 +38,7 @@ enum AcpTargetOperation {
 /// Security classification for one ACP target validation operation.
 enum AcpTargetEvidenceStatus {
   guardMediated('guard_mediated'),
-  containerIsolationOnly('container_isolation_only'),
+  hostOnly('host_only'),
   failed('failed'),
   skipped('skipped');
 
@@ -135,14 +135,14 @@ final class AcpTargetValidationResult {
     );
   }
 
-  /// Creates a container-isolation-only result.
-  factory AcpTargetValidationResult.containerIsolationOnly(String providerId, {String? message}) {
+  /// Creates a host-only result for a registration claiming no guard mediation.
+  factory AcpTargetValidationResult.hostOnly(String providerId, {String? message}) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: AcpTargetValidationStatus.passed,
-      securityClassification: AcpSecurityClassification.containerIsolationOnly,
+      securityClassification: AcpSecurityClassification.hostOnly,
       message: message,
-      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.containerIsolationOnly),
+      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.hostOnly),
     );
   }
 
@@ -151,7 +151,7 @@ final class AcpTargetValidationResult {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: required ? AcpTargetValidationStatus.failed : AcpTargetValidationStatus.skipped,
-      securityClassification: AcpSecurityClassification.containerIsolationOnly,
+      securityClassification: AcpSecurityClassification.hostOnly,
       errorCode: AcpHarnessErrorCode.spawnFailed.code,
       message: message,
       evidence: _evidenceForStatus(AcpTargetEvidenceStatus.skipped),
@@ -259,7 +259,7 @@ final class AcpTargetValidator {
         results[providerId] = AcpTargetValidationResult(
           providerId: providerId,
           status: AcpTargetValidationStatus.failed,
-          securityClassification: AcpSecurityClassification.containerIsolationOnly,
+          securityClassification: AcpSecurityClassification.hostOnly,
           message: configErrors.join('; '),
           evidence: _evidenceForStatus(AcpTargetEvidenceStatus.failed),
         );
@@ -284,7 +284,7 @@ final class AcpTargetValidator {
         continue;
       }
       if (!config.requiresGuardMediation) {
-        results[providerId] = AcpTargetValidationResult.containerIsolationOnly(providerId);
+        results[providerId] = AcpTargetValidationResult.hostOnly(providerId);
         continue;
       }
       final probe = targetProbe;
@@ -292,7 +292,7 @@ final class AcpTargetValidator {
         results[providerId] = AcpTargetValidationResult(
           providerId: providerId,
           status: AcpTargetValidationStatus.failed,
-          securityClassification: AcpSecurityClassification.containerIsolationOnly,
+          securityClassification: AcpSecurityClassification.hostOnly,
           message: 'Guard-mediated ACP target requires operation probe evidence',
           evidence: _evidenceForStatus(AcpTargetEvidenceStatus.failed),
         );
@@ -305,7 +305,7 @@ final class AcpTargetValidator {
         status: allOperationsGuardMediated ? AcpTargetValidationStatus.passed : AcpTargetValidationStatus.failed,
         securityClassification: allOperationsGuardMediated
             ? AcpSecurityClassification.guardMediated
-            : AcpSecurityClassification.containerIsolationOnly,
+            : AcpSecurityClassification.hostOnly,
         evidence: evidence,
       );
       results[providerId] = result;
@@ -330,6 +330,6 @@ String acpSecurityClassificationId(AcpSecurityClassification classification) => 
 String _classificationId(AcpSecurityClassification classification) {
   return switch (classification) {
     AcpSecurityClassification.guardMediated => 'guard_mediated',
-    AcpSecurityClassification.containerIsolationOnly => 'container_isolation_only',
+    AcpSecurityClassification.hostOnly => 'host_only',
   };
 }

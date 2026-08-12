@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -83,6 +84,18 @@ void main() {
       expect(exchange.status, 200);
       expect(exchange.body, 'echo:hello');
       expect(exchange.isDenied, isFalse);
+    });
+
+    test('round-trips a non-ASCII body without corrupting it', () async {
+      // A byte-wise decode still yields parseable JSON, so a mangled search
+      // query or percent-decoded URL would reach the tool silently.
+      final harness = await _GatewayHarness.start();
+      addTearDown(harness.dispose);
+      const payload = '{"q":"vad är väder – 北京? ☂"}';
+
+      final exchange = await harness.provider.request(1, body: payload);
+
+      expect(exchange.body, 'echo:$payload');
     });
 
     test('fails the pipe when the bridge claims a surface the host did not bind', () async {
@@ -287,6 +300,60 @@ void main() {
       expect(replay.body, 'session-b');
     });
   });
+
+  group('HostGateway provider mediation', () {
+    test('refuses a provider-side network tool declared by a workspace container', () async {
+      // `network:none` applies to every profile, so the shipped default must
+      // not be able to turn the credentialed pipe into arbitrary egress.
+      final upstream = await _ForbiddenUpstream.start();
+      addTearDown(upstream.close);
+      final harness = await _GatewayHarness.start(
+        adapter: AnthropicMessagesAdapter(apiKey: () => 'sk-ant-host', upstream: upstream.uri),
+      );
+      addTearDown(harness.dispose);
+
+      final exchange = await harness.provider.request(
+        1,
+        path: '/v1/messages',
+        body: jsonEncode({
+          'model': 'claude',
+          'tools': [
+            {'type': 'web_search_20250305'},
+          ],
+        }),
+      );
+
+      expect(harness.authority.principal.containerProfile, 'workspace');
+      expect(exchange.isDenied, isTrue);
+      expect(exchange.status, 403);
+      expect(exchange.failure, contains('provider-side network tool'));
+      expect(upstream.requestCount, 0);
+    });
+  });
+}
+
+/// A provider upstream that must never be reached.
+final class _ForbiddenUpstream {
+  _ForbiddenUpstream._(this._server);
+
+  final HttpServer _server;
+
+  var requestCount = 0;
+
+  Uri get uri => Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${_server.port}');
+
+  static Future<_ForbiddenUpstream> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final upstream = _ForbiddenUpstream._(server);
+    server.listen((request) async {
+      upstream.requestCount++;
+      request.response.statusCode = 200;
+      await request.response.close();
+    });
+    return upstream;
+  }
+
+  Future<void> close() => _server.close(force: true);
 }
 
 /// One registered authority with a live provider pipe, ready to serve.

@@ -15,6 +15,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'task_executor_test_support.dart';
+import 'workflow_cli_runner_test_support.dart' show FakeContainerExecutor, fakeContainerAuthorities;
 
 /// Strict execution-envelope schema (top-level `outputs` → envelope path) with a
 /// single declared narrative output `summary` plus the engine-owned `step_outcome`.
@@ -94,6 +95,7 @@ void main() {
     WorkflowCliRunner? workflowCliRunner,
     TaskEventRecorder? eventRecorder,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
+    ExecutionPolicyResolver? policyResolver,
   }) => ctx.harness.buildWorkflowExecutor(
     turnManager: workflowTurns,
     projectService: projectService,
@@ -103,6 +105,7 @@ void main() {
     eventRecorder: eventRecorder,
     kvService: kvService,
     limits: limits,
+    policyResolver: policyResolver,
   );
 
   Future<void> seedWorkflowExecution(
@@ -326,6 +329,69 @@ void main() {
       expect(Directory(stepArtifactsDir).existsSync(), isTrue);
     },
   );
+
+  test('a containerized step gets its production step-artifacts dir mounted, so it spawns at all', () async {
+    // Production shape: `<dataDir>/workflows/runs/<runId>/…`, a sibling of the
+    // workspace and inside no profile's mount set until the authority mounts it.
+    final dataDir = p.join(ctx.tempDir.path, 'data');
+    final stepArtifactsDir = p.join(
+      dataDir,
+      'workflows',
+      'runs',
+      'wf-container',
+      'runtime-artifacts',
+      'steps',
+      'review',
+    );
+    final container = FakeContainerExecutor(
+      hostRoot: Directory.current.path,
+      containerRoot: '/project',
+      stdout: jsonEncode({'type': 'result', 'session_id': 'cli-session-container', 'result': 'Done.'}),
+    );
+    final mountedArtifactsDirs = <String?>[];
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      containerAuthorities: fakeContainerAuthorities(container, mountedArtifactsDirs: mountedArtifactsDirs),
+    );
+    final oneShotExecutor = buildExecutor(
+      workflowCliRunner: cliRunner,
+      policyResolver: ExecutionPolicyResolver(
+        config: DartclawConfig.defaults().copyWith(container: const ContainerConfig(enabled: true)),
+        availableContainerProfiles: const {'workspace', 'restricted'},
+      ),
+    );
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-container-artifacts',
+      title: 'Review step',
+      description: 'Review --output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR"',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-container-artifacts',
+      workflowRunId: 'wf-container',
+      provider: 'claude',
+      configJson: {
+        WorkflowTaskConfig.stepArtifactsEnv: {'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir},
+      },
+    );
+    await seedWorkflowExecution(
+      'task-container-artifacts',
+      agentExecutionId: 'ae-container-artifacts',
+      workflowRunId: 'wf-container',
+    );
+
+    await oneShotExecutor.pollOnce();
+    await oneShotExecutor.drain();
+
+    expect(mountedArtifactsDirs, [stepArtifactsDir]);
+    expect(container.lastEnv!['DARTCLAW_STEP_ARTIFACTS_DIR'], containerArtifactsPath);
+    expect(
+      (await tasks.get('task-container-artifacts'))!.status,
+      isNot(TaskStatus.failed),
+      reason: 'an unmountable artifacts dir used to throw before the spawn',
+    );
+  });
 
   test('workflow oneshot cancellation records cancelled without taskError', () async {
     final eventDb = openTaskDbInMemory();

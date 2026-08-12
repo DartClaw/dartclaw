@@ -277,6 +277,84 @@ void main() {
       expect(createCommand, isNot(contains('/other-workspace:/workspace:rw')));
     });
 
+    test('an execution artifacts dir is mounted read-write and translates into the container', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        artifactsDir: '/tmp/data/workflows/runs/run-1/runtime-artifacts/steps/review',
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return ProcessResult(1, 1, '', 'missing');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      final create = calls.firstWhere((call) => call[1] == 'create');
+      expect(
+        create,
+        containsAll(['-v', '/tmp/data/workflows/runs/run-1/runtime-artifacts/steps/review:/artifacts:rw']),
+      );
+      expect(
+        manager.containerPathForHostPath('/tmp/data/workflows/runs/run-1/runtime-artifacts/steps/review/report.md'),
+        '/artifacts/report.md',
+      );
+    });
+
+    test('a container without an artifacts dir mounts none', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return ProcessResult(1, 1, '', 'missing');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      expect(calls.firstWhere((call) => call[1] == 'create').join(' '), isNot(contains(containerArtifactsPath)));
+    });
+
+    test('a container that died is never recreated in place', () async {
+      var running = false;
+      final calls = <List<String>>[];
+      final manager = _manager(
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return running ? ProcessResult(1, 0, 'true\n', '') : ProcessResult(1, 1, '', 'not running');
+          }
+          if (arguments.first == 'start') running = true;
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+      expect(calls.where((call) => call[1] == 'create'), hasLength(1));
+
+      // A harness restart after the container died: recreating it would leave
+      // the harness pointing at bridges that died with the old one.
+      running = false;
+      calls.clear();
+      await expectLater(
+        manager.start(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('no longer running'), contains('new container authority')),
+          ),
+        ),
+      );
+      expect(calls.where((call) => call[1] == 'create'), isEmpty);
+      expect(calls.where((call) => call.contains('rm')), isEmpty);
+    });
+
     test('start rejects local project mounts outside the allowlist', () async {
       final manager = _manager(
         workspaceMounts: const ['/tmp/other:/projects/live:ro'],
@@ -523,6 +601,7 @@ ContainerManager _manager({
   String? buildContextDir = '/tmp/project',
   String workingDir = '/project',
   String generatedStateDir = '/tmp/dartclaw-state',
+  String? artifactsDir,
   bool hasMcpBridge = false,
 }) {
   return ContainerManager(
@@ -531,6 +610,7 @@ ContainerManager _manager({
     profileId: profileId,
     workspaceMounts: workspaceMounts,
     generatedStateDir: generatedStateDir,
+    artifactsDir: artifactsDir,
     hasMcpBridge: hasMcpBridge,
     localPathAllowlist: localPathAllowlist,
     bridgeBinaryPath: '/tmp/dartclaw-bridge',

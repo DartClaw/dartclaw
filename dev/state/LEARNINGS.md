@@ -131,7 +131,6 @@
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
 - **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** — it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** It can go unrun until the final checkbox pass — verify the artifact exists before relying on it; absence is a gate defect.
-- **Release prep folds in FIS `## Learnings`, not `## Implementation Observations`.** FIS files are deleted at release prep, so audit blocks left only in observations die with the bundle — fold those too.
 
 ## CSS
 

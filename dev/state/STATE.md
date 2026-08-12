@@ -3,13 +3,13 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-12 01:54 CEST
+Last Updated: 2026-08-12 06:10 CEST
 
 ## Current Phase
 
 **Phase 4: Compatibility and release convergence**
 
-**Status**: On Track
+**Status**: At Risk
 
 ## Current Focus
 
@@ -33,7 +33,10 @@ Last Updated: 2026-08-12 01:54 CEST
 
 ## Blockers
 
-- None.
+- 0.24 execution-isolation: post-remediation gap re-review FAIL (report
+  `0.24-execution-isolation-gap-review-claude-2026-08-12-2.md`) – 3 new HIGHs introduced by remediation (primary
+  container single-use bricking; /artifacts uid on Linux; disallowed_tools canonical mismatch); one-pass rule reached,
+  human decision required.
 
 ## Recent Decisions
 

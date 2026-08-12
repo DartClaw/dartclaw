@@ -394,6 +394,6 @@ tasks:
 
 - [Tasks](tasks.md) -- task lifecycle, review workflow, project targeting
 - [Configuration](configuration.md) -- full config reference including `projects:` section
-- [Security](security.md) -- guard chain, container isolation, credential proxy
+- [Security](security.md) -- guard chain, container isolation, host-mediated credentials
 - [Workspace](workspace.md) -- behavior files and workspace git sync (separate from project git)
 - [Architecture](architecture.md) -- 2-layer model overview, project management subsystem

@@ -7,12 +7,12 @@ DartClaw uses defense-in-depth: multiple independent layers so that no single co
 ```
 User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider Boundary
                            │                        │
-                     Guard Chain              Claude container path:
+                     Guard Chain              Claude/Codex container path:
                      Audit Logger              network:none
                      Content Guard             Host Gateway
                                                Mount Allowlist
                                               Codex: provider approval
-                                              ACP relay/unverified: restricted container
+                                              ACP: host execution only
 ```
 
 ## Guard System
@@ -90,16 +90,19 @@ Mutation and test endpoints return `403` for requests without admin access.
 
 ## Container Isolation
 
-On supported POSIX hosts, when Docker is available, DartClaw runs the claude binary inside a container with:
+On supported POSIX hosts, when Docker is available, DartClaw runs the packaged `claude` or `codex` binary inside a container with:
 - `network:none` -- no direct internet access
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
-- Credential proxy (Unix socket) for API access
+- Host-mediated provider access over framed `docker exec` pipes (see below) -- no credential in the container
 - Mount allowlist for workspace files
 
-Container isolation is unavailable on native Windows even when Docker is installed. Its credential-proxy socket and
-owner-only permissions require POSIX facilities, so `container.enabled: true` fails closed and directs the operator to
-a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
+ACP agents have no container execution: DartClaw mediates no provider credential or host capability for an ACP client,
+so ACP registrations run on the host only and a container-requiring registration is rejected at startup.
+
+Container isolation is unavailable on native Windows even when Docker is installed. Its per-authority pipes and
+owner-only generated state require POSIX facilities, so `container.enabled: true` fails closed and directs the operator
+to a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
 
 ### Pragmatic Mode
 
@@ -196,11 +199,11 @@ ACP security claims are topology-scoped:
 | Mode | When to use | Security claim |
 |------|-------------|----------------|
 | Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host filesystem reverse-calls | Guard-mediated. ACP `fs/read_text_file` and `fs/write_text_file` are bound to the active task session and evaluated by DartClaw guards before host action |
-| Relay provider | The ACP target forwards work through another provider CLI or relay path | Container-isolation-only. No guard-mediation claim |
-| Unverified | Startup evidence is absent or insufficient | Container-isolation-only until verification proves reverse-call mediation |
+| Relay provider | The ACP target forwards work through another provider CLI or relay path | No guard-mediation claim, so a container is the only boundary it could have — and DartClaw has no ACP container mediation, so the registration is rejected at startup |
+| Unverified | Startup evidence is absent or insufficient | Same as relay: rejected at startup until verification proves reverse-call mediation |
 | Codex agent sessions | Codex with `approval: on-request` | Guard-mediated for supported command, file-change, and MCP operations that emit provider approval requests; unevaluated authority is declined and the sandbox remains an independent boundary |
 
-Logical agents select providers through `agent.agents.<id>.provider` and may select `security_profile: workspace|restricted` independently. The built-in search agent requests `restricted`; other agents use an enforced ACP provider profile when present, otherwise `workspace`. Provider startup validation and exact provider/profile worker acquisition enforce the configured boundary before a logical-agent session can run. An unavailable `restricted` profile fails closed instead of falling back to host execution. A restricted container profile is the safe default for relay or unverified ACP agents.
+Logical agents select providers through `agent.agents.<id>.provider` and may select `security_profile: workspace|restricted` independently. The built-in search agent requests `restricted`; other agents use an enforced ACP provider profile when present, otherwise `workspace`. Provider startup validation and exact provider/profile worker acquisition enforce the configured boundary before a logical-agent session can run. An unavailable `restricted` profile fails closed instead of falling back to host execution. An ACP provider runs on the host only, so give an agent that uses one an explicit `execution: host`; a resolved container policy is refused before the turn starts.
 
 DartClaw does not advertise ACP `terminal/create` on any host; filesystem reverse-calls remain available. Host terminal execution stays disabled until DartClaw can prove containment of the complete spawned process tree.
 

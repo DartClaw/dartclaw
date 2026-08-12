@@ -113,6 +113,30 @@ void main() {
     );
   }
 
+  /// Wires an unwired [HarnessWiring] so a test can assert on `wire()` itself.
+  Future<void> wireHarnessExpectingFailure(HarnessFactory factory, Matcher matcher) async {
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    try {
+      await expectLater(
+        harnessWiring!.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called')),
+        matcher,
+      );
+    } finally {
+      // An unwired instance has no coordinator for tearDown to dispose.
+      harnessWiring = null;
+    }
+  }
+
   HarnessFactory fakeFactory(
     Iterable<String> providerIds, {
     void Function(String providerId, HarnessFactoryConfig)? onCreate,
@@ -1005,24 +1029,11 @@ void main() {
     await wireStorageAndSecurity();
 
     final factory = fakeFactory(['claude']);
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-
-    await expectLater(
-      harnessWiring!.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called')),
+    await wireHarnessExpectingFailure(
+      factory,
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('operation probe evidence'))),
     );
     expect(factory.supports('goose'), isFalse);
-    harnessWiring = null;
   });
 
   test('ACP model_provider credentials are passed to the ACP process environment', () async {
@@ -1147,7 +1158,7 @@ void main(List<String> args) async {
     );
   });
 
-  test('container-required ACP spawn fails closed when the configured profile is unavailable', () async {
+  test('a container-required ACP registration is rejected at startup with its exact configuration path', () async {
     config = config.copyWith(
       harness: HarnessConfig(
         acp: AcpConfig(
@@ -1167,24 +1178,99 @@ void main(List<String> args) async {
     await wireStorageAndSecurity();
 
     final factory = fakeFactory(['claude']);
-    await wireHarness(factory);
+    await wireHarnessExpectingFailure(
+      factory,
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          allOf(contains('harness.acp.agents.goose.topology'), contains('mediation for an ACP client')),
+        ),
+      ),
+    );
+    expect(factory.supports('goose'), isFalse, reason: 'a doomed registration never reaches the factory');
+  });
 
+  test('a container policy this deployment cannot provide fails closed naming the profile', () async {
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude']));
+    final capacityBefore = harnessWiring!.executions.snapshot.availableWorkers;
+
+    // No container runtime is available here, so authority acquisition fails;
+    // the failure must surface as a worker-creation rejection naming the
+    // profile rather than escaping raw, and must release the capacity it took.
     await expectLater(
       harnessWiring!.executions.acquire(
         executionRequest(
-          providerId: 'goose',
-          sessionId: 'goose-task',
-          policy: const ExecutionPolicy.container('restricted'),
+          providerId: 'claude',
+          sessionId: 'claude-task',
+          policy: const ExecutionPolicy.container('workspace'),
         ),
       ),
       throwsA(
         isA<WorkerCreationException>().having(
           (error) => error.message,
           'message',
-          contains('unavailable container profile'),
+          contains('requires unavailable container profile "workspace"'),
+        ),
+      ),
+    );
+    expect(harnessWiring!.executions.snapshot.availableWorkers, capacityBefore);
+  });
+
+  test('a host-only ACP registration composes the inventory and is refused a container policy', () async {
+    config = config.copyWith(
+      harness: HarnessConfig(
+        acp: AcpConfig(
+          agents: {
+            'goose': AcpAgentConfig(
+              binary: Platform.resolvedExecutable,
+              args: const ['acp'],
+              topology: AcpAgentTopology.direct,
+              modelProvider: 'anthropic',
+              verification: 'a0_1_goose_direct',
+              requiredBuiltins: const ['developer'],
+            ),
+          },
+        ),
+      ),
+      providers: const ProvidersConfig(),
+    );
+
+    await wireStorageAndSecurity();
+
+    final factory = fakeFactory(['claude']);
+    await wireHarness(factory);
+
+    final inventory = harnessWiring!.executionInventory;
+    expect(inventory.supports['goose']!.registrationYamlPath, 'harness.acp.agents.goose');
+    expect(inventory.supports['goose']!.surfaces, {ProviderLaunchSurface.longLived});
+    expect(inventory.supports['claude']!.containerMediationGap, isNull);
+
+    final capacityBefore = harnessWiring!.executions.snapshot.availableWorkers;
+    await expectLater(
+      harnessWiring!.executions.acquire(
+        executionRequest(
+          providerId: 'goose',
+          sessionId: 'goose-task',
+          policy: const ExecutionPolicy.container('workspace'),
+        ),
+      ),
+      throwsA(
+        isA<WorkerCreationException>().having(
+          (error) => error.message,
+          'message',
+          allOf(
+            contains('"goose" cannot run as container/workspace'),
+            contains('harness.acp.agents.goose'),
+            contains('Select host execution'),
+            isNot(contains('anthropic-key')),
+          ),
         ),
       ),
     );
     expect(harnessWiring!.executions.runners.where((runner) => runner.providerId == 'goose'), isEmpty);
+    expect(harnessWiring!.executions.snapshot.availableWorkers, capacityBefore, reason: 'capacity is released');
+    expect(factory.supports('goose'), isTrue, reason: 'the registration itself stays valid for host execution');
   });
 }

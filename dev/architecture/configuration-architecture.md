@@ -93,7 +93,7 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `advisor` | `AdvisorConfig` | Self-reflection advisor | `enabled`, `model`, `effort`, `triggers`, `periodicIntervalMinutes`, `maxWindowTurns` |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
-| `harness` | `HarnessConfig` | ACP agent harness | `acp.agents.*` target profiles (binary, args, topology, modelProvider, verification, requiredBuiltins, container profile) |
+| `harness` | `HarnessConfig` | ACP agent harness | `acp.agents.*` target profiles (binary, args, topology, modelProvider, verification, requiredBuiltins); the container fields feed startup compatibility only — ACP has no mediated container execution, so `container_isolation_required: true` is startup-fatal |
 | `sessions` | `SessionConfig` | Session lifecycle | `resetHour`, `idleTimeoutMinutes`, `scopeConfig` (dm/group scope), `maintenanceConfig` |
 | `context` | `ContextConfig` | Context management | `reserveTokens`, `maxResultBytes`, `warningThreshold`, `compactInstructions`, `identifierPreservation` |
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `inputSanitizerEnabled` |
@@ -548,7 +548,7 @@ Missing binary/credentials for the **default** provider are errors; the same for
 
 Credentials flow to agent harnesses through two mechanisms:
 
-- **Container harnesses**: credential proxy on Unix socket (never in container env)
+- **Container harnesses**: the host gateway's provider adapter injects the host credential per request over a framed `docker exec` pipe (never in container env). Only the Claude and Codex clients have a verified adapter, so ACP registrations have no container execution.
 - **Git operations**: injected via `GIT_SSH_COMMAND`/`GIT_ASKPASS` environment variables
 
 See [Security Architecture](security-architecture.md) for the full credential isolation model.

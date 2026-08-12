@@ -5,7 +5,7 @@
 ## Entries
 
 ### packages/dartclaw_core/lib/src/harness/claude_protocol.dart:spec-stale:container-claude-placeholder-api-key
-- Status: OPEN
+- Status: CLOSED
 - Class: spec-stale
 - Stale targets: dev/bundle/docs/specs/0.24-execution-isolation/prd.md#fr3-host-owned-provider-credentials, dev/bundle/docs/specs/0.24-execution-isolation/s03-claude-and-codex-container-parity.md#acceptance-scenarios
 - Source run: s03-claude-and-codex-container-parity/2026-08-12T01:34Z

@@ -8,6 +8,16 @@ The amendment withdraws ACP terminal capability advertisement on every host unti
 implemented. Guard mediation remains available for turn-scoped filesystem reverse-calls. The earlier terminal spike is
 historical validation of ACP routing, not authorization for root-only host process ownership.
 
+**0.24 implementation status (not an amendment).** The topology classification in §3 is unchanged. What changed is what
+the container boundary it names can actually deliver: 0.24 mediates provider credentials and host capabilities for a
+containerized client through the host gateway (ADR-051), whose provider adapters are verified for the Claude and Codex
+clients only. An ACP client in a container can therefore reach neither its model provider nor an approved host
+capability, so container isolation is not an available boundary for ACP. Operationally this makes relay-provider and
+unverified registrations — which have no other boundary — unavailable and startup-fatal, and confines every other ACP
+registration to host execution on the long-lived surface. Because containerized ACP is unreachable, the reverse-call
+handler suppression `AcpHarness` applies under a container manager cannot downgrade a direct agent's guard mediation,
+and §3's claims stand as written.
+
 **Related:** [ADR-016](016-multi-provider-harness-architecture.md) (multi-provider harness — **this amends it**: ACP is one universal adapter, not another per-provider custom adapter), [ADR-035](035-cross-harness-task-capability-trust-mapping.md) (precedent for explicit per-harness security asymmetry), [ADR-007](007-system-prompt-architecture.md) (`AgentHarness` interface), [ADR-001](001-sdk-integration-and-security-architecture.md) (security-by-design).
 
 ## Context
@@ -50,7 +60,7 @@ DartClaw advertises `fs.readTextFile`/`fs.writeTextFile` capabilities in `initia
 - Spec-drift agility: DartClaw owns the ~400-LOC client and tracks the fast-moving ACP spec directly.
 
 ### Negative
-- **Topology-dependent security**, like ADR-035's `allowedTools` asymmetry: the same agent yields a different effective posture depending on its model-provider topology. Operators and guard authors must understand that **relay-provider ACP agents are container-isolation-only** — this must be stated in security/guard docs, not assumed uniform.
+- **Topology-dependent security**, like ADR-035's `allowedTools` asymmetry: the same agent yields a different effective posture depending on its model-provider topology. Operators and guard authors must understand that **relay-provider ACP agents have container isolation as their only boundary** — and, since 0.24 cannot provide that boundary for an ACP client, that they are unavailable. This must be stated in security/guard docs, not assumed uniform.
 - DartClaw owns the ACP DTOs and transport adapter; process-tree containment is required before terminal lifecycle support can return.
 - Per-agent verification is required before claiming guard mediation for any new ACP agent.
 
@@ -64,7 +74,7 @@ DartClaw advertises `fs.readTextFile`/`fs.writeTextFile` capabilities in `initia
 ## Implementation Notes
 
 - Minimal client subset only: stdio NDJSON adapter, `initialize` with filesystem capability advertisement, `session/new`, `session/prompt`, `session/update`, filesystem reverse-call handlers, `session/request_permission`, and `session/cancel`. Terminal methods fail closed. Exclude unstable methods (`session/fork`, Elicitation, NES); `session/resume` is available but not built on in 0.18.
-- Harness config must enforce the conditions guard mediation depends on (e.g. Goose's `developer` extension active + a direct provider) and flag relay-topology agents as container-isolation-only.
+- Harness config must enforce the conditions guard mediation depends on (e.g. Goose's `developer` extension active + a direct provider) and flag relay-topology agents as container-isolation-only — which, absent ACP container mediation, makes them unavailable (see the 0.24 status note).
 - **Pending confirmation:** the read-*blocking* re-test (a `noAccess` `fs/read_text_file` returning an error and withholding content) is gated on the separate `FileGuard` `file_read` fix (the guard chain currently has no `file_read` branch — a pre-existing harness-wide gap, tracked independently). Read *routing* through the handler is already verified (A0.1); write and shell *blocking* are verified. This ADR's security model does not change on that confirmation.
 - Risk: ACP spec moves fast (3 minors in 7 weeks); pin to v0.13.4 semantics and tolerate minor drift.
 

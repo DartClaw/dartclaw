@@ -180,10 +180,12 @@ enum AcpAgentTopology {
   /// Direct model-provider topology eligible for verified guard mediation.
   direct,
 
-  /// Relay-provider topology; container-isolation-only in S03.
+  /// Relay-provider topology; claims no guard mediation, so a container is
+  /// its only possible boundary.
   relay,
 
-  /// Unverified topology; container-isolation-only in S03.
+  /// Unverified topology; treated like [relay] until verification proves
+  /// reverse-call mediation.
   unverified,
 }
 

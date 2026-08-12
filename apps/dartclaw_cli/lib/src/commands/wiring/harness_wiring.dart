@@ -52,6 +52,7 @@ class HarnessWiring {
   late GuardChain _primaryGuardChain;
   late ExecutionCoordinator _executions;
   late ExecutionPolicyResolver _policyResolver;
+  late ProviderExecutionInventory _executionInventory;
   late ExecutionPolicy _primaryPolicy;
   final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
       Map<TurnRunner, ContainerAuthorityLease>.identity();
@@ -87,6 +88,7 @@ class HarnessWiring {
   AgentHarness get harness => _harness;
   ExecutionCoordinator get executions => _executions;
   ExecutionPolicyResolver get policyResolver => _policyResolver;
+  ProviderExecutionInventory get executionInventory => _executionInventory;
   HarnessConfig get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
@@ -213,12 +215,6 @@ class HarnessWiring {
       config: config,
       availableContainerProfiles: _security.availableContainerProfiles,
     );
-    for (final warning in _policyResolver.hostOverrideWarnings()) {
-      _log.warning(warning);
-    }
-    for (final warning in _policyResolver.failClosedWarnings(agents: _agentDefs)) {
-      _log.warning(warning);
-    }
     _harnessConfig = HarnessConfig(
       disallowedTools: mcpDisallowedTools(
         mcpEnabled: mcpEnabled,
@@ -236,6 +232,32 @@ class HarnessWiring {
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
     final acpAgents = ProviderIdentity.normalizeKeys(config.harness.acp.agents, subject: 'Configured ACP provider IDs');
+    final acpRequirementErrors = [
+      for (final entry in acpAgents.entries) ?acpContainerRequirementError(entry.key, entry.value),
+    ];
+    if (acpRequirementErrors.isNotEmpty) {
+      throw StateError(acpRequirementErrors.join('\n'));
+    }
+    _executionInventory = ProviderExecutionInventory.of(
+      providerIds: {defaultProviderId, ...ProviderIdentity.normalizeKeys(config.providers.entries).keys},
+      acpProviderIds: acpAgents.keys.toSet(),
+    );
+    // One startup emission point for every execution-boundary diagnostic:
+    // deliberate weakenings, contexts that fail closed at first dispatch, and
+    // combinations this deployment resolves to but cannot run.
+    for (final warning in _policyResolver.hostOverrideWarnings()) {
+      _log.warning(warning);
+    }
+    for (final warning in _policyResolver.failClosedWarnings(agents: _agentDefs)) {
+      _log.warning(warning);
+    }
+    for (final warning in _policyResolver.providerCompatibilityWarnings(
+      inventory: _executionInventory,
+      defaultProviderId: defaultProviderId,
+      agents: _agentDefs,
+    )) {
+      _log.warning(warning);
+    }
     final acpValidationResults = await _validateConfiguredAcpTargets(config, acpAgents);
     for (final entry in acpAgents.entries) {
       if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
@@ -255,9 +277,7 @@ class HarnessWiring {
       final profileIds = available.isEmpty ? ['workspace'] : available.toList(growable: false);
       providerEntries = _effectiveWorkerProviderEntries(config, acpAgents, acpValidationResults);
       _providerStatusEntries = providerEntries;
-      providerProfiles = {
-        for (final providerId in providerEntries.keys) providerId: _profilesForProvider(config, providerId, profileIds),
-      };
+      providerProfiles = {for (final providerId in providerEntries.keys) providerId: profileIds};
       providerCapacities = {
         for (final providerEntry in providerEntries.entries) providerEntry.key: providerEntry.value.effectivePoolSize,
       };
@@ -532,12 +552,13 @@ class HarnessWiring {
             'Provider "${request.providerId}" cannot execute as ${request.policy.describe()}',
           );
         }
-        final requiresContainer = config.harness.acp[request.providerId]?.containerIsolationRequired ?? false;
-        if (requiresContainer && !request.policy.isContainer) {
-          throw WorkerCreationException(
-            'ACP provider "${request.providerId}" requires container isolation, but its resolved policy is host '
-            'execution. Select execution: container for it, or remove its container_isolation requirement.',
-          );
+        final verdict = _executionInventory.verdictFor(
+          providerId: request.providerId,
+          surface: ProviderLaunchSurface.longLived,
+          policy: request.policy,
+        );
+        if (!verdict.isSupported) {
+          throw WorkerCreationException(verdict.message);
         }
         final bridgedMcpTools = _bridgedMcpToolsFor(request.logicalAgentId);
         ContainerAuthorityLease? lease;
@@ -618,14 +639,16 @@ class HarnessWiring {
   ///
   /// The primary harness is a live container authority like any other, so it
   /// owns a dedicated container rather than sharing a per-profile one. A
-  /// provider that declares a stronger minimum boundary rejects a host policy
-  /// rather than silently upgrading it.
+  /// provider whose resolved boundary this deployment cannot enforce rejects
+  /// before any container exists rather than running somewhere else.
   Future<ContainerExecutor?> _primaryContainerManager(String providerId) async {
-    final requiresContainer = config.harness.acp[providerId]?.containerIsolationRequired ?? false;
-    if (requiresContainer && !_primaryPolicy.isContainer) {
-      throw StateError(
-        'ACP provider "$providerId" requires container isolation, but agent.execution resolves to host execution',
-      );
+    final verdict = _executionInventory.verdictFor(
+      providerId: providerId,
+      surface: ProviderLaunchSurface.longLived,
+      policy: _primaryPolicy,
+    );
+    if (!verdict.isSupported) {
+      throw StateError(verdict.message);
     }
     if (!_primaryPolicy.isContainer) return null;
     _primaryContainer = await _security.acquireContainerAuthority(
@@ -975,20 +998,4 @@ Map<String, ProviderEntry> _effectiveValidationProviderEntries(
     return {defaultProviderId: ProviderEntry(executable: _resolveProviderExecutable(config, defaultProviderId))};
   }
   return workerEntries;
-}
-
-List<String> _profilesForProvider(DartclawConfig config, String providerId, List<String> fallbackProfiles) {
-  final acpEntry = config.harness.acp[providerId];
-  final profile = acpEntry?.containerProfile;
-  if (acpEntry != null && acpEntry.containerIsolationRequired && profile != null) {
-    return [_containerProfileId(profile)];
-  }
-  return fallbackProfiles;
-}
-
-String _containerProfileId(AcpContainerProfile profile) {
-  return switch (profile) {
-    AcpContainerProfile.restricted => 'restricted',
-    AcpContainerProfile.workspace => 'workspace',
-  };
 }

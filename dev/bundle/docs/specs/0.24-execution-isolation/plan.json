@@ -250,7 +250,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s04-acp-compatibility-and-release-conformance.md",
       "owner": null,
       "scope": "Declare and validate ACP launch, credential and host-capability compatibility instead of discarding required managers; close standalone/workflow enforcement gaps; add startup diagnostics and the cross-provider success/denial matrix; verify S01's ADR-012 lineage and synchronize architecture, user configuration, agent/task/security guides and 0.24 release notes without changing the memory bundle.",

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart'
     show CredentialRegistry, DartclawConfig, ProviderEntry, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ArtifactKind, EventBus, HarnessFactory, KvService, MessageService, SessionService;
+    show ArtifactKind, EventBus, HarnessFactory, KvService, MessageService, ProviderExecutionInventory, SessionService;
 import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess, normalizeGitRefOperand;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
@@ -417,6 +417,10 @@ class CliWorkflowWiring {
             options: _providerOptions(config, providerId),
           ),
       },
+      executionInventory: ProviderExecutionInventory.of(
+        providerIds: providerEntries.keys,
+        acpProviderIds: config.harness.acp.agents.keys.toSet(),
+      ),
       eventBus: eventBus,
       processStarter: workflowCliProcessStarter,
     );

@@ -56,10 +56,10 @@ DartClaw is a **2-layer agent runtime**. The Dart host is the control plane (ful
 | Concern | Layer 1 (Dart Host) | Layer 2 (Execution-Plane Providers) |
 |---------|--------------------|-----------------------|
 | State | Sessions, messages, memory, tasks, config, audit logs | Stateless (no session persistence) |
-| Security | Guard chain, Claude container orchestration, credential proxy, audit | Tool execution inside the active provider boundary |
+| Security | Guard chain, container orchestration, host gateway mediation, audit | Tool execution inside the active provider boundary |
 | Networking | HTTP server, SSE streaming, channel webhooks, MCP endpoint | Constrained by the active boundary (Claude container or Codex sandbox/runtime) |
 | Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, logical-agent session admission | LLM reasoning, tool selection and execution inside the provider boundary |
-| Credentials | Owns all API keys; injects them through provider-specific boundaries (proxy for Claude, env for Codex, ACP target-specific environment or CLI auth) | Provider binaries receive only the credentials required for their family |
+| Credentials | Owns all API keys; container executions reach their provider only through the host gateway, host executions receive their provider-scoped credential directly (ACP is host-only) | Provider binaries receive only the credentials required for their family |
 
 Design rationale: [ADR-001 (SDK Integration & Security Architecture)](../adrs/001-sdk-integration-and-security-architecture.md)
 
@@ -131,8 +131,8 @@ and context-specific remediation text.
 │  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
 │  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
 │  │ Cmd/File │  │ CredentialRegistry            │  │ SQLite: search.db  │ │
-│  │ Net/Cont │  │ CredentialProxy               │  │         tasks.db   │ │
-│  │          │  │ Docker (per-profile)          │  │         state.db   │ │
+│  │ Net/Cont │  │ HostGateway (per authority)   │  │         tasks.db   │ │
+│  │          │  │ Docker (per authority)        │  │         state.db   │ │
 │  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
 │                                                                          │
 │  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
@@ -177,7 +177,7 @@ and context-specific remediation text.
 │  ACP path (stdio JSON-RPC):                                               │
 │    ├── AcpHarness + AcpClient                                             │
 │    ├── Direct-provider targets can be guard-mediated after verification   │
-│    └── Relay or unverified targets remain container-isolation-only        │
+│    └── Relay or unverified targets are unavailable (host-only ACP)        │
 │                                                                          │
 │  Sidecar binaries (outpost pattern):                                     │
 │    ├── GOWA (Go) — WhatsApp Web protocol                                │
@@ -366,7 +366,7 @@ Defense-in-depth across five layers:
 
 ```
 Layer 5:  OS-level container isolation (Docker kernel namespaces)
-Layer 4:  Network isolation (network:none + Dart credential proxy)
+Layer 4:  Network isolation (network:none + host-gateway mediation)
 Layer 3:  Guard chain (command/file/network/content/input sanitizer)
 Layer 2:  Prompt-level safety rules (AGENTS.md, hardcoded rules)
 Layer 1:  Credential isolation (container provider traffic is mediated by the host gateway; credentials stay host-side)
@@ -814,35 +814,35 @@ Runtime dependencies:
 - Bundled SQLite library (`lib/sqlite3.*`; `lib/sqlite3.dll` on Windows) — for search index and task persistence
 - Channel sidecars (optional): GOWA binary (WhatsApp), signal-cli (Signal)
 
-### Claude Container Isolation Topology
+### Container Isolation Topology
 
 ```
 Host OS
   ├── dartclaw binary (Dart AOT)
   │     ├── HTTP server (port 3000)
-  │     ├── CredentialProxy (Unix socket)
+  │     ├── HostGateway (one authority per live container execution)
   │     └── Container orchestrator
   │
-  ├── Docker: dartclaw-<id>-workspace
-  │     ├── claude binary (docker exec per turn)
-  │     ├── /workspace:rw mount
-  │     ├── /project:ro mount
-  │     ├── socat → Unix socket proxy
+  ├── Docker: dartclaw-<hash>-workspace-<authority>
+  │     ├── claude or codex binary packaged in the image
+  │     ├── dartclaw-bridge (read-only mount) → framed stdio over docker exec
+  │     ├── /workspace:rw mount, /project:ro mount
+  │     ├── per-authority generated-state mount (destroyed with the container)
   │     └── network:none, cap-drop=ALL, read-only rootfs
   │
-  ├── Docker: dartclaw-<id>-restricted
-  │     ├── claude binary (docker exec per turn)
+  ├── Docker: dartclaw-<hash>-restricted-<authority>
+  │     ├── claude or codex binary packaged in the image
+  │     ├── dartclaw-bridge (read-only mount)
   │     ├── No workspace mount
-  │     ├── socat → Unix socket proxy
   │     └── network:none, cap-drop=ALL, read-only rootfs
   │
   ├── GOWA sidecar (optional, Go binary)
   └── signal-cli sidecar (optional)
 ```
 
-Credential flow: API keys live on the host. The `CredentialProxy` listens on a Unix socket, injecting credentials into API requests. Containers mount the socket directory and use `ANTHROPIC_BASE_URL=http+unix:///var/run/proxy.sock` to route API calls through the proxy. Credentials never exist inside Claude container environments.
+Credential flow: API keys live on the host and never enter a container environment. Each live authority owns its own container plus a pair of framed `docker exec` pipes served by `HostGateway`; the provider adapter strips any client-supplied credential and injects the host one per request. A container reaches exactly one upstream, holds no reusable credential, and has no network of its own.
 
-Codex does not use this proxy path in 0.13. Both shipped Codex harnesses run as direct subprocesses and receive `OPENAI_API_KEY` via environment injection instead.
+Both Claude and Codex have a verified provider adapter and run on either execution boundary. ACP registrations have none, so they have no mediated container execution — see [Control Protocol](control-protocol.md) for the computed compatibility rule.
 
 ### Dev Mode
 

@@ -1,6 +1,13 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, ContainerExecutor, EventBus;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        CanonicalTool,
+        ContainerExecutor,
+        EventBus,
+        ProviderExecutionInventory,
+        ProviderExecutionVerdict,
+        ProviderLaunchSurface;
 
 import '../container/container_authority.dart';
 import '../container/gateway/gateway_models.dart';
@@ -232,9 +239,20 @@ class WorkflowCliRunner {
     );
   }
 
+  /// Startup-computed launch compatibility, consulted by provider identity
+  /// before family resolution.
+  ///
+  /// Family resolution deliberately aliases an unknown provider onto `claude`
+  /// or `codex` when its ID or executable names one, which would route an ACP
+  /// registration through a built-in adapter it has nothing to do with. The
+  /// verdict is keyed by the configured provider ID, so that aliasing can never
+  /// manufacture support this deployment does not have.
+  final ProviderExecutionInventory? executionInventory;
+
   WorkflowCliRunner({
     required this.providers,
     this.containerAuthorities,
+    this.executionInventory,
     EventBus? eventBus,
     WorkflowCliProcessStarter? processStarter,
     Uuid? uuid,
@@ -244,7 +262,37 @@ class WorkflowCliRunner {
        _uuid = uuid ?? const Uuid(),
        _providerImpls = providerImpls ?? {'claude': ClaudeCliProvider(), 'codex': CodexCliProvider()};
 
+  /// Rejects [provider] under [policy] when the inventory says this surface
+  /// cannot run it, before any family resolution or process spawn.
+  void _requireSupported(String provider, ExecutionPolicy policy) {
+    final verdict = executionInventory?.verdictFor(
+      providerId: provider,
+      surface: ProviderLaunchSurface.workflowOneShot,
+      policy: policy,
+    );
+    if (verdict != null && !verdict.isSupported) throw UnsupportedError(verdict.message);
+  }
+
+  /// The implementation launching [provider] on the workflow one-shot surface.
+  ///
+  /// A provider with no implementation is unavailable on this surface — the
+  /// same verdict the long-lived surface reports — and is never routed through
+  /// another family's adapter.
+  CliProvider _implFor(String provider, String providerFamily) {
+    final impl = _providerImpls[providerFamily];
+    if (impl == null) {
+      throw UnsupportedError(
+        ProviderExecutionVerdict.unsupportedSurface(
+          providerId: provider,
+          surface: ProviderLaunchSurface.workflowOneShot,
+        ).message,
+      );
+    }
+    return impl;
+  }
+
   int? maxTurnsForStructuredTurn({required String provider, required bool noTools}) {
+    _requireSupported(provider, const ExecutionPolicy.host());
     final providerConfig = providers[provider];
     if (providerConfig == null) {
       throw StateError('No workflow CLI provider config for "$provider"');
@@ -254,12 +302,7 @@ class WorkflowCliRunner {
       options: providerConfig.options,
       executable: providerConfig.executable,
     );
-    final impl = _providerImpls[providerFamily];
-    if (impl == null) {
-      throw UnsupportedError(
-        'Workflow one-shot CLI is not implemented for provider "$provider" (family "$providerFamily")',
-      );
-    }
+    final impl = _implFor(provider, providerFamily);
     if (impl is! StructuredTurnLimitProvider) return null;
     return (impl as StructuredTurnLimitProvider).maxTurnsForStructuredTurn(noTools: noTools);
   }
@@ -319,6 +362,9 @@ class WorkflowCliRunner {
     Map<String, String>? extraEnvironment,
     WorkflowCliUsageBaseline usageBaseline = const WorkflowCliUsageBaseline(),
   }) async {
+    // Compatibility first: an unavailable combination reports the same verdict
+    // whether or not the operator also gave the provider a capacity entry.
+    _requireSupported(provider, policy);
     final providerConfig = providers[provider];
     if (providerConfig == null) {
       throw StateError('No workflow CLI provider config for "$provider"');
@@ -328,12 +374,7 @@ class WorkflowCliRunner {
       options: providerConfig.options,
       executable: providerConfig.executable,
     );
-    final impl = _providerImpls[providerFamily];
-    if (impl == null) {
-      throw UnsupportedError(
-        'Workflow one-shot CLI is not implemented for provider "$provider" (family "$providerFamily")',
-      );
-    }
+    final impl = _implFor(provider, providerFamily);
     var rootProcessTerminationReported = false;
     final observer = onRootProcessTerminationConfirmed;
     final lease = await _leaseContainer(

@@ -19,7 +19,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Configuration](configuration.md) | `dartclaw.yaml` reference, environment variables, CLI flags |
 | [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
 | [Workspace](workspace.md) | Behavior files (SOUL.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md, HEARTBEAT.md), prompt assembly, git sync |
-| [Security](security.md) | Guard chain, container isolation, credential proxy, input sanitizer, content guard |
+| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, input sanitizer, content guard |
 
 ## Features
 

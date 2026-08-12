@@ -59,7 +59,7 @@ Workflow execution now has a scoped exception to the normal long-lived streaming
 
 In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user/channel turns. Tasks, cron/system/advisor work, and logical agents acquire hard per-provider worker leases; each provider defaults to capacity `1`, overridden by `providers.<id>.pool_size`. Workflow one-shots consume capacity-only leases without creating an unused streaming harness. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
-`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
+`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies claim no guard mediation, so a container would be their only boundary — and DartClaw mediates no provider credential or host capability for an ACP client inside a container, so those registrations are rejected at startup. ACP runs on the host only, on the long-lived surface only.
 
 ACP filesystem reverse-calls are bound to the active task session and workspace. ACP terminal reverse-calls are disabled on every host until complete descendant containment can be proven.
 
@@ -324,9 +324,9 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 | `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, channels |
 | `restricted` | No workspace | `none` | Search agent, research tasks |
 
-Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). Container count therefore stays tied to configured profiles rather than `pool_size`; worker lease capacity and container lifecycle are independent.
+A profile is a filesystem/capability template, not a running container: each live container execution owns a dedicated container, destroyed when its authority is released. Container count is therefore bounded by configured worker capacity, which `pool_size` alone still governs.
 
-Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The current credential-proxy path covers Claude/Anthropic container traffic via a Unix socket, so Anthropic keys never exist inside that container environment.
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. Containerized Claude and Codex reach their provider through the host gateway over framed `docker exec` pipes, so no provider key exists inside a container environment.
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 

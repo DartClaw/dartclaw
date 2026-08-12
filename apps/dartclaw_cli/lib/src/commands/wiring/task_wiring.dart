@@ -194,12 +194,13 @@ class TaskWiring {
 
     _runnerObserver = RunnerObserver(executions: executions, eventBus: _eventBus);
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    final workflowProviderIds = <String>{
+      config.agent.provider,
+      ...config.providers.entries.keys,
+    }.map(ProviderIdentity.normalize).toSet();
     _workflowCliRunner = WorkflowCliRunner(
       providers: {
-        for (final providerId in <String>{
-          config.agent.provider,
-          ...config.providers.entries.keys,
-        }.map(ProviderIdentity.normalize))
+        for (final providerId in workflowProviderIds)
           providerId: WorkflowCliProviderConfig(
             executable: _resolveWorkflowProviderExecutable(config, providerId),
             environment: _providerEnvironmentForWorkflow(providerId, credentialRegistry),
@@ -207,6 +208,10 @@ class TaskWiring {
           ),
       },
       containerAuthorities: _containerAuthorities,
+      executionInventory: ProviderExecutionInventory.of(
+        providerIds: workflowProviderIds,
+        acpProviderIds: config.harness.acp.agents.keys.toSet(),
+      ),
       eventBus: _eventBus,
     );
 

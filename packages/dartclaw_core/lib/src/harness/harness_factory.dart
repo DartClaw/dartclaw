@@ -135,10 +135,22 @@ class HarnessFactory {
   }
 
   /// Registers a configured ACP agent as a provider identity.
+  ///
+  /// A supplied container manager is required authority, never an optional
+  /// optimization: it is honored or the construction fails. No ACP container
+  /// combination is mediated, so honoring one is impossible and a supplied
+  /// manager fails closed rather than being discarded so the process silently
+  /// lands on the host.
   void registerAcpAgent(String providerId, AcpAgentConfig agent) {
     register(providerId, (config) {
       if (agent.containerIsolationRequired && config.containerManager == null) {
         throw StateError('ACP provider "$providerId" requires container isolation but no container manager is wired');
+      }
+      if (config.containerManager != null) {
+        throw StateError(
+          'ACP provider "$providerId" was given a container manager, but DartClaw provides no container '
+          'provider-credential or host-capability mediation for an ACP client. Select host execution for it.',
+        );
       }
       return AcpHarness(
         cwd: config.cwd,
@@ -147,7 +159,6 @@ class HarnessFactory {
         turnTimeout: config.turnTimeout,
         historyConfig: config.historyConfig,
         processFactory: config.processFactory,
-        containerManager: agent.containerIsolationRequired ? config.containerManager : null,
         environment: config.environment,
         guardChain: config.guardChain,
         permissionDecision: config.acpPermissionDecision,

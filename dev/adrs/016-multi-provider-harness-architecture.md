@@ -100,7 +100,7 @@ There are three execution lanes:
 | Worker | Cron/system jobs, advisor turns, background tasks, logical-agent sessions | One lease from the selected provider's `pool_size`; reusable harness permitted |
 | Capacity-only | Workflow one-shot provider invocations | One lease from the selected provider's `pool_size`; no reusable harness |
 
-`providers.<id>.pool_size` is therefore a hard ceiling on concurrent worker and capacity-only executions for that provider, not a target number of live processes. Cached harnesses and long-lived profile containers do not consume capacity while idle. The global turn-governance limit remains an earlier admission boundary and does not replace provider capacity.
+`providers.<id>.pool_size` is therefore a hard ceiling on concurrent worker and capacity-only executions for that provider, not a target number of live processes. Cached host harnesses do not consume capacity while idle. The global turn-governance limit remains an earlier admission boundary and does not replace provider capacity.
 
 Reusable harnesses form a small opportunistic cache with no operator knobs. One coordinator is built from immutable construction inputs, so a worker request needs only the normalized provider and security profile to identify compatibility within that coordinator. Lookup order is:
 
@@ -110,7 +110,7 @@ Reusable harnesses form a small opportunistic cache with no operator knobs. One 
 
 A provider/profile mismatch or unknown health means fresh creation, never speculative reuse. A released unhealthy worker is disposed. Before a worker is replaced, DartClaw must confirm termination of the managed root process. If confirmation is unavailable, the lease's capacity slot is quarantined and effective provider capacity decreases; no overlapping replacement is spawned.
 
-Container amortization is independent. Profile containers may remain alive across process disposal and multiple leases, but they carry no session identity and do not alter capacity accounting.
+Container executions are not amortized (ADR-012, 2026-08-11 amendment): each live container authority owns a dedicated container destroyed on release, and container harnesses are never cached. Only host harnesses are reusable. Compatibility within a coordinator is the normalized provider plus the complete effective execution policy, and a provider whose container execution DartClaw does not mediate — every ACP registration — is refused a container policy rather than reassigned to host.
 
 The server derives runner activity and capacity observability from active leases rather than mutable idle/busy callbacks. This includes capacity-only workflow executions that have no reusable runner. Provider-specific branching is confined to protocol adapters and composition/wiring; coordinator clients use provider-neutral requests and leases.
 

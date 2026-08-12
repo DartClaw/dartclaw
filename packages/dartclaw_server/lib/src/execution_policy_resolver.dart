@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show ProviderExecutionInventory, ProviderLaunchSurface;
 
 import 'container/container_dispatcher.dart';
 
@@ -152,6 +153,60 @@ final class ExecutionPolicyResolver {
       } on ExecutionPolicyException catch (error) {
         warnings.add('Task type "${taskType.name}" cannot run in this deployment: ${error.message}');
       }
+    }
+    return List.unmodifiable(warnings);
+  }
+
+  /// Startup warnings for provider/execution combinations this deployment
+  /// resolves to but cannot actually run.
+  ///
+  /// Placement is resolved first and compatibility is checked after, so a
+  /// warning never selects a replacement policy. Contexts that already fail
+  /// policy resolution are left to [failClosedWarnings]; each remaining
+  /// unavailable provider/mode combination is named exactly once, however many
+  /// agents or task types reach it.
+  ///
+  /// [agents] is the deployment's effective agent set, which includes built-in
+  /// definitions that never appear in configuration.
+  List<String> providerCompatibilityWarnings({
+    required ProviderExecutionInventory inventory,
+    required String defaultProviderId,
+    Iterable<AgentDefinition>? agents,
+  }) {
+    final warnings = <String>{};
+    void check(String providerId, ExecutionPolicy Function() resolve) {
+      final ExecutionPolicy policy;
+      try {
+        policy = resolve();
+      } on ExecutionPolicyException {
+        return;
+      }
+      final verdict = inventory.verdictFor(
+        providerId: providerId,
+        surface: ProviderLaunchSurface.longLived,
+        policy: policy,
+      );
+      if (!verdict.isSupported) warnings.add(verdict.message);
+    }
+
+    check(defaultProviderId, () => resolveForPrimary(providerId: defaultProviderId));
+    for (final definition in agents ?? _config.agent.definitions) {
+      final providerId = definition.provider ?? defaultProviderId;
+      check(providerId, () => resolveForAgent(definition, providerId: providerId));
+    }
+    for (final taskType in TaskType.values) {
+      check(defaultProviderId, () => resolveForTaskType(taskType));
+    }
+    // A launch surface with no implementation is unavailable whatever the
+    // policy resolves to, so it is reported per provider rather than per
+    // context — an operator learns before a workflow step selects it.
+    for (final providerId in inventory.supports.keys) {
+      final verdict = inventory.verdictFor(
+        providerId: providerId,
+        surface: ProviderLaunchSurface.workflowOneShot,
+        policy: const ExecutionPolicy.host(),
+      );
+      if (!verdict.isSupported) warnings.add(verdict.message);
     }
     return List.unmodifiable(warnings);
   }

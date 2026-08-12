@@ -106,6 +106,14 @@ export 'src/harness/acp_target_validation.dart'
         AcpTargetProbe,
         AcpTargetValidator,
         acpSecurityClassificationId;
+export 'src/harness/provider_execution_compatibility.dart'
+    show
+        ProviderExecutionInventory,
+        ProviderExecutionSupport,
+        ProviderExecutionVerdict,
+        ProviderLaunchSurface,
+        ProviderUnavailability,
+        acpContainerRequirementError;
 export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
 export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
 export 'src/harness/canonical_tool.dart' show CanonicalTool, dartclawMcpServerName;

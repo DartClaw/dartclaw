@@ -154,18 +154,16 @@ harness:
         verification: required   # required when guard mediation is claimed
         requires_guard_mediation: true
         required_builtins: [developer, fs, terminal]
-        container_isolation_required: false
-        container_profile: workspace
+        container_isolation_required: false   # true has no runnable execution — see the note below
       vibe:
         binary: vibe-acp
         args: []
-        topology: unverified
+        topology: direct         # relay/unverified require a container and are unavailable
         model_provider: mistral
         verification: startup_probe
         requires_guard_mediation: false
         required_builtins: []
-        container_isolation_required: true
-        container_profile: restricted
+        container_isolation_required: false
 
 # --- Gateway Auth ---
 auth:
@@ -596,8 +594,9 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 
 **Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
 
-- Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, `required_builtins`, `container_isolation_required`, and `container_profile`.
-- Missing `topology` defaults to `unverified`; unverified and relay ACP agents are container-isolation-only until verification proves reverse-call guard mediation.
+- Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, and `required_builtins`. `container_isolation_required` defaults to `false`. `container_profile` still selects the profile the execution policy resolves to, so on a container-enabled deployment leaving it set pins the agent to a container policy that is then refused — omit it, or pair it with an explicit `execution: host`.
+- Missing `topology` defaults to `unverified`; unverified and relay ACP agents claim no guard mediation, so a container is the only boundary they could have. `topology: direct` is an operator declaration — DartClaw validates it (verification evidence, a non-relay `model_provider`, required builtins) only when the registration also sets `requires_guard_mediation: true`. Declaring `direct` without that moves the agent onto the host with no boundary and no verified claim; do it only for an agent you have established is safe to run there.
+- **ACP runs on the host only.** DartClaw mediates no provider credential or host capability for an ACP client inside a container, so every ACP container combination is unavailable. `container_isolation_required: true` — which relay and unverified topologies must set — is rejected at startup with its exact configuration path. Every other ACP registration runs only where the resolved execution policy selects host execution: on a container-enabled deployment, set `execution: host` for the agent or task type that uses it, or the turn is refused before it starts. ACP is also unavailable on the workflow one-shot surface, which implements `claude` and `codex` only.
 - Guarded Goose registrations require the `developer` builtin.
 - Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default worker-lease capacity `1`.
 

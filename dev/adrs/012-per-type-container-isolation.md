@@ -31,7 +31,9 @@ Sharing one container per profile left siblings and successors inside one PID, `
 
 Container *count* therefore scales with concurrent container executions rather than with the number of profiles; `providers.<id>.pool_size` remains the only worker-capacity limit and bounds it.
 
-**Scope of the amendment.** It governs *harness-owning* authorities: the primary harness and every coordinator-managed worker. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) still executes through a shared per-profile container; that path is amended when Claude/Codex container parity lands, and it holds no harness and no worker lease.
+**Scope of the amendment.** It governs *harness-owning* authorities: the primary harness and every coordinator-managed worker. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) holds no harness and no worker lease, and since Claude/Codex container parity landed it follows the same rule — `WorkflowCliRunner` leases one authority per container-policy turn and releases it in `finally`.
+
+**Provider compatibility.** A container authority can only be granted to a provider whose container execution DartClaw actually mediates. The host gateway's provider adapters are verified for the Claude and Codex clients only, so an ACP registration has no mediated container execution: an ACP registration that requires a container is rejected at startup, and an ACP provider whose resolved policy is container execution is refused before admission rather than downgraded to host. Placement remains the resolved execution mode's decision; this only bounds which providers a container mode can carry.
 
 ### Security Profiles (0.8)
 
@@ -81,10 +83,10 @@ The `macos-vm` profile is a separate tier using Apple's Virtualization.framework
 - One container per live container execution instead of one per profile — more to monitor, debug, and clean up on crash
 - Container creation cost is paid per authority rather than amortized across leases
 - Harness pool must resolve the correct policy and provision a container per admitted execution — adds routing and lifecycle complexity
-- Each container runs its own socat bridge — slightly more moving parts
+- Each container runs its own bridge process pair — slightly more moving parts
 
 ### Neutral
-- CredentialProxy remains shared (single proxy, all containers mount same socket dir)
+- Host mediation is per authority: one gateway registration and one pipe pair per live container execution, revoked on release
 - Docker image stays shared — security differentiation via launch flags, not image contents
 - `container.enabled: false` path unchanged — all tasks share host process, no containers
 - Coding tasks use git worktrees (directories within workspace mount) — worktree isolation is git-level, not container-level

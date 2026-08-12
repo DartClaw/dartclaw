@@ -64,7 +64,7 @@
   - **Given** host-held `ANTHROPIC_API_KEY` and the effective boundary set to container
   - **When** a long-lived or workflow-owned Claude turn reaches the Anthropic API through S02's Claude adapter
   - **Then** the request succeeds with host-applied authentication and the adapter accepts only the intended provider protocol/destination
-  - **And** the container process environment, mounted files, command arguments, generated settings, stdout/stderr, and reported errors contain neither the provider credential nor host Claude login state
+  - **And** the container process environment, mounted files, command arguments, generated settings, stdout/stderr, and reported errors contain neither the provider credential nor host Claude login state — the container's `ANTHROPIC_API_KEY` holds a non-secret placeholder constant, without which the Claude CLI refuses at its own local auth gate and never reaches the adapter
   - **And** an OAuth/setup-token-only host configuration is rejected before spawn with deliberate host execution as the
     supported alternative
 

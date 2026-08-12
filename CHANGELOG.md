@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Durable logical-agent conversations** – `sessions_spawn` creates a hidden, provider-pinned session from `agent.agents`; `sessions_send` continues the returned handle with persisted history, persona/model/effort/profile settings, content guarding, and provider-neutral continuity.
 - **Opt-in memory journal** – `memory.journal.enabled` registers a scheduled `memory-journal` job that distills daily logs into `MEMORY.md` through a closed `file_read` + `memory_save` policy. The feature remains off by default.
 - **On-demand prompt jobs** – configured prompt jobs can be started through `dartclaw jobs run`, `POST /api/scheduling/jobs/<name>/run`, or the Scheduling page without altering pause state or timer cadence.
+- **Host-mediated provider and MCP access for containers** – a containerized execution reaches its model provider and its approved host tools only through per-authority framed `docker exec` pipes served by the host gateway. Containers keep `network:none`, carry no reusable credential, and every pipe is revoked when its authority is released. This replaces the credential proxy and its in-container socat bridge.
+- **Codex container parity** – `codex` runs on either execution boundary with the same mediation as `claude`: the image ships a checksum-verified pinned binary, each turn gets an auth-clean generated home so no saved bearer is forwarded, and scoped MCP is granted without a shared operator token.
 
 ### Changed
 
@@ -21,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Human onboarding is transport-independent** – fresh onboarding applies to Web UI and configured messaging-channel conversations while remaining excluded from tasks, scheduled work, workflows, evaluators, advisors, and logical agents.
 - **Provider identity is canonicalized** – provider IDs are trimmed and lowercased across configuration and routing; blank IDs and normalization collisions fail clearly.
 - **Core LOC ceiling raised (16500 → 17200)** – execution-mode policy now lives in the core session/turn runtime as part of the execution-isolation corrections; the previous ceiling had no story headroom left.
+- **Mixed execution is selected explicitly** – `agent.execution`, `agent.agents.<id>.execution`, and `tasks.execution.<task-type>` choose host or container execution independently of the container profile, and one resolver owns the precedence. Startup names every deliberate weakening and every provider/mode combination the deployment resolves to but cannot run; an unrunnable combination is refused before the turn instead of being downgraded to host execution.
+- **Restricted executions lose provider-native web access** – a restricted container no longer keeps the provider's own web search and fetch tools. Research turns reach the web only through the guarded, execution-scoped MCP bridge, so the restricted profile's content and network guards actually apply to what comes back.
+- **Container executions are neither shared nor cached** – each live container authority owns a dedicated container, destroyed when the authority is released; only host harnesses stay reusable.
 
 ### Fixed
 
@@ -39,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Preview delegation surfaces (breaking)** – `delegate_to_agent`, `delegation.*`, `SessionDelegate`, `SubagentLimits`, delegation config exports, and provider-native agent registration are removed. Use `sessions_spawn` and handle-based `sessions_send`.
 - **Legacy capacity and observability surfaces (breaking)** – `tasks.max_concurrent` and `HarnessPool` are replaced by provider `pool_size` and `ExecutionCoordinator`; CLI `agents`, `/api/agents`, SSE `agent_state`, and agent observer/events become `runners`, `/api/runners`, `runner_state`, and runner equivalents.
 - **Obsolete `AgentDefinition` controls (breaking, SDK)** – per-agent spawn/concurrency/session-store fields, arbitrary initialize-payload extras, and `toInitializePayload()` are removed; logical agents use shared worker capacity and host-owned orchestration.
+- **Containerized ACP execution (breaking)** – DartClaw mediates no provider credential or host capability for an ACP client, so no ACP registration can run in a container. `harness.acp.agents.<id>` entries with `container_isolation_required: true` — which relay and unverified topologies must set — are rejected at startup with their exact configuration path. The removed path silently discarded the container manager it was given and injected the host provider key into the container environment, so it never delivered the boundary it advertised. **Migration:** remove the registration, or re-declare an agent verified to honor host filesystem reverse-calls with `topology: direct` and `container_isolation_required: false`. On a container-enabled deployment, also give the agents and task types that use it `execution: host`; ACP remains unavailable on the workflow one-shot surface, which implements `claude` and `codex` only.
 
 ## [0.23.0] - 2026-08-08
 

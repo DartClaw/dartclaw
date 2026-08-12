@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show ProviderExecutionInventory;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
@@ -372,6 +373,100 @@ void main() {
           taskExecution: const {TaskType.research: ExecutionMode.host},
         ).failClosedWarnings(agents: const [explicitHostSearch]),
         isEmpty,
+      );
+    });
+  });
+
+  group('S05 startup names each unavailable provider/mode combination once', () {
+    final acpInventory = ProviderExecutionInventory.of(
+      providerIds: const ['claude', 'goose'],
+      acpProviderIds: const {'goose'},
+    );
+
+    List<String> compatibilityWarnings(ExecutionPolicyResolver resolver, String providerId) =>
+        resolver.providerCompatibilityWarnings(
+          inventory: acpInventory,
+          defaultProviderId: providerId,
+          agents: const [ordinaryAgent, searchAgent],
+        );
+
+    /// Warnings about a resolved execution mode, excluding the policy-independent
+    /// unsupported-surface line every ACP registration always earns.
+    List<String> containerWarnings(List<String> warnings) =>
+        warnings.where((warning) => !warning.contains('launch implementation')).toList();
+
+    test('an ACP provider under a container policy names each mode once with path and remediation', () {
+      final warnings = compatibilityWarnings(resolverFor(agents: const [ordinaryAgent, searchAgent]), 'goose');
+
+      // The primary lane, both agents, and every task type reach the same two
+      // resolved policies; the operator sees each combination once.
+      final byMode = containerWarnings(warnings);
+      expect(byMode.where((warning) => warning.contains('container/workspace')), hasLength(1));
+      expect(byMode.where((warning) => warning.contains('container/restricted')), hasLength(1));
+      expect(byMode, hasLength(2));
+      expect(
+        byMode.every(
+          (warning) =>
+              warning.contains('harness.acp.agents.goose') &&
+              warning.contains('mediation for an ACP client') &&
+              warning.contains('Select host execution'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a registration with no launch implementation for a surface is named once', () {
+      // Unavailability of a whole surface does not depend on the resolved
+      // policy, so it is reported per provider rather than per context.
+      for (final resolver in [
+        resolverFor(agents: const [ordinaryAgent]),
+        resolverFor(containersEnabled: false),
+      ]) {
+        expect(
+          compatibilityWarnings(
+            resolver,
+            'goose',
+          ).where((warning) => warning.contains('"goose" has no workflow one-shot launch implementation')),
+          hasLength(1),
+        );
+      }
+    });
+
+    test('a provider whose container execution is mediated warns about nothing', () {
+      final mediatedOnly = ProviderExecutionInventory.of(providerIds: const ['claude'], acpProviderIds: const {});
+
+      expect(
+        resolverFor(agents: const [ordinaryAgent, searchAgent]).providerCompatibilityWarnings(
+          inventory: mediatedOnly,
+          defaultProviderId: 'claude',
+          agents: const [ordinaryAgent, searchAgent],
+        ),
+        isEmpty,
+      );
+    });
+
+    test('host execution makes the ACP execution combinations available again', () {
+      expect(containerWarnings(compatibilityWarnings(resolverFor(containersEnabled: false), 'goose')), isEmpty);
+    });
+
+    test('contexts that already fail policy resolution stay with the fail-closed warnings', () {
+      // The restricted agent and research task type have no host equivalent
+      // here, so they are unrunnable for every provider — a compatibility
+      // warning would name the wrong cause.
+      final resolver = resolverFor(containersEnabled: false, agents: const [ordinaryAgent, searchAgent]);
+
+      expect(containerWarnings(compatibilityWarnings(resolver, 'goose')), isEmpty);
+      expect(resolver.failClosedWarnings(agents: const [searchAgent]), isNotEmpty);
+    });
+
+    test('compatibility is checked after resolution and never substitutes a policy', () {
+      final resolver = resolverFor(agents: const [ordinaryAgent]);
+
+      expect(containerWarnings(compatibilityWarnings(resolver, 'goose')), isNotEmpty);
+      expect(
+        resolver.resolveForPrimary(providerId: 'goose'),
+        const ExecutionPolicy.container('workspace'),
+        reason: 'an unavailable combination is reported, not replaced',
       );
     });
   });

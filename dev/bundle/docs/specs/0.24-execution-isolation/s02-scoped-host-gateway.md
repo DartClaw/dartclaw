@@ -143,8 +143,9 @@ Each bridge process listens only on a distinct container-loopback port and owns 
 The bridge parses bounded HTTP/1.1 traffic only far enough to produce versioned frames; the host associates the pipe with
 one authority and one provider-or-MCP surface, so frames cannot select a surface or destination. Request IDs multiplex a
 fixed maximum of in-flight requests without interleaving; length-prefixed metadata/body chunks, explicit terminal/error/
-cancel frames, bounded queues, and paused stream subscriptions enforce backpressure. EOF, malformed frames, unknown IDs,
-or process/container exit fail all matching requests and revoke the pipe.
+cancel frames, bounded queues, and paused stream subscriptions enforce backpressure. EOF, malformed frames,
+or process/container exit fail all matching requests and revoke the pipe; a frame naming an unknown request ID is
+ignored, because a bridge may legitimately cancel a request the host has already completed.
 
 Provider adapters own fixed upstream URI/protocol and reusable credentials, and apply per-authority audit and the existing capacity/usage accounting to all pipe traffic; processes inside a container share their authority's trust domain, so any in-container caller of the loopback bridge is mediated identically (accepted, documented residual risk). MCP frames carry the principal/tool policy
 bound to their host pipe; `tools/list` filters and `tools/call` independently authorizes before dispatch. S01 guarantees no

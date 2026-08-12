@@ -1414,7 +1414,7 @@ void main() {
             isA<UnsupportedError>().having(
               (e) => e.message,
               'message',
-              contains('Workflow one-shot CLI is not implemented for provider "custom"'),
+              contains('Provider "custom" has no workflow one-shot launch implementation'),
             ),
           ),
         );

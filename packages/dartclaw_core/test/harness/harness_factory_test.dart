@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, PlatformCapabilities;
+import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, AcpAgentTopology, PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
@@ -243,6 +243,36 @@ void main() {
             (error) => error.message,
             'message',
             contains('requires container isolation but no container manager is wired'),
+          ),
+        ),
+      );
+    });
+
+    test('ACP agents refuse a supplied container manager instead of discarding it', () {
+      final factory = HarnessFactory();
+      factory.registerAcpAgent(
+        'goose-direct',
+        const AcpAgentConfig(binary: 'goose', args: ['acp'], topology: AcpAgentTopology.direct),
+      );
+
+      expect(
+        () => factory.create(
+          'goose-direct',
+          const HarnessFactoryConfig(
+            cwd: '/tmp/workspace',
+            containerManager: _FakeContainerExecutor(),
+            environment: {'ANTHROPIC_API_KEY': 'host-secret'},
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('was given a container manager'),
+              contains('no container provider-credential or host-capability mediation'),
+              isNot(contains('host-secret')),
+            ),
           ),
         ),
       );

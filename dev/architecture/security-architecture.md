@@ -75,7 +75,7 @@ Each layer operates independently. A failure at one layer does not compromise th
 When Docker is unavailable (`container.enabled: false`), Layers 1 and 2 are absent. Guards (Layer 3) become the primary security boundary. This mode is suitable for personal use on a trusted machine with a single operator.
 
 On native Windows, container isolation is unavailable even when Docker itself is installed. The accepted boundary
-depends on a Unix-domain credential-proxy socket and owner-only POSIX file permissions. Enabling containers therefore
+depends on the per-authority bridge pipes and owner-only POSIX file permissions. Enabling containers therefore
 fails closed through `PlatformCapabilities.containerIsolationAvailable` and an `UnsupportedCapabilityError` that
 directs the operator to a POSIX host or WSL. Native Windows support covers the core runtime, not POSIX isolation parity.
 
@@ -265,7 +265,7 @@ Different providers expose different interception points. DartClaw keeps the gua
 | Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
 | Codex (app-server) | Command, file-change, and MCP approval requests | `approval` handler in `CodexHarness`; `on-request` is broadest, granular is partial, `never` disables host interception | Approval response path is the only interception point |
 | ACP direct-provider, verified | Host-advertised ACP `fs` capabilities | `AcpReverseCallHandlers` bind reverse-calls to the active session and map them to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
-| ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Container profile and workspace jail only | Container-isolation-only until per-agent verification proves guard mediation |
+| ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Rejected at startup; the container boundary they require has no ACP credential or host-capability mediation | Unavailable — the only boundary they could claim cannot be provided |
 
 For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
 
@@ -276,7 +276,7 @@ host-guard posture, granular omits provider-safe operations, and `never` removes
 omitted option inherits Codex configuration, so serve treats it as unverified and warns when tool restrictions are
 configured.
 
-For ACP agents, security classification is topology-scoped. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies can still run under container isolation, but DartClaw does not describe them as mediated by guards.
+For ACP agents, security classification is topology-scoped and independent of where the process can actually run. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies claim no guard mediation, so container isolation would be their only boundary — and DartClaw mediates no provider credential or host capability for an ACP client inside a container, so that boundary is unavailable and those registrations are rejected at startup. ACP therefore runs on the host only, on the long-lived surface only; a resolved container policy for an ACP provider is refused before admission rather than weakened to host execution.
 
 **Source**: `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_reverse_call_handlers.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md)
 
@@ -442,8 +442,9 @@ docker create \
   -v <workspace>:/workspace:rw \            # Workspace mount (workspace profile only)
   -v <dataDir>/projects/:/projects:ro \     # All project clones (parent-directory mount)
   -v <project>:/project:ro \                # Legacy alias for default project (backward compat)
-  -v <proxySocketDir>:/var/run/dartclaw \   # Credential proxy socket
-  -e ANTHROPIC_BASE_URL=http://localhost:8080 \  # Redirect API calls to proxy
+  -v <bridgeBinary>:/usr/local/bin/dartclaw-bridge:ro \  # Host gateway bridge
+  -v <dataDir>/containers/<name>:/state \   # Per-authority generated state
+  -e ANTHROPIC_BASE_URL=<providerBridgeUrl> \  # Framed pipe to the host gateway
   dartclaw-agent:latest \
   sleep infinity
 ```
@@ -456,7 +457,7 @@ Minimal Debian Bookworm slim image with only essential packages: `ca-certificate
 
 ### Per-Type Container Isolation (ADR-012)
 
-A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each live container authority is given its own container built from that template and destroyed on release (ADR-012, 2026-08-11 amendment), so concurrent executions of the same profile never share a PID, `/tmp`, or generated-home namespace. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) is the one exception and still executes through a shared per-profile container; it holds no harness and no worker lease, and is amended when Claude/Codex container parity lands (ADR-012, amendment scope).
+A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each live container authority is given its own container built from that template and destroyed on release (ADR-012, 2026-08-11 amendment), so concurrent executions of the same profile never share a PID, `/tmp`, or generated-home namespace. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) holds no harness and no worker lease, but follows the same rule: `WorkflowCliRunner` leases one authority per container-policy turn and releases it in `finally`. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration.
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
@@ -1159,7 +1160,7 @@ gateway:
 | `agents/tool_policy_cascade.dart` | `dartclaw_core` | 3-layer tool policy, ToolPolicyGuard |
 | `security/task_tool_filter_guard.dart` | `dartclaw_security` | Per-task tool allowlist + read-only mode |
 | `container/container_manager.dart` | `dartclaw_server` | Docker container lifecycle, security flags |
-| `container/credential_proxy.dart` | `dartclaw_server` | Unix socket API key injection proxy |
+| `container/gateway/host_gateway.dart` | `dartclaw_server` | Per-authority framed-pipe host gateway (provider + MCP surfaces) |
 | `container/security_profile.dart` | `dartclaw_server` | Workspace/restricted security profiles |
 | `container/container_dispatcher.dart` | `dartclaw_server` | Task type -> security profile routing |
 | `container/container_config.dart` | `dartclaw_models` | Container configuration data type |

@@ -3,11 +3,11 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-11 23:49 CEST
+Last Updated: 2026-08-12 01:54 CEST
 
 ## Current Phase
 
-**Phase 3: First-class provider enforcement**
+**Phase 4: Compatibility and release convergence**
 
 **Status**: On Track
 

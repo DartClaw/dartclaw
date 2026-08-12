@@ -40,56 +40,56 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02] [TI01,TI02] A compatible ACP registration runs at its requested boundary on its supported launch surface**
+- [x] **S01 [OC01,OC02] [TI01,TI02] A compatible ACP registration runs at its requested boundary on its supported launch surface**
   - **Given** a direct/verified ACP registration whose agents resolve to an explicit host execution selection under the effective S01 policy
   - **When** an ordinary long-lived execution requests that combination and a workflow-owned execution requests the same registration
   - **Then** admission selects the resolved S01 boundary unchanged, the ACP process runs at that real host location on the long-lived surface, and the workflow surface reports its explicit unsupported-surface verdict
   - **And** container execution for any ACP registration is an unavailable 0.24 combination reported at startup, never silently substituted, and a launch surface lacking an ACP adapter is not advertised as compatible merely because the long-lived ACP harness exists
 
-- [ ] **S02 [OC01,OC02] [TI01,TI02] Relay or unverified ACP never loses its required container manager**
+- [x] **S02 [OC01,OC02] [TI01,TI02] Relay or unverified ACP never loses its required container manager**
   - **Given** an ACP registration is relay or unverified and therefore requires the restricted or workspace container profile
   - **When** startup validates the provider/execution matrix, and any construction path is nevertheless reached
   - **Then** the registration is unavailable in 0.24 with an actionable diagnostic naming the missing container credential/capability mediation, and no path discards a required manager, launches the process on the host, or weakens the registration
   - **And** the factory independently fails closed if container-required construction is ever reached without its manager
   - **Proof**: `packages/dartclaw_core/test/harness/harness_factory_test.dart#container-required ACP agents fail closed without a container manager` – green – parity/regression
 
-- [ ] **S03 [OC01,OC02,OC03] [TI01,TI03] Unsupported ACP credential or host-capability combinations fail at startup**
+- [x] **S03 [OC01,OC02,OC03] [TI01,TI03] Unsupported ACP credential or host-capability combinations fail at startup**
   - **Given** separate registrations that request container execution (unavailable for every ACP registration in 0.24), request a surface with no ACP implementation, or conflict with the resolved execution mode/profile
   - **When** DartClaw validates the complete provider/execution matrix at startup
   - **Then** every affected combination is unavailable before admission, with the provider ID, requested mode/profile, exact configuration path, missing mechanism, and remediation reported
   - **And** no credential is copied into the container, shared steward token exposed, direct egress enabled, or host execution substituted
 
-- [ ] **S04 [OC02,OC03] [TI02,TI03] Standalone and workflow entry points return the same compatibility verdict**
+- [x] **S04 [OC02,OC03] [TI02,TI03] Standalone and workflow entry points return the same compatibility verdict**
   - **Given** one compatible and one incompatible combination for each provider family with a supported surface on the path under test, and the unsupported-surface verdict for families without one
   - **When** equivalent work is requested through the ordinary long-lived/task path and the workflow one-shot path
   - **Then** both surfaces either enforce the same real placement and mediation mechanisms or reject the same unsupported combination before process spawn
   - **And** failures preserve capacity, cleanup, retry, and attribution semantics without surface-specific fallback
 
-- [ ] **S05 [OC03] [TI03] Startup diagnostics expose deliberate weakening and unavailable combinations without secrets**
+- [x] **S05 [OC03] [TI03] Startup diagnostics expose deliberate weakening and unavailable combinations without secrets**
   - **Given** containers are enabled, one agent or task type deliberately selects host execution, and one provider/mode combination is unavailable
   - **When** DartClaw starts
   - **Then** output names the deliberate host configuration path and the unavailable provider/mode/mechanism with accepted remediation exactly once
   - **And** diagnostics contain no provider credential, bridge authority, request payload, host login material, or generated secret-bearing configuration
 
-- [ ] **S06 [OC04] [TI04] The release conformance matrix proves success and denial at runtime**
+- [x] **S06 [OC04] [TI04] The release conformance matrix proves success and denial at runtime**
   - **Given** every combination in the TI04 release matrix — Claude and Codex host/container on long-lived and workflow surfaces, direct/verified ACP host-only on the long-lived surface — across logical agents, ordinary tasks, and applicable workflow one-shots
   - **When** the release conformance suite exercises host/container success, incompatible-policy rejection, missing mediation, direct-egress denial, scoped-capability denial, cross-execution replay, startup failure, and cleanup
   - **Then** evidence observes actual process placement, provider request behavior, host authorization, network denial, and terminal failure rather than relying on profile labels or generated configuration alone
   - **And** any failed advertised path blocks release readiness
 
-- [ ] **S07 [OC04] [TI05] Public and internal documentation describes the implemented boundary consistently**
+- [x] **S07 [OC04] [TI05] Public and internal documentation describes the implemented boundary consistently**
   - **Given** the completed runtime and conformance matrix
   - **When** an operator reads configuration, agent, task, and security guides and a maintainer reads the architecture, ADR registry/lineage, and changelog
   - **Then** each distinguishes execution mode, container profile, provider credential mediation, host capability mediation, direct Claude/Codex support, and the computed 0.24 ACP posture (host-only, no containerized ACP) without promising adapters for arbitrary ACP binaries
 
 ## Structural Criteria
 
-- [ ] S01 remains the sole owner of effective policy and worker identity; S04 validates capabilities after resolution and never substitutes a different boundary.
-- [ ] S02 remains the sole owner of gateway/framed-pipe authority; ACP compatibility references specific mechanisms
+- [x] S01 remains the sole owner of effective policy and worker identity; S04 validates capabilities after resolution and never substitutes a different boundary.
+- [x] S02 remains the sole owner of gateway/framed-pipe authority; ACP compatibility references specific mechanisms
       without creating a universal destination proxy or shared steward credential.
-- [ ] Existing ACP topology/guard classification and ADR-037's prohibition on advertised host terminal reverse-calls remain intact unless a separate architecture decision explicitly changes them.
-- [ ] `dev/bundle/docs/specs/0.24/` remains byte-for-byte unchanged by implementation and release-conformance work.
-- [ ] Configuration defaults remain conservative and restart-required; no arbitrary ACP binary gains implied container credential or host-capability support.
+- [x] Existing ACP topology/guard classification and ADR-037's prohibition on advertised host terminal reverse-calls remain intact unless a separate architecture decision explicitly changes them.
+- [x] `dev/bundle/docs/specs/0.24/` remains byte-for-byte unchanged by implementation and release-conformance work.
+- [x] Configuration defaults remain conservative and restart-required; no arbitrary ACP binary gains implied container credential or host-capability support.
 
 ## Scope & Boundaries
 
@@ -152,25 +152,25 @@ file | apps/dartclaw_cli/test/commands/wiring/harness_wiring_test.dart#configure
 
 ### Implementation Tasks
 
-- [ ] **TI01** ACP registrations express and validate enforceable compatibility
+- [x] **TI01** ACP registrations express and validate enforceable compatibility
   - Implement the 0.24 ACP posture: no containerized ACP execution. Introduce no new declaration axes; startup computes each registration's compatibility from its existing fields (topology, verification, `container_isolation_required`, `container_profile`) intersected with the resolved S01 policy. Container-required registrations (relay/unverified always, and any direct registration setting `container_isolation_required: true`) are unavailable with an actionable diagnostic naming the missing container credential/capability mediation; other direct/verified registrations run only where the effective policy selects explicit host execution, and a container-default deployment must select host explicitly per agent (the conflict is rejected, never silently weakened). Validation errors for these rules are startup-fatal with exact paths; topology/verification remains a separate security claim.
   - **Verify**: Table-driven config tests prove the computed compatibility matrix — container-required registrations unavailable with exact-path diagnostics, direct registrations rejected under container policy without an explicit host selection, startup-fatal errors for posture violations — and that no existing registration field grants container support.
 
-- [ ] **TI02** Every ACP launch consumes the resolved boundary and required manager unchanged
+- [x] **TI02** Every ACP launch consumes the resolved boundary and required manager unchanged
   - Apply TI01 after S01 resolution in `HarnessWiring`, `HarnessFactory.registerAcpAgent`, and any supported workflow adapter; never conditionally erase a manager selected by container policy, and reject surfaces without an implementation before spawn.
   - **Verify**: S01, S02, and S04 pass with real/fake process placement across primary, logical-agent, ordinary-task, and applicable workflow paths; missing managers/adapters fail pre-turn and capacity/cleanup remain correct.
 
-- [ ] **TI03** Startup compatibility and deliberate-boundary diagnostics are actionable and secret-free
+- [x] **TI03** Startup compatibility and deliberate-boundary diagnostics are actionable and secret-free
   - Build one startup inventory from resolved policy, the computed ACP compatibility, available S02 mechanisms, platform/container availability, and supported launch adapters; the inventory type lives in `dartclaw_core` and is composed/populated in CLI wiring, feeding admission directly and operator-visible diagnostics by extending S01's TI06 emission path (one emission point; S01's tests are updated rather than duplicated).
   - **Verify**: S03–S05 pass, including exact provider/config-path/mode/mechanism/remediation output, one warning per explicit host weakening, stable rejection classes across ordinary/workflow entry points, and sentinel-secret absence.
 
-- [ ] **TI04** Runtime conformance covers every advertised provider/surface boundary
+- [x] **TI04** Runtime conformance covers every advertised provider/surface boundary
   - Extend the S03 placement/mediation fixtures into the explicit release matrix — Claude {host, container} and Codex {host, container} on both long-lived and workflow one-shot surfaces, plus direct/verified ACP {host, long-lived only, explicit selection} — with every other provider/mode/surface combination exercised as a required-denial path, including logical agents, ordinary tasks, success, denial, replay, startup failure, and cleanup.
   - **Verify**: S06 passes non-skipped on the executing platform, with recorded evidence on both Linux Docker and Docker Desktop required for 0.24 release completion via the release checklist; tests fail if labels change
     without real placement, a required manager is dropped, credentials appear in a container, direct egress/native search
     succeeds, host authorization is bypassed, or an advertised path lacks execution evidence.
 
-- [ ] **TI05** ADR lineage and operator documentation match the proven support matrix
+- [x] **TI05** ADR lineage and operator documentation match the proven support matrix
   - Verify S01's ADR-012/`DECISIONS.md` lineage and synchronize control/task/security/configuration architecture,
     `docs/guide/{agents,configuration,security,tasks}.md`, and `CHANGELOG.md` with TI04's actual boundary; preserve ADR-037's
     topology-scoped claims and avoid universal ACP promises.
@@ -190,11 +190,11 @@ file | apps/dartclaw_cli/test/commands/wiring/harness_wiring_test.dart#configure
 
 ## Final Validation Checklist
 
-- [ ] The pre-S01 baseline for `dev/bundle/docs/specs/0.24/` — a deterministic content hash of that directory's
+- [x] The pre-S01 baseline for `dev/bundle/docs/specs/0.24/` — a deterministic content hash of that directory's
       working-tree state, captured by the S01 executor immediately before S01 begins and recorded as S01's first
       implementation observation — equals the same hash of the final state; a clean final worktree diff alone is
       insufficient, and HEAD's tree object is not the baseline because the directory already carries uncommitted edits.
-- [ ] Every provider/mode/surface claim in changed docs and release notes maps to a passing TI04 runtime conformance case.
+- [x] Every provider/mode/surface claim in changed docs and release notes maps to a passing TI04 runtime conformance case.
 
 ## Implementation Observations
 
@@ -455,3 +455,45 @@ Affected surface: TI03 diagnostics wiring (statement already present)
 Decision: S01 TI06's emission path remains the single warning emitter; S04 extends it to consume the startup inventory rather than adding a second emitter.
 Rationale: Two emitters would double-warn or break S01's warn-once tests.
 Evidence: TI03 as amended.
+
+### Run: 2026-08-12 01:16 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- `GET /api/providers` still serves `securityClassification: "container_isolation_only"` for host-only ACP registrations (`packages/dartclaw_core/lib/src/harness/acp_target_validation.dart:139-147` → `packages/dartclaw_server/lib/src/provider_status_service.dart:176`). Under the 0.24 posture that boundary is unreachable, so the label describes something that cannot happen. Not changed here: Structural Criteria keeps the ACP topology/guard classification intact absent a separate architecture decision, and the serialized id is part of that contract. Needs an ADR or a status-surface reconciliation against `ProviderExecutionInventory`.
+- `packages/dartclaw_config/lib/src/config_parser_harness.dart:147-186` validates nothing for `topology: direct` when `requires_guard_mediation: false` — no verification evidence, no `model_provider`, no relay-selector check. Since the migration path for a broken relay registration is exactly that declaration, the self-assertion is load-bearing. Pre-existing leniency, kept out of scope by DECISION NOTE `acp-config-invalid-declaration-failure-mode`; `docs/guide/configuration.md` now states the limitation explicitly instead.
+- `_primaryContainerManager`'s verdict rejection (`apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart`) has no test. Reaching it needs a container-enabled deployment with available profiles, and `SecurityWiring` exposes no injection seam for container templates — the same testability gap S02 recorded. The identical verdict call in the coordinator's `createWorker` is covered.
+- `AcpAgentConfig.containerProfile` still feeds `ExecutionPolicyResolver._providerContainerProfile`, so setting it on an ACP registration steers policy resolution toward a container policy that is then refused. Removing it is S01-owned precedence code (Structural Criterion 1), so the behavior is documented rather than changed.
+- `AcpHarness`'s container branch (constructor parameter, container `exec` spawn, reverse-call handler suppression) is unreachable from the factory by design per DECISION NOTE `acp-guard-mediation-under-container-execution`, but the public constructor still accepts a manager, so an SDK composition root could still drive it.
+- `packages/dartclaw_server/dart_test.yaml` does not declare the `slow` tag the two container integration suites apply, so `dart test` prints a tag warning per suite. Pre-existing.
+- Root `README.md:24,112,158` still advertise the removed credential proxy. Outside TI05's named documentation surface; release doc-sweep item.
+- The conformance matrix's runtime-evidence rows remain a name registry (asserting a `test('<name>'` declaration exists and the fixture file is not `@Skip`-ped), not a second behavioral proof. The dual-engine release gate added to `dev/guidelines/RELEASE_PREPARATION.md` owns the real evidence per DECISION NOTE `dual-platform-conformance-evidence-protocol`.
+- Fitness ceiling `max_test_file_loc` raised 1200 → 1300 (dated rationale in the file) under the standing "LOC fitness ceilings get headroom, not allowlist churn" decision. The adversarial review argued for theme-splitting `harness_wiring_test.dart` instead; recorded as a deliberate call to revisit if another file trips.
+
+#### ASSUMPTIONS
+
+- **Startup-fatal vs. warn split.** TI01 calls posture violations startup-fatal while scenario S05 requires startup to emit an unavailable provider/mode line, which presupposes startup completing. Resolved from the FIS's own notes: `acp-existing-registration-migration-posture` says container-required registrations break at startup, so those are fatal; a registration whose *resolved policy* is container is warned exactly once at startup and refused before admission, matching S01's `failClosedWarnings` shape.
+- **"Explicit host selection" scope.** TI01's "a container-default deployment must select host explicitly per agent" is read as scoped to container-default deployments — the parenthetical's own subject. A containers-disabled deployment resolves host without an explicit selection and keeps working; demanding a redundant `execution: host` there would break existing host-only ACP deployments for no boundary gain.
+- **`WorkflowCliRunner.executionInventory` is nullable.** Both first-party composition roots pass it (`task_wiring.dart`, `cli_workflow_wiring.dart`). SDK and test compositions that legitimately have no inventory keep the provider-family registry as their backstop, so the surface still refuses any family it has no adapter for. Making it required would break many existing constructions for no boundary gain.
+- **`acpContainerRequirementError` rejects on topology, not only the boolean.** A programmatically built relay/unverified `AcpAgentConfig` would otherwise bypass the YAML coupling. This makes an omitted `topology` (which defaults to `unverified`) startup-fatal, matching the YAML path where an omitted topology already required `container_isolation_required: true` and was therefore fatal too.
+- **`dev/state/DECISIONS.md` edited directly rather than through `ops update-decisions`.** Two edits are lineage corrections to existing ADR index rows, which is TI05's "verify S01's ADR-012/`DECISIONS.md` lineage"; the new Still Current bullet follows the established entry shape.
+
+#### DOCUMENTATION CLAIM INVENTORY (TI05)
+
+Each provider/mode/surface claim in the changed docs, mapped to the conformance case that backs it. Fixture-owned cases are the ones the release conformance matrix (`packages/dartclaw_server/test/execution_conformance_matrix_test.dart`) registers by name.
+
+- **Claude and Codex run on host and in a container, on both launch surfaces** — `docs/guide/{security,architecture}.md`, `dev/architecture/system-architecture.md`, CHANGELOG → matrix rows `{claude,codex}/host/long-lived` (exercised in-suite); `{claude,codex}/container/long-lived` → `container_provider_parity_integration_test.dart` ('a containerized process joins the container namespace, not the host', 'both providers run inside the shipped image'); `{claude,codex}/host/workflow one-shot` → `workflow_cli_runner_test.dart`; `{claude,codex}/container/workflow one-shot` → `workflow_cli_container_parity_test.dart` ('… runs the image binary, not the configured host path').
+- **No provider credential enters a container** — `docs/guide/security.md`, `dev/architecture/configuration-architecture.md`, CHANGELOG → `container_provider_parity_integration_test.dart` 'no host credential is readable from inside the container'; `scoped_host_gateway_integration_test.dart` 'the host credential appears nowhere the container can read'.
+- **Containers keep `network:none` with no egress** — `docs/guide/{security,architecture}.md`, `dev/architecture/system-architecture.md` → `scoped_host_gateway_integration_test.dart` 'a direct Internet probe from the container fails'.
+- **Restricted executions lose provider-native web access** — CHANGELOG, `docs/guide/security.md` → `workflow_cli_container_parity_test.dart` 'restricted claude denies the native web tools'; `provider_adapter_test.dart` 'refuses provider-native web tools for a restricted execution'.
+- **Each live container authority owns a dedicated container destroyed on release** — `docs/guide/{agents,architecture}.md`, ADR-012, ADR-016, `dev/architecture/task-execution-architecture.md` → `scoped_host_gateway_integration_test.dart` 'concurrent authorities own separate containers and cannot borrow each other' and 'release destroys the container, revokes the pipes, and is idempotent'.
+- **ACP runs on the host only, on the long-lived surface only** — `dev/architecture/{control-protocol,security-architecture}.md`, `docs/guide/{agents,configuration,security,architecture}.md`, `dev/state/DECISIONS.md`, ADR-037 status note → `provider_execution_compatibility_test.dart` (13-row enumerated matrix + surface-coverage assertion); `execution_conformance_matrix_test.dart` 'goose runs on the host with no container authority', 'an ACP provider is refused container/{workspace,restricted} on the long-lived surface', 'an ACP provider is refused the workflow one-shot surface as {host,container/workspace}'.
+- **A container-requiring ACP registration is startup-fatal with its exact configuration path** — `docs/guide/{configuration,security}.md`, `dev/architecture/control-protocol.md`, CHANGELOG, `dev/state/DECISIONS.md` → `provider_execution_compatibility_test.dart` 'a relay registration is rejected with its exact configuration path' and 'a relay topology is rejected even without the container flag'; `harness_wiring_test.dart` 'a container-required ACP registration is rejected at startup with its exact configuration path'.
+- **A resolved container policy for an ACP provider is refused before admission, never downgraded to host** — `docs/guide/{agents,tasks,security}.md`, `dev/architecture/control-protocol.md`, ADR-012, ADR-016 → `harness_wiring_test.dart` 'a host-only ACP registration composes the inventory and is refused a container policy'; `execution_policy_resolver_test.dart` 'compatibility is checked after resolution and never substitutes a policy'.
+- **ACP is unavailable on the workflow one-shot surface, which implements `claude` and `codex` only** — `docs/guide/configuration.md`, CHANGELOG → `execution_conformance_matrix_test.dart` 'an ACP provider named after a built-in family is not routed through that adapter' and 'the workflow surface reports the verdict the inventory computes'.
+- **A supplied container manager is required authority, never discarded** — ADR-012, `packages/dartclaw_core/CLAUDE.md` → `harness_factory_test.dart` 'container-required ACP agents fail closed without a container manager' and 'ACP agents refuse a supplied container manager instead of discarding it'; `execution_conformance_matrix_test.dart` '{claude,codex} keeps the container authority selected for {workspace,restricted}'.
+- **Startup names each deliberate weakening and each unavailable provider/mode combination exactly once** — CHANGELOG, `docs/guide/configuration.md` → `execution_policy_resolver_test.dart` group 'S05 startup names each unavailable provider/mode combination once' (5 tests), alongside the unchanged S06/S01 warning groups.
+- **Mixed execution is selected explicitly per agent and task type** — CHANGELOG, `docs/guide/{tasks,agents}.md` → `execution_policy_resolver_test.dart` groups 'S01 unchanged configurations preserve the current boundary' and 'S02 explicit agent and task-type choices coexist' (S01-owned, unchanged, green).
+- **Dual-engine container conformance evidence is a release gate** — `dev/guidelines/RELEASE_PREPARATION.md` → the gate itself; the matrix suite fails if any named fixture is renamed, removed, or `@Skip`-ped.
+
+No documented provider/mode/surface combination lacks a mapped case, and no mapped case is currently red.

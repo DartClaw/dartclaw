@@ -132,7 +132,9 @@ behavior but cannot activate these container profiles; enabling containers fails
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
 
-The task executor requests a worker for the task's exact provider and profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; containers are managed independently and may be shared by multiple compatible workers.
+The task executor requests a worker for the task's exact provider and effective execution policy. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; each live container execution owns a dedicated container destroyed on release.
+
+A task type routed to a container profile can only run on a provider whose container execution DartClaw mediates – `claude` and `codex`. An ACP provider runs on the host only: set `tasks.execution.<task-type>: host` for the task types it serves, or the task is refused before it starts rather than quietly running unisolated.
 
 ## Coding Tasks and Worktrees
 

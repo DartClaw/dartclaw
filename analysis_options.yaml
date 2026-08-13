@@ -115,3 +115,9 @@ linter:
     - unawaited_futures
     - cancel_subscriptions
     - always_declare_return_types
+    # Modernization ratchets — zero violations at time of enabling; block regression only.
+    - use_enums
+    - prefer_final_in_for_each
+    - unnecessary_statements
+    - unnecessary_unawaited
+    - use_truncating_division

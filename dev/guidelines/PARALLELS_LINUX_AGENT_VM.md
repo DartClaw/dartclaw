@@ -783,6 +783,8 @@ After syncing a checkout onto the VM, open its permissions before running bridge
 default for a home-dir rsync) blocks the container's uid-1000 user from traversing to the bind-mounted bridge binary,
 failing every gateway/mediated fixture with permission errors that look like bridge defects. On the checkout root run
 `chmod 755` on each path component and `chmod -R a+rX build` so the bridge binary and its parents are world-traversable.
+Order matters: run the `build` chmod **after** any `build_bridge.sh` invocation — a root-built bridge under `prlctl`
+comes out `0700`, and a chmod that ran before the rebuild silently reintroduces the same mass failure.
 
 ## 10. Create the Reusable Baseline
 

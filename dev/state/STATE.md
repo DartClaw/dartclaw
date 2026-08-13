@@ -9,7 +9,7 @@ Last Updated: 2026-08-13 08:48 CEST
 
 **Phase 4: Compatibility and release convergence**
 
-**Status**: At Risk
+**Status**: On Track
 
 ## Current Focus
 
@@ -33,20 +33,14 @@ Last Updated: 2026-08-13 08:48 CEST
 
 ## Blockers
 
-- 0.24 execution-isolation: all 9 release-gating HIGH gates from the council mixed review
-  (`0.24-execution-isolation-mixed-review-claude-2026-08-12.md`) are remediated and the four open decisions are
-  ratified (ADR-052 accepted; fatal YAML parse; documented uid-1000/rootless posture; container scrub opt-out) —
-  nothing committed yet. G-HIGH-6 now has its mediated-turn coverage: real containerized claude and codex turns complete
-  through host mediation and write into the mounted workspace, green on Docker Desktop 29.4.2 (macOS 25.6.0) and Linux
-  Docker 29.7.2 (Ubuntu 24.04.3 aarch64, as root) on 2026-08-13 — 37 passed on both engines, with one pre-existing
-  unrelated failure (`crash_recovery_smoke_test.dart`, red at HEAD before this work).
-- The two production defects that coverage surfaced are fixed and verified (2026-08-13): containerized Claude spawns
-  translate the working directory (start-before-turn included), and containerized Codex forces `danger-full-access` on
-  both lanes per the security-architecture sandbox matrix (read-only one-shots keep `read-only`, failing closed). The
-  fixtures' workarounds are removed, so the mediated-turn suite now drives the true shipped lanes; dual-engine gate
-  re-run green (Linux Docker as root and Docker Desktop: 37 passed each, sole failure the pre-existing
-  `crash_recovery_smoke_test`). Remaining before the tag: triage `crash_recovery_smoke_test` (red at HEAD, predates
-  this work) and the standard release-preparation gates.
+- None. The 0.24 execution-isolation correction is fully landed (2026-08-13): all 9 review gates remediated and
+  committed, the four decisions ratified (ADR-052 accepted; fatal YAML parse; uid-1000/rootless posture documented;
+  container scrub opt-out), mediated-turn conformance coverage in place, the two production defects it surfaced fixed
+  (containerized Claude spawn cwd translation; containerized Codex `danger-full-access` on both lanes), and
+  `crash_recovery_smoke_test` repaired (test-side defects: stale coordinator admission wiring + cwd-relative fixture
+  paths — production crash recovery was intact). Dual-engine integration gate: **38/38 green** on Linux Docker 29.7.2
+  (Ubuntu 24.04.3 aarch64, as root) and Docker Desktop 29.4.2 (macOS). Remaining before the tag: standard
+  release-preparation gates only.
 
 ## Recent Decisions
 

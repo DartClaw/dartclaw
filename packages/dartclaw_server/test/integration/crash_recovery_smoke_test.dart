@@ -6,8 +6,11 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'container_integration_support.dart' show repoRoot;
 
 void main() {
   late Directory tempDir;
@@ -41,7 +44,20 @@ void main() {
     'reserve/start crash leaves one orphan that restart cleanup clears with one recovery notice',
     timeout: const Timeout(Duration(seconds: 60)),
     () async {
-      final helper = File('packages/dartclaw_server/test/integration/_fixtures/crash_turn_process.dart');
+      // Resolved from the package location: `dart test` may run from the
+      // workspace root or the package dir, and a cwd-relative path breaks one
+      // of the two (the release gate runs package-level).
+      final helper = File(
+        p.join(
+          await repoRoot(),
+          'packages',
+          'dartclaw_server',
+          'test',
+          'integration',
+          '_fixtures',
+          'crash_turn_process.dart',
+        ),
+      );
       activeProcess = await _startCrashProcess(helper, tempDir);
 
       final stderrBuffer = StringBuffer();

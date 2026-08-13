@@ -446,7 +446,14 @@ class CodexHarness extends BaseHarness {
     // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
     // sandbox must be configured at process startup via `-c sandbox_permissions`.
     final args = ['app-server'];
-    final sandboxOption = _stringProviderOption('sandbox');
+    final container = containerManager;
+    // Containerized spawns always run danger-full-access: the container is the
+    // isolation boundary, and Codex's own sandbox tooling can neither ship in
+    // the image nor start under the hardening – honoring a stricter configured
+    // value would fail every tool call while the turn still reports success
+    // (security-architecture.md § Multi-Provider Sandbox Interaction). Host
+    // approvals/guards stay active either way.
+    final sandboxOption = container != null ? 'danger-full-access' : _stringProviderOption('sandbox');
     if (sandboxOption != null) {
       final permissions = _sandboxPermissions(sandboxOption);
       if (permissions != null) {
@@ -456,7 +463,6 @@ class CodexHarness extends BaseHarness {
     }
 
     final workingDirectory = _resolveDefaultWorkingDirectory();
-    final container = containerManager;
     final Process process;
     if (container == null) {
       process = await processFactory(

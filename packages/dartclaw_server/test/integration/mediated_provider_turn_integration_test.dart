@@ -106,11 +106,10 @@ void main() {
     // destroyed with the container, so it is also swept while the CLI is
     // mid-turn — the only moment "during the turn" can be observed.
     upstream.onRequest = (_) => fixture.snapshotGeneratedState();
-    // Deliberately not pre-started: `start()` execs with the untranslated host
-    // `cwd`, which no container has, so a containerized harness cannot come up
-    // that way. The first `turn()` restarts into the translated container
-    // directory and runs the same spawn path. See the FIS's Implementation
-    // Observations — this is a recorded production defect, not a fixture quirk.
+    // Pre-started exactly like production (CLI primary harness and coordinator
+    // workers call `start()` before any turn): the spawn must translate the
+    // host cwd into the container, or this dies with exit 127.
+    await harness.start();
     return fixture;
   }
 

@@ -146,7 +146,10 @@ class ClaudeCodeHarness extends BaseHarness {
          commandProbe: commandProbe ?? Process.run,
          delayFactory: delayFactory ?? ((d) => Future<void>.delayed(d)),
        ) {
-    _processWorkingDirectory = cwd;
+    // The spawn working directory must be container-side when containerized:
+    // `start()` before any turn would otherwise exec with the untranslated
+    // host cwd, which no container has, and die with exit 127.
+    _processWorkingDirectory = _resolveWorkingDirectory(null);
     _hostProcessWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;

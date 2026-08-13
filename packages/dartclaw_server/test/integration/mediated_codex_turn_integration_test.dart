@@ -171,13 +171,10 @@ final class _MediatedCodex {
       uuid: const Uuid(),
       log: Logger('mediated-codex-test'),
       stepTimeout: const Duration(minutes: 4),
-      // Load-bearing, not incidental: without an explicit sandbox the lane
-      // sends `--full-auto`, and Codex's own Linux sandbox then demands
-      // bubblewrap, which the image does not ship and which cannot run under
-      // the container's `--cap-drop ALL` / `no-new-privileges` hardening. Every
-      // tool call panics. The container is already the isolation boundary. See
-      // the FIS's Implementation Observations.
-      sandboxOverride: 'danger-full-access',
+      // No sandboxOverride: the production lane must itself disable Codex's
+      // OS sandbox for containerized runs (the container is the boundary and
+      // bubblewrap cannot start under the hardening) — passing it here would
+      // mask a regression of that default.
     );
     return CodexCliProvider().run(request);
   }

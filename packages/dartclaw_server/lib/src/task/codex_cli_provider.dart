@@ -322,10 +322,20 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     if (requestedAllowedTools != null && requestedAllowedTools.isNotEmpty && !req.readOnly) {
       _log.fine('Codex one-shot ignores workflow allowedTools: $requestedAllowedTools');
     }
-    final sandboxDecision = _CodexSandboxDecision(
-      defaultSandbox: req.providerConfig.options['sandbox']?.toString(),
-      sandboxOverride: req.readOnly ? 'read-only' : req.sandboxOverride,
-    );
+    // Containerized non-read-only runs disable Codex's own OS sandbox: the
+    // container is the isolation boundary, and the sandbox tooling Codex
+    // demands (bubblewrap) neither ships in the image nor can start under
+    // `--cap-drop ALL`/`no-new-privileges` — every tool call would panic while
+    // the turn still reports success. Read-only keeps its sandbox flag even
+    // containerized: Codex has no tool allowlist, so dropping it would turn a
+    // read-only step writable; if its sandbox cannot start either, tool calls
+    // fail closed rather than open.
+    final sandboxDecision = req.containerManager != null && !req.readOnly
+        ? const _CodexSandboxDecision._('danger-full-access')
+        : _CodexSandboxDecision(
+            defaultSandbox: req.providerConfig.options['sandbox']?.toString(),
+            sandboxOverride: req.readOnly ? 'read-only' : req.sandboxOverride,
+          );
     final args = <String>[
       'exec',
       '--json',

@@ -40,11 +40,13 @@ Last Updated: 2026-08-13 08:48 CEST
   through host mediation and write into the mounted workspace, green on Docker Desktop 29.4.2 (macOS 25.6.0) and Linux
   Docker 29.7.2 (Ubuntu 24.04.3 aarch64, as root) on 2026-08-13 — 37 passed on both engines, with one pre-existing
   unrelated failure (`crash_recovery_smoke_test.dart`, red at HEAD before this work).
-- That coverage surfaced two unfixed production defects that now block the tag, both recorded in the
-  mediated-provider-turn FIS's Implementation Observations: containerized `ClaudeCodeHarness.start()` execs with an
-  untranslated host `cwd`, so no containerized long-lived Claude worker can start; and containerized Codex under the
-  default `--full-auto` sandbox fails every tool call on a missing bubblewrap while still reporting a completed turn.
-  Remaining before the tag: fix both, re-run the dual-engine gate, then the CI-equivalent gate and commit.
+- The two production defects that coverage surfaced are fixed and verified (2026-08-13): containerized Claude spawns
+  translate the working directory (start-before-turn included), and containerized Codex forces `danger-full-access` on
+  both lanes per the security-architecture sandbox matrix (read-only one-shots keep `read-only`, failing closed). The
+  fixtures' workarounds are removed, so the mediated-turn suite now drives the true shipped lanes; dual-engine gate
+  re-run green (Linux Docker as root and Docker Desktop: 37 passed each, sole failure the pre-existing
+  `crash_recovery_smoke_test`). Remaining before the tag: triage `crash_recovery_smoke_test` (red at HEAD, predates
+  this work) and the standard release-preparation gates.
 
 ## Recent Decisions
 

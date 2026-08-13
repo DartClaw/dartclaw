@@ -588,6 +588,49 @@ void main() {
       await harness.dispose();
     });
 
+    test('containerized spawn runs in a container-side directory, never the host cwd', () async {
+      final capturedArgs = <String>[];
+      final hostWorkspace = Directory.systemTemp.createTempSync('dartclaw-host-ws-');
+      addTearDown(() => hostWorkspace.deleteSync(recursive: true));
+      final fake = _bufferedFakeProcess();
+      final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
+      addTearDown(() => stateDir.deleteSync(recursive: true));
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-workspace',
+        profileId: 'workspace',
+        workspaceMounts: ['${hostWorkspace.path}:/project:rw'],
+        generatedStateDir: stateDir.path,
+        bridgeBinaryPath: '/tmp/dartclaw-bridge',
+        workingDir: '/project',
+        runCommand: (exe, args) async {
+          if (args.first == 'inspect') return ProcessResult(0, 0, 'true\n', '');
+          return ProcessResult(0, 0, '', '');
+        },
+        startCommand: _containerStartCommand(fake, onSpawn: capturedArgs.addAll),
+      );
+
+      final harness = ClaudeCodeHarness(
+        // The host path production passes (Directory.current.path); `start()`
+        // must never let it cross the boundary as the exec working directory.
+        cwd: hostWorkspace.path,
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      final wIndex = capturedArgs.indexOf('-w');
+      expect(wIndex, isNonNegative, reason: 'docker exec must set a working directory: $capturedArgs');
+      expect(capturedArgs[wIndex + 1], '/project');
+      expect(capturedArgs, isNot(contains(hostWorkspace.path)));
+
+      await harness.dispose();
+    });
+
     test('workspace container includes hardened env vars without simple mode', () async {
       final capturedArgs = <String>[];
       final containerManager = makeContainerManager('workspace', capturedArgs);

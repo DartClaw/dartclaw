@@ -192,6 +192,20 @@ void main() {
       await harness.stop();
     });
 
+    test('disables the Codex OS sandbox – the container is the boundary', () async {
+      final harness = _harness(container);
+      await _start(harness, container);
+
+      // Codex's own sandbox tooling cannot start under the container
+      // hardening, and its failure mode is a completed turn with every tool
+      // call silently panicking – so the spawn must always widen to
+      // danger-full-access inside the boundary.
+      final spawn = container.commands.last.join(' ');
+      expect(spawn, contains('sandbox_permissions=["disk-full-read-write-access", "network-full-access"]'));
+
+      await harness.stop();
+    });
+
     test('falls back to the profile working directory when nothing is mounted', () async {
       // The restricted profile mounts no workspace on purpose, so an unmapped
       // default cwd is expected – and a host path must not stand in for it.

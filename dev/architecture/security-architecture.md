@@ -492,7 +492,7 @@ The reusable harness cache is opportunistic, holds host harnesses only, and has 
 
 ### Multi-Provider Sandbox Interaction
 
-ADR-016 makes provider selection first-class, so sandbox settings need to reflect both deployment boundary and harness mode. This matrix mirrors the PRD sandbox interaction table and uses the same operational rule: when Docker is the boundary, prefer `danger-full-access` for Codex app-server and exec to avoid double-sandboxing conflicts; outside Docker, keep Codex on its own sandbox.
+ADR-016 makes provider selection first-class, so sandbox settings need to reflect both deployment boundary and harness mode. This matrix mirrors the PRD sandbox interaction table and uses the same operational rule: when Docker is the boundary, use `danger-full-access` for Codex app-server and exec to avoid double-sandboxing conflicts; outside Docker, keep Codex on its own sandbox. The Docker rows are enforced in code, not just configured: containerized Codex spawns always run `danger-full-access` regardless of the configured `sandbox` option (a stricter value cannot start under the container hardening and would fail every tool call while the turn still reports success); the one exception is a read-only one-shot step, which keeps `--sandbox read-only` so it fails closed rather than open.
 
 | Deployment | Harness mode | Codex sandbox | Approval | Boundary note |
 |-----------|--------------|---------------|----------|---------------|

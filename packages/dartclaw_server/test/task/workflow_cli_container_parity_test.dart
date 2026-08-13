@@ -106,6 +106,40 @@ void main() {
     });
   });
 
+  group('containerized codex sandbox', () {
+    // The container is the isolation boundary; Codex's own OS sandbox
+    // (bubblewrap) neither ships in the image nor can start under the
+    // hardening, and its failure mode is a completed turn with every tool
+    // call silently panicking.
+    test('a containerized codex run disables the Codex OS sandbox instead of --full-auto', () async {
+      final container = containerFor(stdout: _codexEvents);
+      await runTurn(runnerFor('codex', container), 'codex');
+
+      final command = container.lastCommand;
+      final sandboxIndex = command.indexOf('--sandbox');
+      expect(sandboxIndex, isNonNegative, reason: 'containerized codex must pass an explicit sandbox: $command');
+      expect(command[sandboxIndex + 1], 'danger-full-access');
+      expect(command, isNot(contains('--full-auto')));
+    });
+
+    test('a containerized read-only codex run keeps the read-only sandbox', () async {
+      final container = containerFor(stdout: _codexEvents);
+      await runnerFor('codex', container).executeTurn(
+        provider: 'codex',
+        prompt: 'Review this',
+        workingDirectory: workingDirectory.path,
+        policy: const ExecutionPolicy.container('workspace'),
+        readOnly: true,
+      );
+
+      // Codex has no tool allowlist, so read-only must keep its sandbox flag
+      // even containerized: a failing sandbox fails closed, dropping it fails open.
+      final command = container.lastCommand;
+      expect(command, containsAllInOrder(['--sandbox', 'read-only']));
+      expect(command, isNot(contains('danger-full-access')));
+    });
+  });
+
   group('host credentials stay on the host', () {
     test('no claude spawn surface carries a host secret', () async {
       final container = containerFor(stdout: _claudeResult, mcpBridgeUrl: 'http://127.0.0.1:8081/mcp');

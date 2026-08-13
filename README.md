@@ -94,7 +94,7 @@ The build produces `build/bin/dartclaw` next to a `build/lib/` holding the bundl
 - **Agent CLI** – at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
 - **API key** – `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI – primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
 - **Docker** – optional, for container isolation
-- **Dart SDK** >= 3.12.0 – source builds only; the prebuilt binaries need no Dart toolchain
+- **Dart SDK** >= 3.13.0 – source builds only; the prebuilt binaries need no Dart toolchain
 - **SQLite** – bundled with the prebuilt binaries and source builds
 
 ## How it works

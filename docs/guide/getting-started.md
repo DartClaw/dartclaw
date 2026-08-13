@@ -8,7 +8,7 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 |-----------|---------|---------|
 | Homebrew | Latest | DartClaw install path on macOS and Linux |
 | PowerShell | 5.1+ | Qualified Windows installer; Scoop requires a public Windows asset and bucket manifest |
-| Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
+| Dart SDK | ^3.13.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Stable channel | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Current release | Agent binary — optional, for OpenAI models (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |

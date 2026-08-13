@@ -8,7 +8,7 @@ DartClaw is a Dart SDK for building agent runtimes around native agent harnesses
 
 ## Prerequisites
 
-- Dart SDK `>=3.12.0`
+- Dart SDK `>=3.13.0`
 - For the Claude-based snippets on this page: `claude` binary in your `PATH`
 - Either `ANTHROPIC_API_KEY` in your environment or an existing Claude CLI login
 

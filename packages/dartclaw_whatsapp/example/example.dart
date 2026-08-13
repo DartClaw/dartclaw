@@ -1,4 +1,3 @@
-// ignore_for_file: avoid_print
 // Requires GOWA (Go WhatsApp) binary installed and configured.
 
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';

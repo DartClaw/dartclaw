@@ -109,12 +109,12 @@ The web UI's **New Task** dialog exposes these as "Advanced" fields.
 
 ## Execution Model
 
-Tasks run on dedicated harness instances from the `HarnessPool`, separate from the primary harness used for interactive chat, cron, and channels. For a full comparison of task runners vs subagents (the other agent model), see [Agents](agents.md).
+Tasks acquire per-provider worker leases from the execution coordinator, separate from the fixed primary lane used for main user/channel turns. For a full comparison of background tasks and logical-agent sessions, see [Agents](agents.md).
 
-- `tasks.max_concurrent` controls how many background task runners are started (each is an independent claude binary subprocess)
-- the primary interactive chat runner (index 0) is never acquired by the task executor
+- `providers.<id>.pool_size` is a hard concurrent lease limit shared with other background execution
+- the primary lane is never acquired by the task executor
 - each task type maps to a container security profile (see below)
-- `/tasks` shows runner state through the agent pool and runner metrics panels
+- `/tasks` shows execution state through lease-derived worker metrics
 
 ### Container Profile Routing
 
@@ -132,7 +132,9 @@ behavior but cannot activate these container profiles; enabling containers fails
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
 
-In pool mode, the task executor matches a task's profile to a runner started with that profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally get a `workspace` runner with filesystem access.
+The task executor requests a worker for the task's exact provider and effective execution policy. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; each task container is dedicated to that task execution and destroyed when its turn ends.
+
+A task type routed to a container profile can only run on a provider whose container execution DartClaw mediates – `claude` and `codex`. An ACP provider runs on the host only: set `tasks.execution.<task-type>: host` for the task types it serves, or the task is refused before it starts rather than quietly running unisolated.
 
 ## Coding Tasks and Worktrees
 
@@ -170,8 +172,12 @@ Coding tasks typically attach a structured diff artifact for review. If the fina
 Recurring tasks are scheduled using `type: task` jobs under `scheduling.jobs`. This is the unified model — both prompt-based jobs and task-based jobs live in the same `scheduling.jobs` list.
 
 ```yaml
+providers:
+  claude:
+    executable: claude
+    pool_size: 3
+
 tasks:
-  max_concurrent: 3
   worktree:
     base_ref: main
     stale_timeout_hours: 24
@@ -210,14 +216,14 @@ See [Scheduling](scheduling.md) for the broader scheduler model.
 ## Goals and Observability
 
 - Tasks can be grouped under goals for planning and reporting
-- `/tasks` shows review counts and runner utilization
+- `/tasks` shows review counts and lease-derived worker utilization
 - task detail pages expose recent session messages plus artifacts for operator review
 
 ## Configuration Summary
 
 These task-specific runtime keys come from `DartclawConfig`:
 
-- `tasks.max_concurrent`
+- `providers.<id>.pool_size`
 - `tasks.worktree.base_ref`
 - `tasks.worktree.stale_timeout_hours`
 - `tasks.worktree.merge_strategy`

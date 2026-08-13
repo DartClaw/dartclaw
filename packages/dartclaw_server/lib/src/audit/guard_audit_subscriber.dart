@@ -9,7 +9,7 @@ class GuardAuditSubscriber {
   StreamSubscription<GuardBlockEvent>? _subscription;
   StreamSubscription<ToolPermissionDeniedEvent>? _permissionDeniedSubscription;
 
-  GuardAuditSubscriber(this._logger);
+  new(this._logger);
 
   /// Start listening on the given [EventBus].
   void subscribe(EventBus bus) {
@@ -25,6 +25,8 @@ class GuardAuditSubscriber {
         hookPoint: event.hookPoint,
         timestamp: event.timestamp,
         rawProviderToolName: event.rawProviderToolName,
+        tool: event.toolName,
+        agentId: event.agentId,
         sessionId: event.sessionId,
         channel: event.channel,
         peerId: event.peerId,

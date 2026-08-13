@@ -16,7 +16,7 @@ class _FakeBackend implements ServiceBackend {
   final List<String> calls = [];
   String? lastConfigPath;
 
-  _FakeBackend({
+  new({
     ServiceStatus status = ServiceStatus.notInstalled,
     ServiceResult installResult = const ServiceResult(success: true, message: 'installed'),
     ServiceResult uninstallResult = const ServiceResult(success: true, message: 'uninstalled'),

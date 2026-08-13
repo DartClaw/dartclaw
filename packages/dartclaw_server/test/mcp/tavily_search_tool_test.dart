@@ -15,7 +15,7 @@ class _MockProvider implements SearchProvider {
   bool shouldThrow;
   String errorMessage;
 
-  _MockProvider({this.results = const [], this.shouldThrow = false, this.errorMessage = 'provider error'});
+  new({this.results = const [], this.shouldThrow = false, this.errorMessage = 'provider error'});
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {

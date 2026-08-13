@@ -1,10 +1,10 @@
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:test/test.dart';
 
 /// Wraps [FakeTurnManager] so timeout cancellation can iterate a stable snapshot.
 class _RestartFakeTurnManager extends FakeTurnManager {
-  _RestartFakeTurnManager({super.activeSessionIds, super.waitDelay});
+  new({super.activeSessionIds, super.waitDelay});
 
   @override
   Iterable<String> get activeSessionIds => List<String>.of(super.activeSessionIds);

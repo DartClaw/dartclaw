@@ -7,10 +7,12 @@ final _recognizedClaudeModels = RegExp(
 );
 final _mcpServersHeaderPattern = RegExp(r'''^(?:"mcp_servers"|'mcp_servers'|mcp_servers)\s*:\s*(.*)$''');
 final _yamlBlockScalarHeaderValuePattern = RegExp(r'^[|>](?:[+-]?\d*|\d+[+-]?)$');
+const _invalidYamlRoot = FormatException('YAML configuration root must be a map — refusing to start with defaults');
 const _recognizedCodexModels = <String>{
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.4-nano',
+  'gpt-5.6-luna',
   'gpt-5',
   'gpt-5-mini',
   'gpt-5-nano',
@@ -68,9 +70,9 @@ const _knownKeys = {
   'projects',
   'advisor',
   'alerts',
-  'delegation',
   'security',
   'andthen',
+  'delegation',
 };
 
 String? _defaultFileReader(String path) {
@@ -137,14 +139,14 @@ Map<String, dynamic> _loadYaml(
   try {
     doc = loadYaml(content);
   } on YamlException catch (e) {
-    warns.add('YAML parse error — using defaults: $e');
-    return {};
+    // A malformed document must fail startup: silently falling back to
+    // defaults would boot a container-enabled deployment fully unisolated.
+    throw FormatException('YAML parse error in configuration — refusing to start with defaults: $e');
   }
 
   if (doc == null) return {};
   if (doc is! YamlMap && doc is! Map) {
-    warns.add('YAML root is not a map — using defaults');
-    return {};
+    throw _invalidYamlRoot;
   }
 
   final map = doc as Map;
@@ -496,13 +498,20 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
   int? maxTurns = defaults.maxTurns;
   String? model = defaults.model;
   String? effort = defaults.effort;
+  ExecutionMode? execution = defaults.execution;
 
   final agentMap = _sectionMap('agent', yaml, warns);
   if (agentMap != null) {
+    execution = AgentDefinition.parseExecutionMode(agentMap['execution'], 'agent.execution') ?? execution;
     disallowedTools =
         readStringList('disallowed_tools', agentMap, warns, defaultValue: disallowedTools) ?? disallowedTools;
     final providerVal = readString('provider', agentMap, warns);
-    if (providerVal != null) provider = providerVal;
+    if (providerVal != null) {
+      if (providerVal.trim().isEmpty) {
+        throw const FormatException('agent.provider must not be empty.');
+      }
+      provider = ProviderIdentity.normalize(providerVal);
+    }
     maxTurns = readInt('max_turns', agentMap, warns, defaultValue: maxTurns);
     final modelVal = readString('model', agentMap, warns);
     if (modelVal != null) {
@@ -511,10 +520,10 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
         model = shorthand.model;
         if (providerVal == null) {
           provider = shorthand.provider;
-        } else if (ProviderIdentity.normalize(provider) != shorthand.provider) {
+        } else if (provider != shorthand.provider) {
           warns.add(
             'agent.model shorthand provider "${shorthand.provider}" conflicts with agent.provider '
-            '"${ProviderIdentity.normalize(provider)}" — using agent.provider',
+            '"$provider" — using agent.provider',
           );
         }
       } else {
@@ -577,6 +586,7 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
     model: model,
     effort: effort,
     maxTurns: maxTurns,
+    execution: execution,
     disallowedTools: disallowedTools,
     definitions: definitions,
     history: historyConfig,
@@ -1063,10 +1073,13 @@ MemoryConfig _parseMemory(
   var pruningEnabled = defaults.pruningEnabled;
   var archiveAfterDays = defaults.archiveAfterDays;
   var pruningSchedule = defaults.pruningSchedule;
+  var journalEnabled = defaults.journalEnabled;
+  var journalSchedule = defaults.journalSchedule;
 
   final memoryMap = _sectionMap('memory', yaml, warns);
   final nestedMaxBytes = memoryMap?['max_bytes'];
   final pruningRaw = memoryMap?['pruning'];
+  final journalRaw = memoryMap?['journal'];
 
   final legacyTopLevelMaxBytes = yaml['memory_max_bytes'];
   if (legacyTopLevelMaxBytes != null && nestedMaxBytes == null) {
@@ -1074,9 +1087,14 @@ MemoryConfig _parseMemory(
   }
 
   if (nestedMaxBytes != null) {
-    maxBytes = _parseInt('memory.max_bytes', cli['memory_max_bytes'], nestedMaxBytes, defaults.maxBytes, warns);
+    maxBytes = _parsePositiveInt('memory.max_bytes', cli['memory_max_bytes'], nestedMaxBytes, defaults.maxBytes);
   } else {
-    maxBytes = _parseInt('memory_max_bytes', cli['memory_max_bytes'], legacyTopLevelMaxBytes, defaults.maxBytes, warns);
+    maxBytes = _parsePositiveInt(
+      'memory.max_bytes',
+      cli['memory_max_bytes'],
+      legacyTopLevelMaxBytes,
+      defaults.maxBytes,
+    );
   }
 
   final pruningMap = pruningRaw is Map ? pruningRaw : null;
@@ -1087,12 +1105,11 @@ MemoryConfig _parseMemory(
     pruningEnabled,
     warns,
   );
-  archiveAfterDays = _parseInt(
+  archiveAfterDays = _parsePositiveInt(
     'memory.pruning.archive_after_days',
     cli['memory_pruning_archive_after_days'],
     pruningMap?['archive_after_days'],
     defaults.archiveAfterDays,
-    warns,
   );
   if (cli['memory_pruning_schedule'] case final cliSchedule?) {
     pruningSchedule = cliSchedule;
@@ -1100,11 +1117,35 @@ MemoryConfig _parseMemory(
     pruningSchedule = pruningMap!['schedule'] as String;
   }
 
+  final journalMap = journalRaw is Map ? journalRaw : null;
+  if (memoryMap?.containsKey('journal') ?? false) {
+    if (journalMap == null) {
+      throw const FormatException('memory.journal must be a map.');
+    }
+    if (journalMap.containsKey('schedule') && journalMap['schedule'] is! String) {
+      throw const FormatException('memory.journal.schedule must be a string.');
+    }
+  }
+  journalEnabled = _parseBool(
+    'memory.journal.enabled',
+    cli['memory_journal_enabled'],
+    journalMap?['enabled'],
+    journalEnabled,
+    warns,
+  );
+  if (cli['memory_journal_schedule'] case final cliSchedule?) {
+    journalSchedule = cliSchedule;
+  } else if (journalMap?['schedule'] is String) {
+    journalSchedule = journalMap!['schedule'] as String;
+  }
+
   return MemoryConfig(
     maxBytes: maxBytes,
     pruningEnabled: pruningEnabled,
     archiveAfterDays: archiveAfterDays,
     pruningSchedule: pruningSchedule,
+    journalEnabled: journalEnabled,
+    journalSchedule: journalSchedule,
   );
 }
 
@@ -1182,7 +1223,6 @@ ChannelConfig _parseChannels(Map<String, dynamic> yaml, List<String> warns) {
 }
 
 TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<String> warns) {
-  var maxConcurrent = defaults.maxConcurrent;
   var artifactRetentionDays = defaults.artifactRetentionDays;
   var completionAction = defaults.completionAction;
   var worktreeBaseRef = defaults.worktreeBaseRef;
@@ -1191,9 +1231,6 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
 
   final tasksMap = _sectionMap('tasks', yaml, warns);
   if (tasksMap != null) {
-    maxConcurrent =
-        (readInt('max_concurrent', tasksMap, warns, defaultValue: defaults.maxConcurrent) ?? defaults.maxConcurrent)
-            .clamp(1, 10);
     artifactRetentionDays =
         (readInt('artifact_retention_days', tasksMap, warns, defaultValue: defaults.artifactRetentionDays) ??
                 defaults.artifactRetentionDays)
@@ -1259,14 +1296,81 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
   }
 
   return TaskConfig(
-    maxConcurrent: maxConcurrent,
     artifactRetentionDays: artifactRetentionDays,
     completionAction: completionAction,
     worktreeBaseRef: worktreeBaseRef,
     worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
     worktreeMergeStrategy: worktreeMergeStrategy,
     budget: budget,
+    execution: _parseTaskExecution(tasksMap, defaults.execution),
   );
+}
+
+/// Rejects explicit `container` execution selections that no enabled container
+/// runtime can satisfy.
+///
+/// Cross-section, so it runs after every section is parsed. Startup-fatal: PRD
+/// FR1 forbids substituting host execution for an unsatisfiable container
+/// request.
+void _validateExecutionPolicySelections(DartclawConfig config) {
+  if (config.container.enabled) return;
+  const remediation =
+      'Set container.enabled: true or select execution: host. '
+      'Container execution is never silently replaced by host execution.';
+  void reject(String yamlPath) {
+    throw FormatException(
+      '$yamlPath: container requires container.enabled: true, but containers are disabled. '
+      '$remediation',
+    );
+  }
+
+  if (config.agent.execution == ExecutionMode.container) reject('agent.execution');
+  for (final definition in config.agent.definitions) {
+    if (definition.execution == ExecutionMode.container) reject('agent.agents.${definition.id}.execution');
+  }
+  for (final entry in config.tasks.execution.entries) {
+    if (entry.value == ExecutionMode.container) reject('tasks.execution.${entry.key.name}');
+  }
+}
+
+/// Parses `tasks.execution.<task-type>` into typed execution-mode fallbacks.
+///
+/// A malformed section, unknown task-type keys, and unknown modes are all
+/// startup-fatal: an operator typo must not silently leave a task type on the
+/// deployment default.
+Map<TaskType, ExecutionMode> _parseTaskExecution(
+  Map<String, dynamic>? tasksMap,
+  Map<TaskType, ExecutionMode> defaults,
+) {
+  if (tasksMap == null) return defaults;
+  final rawExecution = tasksMap['execution'];
+  if (rawExecution == null) return defaults;
+  if (rawExecution is! Map) {
+    throw FormatException(
+      'tasks.execution must be a map of task type to execution mode, not "${rawExecution.runtimeType}". '
+      'Accepted task types: ${TaskType.values.map((type) => type.name).join(', ')}.',
+    );
+  }
+  final executionMap = Map<String, dynamic>.from(rawExecution);
+  final knownTypes = TaskType.values.asNameMap();
+  final resolved = <TaskType, ExecutionMode>{};
+  for (final entry in executionMap.entries) {
+    final taskType = knownTypes[entry.key];
+    if (taskType == null) {
+      throw FormatException(
+        'tasks.execution.${entry.key} is not a known task type. '
+        'Accepted task types: ${TaskType.values.map((type) => type.name).join(', ')}.',
+      );
+    }
+    if (entry.value == null) {
+      throw FormatException(
+        'tasks.execution.${entry.key} has no value. '
+        'Accepted values: ${ExecutionMode.acceptedYamlValues.join(', ')}.',
+      );
+    }
+    resolved[taskType] = AgentDefinition.parseExecutionMode(entry.value, 'tasks.execution.${entry.key}')!;
+  }
+  return resolved.isEmpty ? defaults : Map.unmodifiable(resolved);
 }
 
 FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
@@ -1277,77 +1381,27 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
   return const FeaturesConfig();
 }
 
-DelegationConfig _parseDelegation(Map<String, dynamic> yaml, DelegationConfig defaults, List<String> warns) {
-  final map = _sectionMap('delegation', yaml, warns);
-  if (map == null) return defaults;
-
-  final agents = <DelegationAgentConfig>[];
-  final seenAgentIds = <String>{};
-  final duplicateAgentIds = <String>{};
-  final rawAgents = map['agents'];
-  if (rawAgents is List) {
-    for (var i = 0; i < rawAgents.length; i++) {
-      final value = rawAgents[i];
-      if (value is! Map) {
-        warns.add('Invalid type for delegation.agents[$i]: "${value.runtimeType}" — skipping');
-        continue;
-      }
-      final agentMap = Map<String, dynamic>.from(value);
-      final id = readString('id', agentMap, warns)?.trim();
-      if (id == null || id.isEmpty) {
-        warns.add('delegation.agents[$i] missing "id" — skipping');
-        continue;
-      }
-      if (duplicateAgentIds.contains(id) || !seenAgentIds.add(id)) {
-        agents.removeWhere((agent) => agent.id == id);
-        duplicateAgentIds.add(id);
-        warns.add('Duplicate delegation.agents id "$id" — skipping all entries for that id');
-        continue;
-      }
-      agents.add(
-        DelegationAgentConfig(
-          id: id,
-          requireGuardMediation: readBool('require_guard_mediation', agentMap, warns, defaultValue: false) ?? false,
-          postRunAccountingOnly: readBool('post_run_accounting_only', agentMap, warns, defaultValue: false) ?? false,
-        ),
-      );
-    }
-  } else if (rawAgents != null) {
-    warns.add('Invalid type for delegation.agents: "${rawAgents.runtimeType}" — using empty allowlist');
-  }
-
-  final maxBudgetTokens = readInt('max_budget_tokens', map, warns, defaultValue: defaults.maxBudgetTokens);
-  final rateLimitMap = readMap('rate_limit', map, warns);
-  final maxPerMinute = rateLimitMap == null
-      ? defaults.rateLimit.maxPerMinute
-      : readInt('max_per_minute', rateLimitMap, warns, defaultValue: defaults.rateLimit.maxPerMinute);
-
-  return DelegationConfig(
-    enabled: readBool('enabled', map, warns, defaultValue: defaults.enabled) ?? defaults.enabled,
-    agents: List<DelegationAgentConfig>.unmodifiable(agents),
-    maxBudgetTokens: (maxBudgetTokens == null || maxBudgetTokens < 0) ? defaults.maxBudgetTokens : maxBudgetTokens,
-    budgetAccounting: _parseDelegationBudgetAccounting(readString('budget_accounting', map, warns), warns),
-    rateLimit: DelegationRateLimitConfig(maxPerMinute: (maxPerMinute == null || maxPerMinute < 0) ? 0 : maxPerMinute),
-  );
-}
-
-DelegationBudgetAccounting _parseDelegationBudgetAccounting(String? raw, List<String> warns) {
-  final normalized = raw?.trim().toLowerCase();
-  return switch (normalized) {
-    null || '' || 'provider_reported' => DelegationBudgetAccounting.providerReported,
-    'estimate_if_unreported' => DelegationBudgetAccounting.estimateIfUnreported,
-    _ => () {
-      warns.add('Invalid delegation.budget_accounting: "$raw" — using provider_reported');
-      return DelegationBudgetAccounting.providerReported;
-    }(),
-  };
-}
-
 void _warnRetiredAndthenConfig(Map<String, dynamic> yaml, List<String> warns) {
   final atMap = _sectionMap('andthen', yaml, warns);
   if (atMap == null) return;
 
   for (final key in atMap.keys) {
     addConfigAdvisory(warns, 'Ignoring retired andthen.$key config; DartClaw no longer provisions AndThen skills.');
+  }
+}
+
+void _warnRemovedAgentOrchestrationConfig(Map<String, dynamic> yaml, List<String> warns) {
+  if (yaml.containsKey('delegation')) {
+    addConfigAdvisory(
+      warns,
+      'Ignoring removed delegation config; define logical agents under agent.agents and use sessions_spawn.',
+    );
+  }
+  final tasks = yaml['tasks'];
+  if (tasks is Map && tasks.containsKey('max_concurrent')) {
+    addConfigAdvisory(
+      warns,
+      'Ignoring removed tasks.max_concurrent; configure shared worker capacity with providers.<id>.pool_size.',
+    );
   }
 }

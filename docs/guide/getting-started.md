@@ -8,9 +8,9 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 |-----------|---------|---------|
 | Homebrew | Latest | DartClaw install path on macOS and Linux |
 | PowerShell | 5.1+ | Qualified Windows installer; Scoop requires a public Windows asset and bucket manifest |
-| Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
-| `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
-| `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
+| Dart SDK | ^3.13.0 | Build toolchain for source checkouts and development runs |
+| `claude` CLI | Stable channel | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
+| `codex` CLI | Current release | Agent binary — optional, for OpenAI models (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |
 | SQLite | Bundled | FTS5 search library shipped with release builds |
 
@@ -22,12 +22,12 @@ brew tap DartClaw/dartclaw
 brew install dartclaw
 dartclaw --version
 
-# Provider CLI — Claude (default provider)
-curl -fsSL https://claude.ai/install.sh | bash
+# Provider CLI — Claude (default provider; delayed stable channel recommended)
+curl -fsSL https://claude.ai/install.sh | bash -s stable
 claude --version
 
 # Provider CLI — Codex (optional, for OpenAI models)
-# See https://github.com/openai/codex for installation
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex --version
 
 # ACP agents — optional, install separately from DartClaw
@@ -36,6 +36,10 @@ vibe-acp --version
 ```
 
 Auth: for Claude, run `claude auth login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
+
+The provider-native installers give the simplest maintenance path. Package-manager installations are also supported,
+but must be updated through the same package manager that installed them. Claude's stable channel is typically about
+one week behind latest and skips releases with major regressions.
 
 ## Install DartClaw
 
@@ -130,10 +134,10 @@ Use `--launch foreground`, `--launch background`, or `--launch service` to start
 
 - `USER.md` with six stable sections: Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant.
 - `SOUL.md` with durable behavior-update and proactivity guidance.
-- `wiki/README.md` for curated synthesized knowledge pages, distinct from the chronological `MEMORY.md` stream.
-- `ONBOARDING.md`, a web-chat-only sentinel that guides first-run personalization.
+- `wiki/README.md` for curated sourced knowledge pages, distinct from canonical personal memory.
+- `ONBOARDING.md`, a human-conversation sentinel that guides first-run personalization in web chat and configured messaging channels.
 
-Existing installs can adopt the structure by running `dartclaw init --personalize`, then completing onboarding in web chat.
+Existing installs can adopt the structure by running `dartclaw init --personalize`, then completing onboarding in any configured human-facing chat.
 Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten. Review the drafts and apply
 them with `dartclaw init --apply-drafts`.
 

@@ -27,10 +27,31 @@ void main() {
     });
 
     test('maps WebFetch/web_fetch and mcp_* tools', () {
-      final adapter = ClaudeProtocolAdapter();
+      final adapter = ClaudeProtocolAdapter(
+        ownMcpToolCanonicals: const {
+          'web_fetch': CanonicalTool.webFetch,
+          'brave_search': CanonicalTool.webSearch,
+          'memory_apply': CanonicalTool.memoryApply,
+          'memory_observe': CanonicalTool.memoryObserve,
+          'memory_search': CanonicalTool.memorySearch,
+          'memory_read': CanonicalTool.memoryRead,
+          'sessions_spawn': CanonicalTool.sessionsSpawn,
+          'sessions_send': CanonicalTool.sessionsSend,
+        },
+      );
       expect(adapter.mapToolName('WebFetch'), CanonicalTool.webFetch);
       expect(adapter.mapToolName('web_fetch'), CanonicalTool.webFetch);
-      expect(adapter.mapToolName('mcp_tool_call'), CanonicalTool.mcpCall);
+      expect(adapter.mapToolName('WebSearch'), CanonicalTool.webSearch);
+      expect(adapter.mapToolName('mcp__dartclaw__web_fetch'), CanonicalTool.webFetch);
+      expect(adapter.mapToolName('mcp__dartclaw__brave_search'), CanonicalTool.webSearch);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_apply'), CanonicalTool.memoryApply);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_observe'), CanonicalTool.memoryObserve);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_search'), CanonicalTool.memorySearch);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_read'), CanonicalTool.memoryRead);
+      expect(adapter.mapToolName('mcp__dartclaw__sessions_spawn'), CanonicalTool.sessionsSpawn);
+      expect(adapter.mapToolName('mcp__dartclaw__sessions_send'), CanonicalTool.sessionsSend);
+      expect(adapter.mapToolName('mcp__dartclaw__unknown'), CanonicalTool.mcpCall);
+      expect(adapter.mapToolName('mcp__third_party__web_fetch'), CanonicalTool.mcpCall);
     });
 
     test('returns null for unknown, empty, and lowercase Bash', () {

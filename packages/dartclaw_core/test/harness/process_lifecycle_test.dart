@@ -282,46 +282,42 @@ void main() {
     });
   });
 
-  test(
-    'native Windows shutdown fails closed without an ownership-safe tree terminator',
-    () async {
-      final tempDirectory = await Directory.systemTemp.createTemp('dartclaw-process-lifecycle-');
-      final script = File('${tempDirectory.path}${Platform.pathSeparator}managed_child.dart');
-      await script.writeAsString(
-        "import 'dart:async';\n"
-        "import 'dart:io';\n"
-        'Future<void> main(List<String> args) async {\n'
-        "  if (args.contains('child')) {\n"
-        '    Timer.periodic(const Duration(days: 1), (_) {});\n'
-        '    return;\n'
-        '  }\n'
-        "  final child = await Process.start(Platform.resolvedExecutable, [Platform.script.toFilePath(), 'child']);\n"
-        '  stdout.writeln(child.pid);\n'
-        '  await stdout.flush();\n'
-        '  Timer.periodic(const Duration(days: 1), (_) {});\n'
-        '}\n',
-      );
-      final process = await Process.start(Platform.resolvedExecutable, [script.path]);
-      final childPid = int.parse(await process.stdout.transform(utf8.decoder).transform(const LineSplitter()).first);
+  test('native Windows shutdown fails closed without an ownership-safe tree terminator', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp('dartclaw-process-lifecycle-');
+    final script = File('${tempDirectory.path}${Platform.pathSeparator}managed_child.dart');
+    await script.writeAsString(
+      "import 'dart:async';\n"
+      "import 'dart:io';\n"
+      'Future<void> main(List<String> args) async {\n'
+      "  if (args.contains('child')) {\n"
+      '    Timer.periodic(const Duration(days: 1), (_) {});\n'
+      '    return;\n'
+      '  }\n'
+      "  final child = await Process.start(Platform.resolvedExecutable, [Platform.script.toFilePath(), 'child']);\n"
+      '  stdout.writeln(child.pid);\n'
+      '  await stdout.flush();\n'
+      '  Timer.periodic(const Duration(days: 1), (_) {});\n'
+      '}\n',
+    );
+    final process = await Process.start(Platform.resolvedExecutable, [script.path]);
+    final childPid = int.parse(await process.stdout.transform(utf8.decoder).transform(const LineSplitter()).first);
 
+    try {
+      final result = await killWithEscalation(process, label: 'native-Windows managed child');
+      expect(result.exitConfirmed, isTrue, reason: 'the managed root process must be reaped');
+      expect(result.hardTerminationUsed, isTrue);
+      expect(result.processTreeTerminationAccepted, isFalse);
+      expect(result.confirmsOwnershipRelease(), isTrue);
+      print('Native Windows process lifecycle: directly managed root PID ${process.pid} reaped.');
+    } finally {
+      process.kill();
+      Process.killPid(childPid);
       try {
-        final result = await killWithEscalation(process, label: 'native-Windows managed child');
-        expect(result.exitConfirmed, isTrue, reason: 'the managed root process must be reaped');
-        expect(result.hardTerminationUsed, isTrue);
-        expect(result.processTreeTerminationAccepted, isFalse);
-        expect(result.confirmsOwnershipRelease(), isTrue);
-        print('Native Windows process lifecycle: directly managed root PID ${process.pid} reaped.');
-      } finally {
-        process.kill();
-        Process.killPid(childPid);
-        try {
-          await process.exitCode.timeout(const Duration(seconds: 2));
-        } on TimeoutException {
-          // The test assertion reports the unreaped process; cleanup stays bounded.
-        }
-        await tempDirectory.delete(recursive: true);
+        await process.exitCode.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        // The test assertion reports the unreaped process; cleanup stays bounded.
       }
-    },
-    skip: PlatformCapabilities().posixSignalsAvailable ? 'Native Windows lifecycle evidence' : false,
-  );
+      await tempDirectory.delete(recursive: true);
+    }
+  }, skip: PlatformCapabilities().posixSignalsAvailable ? 'Native Windows lifecycle evidence' : false);
 }

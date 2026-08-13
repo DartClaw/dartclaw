@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import '../connected_command_support.dart';
 
 class TasksReviewCommand extends ConnectedCommand {
-  TasksReviewCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('action', help: 'Review action: accept, reject, or push_back')
       ..addOption('comment', help: 'Required when --action push_back')

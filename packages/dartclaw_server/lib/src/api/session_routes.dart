@@ -93,10 +93,16 @@ Router sessionRoutes(
           ? await parseOptionalBodyField(request, 'provider')
           : (value: queryProvider, error: null);
       if (parsed.error != null) return parsed.error!;
-      final providerValidation = _validateSessionProvider(parsed.value, turns.pool);
-      if (providerValidation != null) return providerValidation;
+      if (parsed.value != null) {
+        return errorResponse(
+          400,
+          'PROVIDER_OVERRIDE_UNSUPPORTED',
+          'Interactive sessions use the configured primary provider',
+          {'field': 'provider'},
+        );
+      }
 
-      final session = await sessions.createSession(provider: parsed.value);
+      final session = await sessions.createSession();
       return jsonResponse(201, session.toJson());
     } catch (e) {
       _log.warning('Failed to create session: $e', e);
@@ -126,7 +132,7 @@ Router sessionRoutes(
       if (titleValidation != null) return titleValidation;
 
       final trimmed = title!.trim();
-      return sessionMutations.run(id, () async {
+      return await sessionMutations.run(id, () async {
         final session = await sessions.getSession(id);
         if (session == null) {
           return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
@@ -221,16 +227,3 @@ bool _isReusableNewChatMetadata(Session session) =>
     session.channelKey == null &&
     !(session.provider?.trim().isNotEmpty ?? false) &&
     (session.title == null || session.title!.trim().isEmpty);
-
-Response? _validateSessionProvider(String? provider, HarnessPool pool) {
-  if (provider == null) {
-    return null;
-  }
-  if (pool.hasTaskRunnerForProvider(provider)) {
-    return null;
-  }
-  return errorResponse(400, 'PROVIDER_UNAVAILABLE', 'Provider "$provider" is not available for session overrides', {
-    'field': 'provider',
-    'provider': provider,
-  });
-}

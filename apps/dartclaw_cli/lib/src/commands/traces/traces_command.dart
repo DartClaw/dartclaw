@@ -4,7 +4,7 @@ import 'traces_list_command.dart';
 import 'traces_show_command.dart';
 
 class TracesCommand extends Command<void> {
-  TracesCommand() {
+  new() {
     addSubcommand(TracesListCommand());
     addSubcommand(TracesShowCommand());
   }

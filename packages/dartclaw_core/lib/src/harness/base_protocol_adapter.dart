@@ -7,7 +7,7 @@ import 'protocol_adapter.dart';
 
 /// Shared helpers for provider protocol adapters.
 abstract class BaseProtocolAdapter implements ProtocolAdapter {
-  const BaseProtocolAdapter();
+  const new();
 }
 
 Map<String, dynamic>? mapValue(Object? value) {
@@ -89,6 +89,9 @@ CanonicalTool? codexMapToolName(String providerToolName, {String? kind}) {
     _ => null,
   };
 }
+
+/// Extracts the kind from legacy string and current tagged-object file changes.
+String? codexFileChangeKind(Object? value) => stringValue(value) ?? stringValue(mapValue(value)?['type']);
 
 /// Returns a compact tool-call summary from an error object.
 String? codexErrorSummary(Object? error) {

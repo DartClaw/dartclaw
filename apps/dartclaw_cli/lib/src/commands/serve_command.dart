@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
@@ -43,7 +43,7 @@ class ServeCommand extends Command<void> {
   @override
   String get description => 'Start the DartClaw HTTP server';
 
-  ServeCommand({
+  new({
     DartclawConfig? config,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
@@ -158,7 +158,7 @@ class ServeCommand extends Command<void> {
     if (explicitConfigPath == null && explicitEnvConfig == null) {
       final expandedDataDir = expandHome(config.server.dataDir);
       final configDir = p.dirname(resolvedConfigPath);
-      if (p.equals(expandedDataDir, configDir) == false) {
+      if (!p.equals(expandedDataDir, configDir)) {
         _stderrLine(
           'WARNING: Your config is at $resolvedConfigPath but data_dir points to $expandedDataDir. '
           'In the unified instance-directory model (0.16.2+), both should be in the same directory. '
@@ -299,9 +299,11 @@ class ServeCommand extends Command<void> {
           'using this port? Try: lsof -ti :$port | xargs kill ($e)',
         );
         try {
+          await result.prepareExecutionShutdown?.call();
+          await result.server.shutdown();
           await disposeExtrasBestEffort(result, context: 'bind failure');
         } finally {
-          await ServiceWiring.teardown(result.server, result.searchDb, result.harness, null);
+          await ServiceWiring.teardown(null, result.searchDb, null, null);
         }
         _exitFn(1);
       }
@@ -354,10 +356,12 @@ class ServeCommand extends Command<void> {
           await Future(() async {
             reloadTrigger?.dispose();
             result.heartbeat?.stop();
-            await Future.wait([httpServer.close(), result.server.shutdown()]);
+            await httpServer.close();
             result.scheduleService?.stop();
             result.resetService.dispose();
             try {
+              await result.prepareExecutionShutdown?.call();
+              await result.server.shutdown();
               await disposeExtrasBestEffort(result, context: 'shutdown');
               _stderrLine('Shutdown complete');
             } finally {

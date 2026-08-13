@@ -27,7 +27,7 @@ void main() {
                 provider: 'codex',
                 prompt: 'Test',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepTimeout: const Duration(seconds: 1),
               )
               .then<void>(
@@ -105,7 +105,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
 
@@ -131,7 +131,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(process.killCalled, isTrue);
@@ -155,12 +155,13 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot codex command failed'))
-              .having((error) => error.toString(), 'stdout', contains('auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('event=error'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
       expect(process.killCalled, isTrue);
@@ -181,7 +182,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(isA<StateError>().having((error) => '$error', 'message', contains('stdin close failed'))),
       );
@@ -205,7 +206,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(jsonEncode({'type': 'error', 'message': 'auth failed'}));
@@ -218,7 +219,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot codex command failed'))
-              .having((error) => error.toString(), 'stdout', contains('auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('event=error'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
     });
@@ -237,7 +239,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Error: codex sandbox denied filesystem access');
@@ -250,7 +252,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot codex command failed'))
-              .having((error) => error.toString(), 'stderr', contains('sandbox denied')),
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'provider stderr', isNot(contains('sandbox denied'))),
         ),
       );
     });
@@ -269,7 +272,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Reading additional input from stdin...');
@@ -295,7 +298,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('fatal: Reading additional input from stdin... failed');
@@ -305,7 +308,11 @@ void main() {
 
       await expectLater(
         turn,
-        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('fatal:'))),
+        throwsA(
+          isA<StateError>()
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'provider stderr', isNot(contains('fatal:'))),
+        ),
       );
     });
 
@@ -323,7 +330,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(jsonEncode({'type': 'thread.started', 'thread_id': 'codex-after-terminal'}));
@@ -366,7 +373,7 @@ void main() {
             provider: 'codex',
             prompt: 'Test',
             workingDirectory: Directory.systemTemp.path,
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
           );
           await pumpEventQueue();
           process.emitStdout(jsonEncode({'type': 'thread.started', 'thread_id': 'codex-optional-usage'}));
@@ -412,7 +419,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
         providerSessionId: 'codex-resumed',
         usageBaseline: const WorkflowCliUsageBaseline(
@@ -457,14 +464,14 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
       );
       final second = await runner.executeTurn(
         provider: 'codex',
         prompt: 'Test again',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
         providerSessionId: first.providerSessionId,
       );
@@ -506,14 +513,14 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
       );
       final second = await runner.executeTurn(
         provider: 'codex',
         prompt: 'Test again',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sessionId: 'session-1',
         providerSessionId: 'codex-thread-a',
       );
@@ -552,7 +559,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           sessionId: sessionId,
           providerSessionId: providerSessionId,
         );
@@ -588,13 +595,14 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>().having(
             (error) => error.toString(),
             'message',
-            'Bad state: Workflow one-shot codex command failed with exit code 17: codex crashed',
+            'Bad state: Workflow one-shot codex command failed with exit code 17: '
+                'provider stderr reported failure details',
           ),
         ),
       );
@@ -614,7 +622,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.exit(17);
@@ -656,7 +664,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sandboxOverride: 'read-only',
       );
 
@@ -701,7 +709,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         jsonSchema: const {
           'type': 'object',
           'properties': {
@@ -734,7 +742,7 @@ void main() {
           provider: 'codex',
           prompt: 'Test',
           workingDirectory: workingDirectory.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           jsonSchema: const {'type': 'object'},
         ),
         throwsA(isA<StateError>()),
@@ -764,7 +772,7 @@ void main() {
         provider: 'codex',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: const ['shell', 'file_read'],
         readOnly: true,
       );
@@ -797,7 +805,7 @@ void main() {
 }
 
 final class _TestProcessOwner extends ProcessBackedCliProvider {
-  _TestProcessOwner({super.platformCapabilities, super.terminationGracePeriod});
+  new({super.platformCapabilities, super.terminationGracePeriod});
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest request) => throw UnimplementedError();
@@ -809,7 +817,7 @@ Future<Process> _codexProcess(String payload) {
 }
 
 class _CloseFailsAfterKillProcess extends FakeProcess {
-  _CloseFailsAfterKillProcess({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
+  new({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
 
   final String? stdoutOnKill;
 
@@ -829,7 +837,7 @@ class _CloseFailsAfterKillProcess extends FakeProcess {
 }
 
 class _CloseFailsBeforeKillProcess extends FakeProcess {
-  _CloseFailsBeforeKillProcess() : super(completeExitOnKill: true, killExitCode: 143);
+  new() : super(completeExitOnKill: true, killExitCode: 143);
 
   final IOSink _stdin = _CloseFailsBeforeKillSink();
 
@@ -848,7 +856,7 @@ class _CloseFailsBeforeKillSink extends NullIoSink {
 }
 
 class _CloseFailsAfterKillSink extends NullIoSink {
-  _CloseFailsAfterKillSink(this._killed);
+  new(this._killed);
 
   final bool Function() _killed;
 

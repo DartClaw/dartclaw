@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'base_protocol_adapter.dart' show codexErrorSummary, codexPrimaryFileChange, intValue, mapValue, stringValue;
+import 'base_protocol_adapter.dart'
+    show codexErrorSummary, codexFileChangeKind, codexPrimaryFileChange, intValue, mapValue, stringValue;
 import 'canonical_tool.dart';
 import 'protocol_message.dart';
 
@@ -15,6 +16,7 @@ export 'base_protocol_adapter.dart'
         stringValue,
         warnOnUnmappedToolName,
         codexErrorSummary,
+        codexFileChangeKind,
         codexMapToolName,
         codexPrimaryFileChange,
         codexUnknownItemInput;
@@ -38,7 +40,7 @@ ToolUse codexBuildFileChangeToolUse(
   String fallbackName = 'codex:file_change',
 }) {
   final change = preferPrimaryChange ? codexPrimaryFileChange(item) : null;
-  final kind = stringValue(change?['kind']) ?? stringValue(item['kind']);
+  final kind = codexFileChangeKind(change?['kind']) ?? codexFileChangeKind(item['kind']);
   final path = stringValue(change?['path']) ?? stringValue(item['path']) ?? '';
   final tool = mapToolName('file_change', kind: kind);
 
@@ -76,8 +78,12 @@ TextDelta? codexBuildAgentMessageDelta(Map<String, dynamic> item, {bool allowDel
 ToolResult codexBuildCommandExecutionToolResult(Map<String, dynamic> item) {
   return ToolResult(
     toolId: stringValue(item['id']) ?? '',
-    output: stringValue(item['aggregated_output']) ?? codexErrorSummary(item['error']) ?? '',
-    isError: (intValue(item['exit_code']) ?? 0) != 0,
+    output:
+        stringValue(item['aggregatedOutput']) ??
+        stringValue(item['aggregated_output']) ??
+        codexErrorSummary(item['error']) ??
+        '',
+    isError: (intValue(item['exitCode']) ?? intValue(item['exit_code']) ?? 0) != 0,
   );
 }
 

@@ -22,12 +22,7 @@ class MaintenanceAction {
   /// True if the action was applied (enforce mode), false if only planned (warn mode).
   final bool applied;
 
-  const MaintenanceAction({
-    required this.sessionId,
-    required this.actionType,
-    required this.reason,
-    required this.applied,
-  });
+  const new({required this.sessionId, required this.actionType, required this.reason, required this.applied});
 }
 
 /// Summary of a maintenance run.
@@ -43,7 +38,7 @@ class MaintenanceReport {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  const MaintenanceReport({
+  const new({
     required this.mode,
     this.sessionsArchived = 0,
     this.sessionsDeleted = 0,
@@ -57,7 +52,7 @@ class MaintenanceReport {
   });
 
   /// Empty report for a given mode.
-  MaintenanceReport.empty(this.mode)
+  new empty(this.mode)
     : sessionsArchived = 0,
       sessionsDeleted = 0,
       diskReclaimedBytes = 0,
@@ -72,23 +67,25 @@ class MaintenanceReport {
 /// Executes the session maintenance pipeline.
 ///
 /// Pipeline order: prune stale -> count cap -> cron retention -> disk budget ->
-/// artifact retention. Protected sessions (main, active channel, active cron)
-/// are never pruned.
+/// artifact retention. Protected sessions (main, active turn, active channel,
+/// active cron) are never pruned.
 class SessionMaintenanceService {
   final SessionService sessions;
   final SessionMaintenanceConfig config;
   final Set<String> activeChannelKeys;
   final Set<String> activeJobIds;
+  final bool Function(String sessionId)? isSessionActive;
   final String sessionsDir;
   final TaskService? taskService;
   final int artifactRetentionDays;
   final String? dataDir;
 
-  SessionMaintenanceService({
+  new({
     required this.sessions,
     required this.config,
     required this.activeChannelKeys,
     required this.activeJobIds,
+    this.isSessionActive,
     required this.sessionsDir,
     this.taskService,
     this.artifactRetentionDays = 0,
@@ -143,7 +140,7 @@ class SessionMaintenanceService {
     actions.addAll(artifactResult.actions);
 
     // Final counts
-    final allSessions = await sessions.listSessions();
+    final allSessions = await sessions.listSessions(types: SessionType.values);
     final totalDisk = _calculateDiskUsage(sessionsDir);
 
     return MaintenanceReport(
@@ -161,6 +158,7 @@ class SessionMaintenanceService {
   }
 
   bool _isProtected(Session s) {
+    if (isSessionActive?.call(s.id) ?? false) return true;
     if (s.type == SessionType.main) return true;
     if (s.type == SessionType.channel) {
       return s.channelKey != null && activeChannelKeys.contains(s.channelKey);
@@ -190,7 +188,7 @@ class SessionMaintenanceService {
     if (config.pruneAfterDays == 0) return _StageResult.empty();
 
     final cutoff = DateTime.now().subtract(Duration(days: config.pruneAfterDays));
-    final allSessions = await sessions.listSessions();
+    final allSessions = await sessions.listSessions(types: SessionType.values);
     final actions = <MaintenanceAction>[];
     final warnings = <String>[];
     var archived = 0;
@@ -220,7 +218,7 @@ class SessionMaintenanceService {
   Future<_StageResult> _enforceCountCap(bool isEnforce) async {
     if (config.maxSessions == 0) return _StageResult.empty();
 
-    final allSessions = await sessions.listSessions();
+    final allSessions = await sessions.listSessions(types: SessionType.values);
     final activeSessions = allSessions.where((s) => s.type != SessionType.archive && !_isProtected(s)).toList();
 
     if (activeSessions.length <= config.maxSessions) return _StageResult.empty();
@@ -306,6 +304,7 @@ class SessionMaintenanceService {
 
     for (final s in archivedSessions) {
       if (currentUsage <= threshold) break;
+      if (_isProtected(s)) continue;
 
       final sessionDir = Directory(p.join(sessionsDir, s.id));
       final sessionSize = _calculateDiskUsage(sessionDir.path);
@@ -421,9 +420,9 @@ class _StageResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  _StageResult({this.archived = 0, this.deleted = 0, this.warnings = const [], this.actions = const []});
+  new({this.archived = 0, this.deleted = 0, this.warnings = const [], this.actions = const []});
 
-  factory _StageResult.empty() => _StageResult();
+  factory empty() => _StageResult();
 }
 
 class _DiskResult {
@@ -432,9 +431,9 @@ class _DiskResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  _DiskResult({this.deleted = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
+  new({this.deleted = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
 
-  factory _DiskResult.empty() => _DiskResult();
+  factory empty() => _DiskResult();
 }
 
 class _ArtifactResult {
@@ -443,12 +442,7 @@ class _ArtifactResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  const _ArtifactResult({
-    this.deletedArtifacts = 0,
-    this.reclaimedBytes = 0,
-    this.warnings = const [],
-    this.actions = const [],
-  });
+  const new({this.deletedArtifacts = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
 
-  factory _ArtifactResult.empty() => const _ArtifactResult();
+  factory empty() => const _ArtifactResult();
 }

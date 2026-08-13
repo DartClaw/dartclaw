@@ -22,7 +22,7 @@ class TurnTraceSummary {
   final int traceCount;
 
   /// Creates a [TurnTraceSummary] value.
-  const TurnTraceSummary({
+  const new({
     this.totalInputTokens = 0,
     this.totalOutputTokens = 0,
     this.totalCacheReadTokens = 0,
@@ -48,7 +48,7 @@ class TurnTraceSummary {
   };
 
   /// Reconstructs a [TurnTraceSummary] from its JSON representation.
-  factory TurnTraceSummary.fromJson(Map<String, dynamic> json) => TurnTraceSummary(
+  factory fromJson(Map<String, dynamic> json) => TurnTraceSummary(
     totalInputTokens: json['totalInputTokens'] as int? ?? 0,
     totalOutputTokens: json['totalOutputTokens'] as int? ?? 0,
     totalCacheReadTokens: json['totalCacheReadTokens'] as int? ?? 0,

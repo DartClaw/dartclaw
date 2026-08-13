@@ -25,7 +25,7 @@ class ConfigNotifier {
   final PlatformCapabilities _platformCapabilities;
 
   /// Creates a notifier with the platform policy used for reload admission.
-  ConfigNotifier(DartclawConfig initial, {PlatformCapabilities? platformCapabilities})
+  new(DartclawConfig initial, {PlatformCapabilities? platformCapabilities})
     : _current = initial,
       _platformCapabilities = platformCapabilities ?? PlatformCapabilities();
 

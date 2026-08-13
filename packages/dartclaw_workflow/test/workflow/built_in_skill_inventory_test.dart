@@ -60,9 +60,11 @@ void main() {
     });
 
     test('native skill manifest matches shipped DC-native skill directories', () {
-      final manifestNames = File(
-        p.join(skillsDir, 'dartclaw-native-skills.txt'),
-      ).readAsLinesSync().map((line) => line.trim()).where((line) => line.isNotEmpty && !line.startsWith('#')).toSet();
+      final manifestNames = File(p.join(skillsDir, 'dartclaw-native-skills.txt'))
+          .readAsLinesSync()
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty && !line.startsWith('#'))
+          .toSet();
 
       expect(manifestNames, equals(_expectedSkillDirs));
     });

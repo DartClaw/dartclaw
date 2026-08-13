@@ -115,3 +115,19 @@ linter:
     - unawaited_futures
     - cancel_subscriptions
     - always_declare_return_types
+    # Modernization ratchets — zero violations at time of enabling; block regression only.
+    - use_enums
+    - prefer_final_in_for_each
+    - unnecessary_statements
+    - unnecessary_unawaited
+    - use_truncating_division
+    - unnecessary_breaks
+    - unnecessary_ignore
+    - no_literal_bool_comparisons
+    # Dart 3.13 constructor-style lints (opt-in set, adopted wholesale — all-or-nothing per package).
+    - unnecessary_type_name_in_constructor
+    - use_declaring_parameters
+    - initialize_in_field_declaration
+    - unnecessary_primary_constructor_body
+    - unnecessary_const_in_enum_constructor
+    - empty_container_bodies

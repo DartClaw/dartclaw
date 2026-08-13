@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, TaskDbFactory, openTaskDb;
@@ -21,15 +21,11 @@ class CleanupCommand extends Command<void> {
   final CleanupExitFn _exitFn;
   final TaskDbFactory _taskDbFactory;
 
-  CleanupCommand({
-    DartclawConfig? config,
-    CleanupWriteLine? writeLine,
-    CleanupExitFn? exitFn,
-    TaskDbFactory? taskDbFactory,
-  }) : _config = config,
-       _writeLine = writeLine ?? stdout.writeln,
-       _exitFn = exitFn ?? exit,
-       _taskDbFactory = taskDbFactory ?? openTaskDb {
+  new({DartclawConfig? config, CleanupWriteLine? writeLine, CleanupExitFn? exitFn, TaskDbFactory? taskDbFactory})
+    : _config = config,
+      _writeLine = writeLine ?? stdout.writeln,
+      _exitFn = exitFn ?? exit,
+      _taskDbFactory = taskDbFactory ?? openTaskDb {
     argParser.addFlag('dry-run', negatable: false, help: 'Preview changes without applying');
     argParser.addFlag('enforce', negatable: false, help: 'Apply changes regardless of config mode');
   }

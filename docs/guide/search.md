@@ -2,17 +2,17 @@
 
 DartClaw includes a dedicated search agent for safe web access and a two-tier memory search system.
 
-The search agent is one of DartClaw's two agent execution models. For the broader picture – how subagents differ from task runners, how to define custom agents, and when to use which – see [Agents](agents.md).
+The search agent is a built-in logical agent. For the broader picture – how logical-agent sessions differ from background tasks, how to define custom agents, and when to use which – see [Agents](agents.md).
 
 ## Search Agent
 
-The search agent has restricted tools – only `WebSearch` and `WebFetch`. No filesystem, exec, or browser tools. It runs in a separate session store (`agents/search/sessions/`).
+The search agent's canonical default allowlist is `{web_search, web_fetch}`. No filesystem, exec, or browser tools are allowed on host-guarded logical-agent turns. Its hidden session is retained for diagnostics and normal maintenance.
 
 ### How It Works
 
-1. Main agent calls `sessions_send` with a query
-2. DartClaw spawns a search agent turn in an isolated session
-3. Search agent uses `WebSearch`/`WebFetch` to find information
+1. Main agent calls `sessions_spawn` with the `search` agent and a query
+2. DartClaw acquires provider worker capacity, lazily creating or compatibly reusing a worker, and starts a hidden logical-agent session
+3. Search agent uses mapped search/fetch tools to find information
 4. Content-guard scans the result at the agent boundary
 5. Result returned to main agent (or blocked if unsafe)
 
@@ -21,7 +21,9 @@ The search agent has restricted tools – only `WebSearch` and `WebFetch`. No fi
 3-layer policy evaluator (most restrictive wins):
 1. **Global deny** – always blocked regardless of agent
 2. **Agent deny** – blocked for this specific agent
-3. **Sandbox allow** – only explicitly listed tools permitted (closed set)
+3. **Sandbox allow** – a non-empty list permits only explicitly listed tools (closed set)
+
+The active logical-agent identity reaches `ToolPolicyGuard` on provider interception. DartClaw maps provider-native `WebSearch`/`WebFetch` and exact own-MCP search/fetch tool identities to `web_search`/`web_fetch`; unknown provider tools keep an auditable provider-prefixed fallback. Codex requires approval requests for host enforcement, while ACP enforcement is limited to its reverse-call and permission surfaces.
 
 ### Configuration
 
@@ -29,25 +31,19 @@ The search agent has restricted tools – only `WebSearch` and `WebFetch`. No fi
 agent:
   agents:
     search:
-      tools: [WebSearch, WebFetch]
-      max_spawn_depth: 0        # cannot spawn sub-agents
-      max_concurrent: 2
+      tools: [web_search, web_fetch]
       max_response_bytes: 5242880  # 5MB cap
 ```
 
-### Subagent Limits
+With no explicit `model` or `effort`, search inherits the selected provider's defaults. Set either in the agent entry when the search profile needs a fixed override. Search sessions require a provider worker lease; exhausted capacity returns an inline configuration error instead of using the caller's primary lane.
 
-| Limit | Default | Purpose |
-|-------|---------|---------|
-| `maxConcurrent` | 2 | Max parallel search agents |
-| `maxSpawnDepth` | 0 | Search agent cannot spawn sub-agents |
-| `maxChildrenPerAgent` | 0 | Max children per parent |
+Execution capacity comes from the selected provider's `pool_size` lease limit. See [Agents](agents.md#capacity-boundary).
 
-These are per-agent limits. Global subagent limits and the full configuration reference are documented in [Agents](agents.md#subagent-limits).
+Provider-native config spellings remain compatible through startup normalization. For portable policies, prefer canonical names. `web_search` and `web_fetch` are separate grants, so older task or step policies naming only `web_fetch` must add `web_search` if search is intended.
 
 ## Content Guard
 
-Content-guard scans search results at the `sessions_send` boundary using Haiku classification:
+Content-guard scans search results at the `sessions_spawn` and `sessions_send` boundaries using Haiku classification:
 
 | Classification | Action |
 |---------------|--------|
@@ -63,7 +59,15 @@ Content is truncated to 50KB before classification.
 
 ## Memory Search
 
-Memory search reads the FTS5 index over `MEMORY.md` plus synthesized `wiki/` pages. For when those stores actually get written -- and why a fresh instance returns no results -- see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
+Memory search combines the rebuildable FTS5 projection of canonical topic, archive, observation, and learning roles with a separately merged
+file lookup over synthesized `wiki/` pages. For when those stores actually get written – and why a fresh instance returns
+no results – see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
+
+One wiki request reads at most 1,000 regular files and 64 MiB of admitted body bytes. Each source is accepted through
+64 MiB. Search ranks every admitted candidate before returning the best 50; an exhausted scan or bad wiki file is
+reported as wiki-layer degradation without discarding healthy memory results.
+Search responses include structured `degradations` with the reason, affected locator when known, observed and limit
+values, and omitted count.
 
 ### FTS5 (Default)
 
@@ -71,7 +75,11 @@ Built-in full-text search using SQLite FTS5 with BM25 ranking. Zero external dep
 
 ### QMD Hybrid Search (Opt-in)
 
-QMD adds vector search for semantic matching. DartClaw manages the QMD daemon lifecycle.
+QMD adds vector search for semantic matching. DartClaw manages the QMD daemon lifecycle and supports stable QMD 2.5.3
+or later 2.x releases. Startup uses QMD's explicit global `index`, verifies `collection show memory` maps to the exact workspace
+with the recursive `**/*.md` mask, then completes both the initial update and embedding pass. Queries use QMD's structured
+REST contract; daemon binding is restricted to literal loopback hosts (`localhost`, `127.x.x.x`, or `::1`), and shutdown
+uses `qmd mcp stop`.
 
 ```yaml
 search:
@@ -88,8 +96,11 @@ search:
 | `standard` | Lexical + vector | ~200ms |
 | `deep` | Full query + reranking | 5-8s |
 
-If QMD becomes unreachable, DartClaw falls back to FTS5 silently.
+If QMD becomes unreachable or a query fails, DartClaw falls back to FTS5 and reports `qmd` in the degraded layers.
 
-### Memory Consolidation
+If startup reports that the existing `memory` collection uses the legacy `*.md` mask, run
+`qmd --index index collection remove memory`, then restart DartClaw. Startup recreates the collection with `**/*.md`.
 
-During heartbeat, if MEMORY.md exceeds 32KB, the agent runs a consolidation turn to deduplicate and reorganize entries.
+### Memory Curation
+
+Memory curation is explicit. `memory_apply` accepts one closed add/revise/merge/remove change set against the current collection revision; invalid or stale sets leave canonical memory and the derived index unchanged. `memory_observe` records journal observations and bounded learnings without granting authority to rewrite curated personal memory.

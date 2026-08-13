@@ -88,6 +88,10 @@ Router configRoutes({
       return errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
     }
 
+    if (scheduleService.entries.any((entry) => entry.id == name && !entry.mutable)) {
+      return errorResponse(409, 'RESERVED_SYSTEM_ACTION', 'System action "$name" is immutable');
+    }
+
     // Find job in configured jobs list
     final jobExists = scheduledJobs.any((j) => j['name'] == name);
     if (!jobExists) {
@@ -119,6 +123,25 @@ Router configRoutes({
     }
 
     return jsonResponse(200, {'name': name, 'status': status});
+  });
+
+  router.post('/api/scheduling/jobs/<name>/run', (Request request, String encodedName) {
+    if (scheduleService == null) {
+      return errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
+    }
+
+    final name = decodePathSegment(encodedName);
+
+    return switch (scheduleService.runJobNow(name)) {
+      RunScheduledJobResult.started => jsonResponse(202, {'name': name, 'status': 'started'}),
+      RunScheduledJobResult.alreadyRunning => errorResponse(409, 'CONFLICT', 'Job "$name" is already running'),
+      RunScheduledJobResult.notFound => errorResponse(
+        404,
+        'NOT_FOUND',
+        'Job "$name" is not present in the running scheduler or is not runnable on demand. '
+            'Newly created or edited jobs require a restart; otherwise check server logs for configuration errors.',
+      ),
+    };
   });
 
   // GET /api/settings/runtime

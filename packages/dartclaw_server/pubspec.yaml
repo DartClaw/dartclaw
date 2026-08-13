@@ -1,7 +1,7 @@
 name: dartclaw_server
 description: Reference HTTP API server and HTMX web UI for DartClaw deployments and task workflows.
 publish_to: none
-version: 0.23.0
+version: 0.24.0
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_server
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -12,13 +12,15 @@ topics:
   - server
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.13.0
 
 resolution: workspace
 
 dependencies:
   anthropic_sdk_dart: ^2.2.0
   crypto: ^3.0.7
+  dartclaw_bridge:
+    path: ../dartclaw_bridge
   dartclaw_config:
     path: ../dartclaw_config
   dartclaw_core:

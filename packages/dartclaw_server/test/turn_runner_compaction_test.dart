@@ -11,8 +11,7 @@ import 'package:test/test.dart';
 class _CompactionCapabilityHarness extends FakeAgentHarness {
   final bool _supportsPreCompactHook;
 
-  _CompactionCapabilityHarness({required bool supportsPreCompactHook})
-    : _supportsPreCompactHook = supportsPreCompactHook;
+  new({required bool supportsPreCompactHook}) : _supportsPreCompactHook = supportsPreCompactHook;
 
   @override
   bool get supportsPreCompactHook => _supportsPreCompactHook;
@@ -134,10 +133,11 @@ void main() {
     final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'needs flush'},
-    ]);
+    ], agentName: 'search');
     await runner.waitForOutcome(session.id, turnId);
 
     expect(worker.turnCallCount, equals(2));
+    expect(worker.lastAgentId, 'search', reason: 'the logical-agent identity must remain bound for the flush turn');
   });
 
   test('Claude runners suppress heuristic flush via harness compaction-hook capability', () async {

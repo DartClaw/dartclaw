@@ -14,7 +14,7 @@ import 'package:dartclaw_signal/dartclaw_signal.dart';
 /// ([smsRequested]/[voiceRequested]/[lastVerifyCode]) and can be made to throw
 /// via the `*Throws` flags.
 class FakeSignalCliManager extends SignalCliManager {
-  FakeSignalCliManager({
+  new({
     this.fakeHealthy = true,
     this.fakeRunning,
     this.fakeWasPaired = false,

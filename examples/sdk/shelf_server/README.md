@@ -6,7 +6,7 @@ This example uses `dependency_overrides` that point at local workspace packages 
 
 Prerequisites:
 
-- Dart SDK 3.12+
+- Dart SDK 3.13+
 - For live agent mode: `claude` in `PATH` and either `ANTHROPIC_API_KEY` or an existing Claude CLI login
 - For deterministic local verification without Claude auth: use `--demo`
 

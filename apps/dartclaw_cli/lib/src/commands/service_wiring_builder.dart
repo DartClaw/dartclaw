@@ -20,6 +20,8 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..behavior = harness.behavior
     ..memoryFile = storage.memoryFile
     ..memoryService = storage.memory
+    ..searchBackend = storage.searchBackend
+    ..memoryCorpus = storage.memoryCorpus
     ..kgService = storage.kg
     ..guardChain = security.guardChain
     ..kv = storage.kvService
@@ -40,7 +42,8 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..usageTracker = harness.usageTracker
     ..eventBus = ctx.eventBus
     ..authEnabled = harness.authEnabled
-    ..pool = harness.pool
+    ..executions = harness.executions
+    ..policyResolver = harness.policyResolver
     ..contentGuardDisplay = ContentGuardDisplayParams(
       enabled: config.security.contentGuardEnabled,
       classifier: config.security.contentGuardClassifier,
@@ -94,7 +97,8 @@ void _applyServerBuilderPostServer(
     ..taskReviewService = task.taskReviewService
     ..worktreeManager = task.worktreeManager
     ..taskFileGuard = task.taskFileGuard
-    ..agentObserver = task.agentObserver
+    ..runnerObserver = task.runnerObserver
+    ..executionDrainer = task.drainExecutions
     ..mergeExecutor = task.mergeExecutor
     ..mergeStrategy = config.tasks.worktreeMergeStrategy
     ..baseRef = config.tasks.worktreeBaseRef

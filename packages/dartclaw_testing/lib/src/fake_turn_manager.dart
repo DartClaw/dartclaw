@@ -2,44 +2,45 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-typedef FakeReserveTurnCallback =
-    Future<String> Function(
-      String sessionId, {
-      String agentName,
-      String? directory,
-      String? model,
-      String? effort,
-      int? maxTurns,
-      String? taskId,
-      bool isHumanInput,
-      PromptScope? promptScope,
-      List<String>? allowedTools,
-      bool readOnly,
-    });
+typedef FakeReserveTurnCallback = Future<String> Function(
+  String sessionId, {
+  String agentName,
+  String? directory,
+  String? model,
+  String? effort,
+  String? systemPromptOverride,
+  ExecutionPolicy? workerPolicy,
+  int? maxTurns,
+  String? taskId,
+  bool isHumanInput,
+  PromptScope? promptScope,
+  List<String>? allowedTools,
+  bool readOnly,
+});
 
-typedef FakeExecuteTurnCallback =
-    FutureOr<void> Function(
-      String sessionId,
-      String turnId,
-      List<Map<String, dynamic>> messages, {
-      String? source,
-      String agentName,
-    });
+typedef FakeExecuteTurnCallback = FutureOr<void> Function(
+  String sessionId,
+  String turnId,
+  List<Map<String, dynamic>> messages, {
+  String? source,
+  String agentName,
+});
 
-typedef FakeStartTurnCallback =
-    Future<String> Function(
-      String sessionId,
-      List<Map<String, dynamic>> messages, {
-      String? source,
-      String agentName,
-      String? model,
-      String? effort,
-      int? maxTurns,
-      String? taskId,
-      bool isHumanInput,
-      List<String>? allowedTools,
-      bool readOnly,
-    });
+typedef FakeStartTurnCallback = Future<String> Function(
+  String sessionId,
+  List<Map<String, dynamic>> messages, {
+  String? source,
+  String agentName,
+  String? model,
+  String? effort,
+  String? systemPromptOverride,
+  int? maxTurns,
+  String? taskId,
+  bool isHumanInput,
+  List<String>? allowedTools,
+  bool readOnly,
+  PromptScope? promptScope,
+});
 
 typedef FakeWaitForCompletionCallback = Future<void> Function(String sessionId, {Duration timeout});
 
@@ -55,6 +56,8 @@ typedef RecordedReserveTurn = ({
   String? directory,
   String? model,
   String? effort,
+  String? systemPromptOverride,
+  ExecutionPolicy? workerPolicy,
   int? maxTurns,
   String? taskId,
   bool isHumanInput,
@@ -79,16 +82,18 @@ typedef RecordedStartTurn = ({
   String agentName,
   String? model,
   String? effort,
+  String? systemPromptOverride,
   int? maxTurns,
   String? taskId,
   bool isHumanInput,
   List<String>? allowedTools,
   bool readOnly,
+  PromptScope? promptScope,
 });
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
 class FakeTurnManager implements TurnManager {
-  FakeTurnManager({
+  new({
     Iterable<String> activeSessionIds = const [],
     Map<String, String> activeTurns = const {},
     Map<String, TurnOutcome> recentOutcomes = const {},
@@ -108,8 +113,7 @@ class FakeTurnManager implements TurnManager {
     this.turnIdPrefix = 'fake-turn',
   }) : _activeSessionIds = {...activeSessionIds, ...activeTurns.keys},
        _activeTurns = Map<String, String>.from(activeTurns),
-       _recentOutcomes = Map<String, TurnOutcome>.from(recentOutcomes),
-       _pool = _FakeHarnessPool(profileId: profileId, providerId: providerId);
+       _recentOutcomes = Map<String, TurnOutcome>.from(recentOutcomes);
 
   final Duration? waitDelay;
   final FakeReserveTurnCallback? onReserveTurn;
@@ -130,7 +134,6 @@ class FakeTurnManager implements TurnManager {
   final Map<String, String> _activeTurns;
   final Map<String, TurnOutcome> _recentOutcomes;
   final Map<String, Completer<TurnOutcome>> _pendingOutcomes = {};
-  final _FakeHarnessPool _pool;
 
   int reserveTurnCallCount = 0;
   int executeTurnCallCount = 0;
@@ -190,10 +193,7 @@ class FakeTurnManager implements TurnManager {
   }
 
   @override
-  HarnessPool get pool => _pool..attach(this);
-
-  @override
-  int get availableRunnerCount => _pool.availableCount;
+  int get availableRunnerCount => 0;
 
   @override
   Iterable<String> get activeSessionIds => _activeSessionIds;
@@ -217,6 +217,8 @@ class FakeTurnManager implements TurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -231,6 +233,8 @@ class FakeTurnManager implements TurnManager {
       directory: directory,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
+      workerPolicy: workerPolicy,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
@@ -246,6 +250,8 @@ class FakeTurnManager implements TurnManager {
         directory: directory,
         model: model,
         effort: effort,
+        systemPromptOverride: systemPromptOverride,
+        workerPolicy: workerPolicy,
         maxTurns: maxTurns,
         taskId: taskId,
         isHumanInput: isHumanInput,
@@ -312,11 +318,13 @@ class FakeTurnManager implements TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   }) async {
     startTurnCallCount += 1;
     startedTurns.add((
@@ -326,11 +334,13 @@ class FakeTurnManager implements TurnManager {
       agentName: agentName,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
       readOnly: readOnly,
+      promptScope: promptScope,
     ));
     final callback = onStartTurn;
     if (callback != null) {
@@ -341,11 +351,13 @@ class FakeTurnManager implements TurnManager {
         agentName: agentName,
         model: model,
         effort: effort,
+        systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
         taskId: taskId,
         isHumanInput: isHumanInput,
         allowedTools: allowedTools,
         readOnly: readOnly,
+        promptScope: promptScope,
       );
       addActiveSession(sessionId, turnId: turnId);
       return turnId;
@@ -355,11 +367,13 @@ class FakeTurnManager implements TurnManager {
       agentName: agentName,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
+      promptScope: promptScope,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
@@ -432,142 +446,4 @@ class FakeTurnManager implements TurnManager {
   List<Map<String, dynamic>> _cloneMessages(List<Map<String, dynamic>> messages) {
     return messages.map((message) => Map<String, dynamic>.from(message)).toList(growable: false);
   }
-}
-
-class _FakeHarnessPool implements HarnessPool {
-  _FakeHarnessPool({required this.profileId, required this.providerId})
-    : _primary = _FakeTurnRunner(profileId: profileId, providerId: providerId);
-
-  final String profileId;
-  final String providerId;
-  final _FakeTurnRunner _primary;
-
-  void attach(FakeTurnManager manager) {
-    _primary.manager = manager;
-  }
-
-  @override
-  TurnRunner get primary => _primary;
-
-  @override
-  List<TurnRunner> get runners => [_primary];
-
-  @override
-  void addRunner(TurnRunner runner) {
-    throw StateError('FakeTurnManager pool does not support task runners.');
-  }
-
-  @override
-  int get spawnableCount => 0;
-
-  @override
-  TurnRunner? tryAcquire() => null;
-
-  @override
-  TurnRunner? tryAcquireForProfile(String profileId) => null;
-
-  @override
-  TurnRunner? tryAcquireForProvider(String providerId) => null;
-
-  @override
-  TurnRunner? tryAcquireForProviderAndProfile(String providerId, String profileId) => null;
-
-  @override
-  void release(TurnRunner runner) {}
-
-  @override
-  int get activeCount => 0;
-
-  @override
-  int get availableCount => 0;
-
-  @override
-  int get size => 1;
-
-  @override
-  int get maxConcurrentTasks => 0;
-
-  @override
-  int indexOf(TurnRunner runner) => identical(runner, _primary) ? 0 : -1;
-
-  @override
-  bool hasTaskRunnerForProfile(String profileId) => false;
-
-  @override
-  bool hasTaskRunnerForProvider(String providerId) => false;
-
-  @override
-  int taskRunnerCountForProvider(String providerId) => 0;
-
-  @override
-  Set<String> get taskProfiles => {};
-
-  @override
-  Set<String> get taskProviders => {};
-
-  @override
-  Future<void> dispose() async {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _FakeTurnRunner implements TurnRunner {
-  _FakeTurnRunner({required this.profileId, required this.providerId});
-
-  FakeTurnManager? manager;
-
-  @override
-  final String profileId;
-
-  @override
-  final String providerId;
-
-  @override
-  AgentHarness get harness => throw UnsupportedError('_FakeTurnRunner has no harness');
-
-  FakeTurnManager get _manager {
-    final current = manager;
-    if (current == null) {
-      throw StateError('FakeTurnRunner is not attached to a FakeTurnManager.');
-    }
-    return current;
-  }
-
-  @override
-  Iterable<String> get activeSessionIds => _manager.activeSessionIds;
-
-  @override
-  bool isActive(String sessionId) => _manager.isActive(sessionId);
-
-  @override
-  String? activeTurnId(String sessionId) => _manager.activeTurnId(sessionId);
-
-  @override
-  bool isActiveTurn(String sessionId, String turnId) => _manager.isActiveTurn(sessionId, turnId);
-
-  @override
-  TurnOutcome? recentOutcome(String sessionId, String turnId) => _manager.recentOutcome(sessionId, turnId);
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) => _manager.resetSessionContinuity(sessionId);
-
-  @override
-  Future<void> cancelTurn(String sessionId) => _manager.cancelTurn(sessionId);
-
-  @override
-  Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)}) =>
-      _manager.waitForCompletion(sessionId, timeout: timeout);
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _manager.waitForOutcome(sessionId, turnId);
-
-  @override
-  void setTaskToolFilter(List<String>? allowedTools) {}
-
-  @override
-  void setTaskReadOnly(bool readOnly) {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

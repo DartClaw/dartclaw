@@ -29,7 +29,7 @@ class ChannelMessage {
   final Map<String, dynamic> metadata;
 
   /// Creates a normalized inbound channel message.
-  ChannelMessage({
+  new({
     String? id,
     required this.channelType,
     required this.senderJid,
@@ -86,7 +86,7 @@ class ChannelResponse {
   final Map<String, dynamic>? structuredPayload;
 
   /// Creates a channel response chunk ready for delivery.
-  const ChannelResponse({
+  const new({
     required this.text,
     this.mediaAttachments = const [],
     this.metadata = const {},

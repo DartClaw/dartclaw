@@ -50,11 +50,10 @@ void main() {
       stepId: 'quick-review',
     );
 
-    await executor.pollOnce();
-    final afterPoll = await harness.tasks.get('task-no-retry');
+    final result = await harness.pollOnceAndWaitForTaskStatus(executor, 'task-no-retry', const {TaskStatus.failed});
 
     // With maxRetries=0, a single exit 1 must result in failed, not queued.
-    expect(afterPoll?.status, TaskStatus.failed);
+    expect(result.task.status, TaskStatus.failed);
     // Only one attempt was made.
     expect(invocations, 1);
   });

@@ -104,8 +104,8 @@ harness:
         container_profile: workspace
 ''');
 
-      expect(relay.harness.acp['goose']!.securityClassification, AcpSecurityClassification.containerIsolationOnly);
-      expect(relay.harness.acp['vibe']!.securityClassification, AcpSecurityClassification.containerIsolationOnly);
+      expect(relay.harness.acp['goose']!.securityClassification, AcpSecurityClassification.hostOnly);
+      expect(relay.harness.acp['vibe']!.securityClassification, AcpSecurityClassification.hostOnly);
       expect(relay.harness.acp['goose']!.containerProfile, AcpContainerProfile.restricted);
       expect(relay.harness.acp['vibe']!.containerProfile, AcpContainerProfile.workspace);
     });

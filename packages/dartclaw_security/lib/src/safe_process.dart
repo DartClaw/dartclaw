@@ -44,6 +44,7 @@ final List<Pattern> defaultSensitivePatterns = <Pattern>[
   RegExp(r'.*_TOKEN$', caseSensitive: false),
   RegExp(r'.*_CREDENTIAL$', caseSensitive: false),
   RegExp(r'.*_PASSWORD$', caseSensitive: false),
+  'CLAUDE_CODE_SUBAGENT_MODEL',
 ];
 
 /// Minimal shared interface for env-overlay plans.
@@ -54,30 +55,29 @@ abstract interface class ProcessEnvironmentPlan {
 
 /// Selects how a [SafeProcess] spawn resolves the child's environment.
 sealed class EnvPolicy {
-  const EnvPolicy();
+  const new();
 
   /// Inherits the parent environment unchanged (or substitutes [environment] if given).
-  const factory EnvPolicy.passthrough({Map<String, String>? environment}) = _PassThroughEnvPolicy;
+  const factory passthrough({Map<String, String>? environment}) = _PassThroughEnvPolicy;
 
   /// Sanitizes the parent environment via allowlist + sensitive-name strip.
-  const factory EnvPolicy.sanitize({
+  const factory sanitize({
     List<String>? allowlist,
     Map<String, String> extraEnvironment,
     List<Pattern>? sensitivePatterns,
   }) = _SanitizeEnvPolicy;
 
   /// Sanitizes against the bash-step allowlist; suitable for shell tool steps.
-  const factory EnvPolicy.minimal({Map<String, String> extraEnvironment}) = _MinimalEnvPolicy;
+  const factory minimal({Map<String, String> extraEnvironment}) = _MinimalEnvPolicy;
 
   /// Sanitizes against the git allowlist and overlays a credential plan.
-  const factory EnvPolicy.credentialPlan({required ProcessEnvironmentPlan plan, bool noSystemConfig}) =
-      _CredentialPlanEnvPolicy;
+  const factory credentialPlan({required ProcessEnvironmentPlan plan, bool noSystemConfig}) = _CredentialPlanEnvPolicy;
 }
 
 final class _PassThroughEnvPolicy extends EnvPolicy {
   final Map<String, String>? environment;
 
-  const _PassThroughEnvPolicy({this.environment});
+  const new({this.environment});
 }
 
 final class _SanitizeEnvPolicy extends EnvPolicy {
@@ -85,20 +85,20 @@ final class _SanitizeEnvPolicy extends EnvPolicy {
   final Map<String, String> extraEnvironment;
   final List<Pattern>? sensitivePatterns;
 
-  const _SanitizeEnvPolicy({this.allowlist, this.extraEnvironment = const <String, String>{}, this.sensitivePatterns});
+  const new({this.allowlist, this.extraEnvironment = const <String, String>{}, this.sensitivePatterns});
 }
 
 final class _MinimalEnvPolicy extends EnvPolicy {
   final Map<String, String> extraEnvironment;
 
-  const _MinimalEnvPolicy({this.extraEnvironment = const <String, String>{}});
+  const new({this.extraEnvironment = const <String, String>{}});
 }
 
 final class _CredentialPlanEnvPolicy extends EnvPolicy {
   final ProcessEnvironmentPlan plan;
   final bool noSystemConfig;
 
-  const _CredentialPlanEnvPolicy({required this.plan, this.noSystemConfig = false});
+  const new({required this.plan, this.noSystemConfig = false});
 }
 
 /// Process helper that requires an explicit environment policy for every spawn.

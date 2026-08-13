@@ -1,26 +1,24 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-typedef FakeProjectCreateCallback =
-    Future<Project> Function({
-      required String name,
-      String? remoteUrl,
-      String? localPath,
-      String defaultBranch,
-      String? credentialsRef,
-      CloneStrategy cloneStrategy,
-      PrConfig pr,
-    });
+typedef FakeProjectCreateCallback = Future<Project> Function({
+  required String name,
+  String? remoteUrl,
+  String? localPath,
+  String defaultBranch,
+  String? credentialsRef,
+  CloneStrategy cloneStrategy,
+  PrConfig pr,
+});
 
-typedef FakeProjectUpdateCallback =
-    Future<Project> Function(
-      String id, {
-      String? name,
-      String? remoteUrl,
-      String? defaultBranch,
-      String? credentialsRef,
-      PrConfig? pr,
-    });
+typedef FakeProjectUpdateCallback = Future<Project> Function(
+  String id, {
+  String? name,
+  String? remoteUrl,
+  String? defaultBranch,
+  String? credentialsRef,
+  PrConfig? pr,
+});
 
 typedef FakeProjectFetchCallback = Future<Project> Function(String id);
 typedef FakeProjectDeleteCallback = Future<void> Function(String id);
@@ -48,7 +46,7 @@ typedef RecordedProjectUpdate = ({
 
 /// In-memory [ProjectService] fake with optional lifecycle callbacks.
 class FakeProjectService implements ProjectService {
-  FakeProjectService({
+  new({
     Iterable<Project> projects = const [],
     Project? localProject,
     this.includeLocalProjectInGetAll = true,

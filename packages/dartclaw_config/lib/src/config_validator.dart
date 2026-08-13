@@ -9,7 +9,7 @@ class ValidationError {
   final String message;
 
   /// const ValidationError({required this.field, required this.me.
-  const ValidationError({required this.field, required this.message});
+  const new({required this.field, required this.message});
 
   @override
   String toString() => 'ValidationError($field: $message)';
@@ -21,7 +21,7 @@ class ValidationError {
 /// unknown fields, read-only fields, type checks, and constraint checks.
 class ConfigValidator {
   /// const ConfigValidator();.
-  const ConfigValidator();
+  const new();
 
   static const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};
 
@@ -65,7 +65,32 @@ class ConfigValidator {
     _validateGitHubRequirements(updates, currentValues, errors);
     _validateSpaceEventsRequirements(updates, currentValues, errors);
     _validateAdvisorTriggers(updates, errors);
+    _validateExecutionMode(updates, currentValues, errors);
     return errors;
+  }
+
+  /// Rejects a container execution selection that no enabled container runtime
+  /// can satisfy.
+  ///
+  /// Restart-tier, so the write would otherwise be accepted here and only fail
+  /// at the next boot; PRD FR1 forbids substituting host execution, so the
+  /// unsatisfiable value is refused at write time instead.
+  void _validateExecutionMode(
+    Map<String, dynamic> updates,
+    Map<String, dynamic> currentValues,
+    List<ValidationError> errors,
+  ) {
+    if (!updates.containsKey('agent.execution')) return;
+    if (updates['agent.execution'] != 'container') return;
+    if (_mergedValue<bool>('container.enabled', updates, currentValues) == true) return;
+    errors.add(
+      const ValidationError(
+        field: 'agent.execution',
+        message:
+            "Field 'agent.execution' cannot be 'container' while container isolation is disabled. "
+            "Enable container.enabled first, or select 'host'.",
+      ),
+    );
   }
 
   void _validateGoogleChatRequirements(
@@ -240,6 +265,10 @@ class ConfigValidator {
   }
 
   ValidationError? _validateValue(FieldMeta meta, Object? value) {
+    if ((meta.yamlPath == 'memory.max_bytes' || meta.yamlPath == 'memory.pruning.archive_after_days') &&
+        (value is! int || value <= 0)) {
+      return ValidationError(field: meta.yamlPath, message: "Field '${meta.yamlPath}' must be a positive integer.");
+    }
     // Null handling
     if (value == null) {
       if (meta.nullable) return null;
@@ -263,7 +292,7 @@ class ConfigValidator {
     if (value is int) {
       intValue = value;
     } else if (value is double) {
-      if (value != value.toInt().toDouble()) {
+      if (!value.isFinite || value != value.toInt().toDouble()) {
         final typeLabel = meta.nullable ? 'an integer or null' : 'an integer';
         return _typeError(meta, value, typeLabel);
       }

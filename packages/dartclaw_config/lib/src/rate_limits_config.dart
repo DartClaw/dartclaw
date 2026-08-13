@@ -18,15 +18,10 @@ class PerSenderRateLimitConfig {
   bool get enabled => messages > 0 && windowMinutes > 0;
 
   /// Creates a [PerSenderRateLimitConfig] value.
-  const PerSenderRateLimitConfig({
-    this.messages = 0,
-    this.windowMinutes = 5,
-    this.maxQueued = 0,
-    this.maxPauseQueued = 0,
-  });
+  const new({this.messages = 0, this.windowMinutes = 5, this.maxQueued = 0, this.maxPauseQueued = 0});
 
   /// Creates a [PerSenderRateLimitConfig.defaults] value.
-  const PerSenderRateLimitConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -58,10 +53,10 @@ class GlobalRateLimitConfig {
   bool get enabled => turns > 0 && windowMinutes > 0;
 
   /// const GlobalRateLimitConfig({this.turns = 0, this.windowMinu.
-  const GlobalRateLimitConfig({this.turns = 0, this.windowMinutes = 60});
+  const new({this.turns = 0, this.windowMinutes = 60});
 
   /// Creates a [GlobalRateLimitConfig.defaults] value.
-  const GlobalRateLimitConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -84,13 +79,13 @@ class RateLimitsConfig {
   final GlobalRateLimitConfig global;
 
   /// Creates a [RateLimitsConfig] value.
-  const RateLimitsConfig({
+  const new({
     this.perSender = const PerSenderRateLimitConfig.defaults(),
     this.global = const GlobalRateLimitConfig.defaults(),
   });
 
   /// Creates a [RateLimitsConfig.defaults] value.
-  const RateLimitsConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

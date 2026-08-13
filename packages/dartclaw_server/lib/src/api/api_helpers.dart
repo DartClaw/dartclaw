@@ -68,3 +68,17 @@ String? trimmedStringOrNull(Object? value) {
   if (value is! String) return null;
   return value.trim();
 }
+
+/// Percent-decodes a shelf path segment captured by `shelf_router`.
+///
+/// `shelf_router` exposes the matched `<name>`/`<id>` segment still
+/// percent-encoded, so identifiers the client encodes (`&`, `'`, `<`, `>`,
+/// space, …) must be decoded before matching against stored job/task names.
+/// Falls back to the raw segment when it is not valid percent-encoding.
+String decodePathSegment(String value) {
+  try {
+    return Uri.decodeComponent(value);
+  } on ArgumentError {
+    return value;
+  }
+}

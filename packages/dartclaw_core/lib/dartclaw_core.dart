@@ -84,7 +84,8 @@ export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLif
 export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, PairingCode;
 
 // Harness interfaces
-export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
+export 'src/harness/agent_harness.dart'
+    show AgentHarness, ContextualMemoryToolHandler, HarnessTurnContext, HarnessTurnContextSink, PromptStrategy;
 export 'src/harness/acp_client.dart' show AcpClient, AcpPromptResult;
 export 'src/harness/acp_errors.dart' show AcpHarnessErrorCode, AcpHarnessException;
 export 'src/harness/acp_harness.dart' show AcpHarness;
@@ -106,9 +107,17 @@ export 'src/harness/acp_target_validation.dart'
         AcpTargetProbe,
         AcpTargetValidator,
         acpSecurityClassificationId;
+export 'src/harness/provider_execution_compatibility.dart'
+    show
+        ProviderExecutionInventory,
+        ProviderExecutionSupport,
+        ProviderExecutionVerdict,
+        ProviderLaunchSurface,
+        ProviderUnavailability,
+        acpContainerRequirementError;
 export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
 export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
-export 'src/harness/canonical_tool.dart' show CanonicalTool;
+export 'src/harness/canonical_tool.dart' show CanonicalTool, dartclawMcpServerName;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
 export 'src/harness/codex_config_generator.dart' show CodexConfigGenerator;
@@ -125,7 +134,8 @@ export 'src/harness/merge_resolve_env_vars.dart'
         mergeResolveTokenCeilingEnvVar,
         mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
-export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
+export 'src/harness/claude_protocol.dart'
+    show claudeContainerHardeningEnvVars, claudeHardeningEnvVars, containerClaudePlaceholderApiKey;
 export 'src/harness/process_lifecycle.dart' show ProcessTerminationResult, SequentialLock, killWithEscalation;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
 export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
@@ -150,14 +160,61 @@ export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResu
 export 'package:dartclaw_security/dartclaw_security.dart';
 
 export 'src/memory/memory_file_service.dart' show MemoryFileService;
+export 'src/memory/memory_resource_limits.dart' show MemoryResourceLimits, MemoryResourceLimitException;
 export 'src/memory/memory_entry.dart' show MemoryEntry;
 export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries;
+export 'src/memory/canonical_memory.dart'
+    show
+        canonicalMemoryFormatVersion,
+        validateMemoryTopic,
+        MemoryRole,
+        MemoryOriginKind,
+        MemorySourceRef,
+        MemoryCollectionMetadata,
+        CanonicalMemoryEntry,
+        CanonicalMemoryLearning,
+        MemoryIndexEntry,
+        MemoryObservation,
+        MemoryDeletionAudit;
+export 'src/memory/memory_documents.dart'
+    show
+        CanonicalMemoryDocument,
+        MemoryIndexDocument,
+        MemoryTopicDocument,
+        MemoryArchiveDocument,
+        MemoryObservationDocument,
+        MemoryLearningDocument,
+        MemoryAuditDocument;
+export 'src/memory/memory_markdown_codec.dart' show MemoryMarkdownCodec;
+export 'src/memory/memory_corpus.dart'
+    show VerbatimMemoryMember, CanonicalMemoryCorpus, MemoryCorpusValidationException, MemoryCorpusValidator;
+export 'src/memory/memory_apply_schema.dart' show memoryApplyOperationSchema;
+export 'src/memory/memory_corpus_service.dart'
+    show
+        MemorySnapshotOmissionReason,
+        MemoryCorpusSnapshot,
+        MemoryCorpusSelection,
+        MemoryCorpusManifest,
+        MemoryCorpusStatusSnapshot,
+        MemoryCorpusChange,
+        MemoryCorpusFileMutation,
+        MemoryCorpusMutation,
+        MemoryCorpusSimulatedCrash,
+        MemoryCorpusService;
 
-export 'src/container/container_executor.dart' show ContainerExecutor, containerClaudeExecutable;
+export 'src/container/container_executor.dart'
+    show
+        ContainerExecutor,
+        containerClaudeExecutable,
+        containerCodexExecutable,
+        containerExecutableRuns,
+        containerGeneratedStatePath,
+        containerImageUidGid;
 export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
 export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
+
 // Types moved to dartclaw_config (re-exported here for backward compat)
 export 'package:dartclaw_config/dartclaw_config.dart'
     show
@@ -175,12 +232,12 @@ export 'package:dartclaw_config/dartclaw_config.dart'
         canonicalizePathWithExistingAncestors,
         truncate,
         normalizeDynamicMap,
-        SearchBackend;
+        SearchBackend,
+        SearchResultLayer;
 
 // Agents
-export 'src/agents/session_delegate.dart' show SessionDelegate;
+export 'src/agents/logical_agent_session_service.dart' show LogicalAgentSessionService;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
-export 'src/agents/subagent_limits.dart' show SubagentLimits;
 
 // Tasks
 export 'src/task/goal.dart' show Goal;
@@ -228,8 +285,8 @@ export 'src/events/dartclaw_event.dart'
         ContainerStartedEvent,
         ContainerStoppedEvent,
         ContainerCrashedEvent,
-        AgentLifecycleEvent,
-        AgentStateChangedEvent,
+        RunnerLifecycleEvent,
+        RunnerStateChangedEvent,
         AdvisorInsightEvent,
         AdvisorMentionEvent,
         LoopDetectedEvent,
@@ -270,9 +327,6 @@ export 'src/turn/turn_manager.dart' show TurnManager;
 export 'src/turn/turn_outcome.dart' show TurnOutcome;
 export 'src/turn/turn_runner.dart' show TurnRunner;
 export 'src/turn/turn_status.dart' show TurnStatus;
-
-// Harness pool interface
-export 'src/harness/harness_pool.dart' show HarnessPool;
 
 // Auth abstractions
 export 'src/auth/google_jwt_verifier.dart' show GoogleJwtVerifier;

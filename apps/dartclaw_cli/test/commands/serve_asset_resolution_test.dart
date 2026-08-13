@@ -5,9 +5,9 @@ import 'dart:isolate';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, LogService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -28,7 +28,7 @@ Future<String> _resolveServerAssetDir(String child) async {
 
 class _ExitIntercept implements Exception {
   final int code;
-  _ExitIntercept(this.code);
+  new(this.code);
 }
 
 class _WorkerHarness extends FakeAgentHarness {
@@ -43,6 +43,7 @@ class _WorkerHarness extends FakeAgentHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) async => {'ok': true};
 }
 

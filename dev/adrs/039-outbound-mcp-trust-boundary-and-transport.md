@@ -8,7 +8,7 @@ Accepted - 2026-06-12 (targets 0.19; fixes the FR1 outbound MCP client seam)
 
 ## Context
 
-DartClaw currently serves MCP tools to agents, but it does not consume external MCP servers. The 0.19 outbound pillar adds an MCP client that connects to external servers, performs `initialize`, `tools/list`, and `tools/call`, and pools long-lived connections with HarnessPool-style lifecycle management.
+DartClaw currently serves MCP tools to agents, but it does not consume external MCP servers. The 0.19 outbound pillar adds an MCP client that connects to external servers, performs `initialize`, `tools/list`, and `tools/call`, and manages long-lived connection lifecycles.
 
 This is a new trust boundary. External MCP servers are outside DartClaw's control and may be stdio subprocesses or HTTP endpoints. Every outbound call must pass through the egress guard, produce audit evidence, and return structured failures without hanging the agent. The inbound MCP server does not provide a reusable stdio client seam: inbound is HTTP-only today, and stdio outbound transport is net-new.
 

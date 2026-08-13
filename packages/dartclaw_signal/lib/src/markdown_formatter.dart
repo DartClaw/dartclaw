@@ -11,13 +11,13 @@ enum _SignalStyle {
   strikethrough('STRIKETHROUGH'),
   monospace('MONOSPACE');
 
-  const _SignalStyle(this.wireName);
+  new(this.wireName);
 
   final String wireName;
 }
 
 final class _StyleRange {
-  const _StyleRange({required this.style, required this.start, required this.length});
+  const new({required this.style, required this.start, required this.length});
 
   final _SignalStyle style;
   final int start;
@@ -27,7 +27,7 @@ final class _StyleRange {
 }
 
 final class _FormattedMarkdown {
-  const _FormattedMarkdown(this.text, this.styles);
+  const new(this.text, this.styles);
 
   final String text;
   final List<_StyleRange> styles;

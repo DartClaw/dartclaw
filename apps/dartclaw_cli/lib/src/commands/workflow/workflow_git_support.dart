@@ -168,7 +168,7 @@ class WorkflowGitCleanupPlan {
   final Set<String> worktreePaths;
   final Set<String> branches;
 
-  const WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+  const new({required this.worktreePaths, required this.branches});
 }
 
 WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
@@ -309,7 +309,7 @@ final class CaptureAndCleanResult {
   final bool isDirty;
   final String? cleanupError;
 
-  const CaptureAndCleanResult({required this.sha, required this.isDirty, this.cleanupError});
+  const new({required this.sha, required this.isDirty, this.cleanupError});
 }
 
 /// Under a single [_workflowGitRepoLock] scope:

@@ -61,7 +61,7 @@ class TaskEvent {
   final Map<String, dynamic> details;
 
   /// Creates a [TaskEvent] value.
-  const TaskEvent({
+  const new({
     required this.id,
     required this.taskId,
     required this.timestamp,
@@ -79,7 +79,7 @@ class TaskEvent {
   };
 
   /// Reconstructs a [TaskEvent] from its JSON representation.
-  factory TaskEvent.fromJson(Map<String, dynamic> json) => TaskEvent(
+  factory fromJson(Map<String, dynamic> json) => TaskEvent(
     id: json['id'] as String,
     taskId: json['taskId'] as String,
     timestamp: DateTime.parse(json['timestamp'] as String),

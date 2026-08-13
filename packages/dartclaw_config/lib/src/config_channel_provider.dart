@@ -59,7 +59,7 @@ List<String> _warningSinkForConfig(DartclawConfig config) =>
 final class _ConfigChannelConfigProvider implements ChannelConfigProvider {
   final DartclawConfig _config;
 
-  _ConfigChannelConfigProvider(this._config);
+  new(this._config);
 
   @override
   T getChannelConfig<T>(ChannelType channelType) => _config.getChannelConfig<T>(channelType);

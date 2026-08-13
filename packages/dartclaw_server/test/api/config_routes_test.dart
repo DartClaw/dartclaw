@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -107,6 +108,127 @@ void main() {
     });
   });
 
+  group('POST /api/scheduling/jobs/<name>/run', () {
+    ScheduledJob job(String id) => ScheduledJob.fromConfig({
+      'id': id,
+      'prompt': 'Summarize',
+      'schedule': {'type': 'interval', 'minutes': 60},
+      'delivery': 'none',
+    });
+
+    test('starts a live job with 202', () async {
+      final service = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [job('daily-summary')],
+      )..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/daily-summary/run', status: 202);
+
+      expect(body, {'name': 'daily-summary', 'status': 'started'});
+      service.stop();
+    });
+
+    test('returns CONFLICT while the job is already running', () async {
+      final sessions = _BlockingSessionService();
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: sessions, jobs: [job('daily-summary')])
+        ..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      await client.expectResponse('POST', '/api/scheduling/jobs/daily-summary/run', status: 202);
+      final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/daily-summary/run', status: 409);
+
+      expect((body['error'] as Map)['code'], 'CONFLICT');
+      sessions.release.complete();
+      await pumpEventQueue();
+      service.stop();
+    });
+
+    test('failed system action keeps overlap locked so a second request cannot report started', () async {
+      var blocked = false;
+      final service = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: const [],
+        systemActions: [
+          SystemAction(
+            id: memoryCurationActionId,
+            description: 'Curate memory',
+            isBlocked: () => blocked,
+            run: () async {
+              blocked = true;
+              throw StateError('terminal persistence failed');
+            },
+          ),
+        ],
+      )..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      await client.expectResponse('POST', '/api/scheduling/jobs/$memoryCurationActionId/run', status: 202);
+      await pumpEventQueue();
+      service
+        ..stop()
+        ..start();
+      final body = await client.expectJsonObject(
+        'POST',
+        '/api/scheduling/jobs/$memoryCurationActionId/run',
+        status: 409,
+      );
+
+      expect((body['error'] as Map)['code'], 'CONFLICT');
+      service.stop();
+    });
+
+    test('returns NOT_FOUND with restart guidance for an unknown job', () async {
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: [])..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/nightly-review/run', status: 404);
+      final error = body['error'] as Map;
+      expect(error['code'], 'NOT_FOUND');
+      expect(error['message'], contains('require a restart'));
+      expect(error['message'], contains('running scheduler'));
+      service.stop();
+    });
+
+    test('returns NOT_AVAILABLE when scheduling is not configured', () async {
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig).call);
+
+      final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/daily-summary/run', status: 404);
+
+      expect((body['error'] as Map)['code'], 'NOT_AVAILABLE');
+    });
+
+    test('decodes a URL-encoded job name', () async {
+      final service = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [job('Q&A digest')],
+      )..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/Q%26A%20digest/run', status: 202);
+
+      expect(body['name'], 'Q&A digest');
+      service.stop();
+    });
+
+    test('decodes the captured route segment exactly once', () async {
+      final service = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [job('literal%2Fname')],
+      )..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/literal%252Fname/run', status: 202);
+
+      expect(body['name'], 'literal%2Fname');
+      service.stop();
+    });
+  });
+
   group('form-encoded body (HTMX default encoding)', () {
     late Directory tempDir;
 
@@ -204,5 +326,32 @@ void main() {
 
 class _FakeSessionService implements SessionService {
   @override
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
+    return Session(id: 'session-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _BlockingSessionService extends _FakeSessionService {
+  final release = Completer<void>();
+
+  @override
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
+    await release.future;
+    return super.getOrCreateByKey(key, type: type, provider: provider, securityProfile: securityProfile);
+  }
 }

@@ -163,7 +163,7 @@ final class _FakeHarness {
   final FakeGitGateway port;
   final String worktreePath;
 
-  const _FakeHarness({required this.port, required this.worktreePath});
+  const new({required this.port, required this.worktreePath});
 }
 
 final class _ProcessHarness {
@@ -171,7 +171,7 @@ final class _ProcessHarness {
   final String worktreePath;
   final _Dispose dispose;
 
-  const _ProcessHarness({required this.port, required this.worktreePath, required this.dispose});
+  const new({required this.port, required this.worktreePath, required this.dispose});
 }
 
 final class _CommitObservation {
@@ -179,7 +179,7 @@ final class _CommitObservation {
   final bool exists;
   final bool absent;
 
-  const _CommitObservation({required this.changed, required this.exists, required this.absent});
+  const new({required this.changed, required this.exists, required this.absent});
 }
 
 final class _StashObservation {
@@ -187,12 +187,12 @@ final class _StashObservation {
   final List<String> afterPushUntracked;
   final List<String> afterPopUntracked;
 
-  const _StashObservation({required this.didStash, required this.afterPushUntracked, required this.afterPopUntracked});
+  const new({required this.didStash, required this.afterPushUntracked, required this.afterPopUntracked});
 }
 
 final class _MergeObservation {
   final List<String> conflicts;
   final bool cleanAfterAbort;
 
-  const _MergeObservation({required this.conflicts, required this.cleanAfterAbort});
+  const new({required this.conflicts, required this.cleanAfterAbort});
 }

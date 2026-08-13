@@ -15,7 +15,7 @@ final class FakeSkillIntrospector implements SkillIntrospector {
   /// Latest provider options observed per provider.
   final providerOptionsByProvider = <String, Map<String, dynamic>>{};
 
-  FakeSkillIntrospector(this.skillsByProvider);
+  new(this.skillsByProvider);
 
   @override
   Future<Set<String>> listAvailable({

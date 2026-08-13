@@ -105,36 +105,32 @@ void main() {
       });
     });
 
-    test(
-      'typing RPC times out when the daemon never completes its response body',
-      () async {
-        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-        final subscription = server.listen((request) {
-          unawaited(() async {
-            await utf8.decoder.bind(request).join();
-            request.response.headers.contentType = ContentType.json;
-            request.response.write('{"jsonrpc":"2.0","id":"1","result":');
-            await request.response.flush();
-          }());
-        });
-        final manager = SignalCliManager(
-          executable: 'signal-cli',
-          host: InternetAddress.loopbackIPv4.address,
-          port: server.port,
-          phoneNumber: '+12125550100',
-        );
-        addTearDown(() async {
-          await subscription.cancel();
-          await server.close(force: true);
-        });
+    test('typing RPC times out when the daemon never completes its response body', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final subscription = server.listen((request) {
+        unawaited(() async {
+          await utf8.decoder.bind(request).join();
+          request.response.headers.contentType = ContentType.json;
+          request.response.write('{"jsonrpc":"2.0","id":"1","result":');
+          await request.response.flush();
+        }());
+      });
+      final manager = SignalCliManager(
+        executable: 'signal-cli',
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        phoneNumber: '+12125550100',
+      );
+      addTearDown(() async {
+        await subscription.cancel();
+        await server.close(force: true);
+      });
 
-        await expectLater(
-          manager.sendTyping('+12125550101', isGroup: false, isTyping: true),
-          throwsA(isA<TimeoutException>()),
-        );
-      },
-      timeout: const Timeout(Duration(seconds: 5)),
-    );
+      await expectLater(
+        manager.sendTyping('+12125550101', isGroup: false, isTyping: true),
+        throwsA(isA<TimeoutException>()),
+      );
+    }, timeout: const Timeout(Duration(seconds: 5)));
 
     test('start spawns process with correct args', () async {
       late String capturedExe;

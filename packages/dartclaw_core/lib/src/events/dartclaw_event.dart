@@ -4,7 +4,7 @@ import '../task/task_status.dart';
 
 part 'advisor_events.dart';
 part 'agent_execution_events.dart';
-part 'agent_events.dart';
+part 'runner_events.dart';
 part 'auth_events.dart';
 part 'compaction_events.dart';
 part 'container_events.dart';

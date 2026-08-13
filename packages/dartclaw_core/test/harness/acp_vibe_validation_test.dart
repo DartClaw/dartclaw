@@ -49,7 +49,7 @@ void main() {
         validator.validateConfig('vibe', noProof, advertisedCapabilities: {'fs', 'terminal'}),
         contains('requires_guard_mediation requires verification'),
       );
-      expect(AcpTargetValidationResult.containerIsolationOnly('vibe').isGuardMediated, isFalse);
+      expect(AcpTargetValidationResult.hostOnly('vibe').isGuardMediated, isFalse);
     });
   });
 }

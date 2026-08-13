@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 final class _ExitCalled implements Exception {
-  const _ExitCalled(this.code);
+  const new(this.code);
 
   final int code;
 }
@@ -47,7 +47,7 @@ void main() {
     );
   }
 
-  test('unavailable container isolation fails closed before credential-proxy wiring', () async {
+  test('unavailable container isolation fails closed before any gateway wiring', () async {
     final wiring = buildWiring(container: const ContainerConfig(enabled: true), operatingSystem: 'windows');
 
     await expectLater(wiring.wire(agentDefs: []), throwsA(isA<_ExitCalled>().having((error) => error.code, 'code', 1)));
@@ -56,9 +56,10 @@ void main() {
     expect(error.capability, 'container isolation');
     expect(error.attemptedContext, contains('container.enabled: true'));
     expect(error.remediation, allOf(contains('POSIX'), contains('WSL')));
-    expect(wiring.credentialProxy, isNull);
-    expect(wiring.containerManagers, isEmpty);
-    expect(File(p.join(tempDir.path, 'proxy', 'proxy.sock')).existsSync(), isFalse);
+    expect(wiring.gateway, isNull);
+    expect(wiring.containersEnabled, isFalse);
+    expect(wiring.availableContainerProfiles, isEmpty);
+    expect(Directory(p.join(tempDir.path, 'bridge')).existsSync(), isFalse);
   });
 
   test('available container isolation reaches the existing container validation path', () async {

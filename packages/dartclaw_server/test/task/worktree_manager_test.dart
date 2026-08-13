@@ -67,9 +67,8 @@ void main() {
         dataDir: dataDir,
         projectDir: projectDir,
         skillMaterializer: (worktreePath) async {
-          Link(
-            p.join(worktreePath, '.claude', 'skills', 'dartclaw-test'),
-          ).createSync(sourceSkill.path, recursive: true);
+          Link(p.join(worktreePath, '.claude', 'skills', 'dartclaw-test'))
+              .createSync(sourceSkill.path, recursive: true);
         },
       );
 
@@ -258,9 +257,8 @@ void main() {
       // runner forgets to set the flag, the sentinel reads "unset".
       final sentinel = File(p.join(tmpDir.path, 'git-config-nosystem.txt'));
       final hookPath = p.join(projectDir, '.git', 'hooks', 'post-checkout');
-      File(
-        hookPath,
-      ).writeAsStringSync('#!/bin/sh\nprintf "%s" "\${GIT_CONFIG_NOSYSTEM:-unset}" > "${sentinel.path}"\n');
+      File(hookPath)
+          .writeAsStringSync('#!/bin/sh\nprintf "%s" "\${GIT_CONFIG_NOSYSTEM:-unset}" > "${sentinel.path}"\n');
       await Process.run('chmod', ['+x', hookPath]);
 
       final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);

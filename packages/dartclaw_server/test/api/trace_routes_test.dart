@@ -16,6 +16,8 @@ TurnTrace _makeTrace({
   int inputTokens = 0,
   int outputTokens = 0,
   List<ToolCallRecord> toolCalls = const [],
+  int? toolCallCount,
+  int? failedToolCallCount,
 }) {
   final start = startedAt ?? DateTime.utc(2026, 3, 24, 10, 0, 0);
   return TurnTrace(
@@ -29,6 +31,8 @@ TurnTrace _makeTrace({
     inputTokens: inputTokens,
     outputTokens: outputTokens,
     toolCalls: toolCalls,
+    toolCallCount: toolCallCount,
+    failedToolCallCount: failedToolCallCount,
   );
 }
 
@@ -160,6 +164,28 @@ void main() {
       expect(body['id'], 'trace-detail');
       expect(body['taskId'], 'task-1');
       expect(body['provider'], 'claude');
+    });
+
+    test('reports exact tool counts and bounded-detail truncation', () async {
+      final records = List.generate(
+        64,
+        (index) => ToolCallRecord(name: 'tool-$index', success: true, durationMs: index),
+      );
+      await traceService.insert(
+        _makeTrace(
+          id: 'trace-bounded',
+          taskId: 'task-bounded',
+          toolCalls: records,
+          toolCallCount: 70,
+          failedToolCallCount: 1,
+        ),
+      );
+
+      final body = await client.expectJsonObject('GET', '/api/traces/trace-bounded');
+      expect(body['toolCallCount'], 70);
+      expect(body['failedToolCallCount'], 1);
+      expect(body['toolCallsTruncated'], isTrue);
+      expect(body['toolCalls'], hasLength(64));
     });
 
     test('returns 404 when the trace does not exist', () async {

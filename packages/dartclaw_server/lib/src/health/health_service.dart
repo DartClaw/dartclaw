@@ -32,7 +32,7 @@ class HealthService {
   int _cachedArtifactDiskBytes = 0;
   DateTime _cacheExpiry = DateTime.fromMillisecondsSinceEpoch(0);
 
-  HealthService({
+  new({
     required AgentHarness worker,
     required String searchDbPath,
     required String sessionsDir,

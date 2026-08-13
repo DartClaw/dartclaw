@@ -14,7 +14,7 @@ import '../runtime_config.dart';
 /// rather than [DartclawConfig] (startup YAML) so the UI reflects toggle
 /// changes without restart.
 class ConfigSerializer {
-  const ConfigSerializer();
+  const new();
 
   /// Serializes the full config to the nested camelCase JSON shape.
   ///
@@ -62,7 +62,6 @@ class ConfigSerializer {
       'concurrency': {'maxParallelTurns': config.server.maxParallelTurns},
       'guardAudit': {'maxRetentionDays': config.security.guardAuditMaxRetentionDays},
       'tasks': {
-        'maxConcurrent': config.tasks.maxConcurrent,
         'artifactRetentionDays': config.tasks.artifactRetentionDays,
         'completionAction': config.tasks.completionAction,
         'worktree': {
@@ -140,6 +139,7 @@ class ConfigSerializer {
           'archiveAfterDays': config.memory.archiveAfterDays,
           'schedule': config.memory.pruningSchedule,
         },
+        'journal': {'enabled': config.memory.journalEnabled, 'schedule': config.memory.journalSchedule},
       },
       'knowledge': {
         'inbox': {

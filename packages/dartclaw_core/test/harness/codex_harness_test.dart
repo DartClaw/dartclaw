@@ -31,7 +31,7 @@ class _PassGuard extends Guard {
 }
 
 class _FailingWriteCodexProcess extends FakeCodexProcess {
-  _FailingWriteCodexProcess() : super(completeExitOnKill: true);
+  new() : super(completeExitOnKill: true);
 
   bool failWrites = false;
 
@@ -496,6 +496,124 @@ void main() {
         expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
       });
 
+      test('scoped instructions create and replace only the session thread', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(
+          process: fake,
+          harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
+        );
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final logicalAgentTurn = harness.turn(
+          sessionId: 'sess-persona',
+          messages: const [
+            {'role': 'user', 'content': 'search'},
+          ],
+          systemPrompt: 'SEARCH PERSONA',
+          model: 'gpt-5.6-luna',
+          effort: 'medium',
+        );
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake, threadId: 'persona-thread');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
+        await logicalAgentTurn;
+
+        final restored = harness.turn(
+          sessionId: 'sess-persona',
+          messages: const [
+            {'role': 'user', 'content': 'ordinary'},
+          ],
+          systemPrompt: '',
+        );
+        await _pumpUntilSentMessageCount(fake, 'thread/start', 2);
+        fake.emitThreadStartResponse(id: latestRequestId(fake, 'thread/start'), threadId: 'default-thread');
+        await pumpEventLoop();
+        fake.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
+        await restored;
+
+        final threadStarts = fake.sentMessages.where((message) => message['method'] == 'thread/start').toList();
+        final turnStarts = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
+        expect((threadStarts[0]['params'] as Map<String, dynamic>)['developerInstructions'], 'SEARCH PERSONA');
+        expect((threadStarts[1]['params'] as Map<String, dynamic>).containsKey('developerInstructions'), isFalse);
+        expect((turnStarts[0]['params'] as Map<String, dynamic>)['model'], 'gpt-5.6-luna');
+        expect((turnStarts[0]['params'] as Map<String, dynamic>)['effort'], 'medium');
+        expect((turnStarts[1]['params'] as Map<String, dynamic>)['threadId'], 'default-thread');
+      });
+
+      test('primary memory revision replaces only its stale thread with full developer instructions', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(
+          process: fake,
+          harnessConfig: const HarnessConfig(appendSystemPrompt: 'SAFE STATIC CONTENT'),
+        );
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        Future<void> completeTurn(String sessionId, String prompt, String threadId) async {
+          final expectedThreadStarts =
+              fake.sentMessages.where((message) => message['method'] == 'thread/start').length + 1;
+          final turn = harness.turn(
+            sessionId: sessionId,
+            messages: const [
+              {'role': 'user', 'content': 'hello'},
+            ],
+            systemPrompt: prompt,
+          );
+          await _pumpUntilSentMessageCount(fake, 'thread/start', expectedThreadStarts);
+          fake.emitThreadStartResponse(id: latestRequestId(fake, 'thread/start'), threadId: threadId);
+          await pumpEventLoop();
+          fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+          await turn;
+        }
+
+        await completeTurn('primary', 'SAFE STATIC CONTENT\n\nCollection revision: 41', 'primary-41');
+        await completeTurn('other', 'OTHER STATIC CONTENT', 'other-thread');
+        await completeTurn('primary', 'SAFE STATIC CONTENT\n\nCollection revision: 42', 'primary-42');
+
+        final threadStarts = fake.sentMessages.where((message) => message['method'] == 'thread/start').toList();
+        final turnStarts = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
+        expect(threadStarts, hasLength(3));
+        expect(
+          (threadStarts[2]['params'] as Map<String, dynamic>)['developerInstructions'],
+          'SAFE STATIC CONTENT\n\nCollection revision: 42',
+        );
+        expect(
+          (threadStarts[2]['params'] as Map<String, dynamic>)['developerInstructions'],
+          isNot(contains('revision: 41')),
+        );
+        expect((turnStarts[2]['params'] as Map<String, dynamic>)['threadId'], 'primary-42');
+        expect((turnStarts[2]['params'] as Map<String, dynamic>).containsKey('system_prompt'), isFalse);
+      });
+
+      test('explicit non-primary instructions displace configured primary memory', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(
+          process: fake,
+          harnessConfig: const HarnessConfig(appendSystemPrompt: 'PRIVATE MEMORY SENTINEL\n\nCollection revision: 42'),
+        );
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final turn = harness.turn(
+          sessionId: 'restricted',
+          messages: const [
+            {'role': 'user', 'content': 'background work'},
+          ],
+          systemPrompt: 'SAFE RESTRICTED CONTENT',
+        );
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake, threadId: 'restricted-thread');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+        await turn;
+
+        final threadStart = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
+        final instructions = (threadStart['params'] as Map<String, dynamic>)['developerInstructions'] as String;
+        expect(instructions, 'SAFE RESTRICTED CONTENT');
+        expect(instructions, isNot(contains('PRIVATE MEMORY SENTINEL')));
+        expect(instructions, isNot(contains('Collection revision: 42')));
+      });
+
       test('resetSessionContinuity starts a fresh thread for the session', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
@@ -579,7 +697,7 @@ void main() {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(
           process: fake,
-          providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
+          providerOptions: const {'sandbox': ' workspace-write ', 'approval': ' on-request '},
         );
         addTearDown(() async => harness.dispose());
         await startHarness(harness, fake);
@@ -599,9 +717,13 @@ void main() {
         await pumpEventLoop();
         await respondToLatestThreadStart(fake);
 
+        final threadStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
+        final threadParams = threadStartMessage['params'] as Map<String, dynamic>;
         final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
         final params = turnStartMessage['params'] as Map<String, dynamic>;
 
+        expect(threadParams['sandbox'], 'workspace-write');
+        expect(threadParams['approvalPolicy'], 'on-request');
         expect(params['input'], [
           {'type': 'text', 'text': 'current ask'},
         ]);

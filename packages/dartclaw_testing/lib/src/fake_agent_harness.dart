@@ -15,8 +15,11 @@ class FakeAgentHarness extends AgentHarness {
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvokedCompleter = Completer<void>();
 
+  @override
+  bool get isRootProcessTerminationConfirmed => true;
+
   /// Creates a fake harness with optional lifecycle and prompt configuration.
-  FakeAgentHarness({
+  new({
     PromptStrategy promptStrategy = PromptStrategy.replace,
     WorkerState initialState = WorkerState.idle,
     bool autoTransitionState = true,
@@ -51,6 +54,9 @@ class FakeAgentHarness extends AgentHarness {
 
   /// Most recent turn session id.
   String? lastSessionId;
+
+  /// Most recent logical-agent ID.
+  String? lastAgentId;
 
   /// Most recent turn message payload.
   List<Map<String, dynamic>>? lastMessages;
@@ -127,6 +133,7 @@ class FakeAgentHarness extends AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -136,6 +143,7 @@ class FakeAgentHarness extends AgentHarness {
   }) {
     turnCallCount += 1;
     lastSessionId = sessionId;
+    lastAgentId = agentId;
     lastMessages = List<Map<String, dynamic>>.unmodifiable(
       messages.map((message) => Map<String, dynamic>.from(message)),
     );

@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -32,6 +32,7 @@ void main() {
       final memory = json['memory'] as Map<String, dynamic>;
       expect(memory['maxBytes'], 32 * 1024);
       expect(memory['pruning'], {'enabled': true, 'archiveAfterDays': 90, 'schedule': '0 3 * * *'});
+      expect(memory['journal'], {'enabled': false, 'schedule': '0 22 * * *'});
 
       // Nested sections
       final agent = json['agent'] as Map<String, dynamic>;
@@ -57,7 +58,6 @@ void main() {
       expect(guardAudit.containsKey('maxEntries'), isFalse);
 
       final tasks = json['tasks'] as Map<String, dynamic>;
-      expect(tasks['maxConcurrent'], 3);
       expect(tasks['artifactRetentionDays'], 0);
       expect(tasks['worktree'], {'baseRef': 'main', 'staleTimeoutHours': 24, 'mergeStrategy': 'squash'});
 
@@ -209,7 +209,6 @@ void main() {
         auth: AuthConfig(cookieSecure: true, trustedProxies: ['192.168.1.100']),
         security: SecurityConfig(guardAuditMaxRetentionDays: 14),
         tasks: TaskConfig(
-          maxConcurrent: 5,
           artifactRetentionDays: 90,
           worktreeBaseRef: 'develop',
           worktreeStaleTimeoutHours: 72,
@@ -223,7 +222,6 @@ void main() {
       expect((json['auth'] as Map<String, dynamic>)['trustedProxies'], ['192.168.1.100']);
       expect((json['guardAudit'] as Map<String, dynamic>)['maxRetentionDays'], 14);
       expect((json['guardAudit'] as Map<String, dynamic>).containsKey('maxEntries'), isFalse);
-      expect((json['tasks'] as Map<String, dynamic>)['maxConcurrent'], 5);
       expect((json['tasks'] as Map<String, dynamic>)['artifactRetentionDays'], 90);
       expect((json['tasks'] as Map<String, dynamic>)['worktree'], {
         'baseRef': 'develop',
@@ -512,8 +510,7 @@ channels:
             'google_chat': _googleChatChannelConfig(
               const GoogleChatConfig(
                 enabled: true,
-                serviceAccount:
-                    '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
+                serviceAccount: '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
                 audience: GoogleChatAudienceConfig(mode: GoogleChatAudienceMode.projectNumber, value: '123456789'),
               ),
             ),

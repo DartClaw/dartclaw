@@ -54,6 +54,12 @@ Before a pluggable backend is viable, these coupling points must be abstracted:
 
 ## Decision
 
+### 0.24 memory preservation constraint (2026-08-12)
+
+Any 0.25 backend work must preserve the file-canonical memory collection, stable entry identity/revision/provenance,
+natural-language search input, source-resolvable locators, derived-index health evidence, and stopped-runtime rebuild
+contract. A database backend may replace a derived projection; it must not become canonical personal-memory authority.
+
 **Introduce a `DatabaseBackend` abstraction; ship SQLite as the default implementation; add PostgreSQL as an opt-in backend.** Everything above the abstraction layer is backend-agnostic.
 
 ### Abstraction Shape (sketch)

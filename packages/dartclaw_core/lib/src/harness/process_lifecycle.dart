@@ -25,7 +25,7 @@ final class ProcessTerminationResult {
   final bool processTreeTerminationAccepted;
 
   /// Creates a process termination result.
-  const ProcessTerminationResult({
+  const new({
     required this.initialTerminationAccepted,
     required this.exitConfirmed,
     required this.hardTerminationUsed,

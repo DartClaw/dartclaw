@@ -81,52 +81,49 @@ void main() {
 
     tearDown(() => fixture.dispose());
 
-    test(
-      'second promotion conflicts when both stories append to STATE.md (locks in current behaviour — spec for merge-resolve)',
-      () async {
-        // Both stories modify STATE.md — the append-only case a naive
-        // mechanical strategy could arguably handle with merge=union, but
-        // which git's default three-way merge treats as a conflict because
-        // both sides added content at the same end-of-file anchor.
-        await fixture.createStoryBranch(
-          'S01',
-          committedFiles: {
-            'src/a.dart': 'void a() {}\n',
-            'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s01: added A\n',
-          },
-        );
-        await fixture.createStoryBranch(
-          'S02',
-          committedFiles: {
-            'src/b.dart': 'void b() {}\n',
-            'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s02: added B\n',
-          },
-        );
+    test('second promotion conflicts when both stories append to STATE.md (locks in current behaviour — spec for merge-resolve)', () async {
+      // Both stories modify STATE.md — the append-only case a naive
+      // mechanical strategy could arguably handle with merge=union, but
+      // which git's default three-way merge treats as a conflict because
+      // both sides added content at the same end-of-file anchor.
+      await fixture.createStoryBranch(
+        'S01',
+        committedFiles: {
+          'src/a.dart': 'void a() {}\n',
+          'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s01: added A\n',
+        },
+      );
+      await fixture.createStoryBranch(
+        'S02',
+        committedFiles: {
+          'src/b.dart': 'void b() {}\n',
+          'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s02: added B\n',
+        },
+      );
 
-        final resultS01 = await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S01'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S01',
-        );
-        expect(resultS01, isA<WorkflowGitPromotionSuccess>(), reason: 'First promotion has a clean merge base.');
+      final resultS01 = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S01'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S01',
+      );
+      expect(resultS01, isA<WorkflowGitPromotionSuccess>(), reason: 'First promotion has a clean merge base.');
 
-        final resultS02 = await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S02'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S02',
-        );
+      final resultS02 = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S02'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S02',
+      );
 
-        expect(resultS02, isA<WorkflowGitPromotionConflict>());
-        final conflict = resultS02 as WorkflowGitPromotionConflict;
-        expect(conflict.conflictingFiles, contains('docs/STATE.md'));
-      },
-    );
+      expect(resultS02, isA<WorkflowGitPromotionConflict>());
+      final conflict = resultS02 as WorkflowGitPromotionConflict;
+      expect(conflict.conflictingFiles, contains('docs/STATE.md'));
+    });
 
     test('second promotion conflicts when both stories flip the same STATE.md line in incompatible ways', () async {
       // Both stories modify the same line in STATE.md to different values —

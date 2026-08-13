@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -19,6 +21,8 @@ TurnTrace _makeTrace({
   bool isError = false,
   String? errorType,
   List<ToolCallRecord> toolCalls = const [],
+  int? toolCallCount,
+  int? failedToolCallCount,
 }) {
   final start = startedAt ?? DateTime.utc(2026, 3, 24, 10, 0, 0);
   final end = endedAt ?? start.add(const Duration(seconds: 5));
@@ -38,6 +42,8 @@ TurnTrace _makeTrace({
     isError: isError,
     errorType: errorType,
     toolCalls: toolCalls,
+    toolCallCount: toolCallCount,
+    failedToolCallCount: failedToolCallCount,
   );
 }
 
@@ -233,6 +239,52 @@ void main() {
     expect(restored.toolCalls[0].success, isTrue);
     expect(restored.toolCalls[1].name, 'edit');
     expect(restored.toolCalls[1].errorType, 'tool_error');
+  });
+
+  test('bounded records persist exact counts and aggregate all invocations', () async {
+    final retained = [
+      for (var index = 0; index < 63; index++) ToolCallRecord(name: 'tool-$index', success: true, durationMs: index),
+      ToolCallRecord(name: 'tool-69', success: true, durationMs: 69),
+    ];
+    await service.insert(
+      _makeTrace(
+        id: 'trace-bounded',
+        taskId: 'task-bounded',
+        toolCalls: retained,
+        toolCallCount: 70,
+        failedToolCallCount: 2,
+      ),
+    );
+
+    final result = await service.query(taskId: 'task-bounded');
+    final restored = result.traces.single;
+    expect(result.summary.totalToolCalls, 70);
+    expect(restored.toolCallCount, 70);
+    expect(restored.failedToolCallCount, 2);
+    expect(restored.toolCalls, hasLength(64));
+    expect(restored.toolCalls.first.name, 'tool-0');
+    expect(restored.toolCalls[62].name, 'tool-62');
+    expect(restored.toolCalls.last.name, 'tool-69');
+    expect(restored.toolCallsTruncated, isTrue);
+  });
+
+  test('legacy tool_calls list rows retain list-derived counts', () async {
+    final legacyRecords = [
+      ToolCallRecord(name: 'read', success: true, durationMs: 1),
+      ToolCallRecord(name: 'write', success: false, durationMs: 2, errorType: 'tool_error'),
+    ];
+    await service.insert(_makeTrace(id: 'trace-legacy', taskId: 'task-legacy'));
+    db.execute('UPDATE turns SET tool_calls = ? WHERE id = ?', [
+      jsonEncode(legacyRecords.map((record) => record.toJson()).toList()),
+      'trace-legacy',
+    ]);
+
+    final result = await service.query(taskId: 'task-legacy');
+    final restored = result.traces.single;
+    expect(result.summary.totalToolCalls, 2);
+    expect(restored.toolCallCount, 2);
+    expect(restored.failedToolCallCount, 1);
+    expect(restored.toolCallsTruncated, isFalse);
   });
 
   test('summaryForTask with no traces returns zero-initialized summary', () async {

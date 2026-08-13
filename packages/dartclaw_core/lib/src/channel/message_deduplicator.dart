@@ -27,7 +27,7 @@ class MessageDeduplicator {
   /// Creates a deduplicator with the given [capacity].
   ///
   /// [capacity] is clamped to a minimum of 1. Defaults to [defaultCapacity] (1000).
-  MessageDeduplicator({int capacity = defaultCapacity}) : _capacity = capacity < 1 ? 1 : capacity;
+  new({int capacity = defaultCapacity}) : _capacity = capacity < 1 ? 1 : capacity;
 
   /// Attempts to process a message with the given [resourceName].
   ///

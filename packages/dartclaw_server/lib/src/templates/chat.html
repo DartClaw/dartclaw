@@ -117,6 +117,8 @@
          sse-swap="tool_use" hx-swap="beforeend">
     </div>
     <div sse-swap="tool_result" hx-swap="none"></div>
+    <div sse-swap="turn_cancelled" hx-swap="none"
+         data-action="htmx:sseMessage->dc-chat#handleTurnCancelled"></div>
     <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden
          data-action="htmx:afterSwap->dc-chat#handleTurnError"></div>
   </div>

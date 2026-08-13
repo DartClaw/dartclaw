@@ -16,7 +16,7 @@ class ConfigCommand extends Command<void> {
   @override
   String get description => 'Generate deployment configuration files';
 
-  ConfigCommand() {
+  new() {
     argParser
       ..addOption('host', defaultsTo: 'localhost', help: 'Host to bind to')
       ..addOption('port', defaultsTo: '3333', help: 'Port to listen on')

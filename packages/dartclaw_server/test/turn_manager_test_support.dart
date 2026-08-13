@@ -11,6 +11,7 @@ class FakeWorkerService implements AgentHarness {
   Completer<void> _turnInvoked = Completer<void>();
   bool cancelCalled = false;
   int turnCalls = 0;
+  String? lastSystemPrompt;
 
   /// Resolves when the next [turn] call arrives (after composeSystemPrompt completes).
   Future<void> get turnInvoked => _turnInvoked.future;
@@ -40,6 +41,9 @@ class FakeWorkerService implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -50,6 +54,7 @@ class FakeWorkerService implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -58,6 +63,7 @@ class FakeWorkerService implements AgentHarness {
     int? maxTurns,
   }) {
     turnCalls++;
+    lastSystemPrompt = systemPrompt;
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnInvoked.isCompleted) _turnInvoked.complete();
     return _turnCompleter!.future;
@@ -135,6 +141,9 @@ class AppendStrategyWorker implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -145,6 +154,7 @@ class AppendStrategyWorker implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,

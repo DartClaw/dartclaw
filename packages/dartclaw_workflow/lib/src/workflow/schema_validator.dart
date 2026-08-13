@@ -3,7 +3,7 @@
 /// Returns a list of warning strings. Empty list means valid.
 /// Does NOT throw — all mismatches are warnings, not errors.
 class SchemaValidator {
-  const SchemaValidator();
+  const new();
 
   /// JSON Schema keywords supported by this validator.
   static const _supportedKeywords = {

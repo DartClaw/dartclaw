@@ -5,6 +5,17 @@ import 'guard_verdict.dart';
 
 final _log = Logger('NetworkGuard');
 
+/// Whether [host] is a literal loopback host name or address.
+///
+/// [host] must be a bare host — no port, and IPv6 without brackets (the shape
+/// `Uri.host` yields). Matching is case-insensitive but literal only: names are
+/// never resolved, so a hostname that merely resolves to a loopback address is
+/// still rejected (fails closed against DNS rebinding).
+bool isLoopbackHost(String host) {
+  final normalized = host.toLowerCase();
+  return normalized == 'localhost' || normalized == '127.0.0.1' || normalized == '::1';
+}
+
 // ---------------------------------------------------------------------------
 // NetworkGuardConfig
 // ---------------------------------------------------------------------------
@@ -21,14 +32,14 @@ class NetworkGuardConfig {
   final Map<String, Set<String>> agentOverrides;
 
   /// Creates a network guard configuration from precompiled rules.
-  NetworkGuardConfig({required this.allowedDomains, required this.exfilPatterns, this.agentOverrides = const {}});
+  new({required this.allowedDomains, required this.exfilPatterns, this.agentOverrides = const {}});
 
   /// Hardcoded safe defaults.
-  factory NetworkGuardConfig.defaults() =>
+  factory defaults() =>
       NetworkGuardConfig(allowedDomains: {..._defaultAllowedDomains}, exfilPatterns: _defaultExfilPatterns);
 
   /// Merges extra config from YAML with defaults.
-  factory NetworkGuardConfig.fromYaml(Map<String, dynamic> yaml) {
+  factory fromYaml(Map<String, dynamic> yaml) {
     final defaults = NetworkGuardConfig.defaults();
 
     // Extra allowed domains
@@ -131,7 +142,7 @@ class NetworkGuard extends Guard {
   final NetworkGuardConfig config;
 
   /// Creates a network guard with defaults unless overridden.
-  NetworkGuard({NetworkGuardConfig? config}) : config = config ?? NetworkGuardConfig.defaults();
+  new({NetworkGuardConfig? config}) : config = config ?? NetworkGuardConfig.defaults();
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {
@@ -140,19 +151,21 @@ class NetworkGuard extends Guard {
     final toolName = context.toolName;
     final toolInput = context.toolInput;
     if (toolName == null || toolInput == null) return GuardVerdict.pass();
+    final agentDomains = config.agentOverrides[context.agentId];
+    final allowedDomains = agentDomains == null ? config.allowedDomains : {...config.allowedDomains, ...agentDomains};
 
     if (toolName == 'shell') {
-      return _evaluateBash(toolInput['command'] as String? ?? '');
+      return _evaluateBash(toolInput['command'] as String? ?? '', allowedDomains);
     }
 
     if (toolName == 'web_fetch') {
-      return _evaluateWebFetch(toolInput['url'] as String? ?? '');
+      return _evaluateWebFetch(toolInput['url'] as String? ?? '', allowedDomains);
     }
 
     return GuardVerdict.pass();
   }
 
-  GuardVerdict _evaluateBash(String command) {
+  GuardVerdict _evaluateBash(String command, Set<String> allowedDomains) {
     if (command.isEmpty) return GuardVerdict.pass();
 
     // Check exfiltration patterns first (command-structure checks)
@@ -165,23 +178,23 @@ class NetworkGuard extends Guard {
     // Extract URLs and check domains
     final urls = _extractUrlsFromBash(command);
     for (final url in urls) {
-      final verdict = _checkUrl(url);
+      final verdict = _checkUrl(url, allowedDomains);
       if (verdict != null) return verdict;
     }
 
     return GuardVerdict.pass();
   }
 
-  GuardVerdict _evaluateWebFetch(String url) {
+  GuardVerdict _evaluateWebFetch(String url, Set<String> allowedDomains) {
     if (url.isEmpty) return GuardVerdict.pass();
-    return _checkUrl(url) ?? GuardVerdict.pass();
+    return _checkUrl(url, allowedDomains) ?? GuardVerdict.pass();
   }
 
   // -------------------------------------------------------------------------
   // URL checking
   // -------------------------------------------------------------------------
 
-  GuardVerdict? _checkUrl(String urlString) {
+  GuardVerdict? _checkUrl(String urlString, Set<String> allowedDomains) {
     // Prepend scheme if missing (for IP detection)
     var toParse = urlString;
     if (!toParse.contains('://')) toParse = 'http://$toParse';
@@ -197,7 +210,7 @@ class NetworkGuard extends Guard {
     }
 
     // Check domain against allowlist
-    if (!_isDomainAllowed(host, config.allowedDomains)) {
+    if (!_isDomainAllowed(host, allowedDomains)) {
       return GuardVerdict.block('Network blocked: domain not in allowlist ($host)');
     }
 

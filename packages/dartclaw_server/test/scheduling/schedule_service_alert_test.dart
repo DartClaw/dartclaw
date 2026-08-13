@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -11,7 +11,13 @@ import 'package:test/test.dart';
 
 class _FakeSessionService implements SessionService {
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
     return Session(id: 'fake-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
   }
 

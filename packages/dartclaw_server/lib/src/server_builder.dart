@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show MemoryPruner, MemoryService, TaskEventService, TemporalKnowledgeGraphService, TurnTraceService;
@@ -17,7 +17,8 @@ import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
-import 'harness_pool.dart' show HarnessPool;
+import 'execution_coordinator.dart' show ExecutionCoordinator;
+import 'execution_policy_resolver.dart' show ExecutionPolicyResolver;
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'observability/usage_tracker.dart';
@@ -28,7 +29,7 @@ import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'server.dart';
 import 'session/session_reset_service.dart';
-import 'task/agent_observer.dart';
+import 'task/runner_observer.dart';
 import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_event_recorder.dart';
@@ -56,7 +57,11 @@ class DartclawServerBuilder {
   BehaviorFileService? behavior;
 
   // Turn management (optional — if not set, uses sessions/worker/behavior)
-  HarnessPool? pool;
+  ExecutionCoordinator? executions;
+
+  /// Resolves pinned-session placement. Absent in single-harness compositions,
+  /// which follow the primary runner.
+  ExecutionPolicyResolver? policyResolver;
   SessionService? sessionsForTurns;
   SessionLockManager? lockManager;
   ContextMonitor? contextMonitor;
@@ -80,8 +85,18 @@ class DartclawServerBuilder {
   /// (`startTurn(allowedTools:)`, `readOnly`) unenforced.
   ///
   /// Leave null when the host has no turn-scoped tool policies. Ignored when
-  /// [pool] is set — pool runners carry their own filters.
+  /// [executions] is set — managed runners carry their own filters.
   TaskToolFilterGuard? taskToolFilterGuard;
+
+  /// Where the injected [worker] actually runs, for the non-pool [buildTurns]
+  /// path.
+  ///
+  /// It is the runner's reported placement and its worker-reuse identity, so a
+  /// host that composed a container-backed harness itself must set it — the
+  /// builder cannot infer placement from an already-constructed [worker].
+  /// Defaults to host execution, which is what an SDK host composes otherwise.
+  /// Ignored when [executions] is set — managed runners carry their own policy.
+  ExecutionPolicy executionPolicy = const ExecutionPolicy.host();
 
   KvService? kv;
   MessageRedactor? redactor;
@@ -104,6 +119,8 @@ class DartclawServerBuilder {
   MemoryStatusService? memoryStatusService;
   MemoryPruner? memoryPruner;
   MemoryService? memoryService;
+  SearchBackend? searchBackend;
+  MemoryCorpusService? memoryCorpus;
   TemporalKnowledgeGraphService? kgService;
   ConfigWriter? configWriter;
   DartclawConfig? config;
@@ -125,7 +142,8 @@ class DartclawServerBuilder {
   TaskReviewService? taskReviewService;
   WorktreeManager? worktreeManager;
   TaskFileGuard? taskFileGuard;
-  AgentObserver? agentObserver;
+  RunnerObserver? runnerObserver;
+  Future<void> Function()? executionDrainer;
   MergeExecutor? mergeExecutor;
   String? mergeStrategy;
   String? baseRef;
@@ -167,8 +185,12 @@ class DartclawServerBuilder {
     final m = messages ?? (throw StateError('messages is required'));
     final w = worker ?? (throw StateError('worker is required'));
     final b = behavior ?? (throw StateError('behavior is required'));
-    _cachedTurns = pool != null
-        ? TurnManager.fromPool(pool: pool!, sessions: sessionsForTurns ?? s)
+    _cachedTurns = executions != null
+        ? TurnManager.fromCoordinator(
+            coordinator: executions!,
+            sessions: sessionsForTurns ?? s,
+            policyResolver: policyResolver,
+          )
         : TurnManager(
             messages: m,
             worker: w,
@@ -190,6 +212,7 @@ class DartclawServerBuilder {
             turnMonitor: config?.harness.turnMonitor ?? const TurnMonitorConfig.defaults(),
             globalTimeout: config == null ? null : Duration(seconds: config!.server.workerTimeout),
             eventBus: eventBus,
+            executionPolicy: executionPolicy,
           );
     resetService?.bindSessionContinuityResetter(_cachedTurns!.resetSessionContinuity);
     return _cachedTurns!;
@@ -240,7 +263,7 @@ class DartclawServerBuilder {
         guardChain: guardChain,
         webhookSecret: webhookSecret,
       ),
-      turn: ServerTurnDeps(pool: pool, turns: turns),
+      turn: ServerTurnDeps(executions: executions, turns: turns),
       channels: ServerChannelDeps(
         channelManager: channelManager,
         whatsAppChannel: whatsAppChannel,
@@ -256,7 +279,7 @@ class DartclawServerBuilder {
         taskReviewService: taskReviewService,
         worktreeManager: worktreeManager,
         taskFileGuard: taskFileGuard,
-        agentObserver: agentObserver,
+        runnerObserver: runnerObserver,
         mergeExecutor: mergeExecutor,
         mergeStrategy: mergeStrategy,
         baseRef: baseRef,
@@ -264,6 +287,7 @@ class DartclawServerBuilder {
         taskEventService: taskEventService,
         taskEventRecorder: eventRecorder,
         progressTracker: progressTracker,
+        executionDrainer: executionDrainer,
       ),
       observability: ServerObservabilityDeps(
         eventBus: eventBus,
@@ -273,6 +297,8 @@ class DartclawServerBuilder {
         memoryStatusService: memoryStatusService,
         memoryPruner: memoryPruner,
         memoryService: memoryService,
+        searchBackend: searchBackend,
+        memoryCorpus: memoryCorpus,
         heartbeat: heartbeat,
         scheduleService: scheduleService,
         gitSync: gitSync,

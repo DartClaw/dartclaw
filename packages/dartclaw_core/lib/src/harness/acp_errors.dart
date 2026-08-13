@@ -18,7 +18,7 @@ enum AcpHarnessErrorCode {
   /// Stable operator-visible code.
   final String code;
 
-  const AcpHarnessErrorCode(this.code);
+  new(this.code);
 }
 
 /// Structured exception raised by [AcpHarness] lifecycle failures.
@@ -33,7 +33,7 @@ final class AcpHarnessException implements Exception {
   final Map<String, Object?> diagnostics;
 
   /// Creates an ACP harness exception.
-  const AcpHarnessException(this.errorCode, this.message, {this.diagnostics = const <String, Object?>{}});
+  const new(this.errorCode, this.message, {this.diagnostics = const <String, Object?>{}});
 
   /// Stable operator-visible code string.
   String get code => errorCode.code;

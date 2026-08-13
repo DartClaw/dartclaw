@@ -36,7 +36,7 @@ class ThreadBindingLifecycleManager {
   ///   (default: 1 hour).
   /// [cleanupInterval] — how often the idle-timeout sweep runs
   ///   (default: 5 minutes).
-  ThreadBindingLifecycleManager({
+  new({
     required ThreadBindingStore store,
     required EventBus eventBus,
     Duration idleTimeout = const Duration(hours: 1),

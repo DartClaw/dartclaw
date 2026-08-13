@@ -7,6 +7,7 @@ export 'citation_packet.dart'
         CitationPacket,
         CitationSourceResolver,
         CitationSourceIndexResolver;
+export 'live_citation_source_resolver.dart' show LiveCitationSourceResolver;
 export 'context_research_tool.dart'
     show
         ContextResearchTool,
@@ -15,12 +16,11 @@ export 'context_research_tool.dart'
         ContextResearchCandidate,
         ContextResearchMetrics,
         ContextResearchMetricsSink;
-export 'delegate_to_agent_tool.dart' show DelegateToAgentTool, DelegationResultStatus, DelegationSecurityMode;
 export 'kg_tools.dart'
     show KgAddTool, KgQueryTool, KgTimelineTool, KgInvalidateTool, KgContradictionsTool, KgGuardEvaluator;
 export 'mcp_router.dart' show mcpRoute;
 export 'mcp_server.dart' show McpProtocolHandler;
-export 'memory_tools.dart' show MemoryHandler, MemorySaveTool, MemorySearchTool, MemoryReadTool;
+export 'memory_tools.dart' show MemoryHandler, MemoryObserveTool, MemoryApplyTool, MemorySearchTool, MemoryReadTool;
 export 'onboarding_complete_tool.dart' show OnboardingCompleteTool;
 export 'outbound/outbound_mcp_client.dart' show OutboundMcpClient, toToolResult;
 export 'outbound/outbound_mcp_errors.dart' show OutboundMcpException;
@@ -43,5 +43,6 @@ export 'outbound/outbound_mcp_tool_adapter.dart'
 export 'outbound/outbound_mcp_transport.dart' show OutboundMcpTransport, OutboundMcpTransportFactory;
 export 'search_provider.dart' show SearchProvider, SearchResult;
 export 'sessions_send_tool.dart' show SessionsSendTool;
+export 'sessions_spawn_tool.dart' show SessionsSpawnTool;
 export 'tavily_search_tool.dart' show TavilySearchProvider, TavilySearchTool;
 export 'web_fetch_tool.dart' show WebFetchTool;

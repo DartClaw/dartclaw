@@ -11,9 +11,9 @@ import 'package:uuid/uuid.dart';
 
 import '../behavior/behavior_file_service.dart';
 import '../container/container_dispatcher.dart';
-import '../turn_manager.dart' show TurnManager;
+import '../execution_coordinator.dart';
+import '../execution_policy_resolver.dart';
 import '../turn_runner.dart' show TurnRunner;
-import 'agent_observer.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
 import 'task_budget_policy.dart';
@@ -25,7 +25,6 @@ import 'task_executor_services.dart';
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_read_only_guard.dart';
-import 'task_runner_pool_coordinator.dart';
 import 'task_service.dart';
 import 'workflow_cli_runner.dart';
 import 'workflow_one_shot_runner.dart';
@@ -34,17 +33,12 @@ import 'worktree_manager.dart';
 
 part 'task_executor_helpers.dart';
 
-/// Executes queued tasks against the harness pool.
-///
-/// When `pool.maxConcurrentTasks > 0`, acquires a task runner from the pool.
-/// When `pool.maxConcurrentTasks == 0` (single-harness mode), falls back to
-/// using the primary runner directly when it is idle.
+/// Executes queued tasks through the shared execution authority.
 class TaskExecutor {
-  TaskExecutor({
+  new({
     required TaskExecutorServices services,
     required TaskExecutorRunners runners,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
-    SpawnTaskRunner? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
     String? dataDir,
@@ -53,18 +47,15 @@ class TaskExecutor {
        _goals = services.goals,
        _sessions = services.sessions,
        _messages = services.messages,
-       _turns = runners.turns,
-       _pool = runners.turns.pool,
+       _executions = runners.turns.executions,
        _artifactCollector = services.artifactCollector,
        _worktreeManager = services.worktreeManager,
        _taskFileGuard = services.taskFileGuard,
-       _observer = runners.observer,
        _traceService = services.traceService,
        _eventRecorder = services.eventRecorder,
        _workflowCliRunner = runners.workflowCliRunner,
        _workflowStepExecutionRepository = services.workflowStepExecutionRepository,
        _workflowRunRepository = services.workflowRunRepository,
-       _onSpawnNeeded = onSpawnNeeded,
        _onAutoAccept = onAutoAccept,
        _projectService = services.projectService,
        _workspaceRoot = workspaceRoot,
@@ -73,6 +64,7 @@ class TaskExecutor {
        _identifierPreservation = limits.identifierPreservation,
        _identifierInstructions = limits.identifierInstructions,
        _kv = services.kvService,
+       _policyResolver = services.policyResolver,
        _budgetConfig = limits.budgetConfig,
        _defaultProviderId = limits.defaultProviderId,
        _stallTimeout = limits.stallTimeout,
@@ -88,18 +80,16 @@ class TaskExecutor {
   final GoalService? _goals;
   final SessionService _sessions;
   final MessageService _messages;
-  final TurnManager _turns;
-  final HarnessPool _pool;
+  final ExecutionCoordinator _executions;
+  final ExecutionPolicyResolver? _policyResolver;
   final ArtifactCollector _artifactCollector;
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
-  final AgentObserver? _observer;
   final TurnTraceService? _traceService;
   final TaskEventRecorder? _eventRecorder;
   final WorkflowCliRunner? _workflowCliRunner;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final WorkflowRunRepository? _workflowRunRepository;
-  final SpawnTaskRunner? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
   final String? _workspaceRoot;
@@ -116,12 +106,6 @@ class TaskExecutor {
   final EventBus? _eventBus;
   final String? _dataDir;
   final Duration pollInterval;
-  late final TaskRunnerPoolCoordinator _runnerPoolCoordinator = TaskRunnerPoolCoordinator(
-    pool: _pool,
-    onSpawnNeeded: _onSpawnNeeded,
-    onProviderUnavailable: _recordProviderUnavailable,
-    log: _log,
-  );
   late final TaskFailureHandler _failureHandler = TaskFailureHandler(
     tasks: _tasks,
     eventRecorder: _eventRecorder,
@@ -154,7 +138,8 @@ class TaskExecutor {
 
   Timer? _timer;
   Future<bool>? _inFlightPoll;
-  final Set<Future<void>> _activePoolTasks = <Future<void>>{};
+  final Set<Future<void>> _activeExecutionTasks = <Future<void>>{};
+  final Set<String> _providerUnavailableTaskIds = <String>{};
 
   void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding) {
     _worktreeBinder.hydrate(binding);
@@ -169,11 +154,19 @@ class TaskExecutor {
   }
 
   Future<void> stop() async {
+    stopPolling();
+    await drain();
+  }
+
+  void stopPolling() {
     _timer?.cancel();
     _timer = null;
+  }
+
+  Future<void> drain() async {
     await _inFlightPoll;
-    while (_activePoolTasks.isNotEmpty) {
-      await Future.wait(List<Future<void>>.from(_activePoolTasks), eagerError: false);
+    while (_activeExecutionTasks.isNotEmpty) {
+      await Future.wait(List<Future<void>>.from(_activeExecutionTasks), eagerError: false);
     }
   }
 
@@ -199,65 +192,10 @@ class TaskExecutor {
   }
 
   Future<bool> _pollOnceInner() async {
-    // Pool mode: dispatch as many queued tasks as there are compatible idle runners.
-    if (_pool.maxConcurrentTasks > 0) {
-      final queued = await _queuedTasks();
-      if (queued.isEmpty) return false;
-
-      String? requestedProviderId;
-      for (final task in queued) {
-        final effectiveProviderId = _effectivePoolProviderForTask(task);
-        if (effectiveProviderId != null) {
-          requestedProviderId = effectiveProviderId;
-          break;
-        }
-      }
-      _runnerPoolCoordinator.triggerSpawnIfNeeded(requestedProviderId);
-
-      var didWork = false;
-      for (final task in queued) {
-        final disposition = await _prepareQueuedTask(task);
-        if (disposition == _QueuedTaskDisposition.waiting) {
-          continue;
-        }
-        if (disposition == _QueuedTaskDisposition.handled) {
-          didWork = true;
-          continue;
-        }
-
-        final profile = resolveProfile(task.type);
-        final effectiveProviderId = _effectivePoolProviderForTask(task);
-        final runner =
-            _runnerPoolCoordinator.acquireRunnerForTask(task, profile, effectiveProviderId: effectiveProviderId)
-                as TurnRunner?;
-        if (runner == null) {
-          continue;
-        }
-        _runnerPoolCoordinator.clearWaitLog(task.id);
-
-        final runnerIndex = _pool.indexOf(runner);
-        final runningTask = await _checkout(task);
-        if (runningTask == null) {
-          _pool.release(runner);
-          continue;
-        }
-
-        didWork = true;
-        _observer?.markBusy(runnerIndex, taskId: runningTask.id);
-        _trackPoolTask(_runPoolTask(runningTask, runner, runnerIndex: runnerIndex));
-      }
-      return didWork;
-    }
-
-    // Single-harness fallback: use primary runner directly when idle.
-    if (_turns.activeSessionIds.isNotEmpty) {
-      return false;
-    }
-
     final queued = await _queuedTasks();
     if (queued.isEmpty) return false;
-
     var didWork = false;
+    final unavailableWorkerProfiles = <String>{};
     for (final task in queued) {
       final disposition = await _prepareQueuedTask(task);
       if (disposition == _QueuedTaskDisposition.waiting) {
@@ -268,21 +206,69 @@ class TaskExecutor {
         continue;
       }
 
-      _observer?.markBusy(0, taskId: task.id);
-      final runningTask = await _checkout(task);
-      if (runningTask == null) {
-        _observer?.markIdle(0);
+      final hydratedTask = await _hydrateWorkflowStepExecution(task);
+      final preparedTask = await _prepareExecutionSession(hydratedTask);
+      if (preparedTask == null) {
+        didWork = true;
         continue;
       }
-
-      try {
-        await _execute(runningTask);
-        return true;
-      } finally {
-        _observer?.markIdle(0);
+      final provider = _effectiveProviderForTask(preparedTask);
+      if (provider == null) {
+        if (_providerUnavailableTaskIds.add(preparedTask.id)) {
+          _recordProviderUnavailable(preparedTask, 'Task has no configured execution provider');
+        }
+        continue;
       }
+      final ExecutionPolicy policy;
+      try {
+        policy = _executionPolicyForTask(preparedTask.type);
+      } on ExecutionPolicyException catch (error) {
+        if (_providerUnavailableTaskIds.add(preparedTask.id)) {
+          _recordProviderUnavailable(preparedTask, error.message);
+        }
+        continue;
+      }
+      final workerProfileKey = '$provider\u0000${policy.describe()}';
+      if (unavailableWorkerProfiles.contains(workerProfileKey)) {
+        continue;
+      }
+      final isWorkflow = _isWorkflowOrchestrated(preparedTask);
+      ExecutionLease? lease;
+      try {
+        lease = await _executions.acquire(
+          ExecutionRequest(
+            surface: isWorkflow ? ExecutionSurface.workflow : ExecutionSurface.task,
+            providerId: provider,
+            policy: policy,
+            sessionId: preparedTask.sessionId!,
+            admission: ExecutionAdmission.failFast,
+            taskId: preparedTask.id,
+            allowedTools: _allowedTools(preparedTask),
+          ),
+        );
+      } on StateError catch (error) {
+        unavailableWorkerProfiles.add(workerProfileKey);
+        if (_providerUnavailableTaskIds.add(preparedTask.id)) {
+          _recordProviderUnavailable(preparedTask, error.message);
+        }
+        continue;
+      } on WorkerCreationException catch (error) {
+        unavailableWorkerProfiles.add(workerProfileKey);
+        if (_providerUnavailableTaskIds.add(preparedTask.id)) {
+          _recordProviderUnavailable(preparedTask, error.message);
+        }
+        continue;
+      }
+      if (lease == null) continue;
+      _providerUnavailableTaskIds.remove(preparedTask.id);
+      final runningTask = await _checkout(preparedTask);
+      if (runningTask == null) {
+        await lease.release();
+        continue;
+      }
+      didWork = true;
+      _trackExecutionTask(_runLeasedTask(runningTask, lease));
     }
-
     return didWork;
   }
 
@@ -296,22 +282,41 @@ class TaskExecutor {
     return queued;
   }
 
-  String? _effectivePoolProviderForTask(Task task) {
+  String? _effectiveProviderForTask(Task task) {
     final provider = task.provider;
-    if (provider != null && provider.trim().isNotEmpty) return provider;
-    if (_isWorkflowOrchestrated(task)) {
-      final defaultProvider = _defaultProviderId;
-      if (defaultProvider != null && defaultProvider.trim().isNotEmpty) return defaultProvider;
+    if (provider != null) {
+      if (provider.trim().isEmpty) return null;
+      return ProviderIdentity.normalize(provider);
     }
-    return null;
+    final defaultProvider = _defaultProviderId;
+    if (defaultProvider != null && defaultProvider.trim().isNotEmpty) {
+      return ProviderIdentity.normalize(defaultProvider);
+    }
+    return _executions.primary?.providerId;
   }
 
-  /// Shared task execution logic for both pool-mode and single-harness paths.
+  /// The effective policy for background work carrying no logical-agent
+  /// identity, honoring the configured task-type fallback.
+  ///
+  /// Single-harness, SDK, and standalone compositions carry no resolver and no
+  /// configuration to resolve against. They take the primary runner's real mode
+  /// and, in container mode, the same built-in per-task-type profile default the
+  /// resolver applies — never an operator precedence rule, which only the
+  /// resolver owns.
+  ExecutionPolicy _executionPolicyForTask(TaskType type) {
+    final resolver = _policyResolver;
+    if (resolver != null) return resolver.resolveForTaskType(type);
+    final primary = _executions.primary?.executionPolicy;
+    if (primary == null || !primary.isContainer) return const ExecutionPolicy.host();
+    return ExecutionPolicy.container(resolveProfile(type));
+  }
+
+  /// Shared task execution logic for coordinated and single-harness paths.
   Future<void> _executeCore(
     Task runningTask, {
     required int runnerIndex,
     String? provider,
-    String? runnerProfileId,
+    ExecutionPolicy? runnerPolicy,
     required Future<String> Function(
       String sessionId, {
       String? directory,
@@ -319,6 +324,8 @@ class TaskExecutor {
       String? effort,
       String? taskId,
       BehaviorFileService? behaviorOverride,
+      required List<String>? allowedTools,
+      required bool readOnly,
       PromptScope? promptScope,
     })
     reserveTurn,
@@ -331,14 +338,14 @@ class TaskExecutor {
     })
     executeTurn,
     required Future<TurnOutcome> Function(String sessionId, String turnId) waitForOutcome,
-    void Function(List<String>?)? setTaskToolFilter,
-    void Function(bool)? setTaskReadOnly,
+    Future<void> Function(String sessionId, String turnId)? waitForExecutionSettled,
+    RootProcessTerminationObserver? onRootProcessTerminationConfirmed,
   }) async {
-    var task = await _hydrateWorkflowStepExecution(runningTask);
+    var task = runningTask;
     _log.info(
       'Task execution start: ${task.id} "${task.title}" '
       'type=${task.type.name}, provider=${provider ?? "default"}, '
-      'profile=${runnerProfileId ?? "none"}',
+      'execution=${runnerPolicy?.describe() ?? "unresolved"}',
     );
     WorktreeInfo? worktreeInfo;
     Project? project;
@@ -497,31 +504,15 @@ class TaskExecutor {
 
       readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
 
-      // continueSession: reuse the root session from the preceding agent step.
-      final continueSessionId = TaskConfigView(task, log: _log).continueSessionId;
-      final Session session;
-      if (continueSessionId != null) {
-        final existing = await _sessions.getSession(continueSessionId);
-        if (existing == null || existing.type == SessionType.archive) {
-          await _failureHandler.markFailedOrRetry(
-            task,
-            errorSummary:
-                'continueSession: session "$continueSessionId" not found or archived. '
-                'Ensure the preceding step completed successfully before this step runs.',
-            retryable: false,
-          );
-          return;
-        }
-        session = existing;
-      } else {
-        session = await _sessions.getOrCreateByKey(
-          SessionKey.taskSession(taskId: runningTask.id),
-          type: SessionType.task,
+      final sessionId = task.sessionId;
+      final session = sessionId == null ? null : await _sessions.getSession(sessionId);
+      if (session == null || session.type == SessionType.archive) {
+        await _failureHandler.markFailedOrRetry(
+          task,
+          errorSummary: 'Task execution session "$sessionId" not found or archived',
+          retryable: false,
         );
-      }
-
-      if (task.sessionId != session.id) {
-        task = await _tasks.updateFields(task.id, sessionId: session.id);
+        return;
       }
 
       // Pre-turn budget check – fail-safe open policy.
@@ -560,7 +551,7 @@ class TaskExecutor {
             sessionId: session.id,
             pendingMessage: pendingMessage,
             provider: workflowProvider,
-            profileId: runnerProfileId ?? resolveProfile(task.type),
+            policy: runnerPolicy ?? _executionPolicyForTask(task.type),
             workingDirectory: worktreeInfo?.path ?? projectDirForTask,
             modelOverride: modelOverride,
             effortOverride: effortOverride,
@@ -570,6 +561,7 @@ class TaskExecutor {
             stallTimeout: _stallTimeout,
             stallAction: _stallAction,
             defaultStepTimeout: _defaultStepTimeout,
+            onRootProcessTerminationConfirmed: onRootProcessTerminationConfirmed,
           );
         } on StateError catch (error, stackTrace) {
           // A genuine one-shot provider failure must win even when dispose
@@ -584,7 +576,6 @@ class TaskExecutor {
           );
           return;
         }
-        _recordTurn(runnerIndex, outcome);
         if (outcome.status == TurnStatus.cancelled) {
           final current = await _tasks.get(task.id);
           if (current != null && !current.status.terminal) {
@@ -670,16 +661,13 @@ class TaskExecutor {
               identifierInstructions: _identifierInstructions,
             );
 
-      setTaskToolFilter?.call(_allowedTools(task));
-      setTaskReadOnly?.call(_isReadOnlyTask(task));
-
       // Determine prompt scope for this task turn.
       // Restricted profile gets tools-only; all other tasks get the lean task
       // scope (no user/memory noise).
       final PromptScope promptScope;
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         promptScope = PromptScope.task;
-      } else if (runnerProfileId == 'restricted') {
+      } else if (runnerPolicy?.containerProfile == 'restricted') {
         promptScope = PromptScope.restricted;
       } else {
         promptScope = PromptScope.task;
@@ -692,12 +680,13 @@ class TaskExecutor {
         effort: effortOverride,
         taskId: task.id,
         behaviorOverride: taskBehavior,
+        allowedTools: _allowedTools(task),
+        readOnly: _isReadOnlyTask(task),
         promptScope: promptScope,
       );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
-      _recordTurn(runnerIndex, outcome);
-
+      await waitForExecutionSettled?.call(session.id, turnId);
       // Record synchronous token update + tool call events for durability.
       // Must execute before the fire-and-forget trace write.
       final recorder = _eventRecorder;
@@ -819,24 +808,7 @@ class TaskExecutor {
         errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
       );
       return;
-    } finally {
-      // Clear per-task tool filter to prevent stale state on the next task.
-      setTaskToolFilter?.call(null);
-      setTaskReadOnly?.call(false);
     }
-  }
-
-  void _recordTurn(int runnerIndex, TurnOutcome outcome) {
-    _observer?.recordTurn(
-      runnerIndex,
-      inputTokens: outcome.inputTokens,
-      outputTokens: outcome.outputTokens,
-      isError: outcome.status != TurnStatus.completed,
-      turnDuration: outcome.turnDuration,
-      cacheReadTokens: outcome.cacheReadTokens,
-      cacheWriteTokens: outcome.cacheWriteTokens,
-      toolCalls: outcome.toolCalls,
-    );
   }
 }
 

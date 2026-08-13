@@ -11,7 +11,7 @@ class KvService {
   Map<String, dynamic>? _cache;
   late final BoundedWriteQueue _queue;
 
-  KvService({required this.filePath}) {
+  new({required this.filePath}) {
     _queue = BoundedWriteQueue();
   }
 

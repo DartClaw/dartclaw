@@ -24,14 +24,14 @@ class AssetResolutionRequest {
   final bool explicitlyConfigured;
   final bool devMode;
 
-  const AssetResolutionRequest({
+  const new({
     required this.configuredTemplatesDir,
     required this.configuredStaticDir,
     required this.explicitlyConfigured,
     required this.devMode,
   });
 
-  const AssetResolutionRequest.noConfiguredAssets()
+  const new noConfiguredAssets()
     : configuredTemplatesDir = '',
       configuredStaticDir = '',
       explicitlyConfigured = false,
@@ -47,7 +47,7 @@ class ResolvedAssets {
   final String? workflowsDir;
   final AssetSource source;
 
-  const ResolvedAssets({
+  const new({
     this.root,
     required this.templatesDir,
     required this.staticDir,
@@ -56,11 +56,7 @@ class ResolvedAssets {
     this.workflowsDir,
   });
 
-  factory ResolvedAssets.fromSourceTree({
-    required String templatesDir,
-    required String staticDir,
-    required AssetSource source,
-  }) {
+  factory fromSourceTree({required String templatesDir, required String staticDir, required AssetSource source}) {
     final root = _inferSourceTreeRoot(templatesDir: templatesDir, staticDir: staticDir);
     return ResolvedAssets(
       root: root,
@@ -74,7 +70,7 @@ class ResolvedAssets {
     );
   }
 
-  const ResolvedAssets.embedded()
+  const new embedded()
     : root = null,
       templatesDir = null,
       staticDir = null,
@@ -108,7 +104,7 @@ class ResolvedAssets {
 
 /// Resolves disk assets from caller intent, then falls back to embedded assets.
 class AssetResolver {
-  const AssetResolver();
+  const new();
 
   ResolvedAssets resolveAssets(AssetResolutionRequest request) {
     final sourceTreeExists =

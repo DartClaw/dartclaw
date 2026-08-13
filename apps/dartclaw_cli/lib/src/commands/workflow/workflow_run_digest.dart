@@ -26,7 +26,7 @@ class WorkflowRunDigestRow {
   /// Human-readable duration string, when a task timed the step.
   final String? duration;
 
-  const WorkflowRunDigestRow({
+  const new({
     required this.stepIndex,
     required this.stepId,
     required this.status,
@@ -58,7 +58,7 @@ class WorkflowRunDigest {
   /// Concrete next-action commands for this run id and settle state.
   final List<String> nextActions;
 
-  const WorkflowRunDigest({required this.runId, required this.status, required this.rows, required this.nextActions});
+  const new({required this.runId, required this.status, required this.rows, required this.nextActions});
 
   Map<String, dynamic> toJson() => {
     'type': 'workflow_run_digest',

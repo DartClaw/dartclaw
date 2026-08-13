@@ -54,10 +54,10 @@ Environment:
   DARTCLAW_TEST_REVIEWER_MODEL  Pins the reviewer model; Codex preflight probes
                                 distinct overrides. Defaults to the fixture preset.
 
-For codex runs this script writes a hermetic CODEX_HOME under the log dir
-(auth.json seeded from the operator's ~/.codex, config.toml pinning the executor
-model) and exports it, so operator dotfiles cannot override fixture models in
-spawns that omit --model (skill-introspection probes, direct executeTurn calls).
+Codex runs require the AndThen plugin under ~/.codex/plugins/cache/andthen. This
+script copies and enables it in a hermetic CODEX_HOME under the log dir, seeds
+auth.json, and pins the executor model so operator config cannot override the
+fixtures.
 EOF
 }
 
@@ -226,21 +226,33 @@ mkdir -p "${LOG_DIR}"
 # Hermetic CODEX_HOME (codex only). Operator dotfiles (~/.codex/config.toml
 # model/effort overrides) must not leak into codex spawns that don't pass
 # --model — skill-introspection probes and direct executeTurn calls fall back to
-# CODEX_HOME/config.toml otherwise. Seed auth from the operator home, pin the
-# executor model, and export so it reaches `dart test` → Platform.environment →
-# the sanitized spawn passthrough.
+# CODEX_HOME/config.toml otherwise. Seed auth and the required AndThen plugin
+# from the operator home, pin the executor model, and export so it reaches
+# `dart test` → Platform.environment → the sanitized spawn passthrough.
 if [ "${PROVIDER}" = "codex" ]; then
   SEED_CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
   if [ ! -f "${SEED_CODEX_HOME}/auth.json" ]; then
     echo "Error: no codex auth.json at ${SEED_CODEX_HOME}/auth.json — run \`codex login\` first." >&2
     exit 1
   fi
+  ANDTHEN_PLUGIN_CACHE="${SEED_CODEX_HOME}/plugins/cache/andthen"
+  if [ ! -d "${ANDTHEN_PLUGIN_CACHE}" ]; then
+    echo "Error: AndThen Codex plugin is not installed under ${ANDTHEN_PLUGIN_CACHE}." >&2
+    exit 1
+  fi
+  ANDTHEN_PLUGIN_MANIFEST="$(find "${ANDTHEN_PLUGIN_CACHE}" -path '*/.codex-plugin/plugin.json' -type f -print -quit 2>/dev/null || true)"
+  if [ -z "${ANDTHEN_PLUGIN_MANIFEST}" ]; then
+    echo "Error: AndThen Codex plugin is not installed under ${ANDTHEN_PLUGIN_CACHE}." >&2
+    exit 1
+  fi
   CODEX_HOME_DIR="${LOG_DIR}/codex-home"
   rm -rf "${CODEX_HOME_DIR}"
-  mkdir -p "${CODEX_HOME_DIR}"
+  mkdir -p "${CODEX_HOME_DIR}/plugins/cache"
   chmod 700 "${CODEX_HOME_DIR}"
   cp "${SEED_CODEX_HOME}/auth.json" "${CODEX_HOME_DIR}/auth.json"
-  printf 'model = "%s"\n' "${EXECUTOR_MODEL}" >"${CODEX_HOME_DIR}/config.toml"
+  cp -R "${ANDTHEN_PLUGIN_CACHE}" "${CODEX_HOME_DIR}/plugins/cache/andthen"
+  printf 'model = "%s"\n\n[plugins."andthen@andthen"]\nenabled = true\n' \
+    "${EXECUTOR_MODEL}" >"${CODEX_HOME_DIR}/config.toml"
   export CODEX_HOME="${CODEX_HOME_DIR}"
 fi
 LOG_FILE="${LOG_DIR}/workflow-live-${LOG_LABEL}-$(date '+%Y%m%d-%H%M%S').log"

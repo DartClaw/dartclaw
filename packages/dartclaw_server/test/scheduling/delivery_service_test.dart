@@ -225,7 +225,7 @@ void main() {
 }
 
 class _SecondChunkFailureChannel extends FakeChannel {
-  _SecondChunkFailureChannel({required super.ownedJids})
+  new({required super.ownedJids})
     : super(
         type: ChannelType.whatsapp,
         responseFormatter: (text) => [

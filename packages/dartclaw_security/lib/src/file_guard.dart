@@ -48,7 +48,7 @@ class FileGuardRule {
   final FileAccessLevel level;
 
   /// Creates a file guard rule for a protected path pattern.
-  const FileGuardRule({required this.pattern, required this.level});
+  const new({required this.pattern, required this.level});
 }
 
 // ---------------------------------------------------------------------------
@@ -61,13 +61,13 @@ class FileGuardConfig {
   final List<FileGuardRule> rules;
 
   /// Creates a file guard configuration.
-  FileGuardConfig({required this.rules});
+  new({required this.rules});
 
   /// Hardcoded default protections.
-  factory FileGuardConfig.defaults() => FileGuardConfig(rules: [..._defaultRules]);
+  factory defaults() => FileGuardConfig(rules: [..._defaultRules]);
 
   /// Merges extra rules from YAML with defaults.
-  factory FileGuardConfig.fromYaml(Map<String, dynamic> yaml) {
+  factory fromYaml(Map<String, dynamic> yaml) {
     final defaults = FileGuardConfig.defaults();
     final extraRules = <FileGuardRule>[];
 
@@ -152,7 +152,7 @@ class FileGuard extends Guard {
   final FileGuardConfig config;
 
   /// Creates a file guard with the default protections unless overridden.
-  FileGuard({FileGuardConfig? config}) : config = config ?? FileGuardConfig.defaults();
+  new({FileGuardConfig? config}) : config = config ?? FileGuardConfig.defaults();
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {
@@ -169,8 +169,9 @@ class FileGuard extends Guard {
       _ => <_PathOp>[],
     };
 
+    final workingDirectory = _stringValue(toolInput['cwd']);
     for (final po in pathOps) {
-      final resolved = _resolvePath(po.path);
+      final resolved = _resolvePath(po.path, workingDirectory: workingDirectory);
       final verdict = _checkAccess(resolved, po.operation);
       if (verdict != null) return verdict;
     }
@@ -300,9 +301,12 @@ class FileGuard extends Guard {
   // Path resolution + matching
   // -------------------------------------------------------------------------
 
-  String _resolvePath(String path) {
+  String _resolvePath(String path, {String? workingDirectory}) {
     final expanded = expandHome(path);
-    final normalized = p.normalize(expanded);
+    final rooted = workingDirectory != null && workingDirectory.isNotEmpty && !p.isAbsolute(expanded)
+        ? p.join(workingDirectory, expanded)
+        : expanded;
+    final normalized = p.normalize(rooted);
     // Resolve all symlinks in the path (including parent dirs like /var -> /private/var)
     try {
       final type = FileSystemEntity.typeSync(normalized, followLinks: true);
@@ -414,7 +418,7 @@ class _PathOp {
   final String path;
   final FileOperation operation;
 
-  const _PathOp(this.path, this.operation);
+  const new(this.path, this.operation);
 }
 
 String? _stringValue(Object? value) {

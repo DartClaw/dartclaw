@@ -8,7 +8,7 @@ class ThreadBindingRouter {
   final ThreadBindingStore? _threadBindings;
   final bool _threadBindingEnabled;
 
-  ThreadBindingRouter({ThreadBindingStore? threadBindings, bool threadBindingEnabled = false})
+  new({ThreadBindingStore? threadBindings, bool threadBindingEnabled = false})
     : _threadBindings = threadBindings,
       _threadBindingEnabled = threadBindingEnabled;
 

@@ -1,7 +1,7 @@
 import '../connected_command_support.dart';
 
 class SessionsMessagesCommand extends ConnectedCommand {
-  SessionsMessagesCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('limit', help: 'Maximum number of messages to show')
       ..addFlag('full', negatable: false, help: 'Print full message content')

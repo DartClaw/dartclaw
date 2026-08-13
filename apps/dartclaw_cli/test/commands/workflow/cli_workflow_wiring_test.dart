@@ -8,10 +8,10 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_skill_bootstrap.dart
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
     show restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowStartPreconditionException;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowStepExecutionRepository;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable;
 import 'package:logging/logging.dart';
@@ -92,8 +92,8 @@ void main() {
     expect(cloneDir.existsSync(), isFalse);
   });
 
-  test('TI01 pre-harness phase completes registry without starting any harness', () async {
-    // Every registered provider's start() throws; the pre-harness phase must
+  test('TI01 base-service phase completes registry without starting any harness', () async {
+    // Every registered provider's start() throws; the base-service phase must
     // load the registry without reaching any harness.start().
     final workflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
     File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
@@ -112,7 +112,7 @@ steps:
       harnessFactory: throwOnStartHarnessFactory(const ['claude', 'codex']),
     );
 
-    await wired.wirePreHarness();
+    await wired.wireBaseServices();
 
     expect(wired.registry.getByName('ci-demo'), isNotNull);
   });
@@ -140,7 +140,7 @@ steps:
 
     final wired = fixture.wiring(fixture.config());
 
-    await wired.wirePreHarness();
+    await wired.wireBaseServices();
 
     expect(wired.registry.getByName('my-review'), isNotNull);
     expect(
@@ -257,7 +257,7 @@ steps:
     );
     final wired = fixture.wiring(cfg);
 
-    await wired.wirePreHarness();
+    await wired.wireBaseServices();
 
     final definition = wired.registry.getByName('dup');
     expect(definition?.description, 'Project workflow');
@@ -408,50 +408,7 @@ steps:
     await wired.workflowService.cancel(run.id);
   });
 
-  test('injects provider credentials into standalone harness environments', () async {
-    final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
-    final factory = capturingHarnessFactory(capturedByProvider, ['codex', 'claude']);
-
-    final cfg = fixture.config(
-      agent: const AgentConfig(provider: 'codex'),
-      providers: const ProvidersConfig(
-        entries: {
-          'codex': ProviderEntry(executable: 'codex', poolSize: 0),
-          'claude': ProviderEntry(executable: 'claude', poolSize: 1),
-        },
-      ),
-      credentials: const CredentialsConfig(
-        entries: {
-          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
-          'openai': CredentialEntry(apiKey: 'openai-key'),
-        },
-      ),
-    );
-
-    final wired = fixture.wiring(cfg, harnessFactory: factory);
-
-    await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'claude'});
-
-    final codexConfigs = capturedByProvider['codex']!;
-    expect(codexConfigs, hasLength(2), reason: 'primary harness + default standalone task runner');
-    for (final harnessConfig in codexConfigs) {
-      expect(harnessConfig.environment['CODEX_API_KEY'], 'openai-key');
-      expect(harnessConfig.environment['OPENAI_API_KEY'], 'openai-key');
-    }
-
-    final claudeConfigs = capturedByProvider['claude']!;
-    expect(claudeConfigs, hasLength(1));
-    expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
-  });
-
-  test('reserves a pool slot for each non-default provider when default pool_size saturates the floor', () async {
-    // Regression: with codex (default, pool_size: 3) + claude (pool_size: 1)
-    // the eager spawn previously filled the 3-slot minimum capacity, then the
-    // first ensureTaskRunnersForProviders({'claude'}) threw `Pool already at
-    // capacity (3/3)` because no slot was reserved for the non-default
-    // provider that workflow steps pin (e.g. plan-and-implement-inline's
-    // plan-review-council pins provider: claude).
+  test('configures independent provider capacities without constructing harnesses', () async {
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = capturingHarnessFactory(capturedByProvider, ['codex', 'claude']);
 
@@ -467,17 +424,46 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'codex', 'claude'});
+    await wired.wireBaseServices();
+    await wired.wireExecutionServices({'codex', 'claude'});
 
-    // Pool now holds the primary codex harness + 3 codex task runners + the
-    // on-demand claude runner. addRunner must not have thrown.
-    expect(capturedByProvider['codex'], hasLength(4), reason: 'primary harness + 3 eager codex task runners');
-    expect(capturedByProvider['claude'], hasLength(1), reason: 'on-demand claude task runner');
-    expect(wired.pool.hasTaskRunnerForProvider('claude'), isTrue);
+    expect(capturedByProvider, isEmpty);
+    expect(wired.executions.primary, isNull);
+    expect(wired.executions.snapshot.providers['codex']!.configured, 3);
+    expect(wired.executions.snapshot.providers['claude']!.configured, 1);
+    expect(wired.executions.snapshot.cachedWorkers, 0);
   });
 
-  test('standalone single-provider pool_size one creates exactly one task runner', () async {
+  test('passes configured credentials to the standalone provider process', () async {
+    Map<String, String>? processEnvironment;
+    final process = FakeProcess();
+    final wired = fixture.wiring(
+      fixture.config(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      ),
+      workflowCliProcessStarter: (executable, arguments, {workingDirectory, environment}) async {
+        processEnvironment = Map<String, String>.from(environment ?? const {});
+        Timer.run(() {
+          process.emitStdout(jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': 'credential-test'}));
+          process.emitStdout(jsonEncode({'type': 'result', 'session_id': 'credential-test', 'result': 'ok'}));
+          process.exit(0);
+        });
+        return process;
+      },
+    );
+    await wired.wire();
+
+    await wired.workflowCliRunner.executeTurn(
+      provider: 'claude',
+      prompt: 'Verify credentials',
+      workingDirectory: tempDir.path,
+      policy: const ExecutionPolicy.host(),
+    );
+
+    expect(processEnvironment?['ANTHROPIC_API_KEY'], 'anthropic-key');
+  });
+
+  test('standalone single-provider wiring creates no primary or worker', () async {
     final captured = <HarnessFactoryConfig>[];
     final factory = HarnessFactory()
       ..register('claude', (config) {
@@ -489,20 +475,19 @@ steps:
       providers: ProvidersConfig(
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
       ),
-      tasks: const TaskConfig(maxConcurrent: 10),
     );
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
     await wired.wire();
 
-    expect(captured, hasLength(2), reason: 'primary harness plus one task runner');
-    expect(wired.pool.maxConcurrentTasks, 1);
-    expect(wired.pool.availableCount, 1);
-    expect(wired.pool.taskRunnerCountForProvider('claude'), 1);
+    expect(captured, isEmpty);
+    expect(wired.executions.primary, isNull);
+    expect(wired.executions.snapshot.providers['claude']!.configured, 1);
+    expect(wired.executions.snapshot.availableWorkers, 1);
   });
 
-  test('standalone non-empty provider config missing default still reserves default capacity', () async {
+  test('standalone capacity is scoped to referenced providers', () async {
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = capturingHarnessFactory(capturedByProvider, ['claude', 'goose']);
 
@@ -512,38 +497,12 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'goose'});
+    await wired.wireBaseServices();
+    await wired.wireExecutionServices({'goose'});
 
-    expect(wired.pool.maxConcurrentTasks, 2);
-    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus default task runner');
-    expect(capturedByProvider['goose'], hasLength(1));
-  });
-
-  test('standalone configured fake provider gets its own pool without ACP subprocess behavior', () async {
-    final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
-    final factory = capturingHarnessFactory(capturedByProvider, ['claude', 'goose']);
-
-    final cfg = fixture.config(
-      providers: const ProvidersConfig(
-        entries: {
-          'claude': ProviderEntry(executable: 'claude', poolSize: 1),
-          'goose': ProviderEntry(executable: 'goose', poolSize: 1),
-        },
-      ),
-    );
-
-    final wired = fixture.wiring(cfg, harnessFactory: factory);
-
-    await wired.wire();
-    await wired.ensureTaskRunnersForProviders({'goose'});
-
-    expect(capturedByProvider['claude'], hasLength(2), reason: 'primary harness plus one claude task runner');
-    expect(capturedByProvider['goose'], hasLength(1));
-    final gooseRunner = wired.pool.tryAcquireForProvider('goose');
-    expect(gooseRunner, isNotNull);
-    expect(gooseRunner!.providerId, 'goose');
-    expect(wired.pool.tryAcquireForProvider('claude')!.providerId, 'claude');
+    expect(capturedByProvider, isEmpty);
+    expect(wired.executions.snapshot.providers.keys, {'goose'});
+    expect(wired.executions.snapshot.providers['goose']!.configured, 1);
   });
 
   test('standalone unknown provider fails without default-provider fallback', () async {
@@ -564,76 +523,28 @@ steps:
 
     final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await wired.wire();
+    await wired.wireBaseServices();
 
     await expectLater(
-      () => wired.ensureTaskRunnersForProviders({'goose'}),
+      () => wired.wireExecutionServices({'goose'}),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "goose"'))),
     );
-    expect(capturedByProvider['claude'], 2, reason: 'primary harness plus one configured claude task runner only');
-    expect(wired.pool.hasTaskRunnerForProvider('goose'), isFalse);
+    expect(capturedByProvider, isEmpty);
   });
 
-  test('defaults standalone harness cwd to the process cwd when runtime cwd is omitted', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
-    final captured = <HarnessFactoryConfig>[];
-    final factory = HarnessFactory()
-      ..register('claude', (config) {
-        if (config.cwd != '/') captured.add(config);
-        return FakeAgentHarness();
-      });
-
-    final cfg = fixture.config();
-
-    await fixture.withWiredCurrentDirectory(launchDir, cfg, harnessFactory: factory, body: (_) async {});
-
-    expect(captured.map((config) => config.cwd).toSet(), {launchDir.resolveSymbolicLinksSync()});
-  });
-
-  test('uses injected runtime cwd for primary and task-runner harnesses', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
-    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
-    final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
-    final factory = HarnessFactory()
-      ..register('codex', (config) {
-        if (config.cwd != '/') capturedByProvider.putIfAbsent('codex', () => <HarnessFactoryConfig>[]).add(config);
-        return FakeAgentHarness();
-      })
-      ..register('claude', (config) {
-        if (config.cwd != '/') capturedByProvider.putIfAbsent('claude', () => <HarnessFactoryConfig>[]).add(config);
-        return FakeAgentHarness();
-      });
-
+  test('standalone built-in provider also requires configured capacity', () async {
+    final factory = capturingHarnessFactory(<String, List<HarnessFactoryConfig>>{}, ['claude', 'codex']);
     final cfg = fixture.config(
-      agent: const AgentConfig(provider: 'codex'),
-      providers: const ProvidersConfig(
-        entries: {
-          'codex': ProviderEntry(executable: 'codex', poolSize: 2),
-          'claude': ProviderEntry(executable: 'claude', poolSize: 0),
-        },
-      ),
-      credentials: const CredentialsConfig(
-        entries: {
-          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
-          'openai': CredentialEntry(apiKey: 'openai-key'),
-        },
-      ),
+      providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
     );
+    final wired = fixture.wiring(cfg, harnessFactory: factory);
 
-    await fixture.withWiredCurrentDirectory(
-      launchDir,
-      cfg,
-      runtimeCwd: runtimeCwd.path,
-      harnessFactory: factory,
-      body: (wired) => wired.ensureTaskRunnersForProviders({'claude'}),
+    await wired.wireBaseServices();
+
+    await expectLater(
+      () => wired.wireExecutionServices({'codex'}),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Provider "codex"'))),
     );
-
-    final captured = [
-      ...capturedByProvider['codex'] ?? const <HarnessFactoryConfig>[],
-      ...capturedByProvider['claude'] ?? const <HarnessFactoryConfig>[],
-    ];
-    expect(captured, hasLength(4), reason: 'primary, two default task runners, and one added provider runner');
-    expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 
   test('standalone wiring provisions DC-native skills before registering shipped workflows', () async {
@@ -1049,7 +960,7 @@ steps:
     expect((workflowBranchResult.stdout as String).trim(), workflowBranch);
   });
 
-  test('standalone approval teardown records in-flight sibling one-shot task as cancelled', () async {
+  test('standalone capacity-only one-shot teardown records in-flight sibling task as cancelled', () async {
     final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = fixture.seedGitRepo('runtime-cwd', readme: '# runtime\n');
     final processStarterEntered = Completer<void>();
@@ -1067,6 +978,7 @@ steps:
       config,
       runtimeCwd: runtimeCwd.path,
       autoDispose: false,
+      harnessFactory: throwOnStartHarnessFactory(const ['claude']),
       workflowCliProcessStarter: (exe, args, {workingDirectory, environment}) async {
         if (!processStarterEntered.isCompleted) {
           processStarterEntered.complete();
@@ -1167,84 +1079,5 @@ steps:
       }
       Directory.current = savedCwd;
     }
-  });
-
-  test('standalone coding tasks use the configured project clone instead of cwd', () async {
-    final localRepoDir = fixture.seedGitRepo('local-repo', readme: '# local\n');
-    final alphaSeedDir = fixture.seedGitRepo('alpha-seed', readme: '# alpha\n');
-    final alphaOriginDir = Directory(p.join(tempDir.path, 'alpha-origin.git'))..createSync(recursive: true);
-    final alphaRepoDir = Directory(p.join(tempDir.path, 'projects', 'alpha'));
-
-    runGit(alphaOriginDir.path, ['init', '--bare']);
-    runGit(alphaSeedDir.path, ['remote', 'add', 'origin', alphaOriginDir.path]);
-    runGit(alphaSeedDir.path, ['push', '-u', 'origin', 'main']);
-    final cloneResult = Process.runSync('git', ['clone', alphaOriginDir.path, alphaRepoDir.path]);
-    if (cloneResult.exitCode != 0) {
-      fail('git clone ${alphaOriginDir.path} failed: ${cloneResult.stderr}');
-    }
-
-    final harnesses = <FakeAgentHarness>[];
-    final factory = HarnessFactory()
-      ..register('claude', (_) {
-        final harness = FakeAgentHarness();
-        harnesses.add(harness);
-        return harness;
-      });
-
-    final config = fixture.config(
-      projects: ProjectConfig(
-        definitions: {'alpha': ProjectDefinition(id: 'alpha', remote: alphaOriginDir.uri.toString())},
-      ),
-    );
-
-    await fixture.withWiredCurrentDirectory(
-      localRepoDir,
-      config,
-      harnessFactory: factory,
-      body: (wiring) async {
-        var taskCompleted = false;
-        final taskSub = wiring.eventBus
-            .on<TaskStatusChangedEvent>()
-            .where((event) => event.taskId == 'project-bound-task' && event.newStatus.terminal)
-            .listen((_) {
-              taskCompleted = true;
-            });
-        addTearDown(taskSub.cancel);
-
-        await wiring.taskService.create(
-          id: 'project-bound-task',
-          title: 'Project bound task',
-          description: 'Inspect repo binding',
-          type: TaskType.coding,
-          projectId: 'alpha',
-          autoStart: true,
-          configJson: const {'reviewMode': 'auto-accept'},
-        );
-
-        Task? updatedTask;
-        final deadline = DateTime.now().add(const Duration(seconds: 10));
-        while (DateTime.now().isBefore(deadline)) {
-          updatedTask = await wiring.taskService.get('project-bound-task');
-          if (updatedTask?.worktreeJson != null) {
-            break;
-          }
-          if (updatedTask?.status == TaskStatus.failed) {
-            fail('Task failed before worktree creation: ${updatedTask?.configJson['failReason'] ?? updatedTask}');
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-
-        final worktreeDir = updatedTask?.worktreeJson?['path'] as String?;
-        expect(worktreeDir, isNotNull, reason: 'coding task should create a git worktree for the configured project');
-        expect(worktreeDir, startsWith(p.join(localRepoDir.resolveSymbolicLinksSync(), '.dartclaw', 'worktrees')));
-        expect(File(p.join(worktreeDir!, 'README.md')).readAsStringSync(), '# alpha\n');
-
-        await waitFor(() => harnesses.any((h) => h.turnCallCount > 0), timeout: const Duration(seconds: 10));
-        final worker = harnesses.firstWhere((h) => h.turnCallCount > 0);
-
-        worker.completeSuccess();
-        await waitFor(() => taskCompleted);
-      },
-    );
   });
 }

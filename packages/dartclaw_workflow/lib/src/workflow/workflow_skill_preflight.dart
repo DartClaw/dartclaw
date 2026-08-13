@@ -9,7 +9,7 @@ import 'workflow_definition.dart';
 final class WorkflowSkillPreflightResult {
   final Map<String, Map<String, String>> _visibleByProviderAndAuthored;
 
-  const WorkflowSkillPreflightResult._(this._visibleByProviderAndAuthored);
+  const new _(this._visibleByProviderAndAuthored);
 
   static const empty = WorkflowSkillPreflightResult._(<String, Map<String, String>>{});
 
@@ -136,7 +136,7 @@ final class WorkflowSkillCheckWarning {
   final String skill;
   final String provider;
 
-  const WorkflowSkillCheckWarning({required this.stepId, required this.skill, required this.provider});
+  const new({required this.stepId, required this.skill, required this.provider});
 }
 
 /// Result of a non-throwing skill-resolution check for `workflow validate
@@ -147,7 +147,7 @@ final class WorkflowSkillCheckResult {
   final List<WorkflowSkillCheckWarning> unresolved;
   final List<String> probeNotes;
 
-  const WorkflowSkillCheckResult({required this.unresolved, required this.probeNotes});
+  const new({required this.unresolved, required this.probeNotes});
 }
 
 /// Probes each agent step's authored skill ref against its resolved provider and

@@ -197,6 +197,21 @@ void main() {
   }
 
   group('workflowDetailPageTemplate', () {
+    test('renders the workflow run identifier', () {
+      const runId = '123e4567-e89b-12d3-a456-426614174000';
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(id: runId),
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('data-workflow-run-id'));
+      expect(html, contains('>$runId</code>'));
+    });
+
     test('renders correct number of step cards', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
@@ -258,6 +273,7 @@ void main() {
 
       expect(html, contains('workflow-pause-banner'));
       expect(html, contains('Awaiting approval'));
+      expect(html, contains('<strong>Approval request</strong>:'));
       expect(html, contains('Plan Approval'));
       expect(html, contains('Review the plan before build.'));
     });

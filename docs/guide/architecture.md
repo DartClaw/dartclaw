@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.23**
+> Current through: **0.24**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -57,9 +57,9 @@ Each provider binary is spawned as a subprocess. The Dart host manages its lifec
 
 Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
 
-In a mixed deployment, the `HarnessPool` contains provider-scoped workers — for example, a Claude primary harness for interactive chat, Codex workers for background tasks, and an ACP agent pool for Goose or Vibe. Each provider identity has default pool size `1`; override capacity with `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
+In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user/channel turns. Tasks, cron/system/advisor work, and logical agents acquire hard per-provider worker leases; each provider defaults to capacity `1`, overridden by `providers.<id>.pool_size`. Workflow one-shots consume capacity-only leases without creating an unused streaming harness. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
-`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
+`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies claim no guard mediation, so a container would be their only boundary — and DartClaw mediates no provider credential or host capability for an ACP client inside a container, so those registrations are rejected at startup. ACP runs on the host only, on the long-lived surface only.
 
 ACP filesystem reverse-calls are bound to the active task session and workspace. ACP terminal reverse-calls are disabled on every host until complete descendant containment can be proven.
 
@@ -110,7 +110,7 @@ DartClaw is organized as a Dart pub workspace with twelve packages plus a CLI ap
 ```
 packages/
   dartclaw_models/       Zero dependencies. Shared data types such as Session,
-                         Message, MemoryChunk, SessionKey, Task, and Goal.
+                         Message, MemorySearchResult, SessionKey, Task, and Goal.
 
   dartclaw_security/     Guard framework, concrete guards, content
                          classification, redaction, and guard audit primitives.
@@ -177,21 +177,31 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
 ├── projects/
 │   └── <projectId>/                  # Git repository clones
 └── workspace/
-    ├── MEMORY.md                     # Long-term memory
+    ├── MEMORY.md                     # Bounded canonical index
+    ├── memory/topics/<topic>.md      # Canonical topic documents
+    ├── MEMORY.archive.md             # Canonical archive
+    ├── MEMORY.audit.md               # Content-free deletion audit (not indexed)
+    ├── .dartclaw-memory-corpus.json   # Derived authenticated member manifest
     ├── errors.md                     # Auto-populated error log
-    ├── learnings.md                  # Agent-written insights
+    ├── learnings.md                  # Canonical learning role (newest 50)
     ├── SOUL.md, USER.md, TOOLS.md    # Behavior files (identity, profile, env)
-    └── memory/
-        └── YYYY-MM-DD.md            # Daily turn logs
+    └── memory/YYYY-MM-DD.md          # Canonical observation partitions
 ```
 
-Mutable files use atomic writes (temp file + rename) to prevent corruption on crash. Services with concurrent callers serialize writes via Dart `StreamController` queues.
+Mutable files use atomic writes (temp file + rename) to prevent corruption on crash. Services with concurrent callers
+serialize writes via Dart `StreamController` queues. Personal-memory apply, observation, learning, and pruning writes
+share one corpus authority and workspace lock; derived-index reconciliation follows canonical success.
+
+The corpus manifest is coordination state, not memory content. It authenticates canonical member identity, role,
+length, digest, and record IDs so targeted reads and sparse writes preserve unopened documents. Startup authenticates
+the complete canonical union in bounded batches before it reports the derived index healthy. If the manifest is missing,
+DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fails closed before index publication.
 
 ### SQLite
 
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
-| `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from MEMORY.md, rebuildable via `dartclaw rebuild-index` |
+| `search.db` | FTS5-indexed canonical entry projection (BM25 ranking) | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
 | `tasks.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
 | `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
 
@@ -205,7 +215,7 @@ The restart path is covered by the integration-tagged crash-recovery smoke test 
 
 ### Memory Search
 
-When the agent calls `memory_save`, text is appended to `MEMORY.md`, stripped of markdown, split into paragraph-sized chunks, and inserted into the FTS5 index. `memory_search` queries the index and returns BM25-ranked results. A nightly `MemoryPruner` archives entries older than 90 days and removes exact duplicates to keep the index focused.
+`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The derived FTS5 index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
 
 For more detail on memory configuration, see the [Search guide](search.md).
 
@@ -213,18 +223,18 @@ For more detail on memory configuration, see the [Search guide](search.md).
 
 A "turn" is a single round-trip: user message in, agent response out. The Dart host manages turns through several layers:
 
-1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
+1. **TurnManager** — receives a routed turn, acquires the appropriate execution lease, delegates to a TurnRunner
 2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, progress-aware stall handling, cost tracking, crash recovery
 3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude), `CodexHarness` (OpenAI), and `AcpHarness` (ACP agents) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
-4. **HarnessPool** — manages provider-scoped harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are task runners acquired by the task executor or delegation paths
+4. **ExecutionCoordinator** — owns one serialized primary lane and hard per-provider worker leases, constructs workers lazily, and exposes lease-derived capacity/runner snapshots
 
 ```
-User message (web / channel / cron / task)
+Turn request (web / channel / cron / task / logical agent)
     │
     ▼
-TurnManager ──→ HarnessPool.primary (interactive)
+TurnManager ──→ ExecutionCoordinator primary lease (main user/channel)
     │               or
-    │           HarnessPool.tryAcquire() (background task)
+    │           provider worker lease (background execution)
     │
     ▼
 TurnRunner (per-harness)
@@ -234,10 +244,14 @@ TurnRunner (per-harness)
     ├── SSE streaming to web UI
     ├── Message persistence (NDJSON append)
     ├── Usage tracking (token attribution)
-    └── Self-improvement (errors.md / learnings.md on failure)
+    └── Self-improvement (errors.md log + canonical learning capture)
 ```
 
 Each runner owns a layered guard chain: shared reloadable base guards plus that runner's tool filter. The harness evaluates this combined chain, so config reloads do not discard per-turn or per-task policy. SDK hosts that construct harnesses own this same composition boundary.
+
+Released workers are only eligible for reuse when healthy and compatible by provider and security profile within one
+immutable runtime composition; exact-session reuse is preferred. Capacity is lease-based, so cached process count never
+changes the hard limit. Container managers have an independent lifecycle and can be shared across workers.
 
 Since 0.14.4, `TurnRunner` treats text deltas and tool events as forward progress. That keeps session idle timers fresh during long-running tool execution and lets governance stall timers warn or cancel only when the provider event stream actually goes silent, instead of after a fixed wall-clock timeout.
 
@@ -284,17 +298,17 @@ draft → queued → running → review → accepted
 Key components:
 
 - **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_server`
-- **TaskExecutor** — polls for queued tasks, acquires a harness from the pool, executes the task, collects artifacts
+- **TaskExecutor** — polls for queued tasks, acquires a provider worker lease, executes the task, collects artifacts
 - **WorktreeManager** — for coding tasks, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
-- **AgentObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
+- **RunnerObserver** — derives runtime runner state and capacity metrics from coordinator lease events and snapshots
 - **TaskEventRecorder** — records structured task events (status changes, tool calls, artifacts, token usage) to the task timeline, visible on the task detail page
 
 Channel-originated task creation and review do not call the service directly from `dartclaw_core`. `ChannelManager` stays in `dartclaw_core`, but it now uses injected `TaskCreator`, `TaskLister`, and review-handler callbacks supplied by `dartclaw_server`.
 
 Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
 
-For a user-facing comparison of task runners vs subagent delegation (the two agent execution models), see the [Agents guide](agents.md).
+For a user-facing comparison of background tasks and logical-agent sessions, see the [Agents guide](agents.md).
 
 ## Project Management
 
@@ -318,9 +332,9 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 | `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, channels |
 | `restricted` | No workspace | `none` | Search agent, research tasks |
 
-Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). This keeps the container count small (2-4) regardless of task parallelism (up to 10 concurrent).
+A profile is a filesystem/capability template, not a running container: each live container execution owns a dedicated container, destroyed when its authority is released. Container count is therefore bounded by configured worker capacity, which `pool_size` alone still governs.
 
-Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The current credential-proxy path covers Claude/Anthropic container traffic via a Unix socket, so Anthropic keys never exist inside that container environment.
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. Containerized Claude and Codex reach their provider through the host gateway over framed `docker exec` pipes, so no provider key exists inside a container environment.
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 
@@ -337,7 +351,7 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 | Layer | Mechanism |
 |-------|-----------|
 | **Container isolation** | Docker kernel namespaces (PID, network, mount, user). The primary security boundary. |
-| **Credential isolation** | Claude/Anthropic API keys use the Unix socket `CredentialProxy`, keeping the Claude container environment clean. Codex and ACP credentials are provider-specific and scoped to the selected provider boundary. |
+| **Credential isolation** | Containerized Claude and Codex reach their provider only through the host gateway, so no provider credential enters the container. Host executions receive their provider-scoped credential directly. |
 | **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
 | **Message redaction** | Outbound secret/PII redaction via configurable patterns |
 | **Audit logging** | All guard verdicts logged to date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup. Viewable in the health dashboard. |
@@ -378,7 +392,7 @@ Events use Dart 3 sealed classes, so the compiler catches missing handlers when 
 - **ScheduledJobFailedEvent** — a scheduled job exhausted retries
 - **ToolPermissionDeniedEvent** — Claude denied a tool at its own native permission layer
 - **ContainerLifecycleEvent** — container started, stopped, or crashed
-- **AgentStateChangedEvent** — a harness runner changed state (idle/busy)
+- **RunnerStateChangedEvent** — a harness runner changed state (idle/busy)
 
 Events are fire-and-forget notifications. If no listener is subscribed, the event is silently dropped (broadcast stream semantics).
 
@@ -390,15 +404,16 @@ Built-in MCP tools:
 
 | Tool | Purpose |
 |------|---------|
-| `memory_save` / `memory_search` | Persistent memory with FTS5 search |
-| `delegate_to_agent` | Delegates a bounded task to an allowlisted agent and returns terminal status: `completed`, `cancelled`, `budget_exceeded`, or `error` |
-| `sessions_send` | Synchronous session handoff (legacy subagent path) |
+| `memory_apply` / `memory_observe` | Curated personal-memory and capture writes |
+| `memory_search` / `memory_read` | Read-only indexed retrieval and bounded canonical or native source-owner reads |
+| `sessions_spawn` | Creates a configured logical-agent conversation and returns its handle after the first turn |
+| `sessions_send` | Continues the logical-agent conversation identified by that handle |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |
 | `brave_search` / `tavily_search` | Web search via configurable provider |
 
 Additional tools can be registered via the `registerTool()` SDK API.
 
-`delegate_to_agent` validates `delegation.enabled`, the allowlisted `agent_id`, non-empty task text, workspace-jailed `work_dir`, budget settings, and the target's security mode before spawn. Direct verified ACP agents can satisfy `require_guard_mediation`; relay or unverified ACP agents cannot. Codex delegation uses `security_mode: "provider_approval"` and requires Codex approvals/sandbox to be enabled.
+`sessions_spawn` resolves a logical agent from `agent.agents`, pins the new session to that agent's configured provider, and acquires a matching bounded worker. `sessions_send` continues the same durable DartClaw session regardless of which compatible worker executes the next turn.
 
 ## Web UI Architecture
 
@@ -423,7 +438,7 @@ When you send a message:
 | Page | Purpose |
 |------|---------|
 | `/` | Main chat with session sidebar |
-| `/tasks` | Task dashboard (filterable, SSE badge count, agent overview) |
+| `/tasks` | Task dashboard (filterable, SSE badge count, harness overview) |
 | `/tasks/:id` | Task detail (embedded chat, artifact panel, review controls) |
 | `/health-dashboard` | System health, guard audit log, usage stats |
 | `/memory` | Memory overview, file browser, pruner history |

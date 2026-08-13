@@ -11,7 +11,7 @@ const _gitHubApiVersion = '2026-03-10';
 
 /// Result of a PR creation attempt.
 sealed class PrCreationResult {
-  const PrCreationResult();
+  const new();
 }
 
 /// PR was created successfully.
@@ -19,7 +19,7 @@ final class PrCreated extends PrCreationResult {
   /// The URL of the newly created PR.
   final String url;
 
-  const PrCreated(this.url);
+  const new(this.url);
 }
 
 /// Manual follow-up is required after the push completed.
@@ -27,7 +27,7 @@ final class PrGhNotFound extends PrCreationResult {
   /// Human-readable instructions for creating the PR manually.
   final String instructions;
 
-  const PrGhNotFound(this.instructions);
+  const new(this.instructions);
 }
 
 /// GitHub PR creation failed.
@@ -35,17 +35,16 @@ final class PrCreationFailed extends PrCreationResult {
   final String error;
   final String details;
 
-  const PrCreationFailed({required this.error, required this.details});
+  const new({required this.error, required this.details});
 }
 
 /// Issues an authenticated GitHub REST API call and returns the raw response.
-typedef GitHubApiRunner =
-    Future<({int statusCode, String body})> Function(
-      String method,
-      Uri uri, {
-      required Map<String, String> headers,
-      String? body,
-    });
+typedef GitHubApiRunner = Future<({int statusCode, String body})> Function(
+  String method,
+  Uri uri, {
+  required Map<String, String> headers,
+  String? body,
+});
 
 /// Creates GitHub pull requests via the GitHub REST API.
 class PrCreator {
@@ -57,7 +56,7 @@ class PrCreator {
   /// Injectable request runner for testing.
   final GitHubApiRunner? _apiRunner;
 
-  PrCreator({
+  new({
     CredentialsConfig credentials = const CredentialsConfig.defaults(),
     HttpClient Function()? httpClientFactory,
     GitHubApiRunner? apiRunner,

@@ -1,13 +1,13 @@
 /// Provider-agnostic protocol message returned by a [ProtocolAdapter].
 sealed class ProtocolMessage {
-  const ProtocolMessage();
+  const new();
 }
 
 /// Streaming text delta from the agent.
 final class TextDelta extends ProtocolMessage {
   final String text;
 
-  const TextDelta(this.text);
+  const new(this.text);
 
   @override
   String toString() => 'TextDelta(text: ${text.length > 80 ? '${text.substring(0, 80)}...' : text})';
@@ -19,7 +19,7 @@ final class ToolUse extends ProtocolMessage {
   final String id;
   final Map<String, dynamic> input;
 
-  const ToolUse({required this.name, required this.id, required this.input});
+  const new({required this.name, required this.id, required this.input});
 
   @override
   String toString() => 'ToolUse(name: $name, id: $id)';
@@ -31,7 +31,7 @@ final class ToolResult extends ProtocolMessage {
   final String output;
   final bool isError;
 
-  const ToolResult({required this.toolId, required this.output, this.isError = false});
+  const new({required this.toolId, required this.output, this.isError = false});
 
   @override
   String toString() => 'ToolResult(toolId: $toolId, isError: $isError)';
@@ -42,7 +42,7 @@ final class ProgressMessage extends ProtocolMessage {
   final String text;
   final String kind;
 
-  const ProgressMessage({required this.text, required this.kind});
+  const new({required this.text, required this.kind});
 
   @override
   String toString() => 'ProgressMessage(kind: $kind, text: ${text.length > 80 ? '${text.substring(0, 80)}...' : text})';
@@ -53,7 +53,7 @@ final class SessionMetadataUpdate extends ProtocolMessage {
   final String? title;
   final Map<String, dynamic> metadata;
 
-  const SessionMetadataUpdate({this.title, this.metadata = const <String, dynamic>{}});
+  const new({this.title, this.metadata = const <String, dynamic>{}});
 
   @override
   String toString() => 'SessionMetadataUpdate(title: $title, metadata: $metadata)';
@@ -65,7 +65,7 @@ final class ProtocolDiagnostic extends ProtocolMessage {
   final String? method;
   final String? updateType;
 
-  const ProtocolDiagnostic({required this.message, this.method, this.updateType});
+  const new({required this.message, this.method, this.updateType});
 
   @override
   String toString() => 'ProtocolDiagnostic(method: $method, updateType: $updateType, message: $message)';
@@ -77,7 +77,7 @@ final class ControlRequest extends ProtocolMessage {
   final String subtype;
   final Map<String, dynamic> data;
 
-  const ControlRequest({required this.requestId, required this.subtype, required this.data});
+  const new({required this.requestId, required this.subtype, required this.data});
 
   @override
   String toString() => 'ControlRequest(requestId: $requestId, subtype: $subtype)';
@@ -93,7 +93,7 @@ final class TurnComplete extends ProtocolMessage {
   final int? cacheReadTokens;
   final int? cacheWriteTokens;
 
-  const TurnComplete({
+  const new({
     this.stopReason,
     this.costUsd,
     this.durationMs,
@@ -118,7 +118,7 @@ final class CompactBoundary extends ProtocolMessage {
   /// Token count before compaction. May be null if omitted by the provider.
   final int? preTokens;
 
-  const CompactBoundary({required this.trigger, this.preTokens});
+  const new({required this.trigger, this.preTokens});
 
   @override
   String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
@@ -130,7 +130,7 @@ final class SystemInit extends ProtocolMessage {
   final int toolCount;
   final int? contextWindow;
 
-  const SystemInit({this.sessionId, required this.toolCount, this.contextWindow});
+  const new({this.sessionId, required this.toolCount, this.contextWindow});
 
   @override
   String toString() => 'SystemInit(sessionId: $sessionId, toolCount: $toolCount, contextWindow: $contextWindow)';
@@ -141,7 +141,7 @@ final class CompactionStarted extends ProtocolMessage {
   /// Optional item id from the Codex protocol item.
   final String? id;
 
-  const CompactionStarted({this.id});
+  const new({this.id});
 
   @override
   String toString() => 'CompactionStarted(id: $id)';
@@ -152,7 +152,7 @@ final class CompactionCompleted extends ProtocolMessage {
   /// Optional item id from the Codex protocol item.
   final String? id;
 
-  const CompactionCompleted({this.id});
+  const new({this.id});
 
   @override
   String toString() => 'CompactionCompleted(id: $id)';

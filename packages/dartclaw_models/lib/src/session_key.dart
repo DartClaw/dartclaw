@@ -13,7 +13,7 @@ class SessionKey {
   final String identifiers;
 
   /// Creates a parsed session key representation.
-  const SessionKey({required this.agentId, required this.scope, this.identifiers = ''});
+  const new({required this.agentId, required this.scope, this.identifiers = ''});
 
   /// Generates key string: `agent:<agentId>:<scope>:<identifiers>`.
   /// Identifiers are assumed to be pre-encoded by factory methods.
@@ -21,7 +21,7 @@ class SessionKey {
   String toString() => 'agent:$agentId:$scope:$identifiers';
 
   /// Parses a serialized key string back into a [SessionKey].
-  factory SessionKey.parse(String key) {
+  factory parse(String key) {
     final parts = key.split(':');
     if (parts.length < 4 || parts[0] != 'agent') {
       throw FormatException('Invalid session key format: $key');
@@ -86,5 +86,16 @@ class SessionKey {
   static String taskSession({String agentId = 'main', required String taskId}) {
     if (taskId.isEmpty) throw ArgumentError('taskId must not be empty');
     return SessionKey(agentId: agentId, scope: 'task', identifiers: Uri.encodeComponent(taskId)).toString();
+  }
+
+  /// Builds a logical-agent conversation key with an opaque [conversationId].
+  static String logicalAgentSession({required String agentId, required String conversationId}) {
+    if (agentId.isEmpty) throw ArgumentError('agentId must not be empty');
+    if (conversationId.isEmpty) throw ArgumentError('conversationId must not be empty');
+    return SessionKey(
+      agentId: Uri.encodeComponent(agentId),
+      scope: 'logical',
+      identifiers: Uri.encodeComponent(conversationId),
+    ).toString();
   }
 }

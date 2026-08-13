@@ -149,7 +149,8 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(CliWorkflowWiring w, _CliWorkflowW
       final projectDir = await _resolveWorkflowProjectDir(w, projectId);
       return runWorkflowGitResolverAttemptUnderLock<T>(projectDir: projectDir, body: body);
     },
-    reserveTurn: (sessionId) => turns?.reserveTurn(sessionId) ?? Future<String>.error(providerRequired()),
+    reserveTurn: (sessionId) =>
+        turns?.reserveTurn(sessionId, promptScope: PromptScope.task) ?? Future<String>.error(providerRequired()),
     reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) =>
         turns?.reserveTurn(
           sessionId,

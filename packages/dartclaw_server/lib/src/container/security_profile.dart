@@ -10,7 +10,7 @@ class SecurityProfile {
   final List<String> workspaceMounts;
 
   /// Creates a container security profile.
-  const SecurityProfile({required this.id, required this.displayName, this.workspaceMounts = const []});
+  const new({required this.id, required this.displayName, this.workspaceMounts = const []});
 
   /// Creates the standard writable workspace profile.
   ///

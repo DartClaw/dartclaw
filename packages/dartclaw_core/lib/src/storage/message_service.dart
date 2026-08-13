@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_models/dartclaw_models.dart';
+
 import 'uuid_validation.dart';
 import 'write_op.dart';
 
@@ -19,7 +20,7 @@ class MessageService {
   final Map<String, int> _lineCounts = {};
   late final BoundedWriteQueue _queue;
 
-  MessageService({required this.baseDir}) {
+  new({required this.baseDir}) {
     _queue = BoundedWriteQueue(logger: _log);
   }
 

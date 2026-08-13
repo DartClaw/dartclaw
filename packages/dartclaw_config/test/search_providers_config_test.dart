@@ -3,6 +3,24 @@ import 'package:test/test.dart';
 import 'support/load_config.dart';
 
 void main() {
+  group('search.qmd config', () {
+    for (final host in ['localhost', '127.0.0.1', '127.42.0.9', '::1', '[::1]']) {
+      test('accepts loopback host $host', () {
+        final config = loadYaml('search:\n  qmd:\n    host: "$host"\n');
+        expect(config.search.qmdHost, host == '[::1]' ? '::1' : host);
+        expect(config.warnings, isEmpty);
+      });
+    }
+
+    for (final host in ['0.0.0.0', '192.168.1.2', 'localhost.example', '127.0.0.256']) {
+      test('rejects non-loopback host $host', () {
+        final config = loadYaml('search:\n  qmd:\n    host: "$host"\n');
+        expect(config.search.qmdHost, '127.0.0.1');
+        expect(config.warnings, anyElement(contains('search.qmd.host')));
+      });
+    }
+  });
+
   group('search.providers config', () {
     test('no providers section returns empty map', () {
       final config = loadYaml('search:\n  backend: fts5\n');

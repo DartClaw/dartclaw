@@ -25,12 +25,7 @@ class LoopDetection {
   final Map<String, dynamic> detail;
 
   /// Creates a [LoopDetection] result.
-  const LoopDetection({
-    required this.mechanism,
-    required this.sessionId,
-    required this.message,
-    this.detail = const {},
-  });
+  const new({required this.mechanism, required this.sessionId, required this.message, this.detail = const {}});
 
   @override
   String toString() => 'LoopDetection($mechanism, session: $sessionId)';
@@ -47,7 +42,7 @@ class LoopDetectedException implements Exception {
   final LoopDetection detection;
 
   /// Creates a [LoopDetectedException].
-  const LoopDetectedException(this.message, this.detection);
+  const new(this.message, this.detection);
 
   @override
   String toString() => 'LoopDetectedException: $message';

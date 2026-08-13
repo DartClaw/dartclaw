@@ -33,7 +33,7 @@ class SchemaPreset {
   /// Field-specific resolver declarations for canonical output keys.
   final Map<String, OutputResolver> fieldResolvers;
 
-  const SchemaPreset({
+  const new({
     required this.name,
     required this.format,
     required this.schema,
@@ -164,8 +164,7 @@ const storySpecsPreset = SchemaPreset(
   defaultResolver: InlineOutput(schemaKey: 'story_specs'),
   fieldResolvers: {'story_specs': InlineOutput(schemaKey: 'story_specs')},
   schema: storySpecsSchema,
-  description:
-      'Per-story records driving the foreach controller; populated from an existing plan or by the plan step for a synthesized plan.',
+  description: 'Per-story records driving the foreach controller; populated from an existing plan or by the plan step for a synthesized plan.',
 );
 
 const _nonNegativeIntegerPromptFragment = 'Produce a non-negative integer (0 or greater). Output the number directly.';
@@ -234,6 +233,5 @@ const reviewReportPathPreset = SchemaPreset(
   name: 'review_report_path',
   format: OutputFormat.path,
   schema: {'type': 'string'},
-  description:
-      'Path to the review report file written by the invoking review skill. The form is dictated by the skill contract: absolute when the skill writes via --output-dir outside the project root; otherwise project-root-relative. Aggregate-reviews joins relative values under the active workspace root.',
+  description: 'Path to the review report file written by the invoking review skill. The form is dictated by the skill contract: absolute when the skill writes via --output-dir outside the project root; otherwise project-root-relative. Aggregate-reviews joins relative values under the active workspace root.',
 );

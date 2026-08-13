@@ -352,9 +352,8 @@ void main() {
       ]) {
         final def = _loadInline(file);
         expect(
-          _flattenedSteps(
-            def,
-          ).where((step) => const {'verify-format', 'verify-analyze', 'verify-tests'}.contains(step.id)),
+          _flattenedSteps(def)
+              .where((step) => const {'verify-format', 'verify-analyze', 'verify-tests'}.contains(step.id)),
           isEmpty,
           reason: '$file should not keep the old split verification gates',
         );
@@ -513,9 +512,8 @@ void main() {
       final reviseSpec = _load('spec-and-implement.yaml').steps.singleWhere((s) => s.id == 'revise-spec');
       expect(reviseSpec.maxRetries, 1, reason: 'revise-spec must retry transient harness failures');
 
-      final customImplement = _loadInline(
-        'spec-and-implement-inline.yaml',
-      ).steps.singleWhere((s) => s.id == 'implement');
+      final customImplement = _loadInline('spec-and-implement-inline.yaml').steps
+          .singleWhere((s) => s.id == 'implement');
       expect(customImplement.maxRetries, 1, reason: 'custom implement must retry transient harness failures');
     });
 
@@ -644,9 +642,9 @@ void main() {
       var checked = 0;
 
       for (final entry in definitions.entries) {
-        final aggregate = _flattenedSteps(
-          entry.value,
-        ).where((s) => s.taskType == WorkflowTaskType.aggregateReviews).firstOrNull;
+        final aggregate = _flattenedSteps(entry.value)
+            .where((s) => s.taskType == WorkflowTaskType.aggregateReviews)
+            .firstOrNull;
         if (aggregate == null) continue;
         final stepsById = {for (final s in _flattenedSteps(entry.value)) s.id: s};
 

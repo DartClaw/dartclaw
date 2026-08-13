@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
@@ -40,6 +40,9 @@ class _FakeWorkerService implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -50,6 +53,7 @@ class _FakeWorkerService implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -84,7 +88,7 @@ class _TestGuard extends Guard {
 
   final FutureOr<GuardVerdict> Function(GuardContext context) evaluator;
 
-  _TestGuard({required this.name, required this.evaluator});
+  new({required this.name, required this.evaluator});
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async => evaluator(context);
@@ -98,7 +102,7 @@ class _FakeChannel extends Channel {
   final ChannelType type = ChannelType.whatsapp;
   bool connected = false;
 
-  _FakeChannel({this.name = 'fake-channel'});
+  new({this.name = 'fake-channel'});
 
   @override
   Future<void> connect() async => connected = true;

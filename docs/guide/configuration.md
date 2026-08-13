@@ -154,18 +154,16 @@ harness:
         verification: required   # required when guard mediation is claimed
         requires_guard_mediation: true
         required_builtins: [developer, fs, terminal]
-        container_isolation_required: false
-        container_profile: workspace
+        container_isolation_required: false   # true has no runnable execution — see the note below
       vibe:
         binary: vibe-acp
         args: []
-        topology: unverified
+        topology: direct         # relay/unverified require a container and are unavailable
         model_provider: mistral
         verification: startup_probe
         requires_guard_mediation: false
         required_builtins: []
-        container_isolation_required: true
-        container_profile: restricted
+        container_isolation_required: false
 
 # --- Gateway Auth ---
 auth:
@@ -224,10 +222,13 @@ tasks:
 
 # --- Memory ---
 memory:
-  max_bytes: 32768               # preferred MEMORY.md size cap
+  max_bytes: 32768               # positive prompt-index byte budget
+  journal:
+    enabled: false               # distill daily turn logs into canonical observations (opt-in)
+    schedule: "0 22 * * *"
   pruning:
-    enabled: true                # archive + dedupe MEMORY.md on a schedule
-    archive_after_days: 30
+    enabled: true                # archive + dedupe recognized entries; preserve other content
+    archive_after_days: 90       # positive integer
     schedule: "0 3 * * *"
 
 # --- Scheduling ---
@@ -355,7 +356,6 @@ github:
 
 # --- Tasks ---
 tasks:
-  max_concurrent: 3
   completion_action: review          # review (default) | accept (auto-accept on completion)
   worktree:
     base_ref: main
@@ -369,21 +369,20 @@ agent:
   model: opus[1m]                # also accepts shorthand like claude/opus or codex/gpt-5.4
   effort: high                   # reasoning effort — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
   disallowed_tools: []
-  agents:                        # subagent definitions — see Agents guide for details
+  agents:                        # logical-agent definitions – see Agents guide for details
     search:                      # built-in default; omit to use defaults
+      provider: claude           # optional; inherits agent.provider when omitted
+      security_profile: restricted # workspace | restricted; search defaults to restricted
       model: haiku               # per-agent model override
       effort: low                # per-agent effort override
-      tools: [WebSearch, WebFetch]
-      max_spawn_depth: 0
-      max_concurrent: 2
+      tools: [web_search, web_fetch]
       max_response_bytes: 5242880
-    # Custom subagents — define any number with unique IDs:
+    # Custom logical agents – define any number with unique IDs:
     # summarizer:
     #   description: "Summarizes documents"
     #   prompt: "You are a summarization specialist..."
     #   tools: [Read]
     #   model: haiku
-    #   max_concurrent: 1
 
 # --- Workflow Defaults ---
 workflow:
@@ -435,7 +434,7 @@ workflow:
 providers:
   claude:
     executable: claude           # path or binary name
-    pool_size: 2                 # primary + 1 task worker
+    pool_size: 2                 # hard limit: 2 concurrent background worker leases
     inherit_user_settings: true  # default: load user + project + local Claude settings; false = project-only
   #   approval: on-request       # on-request | unless-allow-listed | never (prompt-gating axis)
   #   sandbox: workspace-write   # read-only | workspace-write | danger-full-access (OS-isolation axis)
@@ -446,16 +445,17 @@ providers:
   #                              #   refused under the restricted container profile (fail-closed).
   # codex:                       # uncomment to enable Codex (OpenAI models)
   #   executable: codex          # path to codex binary
-  #   pool_size: 2               # 2 task workers
+  #   pool_size: 2               # hard limit: 2 concurrent background worker leases
   #   sandbox: workspace-write   # workspace-write | danger-full-access
   #   approval: on-request       # on-request | unless-allow-listed | never
-  #                              # IMPORTANT: approval: never is incompatible with
-  #                              #   Codex delegation provider-approval mode. For delegated
-  #                              #   Codex agents, use approval: on-request with sandbox:
-  #                              #   read-only or workspace-write. Non-delegated batch use
-  #                              #   may still choose approval: never to avoid the upstream
-  #                              #   approval deadlock bug (openai/codex#11816), but that
-  #                              #   disables Codex approval-request mediation.
+  #                              # IMPORTANT: on-request is the broadest host interception;
+  #                              #   unless-allow-listed is partial and never disables it.
+  #                              #   If omitted, Codex inherits its own configuration and
+  #                              #   DartClaw cannot verify the host-interception posture.
+  #                              #   For logical agents using Codex, use approval: on-request
+  #                              #   with sandbox: read-only or workspace-write. Trusted
+  #                              #   batch use may still choose never when host guard
+  #                              #   interception is intentionally not required.
   #                              #   See: docs/guide/agents.md § Providers
 
 # --- Credentials (0.13) ---
@@ -487,21 +487,6 @@ mcp_servers:
       tokens: 20000
       window_seconds: 3600
 
-# --- Delegation (0.18) ---
-delegation:
-  enabled: false
-  agents:
-    - id: goose
-      require_guard_mediation: true
-      post_run_accounting_only: false
-    - id: codex
-      require_guard_mediation: false
-      post_run_accounting_only: true
-  max_budget_tokens: 0           # 0 = unlimited
-  budget_accounting: provider_reported # provider_reported | estimate_if_unreported
-  rate_limit:
-    max_per_minute: 6
-
 # --- Context Management ---
 context:
   reserve_tokens: 20000         # token reserve before compaction flush
@@ -511,7 +496,7 @@ context:
 search:
   backend: fts5                  # fts5 | qmd
   qmd:
-    host: 127.0.0.1
+    host: 127.0.0.1              # literal loopback only: localhost, 127.x.x.x, or ::1
     port: 8181
   default_depth: standard        # fast | standard | deep
 
@@ -581,7 +566,9 @@ automation:
         auto_start: true
 ```
 
-Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a deprecated alias (see [Deprecated Keys](#deprecated-keys)), and `memory.pruning.*` configures the scheduled MEMORY.md cleanup job.
+With guards enabled, DartClaw's own MCP `web_fetch` is canonicalized before guard evaluation and is therefore subject to NetworkGuard's built-in allowlist plus `guards.network.extra_allowed_domains`. Existing MCP deployments must add every required non-default fetch domain. Per-agent additions under `guards.network.agent_overrides.<agent-id>.extra_domains` apply to that logical agent's turns.
+
+Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a deprecated alias (see [Deprecated Keys](#deprecated-keys)), and `memory.pruning.*` configures scheduled canonical-entry archival and exact-replay deduplication. The bounded `MEMORY.md` index is regenerated by that corpus transaction.
 
 `knowledge.inbox` and `knowledge.wiki_lint` are disabled by default. Enable them explicitly to schedule filesystem inbox processing or wiki lint reports.
 
@@ -589,11 +576,11 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
 
-**Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Subagents under `agent.agents` can override the model individually. Task runners also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
+**Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Logical agents under `agent.agents` can override the model individually. Background tasks also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
 
-**Note on `agent.provider`:** When set, the default provider applies to all sessions and tasks unless overridden. Per-task provider overrides are supported via `configJson.provider` at task creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
+**Note on `agent.provider`:** This is the fixed provider for the serialized primary lane used by main user/channel sessions, and the default provider for background routing. Interactive session creation does not accept a provider override. Logical agents may select a provider and provider-independent `security_profile` (`workspace` or `restricted`); tasks may select a provider at creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
 
-**Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `providers.claude.executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation". For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
+**Note on `providers` section:** When omitted, DartClaw configures the selected default provider with its normal executable and worker capacity `1`. Add an explicit `providers:` section for multi-provider deployments or to customize capacity, executables, or provider-specific options. Provider IDs are trimmed and lowercased across provider maps and agent references; normalization collisions are rejected instead of creating ambiguous routing. `pool_size: 0` means the default of one. `pool_size` is the hard concurrent worker-lease limit for that provider across tasks, schedules, system/advisor work, logical agents, and capacity-only workflow one-shots. Workers start lazily; healthy compatible workers may be cached, but cache size does not define capacity. Container/profile lifecycle is independent, so enabling both `workspace` and `restricted` does not require reserved worker capacity for each profile. For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
 
 **Claude `approval` and `sandbox` (two orthogonal axes).** Mirroring the Codex provider's vocabulary, the Claude provider accepts two independent trusted-run knobs, both defaulting OFF:
 
@@ -607,20 +594,11 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 
 **Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
 
-- Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, `required_builtins`, `container_isolation_required`, and `container_profile`.
-- Missing `topology` defaults to `unverified`; unverified and relay ACP agents are container-isolation-only until verification proves reverse-call guard mediation.
+- Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, and `required_builtins`. `container_isolation_required` defaults to `false`. `container_profile` still selects the profile the execution policy resolves to, so on a container-enabled deployment leaving it set pins the agent to a container policy that is then refused — omit it, or pair it with an explicit `execution: host`.
+- Missing `topology` defaults to `unverified`; unverified and relay ACP agents claim no guard mediation, so a container is the only boundary they could have. `topology: direct` is an operator declaration — DartClaw validates it (verification evidence, a non-relay `model_provider`, required builtins) only when the registration also sets `requires_guard_mediation: true`. Declaring `direct` without that moves the agent onto the host with no boundary and no verified claim; do it only for an agent you have established is safe to run there.
+- **ACP runs on the host only.** DartClaw mediates no provider credential or host capability for an ACP client inside a container, so every ACP container combination is unavailable. `container_isolation_required: true` — which relay and unverified topologies must set — is rejected at startup with its exact configuration path. Every other ACP registration runs only where the resolved execution policy selects host execution: on a container-enabled deployment, set `execution: host` for the agent or task type that uses it, or the turn is refused before it starts. ACP is also unavailable on the workflow one-shot surface, which implements `claude` and `codex` only.
 - Guarded Goose registrations require the `developer` builtin.
-- Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default pool size `1`.
-
-**Note on `delegation`:** The `delegate_to_agent` MCP tool is disabled unless `delegation.enabled: true`.
-
-- Each target must be listed under `delegation.agents` with `id`, `require_guard_mediation`, and `post_run_accounting_only`.
-- Calls fail when `agent_id` is absent, task text is empty, or `work_dir` escapes the workspace jail.
-- `require_guard_mediation: true` rejects relay or unverified ACP agents and rejects Codex.
-- Codex delegation reports `security_mode: provider_approval`; use `approval: on-request` with `sandbox: read-only` or `sandbox: workspace-write`.
-- Approval bypass modes such as `approval: never`, and `sandbox: danger-full-access`, fail before spawn.
-- `max_budget_tokens` can enforce strict budgets for streaming or provider-reported usage. Non-reporting, non-streaming agents must set `post_run_accounting_only: true` on that allowlist entry.
-- Use `delegation.rate_limit.max_per_minute` to cap tool invocations.
+- Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default worker-lease capacity `1`.
 
 **Note on `mcp_servers`:** Each entry configures one external MCP server for hosts that instantiate the outbound MCP
 client. Use `command` for stdio servers or `url` for HTTP servers; exactly one transport is required. The default
@@ -745,7 +723,7 @@ relative to cwd unless you override them explicitly. See [Deployment § Running 
 | `dartclaw status` | Show the data directory, local session count, and configured harness executable without starting the server |
 | `dartclaw token show` | Print the current gateway auth token from config or the generated token file |
 | `dartclaw token rotate` | Generate and persist a new file-backed gateway token; restart running servers to use it |
-| `dartclaw rebuild-index` | Rebuild the SQLite FTS5 search index from `MEMORY.md` |
+| `dartclaw rebuild-index` | Rebuild the SQLite FTS5 projection from the validated canonical memory corpus |
 
 `dartclaw token show` prints a warning instead of a token until one is configured or generated by `dartclaw serve`.
 When `gateway.token` is set in YAML, rotate that config value instead of relying on the generated token file. A running
@@ -767,7 +745,8 @@ Highest priority wins:
 
 ## Behavior Files
 
-Behavior files compose the system prompt. Re-read every turn -- edit live without restart.
+Behavior files compose the scoped system prompt for every turn. Primary turns also receive a fresh bounded projection
+from the canonical memory index; topic bodies and observations remain available on demand through memory tools.
 
 | File | Purpose | Maintained by |
 |------|---------|---------------|
@@ -775,7 +754,7 @@ Behavior files compose the system prompt. Re-read every turn -- edit live withou
 | `AGENTS.md` | Safety rules and boundaries | Human |
 | `USER.md` | User context (name, timezone) | Agent or human |
 | `TOOLS.md` | Environment notes (servers, endpoints) | Human |
-| `MEMORY.md` | Persistent knowledge base | Agent (via memory tools) |
+| `MEMORY.md` | Bounded canonical index; detailed curated entries live in `memory/topics/` | Host (via `memory_apply`) |
 | `HEARTBEAT.md` | Periodic task checklist | Human |
 
 See [Workspace](workspace.md) for detailed descriptions and prompt assembly order.
@@ -838,6 +817,13 @@ The following configuration keys are deprecated. They still work but will be rem
 | `memory_max_bytes` | `memory.max_bytes` | Top-level alias |
 | `guard_audit.max_entries` | `guard_audit.max_retention_days` | Parsed but ignored |
 | `budget` (task `configJson`) | `tokenBudget` | Task `configJson` field |
+
+### Removed Preview Keys
+
+| Removed Key | Use Instead |
+|---|---|
+| `delegation.*` | Define logical agents under `agent.agents`; start them with `sessions_spawn` and continue them with `sessions_send` |
+| `tasks.max_concurrent` | `providers.<id>.pool_size` – per-provider worker-lease capacity for background execution |
 
 ## Network Exposure Warning
 

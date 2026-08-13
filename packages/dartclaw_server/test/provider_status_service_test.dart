@@ -1,28 +1,33 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:test/test.dart';
 
 import 'helpers/probe_helpers.dart';
+import 'execution_coordinator_test_support.dart';
 
 void main() {
   late Directory tempDir;
   late MessageService messages;
-  late List<HarnessPool> pools;
+  late List<ExecutionCoordinator> executions;
+  late List<ExecutionLease> activeLeases;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('provider_status_service_test_');
     messages = MessageService(baseDir: tempDir.path);
-    pools = <HarnessPool>[];
+    executions = <ExecutionCoordinator>[];
+    activeLeases = <ExecutionLease>[];
   });
 
   tearDown(() async {
-    for (final pool in pools) {
-      await pool.dispose();
+    for (final lease in activeLeases) {
+      await lease.release();
+    }
+    for (final coordinator in executions) {
+      await coordinator.dispose();
     }
     await messages.dispose();
     if (tempDir.existsSync()) {
@@ -36,8 +41,9 @@ void main() {
         providers: const ProvidersConfig.defaults(),
         registry: _registry(anthropicApiKey: 'anthropic-key'),
         defaultProvider: 'claude',
-        pool: _buildPool(
-          pools: pools,
+        executions: await _buildCoordinator(
+          coordinators: executions,
+          activeLeases: activeLeases,
           messages: messages,
           workspaceDir: tempDir.path,
           runners: const [
@@ -68,13 +74,14 @@ void main() {
       expect(service.summary, {'configured': 1, 'healthy': 1, 'degraded': 0});
     });
 
-    test('falls back to a single legacy codex provider and uses codex pool runners', () async {
+    test('falls back to a single legacy codex provider and uses codex worker capacity', () async {
       final service = ProviderStatusService(
         providers: const ProvidersConfig.defaults(),
         registry: _registry(openAiApiKey: 'openai-key'),
         defaultProvider: 'codex',
-        pool: _buildPool(
-          pools: pools,
+        executions: await _buildCoordinator(
+          coordinators: executions,
+          activeLeases: activeLeases,
           messages: messages,
           workspaceDir: tempDir.path,
           runners: const [
@@ -116,8 +123,9 @@ void main() {
         ),
         registry: _registry(anthropicApiKey: 'anthropic-key'),
         defaultProvider: 'claude',
-        pool: _buildPool(
-          pools: pools,
+        executions: await _buildCoordinator(
+          coordinators: executions,
+          activeLeases: activeLeases,
           messages: messages,
           workspaceDir: tempDir.path,
           runners: const [
@@ -150,7 +158,11 @@ void main() {
         'credentialStatus': 'present',
         'credentialEnvVar': 'ANTHROPIC_API_KEY',
         'poolSize': 3,
+        'effectiveWorkers': 1,
         'activeWorkers': 1,
+        'queuedWorkers': 0,
+        'cachedWorkers': 0,
+        'quarantinedWorkers': 0,
         'isDefault': true,
         'health': 'healthy',
         'errorMessage': null,
@@ -171,6 +183,18 @@ void main() {
       expect(ghost.errorMessage, contains("Binary 'ghost' for provider 'ghost' was not found."));
       expect(ghost.errorMessage, contains('providers.ghost.executable'));
       expect(service.summary, {'configured': 3, 'healthy': 1, 'degraded': 1});
+    });
+
+    test('reports effective default worker capacity for an unset pool size', () async {
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude')}),
+        registry: _registry(anthropicApiKey: 'anthropic-key'),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 1.0.0')}));
+
+      expect(service.all.single.poolSize, 1);
     });
 
     test('reports OAuth-authenticated provider as healthy with oauth credential status', () async {
@@ -255,8 +279,9 @@ void main() {
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),
         registry: _registry(openAiApiKey: 'openai-key'),
         defaultProvider: 'codex',
-        pool: _buildPool(
-          pools: pools,
+        executions: await _buildCoordinator(
+          coordinators: executions,
+          activeLeases: activeLeases,
           messages: messages,
           workspaceDir: tempDir.path,
           runners: const [
@@ -269,6 +294,45 @@ void main() {
       await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 3.0.0')}));
 
       expect(service.all.single.activeWorkers, 1);
+    });
+
+    test('reports quarantined worker capacity as degraded provider health', () async {
+      final coordinator = await _buildCoordinator(
+        coordinators: executions,
+        activeLeases: activeLeases,
+        messages: messages,
+        workspaceDir: tempDir.path,
+        runners: const [
+          (providerId: 'claude', state: WorkerState.idle),
+          (providerId: 'claude', state: WorkerState.idle),
+        ],
+        terminationConfirmed: false,
+      );
+      final lease = await coordinator.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.task,
+          providerId: 'claude',
+          policy: const ExecutionPolicy.host(),
+          sessionId: 'unsafe',
+        ),
+      );
+      (lease!.runner!.harness as FakeAgentHarness).setState(WorkerState.crashed);
+      await lease.release();
+
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+        registry: _registry(anthropicApiKey: 'anthropic-key'),
+        defaultProvider: 'claude',
+        executions: coordinator,
+      );
+      await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 3.0.0')}));
+
+      final status = service.all.single;
+      expect(status.health, 'degraded');
+      expect(status.effectiveWorkers, 0);
+      expect(status.quarantinedWorkers, 1);
+      expect(status.errorMessage, contains('Worker capacity degraded: 0 of 1 slots remain effective; 1 quarantined.'));
+      expect(service.summary, {'configured': 1, 'healthy': 0, 'degraded': 1});
     });
 
     test('handles non-zero exits, missing binaries, and empty version output', () async {
@@ -339,26 +403,49 @@ CredentialRegistry _registry({String? anthropicApiKey, String? openAiApiKey, Map
   );
 }
 
-HarnessPool _buildPool({
-  required List<HarnessPool> pools,
+Future<ExecutionCoordinator> _buildCoordinator({
+  required List<ExecutionCoordinator> coordinators,
+  required List<ExecutionLease> activeLeases,
   required MessageService messages,
   required String workspaceDir,
   required List<({String providerId, WorkerState state})> runners,
-}) {
-  final pool = HarnessPool(
-    runners: runners
-        .map(
-          (runner) => TurnRunner(
-            harness: FakeAgentHarness(initialState: runner.state),
-            messages: messages,
-            behavior: BehaviorFileService(workspaceDir: workspaceDir),
-            providerId: runner.providerId,
-          ),
-        )
-        .toList(growable: false),
-  );
-  pools.add(pool);
-  return pool;
+  bool terminationConfirmed = true,
+}) async {
+  final runnerInstances = runners
+      .map(
+        (runner) => TurnRunner(
+          harness: _StatusHarness(terminationConfirmed: terminationConfirmed),
+          messages: messages,
+          behavior: BehaviorFileService(workspaceDir: workspaceDir),
+          providerId: runner.providerId,
+        ),
+      )
+      .toList(growable: false);
+  final coordinator = coordinatorForRunners(runnerInstances);
+  coordinators.add(coordinator);
+  for (var index = 1; index < runners.length; index++) {
+    final runner = runners[index];
+    if (runner.state != WorkerState.busy) continue;
+    final lease = await coordinator.acquire(
+      ExecutionRequest(
+        surface: ExecutionSurface.workflow,
+        providerId: runner.providerId,
+        policy: const ExecutionPolicy.host(),
+        sessionId: 'busy-$index',
+      ),
+    );
+    activeLeases.add(lease!);
+  }
+  return coordinator;
+}
+
+final class _StatusHarness extends FakeAgentHarness {
+  new({required this.terminationConfirmed}) : super(initialState: WorkerState.idle);
+
+  final bool terminationConfirmed;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => terminationConfirmed;
 }
 
 Future<bool> _authSucceeds(String executable, {String? providerId}) async => true;

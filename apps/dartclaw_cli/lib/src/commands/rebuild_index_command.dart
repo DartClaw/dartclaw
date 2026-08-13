@@ -1,58 +1,90 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:path/path.dart' as p;
 
 import 'config_loader.dart';
 
 class RebuildIndexCommand extends Command<void> {
   final DartclawConfig? _config;
   final void Function(String)? _writeLine;
-  final SearchDbFactory _searchDbFactory;
+  final CanonicalIndexReconciler? _indexReconciler;
 
-  RebuildIndexCommand({DartclawConfig? config, void Function(String)? writeLine, SearchDbFactory? searchDbFactory})
+  new({DartclawConfig? config, void Function(String)? writeLine, CanonicalIndexReconciler? indexReconciler})
     : _config = config,
       _writeLine = writeLine,
-      _searchDbFactory = searchDbFactory ?? openSearchDb;
+      _indexReconciler = indexReconciler {
+    argParser.addFlag('json', negatable: false, help: 'Output the rebuild result as JSON');
+  }
 
   @override
   String get name => 'rebuild-index';
 
   @override
-  String get description => 'Rebuild FTS5 memory search index from MEMORY.md';
+  String get description => 'Rebuild FTS5 memory search index offline (stop DartClaw first)';
 
   @override
   Future<void> run() async {
     final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
     final write = _writeLine ?? stdout.writeln;
+    final json = argResults?['json'] as bool? ?? false;
 
-    for (final w in config.warnings) {
-      write('WARNING: $w');
+    if (!json) {
+      for (final w in config.warnings) {
+        write('WARNING: $w');
+      }
     }
+    if (!json) write('WARNING: DartClaw must remain stopped until rebuild-index completes.');
 
-    final memoryPath = p.join(config.workspaceDir, 'MEMORY.md');
-    final file = File(memoryPath);
-    if (!file.existsSync()) {
-      write('No MEMORY.md found at $memoryPath');
-      return;
-    }
-
-    final entries = MemoryFileService.parseMemoryFile(memoryPath);
-    if (entries.isEmpty) {
-      write('MEMORY.md is empty — nothing to index');
-      return;
-    }
-
-    final db = _searchDbFactory(config.searchDbPath);
+    final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     try {
-      final memory = MemoryService(db);
-      memory.rebuildIndex(entries.map((e) => (text: e.text, source: 'memory_save', category: e.category)).toList());
-      write('Rebuilt index: ${entries.length} entries from $memoryPath');
+      final preflight = await LegacyMemoryMigrator(
+        workspaceDir: config.workspaceDir,
+        corpusService: corpusService,
+      ).preflight();
+      if (!json) write(preflight.render());
+      final manifest = await corpusService.manifest();
+      final health = IndexHealthStore(workspaceDir: config.workspaceDir);
+      final reconciler =
+          _indexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: health);
+      Stream<List<MemoryIndexRow>> rows() async* {
+        for (final path in manifest.paths) {
+          if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
+          final selection = await corpusService.selectPaths([path]);
+          if (selection.collectionRevision != manifest.collectionRevision ||
+              selection.fingerprint != manifest.fingerprint) {
+            throw StateError('Canonical memory changed during index reconciliation');
+          }
+          yield MemoryService.canonicalIndexRows(selection.corpus);
+        }
+      }
+
+      final result = await reconciler.reconcileBatched(
+        rowBatches: rows,
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        authenticateComplete: () => corpusService.authenticate(manifest),
+      );
+      if (json) {
+        write(
+          jsonEncode({
+            'canonicalRevision': result.revision,
+            'indexedRows': result.rowCount,
+            'health': result.health.state.name,
+            'unchanged': false,
+          }),
+        );
+      } else {
+        write(
+          'Rebuilt index: ${result.rowCount} entries at collection revision ${result.revision}; '
+          'health=${result.health.state.name}',
+        );
+      }
     } finally {
-      db.close();
+      await corpusService.close();
     }
   }
 }

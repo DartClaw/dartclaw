@@ -11,7 +11,7 @@ class WorkspaceService {
 
   final String dataDir;
 
-  WorkspaceService({required this.dataDir});
+  new({required this.dataDir});
 
   String get workspaceDir => p.join(dataDir, 'workspace');
   String get logsDir => p.join(dataDir, 'logs');

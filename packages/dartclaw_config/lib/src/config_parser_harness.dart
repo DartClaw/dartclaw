@@ -66,7 +66,18 @@ AcpConfig _parseAcpConfig(Map<String, dynamic> harnessMap, AcpConfig defaults, L
 
   final agents = <String, AcpAgentConfig>{};
   for (final entry in agentsMap.entries) {
-    final agentId = entry.key.toString();
+    final rawAgentId = entry.key.toString();
+    if (rawAgentId.trim().isEmpty) {
+      warns.add('ACP provider ID must not be empty — skipping');
+      continue;
+    }
+    final agentId = ProviderIdentity.normalize(rawAgentId);
+    if (agents.containsKey(agentId)) {
+      warns.add(
+        'harness.acp.agents.$rawAgentId collides with another provider after normalization to "$agentId" — skipping',
+      );
+      continue;
+    }
     final value = entry.value;
     if (value is! Map) {
       warns.add('Invalid type for harness.acp.agents.$agentId: "${value.runtimeType}" — skipping');

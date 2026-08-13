@@ -1,4 +1,5 @@
 import 'package:test/test.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show MemoryConfig;
 
 import 'support/load_config.dart';
 
@@ -40,6 +41,29 @@ void main() {
       expect(config.warnings, isNot(anyElement(contains('memory_max_bytes'))));
     });
 
+    for (final entry in <(String, String)>[
+      ('memory:\n  max_bytes: 0\n', 'memory.max_bytes'),
+      ('memory:\n  max_bytes: -1\n', 'memory.max_bytes'),
+      ('memory:\n  max_bytes: 1.5\n', 'memory.max_bytes'),
+      ('memory:\n  max_bytes: invalid\n', 'memory.max_bytes'),
+      ('memory_max_bytes: 0\n', 'memory.max_bytes'),
+      ('memory:\n  pruning:\n    archive_after_days: 0\n', 'memory.pruning.archive_after_days'),
+      ('memory:\n  pruning:\n    archive_after_days: -1\n', 'memory.pruning.archive_after_days'),
+      ('memory:\n  pruning:\n    archive_after_days: 1.5\n', 'memory.pruning.archive_after_days'),
+    ]) {
+      test('rejects present-invalid positive integer ${entry.$2}: ${entry.$1.trim()}', () {
+        expect(
+          () => loadYaml(entry.$1),
+          throwsA(isA<FormatException>().having((error) => error.message, 'message', contains(entry.$2))),
+        );
+      });
+    }
+
+    test('typed construction rejects non-positive memory integers', () {
+      expect(() => MemoryConfig(maxBytes: 0), throwsArgumentError);
+      expect(() => MemoryConfig(archiveAfterDays: -1), throwsArgumentError);
+    });
+
     test('memory.pruning CLI overrides take precedence over YAML', () {
       final config = loadYaml(
         'memory:\n  pruning:\n    enabled: true\n    archive_after_days: 90\n    schedule: "0 3 * * *"\n',
@@ -53,5 +77,35 @@ void main() {
       expect(config.memory.archiveAfterDays, 7);
       expect(config.memory.pruningSchedule, '0 4 * * *');
     });
+
+    test('parses memory.journal and defaults it off', () {
+      final configured = loadYaml('memory:\n  journal:\n    enabled: true\n    schedule: "0 6 * * *"\n');
+      final defaults = loadNoFile();
+
+      expect(configured.memory.journalEnabled, isTrue);
+      expect(configured.memory.journalSchedule, '0 6 * * *');
+      expect(defaults.memory.journalEnabled, isFalse);
+      expect(defaults.memory.journalSchedule, '0 22 * * *');
+    });
+
+    for (final malformedJournal in ['1', '[]', 'invalid', 'null']) {
+      test('rejects non-map memory.journal value $malformedJournal', () {
+        expect(
+          () => loadYaml('memory:\n  journal: $malformedJournal\n'),
+          throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('memory.journal'))),
+        );
+      });
+    }
+
+    for (final malformedSchedule in ['1', '[]', '{}', 'null']) {
+      test('rejects non-string memory.journal.schedule value $malformedSchedule', () {
+        expect(
+          () => loadYaml('memory:\n  journal:\n    schedule: $malformedSchedule\n'),
+          throwsA(
+            isA<FormatException>().having((error) => error.message, 'message', contains('memory.journal.schedule')),
+          ),
+        );
+      });
+    }
   });
 }

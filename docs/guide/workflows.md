@@ -410,6 +410,10 @@ Workflow agent steps default to a one-shot execution path for bounded workflow w
 
 There is no longer a workflow-level or per-step `executionMode` switch. Workflow agent steps always use the one-shot path; interactive chat/tasks still use the long-lived streaming harnesses.
 
+Each running one-shot acquires a capacity-only lease against its provider's `pool_size`. This gives workflows the same
+hard background limit as other execution without starting an unused long-lived worker harness. The lease is the
+authority; an availability snapshot may guide parallel dispatch but cannot expand capacity.
+
 Workflow agent steps default to `type: agent` when `type:` is omitted. Read-only behavior is now derived from `allowedTools`: if a step declares an allowlist and omits `file_write`, DartClaw marks the task read-only and blocks file mutations. File-backed review steps that must write report artifacts include `file_write`; ordinary inspection-only review steps leave it out.
 
 JSON outputs now support two output modes, with `format: json` + `schema` defaulting to native structured output:
@@ -659,7 +663,7 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills (`andthen:prd`, `andthen:plan`, `andthen:spec`) write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. Workflow steps downstream read the file via `file_read`. This lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
+Artifact-producing skills (`andthen:prd`, `andthen:plan`, `andthen:spec`) write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. Workflow steps downstream read the file via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
 
 Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `andthen:plan` step to synthesize or republish the plan bundle. An empty `story_specs.items: []` is a successful resume signal – every story is already `done`/`skipped`, so the foreach iterates zero times and the workflow proceeds to plan-level review.
 

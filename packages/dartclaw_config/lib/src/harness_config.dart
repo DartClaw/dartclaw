@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 
+import 'provider_identity.dart';
+
 const _acpAgentsEquality = MapEquality<String, AcpAgentConfig>();
 const _stringListEquality = ListEquality<String>();
 
@@ -33,7 +35,7 @@ class AcpVerifiedTargetProfile {
   final bool requiresTerminalCapability;
 
   /// Creates verified target metadata.
-  const AcpVerifiedTargetProfile({
+  const new({
     required this.providerId,
     required this.binary,
     required this.args,
@@ -81,10 +83,10 @@ class HarnessConfig {
   final AcpConfig acp;
 
   /// Creates harness-level runtime controls.
-  const HarnessConfig({this.turnMonitor = const TurnMonitorConfig.defaults(), this.acp = const AcpConfig.defaults()});
+  const new({this.turnMonitor = const TurnMonitorConfig.defaults(), this.acp = const AcpConfig.defaults()});
 
   /// Default harness controls.
-  const HarnessConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -112,13 +114,10 @@ class TurnMonitorConfig {
   final Duration stuckAfter;
 
   /// Creates turn monitor thresholds.
-  const TurnMonitorConfig({
-    this.waitWarningAfter = const Duration(seconds: 30),
-    this.stuckAfter = const Duration(seconds: 120),
-  });
+  const new({this.waitWarningAfter = const Duration(seconds: 30), this.stuckAfter = const Duration(seconds: 120)});
 
   /// Default turn monitor thresholds.
-  const TurnMonitorConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -138,13 +137,26 @@ class AcpConfig {
   final Map<String, AcpAgentConfig> agents;
 
   /// Creates an ACP registration section.
-  const AcpConfig({this.agents = const {}});
+  const new({this.agents = const {}});
 
   /// Default ACP registration section.
-  const AcpConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns the ACP agent registration for [providerId], if configured.
-  AcpAgentConfig? operator [](String providerId) => agents[providerId];
+  AcpAgentConfig? operator [](String providerId) {
+    if (providerId.trim().isEmpty) return null;
+    final normalized = ProviderIdentity.normalize(providerId);
+    AcpAgentConfig? match;
+    for (final entry in agents.entries) {
+      if (entry.key.trim().isEmpty) continue;
+      if (ProviderIdentity.normalize(entry.key) != normalized) continue;
+      if (match != null) {
+        throw StateError('Configured ACP provider IDs collide after normalization to "$normalized"');
+      }
+      match = entry.value;
+    }
+    return match;
+  }
 
   /// Whether no ACP agents are registered.
   bool get isEmpty => agents.isEmpty;
@@ -165,10 +177,12 @@ enum AcpAgentTopology {
   /// Direct model-provider topology eligible for verified guard mediation.
   direct,
 
-  /// Relay-provider topology; container-isolation-only in S03.
+  /// Relay-provider topology; claims no guard mediation, so a container is
+  /// its only possible boundary.
   relay,
 
-  /// Unverified topology; container-isolation-only in S03.
+  /// Unverified topology; treated like [relay] until verification proves
+  /// reverse-call mediation.
   unverified,
 }
 
@@ -186,8 +200,9 @@ enum AcpSecurityClassification {
   /// Verified direct-provider configuration may claim guard mediation.
   guardMediated,
 
-  /// Relay/unverified configuration must run inside an enforced container boundary.
-  containerIsolationOnly,
+  /// Configuration claiming no guard mediation. ACP has no mediated container
+  /// execution, so every registration that reaches a turn runs on the host.
+  hostOnly,
 }
 
 /// Immutable config for one ACP agent registration.
@@ -220,7 +235,7 @@ class AcpAgentConfig {
   final AcpContainerProfile? containerProfile;
 
   /// Creates an ACP agent registration.
-  const AcpAgentConfig({
+  const new({
     required this.binary,
     this.args = const [],
     this.topology = AcpAgentTopology.unverified,
@@ -233,9 +248,8 @@ class AcpAgentConfig {
   });
 
   /// Derived security classification.
-  AcpSecurityClassification get securityClassification => requiresGuardMediation
-      ? AcpSecurityClassification.guardMediated
-      : AcpSecurityClassification.containerIsolationOnly;
+  AcpSecurityClassification get securityClassification =>
+      requiresGuardMediation ? AcpSecurityClassification.guardMediated : AcpSecurityClassification.hostOnly;
 
   @override
   bool operator ==(Object other) =>

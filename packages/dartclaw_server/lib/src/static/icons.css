@@ -1,5 +1,5 @@
-/* Synced from dev/design-system/icons.css on 2026-07-31.
-   sha256: 62e3324050daacbe58ebd906e86bd7b2a9604ef803832a76a6d3be3946f2bcc2 */
+/* Synced from dev/design-system/icons.css on 2026-08-08.
+   sha256: 28daac26f17a9342abe7264ff13475941d84329c78f8ce33f1285da5727a7a5d */
 /* ================================================================
    DartClaw Icon System
    ================================================================
@@ -113,6 +113,9 @@
 
   /* plus — composer attach / add */
   --icon-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+
+  /* play — run an action */
+  --icon-play: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z'/%3E%3C/svg%3E");
 
   /* radio-tower — channels section */
   --icon-radio-tower: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.9 16.1C1 12.2 1 5.8 4.9 1.9'/%3E%3Cpath d='M7.8 4.7a6.14 6.14 0 0 0-.8 7.5'/%3E%3Ccircle cx='12' cy='9' r='2'/%3E%3Cpath d='M16.2 4.8c2 2 2.26 5.11.8 7.47'/%3E%3Cpath d='M19.1 1.9a9.96 9.96 0 0 1 0 14.1'/%3E%3Cpath d='M9.5 18h5'/%3E%3Cpath d='m8 22 4-11 4 11'/%3E%3C/svg%3E");
@@ -279,6 +282,7 @@
 .icon-paperclip         { -webkit-mask-image: var(--icon-paperclip);       mask-image: var(--icon-paperclip); }
 .icon-pencil            { -webkit-mask-image: var(--icon-pencil);          mask-image: var(--icon-pencil); }
 .icon-plus              { -webkit-mask-image: var(--icon-plus);            mask-image: var(--icon-plus); }
+.icon-play              { -webkit-mask-image: var(--icon-play);            mask-image: var(--icon-play); }
 .icon-radio-tower       { -webkit-mask-image: var(--icon-radio-tower);     mask-image: var(--icon-radio-tower); }
 .icon-search            { -webkit-mask-image: var(--icon-search);          mask-image: var(--icon-search); }
 .icon-server            { -webkit-mask-image: var(--icon-server);          mask-image: var(--icon-server); }
@@ -327,6 +331,7 @@
 [data-icon="x"]::before             { -webkit-mask-image: var(--icon-x);              mask-image: var(--icon-x); }
 [data-icon="info"]::before          { -webkit-mask-image: var(--icon-info);           mask-image: var(--icon-info); }
 [data-icon="pencil"]::before        { -webkit-mask-image: var(--icon-pencil);         mask-image: var(--icon-pencil); }
+[data-icon="play"]::before          { -webkit-mask-image: var(--icon-play);           mask-image: var(--icon-play); }
 [data-icon="square"]::before        { -webkit-mask-image: var(--icon-square);         mask-image: var(--icon-square); }
 [data-icon="check"]::before         { -webkit-mask-image: var(--icon-check);          mask-image: var(--icon-check); }
 [data-icon="circle-x"]::before      { -webkit-mask-image: var(--icon-circle-x);       mask-image: var(--icon-circle-x); }

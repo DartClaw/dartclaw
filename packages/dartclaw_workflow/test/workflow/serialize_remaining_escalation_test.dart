@@ -448,15 +448,14 @@ void main() {
 
       // No promotion callback — step itself just fails normally.
       final adapter = standardTurnAdapter(
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => const WorkflowGitPromotionSuccess(commitSha: 'sha-ok'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => const WorkflowGitPromotionSuccess(commitSha: 'sha-ok'),
         cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
@@ -972,15 +971,14 @@ void main() {
       );
 
       final adapter = standardTurnAdapter(
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}'),
         cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
@@ -1096,15 +1094,14 @@ void main() {
 
       // S02 succeeds on its serial retry (crash recovery resumes at head).
       final adapter = standardTurnAdapter(
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => WorkflowGitPromotionSuccess(commitSha: 'sha-${storyId ?? 'x'}'),
         cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );

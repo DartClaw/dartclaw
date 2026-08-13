@@ -12,7 +12,7 @@ class McpServerRateLimit {
   final Duration window;
 
   /// Creates a per-server call rate limit.
-  const McpServerRateLimit({this.calls = 0, this.window = const Duration(minutes: 1)});
+  const new({this.calls = 0, this.window = const Duration(minutes: 1)});
 
   /// Whether this limit is disabled.
   bool get isDisabled => calls <= 0;
@@ -34,7 +34,7 @@ class McpServerTokenBudget {
   final Duration window;
 
   /// Creates a per-server token budget.
-  const McpServerTokenBudget({this.tokens = 0, this.window = const Duration(minutes: 1)});
+  const new({this.tokens = 0, this.window = const Duration(minutes: 1)});
 
   /// Whether this budget is disabled.
   bool get isDisabled => tokens <= 0;
@@ -61,7 +61,7 @@ enum McpNetworkClass {
   /// YAML value for this network class.
   final String yamlValue;
 
-  const McpNetworkClass(this.yamlValue);
+  new(this.yamlValue);
 
   /// Accepted YAML values.
   static const knownValues = <String>['local', 'private', 'public'];
@@ -106,7 +106,7 @@ class McpServerEntry {
   final List<String> surfaceTools;
 
   /// Creates a [McpServerEntry] value.
-  const McpServerEntry({
+  const new({
     this.command,
     this.url,
     this.enabled = true,
@@ -167,10 +167,10 @@ class McpServersConfig {
   final Map<String, McpServerEntry> entries;
 
   /// Creates a [McpServersConfig] value.
-  const McpServersConfig({this.entries = const {}});
+  const new({this.entries = const {}});
 
   /// Creates an empty [McpServersConfig].
-  const McpServersConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns the entry for [name], or `null` if not configured.
   McpServerEntry? operator [](String name) => entries[name];

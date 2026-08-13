@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -13,7 +13,7 @@ import 'package:sqlite3/sqlite3.dart';
 import '_support/workflow_test_paths.dart';
 
 final class ScenarioTaskHarness {
-  ScenarioTaskHarness._();
+  new _();
 
   late Directory tempDir;
   late String sessionsDir;
@@ -56,10 +56,27 @@ final class ScenarioTaskHarness {
       eventBus: harness.eventBus,
     );
     harness._worker = ScriptedAgentWorker();
-    harness.turns = TurnManager(
+    final primary = TurnRunner(
       messages: harness.messages,
-      worker: harness._worker,
+      harness: harness._worker,
       behavior: BehaviorFileService(workspaceDir: harness.workspaceDir),
+      sessions: harness.sessions,
+    );
+    harness.turns = TurnManager.fromCoordinator(
+      coordinator: ExecutionCoordinator(
+        providerCapacities: const {'claude': 1, 'codex': 1},
+        primary: primary,
+        admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primary.releaseAdmission,
+        createWorker: (request) async => TurnRunner(
+          messages: harness.messages,
+          harness: harness._worker,
+          behavior: BehaviorFileService(workspaceDir: harness.workspaceDir),
+          sessions: harness.sessions,
+          providerId: request.providerId,
+          executionPolicy: request.policy,
+        ),
+      ),
       sessions: harness.sessions,
     );
     harness.kvService = KvService(filePath: p.join(harness.tempDir.path, 'kv.json'));
@@ -98,6 +115,36 @@ final class ScenarioTaskHarness {
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );
+  }
+
+  Future<({bool processed, Task task})> pollOnceAndWaitForTaskStatus(
+    TaskExecutor executor,
+    String taskId,
+    Set<TaskStatus> statuses, {
+    String? trigger,
+  }) async {
+    // Subscribe before dispatch because pollOnce intentionally does not await execution.
+    final reached = Completer<void>();
+    final subscription = eventBus
+        .on<TaskStatusChangedEvent>()
+        .where(
+          (event) =>
+              event.taskId == taskId &&
+              statuses.contains(event.newStatus) &&
+              (trigger == null || event.trigger == trigger),
+        )
+        .listen((_) {
+          if (!reached.isCompleted) reached.complete();
+        });
+    try {
+      final processed = await executor.pollOnce();
+      await reached.future;
+      final task = await tasks.get(taskId);
+      if (task == null) throw StateError('Task "$taskId" disappeared while awaiting status');
+      return (processed: processed, task: task);
+    } finally {
+      await subscription.cancel();
+    }
   }
 
   /// Direct access to the scripted worker so component tests can `enqueue`
@@ -283,11 +330,11 @@ final class ScenarioTaskHarness {
   }
 
   Future<void> dispose() async {
+    await turns.executions.dispose();
     await tasks.dispose();
     await messages.dispose();
     await kvService.dispose();
     await eventBus.dispose();
-    await _worker.dispose();
     taskDb.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
@@ -330,7 +377,7 @@ WorkflowCliRunner successWorkflowCliRunner({String sessionId = 'cli-session-succ
 }
 
 final class StaticPathWorktreeManager extends WorktreeManager {
-  StaticPathWorktreeManager(this.path)
+  new(this.path)
     : super(
         dataDir: '/tmp',
         processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
@@ -392,7 +439,7 @@ final class ScriptedResponse {
   /// to simulate the agent's on-disk effect.
   final FutureOr<void> Function(String sessionId, String? directory)? onInvoked;
 
-  const ScriptedResponse({
+  const new({
     this.assistantContent = '',
     this.usage = const {},
     this.delay,
@@ -486,6 +533,9 @@ class ScriptedAgentWorker implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -496,6 +546,7 @@ class ScriptedAgentWorker implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,

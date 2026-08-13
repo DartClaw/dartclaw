@@ -3,21 +3,75 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
+import 'package:uuid/uuid.dart';
 
 import '../version.dart';
+
+/// Authorization for one MCP caller, applied before discovery and dispatch.
+///
+/// The caller's identity is established by the transport that owns this policy
+/// — for containerized executions, the host-owned bridge pipe — never by
+/// anything in the request.
+abstract interface class McpCallerPolicy {
+  /// Whether [toolName] is visible and callable for this caller.
+  bool allows(String toolName);
+
+  /// Records a refused `tools/call`. Discovery filtering is not a refusal.
+  void onDenied(String toolName);
+}
+
+/// Trusted identity supplied by the transport that authenticated an MCP caller.
+final class McpCallerIdentity {
+  const new({required this.authorityId, this.sessionId, this.taskId, this.agentId});
+
+  final String authorityId;
+  final String? sessionId;
+  final String? taskId;
+  final String? agentId;
+}
+
+/// Trusted caller identity plus one host-generated MCP call event.
+final class McpCallerContext {
+  const new({required this.authorityId, required this.sourceEvent, this.sessionId, this.taskId, this.agentId});
+
+  final String authorityId;
+  final String sourceEvent;
+  final String? sessionId;
+  final String? taskId;
+  final String? agentId;
+}
+
+/// MCP tool that consumes transport-authenticated caller identity.
+abstract interface class ContextualMcpTool implements McpTool {
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context);
+}
 
 /// MCP protocol handler implementing JSON-RPC 2.0 over Streamable HTTP.
 ///
 /// Handles `initialize`, `notifications/initialized`, `tools/list`, and
 /// `tools/call` methods. Tools are registered at startup via [registerTool].
 class McpProtocolHandler {
+  new() : _tools = {}, _policy = null, _callerIdentity = null;
+
+  new _scoped(this._tools, this._policy, this._callerIdentity) : _started = true;
+
   static final _log = Logger('McpProtocolHandler');
+  static const _uuid = Uuid();
 
   static const _protocolVersion = '2025-03-26';
   static const _serverName = 'dartclaw';
 
-  final Map<String, McpTool> _tools = {};
+  final Map<String, McpTool> _tools;
+  final McpCallerPolicy? _policy;
+  final McpCallerIdentity? _callerIdentity;
   bool _started = false;
+
+  /// A handler over the same registered tools, authorized for one caller.
+  ///
+  /// The tool map is shared by reference so late registrations stay visible;
+  /// the scoped view is read-only and cannot register.
+  McpProtocolHandler scopedTo(McpCallerPolicy policy, {McpCallerIdentity? callerIdentity}) =>
+      McpProtocolHandler._scoped(_tools, policy, callerIdentity);
 
   /// Register a tool. Must be called before the server starts handling requests.
   void registerTool(McpTool tool) {
@@ -111,7 +165,9 @@ class McpProtocolHandler {
   }
 
   String _handleToolsList(Object id) {
+    final policy = _policy;
     final tools = _tools.values
+        .where((t) => policy == null || policy.allows(t.name))
         .map((t) => {'name': t.name, 'description': t.description, 'inputSchema': t.inputSchema})
         .toList();
     return _successResponse(id, {'tools': tools});
@@ -123,9 +179,22 @@ class McpProtocolHandler {
       return _errorResponse(id, -32602, 'Invalid params: missing "name"');
     }
 
+    // Authorization precedes the registry lookup, and denied and unregistered
+    // names answer identically — a scoped caller learns nothing about tools it
+    // may not use, whether or not they exist.
+    final policy = _policy;
+    if (policy != null && !policy.allows(name)) {
+      policy.onDenied(name);
+      return _errorResponse(id, -32601, 'Tool not available: $name');
+    }
+
     final tool = _tools[name];
     if (tool == null) {
-      return _errorResponse(id, -32602, 'Unknown tool: $name');
+      return _errorResponse(
+        id,
+        policy == null ? -32602 : -32601,
+        policy == null ? 'Unknown tool: $name' : 'Tool not available: $name',
+      );
     }
 
     final args = params['arguments'] as Map<String, dynamic>? ?? {};
@@ -136,7 +205,23 @@ class McpProtocolHandler {
 
     ToolResult result;
     try {
-      result = await tool.call(args).timeout(const Duration(seconds: 120));
+      final callerIdentity = _callerIdentity;
+      result = await switch (tool) {
+        ContextualMcpTool() when callerIdentity != null => tool.callWithContext(
+          args,
+          McpCallerContext(
+            authorityId: callerIdentity.authorityId,
+            sourceEvent: 'mcp-call:${callerIdentity.authorityId}:${_uuid.v4()}',
+            sessionId: callerIdentity.sessionId,
+            taskId: callerIdentity.taskId,
+            agentId: callerIdentity.agentId,
+          ),
+        ),
+        ContextualMcpTool() when _policy != null => Future<ToolResult>.value(
+          const ToolResult.error('Tool requires authenticated caller context'),
+        ),
+        _ => tool.call(args),
+      }.timeout(const Duration(seconds: 120));
     } on TimeoutException {
       _log.warning('Tool "$name" timed out');
       result = ToolResult.error('Tool "$name" timed out after 120 seconds');

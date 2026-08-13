@@ -20,8 +20,13 @@ void main() {
         cwd: '/',
         executable: 'goose',
         arguments: const ['acp'],
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
       );
     });
 
@@ -76,9 +81,13 @@ void main() {
       final boundHarness = AcpHarness(
         cwd: serviceRoot.path,
         guardChain: GuardChain(guards: [guard]),
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                boundProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => boundProcess,
       );
       addTearDown(() async {
         await boundHarness.dispose();
@@ -92,6 +101,7 @@ void main() {
 
       final turn = boundHarness.turn(
         sessionId: 'host-session',
+        agentId: 'search',
         directory: worktree.path,
         messages: const [
           {'role': 'user', 'content': 'hello'},
@@ -106,6 +116,7 @@ void main() {
       expect(File(p.join(worktree.path, 'created.txt')).readAsStringSync(), 'bound');
       expect(File(p.join(serviceRoot.path, 'created.txt')).existsSync(), isFalse);
       expect(guard.lastContext?.sessionId, 'host-session');
+      expect(guard.lastContext?.agentId, 'search');
 
       await boundProcess.respondTo('session/prompt', {'text': 'done'});
       await boundProcess.respondTo('session/close', {});
@@ -179,9 +190,13 @@ void main() {
       var spawnCount = 0;
       final timedOutHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                spawnCount++ == 0 ? timedOutProcess : retryProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => spawnCount++ == 0 ? timedOutProcess : retryProcess,
         initializeTimeout: Duration.zero,
         terminationGracePeriod: Duration.zero,
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
@@ -199,9 +214,13 @@ void main() {
       final timedOutProcess = FakeAcpProcess();
       final timedOutHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                timedOutProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => timedOutProcess,
         turnTimeout: const Duration(milliseconds: 20),
         terminationGracePeriod: Duration.zero,
       );
@@ -266,9 +285,13 @@ void main() {
       final timedOutProcess = FakeAcpProcess();
       final timedOutHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                timedOutProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => timedOutProcess,
         turnTimeout: const Duration(milliseconds: 50),
         terminationGracePeriod: Duration.zero,
       );
@@ -361,9 +384,13 @@ void main() {
       final windowsProcess = FakeAcpProcess();
       final windowsHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                windowsProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => windowsProcess,
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
       );
       addTearDown(windowsHarness.dispose);
@@ -401,8 +428,10 @@ void main() {
       await process.respondTo('initialize', {'protocolVersion': 1});
       await start;
 
+      expect(harness.isRootProcessTerminationConfirmed, isFalse);
       await harness.stop();
       expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(harness.isRootProcessTerminationConfirmed, isTrue);
       final restart = harness.start();
       await retryProcess.respondTo('initialize', {'protocolVersion': 1});
       await restart;
@@ -413,8 +442,13 @@ void main() {
       final process = FakeAcpProcess(completeExitOnKill: false);
       final harness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
         terminationGracePeriod: Duration.zero,
       );
@@ -425,16 +459,18 @@ void main() {
       await expectLater(start, throwsA(isA<AcpHarnessException>()));
 
       expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(harness.isRootProcessTerminationConfirmed, isFalse);
       await expectLater(harness.start(), throwsStateError);
 
       process.exit(1);
       await pumpEventQueue();
+      expect(harness.isRootProcessTerminationConfirmed, isTrue);
     });
   });
 }
 
 final class _RecordingContainerExecutor implements ContainerExecutor {
-  _RecordingContainerExecutor(this.process);
+  new(this.process);
 
   final FakeAcpProcess process;
   final List<List<String>> commands = [];
@@ -450,13 +486,16 @@ final class _RecordingContainerExecutor implements ContainerExecutor {
   bool get hasProjectMount => false;
 
   @override
+  String get generatedStateDir => '/host/state';
+
+  @override
+  String get providerBridgeUrl => 'http://127.0.0.1:8080';
+
+  @override
+  String? get mcpBridgeUrl => null;
+
+  @override
   String? containerPathForHostPath(String hostPath) => null;
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {

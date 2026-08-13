@@ -26,7 +26,7 @@ class ServerCoreDeps {
   final GuardChain? guardChain;
   final String? webhookSecret;
 
-  const ServerCoreDeps({
+  const new({
     required this.sessions,
     required this.messages,
     required this.worker,
@@ -50,10 +50,10 @@ class ServerCoreDeps {
 }
 
 class ServerTurnDeps {
-  final HarnessPool? pool;
+  final ExecutionCoordinator? executions;
   final TurnManager turns;
 
-  const ServerTurnDeps({required this.pool, required this.turns});
+  const new({required this.executions, required this.turns});
 }
 
 class ServerChannelDeps {
@@ -64,7 +64,7 @@ class ServerChannelDeps {
   final GoogleChatSpaceEventsWiring? spaceEventsWiring;
   final ThreadBindingStore? threadBindingStore;
 
-  const ServerChannelDeps({
+  const new({
     required this.channelManager,
     required this.whatsAppChannel,
     required this.signalChannel,
@@ -81,7 +81,7 @@ class ServerTaskDeps {
   final TaskReviewService? taskReviewService;
   final WorktreeManager? worktreeManager;
   final TaskFileGuard? taskFileGuard;
-  final AgentObserver? agentObserver;
+  final RunnerObserver? runnerObserver;
   final MergeExecutor? mergeExecutor;
   final String? mergeStrategy;
   final String? baseRef;
@@ -89,15 +89,16 @@ class ServerTaskDeps {
   final TaskEventService? taskEventService;
   final TaskEventRecorder? taskEventRecorder;
   final TaskProgressTracker? progressTracker;
+  final Future<void> Function()? executionDrainer;
 
-  const ServerTaskDeps({
+  const new({
     required this.projectService,
     required this.goalService,
     required this.taskService,
     required this.taskReviewService,
     required this.worktreeManager,
     required this.taskFileGuard,
-    required this.agentObserver,
+    required this.runnerObserver,
     required this.mergeExecutor,
     required this.mergeStrategy,
     required this.baseRef,
@@ -105,6 +106,7 @@ class ServerTaskDeps {
     required this.taskEventService,
     required this.taskEventRecorder,
     required this.progressTracker,
+    required this.executionDrainer,
   });
 }
 
@@ -116,12 +118,14 @@ class ServerObservabilityDeps {
   final MemoryStatusService? memoryStatusService;
   final MemoryPruner? memoryPruner;
   final MemoryService? memoryService;
+  final SearchBackend? searchBackend;
+  final MemoryCorpusService? memoryCorpus;
   final HeartbeatScheduler? heartbeat;
   final ScheduleService? scheduleService;
   final WorkspaceGitSync? gitSync;
   final EventBusSseBridge? eventBusSseBridge;
 
-  const ServerObservabilityDeps({
+  const new({
     required this.eventBus,
     required this.sseBroadcast,
     required this.providerStatus,
@@ -129,6 +133,8 @@ class ServerObservabilityDeps {
     required this.memoryStatusService,
     required this.memoryPruner,
     required this.memoryService,
+    required this.searchBackend,
+    required this.memoryCorpus,
     required this.heartbeat,
     required this.scheduleService,
     required this.gitSync,
@@ -146,7 +152,7 @@ class ServerWebDeps {
   final WorkspaceDisplayParams workspaceDisplay;
   final AppDisplayParams appDisplay;
 
-  const ServerWebDeps({
+  const new({
     required this.workflowService,
     required this.workflowDefinitionSource,
     required this.kgService,
@@ -212,6 +218,8 @@ void registerServerSystemPages(
     configWriter: configWriter,
     memoryStatusServiceGetter: () => server._observability.memoryStatusService,
     memoryServiceGetter: () => server._observability.memoryService,
+    searchBackendGetter: () => server._observability.searchBackend,
+    memoryCorpusGetter: () => server._observability.memoryCorpus,
     kgServiceGetter: () => server._web.kgService,
     contentGuardDisplay: contentGuardDisplay,
     heartbeatDisplay: heartbeatDisplay,

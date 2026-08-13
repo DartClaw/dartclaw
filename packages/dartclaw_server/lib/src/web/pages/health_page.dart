@@ -12,7 +12,7 @@ import '../web_utils.dart';
 
 /// Renders the system-health dashboard page.
 class HealthDashboardPage extends DashboardPage {
-  HealthDashboardPage({this.healthService, this.workerStateGetter, this.auditReader, this.pubsubHealthGetter});
+  new({this.healthService, this.workerStateGetter, this.auditReader, this.pubsubHealthGetter});
 
   final HealthService? healthService;
   final WorkerState? Function()? workerStateGetter;

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'standalone_lifecycle_support.dart';
 
 class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
-  WorkflowCancelCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,
@@ -40,7 +40,7 @@ class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
     if (isStandalone) {
       await runStandaloneLifecycle(
         runId: runId,
-        provisionTaskRunners: false,
+        provisionWorkers: false,
         runWorkflowSkillsBootstrap: false,
         action: (session) async {
           await session.wiring.workflowService.cancel(runId, feedback: feedback);

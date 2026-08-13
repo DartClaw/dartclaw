@@ -26,7 +26,13 @@ SearchConfig _parseSearch(
     }
     final qmdMap = readMap('qmd', searchMap, warns);
     if (qmdMap != null) {
-      qmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
+      final rawQmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
+      final normalizedQmdHost = _normalizeQmdLoopbackHost(rawQmdHost);
+      if (normalizedQmdHost == null) {
+        warns.add('Invalid search.qmd.host: "$rawQmdHost" — using default');
+      } else {
+        qmdHost = normalizedQmdHost;
+      }
       qmdPort = readInt('port', qmdMap, warns, defaultValue: defaults.qmdPort) ?? defaults.qmdPort;
     }
     final depth = readString('default_depth', searchMap, warns);
@@ -67,6 +73,21 @@ SearchConfig _parseSearch(
   );
 }
 
+String? _normalizeQmdLoopbackHost(String host) {
+  var normalized = host.trim().toLowerCase();
+  if (normalized == '[::1]') normalized = '::1';
+  if (normalized == 'localhost' || normalized == '::1') return normalized;
+  final octets = normalized.split('.');
+  final isLoopbackIpv4 =
+      octets.length == 4 &&
+      octets.first == '127' &&
+      octets.every((octet) {
+        final value = int.tryParse(octet);
+        return value != null && value >= 0 && value <= 255 && value.toString() == octet;
+      });
+  return isLoopbackIpv4 ? normalized : null;
+}
+
 ProvidersConfig _parseProviders(
   Map<String, dynamic> yaml,
   Map<String, String> env,
@@ -78,7 +99,18 @@ ProvidersConfig _parseProviders(
 
   final entries = <String, ProviderEntry>{};
   for (final entry in providersRaw.entries) {
-    final providerId = entry.key.toString();
+    final rawProviderId = entry.key.toString();
+    if (rawProviderId.trim().isEmpty) {
+      warns.add('Provider ID must not be empty — skipping');
+      continue;
+    }
+    final providerId = ProviderIdentity.normalize(rawProviderId);
+    if (entries.containsKey(providerId)) {
+      warns.add(
+        'providers.$rawProviderId collides with another provider after normalization to "$providerId" — skipping',
+      );
+      continue;
+    }
     final value = entry.value;
     if (value is! Map) {
       // reason: dynamic key interpolation — per-provider id can't use readX helpers

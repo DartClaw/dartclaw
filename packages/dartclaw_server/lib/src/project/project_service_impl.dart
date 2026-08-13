@@ -18,12 +18,11 @@ import '../task/workflow_start_precondition_exception.dart';
 ///
 /// Production implementation uses [Isolate.run] with [Process.run].
 /// Test implementations return predetermined results.
-typedef GitRunner =
-    Future<({int exitCode, String stderr, String stdout})> Function(
-      List<String> args, {
-      Map<String, String>? environment,
-      String? workingDirectory,
-    });
+typedef GitRunner = Future<({int exitCode, String stderr, String stdout})> Function(
+  List<String> args, {
+  Map<String, String>? environment,
+  String? workingDirectory,
+});
 
 /// Default [GitRunner] that runs git via [Isolate.run].
 Future<({int exitCode, String stderr, String stdout})> _isolateGitRunner(
@@ -51,7 +50,7 @@ class GitFetchException implements Exception {
   final String message;
   final Object? cause;
 
-  GitFetchException(this.message, {this.cause});
+  new(this.message, {this.cause});
 
   @override
   String toString() => cause != null ? 'GitFetchException: $message (cause: $cause)' : 'GitFetchException: $message';
@@ -92,7 +91,7 @@ class ProjectServiceImpl implements ProjectService {
   /// Creates a [ProjectServiceImpl].
   ///
   /// [gitRunner] defaults to [_isolateGitRunner] but can be replaced for testing.
-  ProjectServiceImpl({
+  new({
     required String dataDir,
     required ProjectConfig projectConfig,
     required CredentialsConfig credentials,

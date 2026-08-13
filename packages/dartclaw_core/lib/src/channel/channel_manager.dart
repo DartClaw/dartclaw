@@ -30,7 +30,7 @@ class ChannelManager {
   final bool Function(ChannelMessage, Channel, String)? _enqueueForPause;
   final String Function()? _pausedByName;
 
-  ChannelManager({
+  new({
     required this.queue,
     required this.config,
     LiveScopeConfig? liveScopeConfig,

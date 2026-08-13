@@ -123,6 +123,53 @@ void main() {
       expect(second.id, equals(first.id));
     });
 
+    test('getByKey returns only an existing active mapping', () async {
+      final created = await sessions.getOrCreateByKey('agent:search:logical:known');
+
+      expect((await sessions.getByKey('agent:search:logical:known'))?.id, created.id);
+      expect(await sessions.getByKey('agent:search:logical:unknown'), isNull);
+
+      await sessions.updateSessionType(created.id, SessionType.archive);
+      expect(await sessions.getByKey('agent:search:logical:known'), isNull);
+    });
+
+    test('getByKey reloads the persisted type, provider, and security profile after service reconstruction', () async {
+      final created = await sessions.getOrCreateByKey(
+        'agent:search:logical:persisted',
+        type: SessionType.logicalAgent,
+        provider: 'codex',
+        securityProfile: 'restricted',
+      );
+
+      final restarted = SessionService(baseDir: tempDir.path);
+      final loaded = await restarted.getByKey('agent:search:logical:persisted');
+
+      expect(loaded?.id, created.id);
+      expect(loaded?.type, SessionType.logicalAgent);
+      expect(loaded?.provider, 'codex');
+      expect(loaded?.securityProfile, 'restricted');
+    });
+
+    test('removeKeyMapping invalidates the handle without deleting the session', () async {
+      final created = await sessions.getOrCreateByKey('agent:search:logical:discarded', type: SessionType.logicalAgent);
+
+      await sessions.removeKeyMapping('agent:search:logical:discarded');
+
+      expect(await sessions.getByKey('agent:search:logical:discarded'), isNull);
+      expect((await sessions.getSession(created.id))?.id, created.id);
+    });
+
+    test('getByKey rejects an index entry pointing at another session key', () async {
+      final expected = await sessions.getOrCreateByKey('agent:search:logical:expected');
+      final other = await sessions.getOrCreateByKey('agent:search:logical:other');
+      final indexFile = File('${tempDir.path}/.session_keys.json');
+      final index = jsonDecode(indexFile.readAsStringSync()) as Map<String, dynamic>;
+      index[expected.channelKey!] = other.id;
+      indexFile.writeAsStringSync(jsonEncode(index));
+
+      expect(await sessions.getByKey(expected.channelKey!), isNull);
+    });
+
     test('returns different sessions for different keys', () async {
       final a = await sessions.getOrCreateByKey('cron:job-a');
       final b = await sessions.getOrCreateByKey('cron:job-b');
@@ -286,6 +333,18 @@ void main() {
       expect(all.map((session) => session.type), contains(SessionType.task));
     });
 
+    test('logical-agent sessions are hidden by default and explicitly queryable', () async {
+      final logicalAgent = await sessions.createSession(type: SessionType.logicalAgent);
+
+      expect(
+        await sessions.listSessions(),
+        isNot(contains(predicate<Session>((session) => session.id == logicalAgent.id))),
+      );
+      expect(await sessions.listSessions(type: SessionType.logicalAgent), [
+        isA<Session>().having((session) => session.id, 'id', logicalAgent.id),
+      ]);
+    });
+
     test('updateSessionType changes type', () async {
       final session = await sessions.createSession(type: SessionType.archive);
       final updated = await sessions.updateSessionType(session.id, SessionType.user);
@@ -377,6 +436,16 @@ void main() {
       final session = await sessions.createSession(type: SessionType.archive);
       final result = await sessions.deleteSession(session.id);
       expect(result, equals(1));
+    });
+
+    test('removes every deterministic key mapping for the deleted session', () async {
+      final session = await sessions.getOrCreateByKey('agent:search:logical:retained', type: SessionType.logicalAgent);
+      await sessions.updateSessionType(session.id, SessionType.archive);
+
+      expect(await sessions.deleteSession(session.id), 1);
+
+      final index = jsonDecode(File('${tempDir.path}/.session_keys.json').readAsStringSync()) as Map<String, dynamic>;
+      expect(index, isNot(contains('agent:search:logical:retained')));
     });
 
     test('allows deleting user session', () async {

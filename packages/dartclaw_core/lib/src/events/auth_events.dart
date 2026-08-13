@@ -23,7 +23,7 @@ final class FailedAuthEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates an authentication failure event.
-  FailedAuthEvent({
+  new({
     required this.source,
     required this.path,
     required this.reason,
@@ -56,6 +56,12 @@ final class GuardBlockEvent extends DartclawEvent {
   /// Raw provider-native tool name associated with the verdict, if any.
   final String? rawProviderToolName;
 
+  /// Canonical tool name evaluated by the guard, if any.
+  final String? toolName;
+
+  /// Logical-agent identity associated with the verdict, if any.
+  final String? agentId;
+
   /// Deterministic session key associated with the event, if known.
   final String? sessionKey;
 
@@ -73,13 +79,15 @@ final class GuardBlockEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a guard block-or-warn event.
-  GuardBlockEvent({
+  new({
     required this.guardName,
     required this.guardCategory,
     required this.verdict,
     this.verdictMessage,
     required this.hookPoint,
     this.rawProviderToolName,
+    this.toolName,
+    this.agentId,
     this.sessionKey,
     this.sessionId,
     this.channel,
@@ -112,7 +120,7 @@ final class ToolPermissionDeniedEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a tool permission denied event.
-  ToolPermissionDeniedEvent({required this.toolName, this.sessionId, this.reason, required this.timestamp});
+  new({required this.toolName, this.sessionId, this.reason, required this.timestamp});
 
   @override
   String toString() => 'ToolPermissionDeniedEvent(tool: $toolName, reason: $reason)';
@@ -138,7 +146,7 @@ final class ConfigChangedEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a configuration change event.
-  ConfigChangedEvent({
+  new({
     required this.changedKeys,
     required this.oldValues,
     required this.newValues,

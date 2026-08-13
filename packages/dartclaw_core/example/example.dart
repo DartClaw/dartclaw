@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 /// Example: Setting up a security guard chain.
 ///
 /// Demonstrates how to compose [Guard] instances into a [GuardChain]

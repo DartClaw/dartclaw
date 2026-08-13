@@ -8,8 +8,7 @@ import '../safe_process.dart';
 /// reinventing a sentinel.
 final class InlineProcessEnvironmentPlan implements ProcessEnvironmentPlan {
   /// Constructs an inline plan; `null` collapses to the empty overlay.
-  const InlineProcessEnvironmentPlan(Map<String, String>? environment)
-    : environment = environment ?? const <String, String>{};
+  const new(Map<String, String>? environment) : environment = environment ?? const <String, String>{};
 
   @override
   final Map<String, String> environment;
@@ -21,7 +20,7 @@ final class InlineProcessEnvironmentPlan implements ProcessEnvironmentPlan {
 /// that need only the sanitized base environment (no credential injection).
 final class EmptyProcessEnvironmentPlan implements ProcessEnvironmentPlan {
   /// Singleton-friendly const constructor; reuse `const EmptyProcessEnvironmentPlan()`.
-  const EmptyProcessEnvironmentPlan();
+  const new();
 
   @override
   Map<String, String> get environment => const <String, String>{};

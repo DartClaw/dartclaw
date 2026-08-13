@@ -30,6 +30,9 @@ class AuditEntry {
   /// Raw provider-native tool name associated with the verdict, if any.
   final String? rawProviderToolName;
 
+  /// Logical-agent identity associated with the verdict, if any.
+  final String? agentId;
+
   /// Session identifier associated with the event, if available.
   final String? sessionId;
 
@@ -55,13 +58,14 @@ class AuditEntry {
   final String? credentialRef;
 
   /// Creates a structured audit entry.
-  const AuditEntry({
+  const new({
     required this.timestamp,
     required this.guard,
     required this.hook,
     required this.verdict,
     this.reason,
     this.rawProviderToolName,
+    this.agentId,
     this.sessionId,
     this.channel,
     this.peerId,
@@ -73,7 +77,7 @@ class AuditEntry {
   });
 
   /// Deserializes an [AuditEntry] from a JSON map (NDJSON line).
-  factory AuditEntry.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     return AuditEntry(
       timestamp: DateTime.parse(json['timestamp'] as String),
       guard: json['guard'] as String,
@@ -81,6 +85,7 @@ class AuditEntry {
       verdict: json['verdict'] as String,
       reason: json['reason'] as String?,
       rawProviderToolName: json['rawProviderToolName'] as String?,
+      agentId: json['agentId'] as String?,
       sessionId: json['sessionId'] as String?,
       channel: json['channel'] as String?,
       peerId: json['peerId'] as String?,
@@ -100,6 +105,7 @@ class AuditEntry {
     'verdict': verdict,
     if (reason != null) 'reason': reason,
     if (rawProviderToolName != null) 'rawProviderToolName': rawProviderToolName,
+    if (agentId != null) 'agentId': agentId,
     if (sessionId != null) 'sessionId': sessionId,
     if (channel != null) 'channel': channel,
     if (peerId != null) 'peerId': peerId,
@@ -138,7 +144,7 @@ class GuardAuditLogger {
   Future<void> _pendingWrite = Future.value();
 
   /// Creates an audit logger with optional file-backed persistence.
-  GuardAuditLogger({this.dataDir, this.maxEntries = 10000, this.rotationCheckInterval = 100});
+  new({this.dataDir, this.maxEntries = 10000, this.rotationCheckInterval = 100});
 
   /// Path to today's audit NDJSON partition. Only meaningful when [dataDir] is set.
   String get auditFilePath => _auditFilePathForDate(DateTime.now());
@@ -155,6 +161,7 @@ class GuardAuditLogger {
     required String hookPoint,
     required DateTime timestamp,
     String? rawProviderToolName,
+    String? agentId,
     String? sessionId,
     String? channel,
     String? peerId,
@@ -188,6 +195,7 @@ class GuardAuditLogger {
         verdict: _verdictLabel(verdict),
         reason: verdict.message,
         rawProviderToolName: rawProviderToolName,
+        agentId: agentId,
         sessionId: sessionId,
         channel: channel,
         peerId: peerId,

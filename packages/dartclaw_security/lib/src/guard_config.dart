@@ -7,14 +7,14 @@ class GuardConfig {
   final bool enabled;
 
   /// Creates the top-level guard configuration.
-  const GuardConfig({this.failOpen = false, this.enabled = true});
+  const new({this.failOpen = false, this.enabled = true});
 
   /// Safe defaults: fail-closed, guards enabled.
-  const GuardConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Parses from YAML map. Unknown keys and type errors produce warnings
   /// (appended to [warns]) and fall back to defaults.
-  factory GuardConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     const knownKeys = {'fail_open', 'enabled', 'command', 'file', 'network', 'content', 'input_sanitizer'};
     final defaults = const GuardConfig.defaults();
 

@@ -105,3 +105,10 @@ dartclaw_cli  (depends on server)
 ## Amendment (0.16.5) — `dartclaw_models` confirmed as the true shared kernel
 
 Recorded retroactively 2026-05-31. The "small (2 files), possibly over-split" concern above is resolved in the opposite direction: 0.16.5's model grab-bag migration moved domain-specific models *out* of `dartclaw_models` (and `dartclaw_core`) into their canonical owning packages, leaving `dartclaw_models` as a deliberate, true shared kernel (`Session`, `Message`, `SessionKey`, `ChannelType`, `AgentDefinition`, `MemoryChunk`). The `dartclaw_core` LOC ceiling was ratcheted 13 000 → 12 500 as part of the same sweep (closes TD-102). The enforced dependency direction that keeps the kernel clean is recorded in [ADR-034](034-enforced-package-dependency-direction.md). See CHANGELOG `[0.16.5]`.
+
+## Amendment (2026-08-12) – remove the obsolete indexed-row value
+
+Canonical memory identity now belongs to core's corpus entry types, while shared search consumers use
+`MemorySearchResult`. The former indexed-row value had no shipped consumer and was removed from `dartclaw_models`;
+SQLite projection rows remain internal to `dartclaw_storage`. This preserves the zero-dependency shared kernel without
+advertising derived storage as a domain source of truth.

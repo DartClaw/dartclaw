@@ -6,7 +6,7 @@ import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta;
 import '../connected_command_support.dart';
 
 class ConfigGetCommand extends ConnectedCommand {
-  ConfigGetCommand({super.config, super.apiClient, super.writeLine, super.exitFn});
+  new({super.config, super.apiClient, super.writeLine, super.exitFn});
 
   @override
   String get name => 'get';

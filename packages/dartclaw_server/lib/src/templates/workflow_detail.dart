@@ -332,7 +332,7 @@ class _PauseBanner {
   final String cssClass;
   final String label;
   final String text;
-  const _PauseBanner({required this.cssClass, required this.label, required this.text});
+  const new({required this.cssClass, required this.label, required this.text});
 }
 
 /// Derives the why-paused banner from fields the run already carries: approval
@@ -356,7 +356,7 @@ _PauseBanner? _pauseBanner(String statusName, Map<String, dynamic> run, List<Map
     final text = message.isNotEmpty
         ? 'Step "$stepLabel" needs a decision: $message Use Approve or Reject below.'
         : 'Step "$stepLabel" needs a decision. Use Approve or Reject below.';
-    return _PauseBanner(cssClass: 'banner-warning', label: 'Awaiting approval', text: text);
+    return _PauseBanner(cssClass: 'banner-warning', label: 'Approval request', text: text);
   }
   if (statusName == 'paused') {
     final reason = run['errorMessage']?.toString();

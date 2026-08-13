@@ -1,7 +1,7 @@
 import 'workflow_run_id_command.dart';
 
 class WorkflowResumeCommand extends WorkflowRunIdCommand {
-  WorkflowResumeCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,
@@ -30,7 +30,7 @@ class WorkflowResumeCommand extends WorkflowRunIdCommand {
     if (isStandalone) {
       await runStandaloneLifecycle(
         runId: runId,
-        provisionTaskRunners: true,
+        provisionWorkers: true,
         action: (session) => driveStandaloneExecution(session, () => session.wiring.workflowService.resume(runId)),
       );
     } else {

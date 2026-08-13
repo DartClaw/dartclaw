@@ -55,12 +55,10 @@ String channelDetailTemplate({
   final presentation = status.presentation;
   final disabledGuidance = status == ChannelStatus.disabled
       ? switch (channelType) {
-          'whatsapp' =>
-            'Set channels.whatsapp.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register WhatsApp.',
+          'whatsapp' => 'Set channels.whatsapp.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register WhatsApp.',
           'signal' =>
             'Set channels.signal.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register Signal.',
-          'google_chat' =>
-            'Configure the Google Chat service account, audience, and webhook; set channels.google_chat.enabled: true in dartclaw.yaml; then restart DartClaw.',
+          'google_chat' => 'Configure the Google Chat service account, audience, and webhook; set channels.google_chat.enabled: true in dartclaw.yaml; then restart DartClaw.',
           _ => 'Enable this channel in dartclaw.yaml, then restart DartClaw.',
         }
       : null;

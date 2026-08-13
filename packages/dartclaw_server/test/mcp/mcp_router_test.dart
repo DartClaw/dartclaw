@@ -34,12 +34,23 @@ void main() {
     handler = mcpRoute(mcpHandler, gatewayToken: token);
   });
 
-  Request post(String body, {String? authToken, String contentType = 'application/json'}) {
+  Request post(
+    String body, {
+    String? authToken,
+    String contentType = 'application/json',
+    String host = 'localhost',
+    String? origin,
+  }) {
     return Request(
       'POST',
       Uri.parse('http://localhost/mcp'),
       body: body,
-      headers: {if (authToken != null) 'authorization': 'Bearer $authToken', 'content-type': contentType},
+      headers: {
+        'host': host,
+        'origin': ?origin,
+        if (authToken != null) 'authorization': 'Bearer $authToken',
+        'content-type': contentType,
+      },
     );
   }
 
@@ -52,6 +63,10 @@ void main() {
   }
 
   group('mcpRoute', () {
+    test('bearerless route cannot be created without loopback Host validation', () {
+      expect(() => mcpRoute(mcpHandler), throwsArgumentError);
+    });
+
     test('POST with valid token returns JSON-RPC response', () async {
       final body = jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1});
       final response = await handler(post(body, authToken: token));
@@ -66,6 +81,53 @@ void main() {
       final body = jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1});
       final response = await handler(post(body));
       expect(response.statusCode, 401);
+    });
+
+    test('POST without auth succeeds when no gateway token is configured', () async {
+      final unauthenticatedHandler = mcpRoute(mcpHandler, requireLoopbackHost: true);
+      final body = jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1});
+
+      final response = await unauthenticatedHandler(post(body));
+
+      expect(response.statusCode, 200);
+    });
+
+    test('bearerless access rejects non-loopback and malformed Host values', () async {
+      final unauthenticatedHandler = mcpRoute(mcpHandler, requireLoopbackHost: true);
+      final body = jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1});
+
+      for (final host in [
+        'localhost.evil.example',
+        '127.0.0.1.evil.example',
+        'localhost@evil.example',
+        'localhost/path',
+        'localhost?query',
+        'localhost#fragment',
+        'bad host',
+      ]) {
+        final response = await unauthenticatedHandler(post(body, host: host));
+        expect(response.statusCode, 403, reason: host);
+      }
+    });
+
+    test('browser access requires an exact loopback Origin host', () async {
+      final unauthenticatedHandler = mcpRoute(mcpHandler, requireLoopbackHost: true);
+      final body = jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1});
+
+      for (final origin in [
+        'http://localhost.evil.example:3333',
+        'http://127.0.0.1.evil.example:3333',
+        'http://localhost@evil.example:3333',
+        'not a uri',
+      ]) {
+        final response = await unauthenticatedHandler(post(body, origin: origin));
+        expect(response.statusCode, 403, reason: origin);
+      }
+      expect((await unauthenticatedHandler(post(body, origin: 'http://localhost:3333'))).statusCode, 200);
+      expect(
+        (await unauthenticatedHandler(post(body, host: '[::1]:3333', origin: 'http://[::1]:3333'))).statusCode,
+        200,
+      );
     });
 
     test('POST with wrong token returns 401', () async {

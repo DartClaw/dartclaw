@@ -26,7 +26,7 @@ Request authRequest({
 /// ports are fixed (443/3000); the remote address is parsed from the supplied
 /// string.
 class FakeConnectionInfo implements HttpConnectionInfo {
-  FakeConnectionInfo(String address) : remoteAddress = InternetAddress.tryParse(address)!;
+  new(String address) : remoteAddress = InternetAddress.tryParse(address)!;
 
   @override
   final InternetAddress remoteAddress;

@@ -14,7 +14,7 @@ import 'step_config_resolver.dart' show globMatchStepId;
 /// Outputs round-trip through [WorkflowDefinitionParser] (by design — it
 /// is the observability surface for the `workflow show --resolved` CLI).
 class WorkflowDefinitionResolver {
-  const WorkflowDefinitionResolver();
+  const new();
 
   /// Returns a new [WorkflowDefinition] with `stepDefaults` applied and `{{VAR}}` references in prompts substituted
   /// when [variableBindings] contains the key.

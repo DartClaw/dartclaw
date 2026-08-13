@@ -6,6 +6,8 @@ import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
+import '../execution_coordinator.dart';
+import '../execution_policy_resolver.dart';
 import '../task/task_service.dart';
 
 /// Identifies why an advisor evaluation was scheduled.
@@ -63,7 +65,7 @@ class AdvisorOutput {
   final String observation;
   final String? suggestion;
 
-  const AdvisorOutput({required this.status, required this.observation, this.suggestion});
+  const new({required this.status, required this.observation, this.suggestion});
 }
 
 /// Carries the metadata required to fire an advisor trigger.
@@ -76,7 +78,7 @@ class AdvisorTriggerContext {
   final String? recipientId;
   final String? threadId;
 
-  const AdvisorTriggerContext({
+  const new({
     required this.type,
     required this.reason,
     required this.sessionKey,
@@ -99,7 +101,7 @@ class ContextEntry {
   final int estimatedTokens;
   final Map<String, dynamic> details;
 
-  const ContextEntry({
+  const new({
     required this.kind,
     required this.summary,
     required this.sessionKey,
@@ -116,7 +118,7 @@ class SlidingContextWindow {
   final List<ContextEntry> _entries = <ContextEntry>[];
   int _estimatedTokens = 0;
 
-  SlidingContextWindow({this.maxEntries = 10});
+  new({this.maxEntries = 10});
 
   void add(ContextEntry entry) {
     _entries.add(entry);
@@ -158,7 +160,7 @@ class CircuitBreaker {
   final int minPrimaryTurnsBetweenFirings;
   int _primaryTurnsSinceLastFire;
 
-  CircuitBreaker({this.minPrimaryTurnsBetweenFirings = 5}) : _primaryTurnsSinceLastFire = minPrimaryTurnsBetweenFirings;
+  new({this.minPrimaryTurnsBetweenFirings = 5}) : _primaryTurnsSinceLastFire = minPrimaryTurnsBetweenFirings;
 
   void recordPrimaryTurn() {
     _primaryTurnsSinceLastFire++;
@@ -184,7 +186,7 @@ class TriggerEvaluator {
 
   Timer? _periodicTimer;
 
-  TriggerEvaluator({
+  new({
     required Set<AdvisorTriggerType> triggers,
     required Duration periodicInterval,
     int turnDepthThreshold = 5,
@@ -291,7 +293,7 @@ class TriggerEvaluator {
 
 /// Parses raw advisor harness text into a structured [AdvisorOutput].
 class AdvisorOutputParser {
-  const AdvisorOutputParser();
+  const new();
 
   AdvisorOutput parse(String rawText) {
     final trimmed = rawText.trim();
@@ -344,7 +346,7 @@ class AdvisorOutputParser {
 
 /// Dispatches an [AdvisorOutput] to the appropriate channel destinations.
 class AdvisorOutputRouter {
-  AdvisorOutputRouter({
+  new({
     ChannelManager? channelManager,
     required EventBus eventBus,
     required ChatCardBuilder googleChatCardBuilder,
@@ -483,7 +485,9 @@ class AdvisorSubscriber {
   static final _log = Logger('AdvisorSubscriber');
 
   final EventBus _eventBus;
-  final HarnessPool _pool;
+  final ExecutionCoordinator _executions;
+  final String _providerId;
+  final ExecutionPolicyResolver? _policyResolver;
   final SessionService _sessions;
   final TaskService _taskService;
   final TurnTraceService? _traceService;
@@ -503,8 +507,9 @@ class AdvisorSubscriber {
   StreamSubscription<AdvisorMentionEvent>? _advisorMentionSub;
   String? _lastSessionKey;
 
-  AdvisorSubscriber({
-    required HarnessPool pool,
+  new({
+    required ExecutionCoordinator executions,
+    required String providerId,
     required SessionService sessions,
     required TaskService taskService,
     required EventBus eventBus,
@@ -518,7 +523,10 @@ class AdvisorSubscriber {
     String? model,
     String? effort,
     ChatCardBuilder? googleChatCardBuilder,
-  }) : _pool = pool,
+    ExecutionPolicyResolver? policyResolver,
+  }) : _executions = executions,
+       _providerId = providerId,
+       _policyResolver = policyResolver,
        _eventBus = eventBus,
        _sessions = sessions,
        _taskService = taskService,
@@ -634,27 +642,50 @@ class AdvisorSubscriber {
   }
 
   Future<void> _runAdvisor(AdvisorTriggerContext trigger) async {
-    final runner = _pool.tryAcquire();
-    if (runner == null) {
-      _log.info('Advisor skipped for ${trigger.type.wireName}: no task runner available');
-      return;
-    }
-
+    ExecutionLease? lease;
+    String? executionSessionId;
+    String? executionTurnId;
     try {
       final tasks = await _loadTasks(trigger.taskIds);
       final prompt = await _buildPrompt(trigger, tasks);
+      // Advisor turns carry neither logical-agent identity nor a task type, so
+      // they follow the deployment default.
+      final policy = _policyResolver?.deploymentDefault ?? _executions.primary?.executionPolicy;
+      if (policy == null) {
+        _log.info('Advisor skipped for ${trigger.type.wireName}: no execution policy is available');
+        return;
+      }
       final advisorSession = await _sessions.getOrCreateByKey(
         SessionKey.cronSession(jobId: 'advisor:${trigger.sessionKey}'),
         type: SessionType.cron,
+        provider: _providerId,
+        securityProfile: policy.containerProfile,
+        executionMode: policy.mode,
       );
+      lease = await _executions.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.advisor,
+          providerId: _providerId,
+          policy: policy,
+          sessionId: advisorSession.id,
+          admission: ExecutionAdmission.failFast,
+        ),
+      );
+      final runner = lease?.runner;
+      if (runner == null) {
+        _log.info('Advisor skipped for ${trigger.type.wireName}: no worker capacity available');
+        return;
+      }
 
-      final turnId = await runner.reserveTurn(
+      final turnId = await runner.reserveAdmittedTurn(
         advisorSession.id,
         agentName: 'advisor',
         model: _model,
         effort: _effort,
         maxTurns: 1,
       );
+      executionSessionId = advisorSession.id;
+      executionTurnId = turnId;
       runner.executeTurn(
         advisorSession.id,
         turnId,
@@ -681,7 +712,16 @@ class AdvisorSubscriber {
     } catch (error, stackTrace) {
       _log.warning('Advisor execution failed for ${trigger.type.wireName}', error, stackTrace);
     } finally {
-      _pool.release(runner);
+      final runner = lease?.runner;
+      try {
+        if (runner != null && executionSessionId != null && executionTurnId != null) {
+          await runner.waitForExecutionSettled(executionSessionId, executionTurnId);
+        }
+      } catch (error, stackTrace) {
+        _log.warning('Advisor execution settlement failed for ${trigger.type.wireName}', error, stackTrace);
+      } finally {
+        await lease?.release();
+      }
     }
   }
 
@@ -776,7 +816,7 @@ class _Destination {
   final String recipientId;
   final String? threadId;
 
-  const _Destination({required this.channelType, required this.recipientId, this.threadId});
+  const new({required this.channelType, required this.recipientId, this.threadId});
 
   String get key => '$channelType::$recipientId::${threadId ?? ''}';
 }

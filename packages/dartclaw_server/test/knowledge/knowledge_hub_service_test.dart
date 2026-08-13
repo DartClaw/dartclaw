@@ -21,7 +21,7 @@ void main() {
     kg = TemporalKnowledgeGraphService(taskDb);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
-    memory.insertChunk(text: 'Merge memory keeps durable context.', source: 'MEMORY.md', category: 'build');
+    _seed(searchDb, text: 'Merge memory keeps durable context.', source: 'MEMORY.md', category: 'build');
     kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
@@ -77,6 +77,7 @@ void main() {
       wiki: WikiSearchSource(workspaceDir: tempDir.path),
       kg: throwing,
       memory: memory,
+      searchBackend: _search(tempDir, memory),
       inbox: KnowledgeInboxReadService(workspaceDir: tempDir.path),
     ).search(const KnowledgeHubQuery(query: 'merge'));
 
@@ -123,12 +124,43 @@ void main() {
       wiki: WikiSearchSource(workspaceDir: tempDir.path),
       kg: recordingKg,
       memory: memory,
+      searchBackend: _search(tempDir, memory),
       inbox: KnowledgeInboxReadService(workspaceDir: tempDir.path),
     ).search(const KnowledgeHubQuery(query: 'merge', layer: KnowledgeHubLayer.kg, page: 2, perPage: 3));
 
     expect(recordingKg.lastSearch, 'merge');
     expect(recordingKg.lastLimit, 9);
   });
+
+  test('layer-only search constrains composition before page top-K', () async {
+    for (var index = 0; index < 5; index++) {
+      _seed(searchDb, text: 'Falcon memory $index', source: 'memory-$index');
+      _writeFile(tempDir, 'wiki/falcon-$index.md', '---\nprovenance: human-authored\n---\nFalcon wiki $index');
+    }
+    final service = _service(tempDir, kg, memory);
+
+    final memoryOnly = await service.search(
+      const KnowledgeHubQuery(query: 'Falcon', layer: KnowledgeHubLayer.memory, perPage: 3),
+    );
+    final wikiOnly = await service.search(
+      const KnowledgeHubQuery(query: 'Falcon', layer: KnowledgeHubLayer.wiki, perPage: 3),
+    );
+
+    expect(memoryOnly.items, hasLength(3));
+    expect(memoryOnly.items.every((item) => item.layer == KnowledgeHubLayer.memory), isTrue);
+    expect(wikiOnly.items, hasLength(3));
+    expect(wikiOnly.items.every((item) => item.layer == KnowledgeHubLayer.wiki), isTrue);
+  });
+}
+
+void _seed(Database db, {required String text, required String source, String? category}) {
+  db.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
+    text,
+    source,
+    category,
+    DateTime(2026).toIso8601String(),
+    source,
+  ]);
 }
 
 KnowledgeHubService _service(Directory tempDir, TemporalKnowledgeGraphService kg, MemoryService memory) {
@@ -136,9 +168,15 @@ KnowledgeHubService _service(Directory tempDir, TemporalKnowledgeGraphService kg
     wiki: WikiSearchSource(workspaceDir: tempDir.path),
     kg: kg,
     memory: memory,
+    searchBackend: _search(tempDir, memory),
     inbox: KnowledgeInboxReadService(workspaceDir: tempDir.path),
   );
 }
+
+ComposedSearchBackend _search(Directory tempDir, MemoryService memory) => ComposedSearchBackend(
+  personal: Fts5SearchBackend(memoryService: memory),
+  wiki: WikiSearchSource(workspaceDir: tempDir.path),
+);
 
 void _writeFile(Directory tempDir, String relativePath, String body) {
   final file = File('${tempDir.path}/$relativePath');
@@ -147,7 +185,7 @@ void _writeFile(Directory tempDir, String relativePath, String body) {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  _ThrowingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
@@ -157,7 +195,7 @@ final class _RecordingKg extends TemporalKnowledgeGraphService {
   String? lastSearch;
   int? lastLimit;
 
-  _RecordingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) {

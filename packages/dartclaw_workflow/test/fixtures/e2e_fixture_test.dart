@@ -135,9 +135,8 @@ void main() {
     });
 
     test('withProvider keeps explicit per-role overrides while realigning the rest', () {
-      final swapped = E2EFixture(
-        environment: const {},
-      ).withProvider(value: 'claude', workflowModel: 'claude-opus-4-7', executorModel: 'claude-haiku-4-5');
+      final swapped = E2EFixture(environment: const {})
+          .withProvider(value: 'claude', workflowModel: 'claude-opus-4-7', executorModel: 'claude-haiku-4-5');
       expect(swapped.executorModel, 'claude-haiku-4-5');
       expect(swapped.plannerModel, 'claude-opus-4-7');
       expect(swapped.reviewerModel, 'claude-sonnet-4-6');

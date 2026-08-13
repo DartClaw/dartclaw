@@ -29,6 +29,35 @@ void main() {
       expect(migrated.channelKey, 'main');
     });
 
+    test('getByKey returns only active mapped sessions', () async {
+      final service = InMemorySessionService();
+      final session = await service.getOrCreateByKey('agent:search:logical:known', type: SessionType.logicalAgent);
+
+      expect((await service.getByKey('agent:search:logical:known'))?.id, session.id);
+      expect(await service.getByKey('agent:search:logical:unknown'), isNull);
+
+      await service.updateSessionType(session.id, SessionType.archive);
+      expect(await service.getByKey('agent:search:logical:known'), isNull);
+    });
+
+    test('direct keyed creation does not populate the deterministic key index', () async {
+      final service = InMemorySessionService();
+
+      await service.createSession(channelKey: 'direct-key');
+
+      expect(await service.getByKey('direct-key'), isNull);
+    });
+
+    test('removeKeyMapping invalidates the handle without deleting the session', () async {
+      final service = InMemorySessionService();
+      final session = await service.getOrCreateByKey('logical-agent-key', type: SessionType.logicalAgent);
+
+      await service.removeKeyMapping('logical-agent-key');
+
+      expect(await service.getByKey('logical-agent-key'), isNull);
+      expect((await service.getSession(session.id))?.id, session.id);
+    });
+
     test('fires lifecycle events and protects system-managed sessions from deletion', () async {
       final events = TestEventBus();
       final service = InMemorySessionService(eventBus: events);

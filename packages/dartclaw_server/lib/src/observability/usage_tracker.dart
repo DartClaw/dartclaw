@@ -18,7 +18,7 @@ class UsageEvent {
   final int outputTokens;
   final int durationMs;
 
-  const UsageEvent({
+  const new({
     required this.timestamp,
     required this.sessionId,
     required this.agentName,
@@ -55,12 +55,8 @@ class UsageTracker {
   final int? budgetWarningTokens;
   final int maxFileSizeBytes;
 
-  UsageTracker({
-    required this.dataDir,
-    KvService? kv,
-    this.budgetWarningTokens,
-    this.maxFileSizeBytes = 10 * 1024 * 1024,
-  }) : _kv = kv;
+  new({required this.dataDir, KvService? kv, this.budgetWarningTokens, this.maxFileSizeBytes = 10 * 1024 * 1024})
+    : _kv = kv;
 
   String get usageFilePath => '$dataDir/usage.jsonl';
 

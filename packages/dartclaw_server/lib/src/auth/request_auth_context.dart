@@ -2,6 +2,7 @@ import 'package:shelf/shelf.dart';
 
 const dartclawAuthIsAdminContextKey = 'dartclaw.auth.isAdmin';
 const dartclawAuthIsCookieContextKey = 'dartclaw.auth.isCookie';
+const dartclawAuthIsLocalAdminContextKey = 'dartclaw.auth.isLocalAdmin';
 
 Request withAdminAuthContext(Request request) {
   return request.change(context: {...request.context, dartclawAuthIsAdminContextKey: true});
@@ -10,6 +11,12 @@ Request withAdminAuthContext(Request request) {
 Request withCookieAuthContext(Request request) {
   return request.change(
     context: {...request.context, dartclawAuthIsAdminContextKey: true, dartclawAuthIsCookieContextKey: true},
+  );
+}
+
+Request withLocalAdminAuthContext(Request request) {
+  return request.change(
+    context: {...request.context, dartclawAuthIsAdminContextKey: true, dartclawAuthIsLocalAdminContextKey: true},
   );
 }
 
@@ -26,5 +33,10 @@ bool requestHasAdminAccess(Request request) {
 /// checks to browser sessions only.
 bool requestIsCookieAuthenticated(Request request) {
   final value = request.context[dartclawAuthIsCookieContextKey];
+  return value is bool && value;
+}
+
+bool requestIsLocalAdmin(Request request) {
+  final value = request.context[dartclawAuthIsLocalAdminContextKey];
   return value is bool && value;
 }

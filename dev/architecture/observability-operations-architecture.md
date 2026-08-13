@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.23
+**Current through**: 0.24 worker-capacity execution architecture
 
 ---
 
@@ -17,7 +17,7 @@ DartClaw provides observability across multiple dimensions, each serving a diffe
 | **Audit** | Security-relevant guard decisions and tool permission events | Security review, compliance |
 | **Usage** | Token consumption and cost accounting | Budget management, capacity planning |
 | **Logging** | Structured operational logs with redaction | Debugging, incident response |
-| **SSE Streaming** | Real-time task/agent/workflow state to web UI | Web UI, live dashboards |
+| **SSE Streaming** | Real-time task/execution/workflow state to web UI | Web UI, live dashboards |
 | **Context** | Context window tracking and compaction awareness | Turn orchestration, session management |
 | **Self-Improvement** | Agent-authored learnings and error records | Agent behavior refinement |
 | **Governance** | Rate limits, budgets, loop detection visibility | Operator safety controls |
@@ -135,6 +135,9 @@ Reported metrics:
 | `version` | `dartclawVersion` constant | Current DartClaw version |
 | `daily_usage` | `UsageTracker.dailySummary()` | Today's token consumption aggregate |
 | `pubsub` | `PubSubHealthReporter` | Pub/Sub subsystem status (if configured) |
+| `execution` | `ExecutionCoordinator.snapshot` | Primary activity plus per-provider configured/effective/active/queued/cached/quarantined worker counts |
+
+Execution health is lease-derived. A provider is capacity-degraded when quarantine reduces effective capacity, even if cached harness objects appear idle. Capacity-only workflow executions count as active provider work despite having no runner object.
 
 Source: `packages/dartclaw_server/lib/src/health/health_service.dart`
 
@@ -203,7 +206,7 @@ Structured audit logger in `dartclaw_security`. Dual output:
 
 File operations are fire-and-forget via `unawaited` to avoid affecting guard verdict latency. Write serialization is enforced via a `_pendingWrite` future chain.
 
-**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`.
+**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard verdicts preserve the logical agent, canonical tool, and provider-native tool identity end to end.
 
 **Date partitioning**: New entries use `audit-YYYY-MM-DD.ndjson`. A legacy `audit.ndjson` remains readable alongside dated partitions and ages out by file modification date under `cleanOldFiles(maxRetentionDays)`, avoiding non-idempotent copy migration. Dated partitions age out by the date in their filename.
 
@@ -303,13 +306,13 @@ Source: `packages/dartclaw_config/lib/src/usage_config.dart`
 
 ### Turn Traces
 
-Each agent turn produces a `TurnTrace` record: `id`, `sessionId`, `taskId`, `runnerId`, `model`, `provider`, `startedAt`/`endedAt`, `inputTokens`/`outputTokens`, `cacheReadTokens`/`cacheWriteTokens`, `isError`/`errorType`, and `toolCalls` (`List<ToolCallRecord>`). Computed properties: `totalTokens`, `durationMs`.
+Each agent turn produces a `TurnTrace` record with identity, timing, token and error fields, bounded `toolCalls` detail, exact `toolCallCount`/`failedToolCallCount`, and `toolCallsTruncated`. Computed properties include `totalTokens` and `durationMs`.
 
 Source: `packages/dartclaw_core/lib/src/turn/turn_trace.dart`
 
 ### TurnTraceService
 
-SQLite-backed persistence in `turns` table (co-located in tasks.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. Query API filters by task/session/runner/model/provider/time range with pagination (max 500). Returns traces + aggregate `TurnTraceSummary` (total tokens, duration, tool call count). Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`. The connected CLI `traces list` / `traces show` commands are thin clients over the same query surface.
+SQLite-backed persistence in `turns` table (co-located in tasks.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
 
 Source: `packages/dartclaw_storage/lib/src/storage/turn_trace_service.dart`
 
@@ -382,7 +385,7 @@ DartClaw uses Server-Sent Events for all real-time communication with the web UI
      ┌───────────┴──────────────────────────┐
      │              EventBus                 │
      │  TaskStatusChangedEvent               │
-     │  AgentStateChangedEvent               │
+     │  RunnerStateChangedEvent               │
      │  ProjectStatusChangedEvent            │
      │  TaskEventCreatedEvent                │
      │  WorkflowRunStatusChangedEvent        │
@@ -396,9 +399,9 @@ Central SSE endpoint that multiplexes multiple event types to all connected web 
 
 | SSE Event Type | Trigger | Payload |
 |----------------|---------|---------|
-| `connected` | Client connects | Review count, active tasks, agent pool status, projects, active workflows |
+| `connected` | Client connects | Review count, active tasks, execution-capacity snapshot, projects, active workflows |
 | `task_status_changed` | `TaskStatusChangedEvent` | Task ID, old/new status, trigger, review count, active tasks |
-| `agent_state` | `AgentStateChangedEvent` | Runner ID, state, current task |
+| `runner_state` | Coordinator lease transition / `RunnerStateChangedEvent` | Execution ID, optional runner ID, lane, provider, state, current task/session |
 | `project_status` | `ProjectStatusChangedEvent` | Project ID, old/new status |
 | `task_progress` | `TaskProgressTracker` stream | Progress %, current activity, tokens used/budget |
 | `task_event` | `TaskEventCreatedEvent` | Kind, details, icon, compact text for dashboard |
@@ -435,18 +438,40 @@ Throttled progress tracker (max 1 emit/second/task). Subscribes to `TaskEventCre
 
 Source: `packages/dartclaw_server/lib/src/task/task_progress_tracker.dart`
 
-### AgentObserver
+### RunnerObserver
 
-Per-runner runtime metrics for all runners in a `HarnessPool`. Callback-based: `markBusy`/`markIdle` on acquire/release, `recordTurn` after each turn. Tracks: `tokensConsumed`, `turnsCompleted`, `errorCount`, `cacheReadTokens`, `cacheWriteTokens`, `totalTurnDurationMs`, `totalToolCalls`, `failedToolCalls`. State changes fire `AgentStateChangedEvent` for SSE propagation.
+Per-runner cumulative metrics remain attached to current reusable runners: `tokensConsumed`, `turnsCompleted`,
+`errorCount`, `cacheReadTokens`, `cacheWriteTokens`, `totalTurnDurationMs`, exact `totalToolCalls`, and exact
+`failedToolCalls`.
+`TurnRunner` emits each terminal outcome once through `ExecutionCoordinator`, which keys the outcome to the active runner
+ID before `RunnerObserver` accumulates it. The same coordinator event stream is authoritative for busy/free/current
+task/current session state. Disposal is delivered before the coordinator and observer remove the runner from their
+current registries, preventing stale runner accumulation without retaining historical runner objects.
 
-Source: `packages/dartclaw_server/lib/src/task/agent_observer.dart`
+### Execution Capacity and Lease Observability
+
+`ExecutionCoordinator.snapshot` reports:
+
+- `primaryActive` for the fixed serialized primary-interactive lane;
+- per provider: `configured`, `effective`, `active`, `queued`, `cached`, and `quarantined` worker counts;
+- aggregate configured, active, available, queued, cached, and quarantined counts.
+
+`available = effective - active`. Cached harness count is diagnostic only and never increases capacity. Quarantined slots reduce `effective` until recovery/restart. Capacity-only workflow one-shots emit acquire/release transitions with their request and provider but no runner ID, so the same API/SSE state remains truthful.
+
+Coordinator events cover `acquired`, `released`, `disposed`, `quarantined`, `runnerCreated`, and `turnSettled`. Cache state is visible in lease snapshots; it does not need a separate lifecycle event.
+Surfaces must not emit independent lifecycle or outcome transitions; doing so would race with lease release or double-count
+turn metrics.
+
+The cache is intentionally opportunistic and unconfigured. Observability may report cache outcomes for diagnosis, but there are no cache target, TTL, hit-rate policy, or prewarm settings. Container health/lifetime is reported separately from the harness cache: only host harnesses are cacheable, and each container is bound to the single authority that owns it.
+
+Source: `packages/dartclaw_server/lib/src/task/runner_observer.dart`
 
 
 ## 8. Context Monitoring
 
 ### ContextMonitor
 
-Tracks context token usage and manages pre-compaction flush timing. Shared across all `TurnRunner` instances in the harness pool. Implements `Reconfigurable` -- watches `context.*` config keys.
+Tracks context token usage and manages pre-compaction flush timing. Shared across all coordinator-managed `TurnRunner` instances. Implements `Reconfigurable` -- watches `context.*` config keys.
 
 Key behaviors:
 
@@ -546,7 +571,7 @@ Source: `packages/dartclaw_core/lib/src/events/compaction_events.dart`
 
 ### SelfImprovementService
 
-Manages `errors.md` and `learnings.md` in the workspace directory. Both files are capped at `maxEntries` (default: 50) entries, with oldest entries trimmed on write. Uses a `StreamController`-based write queue for serialized, non-blocking file access.
+Manages the separate `errors.md` runtime log and canonical learning entries. Each retains at most `maxEntries` (default: 50) writes, evicting the earliest retained insertion rather than rewriting capture timestamps. Error writes use the local serialized queue; canonical learnings commit through the shared memory-corpus authority and remain available through `memory_search` and `memory_read`.
 
 **errors.md**: Auto-populated on turn failures, guard blocks, and crashes. Format:
 ```markdown
@@ -556,18 +581,15 @@ Manages `errors.md` and `learnings.md` in the workspace directory. Both files ar
 - Resolution: Pattern added to blocked paths
 ```
 
-**learnings.md**: Written via `memory_save` MCP tool with `category='learning'`. Format:
-```markdown
-- [2026-04-11 10:30] Always check file permissions before atomic rename
-```
+**Canonical learnings**: Written via `memory_observe` with `role='learning'`, bounded to the retained set, and included in the corpus transaction and derived-index lifecycle.
 
-Atomic writes via temp file + rename pattern.
+Writes use the workspace authority's atomic transaction protocol.
 
 Source: `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart`
 
 ### BehaviorFileService
 
-Manages the suite of agent behavior prompt files: `SOUL.md` (identity), `AGENTS.md`/`CLAUDE.md` (harness-specific instructions), `USER.md` (preferences), `TOOLS.md` (tool guidance), `MEMORY.md` (persisted memory), `HEARTBEAT.md` (periodic check-in). Composes the full system prompt per scope with compact instructions and identifier preservation.
+Manages behavior prompt files: `SOUL.md` (identity), `AGENTS.md`/`CLAUDE.md` (harness-specific instructions), `USER.md` (preferences), `TOOLS.md` (tool guidance), and `HEARTBEAT.md` (periodic check-in). It composes each scope's prompt with compact instructions and identifier preservation; primary turns additionally receive the fresh bounded canonical memory index projection.
 
 Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
 
@@ -578,8 +600,8 @@ Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
 
 Periodic agent check-ins via `HEARTBEAT.md`. Each cycle:
 1. Reads `HEARTBEAT.md` from workspace
-2. If present and non-empty, dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`)
-3. After a dispatched checklist, optionally triggers `MemoryConsolidator` if `MEMORY.md` exceeds threshold (default: 32KB)
+2. If present and non-empty, dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`) through provider worker capacity, never the primary-interactive lane
+3. Completes the dispatched checklist without an automatic memory-curation turn; curation starts only through the explicit `memory-curation` system action
 4. Independently attempts workspace sync via `WorkspaceGitSync`, including when the checklist is missing or empty
 
 Implements `Reconfigurable` -- watches `scheduling.*` for interval changes. Restarts timer if interval changes while running.
@@ -588,7 +610,11 @@ Source: `packages/dartclaw_server/lib/src/behavior/heartbeat_scheduler.dart`
 
 ### ScheduleService
 
-Manages cron, interval, and one-time job execution. Each job runs in an isolated session (`SessionKey.cronSession`). Single-shot `Timer` + reschedule pattern handles variable intervals. Features: overlap prevention, retry logic (`retryAttempts` + `retryDelaySeconds`), per-job pause/resume, delivery modes (none/channel/webhook/SSE). Fires `ScheduledJobFailedEvent` after all retries exhausted. Reconfigurable (job list changes require restart).
+Manages cron, interval, and one-time job execution. Each job runs in an isolated session (`SessionKey.cronSession`). Single-shot `Timer` + reschedule pattern handles variable intervals. Features: overlap prevention, retry logic (`retryAttempts` + `retryDelaySeconds`), per-job pause/resume, delivery modes (none/channel/webhook/SSE), and an on-demand prompt-job seam that reuses execution policy without changing timers or pause state. Fires `ScheduledJobFailedEvent` after all retries exhausted. Reconfigurable (job list changes require restart).
+
+Run-only `SystemAction` descriptors share read-only list/show, run-now routing, and overlap protection with jobs. They are immutable and receive no timer, pause, retry, delivery, or YAML representation. `memory-curation` is the sole memory action: one bounded snapshot, one isolated read-only/no-tools proposal turn, then the existing atomic memory-apply authority. Its bounded KV lifecycle settles to `running`, `succeeded`, `conflicted`, or `failed`; interrupted `running` state settles at startup with explicit indeterminate-commit disclosure. Heartbeat, corpus size, scheduled-job completion, apply completion, and curation completion never dispatch it.
+
+Cron, system, advisor, and on-demand scheduled turns acquire provider worker leases. They never compete with user/channel turns for the fixed primary-interactive lane. Workflow-owned one-shots are reported through capacity-only leases.
 
 Source: `packages/dartclaw_server/lib/src/scheduling/schedule_service.dart`
 
@@ -617,6 +643,8 @@ Governance controls (rate limiting, budgets, loop detection, emergency controls)
 ### TurnGovernanceEnforcer
 
 Central coordination point for all pre-turn governance checks. Runs before each turn reservation.
+
+When governance admits the request, execution allocation passes to `ExecutionCoordinator`. The coordinator is the only post-governance authority; its request and runner identity correlate capacity, runner activity, and quarantine observability. Provider-specific adapters may add protocol telemetry, but routing and capacity views do not branch on provider identity.
 
 ```
 Inbound turn request
@@ -693,6 +721,7 @@ Source: `packages/dartclaw_server/lib/src/governance/pause_controller.dart`
 
 ```
 Agent Turn Execution
+  ├─► ExecutionCoordinator leases ──► capacity/runner SSE + health snapshot
   ├─► EventBus ──► AlertRouter ──► Channel delivery (WhatsApp/Signal/GChat)
   │             └─► SSE Routes ──► Web UI
   ├─► UsageTracker ──► usage.jsonl + KV daily aggregate
@@ -710,6 +739,8 @@ Agent Turn Execution
 - **`dartclaw_google_chat`**: `PubSubHealthReporter`
 - **`dartclaw_server`**: All other observability components (alerts, audit bridging, health, usage, logging, SSE, context, governance, scheduling)
 
+Execution allocation sources: `packages/dartclaw_server/lib/src/execution_coordinator.dart` and `worker_capacity_gate.dart`.
+
 
 ---
 
@@ -718,7 +749,7 @@ Agent Turn Execution
 - [System Architecture](system-architecture.md) -- component map, package DAG, deployment model
 - [Security Architecture](security-architecture.md) -- guard pipeline, guard audit, governance controls, credential security
 - [Data Model & Persistence](data-model.md) -- audit files, usage files, turn traces, thread binding persistence, governance state
-- [Task & Execution Architecture](task-execution-architecture.md) -- task events, turn lifecycle, agent observer, progress tracking
+- [Task & Execution Architecture](task-execution-architecture.md) -- task events, turn lifecycle, runner observer, progress tracking
 - [Control Protocol & Harness](control-protocol.md) -- JSONL protocol, stream events, compaction hooks
 - [Workflow Architecture](workflow-architecture.md) -- workflow SSE events, workflow budget warnings
 - [Channel Messaging Architecture](channel-messaging-architecture.md) -- channel-routed alerts, governance enforcement

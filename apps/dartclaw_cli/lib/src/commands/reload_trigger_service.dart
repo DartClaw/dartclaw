@@ -35,7 +35,7 @@ class ReloadTriggerService {
   StreamSubscription<FileSystemEvent>? _watchSub;
   Timer? _debounceTimer;
 
-  ReloadTriggerService({
+  new({
     required String configPath,
     required ConfigNotifier notifier,
     required ReloadConfig reloadConfig,

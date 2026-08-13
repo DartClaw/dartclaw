@@ -39,7 +39,7 @@ class SignalChannel extends Channel {
   final Set<String> _typingStartRetryUsed = {};
   bool _disconnecting = false;
 
-  SignalChannel({
+  new({
     required this.sidecar,
     required this.config,
     required this.dmAccess,

@@ -1,4 +1,5 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
+
 import 'task_trigger_config.dart';
 
 /// Result of a successful task trigger match.
@@ -13,13 +14,13 @@ class TaskTriggerResult {
   final bool autoStart;
 
   /// Creates a parsed task trigger result.
-  const TaskTriggerResult({required this.description, required this.type, required this.autoStart});
+  const new({required this.description, required this.type, required this.autoStart});
 }
 
 /// Stateless parser that detects task-creation intent from message text.
 class TaskTriggerParser {
   /// Creates a stateless task trigger parser.
-  const TaskTriggerParser();
+  const new();
 
   /// Parses [message] using [config], or returns `null` when no trigger matches.
   TaskTriggerResult? parse(String message, TaskTriggerConfig config, {bool emptyDescriptionError = false}) {

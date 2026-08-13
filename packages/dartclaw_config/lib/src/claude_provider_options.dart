@@ -27,7 +27,7 @@ final class ClaudeProviderOptions {
   /// this vocabulary entirely (advanced escape hatch).
   static const sandboxValues = {'read-only', 'workspace-write', 'danger-full-access'};
 
-  const ClaudeProviderOptions._();
+  const new _();
 
   /// Returns whether direct Claude spawns should inherit user-scope settings.
   static bool inheritUserSettings(Map<String, dynamic> options) {

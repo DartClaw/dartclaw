@@ -15,7 +15,7 @@ class TokenCommand extends Command<void> {
   @override
   String get description => 'Manage gateway authentication token';
 
-  TokenCommand({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine}) {
+  new({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine}) {
     addSubcommand(_TokenShowCommand(stdoutLine: stdoutLine, stderrLine: stderrLine));
     addSubcommand(_TokenRotateCommand(stdoutLine: stdoutLine, stderrLine: stderrLine));
   }
@@ -31,7 +31,7 @@ class _TokenShowCommand extends Command<void> {
   @override
   String get description => 'Display the current gateway token';
 
-  _TokenShowCommand({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine})
+  new({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine})
     : _stdoutLine = stdoutLine ?? stdout.writeln,
       _stderrLine = stderrLine ?? stderr.writeln;
 
@@ -58,7 +58,7 @@ class _TokenRotateCommand extends Command<void> {
   @override
   String get description => 'Generate and persist a new gateway token';
 
-  _TokenRotateCommand({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine})
+  new({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine})
     : _stdoutLine = stdoutLine ?? stdout.writeln,
       _stderrLine = stderrLine ?? stderr.writeln;
 

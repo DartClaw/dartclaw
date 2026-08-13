@@ -5,7 +5,7 @@ const cardDescriptionMaxLength = 2000;
 
 /// Purpose-built Google Chat Cards v2 builder for DartClaw notifications.
 class ChatCardBuilder {
-  const ChatCardBuilder();
+  const new();
 
   /// Builds a task notification card.
   Map<String, dynamic> taskNotification({

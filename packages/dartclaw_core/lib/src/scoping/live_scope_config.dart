@@ -4,7 +4,7 @@ import 'package:dartclaw_models/dartclaw_models.dart' show SessionScopeConfig;
 class LiveScopeConfig {
   SessionScopeConfig _current;
 
-  LiveScopeConfig(SessionScopeConfig initialConfig) : _current = initialConfig;
+  new(SessionScopeConfig initialConfig) : _current = initialConfig;
 
   SessionScopeConfig get current => _current;
 

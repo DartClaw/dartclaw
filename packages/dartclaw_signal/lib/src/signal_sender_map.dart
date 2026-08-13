@@ -26,7 +26,7 @@ class SignalSenderMap {
   /// Pending write future, chained to serialize file writes.
   Future<void> _pendingWrite = Future.value();
 
-  SignalSenderMap({required this.filePath});
+  new({required this.filePath});
 
   /// Number of stored mappings.
   int get length => _uuidToPhone.length;

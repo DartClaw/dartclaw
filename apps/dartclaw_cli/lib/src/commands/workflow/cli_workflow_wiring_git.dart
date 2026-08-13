@@ -8,7 +8,7 @@ final class _CliWorkflowWiringCtx {
   final WorkspaceSkillLinker workspaceSkillLinker;
   final TurnManager? turns;
 
-  const _CliWorkflowWiringCtx({required this.workspaceSkillLinker, this.turns});
+  const new({required this.workspaceSkillLinker, this.turns});
 
   TurnManager get turnsOrThrow => turns ?? (throw StateError('turns not yet bound'));
 
@@ -25,7 +25,7 @@ final class _TaskHandles {
   final SqliteWorkflowRunRepository workflowRunRepository;
   final TaskEventRecorder taskEventRecorder;
 
-  const _TaskHandles({
+  const new({
     required this.agentExecutionRepository,
     required this.workflowStepExecutionRepository,
     required this.executionRepositoryTransactor,
@@ -56,13 +56,6 @@ Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   } catch (_) {
     return null; // git not available or repo absent — caller treats null as unknown.
   }
-}
-
-int _standaloneTaskRunnerCapacity(DartclawConfig config) {
-  if (config.providers.isEmpty) {
-    return config.tasks.maxConcurrent > 0 ? config.tasks.maxConcurrent : 1;
-  }
-  return _effectiveWorkflowProviderEntries(config).values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
 }
 
 Map<String, String> _providerEnvironment(DartclawConfig config, String providerId, CredentialRegistry registry) {
@@ -141,7 +134,7 @@ Future<ProcessResult> _fetchRemoteTrackingRefWithProjectAuth(
   try {
     final refspec = 'refs/heads/$branch:refs/remotes/$remote/$branch';
     final args = _gitArgsWithRemoteOverride(remoteUrl, plan.remoteUrl, ['fetch', '--no-tags', remote, refspec]);
-    return SafeProcess.git(args, plan: plan, workingDirectory: projectDir, noSystemConfig: true);
+    return await SafeProcess.git(args, plan: plan, workingDirectory: projectDir, noSystemConfig: true);
   } finally {
     for (final path in tempFiles) {
       try {

@@ -8,8 +8,11 @@ import 'json_rpc_utils.dart';
 import 'outbound_mcp_errors.dart';
 import 'outbound_mcp_transport.dart';
 
-typedef OutboundMcpProcessStarter =
-    Future<Process> Function(String executable, List<String> arguments, {Map<String, String> environment});
+typedef OutboundMcpProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String> environment,
+});
 
 final class StdioMcpTransport implements OutboundMcpTransport {
   final Process _process;
@@ -20,7 +23,7 @@ final class StdioMcpTransport implements OutboundMcpTransport {
   var _closed = false;
   String? _lastStderr;
 
-  StdioMcpTransport._(this._process, this._stdoutSubscription, this._stderrSubscription);
+  new _(this._process, this._stdoutSubscription, this._stderrSubscription);
 
   static Future<StdioMcpTransport> start(
     String command, {
@@ -169,7 +172,7 @@ final class _PendingRequest {
   final int maxResponseBytes;
   final Completer<Map<String, dynamic>> completer;
 
-  const _PendingRequest({required this.id, required this.maxResponseBytes, required this.completer});
+  const new({required this.id, required this.maxResponseBytes, required this.completer});
 }
 
 Future<Process> _defaultProcessStarter(

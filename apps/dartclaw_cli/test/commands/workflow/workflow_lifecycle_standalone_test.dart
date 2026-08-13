@@ -246,11 +246,10 @@ void main() {
       await expectLater(() => runner.run(['resume', 'some-run', '--force']), throwsA(isA<UsageException>()));
     });
 
-    test('S04 resume --standalone aborts before harness start when a referenced provider is logged out', () async {
+    test('S04 resume --standalone aborts before execution when a referenced provider is logged out', () async {
       // The seeded run's agent step resolves to the default provider claude,
       // which the injected preflight reports unauthenticated. Resume must abort
-      // with the friendly remediation before the harness start() (which throws)
-      // is reached.
+      // with the friendly remediation before execution services are wired.
       final seed = await seedRun(WorkflowRunStatus.paused, definition: singleAgentDefinition());
       final started = <_ThrowOnStartHarness>[];
       final factory = HarnessFactory()
@@ -290,7 +289,7 @@ void main() {
       expect(started.every((harness) => !harness.startCalled), isTrue, reason: 'no harness.start() before preflight');
     });
 
-    test('cancel --standalone skips the auth gate and harness startup', () async {
+    test('cancel --standalone skips the auth gate and execution wiring', () async {
       // Cancel never executes steps, so it must not route through the
       // referenced-provider auth preflight: a logged-out provider does not
       // block cancelling an approval-paused run.

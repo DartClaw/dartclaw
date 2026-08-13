@@ -5,6 +5,9 @@
 # Review files
 dev/bundle/docs/specs/**/*-review*.md
 
+# Per-checkout workflow continuity
+dev/state/STATE.local.md
+
 # Dart
 .dart_tool/
 .dart-tool/

@@ -221,15 +221,82 @@ void main() {
   });
 
   group('no-auth mode (localAdminMiddleware path)', () {
-    test('POST without cookie context is allowed (no-auth mode)', () async {
-      // In no-auth mode, localAdminMiddleware sets admin context but NOT the
-      // cookie flag — so the origin guard skips the check.
+    test('Origin-less local request is allowed', () async {
       final handler = originHostGuardMiddleware()((Request req) => Response.ok('ok'));
-      final request = withAdminAuthContext(
-        Request('POST', Uri.parse('http://localhost/api/config'), headers: {'host': 'localhost'}),
+      final request = withLocalAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+          headers: {'host': 'localhost'},
+        ),
       );
       final response = await handler(request);
       expect(response.statusCode, 200);
+    });
+
+    test('matching browser Origin is allowed', () async {
+      final handler = originHostGuardMiddleware()((Request req) => Response.ok('ok'));
+      final request = withLocalAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost:3000/api/scheduling/jobs/memory-journal/run'),
+          headers: {'host': 'localhost:3000', 'origin': 'http://localhost:3000'},
+        ),
+      );
+
+      expect((await handler(request)).statusCode, 200);
+    });
+
+    test('foreign browser Origin is rejected', () async {
+      final handler = originHostGuardMiddleware()((Request req) => Response.ok('ok'));
+      final request = withLocalAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+          headers: {'host': 'localhost', 'origin': 'http://evil.example.com'},
+        ),
+      );
+
+      expect((await handler(request)).statusCode, 403);
+    });
+
+    test('same-origin non-loopback Host is rejected', () async {
+      final handler = originHostGuardMiddleware()((Request req) => Response.ok('ok'));
+      final request = withLocalAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://evil.example/api/scheduling/jobs/memory-journal/run'),
+          headers: {'host': 'evil.example', 'origin': 'http://evil.example'},
+        ),
+      );
+
+      expect((await handler(request)).statusCode, 403);
+    });
+
+    test('non-loopback no-auth binding rejects unsafe requests', () async {
+      final handler = originHostGuardMiddleware(localAdminHost: '0.0.0.0')((Request req) => Response.ok('ok'));
+      final request = withLocalAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+          headers: {'host': 'localhost'},
+        ),
+      );
+
+      expect((await handler(request)).statusCode, 403);
+    });
+
+    test('foreign browser Referer is rejected when Origin is absent', () async {
+      final handler = originHostGuardMiddleware()((Request req) => Response.ok('ok'));
+      final request = withLocalAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+          headers: {'host': 'localhost', 'referer': 'http://evil.example.com/run'},
+        ),
+      );
+
+      expect((await handler(request)).statusCode, 403);
     });
   });
 }

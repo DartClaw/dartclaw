@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.18**
+> Current through: **0.24**
 
 DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
 
@@ -368,9 +368,13 @@ projects:
       draft: true                      # create PRs as drafts (default: false)
       labels: [agent, automated]       # auto-apply labels (default: [])
 
-# --- Tasks (worktree settings still apply to _local merges) ---
+# --- Provider workers and task worktree settings ---
+providers:
+  claude:
+    executable: claude
+    pool_size: 3                       # shared task and logical-agent workers
+
 tasks:
-  max_concurrent: 3                    # parallel task runners (harness pool size)
   artifact_retention_days: 0           # 0 = unlimited
   worktree:
     base_ref: main                     # branch to branch from / merge into (_local only)
@@ -390,6 +394,6 @@ tasks:
 
 - [Tasks](tasks.md) -- task lifecycle, review workflow, project targeting
 - [Configuration](configuration.md) -- full config reference including `projects:` section
-- [Security](security.md) -- guard chain, container isolation, credential proxy
+- [Security](security.md) -- guard chain, container isolation, host-mediated credentials
 - [Workspace](workspace.md) -- behavior files and workspace git sync (separate from project git)
 - [Architecture](architecture.md) -- 2-layer model overview, project management subsystem

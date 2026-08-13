@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecution,
@@ -23,7 +24,7 @@ class VersionConflictException implements Exception {
   final int expectedVersion;
   final int currentVersion;
 
-  const VersionConflictException({required this.taskId, required this.expectedVersion, required this.currentVersion});
+  const new({required this.taskId, required this.expectedVersion, required this.currentVersion});
 
   @override
   String toString() =>
@@ -39,7 +40,7 @@ class TaskService implements WorkflowTaskService {
   final EventBus? _eventBus;
   final TaskEventRecorder? _eventRecorder;
 
-  TaskService(
+  new(
     this._repo, {
     AgentExecutionRepository? agentExecutionRepository,
     ExecutionRepositoryTransactor? executionTransactor,
@@ -78,10 +79,12 @@ class TaskService implements WorkflowTaskService {
     String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
-    final persistedProvider = _trimmedOrNull(
-      provider ??
-          ((configJson['provider'] as String?)?.trim().isEmpty ?? true ? null : configJson['provider'] as String?),
-    );
+    final configuredProvider = provider ?? configJson['provider'] as String?;
+    if (configuredProvider != null && configuredProvider.trim().isEmpty) {
+      throw ArgumentError.value(configuredProvider, 'provider', 'must not be blank');
+    }
+    final rawProvider = _trimmedOrNull(configuredProvider);
+    final persistedProvider = rawProvider == null ? null : ProviderIdentity.normalize(rawProvider);
     final persistedModel = _trimmedOrNull(model) ?? _trimmedOrNull(configJson['model'] as String?);
     final persistedSessionId = _trimmedOrNull(sessionId);
     final normalizedMaxTokens = maxTokens != null && maxTokens > 0 ? maxTokens : null;
@@ -509,5 +512,5 @@ class TaskService implements WorkflowTaskService {
 }
 
 final class _TaskTransitionConflict implements Exception {
-  const _TaskTransitionConflict();
+  const new();
 }

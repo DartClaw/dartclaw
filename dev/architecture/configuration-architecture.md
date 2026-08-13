@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.21
+**Current through**: 0.24 worker-capacity execution architecture
 
 ---
 
@@ -66,7 +66,7 @@ packages/dartclaw_config/lib/src/dartclaw_config.dart
 │  container: ContainerConfig    channels: ChannelConfig               │
 │  governance: GovernanceConfig  features: FeaturesConfig              │
 │  projects: ProjectConfig       alerts: AlertsConfig                  │
-│  delegation: DelegationConfig  extensions: Map<String, Object?>      │
+│  extensions: Map<String, Object?>                                    │
 │  ────────────────────────────────────────────────────────────────    │
 │  + warnings: List<String>     (collected during load)                │
 │  + channelConfigProvider      (typed channel config access)          │
@@ -76,7 +76,7 @@ packages/dartclaw_config/lib/src/dartclaw_config.dart
 
 Key characteristics:
 
-- **29 typed section fields** plus `extensions` map for deployer-registered custom sections
+- **28 typed section fields** plus `extensions` map for deployer-registered custom sections
 - **`const` constructor** with named defaults for every section (e.g., `const ServerConfig.defaults()`)
 - **Value equality** on all sections via `==` and `hashCode` overrides, enabling `ConfigNotifier` to compute section-level deltas
 - **Warnings list** collected during parsing (unknown keys, deprecated syntax, invalid values that fell back to defaults)
@@ -89,11 +89,11 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | Section | Class | Domain | Key Fields |
 |---------|-------|--------|------------|
 | `server` | `ServerConfig` | Server runtime | `port`, `host`, `name`, `dataDir`, `baseUrl`, `workerTimeout`, `claudeExecutable`, `devMode`, `maxParallelTurns` |
-| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider` |
+| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider |
 | `advisor` | `AdvisorConfig` | Self-reflection advisor | `enabled`, `model`, `effort`, `triggers`, `periodicIntervalMinutes`, `maxWindowTurns` |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
-| `harness` | `HarnessConfig` | ACP agent harness | `acp.agents.*` target profiles (binary, args, topology, modelProvider, verification, requiredBuiltins, container profile) |
+| `harness` | `HarnessConfig` | ACP agent harness | `acp.agents.*` target profiles (binary, args, topology, modelProvider, verification, requiredBuiltins); the container fields feed startup compatibility only — ACP has no mediated container execution, so `container_isolation_required: true` is startup-fatal |
 | `sessions` | `SessionConfig` | Session lifecycle | `resetHour`, `idleTimeoutMinutes`, `scopeConfig` (dm/group scope), `maintenanceConfig` |
 | `context` | `ContextConfig` | Context management | `reserveTokens`, `maxResultBytes`, `warningThreshold`, `compactInstructions`, `identifierPreservation` |
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `inputSanitizerEnabled` |
@@ -101,9 +101,9 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode), `wikiLint` (`KnowledgeWikiLintConfig`) |
 | `search` | `SearchConfig` | Search backend | `backend` (fts5/qmd), `qmd.host`, `qmd.port`, `defaultDepth` |
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
-| `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, poolSize, options such as `inherit_user_settings`) |
+| `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
-| `tasks` | `TaskConfig` | Task execution | `maxConcurrent`, `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy` |
+| `tasks` | `TaskConfig` | Task execution | `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy`; no independent concurrency control |
 | `scheduling` | `SchedulingConfig` | Scheduled jobs | `heartbeatIntervalMinutes`, `jobs` list |
 | `workspace` | `WorkspaceConfig` | Workspace git sync | `gitSyncEnabled`, `gitSyncPushEnabled` |
 | `onboarding` | `OnboardingConfig` | Conversational onboarding | `expiryDays` |
@@ -116,7 +116,6 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `features` | `FeaturesConfig` | Feature flags | `threadBinding` (enabled, idleTimeoutMinutes) |
 | `projects` | `ProjectConfig` | Multi-project | Project definitions |
 | `alerts` | `AlertsConfig` | Alert routing | `enabled`, `cooldownSeconds`, `burstThreshold`, `targets`, `routes` |
-| `delegation` | `DelegationConfig` | Agent delegation | `enabled`, `agents` (`DelegationAgentConfig`), `maxBudgetTokens`, `budgetAccounting`, `rateLimit` |
 
 ### Nested Config Types
 
@@ -125,6 +124,22 @@ Several sections contain deeply nested typed configs:
 - `GovernanceConfig` nests `RateLimitsConfig` (with `PerSenderRateLimitConfig` and `GlobalRateLimitConfig`), `BudgetConfig`, `LoopDetectionConfig`, `CrowdCodingConfig`, and `TurnProgressConfig`
 - `SessionConfig` nests `SessionScopeConfig` (with per-channel overrides) and `SessionMaintenanceConfig`
 - `GatewayConfig` nests `ReloadConfig`
+
+### Execution Allocation Configuration Contract
+
+Execution allocation deliberately has one capacity knob: `providers.<id>.pool_size`.
+
+- It is a hard per-provider ceiling on concurrent worker and capacity-only executions.
+- It excludes the fixed serialized primary-interactive lane used by main-agent user and channel turns.
+- Cron/system jobs, advisor turns, background tasks, and logical-agent sessions consume worker capacity. Workflow one-shots consume the same capacity through a capacity-only lease.
+- `governance.rate_limits.global.turns` / `max_parallel_turns` remain earlier global admission controls; they do not create provider capacity.
+- `tasks.max_concurrent`, per-agent quotas, and other duplicate execution limits are not configuration surfaces.
+
+Reusable harnesses are an opportunistic implementation cache. There are no cache size, TTL, prewarm, affinity, or replacement knobs. Harness-construction inputs are fixed for a coordinator's lifetime, so normalized provider plus the complete effective execution policy identify compatible workers within it. A mismatch or unknown health means fresh creation; unhealthy workers are disposed; unconfirmed root teardown quarantines capacity.
+
+Container settings define isolation templates only. Each execution owner receives a dedicated container: a logical-agent container spans that exact owner's turns, a task container spans its turn, and a workflow container spans its step. None crosses principals. Container count does not alter `pool_size`, which remains the worker-execution capacity limit. The SDK single-harness compatibility path is selected by programmatic composition, not YAML, and is never a server logical-agent routing option.
+
+Provider-specific `options` are interpreted only by the matching adapter/factory wiring. Execution, task, scheduling, logical-agent, and observability services receive normalized provider identity and provider-neutral contracts; configuration does not authorize provider-name branching in those layers.
 
 ---
 
@@ -427,7 +442,7 @@ Controlled by `gateway.reload.mode`:
 | `logging.redact_patterns` | `logging.level`, `logging.format` |
 | `context.reserve_tokens`, `context.max_result_bytes` | `container.*` |
 | `alerts.*` (targets, cooldowns, thresholds) | `search.backend`, `search.qmd.*` |
-| `governance.*` (turn limits, stall detection) | `tasks.max_concurrent`, `tasks.worktree.*`, guard chain (`guards.*`) |
+| `governance.*` (turn limits, stall detection) | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
 
 ### Restart Banner
 
@@ -533,7 +548,7 @@ Missing binary/credentials for the **default** provider are errors; the same for
 
 Credentials flow to agent harnesses through two mechanisms:
 
-- **Container harnesses**: credential proxy on Unix socket (never in container env)
+- **Container harnesses**: the host gateway's provider adapter injects the host credential per request over a framed `docker exec` pipe (never in container env). Only the Claude and Codex clients have a verified adapter, so ACP registrations have no container execution.
 - **Git operations**: injected via `GIT_SSH_COMMAND`/`GIT_ASKPASS` environment variables
 
 See [Security Architecture](security-architecture.md) for the full credential isolation model.
@@ -580,7 +595,7 @@ packages/dartclaw_server/lib/src/web/pages/settings_page.dart
 The web-based Settings page renders a comprehensive system status view:
 
 - **Server status** — uptime, session count, worker state, version
-- **Provider cards** — per-provider health, binary status, credential status, pool usage
+- **Provider cards** — per-provider health, binary status, credential status, and lease-derived configured/effective/active/queued/cached/quarantined worker state; primary lane shown separately
 - **Channel status** — WhatsApp, Signal, Google Chat connection status
 - **Guard chain summary** — enabled guards with configuration
 - **Workspace path** — current workspace directory
@@ -672,7 +687,7 @@ Comprehensive listing of all sections with hot-reload status:
 |---------|-------------|---------------|---------------------|
 | `agent` | `AgentConfig` | No | Default model, effort, max turns |
 | `advisor` | `AdvisorConfig` | No | Self-reflection triggers, model, effort |
-| `providers` | `ProvidersConfig` | No | Provider binary paths, pool sizes, provider-specific options |
+| `providers` | `ProvidersConfig` | No | Provider binary paths, hard worker-execution `pool_size`, provider-specific adapter options |
 | `credentials` | `CredentialsConfig` | No | API key entries |
 
 ### Sessions & Governance
@@ -688,7 +703,7 @@ Comprehensive listing of all sections with hot-reload status:
 
 | Section | Config Class | Hot-Reloadable | Key Responsibilities |
 |---------|-------------|---------------|---------------------|
-| `tasks` | `TaskConfig` | No | Concurrency, retention, worktree, completion action |
+| `tasks` | `TaskConfig` | No | Retention, worktree, completion action; no independent concurrency limit |
 | `scheduling` | `SchedulingConfig` | Yes (`heartbeat.interval_minutes`) | Heartbeat, scheduled jobs |
 
 ### Storage & Context

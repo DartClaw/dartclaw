@@ -199,7 +199,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
       }
       return runWorkflowGitResolverAttemptUnderLock<T>(projectDir: resolvedProject.localPath, body: body);
     },
-    reserveTurn: ctx._serverTurns.reserveTurn,
+    reserveTurn: (sessionId) => ctx._serverTurns.reserveTurn(sessionId, promptScope: PromptScope.task),
     reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => ctx._serverTurns.reserveTurn(
       sessionId,
       agentName: 'task',

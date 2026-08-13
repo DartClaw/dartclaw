@@ -1,7 +1,7 @@
 import '../connected_command_support.dart';
 
 class TasksListCommand extends ConnectedCommand {
-  TasksListCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('status', help: 'Filter by task status')
       ..addOption('type', help: 'Filter by task type')

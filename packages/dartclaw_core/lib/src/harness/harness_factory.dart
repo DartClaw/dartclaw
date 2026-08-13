@@ -2,11 +2,15 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, HistoryConfig, PlatformCapabilities;
+
 import 'agent_harness.dart';
 import 'acp_harness.dart';
 import 'acp_reverse_call_handlers.dart';
 import 'claude_code_harness.dart';
+import 'claude_protocol_adapter.dart';
+import 'canonical_tool.dart';
 import 'codex_harness.dart';
+import 'codex_protocol_adapter.dart';
 import '../container/container_executor.dart';
 import 'harness_config.dart';
 import 'process_types.dart';
@@ -53,14 +57,26 @@ class HarnessFactoryConfig {
   /// Optional guard audit logger used by Claude harnesses.
   final GuardAuditLogger? auditLogger;
 
+  /// Exact DartClaw MCP tool names mapped to their guard semantic.
+  final Map<String, CanonicalTool> ownMcpToolCanonicals;
+
   /// Optional approval decision callback used by ACP reverse-call permission requests.
   final AcpPermissionDecision? acpPermissionDecision;
 
   /// Optional audit sink for ACP reverse-call handler decisions and lifecycle calls.
   final AcpReverseCallAuditSink? acpReverseCallAudit;
 
-  /// Memory save callback used when the internal MCP server is not configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
+  /// Memory apply callback used when the internal MCP server is not configured.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryApply;
+
+  /// Memory observation callback used when the internal MCP server is not configured.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
+
+  /// Context-aware memory apply callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemoryApply;
+
+  /// Context-aware memory observation callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemoryObserve;
 
   /// Memory search callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
@@ -77,7 +93,7 @@ class HarnessFactoryConfig {
   final HistoryConfig historyConfig;
 
   /// Creates an immutable harness-construction configuration.
-  const HarnessFactoryConfig({
+  const new({
     required this.cwd,
     this.executable = 'claude',
     this.turnTimeout = const Duration(seconds: 600),
@@ -90,9 +106,13 @@ class HarnessFactoryConfig {
     this.containerManager,
     this.guardChain,
     this.auditLogger,
+    this.ownMcpToolCanonicals = const {},
     this.acpPermissionDecision,
     this.acpReverseCallAudit,
-    this.onMemorySave,
+    this.onMemoryApply,
+    this.onMemoryObserve,
+    this.onContextualMemoryApply,
+    this.onContextualMemoryObserve,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
@@ -113,7 +133,7 @@ class HarnessFactory {
   final Map<String, AgentHarness> _activationProbes = {};
 
   /// Creates a factory with built-in provider registrations.
-  HarnessFactory() {
+  new() {
     register('claude', _createClaudeHarness);
     register('codex', _createCodexHarness);
   }
@@ -128,18 +148,30 @@ class HarnessFactory {
   }
 
   /// Registers a configured ACP agent as a provider identity.
+  ///
+  /// A supplied container manager is required authority, never an optional
+  /// optimization: it is honored or the construction fails. No ACP container
+  /// combination is mediated, so honoring one is impossible and a supplied
+  /// manager fails closed rather than being discarded so the process silently
+  /// lands on the host.
   void registerAcpAgent(String providerId, AcpAgentConfig agent) {
     register(providerId, (config) {
       if (agent.containerIsolationRequired && config.containerManager == null) {
         throw StateError('ACP provider "$providerId" requires container isolation but no container manager is wired');
+      }
+      if (config.containerManager != null) {
+        throw StateError(
+          'ACP provider "$providerId" was given a container manager, but DartClaw provides no container '
+          'provider-credential or host-capability mediation for an ACP client. Select host execution for it.',
+        );
       }
       return AcpHarness(
         cwd: config.cwd,
         executable: agent.binary,
         arguments: agent.args,
         turnTimeout: config.turnTimeout,
+        historyConfig: config.historyConfig,
         processFactory: config.processFactory,
-        containerManager: agent.containerIsolationRequired ? config.containerManager : null,
         environment: config.environment,
         guardChain: config.guardChain,
         permissionDecision: config.acpPermissionDecision,
@@ -170,7 +202,7 @@ class HarnessFactory {
   ///
   /// Creates lightweight, unstarted harness instances to probe their capability
   /// flags — no process is spawned. Useful for offline validation (e.g.,
-  /// `workflow validate`) where a live [HarnessPool] is not available.
+  /// `workflow validate`) where a live execution coordinator is not available.
   Set<String> probeContinuityProviders() {
     final result = <String>{};
     for (final entry in _factories.entries) {
@@ -228,7 +260,10 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     cwd: config.cwd,
     turnTimeout: config.turnTimeout,
     providerOptions: config.providerOptions,
-    onMemorySave: config.onMemorySave,
+    onMemoryApply: config.onMemoryApply,
+    onMemoryObserve: config.onMemoryObserve,
+    onContextualMemoryApply: config.onContextualMemoryApply,
+    onContextualMemoryObserve: config.onContextualMemoryObserve,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
     onPermissionDenied: config.onPermissionDenied,
@@ -239,6 +274,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     processFactory: config.processFactory,
     guardChain: config.guardChain,
     auditLogger: config.auditLogger,
+    protocolAdapter: ClaudeProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
   );
 }
@@ -253,6 +289,8 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     harnessConfig: config.harnessConfig,
     providerOptions: config.providerOptions,
     guardChain: config.guardChain,
+    adapter: CodexProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
+    containerManager: config.containerManager,
   );
 }

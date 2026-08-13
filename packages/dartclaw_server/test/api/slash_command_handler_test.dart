@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -332,7 +332,7 @@ String _sectionText(Map<String, dynamic> response) {
 }
 
 class _NoopMessageQueue extends MessageQueue {
-  _NoopMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => '');
+  new() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => '');
 
   @override
   void enqueue(ChannelMessage message, Channel channel, String sessionKey) {}

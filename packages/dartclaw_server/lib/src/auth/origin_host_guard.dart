@@ -1,10 +1,11 @@
+import 'package:dartclaw_security/dartclaw_security.dart' show isLoopbackHost;
 import 'package:shelf/shelf.dart';
 
 import 'request_auth_context.dart';
 
 const _safeMethods = {'GET', 'HEAD', 'OPTIONS'};
 
-/// Application-level write boundary for cookie-authenticated browser sessions.
+/// Application-level write boundary for browser-originated requests.
 ///
 /// For unsafe HTTP methods (POST/PUT/PATCH/DELETE), when the request is
 /// authenticated via a session cookie, this middleware verifies that the request
@@ -18,19 +19,21 @@ const _safeMethods = {'GET', 'HEAD', 'OPTIONS'};
 /// - Safe methods (GET/HEAD/OPTIONS), since CSRF is only relevant for state changes.
 /// - Bearer-token-authenticated requests, since CSRF does not apply to API clients;
 ///   the exemption is automatic because the cookie auth context flag is absent.
-/// - `localAdminMiddleware` sessions (no-auth mode), since there is no cookie context.
+/// - Origin-less local-admin requests, preserving local CLI access in no-auth mode.
 ///
 /// **Assumption:** modern browsers send `Origin` (or at minimum `Referer`) on
 /// same-origin unsafe requests, including HTMX-driven form submissions and
 /// `fetch()` calls from Stimulus controllers. The legitimate web UI therefore
 /// passes without any special configuration.
-Middleware originHostGuardMiddleware() {
+Middleware originHostGuardMiddleware({String localAdminHost = 'localhost'}) {
   return (Handler inner) => (Request request) async {
     if (_safeMethods.contains(request.method)) {
       return inner(request);
     }
 
-    if (!requestIsCookieAuthenticated(request)) {
+    final isCookieAuthenticated = requestIsCookieAuthenticated(request);
+    final isLocalAdmin = requestIsLocalAdmin(request);
+    if (!isCookieAuthenticated && !isLocalAdmin) {
       return inner(request);
     }
 
@@ -38,8 +41,16 @@ Middleware originHostGuardMiddleware() {
     if (requestAuthority == null) {
       return _forbidden('Missing Host header');
     }
+    if (isLocalAdmin && (!isLoopbackHost(localAdminHost) || !isLoopbackHost(requestAuthority.host))) {
+      return _forbidden('No-auth writes require a loopback host');
+    }
 
     final origin = request.headers['origin'];
+    final referer = request.headers['referer'];
+    if (isLocalAdmin && origin == null && referer == null) {
+      return inner(request);
+    }
+
     if (origin != null) {
       final originAuthority = _authorityFromUri(Uri.tryParse(origin));
       if (originAuthority == null || originAuthority != requestAuthority) {
@@ -48,7 +59,6 @@ Middleware originHostGuardMiddleware() {
       return inner(request);
     }
 
-    final referer = request.headers['referer'];
     if (referer != null) {
       final refererAuthority = _authorityFromUri(Uri.tryParse(referer));
       if (refererAuthority == null || refererAuthority != requestAuthority) {
@@ -95,7 +105,7 @@ final class _EffectiveAuthority {
   final String host;
   final int port;
 
-  const _EffectiveAuthority({required this.scheme, required this.host, required this.port});
+  const new({required this.scheme, required this.host, required this.port});
 
   @override
   bool operator ==(Object other) =>

@@ -5,7 +5,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitio
 import 'package:shelf/shelf.dart';
 
 import '../params/display_params.dart';
-import '../task/agent_observer.dart';
+import '../task/runner_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
@@ -35,11 +35,11 @@ abstract class DashboardPage {
 }
 
 /// Marks a registered [DashboardPage] that should remain outside dashboard navigation.
-abstract interface class DashboardNavigationExclusion {}
+abstract interface class DashboardNavigationExclusion;
 
 /// Shared services made available to registered dashboard pages.
 class PageContext {
-  PageContext({
+  new({
     required this.sessions,
     required this.appDisplay,
     this.dataDir,
@@ -50,7 +50,7 @@ class PageContext {
     this.eventBus,
     this.messages,
     this.turns,
-    this.agentObserver,
+    this.runnerObserver,
     this.traceService,
     this.taskEventService,
     this.progressTracker,
@@ -81,7 +81,7 @@ class PageContext {
   final EventBus? eventBus;
   final MessageService? messages;
   final TurnManager? turns;
-  final AgentObserver? agentObserver;
+  final RunnerObserver? runnerObserver;
   final TurnTraceService? traceService;
   final TaskEventService? taskEventService;
   final TaskProgressTracker? progressTracker;

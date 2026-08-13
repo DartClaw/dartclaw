@@ -66,9 +66,8 @@ void main() {
     final noResult = await KgQueryTool(kg: kg).call({'entity': 'Unknown System'});
     expect(jsonDecode((noResult as dynamic).content as String), containsPair('status', 'no_result'));
 
-    final contradiction = await KgContradictionsTool(
-      kg: kg,
-    ).call({'entity': 'Dart SDK', 'predicate': 'channel', 'value': 'beta'});
+    final contradiction = await KgContradictionsTool(kg: kg)
+        .call({'entity': 'Dart SDK', 'predicate': 'channel', 'value': 'beta'});
     expect(jsonDecode((contradiction as dynamic).content as String), containsPair('status', 'contradiction'));
   });
 
@@ -420,9 +419,8 @@ void main() {
       ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'});
       expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
 
-      final allowed = await KgInvalidateTool(
-        kg: kg,
-      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward default'});
+      final allowed = await KgInvalidateTool(kg: kg)
+          .call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward default'});
       expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
     });
   });

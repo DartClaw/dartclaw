@@ -2,7 +2,9 @@ import 'package:dartclaw_models/dartclaw_models.dart' show ChannelType;
 import 'package:logging/logging.dart';
 
 import '../events/event_bus.dart';
+
 import 'package:dartclaw_config/dartclaw_config.dart' show SlidingWindowRateLimiter;
+
 import '../scoping/group_config_resolver.dart';
 import 'channel.dart';
 import 'channel_task_bridge_support.dart';
@@ -37,7 +39,7 @@ class ChannelTaskBridge {
   late final ThreadBindingRouter _threadBindingRouter;
   late final ChannelTaskBridgeSupport _support;
 
-  ChannelTaskBridge({
+  new({
     ReservedCommandHandler? reservedCommandHandler,
     TaskCreator? taskCreator,
     TaskLister? taskLister,

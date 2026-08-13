@@ -525,7 +525,7 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
   final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
   processRunner;
 
-  const _ProcessRunnerGitPortForTest(this.processRunner);
+  const new(this.processRunner);
 
   @override
   Future<String> revParse(String worktreePath, String ref) async {

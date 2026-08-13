@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 
+import 'provider_identity.dart';
+
 const _providerEntriesEquality = MapEquality<String, ProviderEntry>();
 const _optionsEquality = DeepCollectionEquality();
 
@@ -8,16 +10,16 @@ class ProviderEntry {
   /// Path to the provider binary.
   final String executable;
 
-  /// Number of pool workers for this provider. 0 = use default.
+  /// Hard ceiling on concurrent worker executions for this provider. 0 = use default.
   final int poolSize;
 
   /// Provider-specific options for forward compatibility.
   final Map<String, dynamic> options;
 
   /// const ProviderEntry({required this.executable, this.poolSize.
-  const ProviderEntry({required this.executable, this.poolSize = 0, this.options = const {}});
+  const new({required this.executable, this.poolSize = 0, this.options = const {}});
 
-  /// Effective task-worker capacity after applying the legacy unset default.
+  /// Effective worker capacity after applying the unset default.
   int get effectivePoolSize => poolSize > 0 ? poolSize : 1;
 
   @override
@@ -41,13 +43,26 @@ class ProvidersConfig {
   final Map<String, ProviderEntry> entries;
 
   /// const ProvidersConfig({this.entries = const {}});.
-  const ProvidersConfig({this.entries = const {}});
+  const new({this.entries = const {}});
 
   /// Creates a [ProvidersConfig.defaults] value.
-  const ProvidersConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns the entry for [providerId], or `null` if not configured.
-  ProviderEntry? operator [](String providerId) => entries[providerId];
+  ProviderEntry? operator [](String providerId) {
+    if (providerId.trim().isEmpty) return null;
+    final normalized = ProviderIdentity.normalize(providerId);
+    ProviderEntry? match;
+    for (final entry in entries.entries) {
+      if (entry.key.trim().isEmpty) continue;
+      if (ProviderIdentity.normalize(entry.key) != normalized) continue;
+      if (match != null) {
+        throw StateError('Configured provider IDs collide after normalization to "$normalized"');
+      }
+      match = entry.value;
+    }
+    return match;
+  }
 
   /// Whether any providers are explicitly configured.
   bool get isEmpty => entries.isEmpty;

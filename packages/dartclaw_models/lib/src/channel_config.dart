@@ -24,7 +24,7 @@ class RetryPolicy {
   final double jitterFactor;
 
   /// Creates a retry policy for outbound channel delivery.
-  const RetryPolicy({this.maxAttempts = 3, this.baseDelay = const Duration(seconds: 1), this.jitterFactor = 0.2});
+  const new({this.maxAttempts = 3, this.baseDelay = const Duration(seconds: 1), this.jitterFactor = 0.2});
 
   @override
   bool operator ==(Object other) =>
@@ -38,7 +38,7 @@ class RetryPolicy {
   int get hashCode => Object.hash(maxAttempts, baseDelay, jitterFactor);
 
   /// Parses a retry policy from YAML configuration, appending warnings to [warns].
-  factory RetryPolicy.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     var maxAttempts = 3;
     final ma = yaml['max_attempts'];
     if (ma is int) {
@@ -86,7 +86,7 @@ class ChannelConfig {
   final Map<String, Map<String, dynamic>> channelConfigs;
 
   /// Creates channel subsystem configuration.
-  const ChannelConfig({
+  const new({
     this.debounceWindow = const Duration(milliseconds: 1000),
     this.maxQueueDepth = 100,
     this.defaultRetryPolicy = const RetryPolicy(),
@@ -94,7 +94,7 @@ class ChannelConfig {
   });
 
   /// Creates the default channel configuration used when no YAML overrides exist.
-  const ChannelConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -114,7 +114,7 @@ class ChannelConfig {
   );
 
   /// Parses channel configuration from YAML, appending warnings to [warns].
-  factory ChannelConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     var debounceMs = 1000;
     final dw = yaml['debounce_window_ms'];
     if (dw is int) {

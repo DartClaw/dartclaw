@@ -99,16 +99,16 @@ class _Match {
   final int line;
   final String identifier;
 
-  _Match(this.line, this.identifier);
+  new(this.line, this.identifier);
 }
 
 class _AllowlistEntry {
   final String identifier;
   final String reason;
 
-  _AllowlistEntry(this.identifier, this.reason);
+  new(this.identifier, this.reason);
 
-  factory _AllowlistEntry.parse(String line) {
+  factory parse(String line) {
     final separator = line.indexOf('|');
     if (separator <= 0 || separator == line.length - 1) {
       throw FormatException('Invalid allowlist entry: $line');

@@ -21,7 +21,7 @@ class LogService {
   StreamSubscription<LogRecord>? _subscription;
   bool _suppressOutput = false;
 
-  LogService({required LogFormatter formatter, IOSink? fileSink, Level level = Level.INFO})
+  new({required LogFormatter formatter, IOSink? fileSink, Level level = Level.INFO})
     : _formatter = formatter,
       _fileSink = fileSink,
       _level = level;
@@ -30,7 +30,7 @@ class LogService {
   ///
   /// When [redactor] is provided, it is used for all log redaction (ignoring
   /// [redactPatterns]). Otherwise a default [LogRedactor] is created.
-  factory LogService.fromConfig({
+  factory fromConfig({
     String format = 'human',
     String? logFile,
     String level = 'INFO',

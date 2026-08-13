@@ -4,7 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
-const _cascade = ToolPolicyCascade();
+final _cascade = ToolPolicyCascade();
 
 SecurityConfig _configFromYaml(Map<String, dynamic> guardsYaml) {
   return SecurityConfig(guards: const GuardConfig(enabled: true, failOpen: false), guardsYaml: guardsYaml);

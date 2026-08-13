@@ -5,9 +5,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/service_wiring.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -109,7 +109,7 @@ final class _FakeOutboundTransport implements OutboundMcpTransport {
   var initializeRequests = 0;
   var toolsListRequests = 0;
 
-  _FakeOutboundTransport({
+  new({
     required this.tools,
     this.failedToolsListResponses = 0,
     this.rejectDuplicateInitialize = false,
@@ -177,7 +177,7 @@ final class _NamedTool implements McpTool {
   @override
   final String name;
 
-  _NamedTool(this.name);
+  new(this.name);
 
   @override
   String get description => 'test duplicate';
@@ -325,9 +325,9 @@ void main() {
     expect(healthBody['status'], equals('healthy'));
 
     final toolNames = await _mcpToolNames(result.server);
+    expect(toolNames, contains('sessions_spawn'));
     expect(toolNames, contains('sessions_send'));
     expect(toolNames, contains('context_research'));
-    expect(toolNames, isNot(contains('sessions_spawn')));
   });
 
   test('ServiceWiring registers surfaced outbound MCP tools on the live MCP handler', () async {
@@ -735,7 +735,7 @@ mcp_servers:
     expect(factoryCalls, 0);
   });
 
-  test('ServiceWiring closes the outbound MCP pool during shutdown extras', () async {
+  test('ServiceWiring closes shared lifecycle services during shutdown extras', () async {
     final transport = _FakeOutboundTransport(
       tools: const [
         {'name': 'lookup'},
@@ -762,6 +762,10 @@ mcp_servers:
     await result.shutdownExtras();
 
     expect(transport.closeCount, 1);
+    expect(
+      () => result.selfImprovement.appendLearning(text: 'rejected after shared corpus shutdown'),
+      throwsStateError,
+    );
   });
 
   test('ServiceWiring wires AlertRouter into the production EventBus', () async {
@@ -864,7 +868,7 @@ mcp_servers:
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Missing ref regression', 'PROJECT': 'alpha', 'BRANCH': 'missing/ref'},
         }),
-        headers: {'content-type': 'application/json'},
+        headers: {'content-type': 'application/json', 'host': 'localhost'},
       ),
     );
 

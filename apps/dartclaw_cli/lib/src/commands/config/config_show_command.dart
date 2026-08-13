@@ -5,7 +5,7 @@ import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta;
 import '../connected_command_support.dart';
 
 class ConfigShowCommand extends ConnectedCommand {
-  ConfigShowCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser.addFlag('json', negatable: false, help: 'Output as JSON');
   }
 

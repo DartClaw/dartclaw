@@ -2115,7 +2115,7 @@ void main() {
 }
 
 final class _RecordingWorkflowTaskService implements WorkflowTaskService {
-  _RecordingWorkflowTaskService(
+  new(
     this._delegate, {
     Future<void> Function()? beforeListByWorkflowRunIds,
     Future<void> Function(String taskId, TaskStatus newStatus)? beforeTransition,

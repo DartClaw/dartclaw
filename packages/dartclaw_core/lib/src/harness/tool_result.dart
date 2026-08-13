@@ -8,14 +8,14 @@
 /// in the MCP content — not a JSON-RPC protocol error. This follows the MCP
 /// spec: tool errors are application-level, not protocol-level.
 sealed class ToolResult {
-  const ToolResult();
+  const new();
 
   /// Successful result with text content returned to the agent.
-  const factory ToolResult.text(String content) = ToolResultText;
+  const factory text(String content) = ToolResultText;
 
   /// Error result — returned as error content to the agent (not an exception).
   /// The agent sees the error message and can decide how to proceed.
-  const factory ToolResult.error(String message) = ToolResultError;
+  const factory error(String message) = ToolResultError;
 }
 
 /// Successful tool result containing text content.
@@ -23,7 +23,7 @@ class ToolResultText extends ToolResult {
   /// The text content to return to the agent.
   final String content;
 
-  const ToolResultText(this.content);
+  const new(this.content);
 }
 
 /// Error tool result containing an error message.
@@ -35,5 +35,5 @@ class ToolResultError extends ToolResult {
   /// The error message returned to the agent.
   final String message;
 
-  const ToolResultError(this.message);
+  const new(this.message);
 }

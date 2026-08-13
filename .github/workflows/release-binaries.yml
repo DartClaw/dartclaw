@@ -43,10 +43,17 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.12.0
+          sdk: 3.13.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
+
+      # Windows builds run the generator directly; every other target gets both
+      # steps from build.sh. The bridge must exist before the generator runs.
+      - name: Cross-compile container bridge
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash dev/tools/build_bridge.sh --embed
 
       - name: Generate embedded assets
         if: runner.os == 'Windows'
@@ -206,7 +213,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.12.0
+          sdk: 3.13.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
@@ -269,7 +276,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.12.0
+          sdk: 3.13.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile

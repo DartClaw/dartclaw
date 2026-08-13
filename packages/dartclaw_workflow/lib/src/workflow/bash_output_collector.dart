@@ -8,7 +8,7 @@ final class _BoundedOutputCollector {
   var storedBytes = 0;
   var truncated = false;
 
-  _BoundedOutputCollector(Stream<List<int>> stream, this.maxBytes) {
+  new(Stream<List<int>> stream, this.maxBytes) {
     _subscription = stream.listen(
       _add,
       onError: (Object error, StackTrace stackTrace) {
@@ -50,5 +50,5 @@ final class _BoundedOutput {
   final String text;
   final bool truncated;
 
-  const _BoundedOutput(this.text, {required this.truncated});
+  const new(this.text, {required this.truncated});
 }

@@ -28,7 +28,7 @@ final class AgentExecutionStatusChangedEvent extends AgentExecutionEvent {
   final DateTime timestamp;
 
   /// Creates an agent-execution-status-changed event.
-  AgentExecutionStatusChangedEvent({
+  new({
     required this.agentExecutionId,
     required this.oldStatus,
     required this.newStatus,

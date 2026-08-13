@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show CommandProbe;
 import 'package:logging/logging.dart';
+
+import 'execution_coordinator.dart';
 
 final _log = Logger('ProviderStatusService');
 
@@ -19,14 +21,18 @@ class ProviderStatus {
   final String credentialStatus;
   final String? credentialEnvVar;
   final int poolSize;
+  final int effectiveWorkers;
   final int activeWorkers;
+  final int queuedWorkers;
+  final int cachedWorkers;
+  final int quarantinedWorkers;
   final bool isDefault;
   final String health;
   final String? errorMessage;
   final String? securityClassification;
   final List<Map<String, dynamic>>? validationEvidence;
 
-  const ProviderStatus({
+  const new({
     required this.id,
     required this.executable,
     required this.version,
@@ -34,7 +40,11 @@ class ProviderStatus {
     required this.credentialStatus,
     required this.credentialEnvVar,
     required this.poolSize,
+    required this.effectiveWorkers,
     required this.activeWorkers,
+    required this.queuedWorkers,
+    required this.cachedWorkers,
+    required this.quarantinedWorkers,
     required this.isDefault,
     required this.health,
     required this.errorMessage,
@@ -50,7 +60,11 @@ class ProviderStatus {
     'credentialStatus': credentialStatus,
     'credentialEnvVar': credentialEnvVar,
     'poolSize': poolSize,
+    'effectiveWorkers': effectiveWorkers,
     'activeWorkers': activeWorkers,
+    'queuedWorkers': queuedWorkers,
+    'cachedWorkers': cachedWorkers,
+    'quarantinedWorkers': quarantinedWorkers,
     'isDefault': isDefault,
     'health': health,
     'errorMessage': errorMessage,
@@ -64,19 +78,19 @@ class ProviderStatusService {
   final ProvidersConfig _providers;
   final CredentialRegistry _registry;
   final String _defaultProvider;
-  final HarnessPool? _pool;
+  final ExecutionCoordinator? _executions;
 
   final Map<String, _ProbeResult> _probeCache = <String, _ProbeResult>{};
 
-  ProviderStatusService({
+  new({
     required ProvidersConfig providers,
     required CredentialRegistry registry,
     required String defaultProvider,
-    HarnessPool? pool,
+    ExecutionCoordinator? executions,
   }) : _providers = providers,
        _registry = registry,
        _defaultProvider = defaultProvider,
-       _pool = pool;
+       _executions = executions;
 
   Future<void> probe({CommandProbe? commandProbe, AuthProbe? authProbe}) async {
     final cmdProbe = commandProbe ?? _runCommandProbe;
@@ -121,7 +135,7 @@ class ProviderStatusService {
 
     // Legacy single-provider mode predates the `providers:` section.
     // We expose a single provider matching the injected default and derive
-    // task pool size from observed runners for that provider when possible.
+    // worker capacity from the execution coordinator when possible.
     final providerId = _defaultProvider;
     return <String, ProviderEntry>{
       providerId: ProviderEntry(executable: _legacyExecutable(providerId), poolSize: _legacyPoolSize(providerId)),
@@ -137,11 +151,7 @@ class ProviderStatusService {
   }
 
   int _legacyPoolSize(String providerId) {
-    final pool = _pool;
-    if (pool == null) {
-      return 0;
-    }
-    return pool.runners.skip(1).where((runner) => runner.providerId == providerId).length;
+    return _executions?.snapshot.providers[providerId]?.configured ?? 0;
   }
 
   ProviderStatus _buildStatus(MapEntry<String, ProviderEntry> entry) {
@@ -151,7 +161,13 @@ class ProviderStatusService {
     final hasApiKey = _registry.hasCredential(providerId);
     final authenticated = hasApiKey || probe.binaryAuthed;
     final credentialEnvVar = CredentialRegistry.envVarFor(providerId);
-    final health = _deriveHealth(binaryFound: probe.binaryFound, credentialPresent: authenticated);
+    final capacity = _executions?.snapshot.providers[providerId];
+    final capacityDegraded = capacity != null && (capacity.quarantined > 0 || capacity.effective < capacity.configured);
+    final health = _deriveHealth(
+      binaryFound: probe.binaryFound,
+      credentialPresent: authenticated,
+      capacityDegraded: capacityDegraded,
+    );
 
     final credentialStatus = hasApiKey ? 'present' : (probe.binaryAuthed ? 'oauth' : 'missing');
     final acpValidationResult = provider.options['acp_validation_owned'] == true
@@ -167,8 +183,12 @@ class ProviderStatusService {
       binaryFound: probe.binaryFound,
       credentialStatus: credentialStatus,
       credentialEnvVar: credentialEnvVar,
-      poolSize: provider.poolSize,
-      activeWorkers: _countActiveWorkers(providerId),
+      poolSize: provider.effectivePoolSize,
+      effectiveWorkers: capacity?.effective ?? provider.effectivePoolSize,
+      activeWorkers: capacity?.active ?? 0,
+      queuedWorkers: capacity?.queued ?? 0,
+      cachedWorkers: capacity?.cached ?? 0,
+      quarantinedWorkers: capacity?.quarantined ?? 0,
       isDefault: ProviderIdentity.normalize(providerId) == ProviderIdentity.normalize(_defaultProvider),
       health: health,
       errorMessage: _buildErrorMessage(
@@ -177,6 +197,7 @@ class ProviderStatusService {
         binaryFound: probe.binaryFound,
         credentialPresent: authenticated,
         credentialEnvVar: credentialEnvVar,
+        capacity: capacity,
       ),
       securityClassification: securityClassification,
       validationEvidence: validationEvidence,
@@ -200,26 +221,14 @@ class ProviderStatusService {
     ];
   }
 
-  int _countActiveWorkers(String providerId) {
-    final pool = _pool;
-    if (pool == null) {
-      return 0;
-    }
-
-    return pool.runners
-        .skip(1)
-        .where((runner) => runner.providerId == providerId && runner.harness.state == WorkerState.busy)
-        .length;
-  }
-
-  String _deriveHealth({required bool binaryFound, required bool credentialPresent}) {
+  String _deriveHealth({required bool binaryFound, required bool credentialPresent, required bool capacityDegraded}) {
     if (!binaryFound) {
       return 'unavailable';
     }
-    if (credentialPresent) {
-      return 'healthy';
+    if (!credentialPresent || capacityDegraded) {
+      return 'degraded';
     }
-    return 'degraded';
+    return 'healthy';
   }
 
   String? _buildErrorMessage({
@@ -228,6 +237,7 @@ class ProviderStatusService {
     required bool binaryFound,
     required bool credentialPresent,
     required String? credentialEnvVar,
+    required ProviderCapacitySnapshot? capacity,
   }) {
     final quotedProvider = "'$providerId'";
     final binaryMessage =
@@ -237,16 +247,14 @@ class ProviderStatusService {
         ? 'Credentials missing for provider $quotedProvider. Add an API key to the credentials section.'
         : 'Credentials missing for provider $quotedProvider. Set $credentialEnvVar or add it to the credentials section.';
 
-    if (!binaryFound && !credentialPresent) {
-      return '$binaryMessage $credentialMessage';
-    }
-    if (!binaryFound) {
-      return binaryMessage;
-    }
-    if (!credentialPresent) {
-      return credentialMessage;
-    }
-    return null;
+    final messages = <String>[
+      if (!binaryFound) binaryMessage,
+      if (!credentialPresent) credentialMessage,
+      if (capacity != null && (capacity.quarantined > 0 || capacity.effective < capacity.configured))
+        'Worker capacity degraded: ${capacity.effective} of ${capacity.configured} slots remain effective; '
+            '${capacity.quarantined} quarantined.',
+    ];
+    return messages.isEmpty ? null : messages.join(' ');
   }
 
   Future<_ProbeResult> _probeExecutable({
@@ -291,5 +299,5 @@ class _ProbeResult {
   final String? version;
   final bool binaryAuthed;
 
-  const _ProbeResult({required this.binaryFound, this.version, this.binaryAuthed = false});
+  const new({required this.binaryFound, this.version, this.binaryAuthed = false});
 }

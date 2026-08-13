@@ -15,7 +15,7 @@ import 'standalone_run_harness.dart';
 /// subcommands provide [name]/[description] and branch on [isStandalone] from
 /// [run].
 abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
-  WorkflowRunIdCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,

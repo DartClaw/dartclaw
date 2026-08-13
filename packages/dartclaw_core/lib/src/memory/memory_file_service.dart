@@ -1,233 +1,317 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import '../storage/write_op.dart';
+import 'package:dartclaw_security/dartclaw_security.dart' show truncateUtf8Bytes;
+import 'package:uuid/uuid.dart';
 
-/// Manages the MEMORY.md file with category-based sections and atomic writes.
+import 'canonical_memory.dart';
+import 'memory_corpus.dart';
+import 'memory_corpus_service.dart';
+import 'memory_documents.dart';
+import 'memory_entry_parser.dart';
+import 'memory_resource_limits.dart';
+
+/// Manages daily memory logs and bounded reads of workspace memory files.
 class MemoryFileService {
+  /// Maximum UTF-8 size of one daily-log record before a visible truncation marker is added.
+  static const maxDailyLogEntryBytes = 512 * 1024;
+
+  /// Maximum UTF-8 size retained in one date-partitioned daily-log file.
+  static const maxDailyLogFileBytes = MemoryResourceLimits.observationPartitionBytes;
+
+  /// Maximum size read from one canonical workspace text file.
+  static const maxReadableFileBytes = MemoryResourceLimits.sourceBytes;
+  static const _maxTraversalEntities = MemoryResourceLimits.recursiveFiles * 2 + 1;
+  static const _dailyLogEntryTruncated = '\n\n[Daily log record truncated at 512 KiB]\n';
+  static const _uuid = Uuid();
   final String baseDir;
-  int _lastMemorySize = 0;
-  final _queue = StreamController<WriteOp>();
-  late final StreamSubscription<void> _queueSub;
+  final MemoryCorpusService _corpusService;
+  final bool _ownsCorpusService;
+  new({required this.baseDir, MemoryCorpusService? corpusService})
+    : _corpusService = corpusService ?? MemoryCorpusService(workspaceDir: baseDir),
+      _ownsCorpusService = corpusService == null;
 
-  MemoryFileService({required this.baseDir}) {
-    _queueSub = _queue.stream
-        .asyncMap((op) async {
-          try {
-            await op.fn();
-            op.completer.complete();
-          } catch (e, st) {
-            op.completer.completeError(e, st);
-          }
-        })
-        .listen((_) {});
-  }
-
-  /// Byte size from last [readMemory] or [appendMemory] call.
-  int get lastMemorySize => _lastMemorySize;
-
-  /// Appends a timestamped entry to MEMORY.md, grouped under [category].
-  Future<void> appendMemory({required String text, String? category}) {
-    final op = WriteOp(() async {
-      final file = File(_memoryPath);
-      final dir = file.parent;
-      if (!dir.existsSync()) dir.createSync(recursive: true);
-
-      final cat = category ?? 'general';
-      final timestamp = DateTime.now().toIso8601String().substring(0, 16).replaceFirst('T', ' ');
-      final entry = '- [$timestamp] $text';
-
-      if (!file.existsSync()) {
-        file.writeAsStringSync('## $cat\n$entry\n');
-        _lastMemorySize = utf8.encode('## $cat\n$entry\n').length;
-        return;
-      }
-
-      final content = file.readAsStringSync();
-      final header = '## $cat';
-
-      if (content.contains('$header\n')) {
-        // Insert entry after the matching category header section
-        final lines = content.split('\n');
-        final headerIdx = lines.indexOf(header);
-        // Find insertion point: after header and existing entries in this section
-        var insertIdx = headerIdx + 1;
-        while (insertIdx < lines.length && lines[insertIdx].startsWith('- [')) {
-          insertIdx++;
-        }
-        lines.insert(insertIdx, entry);
-        final updated = lines.join('\n');
-        // Atomic write: temp file + rename
-        _atomicWriteSync(file, updated);
-        _lastMemorySize = utf8.encode(updated).length;
-      } else {
-        // Append new category section
-        final suffix = '${content.endsWith('\n') ? '' : '\n'}\n$header\n$entry\n';
-        file.writeAsStringSync(suffix, mode: FileMode.append);
-        _lastMemorySize = utf8.encode(content).length + utf8.encode(suffix).length;
-      }
-    });
-    _queue.add(op);
-    return op.completer.future;
-  }
-
-  /// Reads MEMORY.md contents, or empty string if missing.
-  Future<String> readMemory() async {
-    final file = File(_memoryPath);
-    if (!file.existsSync()) {
-      _lastMemorySize = 0;
-      return '';
-    }
-    final content = file.readAsStringSync();
-    _lastMemorySize = utf8.encode(content).length;
-    return content;
-  }
+  /// Shared canonical corpus authority.
+  MemoryCorpusService get corpusService => _corpusService;
 
   /// Appends an entry to the daily log file (`memory/YYYY-MM-DD.md`).
   Future<void> appendDailyLog(String entry) {
-    final op = WriteOp(() async {
-      final now = DateTime.now();
-      final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final logDir = p.join(baseDir, 'memory');
-      Directory(logDir).createSync(recursive: true);
-      final logFile = File(p.join(logDir, '$dateStr.md'));
-      logFile.writeAsStringSync('$entry\n', mode: FileMode.append);
-    });
-    _queue.add(op);
-    return op.completer.future;
+    final now = DateTime.now();
+    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final path = 'memory/$dateStr.md';
+    if (!_ownsCorpusService) {
+      return _appendCanonicalDailyLog(entry: entry, now: now, date: dateStr, path: path);
+    }
+    return _corpusService
+        .updateFiles<int>(
+          paths: [path],
+          prepare: (files) {
+            final bytes = files[path];
+            final existing = bytes == null ? '' : _readBoundedDailyLogBytes(bytes);
+            final boundedEntry = _truncateUtf8(entry, maxDailyLogEntryBytes, _dailyLogEntryTruncated);
+            final content = _appendBoundedDailyLog(existing, '$boundedEntry\n', path);
+            return MemoryCorpusFileMutation(value: 0, writes: {path: utf8.encode(content)});
+          },
+          prepareCanonical: (corpus) {
+            final recorded = now.toUtc();
+            final canonicalDate = recorded.toIso8601String().substring(0, 10);
+            final bounded = _truncateUtf8(entry, maxDailyLogEntryBytes, _dailyLogEntryTruncated).trim();
+            final observation = MemoryObservation(
+              id: _uuid.v4(),
+              recorded: recorded,
+              content: bounded,
+              trustLabel: 'untrusted-user-content',
+              isTruncated: bounded != entry.trim(),
+              provenance: MemorySourceRef(sourceLocator: 'daily-log'),
+            );
+            final observations = [...corpus.observations];
+            final documentIndex = observations.indexWhere((document) => document.date == canonicalDate);
+            if (documentIndex < 0) {
+              observations.add(MemoryObservationDocument(date: canonicalDate, observations: [observation]));
+            } else {
+              observations[documentIndex] = MemoryObservationDocument(
+                date: canonicalDate,
+                observations: [...observations[documentIndex].observations, observation],
+              );
+            }
+            final replacement = _replaceCorpus(corpus, observations: observations);
+            final projectedBytes = replacement.byteInventory()['memory/$canonicalDate.md']!.length;
+            if (projectedBytes > maxDailyLogFileBytes) {
+              throw MemoryResourceLimitException(
+                role: MemoryRole.observation,
+                locator: 'memory/$canonicalDate.md',
+                observedBytes: projectedBytes,
+                limitBytes: maxDailyLogFileBytes,
+                currentBytes: corpus.byteInventory()['memory/$canonicalDate.md']?.length ?? 0,
+              );
+            }
+            return MemoryCorpusMutation(value: 0, corpus: replacement);
+          },
+          bootstrapCanonical: !_ownsCorpusService,
+        )
+        .then<void>((_) {});
+  }
+
+  Future<void> _appendCanonicalDailyLog({
+    required String entry,
+    required DateTime now,
+    required String date,
+    required String path,
+  }) async {
+    while (true) {
+      final manifest = await _corpusService.manifest();
+      final result = await _corpusService.changeSelected<int>(
+        expectedRevision: manifest.collectionRevision,
+        include: (role, locator) => role == MemoryRole.observation && locator == path,
+        paths: [path],
+        prepare: (corpus) {
+          final recorded = now.toUtc();
+          final bounded = _truncateUtf8(entry, maxDailyLogEntryBytes, _dailyLogEntryTruncated).trim();
+          final observation = MemoryObservation(
+            id: _uuid.v4(),
+            recorded: recorded,
+            content: bounded,
+            trustLabel: 'untrusted-user-content',
+            isTruncated: bounded != entry.trim(),
+            provenance: MemorySourceRef(sourceLocator: 'daily-log'),
+          );
+          MemoryObservationDocument? prior;
+          for (final document in corpus.observations) {
+            if (document.date == date) prior = document;
+          }
+          final document = MemoryObservationDocument(
+            date: date,
+            observations: [...prior?.observations ?? const <MemoryObservation>[], observation],
+          );
+          final replacement = CanonicalMemoryCorpus(index: corpus.index, observations: [document]);
+          final projectedBytes = replacement.byteInventory()[path]!.length;
+          final currentBytes = prior == null
+              ? 0
+              : CanonicalMemoryCorpus(index: corpus.index, observations: [prior]).byteInventory()[path]!.length;
+          if (projectedBytes > maxDailyLogFileBytes) {
+            throw MemoryResourceLimitException(
+              role: MemoryRole.observation,
+              locator: path,
+              observedBytes: projectedBytes,
+              limitBytes: maxDailyLogFileBytes,
+              currentBytes: currentBytes,
+            );
+          }
+          return MemoryCorpusChange(value: 0, replacement: replacement);
+        },
+      );
+      if (!result.wasStale) return;
+    }
   }
 
   /// Disposes write queue. Drains in-flight writes before completing.
-  Future<void> dispose() async {
-    await _queue.close();
-    await _queueSub.cancel();
-  }
+  Future<void> dispose() => _ownsCorpusService ? _corpusService.close() : Future.value();
 
   /// Strips markdown formatting for cleaner FTS5 indexing.
-  static String stripMarkdown(String text) {
-    return text
-        .replaceAll(RegExp(r'#{1,6}\s*'), '') // headings
-        .replaceAll(RegExp(r'\*{1,2}|_{1,2}'), '') // bold/italic
-        .replaceAll(RegExp(r'`{1,3}'), '') // inline/block code
-        .replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]+\)'), (m) => m.group(1)!) // links
-        .replaceAll(RegExp(r'^>\s*', multiLine: true), '') // blockquotes
-        .trim();
-  }
+  static String stripMarkdown(String text) => text
+      .replaceAll(RegExp(r'#{1,6}\s*'), '')
+      .replaceAll(RegExp(r'\*{1,2}|_{1,2}'), '')
+      .replaceAll(RegExp(r'`{1,3}'), '')
+      .replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]+\)'), (m) => m.group(1)!)
+      .replaceAll(RegExp(r'^>\s*', multiLine: true), '')
+      .trim();
 
   /// Splits text >maxChars at paragraph boundaries.
   static List<String> splitParagraphs(String text, {int maxChars = 500}) {
     if (text.length <= maxChars) return [text];
-
     final chunks = <String>[];
-    // Split on double-newline first
-    final paragraphs = text.split('\n\n');
-
-    for (final para in paragraphs) {
+    for (final para in text.split('\n\n')) {
       if (para.length <= maxChars) {
         chunks.add(para);
         continue;
       }
-      // Split on single newline
-      final lines = para.split('\n');
-      final buf = StringBuffer();
-      for (final line in lines) {
-        if (buf.length + line.length + 1 > maxChars && buf.isNotEmpty) {
-          chunks.add(buf.toString().trim());
-          buf.clear();
+      var remaining = '';
+      for (final line in para.split('\n')) {
+        if (remaining.isNotEmpty && remaining.length + line.length + 1 > maxChars) {
+          chunks.add(remaining.trim());
+          remaining = '';
         }
-        if (buf.isNotEmpty) buf.write('\n');
-        buf.write(line);
+        remaining = remaining.isEmpty ? line : '$remaining\n$line';
       }
-      if (buf.isNotEmpty) {
-        final remaining = buf.toString().trim();
-        // If still too long, split at word boundary
-        if (remaining.length > maxChars) {
-          _splitAtWordBoundary(remaining, maxChars, chunks);
-        } else {
-          chunks.add(remaining);
-        }
+      remaining = remaining.trim();
+      while (remaining.length > maxChars) {
+        var end = remaining.lastIndexOf(' ', maxChars);
+        if (end <= 0) end = maxChars;
+        chunks.add(remaining.substring(0, end).trim());
+        remaining = remaining.substring(end).trim();
       }
+      if (remaining.isNotEmpty) chunks.add(remaining);
     }
     return chunks.where((c) => c.isNotEmpty).toList();
   }
 
-  static void _splitAtWordBoundary(String text, int maxChars, List<String> out) {
-    var remaining = text;
-    while (remaining.length > maxChars) {
-      var splitIdx = remaining.lastIndexOf(' ', maxChars);
-      if (splitIdx <= 0) splitIdx = maxChars;
-      out.add(remaining.substring(0, splitIdx).trim());
-      remaining = remaining.substring(splitIdx).trim();
+  static CanonicalMemoryCorpus _replaceCorpus(
+    CanonicalMemoryCorpus corpus, {
+    MemoryIndexDocument? index,
+    Iterable<MemoryTopicDocument>? topics,
+    Iterable<MemoryObservationDocument>? observations,
+  }) => CanonicalMemoryCorpus(
+    index: index ?? corpus.index,
+    topics: topics ?? corpus.topics,
+    archive: corpus.archive,
+    observations: observations ?? corpus.observations,
+    learnings: corpus.learnings,
+    audit: corpus.audit,
+    verbatimMembers: corpus.verbatimMembers,
+  );
+
+  /// Whether appending a new top-level section would enter an unclosed fence.
+  static bool hasUnclosedFence(String text) => findMemoryCategoryInsertion(text.split('\n'), '\u0000').hasUnclosedFence;
+
+  static String _appendBoundedDailyLog(String existing, String entry, String locator) {
+    final combined = '$existing$entry';
+    final projectedBytes = utf8.encode(combined).length;
+    if (projectedBytes > maxDailyLogFileBytes) {
+      throw MemoryResourceLimitException(
+        role: MemoryRole.observation,
+        locator: locator,
+        observedBytes: projectedBytes,
+        limitBytes: maxDailyLogFileBytes,
+        currentBytes: utf8.encode(existing).length,
+      );
     }
-    if (remaining.isNotEmpty) out.add(remaining);
+    return combined;
   }
 
-  /// Parses a MEMORY.md file into structured entries.
-  ///
-  /// Format:
-  /// ```
-  /// ## category-name
-  /// - [2026-02-23 10:00] Some memory text
-  /// ```
-  ///
-  /// Returns list of records with `text` and `category` fields.
-  static List<({String text, String category})> parseMemoryFile(String path) {
-    final file = File(path);
-    if (!file.existsSync()) return [];
+  static String _readBoundedDailyLogBytes(List<int> bytes) {
+    if (bytes.length > maxDailyLogFileBytes) {
+      throw MemoryResourceLimitException(
+        role: MemoryRole.observation,
+        locator: 'daily-log partition',
+        observedBytes: bytes.length,
+        limitBytes: maxDailyLogFileBytes,
+      );
+    }
+    return utf8.decode(bytes);
+  }
 
-    final lines = file.readAsStringSync().split('\n');
-    final entries = <({String text, String category})>[];
-    var currentCategory = 'general';
-    StringBuffer? currentText;
-    String? currentCat;
+  static String _truncateUtf8(String value, int maxBytes, String marker) {
+    if (utf8.encode(value).length <= maxBytes) return value;
+    return '${truncateUtf8Bytes(value, maxBytes - utf8.encode(marker).length)}$marker';
+  }
 
-    void flushEntry() {
-      if (currentText != null && currentCat != null) {
-        final text = currentText.toString().trim();
-        if (text.isNotEmpty) {
-          entries.add((text: text, category: currentCat!));
+  /// Reads [file] when its stable leaf is regular; returns `null` if missing and rejects symlinks and non-files.
+  static String? readRegularFile(File file, {int maxBytes = maxReadableFileBytes, MemoryRole? role}) {
+    final type = FileSystemEntity.typeSync(file.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return null;
+    if (type != FileSystemEntityType.file) throw FileSystemException('Unexpected filesystem entity', file.path);
+    final handle = file.openSync();
+    try {
+      final sizeBytes = handle.lengthSync();
+      if (sizeBytes > maxBytes) {
+        if (role != null) {
+          throw MemoryResourceLimitException(
+            role: role,
+            locator: file.path,
+            observedBytes: sizeBytes,
+            limitBytes: maxBytes,
+          );
         }
+        throw FileSystemException('File exceeds $maxBytes-byte read limit', file.path);
       }
-      currentText = null;
-      currentCat = null;
+      final bytes = handle.readSync(sizeBytes);
+      return utf8.decode(bytes);
+    } finally {
+      handle.closeSync();
     }
-
-    for (final line in lines) {
-      if (line.startsWith('## ')) {
-        flushEntry();
-        currentCategory = line.substring(3).trim();
-        continue;
-      }
-      if (line.startsWith('- [')) {
-        flushEntry();
-        // Strip timestamp prefix: "- [YYYY-MM-DD HH:MM] "
-        final closeBracket = line.indexOf('] ', 2);
-        if (closeBracket == -1) continue;
-        final text = line.substring(closeBracket + 2).trim();
-        if (text.isEmpty) continue;
-        currentText = StringBuffer(text);
-        currentCat = currentCategory;
-        continue;
-      }
-      // Continuation line — append to current entry
-      if (currentText != null && line.trim().isNotEmpty) {
-        currentText!.write('\n');
-        currentText!.write(line.trim());
-      }
-    }
-    flushEntry();
-
-    return entries;
   }
 
-  String get _memoryPath => p.join(baseDir, 'MEMORY.md');
+  /// Selects at most [limit] regular descendants in stable relative-path order without following links.
+  ///
+  /// [complete] is false when the fixed entity-traversal budget prevents proving a deterministic prefix.
+  /// In that case no filesystem-order-dependent candidate is returned.
+  static Future<({List<File> files, File? firstOmitted, int omittedCount, bool complete})> listRegularFilesBounded(
+    Directory root, {
+    int limit = MemoryResourceLimits.recursiveFiles,
+  }) async {
+    if (limit < 1 || limit > MemoryResourceLimits.recursiveFiles) {
+      throw ArgumentError.value(limit, 'limit', 'must be between 1 and ${MemoryResourceLimits.recursiveFiles}');
+    }
+    if (FileSystemEntity.typeSync(root.path, followLinks: false) != FileSystemEntityType.directory) {
+      throw FileSystemException('Expected a regular directory', root.path);
+    }
 
-  /// Atomic write: write to temp file then rename.
-  static void _atomicWriteSync(File target, String content) {
-    final tempFile = File('${target.path}.tmp');
-    tempFile.writeAsStringSync(content);
-    tempFile.renameSync(target.path);
+    final collection = await _collectRegularFiles(root);
+    if (!collection.complete) {
+      return (files: const <File>[], firstOmitted: null, omittedCount: 0, complete: false);
+    }
+    final selected = collection.files;
+    selected.sort((left, right) => left.path.compareTo(right.path));
+    final firstOmitted = selected.length > limit ? selected[limit] : null;
+    return (
+      files: List<File>.unmodifiable(selected.take(limit)),
+      firstOmitted: firstOmitted,
+      omittedCount: selected.length > limit ? selected.length - limit : 0,
+      complete: true,
+    );
+  }
+
+  static Future<({List<File> files, bool complete})> _collectRegularFiles(Directory root) async {
+    final selected = <File>[];
+    final pending = <Directory>[root];
+    var visitedEntities = 0;
+    while (pending.isNotEmpty) {
+      final directory = pending.removeLast();
+      final entries = <FileSystemEntity>[];
+      await for (final entity in directory.list(followLinks: false)) {
+        visitedEntities++;
+        if (visitedEntities > _maxTraversalEntities) {
+          return (files: const <File>[], complete: false);
+        }
+        entries.add(entity);
+      }
+      entries.sort((left, right) => left.path.compareTo(right.path));
+      for (final entity in entries) {
+        if (entity is File) selected.add(entity);
+        if (entity is Directory) pending.add(entity);
+      }
+      pending.sort((left, right) => right.path.compareTo(left.path));
+    }
+    return (files: selected, complete: true);
   }
 }

@@ -85,7 +85,7 @@ final class GitStatus {
   /// Untracked paths.
   final List<String> untracked;
 
-  const GitStatus({required this.indexClean, required this.modified, required this.untracked});
+  const new({required this.indexClean, required this.modified, required this.untracked});
 }
 
 /// Commit created by [WorkflowGitPort.commit].
@@ -96,7 +96,7 @@ final class WorkflowGitCommit {
   /// Commit message supplied by the caller.
   final String message;
 
-  const WorkflowGitCommit({required this.sha, required this.message});
+  const new({required this.sha, required this.message});
 }
 
 /// Git operation failed below [WorkflowGitPort].
@@ -116,13 +116,7 @@ final class WorkflowGitException implements Exception {
   /// Process exit code.
   final int? exitCode;
 
-  const WorkflowGitException(
-    this.message, {
-    this.args = const <String>[],
-    this.stdout = '',
-    this.stderr = '',
-    this.exitCode,
-  });
+  const new(this.message, {this.args = const <String>[], this.stdout = '', this.stderr = '', this.exitCode});
 
   @override
   String toString() {

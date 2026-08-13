@@ -64,7 +64,7 @@ class FieldMeta {
   final List<String>? allowedValues;
 
   /// Creates a [FieldMeta] value.
-  const FieldMeta({
+  const new({
     required this.yamlPath,
     required this.jsonKey,
     required this.type,
@@ -110,40 +110,6 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
     ),
-    'delegation.enabled': FieldMeta(
-      yamlPath: 'delegation.enabled',
-      jsonKey: 'delegation.enabled',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'delegation.agents': FieldMeta(
-      yamlPath: 'delegation.agents',
-      jsonKey: 'delegation.agents',
-      type: ConfigFieldType.objectList,
-      mutability: ConfigMutability.restart,
-    ),
-    'delegation.max_budget_tokens': FieldMeta(
-      yamlPath: 'delegation.max_budget_tokens',
-      jsonKey: 'delegation.maxBudgetTokens',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 0,
-    ),
-    'delegation.budget_accounting': FieldMeta(
-      yamlPath: 'delegation.budget_accounting',
-      jsonKey: 'delegation.budgetAccounting',
-      type: ConfigFieldType.enum_,
-      mutability: ConfigMutability.restart,
-      allowedValues: ['provider_reported', 'estimate_if_unreported'],
-    ),
-    'delegation.rate_limit.max_per_minute': FieldMeta(
-      yamlPath: 'delegation.rate_limit.max_per_minute',
-      jsonKey: 'delegation.rateLimit.maxPerMinute',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 0,
-    ),
-
     // --- Restart-required fields ---
 
     // Top-level scalars
@@ -332,6 +298,14 @@ abstract final class ConfigMeta {
       nullable: true,
       min: 1,
     ),
+    'agent.execution': FieldMeta(
+      yamlPath: 'agent.execution',
+      jsonKey: 'agent.execution',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+      allowedValues: ['host', 'container'],
+    ),
     'auth.cookie_secure': FieldMeta(
       yamlPath: 'auth.cookie_secure',
       jsonKey: 'auth.cookieSecure',
@@ -384,14 +358,6 @@ abstract final class ConfigMeta {
     ),
 
     // Tasks
-    'tasks.max_concurrent': FieldMeta(
-      yamlPath: 'tasks.max_concurrent',
-      jsonKey: 'tasks.maxConcurrent',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 1,
-      max: 10,
-    ),
     'tasks.artifact_retention_days': FieldMeta(
       yamlPath: 'tasks.artifact_retention_days',
       jsonKey: 'tasks.artifactRetentionDays',
@@ -708,6 +674,20 @@ abstract final class ConfigMeta {
     'memory.pruning.schedule': FieldMeta(
       yamlPath: 'memory.pruning.schedule',
       jsonKey: 'memory.pruning.schedule',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+
+    // Memory journal
+    'memory.journal.enabled': FieldMeta(
+      yamlPath: 'memory.journal.enabled',
+      jsonKey: 'memory.journal.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'memory.journal.schedule': FieldMeta(
+      yamlPath: 'memory.journal.schedule',
+      jsonKey: 'memory.journal.schedule',
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
     ),

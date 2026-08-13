@@ -76,8 +76,13 @@ version: 1.0.0                        # semver
 description: >-                       # concise, searchable description
   Brief description of the package.
 environment:
-  sdk: ^3.8.0                         # minimum Dart SDK version (use current stable)
+  sdk: ^3.13.0                        # minimum Dart SDK version (use current stable)
 ```
+
+> This constraint sets the package's **language version**, gating language features and formatter
+> behavior — not just SDK resolution. See `DART-EFFECTIVE-GUIDELINES.md` § Modern Dart Language
+> Features for what each version unlocks. It also raises the floor for consumers: bump because you
+> need a feature, not reflexively.
 
 ### Recommended Fields
 
@@ -211,6 +216,21 @@ this can be revisited via ADR — until then, keep it uniform.
 - Include keywords/related terms for discoverability
 - Show code examples with proper Dart syntax highlighting
 - Mention constraints early (platform limitations, min SDK)
+
+
+## Doc-Comment Directives (Dart 3.13+)
+
+Two dartdoc directives for `///` comments on published APIs. Content rules: `DART-EFFECTIVE-GUIDELINES.md` § Proportionality & Anti-Rot.
+
+```dart
+/// <callout-box type="note">Not thread-safe — one parser per isolate.</callout-box>
+///
+/// {@example example/parse.dart}
+```
+
+- `<callout-box type="…">` — styled by pub.dev; renders unstyled in local `dart doc`
+- `{@example <path>}` — one positional path, optional `lang=`. Prefer a compiling file in `example/` over a fenced block: it can't rot silently
+- `region=` (`// #region` markers) is rejected by the dartdoc bundled with 3.13 (9.0.6) — verify before use
 
 
 ## CHANGELOG Best Practices

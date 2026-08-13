@@ -19,7 +19,7 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 /// [reserveCalled] lets command-intercept tests assert a turn was never
 /// reserved.
 class FakeTurnManager extends TurnManager {
-  FakeTurnManager(MessageService messages, AgentHarness worker)
+  new(MessageService messages, AgentHarness worker)
     : super(
         messages: messages,
         worker: worker,
@@ -48,6 +48,8 @@ class FakeTurnManager extends TurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -175,7 +177,7 @@ class ArchiveCallTracker {
 }
 
 class RecordingTurnManager extends FakeTurnManager {
-  RecordingTurnManager(super.messages, super.worker, this.tracker);
+  new(super.messages, super.worker, this.tracker);
 
   final ArchiveCallTracker tracker;
 
@@ -202,7 +204,7 @@ class FailingStopHarness extends FakeAgentHarness {
 /// [SessionService] wrapper that records whether a turn was cancelled before the
 /// session type was updated (archive-ordering assertion).
 class RecordingSessionService extends SessionService {
-  RecordingSessionService({required super.baseDir, required this.tracker});
+  new({required super.baseDir, required this.tracker});
 
   final ArchiveCallTracker tracker;
 

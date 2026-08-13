@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.18.0
+**Current through**: 0.24
 
 ---
 
@@ -88,7 +88,8 @@ Session
   +-- title: String?          (human-readable, shown in UI)
   +-- type: SessionType       (classification enum)
   +-- channelKey: String?     (deterministic routing key)
-  +-- provider: String?       (optional provider override)
+  +-- provider: String?       (system-pinned execution route when applicable)
+  +-- securityProfile: String? (optional worker isolation profile)
   +-- createdAt: DateTime
   +-- updatedAt: DateTime
 ```
@@ -102,6 +103,7 @@ Session
 | `cron`    | Started by a scheduled task or cron trigger         |
 | `user`    | User-initiated interactive session (web, CLI)       |
 | `task`    | Associated with a tracked task execution            |
+| `logicalAgent` | Hidden logical-agent conversation created by `sessions_spawn` |
 | `archive` | Read-only historical session retained for archival  |
 
 Protected types (`main`, `channel`, `cron`, `task`) cannot be deleted through
@@ -125,6 +127,7 @@ Format: `agent:<agentId>:<scope>:<identifiers>`
 | `groupPerMember()`     | `group` | `agent:main:group:googlechat:spaces%2FAAAA:bob`     |
 | `cronSession()`        | `cron`  | `agent:main:cron:daily-summary`                     |
 | `taskSession()`        | `task`  | `agent:main:task:abc123`                            |
+| `logicalAgentSession()`| `logical` | `agent:review%3Asecurity:logical:turn%2F123`       |
 
 Identifier components are URI-encoded by the factory methods to prevent
 delimiter collisions. The `SessionKey.parse()` factory reconstructs the
@@ -164,6 +167,8 @@ Message
   +-- metadata: String?       (serialized JSON metadata)
   +-- createdAt: DateTime
 ```
+
+Sessions carry an explicit type. `logicalAgent` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across compatible-worker replacement or process restart. The coordinator prefers a healthy exact-session worker with the same provider/profile, but replay remains authoritative. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
 
 
 ## 3. Session Scoping Model
@@ -308,12 +313,16 @@ CRUD operations backed by the filesystem. Key methods:
 | `updateTitle()`       | Atomic write of updated `meta.json`                    |
 | `touchUpdatedAt()`    | Bump `updatedAt` timestamp                             |
 | `updateSessionType()` | Change session type (e.g., archive on reset)           |
-| `updateProvider()`    | Change provider override                               |
+| `updateProvider()`    | Update a system-managed pinned provider                |
 | `deleteSession()`     | Remove dir, fires `SessionEndedEvent`                  |
 
 Lazy migration: `getOrCreateByKey()` updates `type`, `channelKey`, and
 `provider` on existing sessions if they differ from the requested values.
 This handles upgrading old sessions created before type tracking was added.
+
+Interactive session creation does not accept a provider override. Main user and channel conversations always enter the
+single primary lane using `agent.provider`. The nullable session field records host-resolved routing for system-managed
+types such as tasks and logical-agent sessions; it is not a user-selectable interactive routing control.
 
 ### MessageService
 
@@ -446,8 +455,8 @@ DartclawEvent (sealed)
   |     +-- CompactionStartingEvent
   |     +-- CompactionCompletedEvent
   |
-  +-- AgentLifecycleEvent (sealed)
-  |     +-- AgentStateChangedEvent
+  +-- RunnerLifecycleEvent (sealed)
+  |     +-- RunnerStateChangedEvent
   |
   +-- ProjectLifecycleEvent (sealed)
   |     +-- ProjectStatusChangedEvent
@@ -768,7 +777,7 @@ Warning state is in-memory (resets on restart). Reads actual consumption from
 **`/stop`** -- `EmergencyStopHandler` in
 `packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`:
 
-1. Cancel all active turns across all runners in the harness pool
+1. Cancel all active turns across coordinator-managed primary and worker runners
 2. Transition all `running` and `queued` tasks to `cancelled`
 3. Fire `EmergencyStopEvent` on the EventBus
 4. Broadcast `emergency_stop` SSE event
@@ -931,7 +940,7 @@ which is the safest default (no stale rate limits or phantom locks after restart
 - [System Architecture](system-architecture.md) -- component map, 2-layer model, turn orchestration
 - [Data Model & Persistence](data-model.md) -- session storage layout, `messages.ndjson`, `.session_keys.json`, entity relationships
 - [Security Architecture](security-architecture.md) -- guard pipeline, governance rate limiting, emergency controls, access control
-- [Control Protocol](control-protocol.md) -- JSONL protocol spec, stream events, harness pool
+- [Control Protocol](control-protocol.md) -- JSONL protocol spec, stream events, harness lifecycle
 - [Workflow Architecture](workflow-architecture.md) -- workflow sessions, step execution, approval gates
 - [Architecture Governance](architecture-governance.md) -- fitness functions, structural boundaries
 - ADR-011 -- Event bus design rationale

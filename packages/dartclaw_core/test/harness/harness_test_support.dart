@@ -8,7 +8,7 @@ import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
 import 'package:test/test.dart';
 
 /// Capture-only [Guard] that records every [GuardContext] it evaluates and
@@ -17,7 +17,7 @@ import 'package:test/test.dart';
 /// Union of the former per-file recording guards: exposes both the full
 /// [contexts] history and a [lastContext] convenience accessor.
 class RecordingGuard extends Guard {
-  RecordingGuard({this.verdict});
+  new({this.verdict});
 
   final GuardVerdict? verdict;
   final contexts = <GuardContext>[];
@@ -59,7 +59,7 @@ FakeProcess makeKillTrackingClaudeProcess({bool completeExitOnKill = false, int 
 );
 
 class FailingWriteClaudeProcess extends CapturingFakeProcess {
-  FailingWriteClaudeProcess() : super(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
+  new() : super(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
 
   bool failWrites = false;
 
@@ -70,7 +70,7 @@ class FailingWriteClaudeProcess extends CapturingFakeProcess {
 }
 
 class SwitchableFailingSink implements IOSink {
-  SwitchableFailingSink(this._delegate, this._shouldFail);
+  new(this._delegate, this._shouldFail);
 
   final IOSink _delegate;
   final bool Function() _shouldFail;
@@ -125,7 +125,7 @@ class SwitchableFailingSink implements IOSink {
 }
 
 class FakeClaudeContainerExecutor implements ContainerExecutor {
-  FakeClaudeContainerExecutor({required this.hostRoot, required this.containerRoot});
+  new({required this.hostRoot, required this.containerRoot, this.mcpBridgeUrl});
 
   @override
   final String profileId = 'workspace';
@@ -136,20 +136,36 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   @override
   final bool hasProjectMount = true;
 
+  @override
+  late final String generatedStateDir = Directory('$hostRoot/.dartclaw-state').absolute.path;
+
+  @override
+  final String providerBridgeUrl = 'http://127.0.0.1:8080';
+
+  @override
+  final String? mcpBridgeUrl;
+
   final String hostRoot;
   final String containerRoot;
   late List<String> lastCommand;
+  Map<String, String>? lastEnv;
 
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
+  /// The most recent spawned (non-probe) process, for reading what the harness
+  /// wrote to the container's stdin.
+  CapturingFakeProcess? spawned;
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
-    final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
+    lastEnv = env == null ? null : Map<String, String>.from(env);
+    if (command.length == 2 && command[1] == '--version') {
+      return makeVersionProbeProcess('claude 1.0.0');
+    }
+    final fake = spawned = CapturingFakeProcess(
+      stdoutController: StreamController<List<int>>(),
+      completeExitOnKill: true,
+      closeStreamsOnExit: false,
+    );
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });
@@ -171,7 +187,9 @@ class FakeClaudeContainerExecutor implements ContainerExecutor {
   }
 
   @override
-  Future<void> start() async {}
+  Future<void> start() async {
+    Directory(generatedStateDir).createSync(recursive: true);
+  }
 
   @override
   String? containerPathForHostPath(String hostPath) {
@@ -200,6 +218,9 @@ ClaudeCodeHarness buildClaudeHarness({
   Duration killGracePeriod = Duration.zero,
   Duration initializeTimeout = const Duration(seconds: 10),
   PlatformCapabilities? platformCapabilities,
+  GuardChain? guardChain,
+  GuardAuditLogger? auditLogger,
+  void Function(String toolName, String? reason)? onPermissionDenied,
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -212,6 +233,9 @@ ClaudeCodeHarness buildClaudeHarness({
     killGracePeriod: killGracePeriod,
     initializeTimeout: initializeTimeout,
     platformCapabilities: platformCapabilities,
+    guardChain: guardChain,
+    auditLogger: auditLogger,
+    onPermissionDenied: onPermissionDenied,
   );
 }
 

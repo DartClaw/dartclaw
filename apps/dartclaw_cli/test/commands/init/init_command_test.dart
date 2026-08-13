@@ -83,7 +83,7 @@ class _RecordingVerifier extends SetupVerifier {
   final List<List<String>> providerCalls = [];
   final List<String> configCalls = [];
 
-  _RecordingVerifier({required Future<bool> Function(String, String, String) providerVerified})
+  new({required Future<bool> Function(String, String, String) providerVerified})
     : super(
         binaryExists: (_) async => true,
         configParseable: (_) async => true,
@@ -356,14 +356,13 @@ void main() {
         captureInto: captured,
         outputCapture: output,
         verifier: verifier,
-        runPreflight:
-            ({
-              required List<String> providers,
-              required int port,
-              required String instanceDir,
-              bool workflowTrack = false,
-              Future<ProcessResult> Function(String, List<String>)? runProcess,
-            }) async => const SetupPreflight(errors: [], warnings: []),
+        runPreflight: ({
+          required List<String> providers,
+          required int port,
+          required String instanceDir,
+          bool workflowTrack = false,
+          Future<ProcessResult> Function(String, List<String>)? runProcess,
+        }) async => const SetupPreflight(errors: [], warnings: []),
       );
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 

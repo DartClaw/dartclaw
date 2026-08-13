@@ -4,10 +4,10 @@ class OnboardingConfig {
   final int expiryDays;
 
   /// Creates an onboarding config.
-  const OnboardingConfig({this.expiryDays = 14});
+  const new({this.expiryDays = 14});
 
   /// Default onboarding configuration.
-  const OnboardingConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

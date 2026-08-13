@@ -1,6 +1,6 @@
 # ADR-012: Per-Type Container Isolation
 
-**Status:** Proposed
+**Status:** Accepted (amended 2026-08-13 — profiles are templates; containers belong to one execution owner and never cross principals)
 
 ## Context
 
@@ -15,31 +15,47 @@ DartClaw's container isolation (S21, 0.6) uses a single shared Docker container 
 
 ## Decision
 
-**We will use per-security-profile containers**, where each distinct security profile gets its own Docker container, and multiple concurrent tasks/sessions of the same profile share one container via `docker exec`.
+**We will use per-security-profile container templates**, where each distinct security profile defines one container's mounts, network, and capabilities, and every live execution authority is given its own container built from that template.
 
-Container = security boundary (mounts, network, capabilities). Harness = execution context (one claude process per `docker exec`).
+Container = security boundary (mounts, network, capabilities). Profile = the template that defines that boundary. Harness = provider protocol/process context launched inside one container.
+
+### 2026-08-11 amendment — authority-owned container lifetime
+
+The original decision let concurrent tasks and sessions of the same profile share one long-lived container via `docker exec`, amortizing container startup across leases. That is superseded:
+
+- A **security profile** is a filesystem/capability *template*. It is not itself a running container and carries no execution location — placement is the separate host/container execution mode.
+- Every **execution owner** owns a dedicated container, process namespace, harness lifetime, and generated state.
+- A logical-agent session is a standing owner, so its container persists across that owner's turns and ends on discard, eviction, or shutdown. A task owns its container for one turn; a workflow step owns its container across all step turns. Host harnesses remain reusable as before.
+
+Sharing one container per profile left siblings and successors inside one PID, `/tmp`, and generated-home namespace. Under a per-profile shared container, a compromised or merely leaky harness could observe or tamper with a co-resident harness of the same profile, and a released harness could leave state that the next lease inherits — which defeats the isolation the profile was chosen for and blocks binding credentials or capabilities to a single execution.
+
+Container count is bounded by `providers.<id>.pool_size`; retained logical-agent owners compete within that bound and are evicted before a different owner can exceed it.
+
+**2026-08-13 owner-lifetime clarification.** The 2026-08-11 amendment correctly prohibited sharing across principals but equated an authority with one turn. That destroyed provider-native continuation for standing logical agents and multi-turn workflow steps. An authority now tracks the trust owner: primary process lifetime, logical-agent session, task turn, or workflow step. The provider-CLI one-shot path holds one authority and one auth-clean provider home for the complete step, then releases both in `finally`.
+
+**Provider compatibility.** A container authority can only be granted to a provider whose container execution DartClaw actually mediates. The host gateway's provider adapters are verified for the Claude and Codex clients only, so an ACP registration has no mediated container execution: an ACP registration that requires a container is rejected at startup, and an ACP provider whose resolved policy is container execution is refused before admission rather than downgraded to host. Placement remains the resolved execution mode's decision; this only bounds which providers a container mode can carry.
 
 ### Security Profiles (0.8)
 
 | Profile | Container | Mounts | Network | Used By |
 |---|---|---|---|---|
-| `workspace` | `dartclaw-<id>-workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, user sessions |
-| `restricted` | `dartclaw-<id>-restricted` | No workspace | `none` | Search agent, research tasks |
+| `workspace` | `dartclaw-<id>-workspace…` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, user sessions |
+| `restricted` | `dartclaw-<id>-restricted…` | No workspace | `none` | Search agent, research tasks |
 
-Container naming: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>`. Deterministic, collision-free, multi-instance safe across OS users.
+Container naming: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>`, with a per-authority suffix for each dedicated container. Deterministic prefix, collision-free, multi-instance safe across OS users.
 
 ### Dispatch Model
 
 ```
-HarnessPool (5 concurrent tasks, 2 containers)
-  ├── coding task      → workspace container  (docker exec ... claude --worktree ...)
-  ├── writing task     → workspace container  (docker exec ... claude ...)
-  ├── research task    → restricted container (docker exec ... claude ...)
-  ├── search query     → restricted container (docker exec ... claude ...)
-  └── cron job         → workspace container  (docker exec ... claude ...)
+ExecutionCoordinator (5 worker leases)
+  ├── coding task      → container/workspace   → its own turn container
+  ├── writing task     → container/workspace   → its own turn container
+  ├── research task    → container/restricted  → its own turn container
+  ├── logical agent    → resolved policy       → its own owner container across turns
+  └── cron job         → deployment default    → host process, or its own container
 ```
 
-The Dart host mediates all routing: `task type → security profile → container`. Containers never communicate directly. `sessions_send` dispatches to the target agent type's container.
+The Dart host mediates all routing: `execution request → effective execution policy → owner container`. Containers never communicate directly or cross principals. Active execution capacity is lease-owned; owner containers may remain idle only within the provider's bounded retained-worker set.
 
 ### Future Profiles (when needed)
 
@@ -55,7 +71,8 @@ The `macos-vm` profile is a separate tier using Apple's Virtualization.framework
 
 ### Positive
 - OS-level isolation matches application-level tool policies — the restricted container literally has no filesystem to access
-- Container count stays small (2-4 profiles) regardless of task parallelism (3-5+ concurrent tasks)
+- No sibling or successor harness shares a container's PID, `/tmp`, generated home, or bridge state — the isolation matches what the profile promises
+- Container count is bounded by configured worker capacity, not by task parallelism in the abstract
 - Multi-instance deployment works — unique container names per DartClaw install
 - Directly implements ADR-001 Phase 4 vision
 - Mirrors OpenClaw's production-validated `scope: "agent"` pattern
@@ -63,13 +80,13 @@ The `macos-vm` profile is a separate tier using Apple's Virtualization.framework
 - Enables future Lume VM tier without architectural changes
 
 ### Negative
-- 2-4 containers to manage instead of 1 — more to monitor, debug, clean up on crash
-- Harness pool must resolve the correct container per task — adds routing complexity
-- Each container runs its own socat bridge — slightly more moving parts
-- Shared `/tmp` (tmpfs) between concurrent `docker exec` processes within a container
+- One container per live execution owner instead of one per profile — more to monitor, debug, and clean up on crash
+- Container creation cost is amortized only across turns belonging to the same standing owner
+- Harness pool must resolve the correct policy and provision a container per admitted execution — adds routing and lifecycle complexity
+- Each container runs its own bridge process pair — slightly more moving parts
 
 ### Neutral
-- CredentialProxy remains shared (single proxy, all containers mount same socket dir)
+- Host mediation is per owner authority: one gateway registration and pipe pair, revoked when that owner ends
 - Docker image stays shared — security differentiation via launch flags, not image contents
 - `container.enabled: false` path unchanged — all tasks share host process, no containers
 - Coding tasks use git worktrees (directories within workspace mount) — worktree isolation is git-level, not container-level

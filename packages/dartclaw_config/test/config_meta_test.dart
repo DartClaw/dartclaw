@@ -31,10 +31,10 @@ void main() {
         'worker_timeout',
         'agent.model',
         'agent.max_turns',
+        'agent.execution',
         'agent.effort',
         'auth.cookie_secure',
         'auth.trusted_proxies',
-        'tasks.max_concurrent',
         'tasks.artifact_retention_days',
         'tasks.worktree.base_ref',
         'tasks.worktree.stale_timeout_hours',
@@ -68,6 +68,8 @@ void main() {
         'memory.pruning.enabled',
         'memory.pruning.archive_after_days',
         'memory.pruning.schedule',
+        'memory.journal.enabled',
+        'memory.journal.schedule',
         'usage.budget_warning_tokens',
         'usage.max_file_size_bytes',
         'channels.google_chat.enabled',
@@ -128,11 +130,6 @@ void main() {
         'alerts.enabled',
         'alerts.cooldown_seconds',
         'alerts.burst_threshold',
-        'delegation.enabled',
-        'delegation.agents',
-        'delegation.max_budget_tokens',
-        'delegation.budget_accounting',
-        'delegation.rate_limit.max_per_minute',
         'gateway.auth_mode',
         'gateway.token',
         'gateway.hsts',
@@ -180,7 +177,6 @@ void main() {
         (field: 'workflow.runtime_artifacts_retention.mode', mutability: ConfigMutability.restart),
         (field: 'workflow.runtime_artifacts_retention.prune_after_days', mutability: ConfigMutability.restart),
         (field: 'mcp_servers', mutability: ConfigMutability.restart),
-        (field: 'delegation.enabled', mutability: ConfigMutability.restart),
         (field: 'gateway.auth_mode', mutability: ConfigMutability.readonly),
         (field: 'gateway.token', mutability: ConfigMutability.readonly),
         (field: 'channels.whatsapp.task_trigger.enabled', mutability: ConfigMutability.restart),
@@ -194,7 +190,6 @@ void main() {
       }
 
       final typeCases = <({String field, ConfigFieldType type})>[
-        (field: 'delegation.agents', type: ConfigFieldType.objectList),
         (field: 'mcp_servers', type: ConfigFieldType.objectMap),
         (field: 'context.warning_threshold', type: ConfigFieldType.int_),
         (field: 'context.exploration_summary_threshold', type: ConfigFieldType.int_),
@@ -207,10 +202,6 @@ void main() {
         expect(ConfigMeta.fields[field]!.type, type, reason: field);
       }
 
-      expect(ConfigMeta.fields['delegation.budget_accounting']!.allowedValues, [
-        'provider_reported',
-        'estimate_if_unreported',
-      ]);
       expect(ConfigMeta.fields['workflow.approvals']!.allowedValues, ['manual', 'auto-on-stall', 'auto']);
       expect(ConfigMeta.fields['workflow.runtime_artifacts_retention.mode']!.allowedValues, ['warn', 'enforce']);
       expect(ConfigMeta.fields['workflow.runtime_artifacts_retention.prune_after_days']!.min, 0);

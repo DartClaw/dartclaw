@@ -25,13 +25,12 @@ import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
 
-typedef WorkflowE2eProcessRunner =
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
+typedef WorkflowE2eProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
 
 const fixtureSeedRegressionMessage =
     'Fixture upstream regressed; re-seed BUG-001..003 in DartClaw/workflow-test-todo-app docs/PRODUCT-BACKLOG.md';
@@ -417,9 +416,9 @@ final class WorkflowE2ePrerequisiteResult {
   final String? skipReason;
   final bool canCreateGitHubPr;
 
-  const WorkflowE2ePrerequisiteResult.run({required this.canCreateGitHubPr}) : skipReason = null;
+  const new run({required this.canCreateGitHubPr}) : skipReason = null;
 
-  const WorkflowE2ePrerequisiteResult.skip(this.skipReason) : canCreateGitHubPr = false;
+  const new skip(this.skipReason) : canCreateGitHubPr = false;
 
   bool get shouldSkip => skipReason != null;
 }
@@ -448,7 +447,7 @@ class WorkflowStepTrace {
   final DateTime queuedAt;
   final DateTime? completedAt;
 
-  WorkflowStepTrace({
+  new({
     required this.runId,
     required this.stepKey,
     required this.occurrence,
@@ -499,7 +498,7 @@ class WorkflowExecutionRecorder {
 
   final Map<String, List<Map<String, dynamic>>> _taskEventsByTaskId = {};
 
-  WorkflowExecutionRecorder(
+  new(
     this._eventBus,
     this._taskService,
     this._messageService,
@@ -918,9 +917,9 @@ void expectIsolationDiagnostics(Directory artifactDir, E2EFixtureInstance fixtur
 }
 
 void expectStepArtifactOutputs(Directory artifactDir, String stepKey, Set<String> requiredKeys) {
-  final payloads = _artifactPayloads(
-    artifactDir,
-  ).where((payload) => payload['stepKey'] == stepKey).toList(growable: false);
+  final payloads = _artifactPayloads(artifactDir)
+      .where((payload) => payload['stepKey'] == stepKey)
+      .toList(growable: false);
   expect(payloads, isNotEmpty, reason: 'Expected preserved artifact for step "$stepKey".');
   for (final payload in payloads) {
     final extractError = payload['outputsExtractError'];

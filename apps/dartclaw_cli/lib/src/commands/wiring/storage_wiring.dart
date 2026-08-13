@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
@@ -15,22 +15,28 @@ import '../serve_command.dart' show ExitFn;
 /// search DB, task DB, turn state, memory, KV, and optional QMD hybrid search.
 /// Calls [exitFn] on fatal database open failures.
 class StorageWiring {
-  StorageWiring({
+  new({
     required this.config,
     required EventBus eventBus,
     required SearchDbFactory searchDbFactory,
     required TaskDbFactory taskDbFactory,
     required ExitFn exitFn,
+    QmdManager Function()? qmdManagerFactory,
+    CanonicalIndexReconciler? indexReconciler,
   }) : _eventBus = eventBus,
        _searchDbFactory = searchDbFactory,
        _taskDbFactory = taskDbFactory,
-       _exitFn = exitFn;
+       _exitFn = exitFn,
+       _qmdManagerFactory = qmdManagerFactory,
+       _injectedIndexReconciler = indexReconciler;
 
   final DartclawConfig config;
   final EventBus _eventBus;
   final SearchDbFactory _searchDbFactory;
   final TaskDbFactory _taskDbFactory;
   final ExitFn _exitFn;
+  final QmdManager Function()? _qmdManagerFactory;
+  final CanonicalIndexReconciler? _injectedIndexReconciler;
 
   static final _log = Logger('StorageWiring');
 
@@ -47,6 +53,8 @@ class StorageWiring {
   late TaskEventService _taskEventService;
   late TaskEventRecorder _taskEventRecorder;
   late TurnStateStore _turnStateStore;
+  late MemoryCorpusService _memoryCorpus;
+  late IndexHealthStore _indexHealth;
   late MemoryFileService _memoryFile;
   late MemoryService _memory;
   late TemporalKnowledgeGraphService _kg;
@@ -54,6 +62,7 @@ class StorageWiring {
   late SqliteWorkflowRunRepository _workflowRunRepository;
   QmdManager? _qmdManager;
   late SearchBackend _searchBackend;
+  var _searchUnavailable = false;
 
   SessionService get sessions => _sessions;
   MessageService get messages => _messages;
@@ -68,6 +77,8 @@ class StorageWiring {
   TaskEventService get taskEventService => _taskEventService;
   TaskEventRecorder get taskEventRecorder => _taskEventRecorder;
   TurnStateStore get turnStateStore => _turnStateStore;
+  MemoryCorpusService get memoryCorpus => _memoryCorpus;
+  IndexHealthStore get indexHealth => _indexHealth;
   MemoryFileService get memoryFile => _memoryFile;
   MemoryService get memory => _memory;
   TemporalKnowledgeGraphService get kg => _kg;
@@ -83,11 +94,60 @@ class StorageWiring {
     _messages = MessageService(baseDir: config.sessionsDir);
     await _sessions.getOrCreateMainSession();
 
+    _memoryCorpus = MemoryCorpusService(workspaceDir: config.workspaceDir);
+    MemoryCorpusManifest? currentManifest;
     try {
-      _searchDb = _searchDbFactory(config.searchDbPath);
-    } catch (e, st) {
-      _log.severe('Cannot open search database at ${config.searchDbPath}', e, st);
+      final result = await LegacyMemoryMigrator(
+        workspaceDir: config.workspaceDir,
+        corpusService: _memoryCorpus,
+      ).preflight();
+      _log.info(result.render());
+      currentManifest = await _memoryCorpus.manifest();
+    } on Object catch (e, st) {
+      await _memoryCorpus.close();
+      _log.severe('Memory corpus preflight failed before derived indexing', e, st);
       _exitFn(1);
+    }
+
+    _indexHealth = IndexHealthStore(workspaceDir: config.workspaceDir);
+    final indexReconciler =
+        _injectedIndexReconciler ??
+        CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: _indexHealth);
+    final manifest = currentManifest;
+    try {
+      final recovery = await indexReconciler.ensureCurrentBatched(
+        rowBatches: () => _canonicalRowBatches(manifest),
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        authenticateComplete: () => _memoryCorpus.authenticate(manifest),
+      );
+      _log.info(
+        'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
+        '(${recovery.rowCount} rows)',
+      );
+    } on Object catch (e, st) {
+      _searchUnavailable = true;
+      _log.severe('Memory index recovery failed; canonical memory remains available', e, st);
+    }
+
+    if (_searchUnavailable) {
+      _searchDb = openSearchDbInMemory();
+    } else {
+      try {
+        _searchDb = _searchDbFactory(config.searchDbPath);
+      } catch (e, st) {
+        _searchUnavailable = true;
+        try {
+          await _indexHealth.recordDegraded(
+            canonicalRevision: manifest.collectionRevision,
+            canonicalFingerprint: manifest.fingerprint,
+            stage: 'open',
+            reason: e,
+          );
+        } catch (_) {}
+        _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
+        _searchDb = openSearchDbInMemory();
+      }
     }
 
     try {
@@ -137,18 +197,19 @@ class StorageWiring {
       _exitFn(1);
     }
 
-    _memoryFile = MemoryFileService(baseDir: config.workspaceDir);
+    _memoryFile = MemoryFileService(baseDir: config.workspaceDir, corpusService: _memoryCorpus);
     _memory = MemoryService(_searchDb);
+    if (_searchUnavailable) {
+      _searchDb.execute('DROP TABLE memory_chunks_fts');
+    }
 
     if (config.search.backend == 'qmd') {
-      final mgr = QmdManager(
-        host: config.search.qmdHost,
-        port: config.search.qmdPort,
-        workspaceDir: config.workspaceDir,
-      );
+      final mgr =
+          _qmdManagerFactory?.call() ??
+          QmdManager(host: config.search.qmdHost, port: config.search.qmdPort, workspaceDir: config.workspaceDir);
       if (await mgr.isAvailable()) {
         try {
-          await mgr.start();
+          await mgr.activate();
           _qmdManager = mgr;
           _log.info('QMD hybrid search active on ${mgr.baseUrl}');
         } catch (e) {
@@ -165,7 +226,52 @@ class StorageWiring {
       qmdManager: _qmdManager,
       defaultDepth: config.search.defaultDepth,
       workspaceDir: config.workspaceDir,
+      indexHealthProbe: _probeIndexHealth,
     );
+    _memoryCorpus.registerPostCommitProjection((projection, result) async {
+      try {
+        if (_searchUnavailable) throw StateError('persistent search index is unavailable');
+        if (!projection.isComplete) {
+          final priorHealth = await _indexHealth.read(
+            canonicalRevision: projection.baseRevision,
+            canonicalFingerprint: projection.baseFingerprint,
+          );
+          if (!priorHealth.isCurrent(projection.baseRevision, projection.baseFingerprint)) {
+            throw StateError('incremental projection requires a healthy base index');
+          }
+        }
+        final rows = MemoryService.canonicalIndexRows(projection.corpus);
+        if (projection.isComplete) {
+          _memory.replaceMemoryRows(rows);
+        } else {
+          _memory.replaceMemoryRecords(rows, projection.priorRecordIds);
+        }
+        await _searchBackend.indexAfterWrite();
+        if (projection.isComplete) {
+          _memory.validateIndexRows(rows);
+        } else {
+          _memory.validateMemoryRecords(rows, projection.priorRecordIds);
+        }
+        await _indexHealth.recordHealthy(
+          canonicalRevision: result.collectionRevision,
+          canonicalFingerprint: result.fingerprint,
+        );
+      } on Object catch (error) {
+        try {
+          await _indexHealth.recordDegraded(
+            canonicalRevision: result.collectionRevision,
+            canonicalFingerprint: result.fingerprint,
+            stage: 'incrementalProjection',
+            reason: error,
+          );
+        } on Object catch (healthError, stackTrace) {
+          _log.warning(
+            'Memory index projection and degraded-health persistence failed: $error; $healthError',
+            stackTrace,
+          );
+        }
+      }
+    });
 
     _kvService = KvService(filePath: config.kvPath);
 
@@ -187,5 +293,36 @@ class StorageWiring {
     await _turnStateStore.dispose();
     _searchDb.close();
     await _memoryFile.dispose();
+    await _memoryCorpus.close();
+  }
+
+  Stream<List<MemoryIndexRow>> _canonicalRowBatches(MemoryCorpusManifest manifest) async* {
+    for (final path in manifest.paths) {
+      if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
+      final selection = await _memoryCorpus.selectPaths([path]);
+      if (selection.collectionRevision != manifest.collectionRevision ||
+          selection.fingerprint != manifest.fingerprint) {
+        throw StateError('Canonical memory changed during index reconciliation');
+      }
+      yield MemoryService.canonicalIndexRows(selection.corpus);
+    }
+  }
+
+  Future<IndexHealthEvidence> _probeIndexHealth() async {
+    final manifest = await _memoryCorpus.manifest();
+    try {
+      return await _indexHealth.read(
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+      );
+    } on Object {
+      return IndexHealthEvidence(
+        state: IndexHealthState.unknown,
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        reason: 'Index health evidence is unavailable.',
+        action: 'Run dartclaw rebuild-index.',
+      );
+    }
   }
 }

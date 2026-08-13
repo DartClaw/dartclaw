@@ -24,8 +24,8 @@ String tasksPageTemplate({
   int reviewCount = 0,
   String restartBannerHtml = '',
   String appName = 'DartClaw',
-  List<Map<String, dynamic>>? agentRunners,
-  Map<String, dynamic>? agentPool,
+  List<Map<String, dynamic>>? runners,
+  Map<String, dynamic>? executionCapacity,
   List<Map<String, String>> goalOptions = const [],
   String defaultProvider = 'claude',
   Map<String, String> projectNames = const {},
@@ -88,8 +88,8 @@ String tasksPageTemplate({
         final projectName = projectId != null && projectId != '_local' ? projectNames[projectId] : null;
         final taskId = t['id']?.toString() ?? '';
 
-        // Running task enhancements: agent badge, progress, token display, recent events.
-        String? agentLabel;
+        // Running task enhancements: runner badge, progress, token display, recent events.
+        String? runnerLabel;
         int progressPct = 0;
         bool isIndeterminate = true;
         String tokenDisplay = '0 tokens';
@@ -98,13 +98,13 @@ String tasksPageTemplate({
         String? finalTokenDisplay;
 
         if (isRunningGroup) {
-          // Agent assignment lookup.
-          if (agentRunners != null) {
-            for (final runner in agentRunners) {
+          // Runner assignment lookup.
+          if (runners != null) {
+            for (final runner in runners) {
               if (runner['currentTaskId']?.toString() == taskId) {
                 final runnerId = runner['runnerId'] as int? ?? 0;
-                final role = runner['role']?.toString() ?? 'task';
-                agentLabel = role == 'primary' ? 'Primary (#$runnerId)' : 'Agent #$runnerId';
+                final role = runner['role']?.toString() ?? 'worker';
+                runnerLabel = role == 'primary' ? 'Primary (#$runnerId)' : 'Worker #$runnerId';
                 break;
               }
             }
@@ -168,7 +168,7 @@ String tasksPageTemplate({
           'projectDisplay': absentValue(projectName).value,
           'projectAbsent': absentValue(projectName).isAbsent,
           // S11 additions:
-          'agentLabel': agentLabel,
+          'runnerLabel': runnerLabel,
           'progressPct': progressPct,
           'isIndeterminate': isIndeterminate,
           'tokenDisplay': tokenDisplay,
@@ -199,9 +199,8 @@ String tasksPageTemplate({
     ].map((t) => {'value': t, 'label': t[0].toUpperCase() + t.substring(1), 'selected': typeFilter == t}),
   ];
 
-  // Agent overview section data.
-  final hasAgentPool = agentRunners != null && agentPool != null;
-  final isSingleRunner = hasAgentPool && (agentPool['maxConcurrentTasks'] as int? ?? 0) == 0;
+  final hasExecutionCapacity = runners != null && executionCapacity != null;
+  final isPrimaryOnly = hasExecutionCapacity && (executionCapacity['configured'] as int? ?? 0) == 0;
 
   final body = templateLoader.trellis.render(templateLoader.source('tasks'), {
     'sidebar': sidebar,
@@ -229,13 +228,20 @@ String tasksPageTemplate({
     'includeWorkflowOwned': includeWorkflowOwned,
     'workflowReviewToggleHref': workflowReviewToggleHref,
     'newTaskDialogHtml': newTaskFormDialogHtml(goalOptions: goalOptions, projectOptions: projectOptions),
-    'hasAgentPool': hasAgentPool,
-    'isSingleRunner': isSingleRunner,
-    'agentRunners': agentRunners,
-    'agentPool': agentPool,
-    'agentPoolBarHtml': hasAgentPool && !isSingleRunner ? _buildPoolBarHtml(agentPool) : null,
-    'agentOverviewHtml': hasAgentPool
-        ? _buildAgentOverviewHtml(agentRunners, agentPool, isSingleRunner, defaultProvider: normalizedDefaultProvider)
+    'hasExecutionCapacity': hasExecutionCapacity,
+    'isPrimaryOnly': isPrimaryOnly,
+    'runners': runners,
+    'executionCapacity': executionCapacity,
+    'executionCapacityBarHtml': hasExecutionCapacity && !isPrimaryOnly
+        ? _buildCapacityBarHtml(executionCapacity)
+        : null,
+    'executionOverviewHtml': hasExecutionCapacity
+        ? _buildExecutionOverviewHtml(
+            runners,
+            executionCapacity,
+            isPrimaryOnly,
+            defaultProvider: normalizedDefaultProvider,
+          )
         : null,
     'showProjectColumn': showProjectColumn,
   });
@@ -248,16 +254,16 @@ String _classSuffix(String value) {
   return sanitized.isEmpty ? 'claude' : sanitized;
 }
 
-String _buildPoolBarHtml(Map<String, dynamic> pool) {
-  final size = pool['size'] as int? ?? 1;
-  final active = pool['activeCount'] as int? ?? 0;
+String _buildCapacityBarHtml(Map<String, dynamic> capacity) {
+  final size = capacity['effective'] as int? ?? 0;
+  final active = capacity['active'] as int? ?? 0;
   final activePercent = size > 0 ? (active / size * 100).round() : 0;
   // A full-strength track at 0% reads as a solid rule asserting a measurement,
   // so nothing-active takes canon's unfilled treatment.
   final emptyClass = active == 0 ? ' meter--empty' : '';
-  return '<div class="meter-label"><span>$active/$size runners active</span></div>'
+  return '<div class="meter-label"><span>$active/$size workers active</span></div>'
       '<div class="meter$emptyClass" role="progressbar" aria-valuemin="0" aria-valuemax="100" '
-      'aria-valuenow="$activePercent" aria-label="Runners active">'
+      'aria-valuenow="$activePercent" aria-label="Workers active">'
       '<div class="meter-fill" style="width:$activePercent%"></div>'
       '</div>';
 }
@@ -273,31 +279,32 @@ String _buildPoolBarHtml(Map<String, dynamic> pool) {
   };
 }
 
-String _buildAgentOverviewHtml(
+String _buildExecutionOverviewHtml(
   List<Map<String, dynamic>>? runners,
-  Map<String, dynamic> pool,
-  bool isSingleRunner, {
+  Map<String, dynamic> capacity,
+  bool isPrimaryOnly, {
   String defaultProvider = 'claude',
 }) {
-  if (isSingleRunner) {
-    return '<div class="agent-overview" id="agent-overview">'
-        '<h3 class="t-heading">Agent Pool</h3>'
+  if (isPrimaryOnly) {
+    return '<div class="execution-overview" id="execution-overview">'
+        '<h2 class="t-heading">Execution Capacity</h2>'
         '<div class="text-muted">'
-        'Single runner mode. Primary runner handles all sessions sequentially.<br>'
-        '<small>Configure max_concurrent in tasks config to enable parallel execution.</small>'
+        'Primary-only mode. Interactive execution is serialized.<br>'
+        '<small>Configure providers.&lt;id&gt;.pool_size to enable worker execution.</small>'
         '</div>'
         '</div>';
   }
 
   final buf = StringBuffer()
-    ..write('<div class="agent-overview" id="agent-overview">')
-    ..write('<h3 class="t-heading">Agent Pool</h3>')
-    ..write(_buildPoolBarHtml(pool))
-    ..write('<div class="agent-pool-runners">');
+    ..write('<div class="execution-overview" id="execution-overview">')
+    ..write('<h2 class="t-heading">Execution Capacity</h2>')
+    ..write(_buildCapacityBarHtml(capacity))
+    ..write(_buildCapacityDetailsHtml(capacity))
+    ..write('<div class="execution-runners">');
 
   for (final runner in runners ?? <Map<String, dynamic>>[]) {
     final runnerId = runner['runnerId'] as int? ?? 0;
-    final role = runner['role']?.toString() ?? 'task';
+    final role = runner['role']?.toString() ?? 'worker';
     final state = runner['state']?.toString() ?? 'idle';
     final taskId = runner['currentTaskId']?.toString();
     final providerId = ProviderIdentity.normalize(runner['providerId']?.toString(), fallback: defaultProvider);
@@ -305,7 +312,7 @@ String _buildAgentOverviewHtml(
     final tokens = runner['tokensConsumed'] as int? ?? 0;
     final turns = runner['turnsCompleted'] as int? ?? 0;
     final errors = runner['errorCount'] as int? ?? 0;
-    final label = role == 'primary' ? 'Primary (#$runnerId)' : 'Runner #$runnerId';
+    final label = role == 'primary' ? 'Primary (#$runnerId)' : 'Worker #$runnerId';
     final presentation = _runnerStatePresentation(state);
 
     buf
@@ -344,6 +351,15 @@ String _buildAgentOverviewHtml(
     ..write('</div>')
     ..write('</div>');
   return buf.toString();
+}
+
+String _buildCapacityDetailsHtml(Map<String, dynamic> capacity) {
+  final queued = capacity['queued'] as int? ?? 0;
+  final cached = capacity['cached'] as int? ?? 0;
+  final quarantined = capacity['quarantined'] as int? ?? 0;
+  return '<div class="text-muted"><small>'
+      '$queued queued · $cached warm · $quarantined quarantined'
+      '</small></div>';
 }
 
 String _formatTokens(int tokens) {

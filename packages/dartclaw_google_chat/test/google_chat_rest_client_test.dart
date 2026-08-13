@@ -12,7 +12,7 @@ class _RecordingClient extends http.BaseClient {
   final List<http.BaseRequest> requests = [];
   bool closeCalled = false;
 
-  _RecordingClient(this._handler);
+  new(this._handler);
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {

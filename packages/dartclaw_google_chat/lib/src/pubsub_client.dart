@@ -23,7 +23,7 @@ class ReceivedMessage {
   /// CloudEvent and other attributes from the Pub/Sub message.
   final Map<String, String> attributes;
 
-  const ReceivedMessage({
+  const new({
     required this.ackId,
     required this.data,
     required this.messageId,
@@ -32,7 +32,7 @@ class ReceivedMessage {
   });
 
   /// Parses a [ReceivedMessage] from the Pub/Sub pull response JSON.
-  factory ReceivedMessage.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final message = json['message'] as Map<String, dynamic>;
     return ReceivedMessage(
       ackId: json['ackId'] as String,
@@ -56,7 +56,7 @@ class PubSubHealthStatus {
   /// Number of consecutive pull failures.
   final int consecutiveErrors;
 
-  const PubSubHealthStatus({required this.status, this.lastSuccessfulPull, this.consecutiveErrors = 0});
+  const new({required this.status, this.lastSuccessfulPull, this.consecutiveErrors = 0});
 
   Map<String, dynamic> toJson() => {
     'status': status,
@@ -107,7 +107,7 @@ class PubSubClient {
   /// [onMessage] — callback for each received message. Return `true` to ack,
   ///   `false` to nack (message will be redelivered).
   /// [delay] — optional delay override for testing.
-  PubSubClient({
+  new({
     required http.Client authClient,
     required String projectId,
     required String subscription,
@@ -126,7 +126,7 @@ class PubSubClient {
   ///
   /// Throws [ArgumentError] if [config] is not fully configured
   /// (i.e., [PubSubConfig.isConfigured] is false).
-  factory PubSubClient.fromConfig({
+  factory fromConfig({
     required http.Client authClient,
     required PubSubConfig config,
     required Future<bool> Function(ReceivedMessage) onMessage,
@@ -424,11 +424,11 @@ class PubSubClient {
 class _TransientPubSubError implements Exception {
   final int statusCode;
   final String message;
-  const _TransientPubSubError(this.statusCode, this.message);
+  const new(this.statusCode, this.message);
 }
 
 class _PermanentPubSubError implements Exception {
   final int statusCode;
   final String message;
-  const _PermanentPubSubError(this.statusCode, this.message);
+  const new(this.statusCode, this.message);
 }

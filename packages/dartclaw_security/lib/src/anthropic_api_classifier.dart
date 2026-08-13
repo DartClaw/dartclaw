@@ -38,7 +38,7 @@ Respond with ONLY the category name, nothing else.''';
   static const validCategories = {'safe', 'prompt_injection', 'harmful_content', 'exfiltration_attempt'};
 
   /// Creates a classifier backed by the Anthropic Messages API.
-  AnthropicApiClassifier({required this.apiKey, this.model = _defaultModel, HttpClient Function()? httpFactory})
+  new({required this.apiKey, this.model = _defaultModel, HttpClient Function()? httpFactory})
     : _httpFactory = httpFactory ?? HttpClient.new;
 
   @override

@@ -6,8 +6,7 @@ class InMemorySessionService implements SessionService {
   static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron, SessionType.task};
 
   /// Creates an in-memory session service.
-  InMemorySessionService({this.baseDir = ':memory:', this.eventBus, String Function()? idGenerator})
-    : _idGenerator = idGenerator;
+  new({this.baseDir = ':memory:', this.eventBus, String Function()? idGenerator}) : _idGenerator = idGenerator;
 
   @override
   final String baseDir;
@@ -21,20 +20,25 @@ class InMemorySessionService implements SessionService {
   int _nextSessionNumber = 1;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
     final now = DateTime.now();
     final session = Session(
       id: _createId(),
       type: type,
       channelKey: channelKey,
       provider: provider,
+      securityProfile: securityProfile,
+      executionMode: executionMode,
       createdAt: now,
       updatedAt: now,
     );
     _sessionsById[session.id] = session;
-    if (channelKey != null) {
-      _sessionKeys[channelKey] = session.id;
-    }
     eventBus?.fire(
       SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
     );
@@ -56,8 +60,13 @@ class InMemorySessionService implements SessionService {
     bool includeTaskSessions = false,
   }) async {
     final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
+    final logicalAgentRequested =
+        type == SessionType.logicalAgent || (types?.contains(SessionType.logicalAgent) ?? false);
     final sessions = _sessionsById.values.where((session) {
       if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) {
+        return false;
+      }
+      if (session.type == SessionType.logicalAgent && !logicalAgentRequested) {
         return false;
       }
       if (type != null && session.type != type) {
@@ -91,13 +100,31 @@ class InMemorySessionService implements SessionService {
   }
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
     final existingId = _sessionKeys[key];
     if (existingId != null) {
       final session = _sessionsById[existingId];
       if (session != null && session.type != SessionType.archive) {
-        if (session.type != type || session.channelKey != key || session.provider != provider) {
-          final migrated = session.copyWith(type: type, channelKey: key, provider: provider, updatedAt: DateTime.now());
+        final resolvedMode = executionMode ?? session.executionMode;
+        if (session.type != type ||
+            session.channelKey != key ||
+            session.provider != provider ||
+            session.securityProfile != securityProfile ||
+            session.executionMode != resolvedMode) {
+          final migrated = session.copyWith(
+            type: type,
+            channelKey: key,
+            provider: provider,
+            securityProfile: securityProfile,
+            executionMode: resolvedMode,
+            updatedAt: DateTime.now(),
+          );
           _sessionsById[existingId] = migrated;
           return migrated;
         }
@@ -106,7 +133,28 @@ class InMemorySessionService implements SessionService {
       _sessionKeys.remove(key);
     }
 
-    return createSession(type: type, channelKey: key, provider: provider);
+    final session = await createSession(
+      type: type,
+      channelKey: key,
+      provider: provider,
+      securityProfile: securityProfile,
+      executionMode: executionMode,
+    );
+    _sessionKeys[key] = session.id;
+    return session;
+  }
+
+  @override
+  Future<Session?> getByKey(String key) async {
+    final id = _sessionKeys[key];
+    if (id == null) return null;
+    final session = _sessionsById[id];
+    return session == null || session.type == SessionType.archive || session.channelKey != key ? null : session;
+  }
+
+  @override
+  Future<void> removeKeyMapping(String key) async {
+    _sessionKeys.remove(key);
   }
 
   @override
@@ -116,6 +164,18 @@ class InMemorySessionService implements SessionService {
       return null;
     }
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) async {
+    final session = _sessionsById[id];
+    if (session == null) {
+      return null;
+    }
+    if (session.executionMode == mode) return session;
+    final updated = session.copyWith(executionMode: mode, updatedAt: DateTime.now());
     _sessionsById[id] = updated;
     return updated;
   }

@@ -42,6 +42,23 @@ void main() {
     expect(timeline.single.validTo, '2026-05-03T00:00:00.000Z');
   });
 
+  test('stable fact id reopens preserved current and invalidated facts', () {
+    final id = kg.addFact(
+      entity: 'Falcon',
+      predicate: 'status',
+      value: 'green',
+      validFrom: '2026-05-01T00:00:00Z',
+      source: 'wiki/falcon.md',
+    );
+
+    expect(kg.factById(id)?.value, 'green');
+    expect(kg.factById(9999), isNull);
+
+    kg.invalidate(id: id, invalidatedAt: '2026-05-02T00:00:00Z', reason: 'superseded');
+
+    expect(kg.factById(id)?.invalidationReason, 'superseded');
+  });
+
   test('owner column exists and addFact persists caller principal', () {
     expect(kg.hasOwnerColumn, isTrue);
 

@@ -32,7 +32,7 @@ class ThreadBinding {
   final DateTime lastActivity;
 
   /// Creates a thread binding.
-  const ThreadBinding({
+  const new({
     required this.channelType,
     required this.threadId,
     required this.taskId,
@@ -67,7 +67,7 @@ class ThreadBinding {
   };
 
   /// Deserializes from a JSON map.
-  factory ThreadBinding.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     return ThreadBinding(
       channelType: json['channelType'] as String,
       threadId: json['threadId'] as String,
@@ -91,7 +91,7 @@ class ThreadBindingStore {
   final Map<String, ThreadBinding> _bindings = {};
 
   /// Creates a store backed by [file].
-  ThreadBindingStore(File file) : _file = file;
+  new(File file) : _file = file;
 
   /// Loads existing bindings from [_file].
   ///
@@ -172,7 +172,6 @@ class ThreadBindingStore {
     });
     if (removed.isNotEmpty) {
       // Best-effort persist — in-memory state is already updated.
-      // ignore: unawaited_futures
       _persist().catchError(
         (Object e, StackTrace st) => _log.warning('Failed to persist binding deletion for task $taskId', e, st),
       );
@@ -194,7 +193,6 @@ class ThreadBindingStore {
     });
     // Best-effort persist — in-memory state is already updated.
     if (expired.isNotEmpty) {
-      // ignore: unawaited_futures
       _persist().catchError(
         (Object e, StackTrace st) => _log.warning('Failed to persist expired binding removal', e, st),
       );

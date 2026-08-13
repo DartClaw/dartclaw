@@ -13,7 +13,7 @@ dartclaw --server localhost:4000 workflow runs
 
 Top-level command families:
 
-- `agents`
+- `runners`
 - `config`
 - `deploy`
 - `google-auth`
@@ -46,20 +46,27 @@ dartclaw serve --port 3333
 dartclaw status
 ```
 
-## Agents
+Reads persisted collection and index-health evidence without starting the server. It reports the collection revision,
+canonical role counts, exact observation usage and warning, and derived-index state. Missing or unreadable evidence is
+shown as `unknown`, never as zero or healthy.
 
-### `agents list`
+## Runners
+
+Runner output is derived from active execution leases plus healthy cached workers. IDs identify observed runtime runners,
+not preallocated pool slots; workers are created lazily and may disappear after release or failed health checks.
+
+### `runners list`
 
 ```bash
-dartclaw agents list
-dartclaw agents list --json
+dartclaw runners list
+dartclaw runners list --json
 ```
 
-### `agents show`
+### `runners show`
 
 ```bash
-dartclaw agents show 0
-dartclaw agents show 0 --json
+dartclaw runners show 0
+dartclaw runners show 0 --json
 ```
 
 ## Config
@@ -82,7 +89,7 @@ dartclaw config get alerts.enabled
 
 ```bash
 dartclaw config set alerts.enabled false
-dartclaw config set tasks.max_concurrent 3
+dartclaw config set tasks.artifact_retention_days 30
 dartclaw config set alerts.enabled false --json
 ```
 
@@ -116,6 +123,16 @@ dartclaw jobs show daily-summary --json
 dartclaw jobs delete daily-summary
 dartclaw jobs delete daily-summary --json
 ```
+
+### `jobs run`
+
+```bash
+dartclaw jobs run daily-summary
+dartclaw jobs run daily-summary --json
+```
+
+Starts a configured prompt job immediately on the running server. Observe its configured delivery and server logs for
+the outcome. Job changes made through the API require a restart before the job can run.
 
 ## Projects
 
@@ -266,7 +283,15 @@ dartclaw token rotate
 
 ```bash
 dartclaw rebuild-index
+dartclaw rebuild-index --json
 ```
+
+Rebuilds the FTS5 memory index from the canonical memory corpus. Active topics, archive, observations, and learnings
+retain stable role-aware locators and canonical entry identities. Source entry timestamps determine recent ordering;
+undated entries sort oldest. The command builds and completely validates a fresh sibling before replacing `search.db`;
+failure preserves the prior index and records degraded health with a retry action. Its result reports the canonical
+revision, row count, and health. Stop DartClaw before running the command and leave it stopped until rebuilding completes;
+the command does not coordinate with a live server.
 
 ## Traces
 
@@ -277,6 +302,8 @@ dartclaw traces list
 dartclaw traces list --provider claude --since 1h --limit 20
 dartclaw traces list --provider claude --since 1h --limit 20 --json
 ```
+
+The human table reports the exact tool-call count. Truncated detail is shown as `<total> (<retained> retained)`.
 
 ### `traces show`
 

@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, NullIoSink;
 import 'package:test/test.dart';
+
+import 'workflow_cli_runner_test_support.dart'
+    show FakeContainerExecutor, fakeContainerAuthorities, testBridgedMcpTools;
 
 void main() {
   group('ClaudeCliProvider', () {
@@ -22,7 +25,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
 
@@ -48,7 +51,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(process.killCalled, isTrue);
@@ -80,12 +83,13 @@ void main() {
           provider: 'claude',
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot claude command failed'))
-              .having((error) => error.toString(), 'diagnostic', contains('result=auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('subtype=error_during_execution'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
       expect(process.killCalled, isTrue);
@@ -105,7 +109,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(
@@ -126,7 +130,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot claude command failed'))
-              .having((error) => error.toString(), 'diagnostic', contains('result=auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('subtype=error_during_execution'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
     });
@@ -145,7 +150,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Error: invalid API key; please run /login');
@@ -158,7 +163,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot claude command failed'))
-              .having((error) => error.toString(), 'stderr', contains('invalid API key')),
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'secret-bearing stderr', isNot(contains('invalid API key'))),
         ),
       );
     });
@@ -177,7 +183,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr('Permission mode forced to default \u2014 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set');
@@ -203,7 +209,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStderr(
@@ -216,7 +222,11 @@ void main() {
 
       await expectLater(
         turn,
-        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('authentication failed'))),
+        throwsA(
+          isA<StateError>()
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'secret-bearing stderr', isNot(contains('authentication failed'))),
+        ),
       );
     });
 
@@ -234,7 +244,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.emitStdout(jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': 'claude-after-terminal'}));
@@ -263,7 +273,7 @@ void main() {
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
       await pumpEventQueue();
       process.exit(17);
@@ -305,7 +315,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         model: 'claude-opus-4',
         maxTurns: 3,
       );
@@ -330,10 +340,8 @@ void main() {
         },
         processStarter: (exe, args, {workingDirectory, environment}) async {
           arguments = List<String>.from(args);
-          final payload = _streamJsonStdout({
-            'session_id': 'claude-provider-test',
-            'result': 'hello',
-          }).replaceAll("'", "'\\''");
+          final payload = _streamJsonStdout({'session_id': 'claude-provider-test', 'result': 'hello'})
+              .replaceAll("'", "'\\''");
           return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
         },
       );
@@ -342,7 +350,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         model: 'claude-opus-4',
       );
 
@@ -360,7 +368,7 @@ void main() {
         if (await workingDirectory.exists()) await workingDirectory.delete(recursive: true);
       });
 
-      final container = _FakeContainerExecutor(
+      final container = FakeContainerExecutor(
         hostRoot: workingDirectory.path,
         containerRoot: '/workspace',
         stdout: _streamJsonStdout({'session_id': 'claude-container-provider', 'result': 'ok'}),
@@ -368,14 +376,15 @@ void main() {
 
       final runner = WorkflowCliRunner(
         providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
-        containerManagers: {'workspace': container},
+        containerAuthorities: fakeContainerAuthorities(container),
+        bridgedMcpToolsResolver: testBridgedMcpTools,
       );
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Test',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
       );
 
       expect(container.lastWorkingDirectory, '/workspace');
@@ -416,7 +425,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.responseText, 'done');
@@ -459,7 +468,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         taskId: 'task-1',
         sessionId: 'session-1',
       );
@@ -517,7 +526,7 @@ void main() {
         provider: 'claude',
         prompt: 'Hi',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(progress.events, hasLength(1));
@@ -535,7 +544,7 @@ void main() {
         provider: 'claude',
         prompt: 'Fix it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -554,7 +563,7 @@ void main() {
         provider: 'claude',
         prompt: 'Write only',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write'],
       );
 
@@ -580,7 +589,7 @@ void main() {
         provider: 'claude',
         prompt: 'Look it up',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['file_read', 'mcp_call'],
       );
 
@@ -600,7 +609,7 @@ void main() {
         provider: 'claude',
         prompt: 'Do it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -611,6 +620,53 @@ void main() {
         final settings = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
         expect(settings.containsKey('permissions'), isFalse);
       }
+    });
+
+    test('read-only step under approval: never never spawns with a permission bypass', () async {
+      // CT-03 / G-HIGH-8. `claude_cli_provider.dart:222` guards read-only
+      // containment with the `!req.readOnly &&` conjunct, so a read-only step
+      // cannot opt into full access even when the operator configures the
+      // provider `approval: never`. The read-only task policy stays in force;
+      // its deny-list conflicts with the bypassPermissions mode `approval: never`
+      // derives, so the run fails closed instead of spawning claude with
+      // `--permission-mode bypassPermissions` and no Edit/Write deny list.
+      //
+      // Mutation this rejects: delete `!req.readOnly && ` from line 222. The
+      // step then resolves to an empty full-access policy, does NOT throw, and
+      // spawns with `--permission-mode bypassPermissions` and no deny list —
+      // reddening both the throw expectation and the no-spawn assertion below.
+      List<String>? spawnedArgs;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'approval': 'never'}),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          spawnedArgs = List<String>.from(args);
+          final payload = _streamJsonStdout({'session_id': 'rec', 'result': 'ok'}).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
+        },
+      );
+
+      await expectLater(
+        runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Review only',
+          workingDirectory: Directory.systemTemp.path,
+          policy: const ExecutionPolicy.host(),
+          readOnly: true,
+          allowedTools: ['shell', 'file_read'],
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.toString(),
+            'message',
+            allOf(contains('task policy cannot be enforced'), contains('bypassPermissions')),
+          ),
+        ),
+      );
+      // Fail-closed: containment refused the run before any bypass spawn reached
+      // the process starter.
+      expect(spawnedArgs, isNull, reason: 'a read-only step must never spawn with a permission bypass');
     });
 
     test('full access (approval: never) opts the spawn env out of the subprocess env-scrub', () async {
@@ -626,7 +682,7 @@ void main() {
         provider: 'claude',
         prompt: 'Do it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_write', 'file_edit'],
       );
 
@@ -647,7 +703,7 @@ void main() {
         provider: 'claude',
         prompt: 'Fix it',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write'],
       );
 
@@ -664,7 +720,7 @@ void main() {
         provider: 'claude',
         prompt: 'Run',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -684,7 +740,7 @@ void main() {
         provider: 'claude',
         prompt: 'Run',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         allowedTools: ['shell', 'file_read', 'file_write', 'file_edit'],
       );
 
@@ -699,7 +755,7 @@ void main() {
       addTearDown(() async {
         if (await workingDirectory.exists()) await workingDirectory.delete(recursive: true);
       });
-      final container = _FakeContainerExecutor(
+      final container = FakeContainerExecutor(
         hostRoot: workingDirectory.path,
         containerRoot: '/workspace',
         profileId: 'restricted',
@@ -708,7 +764,8 @@ void main() {
         providers: const {
           'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'approval': 'never'}),
         },
-        containerManagers: {'restricted': container},
+        containerAuthorities: fakeContainerAuthorities(container),
+        bridgedMcpToolsResolver: testBridgedMcpTools,
       );
 
       await expectLater(
@@ -716,14 +773,14 @@ void main() {
           provider: 'claude',
           prompt: 'Do it',
           workingDirectory: workingDirectory.path,
-          profileId: 'restricted',
+          policy: const ExecutionPolicy.container('restricted'),
           allowedTools: ['shell', 'file_write', 'file_edit'],
         ),
         throwsA(isA<StateError>().having((e) => e.toString(), 'message', contains('restricted container profile'))),
       );
     });
 
-    test('non-zero exit surfaces the stdout result-JSON diagnostic, not just the stderr warning', () async {
+    test('non-zero exit surfaces only bounded structural result diagnostics', () async {
       final runner = WorkflowCliRunner(
         providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
         processStarter: (exe, args, {workingDirectory, environment}) async {
@@ -744,7 +801,7 @@ void main() {
           provider: 'claude',
           prompt: 'Review',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<Object>().having(
@@ -754,7 +811,7 @@ void main() {
               contains('exit code 1'),
               contains('subtype=error_during_execution'),
               contains('is_error=true'),
-              contains('result=reviewer panel crashed'),
+              isNot(contains('reviewer panel crashed')),
             ]),
           ),
         ),
@@ -764,7 +821,7 @@ void main() {
 }
 
 class _CloseFailsAfterKillProcess extends FakeProcess {
-  _CloseFailsAfterKillProcess({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
+  new({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
 
   final String? stdoutOnKill;
 
@@ -784,7 +841,7 @@ class _CloseFailsAfterKillProcess extends FakeProcess {
 }
 
 class _CloseFailsAfterKillSink extends NullIoSink {
-  _CloseFailsAfterKillSink(this._killed);
+  new(this._killed);
 
   final bool Function() _killed;
 
@@ -890,53 +947,4 @@ Map<String, dynamic> _assistantEvent({
       },
     },
   };
-}
-
-class _FakeContainerExecutor implements ContainerExecutor {
-  @override
-  final String profileId;
-  @override
-  final String workingDir = '/workspace';
-  @override
-  final bool hasProjectMount = true;
-
-  final String hostRoot;
-  final String containerRoot;
-  final String stdout;
-  late List<String> lastCommand;
-  String? lastWorkingDirectory;
-
-  _FakeContainerExecutor({
-    required this.hostRoot,
-    required this.containerRoot,
-    this.profileId = 'workspace',
-    String? stdout,
-  }) : stdout = stdout ?? _streamJsonStdout({'session_id': 'fake', 'result': 'ok'});
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
-
-  @override
-  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
-    lastCommand = List<String>.from(command);
-    lastWorkingDirectory = workingDirectory;
-    final escaped = stdout.replaceAll("'", "'\\''");
-    return Process.start('/bin/sh', ['-lc', "printf '%s' '$escaped'"]);
-  }
-
-  @override
-  String? containerPathForHostPath(String hostPath) {
-    final normalizedHostPath = File(hostPath).absolute.path;
-    final normalizedHostRoot = Directory(hostRoot).absolute.path;
-    if (normalizedHostPath == normalizedHostRoot) return containerRoot;
-    if (!normalizedHostPath.startsWith('$normalizedHostRoot${Platform.pathSeparator}')) return null;
-    final relative = normalizedHostPath.substring(normalizedHostRoot.length + 1).replaceAll('\\', '/');
-    return '$containerRoot/$relative';
-  }
 }

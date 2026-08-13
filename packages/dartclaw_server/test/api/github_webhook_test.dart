@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_server/src/api/github_webhook.dart';
 import 'package:dartclaw_server/src/api/github_webhook_config.dart';
@@ -454,7 +454,7 @@ void main() {
 }
 
 class _CommitFailingWebhookDeliveryStore extends WebhookDeliveryStore {
-  _CommitFailingWebhookDeliveryStore(super.db);
+  new(super.db);
 
   var commitAttempts = 0;
 
@@ -496,7 +496,7 @@ Map<String, dynamic> _pullRequestPayload({required String action, int prNumber =
 }
 
 class _StaticProjectService implements ProjectService {
-  _StaticProjectService(this.projects);
+  new(this.projects);
 
   final List<Project> projects;
 

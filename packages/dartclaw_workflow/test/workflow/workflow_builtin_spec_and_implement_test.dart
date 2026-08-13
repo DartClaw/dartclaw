@@ -110,63 +110,60 @@ void main() {
     expect(spec, isNot(contains('feature/discovery-baseline')));
   });
 
-  test(
-    'spec-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean',
-    () async {
-      final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'spec-and-implement.yaml',
-        variables: {'FEATURE': 'Simplify-code workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-        responseForStep: (queued) async {
-          return switch (queued.stepKey) {
-            'spec' => StubResponse(
-              assistantContent: contextOutput({
-                'spec_path': 'docs/specs/test/spec-loop.md',
-                'spec_source': 'synthesized',
-                'spec_confidence': 9,
-              }),
-            ),
-            'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
-            'integrated-review' => StubResponse(
-              assistantContent: contextOutput(
-                reviewReportContext(
-                  queued.stepKey,
-                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                  findingsCount: 1,
-                ),
+  test('spec-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean', () async {
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': 'Simplify-code workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'spec' => StubResponse(
+            assistantContent: contextOutput({
+              'spec_path': 'docs/specs/test/spec-loop.md',
+              'spec_source': 'synthesized',
+              'spec_confidence': 9,
+            }),
+          ),
+          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
+          'integrated-review' => StubResponse(
+            assistantContent: contextOutput(
+              reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
               ),
             ),
-            'remediate' => StubResponse(
-              assistantContent: contextOutput({
-                'remediation_summary': 'Fixed the lint findings',
-                'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX',
-              }),
-            ),
-            're-review' => StubResponse(
-              assistantContent: contextOutput(
-                reviewReportContext(
-                  queued.stepKey,
-                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                  findingsCount: 0,
-                ),
+          ),
+          'remediate' => StubResponse(
+            assistantContent: contextOutput({
+              'remediation_summary': 'Fixed the lint findings',
+              'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX',
+            }),
+          ),
+          're-review' => StubResponse(
+            assistantContent: contextOutput(
+              reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 0,
               ),
             ),
-            'architecture-review' => architectureReviewStub(),
-            'integrated-review-council' => integratedReviewCouncilStub(),
-            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-          };
-        },
-      );
+          ),
+          'architecture-review' => architectureReviewStub(),
+          'integrated-review-council' => integratedReviewCouncilStub(),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
 
-      expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
-      expect(trace.count('remediate'), 1);
-      expect(trace.count('re-review'), 1);
-      expect(
-        trace.descriptionsByStep['remediate']!.single,
-        contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'),
-      );
-      expectReviewOutputDir(trace.tasksForStep('re-review').single);
-    },
-  );
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
+    expect(trace.count('remediate'), 1);
+    expect(trace.count('re-review'), 1);
+    expect(
+      trace.descriptionsByStep['remediate']!.single,
+      contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'),
+    );
+    expectReviewOutputDir(trace.tasksForStep('re-review').single);
+  });
 
   test(
     'spec-and-implement narrows to the re-review report after the first remediation pass clears architecture inputs',

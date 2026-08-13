@@ -1,6 +1,6 @@
 # Windows
 
-DartClaw targets the core runtime on native Windows x64: the server, Web UI, harness pool, sessions, and FTS5-backed
+DartClaw targets the core runtime on native Windows x64: the server, Web UI, worker execution, sessions, and FTS5-backed
 storage/search. The 0.21 support contract and validation path are described below. Unix-coupled security and sidecar
 features do not have full Windows parity; the matrix is the support contract.
 
@@ -68,7 +68,7 @@ Trust only projects whose local Codex configuration you have reviewed.
 | FTS5 storage/search | supported | Uses the release's bundled `lib/sqlite3.dll`; it does not depend on `winsqlite3.dll` | Keep `bin/` and `lib/` as sibling directories |
 | Config reload | supported | Use file watching with `gateway.reload.mode: auto`; SIGUSR1 is POSIX-only | Enable `auto` and save the config file atomically |
 | Bash workflow steps | degraded | Run through Git Bash when `bash.exe` is found; otherwise the step fails with `bash steps require Git Bash on Windows`. Timeout cleanup does not claim descendant-process containment; unconfirmed cleanup blocks later Bash steps until restart | Install Git for Windows; use POSIX for commands requiring process-tree containment |
-| Container isolation | unavailable | Native Windows fails closed because the credential proxy and owner-only permissions require POSIX facilities | Run DartClaw on a POSIX host or in WSL |
+| Container isolation | unavailable | Native Windows fails closed because the per-authority bridge pipes and owner-only permissions require POSIX facilities | Run DartClaw on a POSIX host or in WSL |
 | Channel sidecars | unverified | Native Windows operation of GOWA and signal-cli sidecar paths is not qualified | Run channel sidecars on a supported POSIX deployment or validate them independently |
 | Provider sandbox parity | unverified | Claude's native sandbox is unavailable; restrictive Codex sandbox modes were not qualified for the Windows release | Use a POSIX host or WSL when a qualified isolation boundary is required |
 

@@ -1,16 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart' as core;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../scheduling/delivery.dart';
 import '../scheduling/scheduled_job.dart';
 import '../task/workflow_turn_extractor.dart';
+import '../memory_handlers.dart' show MemoryCaptureContext, MemoryObserveWithContext;
 
-typedef MemoryHandler = Future<Map<String, dynamic>> Function(Map<String, dynamic>);
 typedef IngestFailureHook = void Function(String text);
 
 /// Read-only view over knowledge inbox folders.
@@ -21,7 +23,7 @@ final class KnowledgeInboxReadService {
   final int maxPreviewBytes;
   final int maxScannedFiles;
 
-  KnowledgeInboxReadService({required this.workspaceDir, this.maxPreviewBytes = 16 * 1024, this.maxScannedFiles = 200});
+  new({required this.workspaceDir, this.maxPreviewBytes = 16 * 1024, this.maxScannedFiles = 200});
 
   Future<List<KnowledgeInboxItem>> list({String query = '', int limit = 20}) async {
     if (limit < 1 || maxScannedFiles < 1 || maxPreviewBytes < 1) {
@@ -71,6 +73,37 @@ final class KnowledgeInboxReadService {
     return items;
   }
 
+  /// Returns whether [locator] names a current regular file owned by this layer.
+  Future<bool> exists(String locator) async {
+    final file = _fileForLocator(locator);
+    return file != null && FileSystemEntity.typeSync(file.path, followLinks: false) == FileSystemEntityType.file;
+  }
+
+  /// Reads the current regular source owned by [locator], or `null` when missing.
+  Future<String?> read(String locator) async {
+    final file = _fileForLocator(locator);
+    return file == null ? null : core.MemoryFileService.readRegularFile(file);
+  }
+
+  /// Whether [locator] has the stable native shape owned by this layer.
+  static bool supportsLocator(String locator) {
+    final normalized = locator.replaceAll('\\', '/');
+    final segments = normalized.split('/');
+    return segments.length == 2 &&
+        folders.contains(segments.first) &&
+        !segments.any((part) => part.isEmpty || part == '.' || part == '..') &&
+        KnowledgeInboxService.supportedExtensions.contains(p.extension(segments.last).toLowerCase());
+  }
+
+  File? _fileForLocator(String locator) {
+    final normalized = locator.replaceAll('\\', '/');
+    final segments = normalized.split('/');
+    if (!supportsLocator(locator)) return null;
+    final root = Directory(p.absolute(workspaceDir));
+    final file = File(p.normalize(p.joinAll([root.path, ...segments])));
+    return p.isWithin(root.path, file.path) ? file : null;
+  }
+
   static List<String> _queryTerms(String query) => query
       .replaceAll('"', ' ')
       .split(RegExp(r'\s+'))
@@ -102,7 +135,7 @@ final class _InboxReadCandidate {
   final String folder;
   final DateTime modified;
 
-  const _InboxReadCandidate({required this.file, required this.folder, required this.modified});
+  const new({required this.file, required this.folder, required this.modified});
 }
 
 /// Read-only inbox item surfaced by [KnowledgeInboxReadService].
@@ -113,7 +146,7 @@ final class KnowledgeInboxItem {
   final String snippet;
   final DateTime modified;
 
-  const KnowledgeInboxItem({
+  const new({
     required this.locator,
     required this.label,
     required this.folder,
@@ -127,7 +160,7 @@ class KnowledgeInboxService {
   static const supportedExtensions = <String>{'.md', '.txt', '.json', '.ndjson'};
 
   final String workspaceDir;
-  final MemoryHandler onMemorySave;
+  final MemoryObserveWithContext onMemoryObserve;
   final WikiPageStore wiki;
   final core.TurnManager turns;
   final core.SessionService sessions;
@@ -138,10 +171,14 @@ class KnowledgeInboxService {
   final int processedRetentionDays;
   final DateTime Function() now;
   final IngestFailureHook? failureHook;
+  final String? workerProviderId;
 
-  KnowledgeInboxService({
+  /// Placement for extraction turns, which carry no logical-agent identity.
+  final ExecutionPolicy? workerPolicy;
+
+  new({
     required this.workspaceDir,
-    required this.onMemorySave,
+    required this.onMemoryObserve,
     required this.wiki,
     required this.turns,
     required this.sessions,
@@ -152,6 +189,8 @@ class KnowledgeInboxService {
     this.processedRetentionDays = 30,
     DateTime Function()? now,
     this.failureHook,
+    this.workerProviderId,
+    this.workerPolicy,
   }) : now = now ?? DateTime.now;
 
   ScheduledJob scheduledJob({
@@ -296,15 +335,17 @@ class KnowledgeInboxService {
   ///
   /// The entire extraction is validated before any durable write, so a rejected
   /// payload (empty findings, verbatim source, malformed facts) is never
-  /// written at all. A genuine I/O failure mid-write (e.g. the memory handler
-  /// throwing after an earlier finding committed) still reprocesses on retry —
-  /// bounded reprocessing the milestone accepts (no exactly-once/dedup).
+  /// written at all. Retries reuse a content-addressed source event so later
+  /// replay-aware capture can recognize the same inbox item.
   Future<List<String>> _processFile(File file, {required String jobId}) async {
     final text = await _readSupportedText(file);
     failureHook?.call(text);
     final extraction = await _runExtractionTurn(file, text, jobId: jobId);
     final title = p.basenameWithoutExtension(file.path);
     final sourcePath = p.join('inbox', p.basename(file.path));
+    final sourceStat = await file.stat();
+    final sourceEvent =
+        'sha256:${sha256.convert(utf8.encode('$sourcePath\u0000${sourceStat.modified.toUtc().microsecondsSinceEpoch}\u0000${sourceStat.size}\u0000$text'))}';
 
     if (extraction.memoryFindings.isEmpty) {
       throw StateError('extraction returned no synthesized memory findings');
@@ -351,7 +392,16 @@ class KnowledgeInboxService {
     }
 
     for (final finding in extraction.memoryFindings) {
-      await onMemorySave({'text': _frameSynthesizedFinding(sourcePath, finding), 'category': 'knowledge-inbox'});
+      await onMemoryObserve(
+        {'text': _frameSynthesizedFinding(sourcePath, finding), 'role': 'observation'},
+        MemoryCaptureContext(
+          originKind: core.MemoryOriginKind.inbox,
+          sourceLocator: sourcePath,
+          sourceEvent: sourceEvent,
+          caller: 'knowledge-inbox',
+          sessionRef: jobId,
+        ),
+      );
     }
     await wiki.writePage(
       slug: _slug(extraction.wikiSlug ?? title),
@@ -378,7 +428,13 @@ class KnowledgeInboxService {
   Future<KnowledgeExtraction> _runExtractionTurn(File file, String text, {required String jobId}) async {
     final attemptId = const Uuid().v4();
     final sessionKey = core.SessionKey.cronSession(jobId: '$jobId:extract:${p.basename(file.path)}:$attemptId');
-    final session = await sessions.getOrCreateByKey(sessionKey, type: core.SessionType.cron);
+    final session = await sessions.getOrCreateByKey(
+      sessionKey,
+      type: core.SessionType.cron,
+      provider: workerProviderId,
+      securityProfile: workerProviderId == null ? null : workerPolicy?.containerProfile,
+      executionMode: workerProviderId == null ? null : workerPolicy?.mode,
+    );
     final turnId = await turns.startTurn(
       session.id,
       [
@@ -390,6 +446,7 @@ class KnowledgeInboxService {
       maxTurns: 1,
       allowedTools: const ['__knowledge_inbox_no_tools__'],
       readOnly: true,
+      promptScope: core.PromptScope.task,
     );
     final outcome = await turns.waitForOutcome(session.id, turnId);
     if (outcome.status != core.TurnStatus.completed) {
@@ -523,7 +580,7 @@ class KnowledgeExtraction {
   final String? wikiConfidence;
   final List<KnowledgeExtractionFact> facts;
 
-  const KnowledgeExtraction({
+  const new({
     required this.memoryFindings,
     required this.wikiSlug,
     required this.wikiTitle,
@@ -532,7 +589,7 @@ class KnowledgeExtraction {
     required this.facts,
   });
 
-  factory KnowledgeExtraction.fromAssistantText(String text) {
+  factory fromAssistantText(String text) {
     final payload = _extractPayload(text);
     final memoryFindings = _stringList(payload['memory_findings']);
     final wikiPage = payload['wiki_page'] is Map ? Map<String, Object?>.from(payload['wiki_page'] as Map) : null;
@@ -611,7 +668,7 @@ class KnowledgeExtractionFact {
   final String validFrom;
   final String? validTo;
 
-  const KnowledgeExtractionFact({
+  const new({
     required this.entity,
     required this.predicate,
     required this.value,
@@ -619,7 +676,7 @@ class KnowledgeExtractionFact {
     this.validTo,
   });
 
-  factory KnowledgeExtractionFact.fromPayload(Map<String, Object?> payload) {
+  factory fromPayload(Map<String, Object?> payload) {
     String requiredString(String key) {
       final value = payload[key]?.toString().trim();
       if (value == null || value.isEmpty) {
@@ -706,7 +763,7 @@ class WikiPageStore {
 
   final String workspaceDir;
 
-  WikiPageStore({required this.workspaceDir});
+  new({required this.workspaceDir});
 
   Directory get wikiDir => Directory(p.join(workspaceDir, 'wiki'));
 
@@ -755,12 +812,16 @@ class WikiPageStore {
     return file;
   }
 
-  WikiLintReport lint({TemporalKnowledgeGraphService? kg, DateTime? now, int staleAfterDays = 30}) {
+  Future<WikiLintReport> lint({TemporalKnowledgeGraphService? kg, DateTime? now, int staleAfterDays = 30}) async {
     bootstrap();
     final missingLinks = <String>[];
     final orphanPages = <String>[];
     final provenanceInconsistencies = <String>[];
     final stalePages = <String>[];
+    var processedFiles = 0;
+    var processedBytes = 0;
+    var degraded = false;
+    final degradations = <core.MemorySearchDegradation>[];
     final staleCutoff = (now ?? DateTime.now()).toUtc().subtract(Duration(days: staleAfterDays));
     final contradictions =
         kg
@@ -772,10 +833,57 @@ class WikiPageStore {
             .toList() ??
         <String>[];
 
-    for (final entity in wikiDir.listSync(recursive: true, followLinks: false)) {
-      if (entity is! File || !entity.path.endsWith('.md')) continue;
+    final fileScan = await core.MemoryFileService.listRegularFilesBounded(wikiDir);
+    var remainingFiles = fileScan.files.length;
+    for (final entity in fileScan.files) {
+      remainingFiles--;
       final name = p.relative(entity.path, from: wikiDir.path);
-      final text = entity.readAsStringSync();
+      processedFiles++;
+      if (!entity.path.endsWith('.md')) continue;
+      final file = entity;
+      final size = file.statSync().size;
+      final remainingBytes = core.MemoryResourceLimits.recursiveBodyBytes - processedBytes;
+      if (size > core.MemoryResourceLimits.sourceBytes || size > remainingBytes) {
+        degraded = true;
+        degradations.add(
+          core.MemorySearchDegradation(
+            layer: 'wiki',
+            reason: size > core.MemoryResourceLimits.sourceBytes ? 'sourceBytes' : 'bodyBytes',
+            locator: name,
+            observed: size > core.MemoryResourceLimits.sourceBytes ? size : processedBytes + size,
+            limit: size > core.MemoryResourceLimits.sourceBytes
+                ? core.MemoryResourceLimits.sourceBytes
+                : core.MemoryResourceLimits.recursiveBodyBytes,
+            omittedCount: size > remainingBytes ? remainingFiles + 1 : 1,
+          ),
+        );
+        if (size > remainingBytes) break;
+        continue;
+      }
+      processedBytes += size;
+      String text;
+      try {
+        text = core.MemoryFileService.readRegularFile(
+          file,
+          maxBytes: remainingBytes < core.MemoryResourceLimits.sourceBytes
+              ? remainingBytes
+              : core.MemoryResourceLimits.sourceBytes,
+          role: core.MemoryRole.wiki,
+        )!;
+      } on Object {
+        degraded = true;
+        degradations.add(
+          core.MemorySearchDegradation(
+            layer: 'wiki',
+            reason: 'readFailure',
+            locator: name,
+            observed: processedBytes,
+            limit: core.MemoryResourceLimits.recursiveBodyBytes,
+            omittedCount: 1,
+          ),
+        );
+        continue;
+      }
       if (!text.startsWith('---\n')) {
         provenanceInconsistencies.add('$name: missing YAML frontmatter');
         continue;
@@ -809,11 +917,24 @@ class WikiPageStore {
       }
       final links = RegExp(r'\]\(([^)]+\.md)\)').allMatches(text).map((match) => match.group(1)!).toList();
       for (final link in links) {
-        if (!File(p.normalize(p.join(entity.parent.path, link))).existsSync()) {
+        if (!File(p.normalize(p.join(file.parent.path, link))).existsSync()) {
           missingLinks.add('$name: $link');
         }
       }
       if (links.isEmpty && name != 'README.md') orphanPages.add(name);
+    }
+    if (!fileScan.complete || fileScan.omittedCount > 0) {
+      degraded = true;
+      degradations.add(
+        core.MemorySearchDegradation(
+          layer: 'wiki',
+          reason: fileScan.complete ? 'fileLimit' : 'traversalLimit',
+          locator: fileScan.firstOmitted == null ? null : p.relative(fileScan.firstOmitted!.path, from: wikiDir.path),
+          observed: fileScan.complete ? fileScan.files.length + fileScan.omittedCount : null,
+          limit: fileScan.complete ? core.MemoryResourceLimits.recursiveFiles : null,
+          omittedCount: fileScan.omittedCount,
+        ),
+      );
     }
 
     return WikiLintReport(
@@ -822,6 +943,10 @@ class WikiPageStore {
       missingLinks: missingLinks,
       orphanPages: orphanPages,
       provenanceInconsistencies: provenanceInconsistencies,
+      degraded: degraded,
+      processedFiles: processedFiles,
+      processedBytes: processedBytes,
+      degradations: degradations,
     );
   }
 
@@ -884,7 +1009,7 @@ class KnowledgeInboxRunReport {
   final List<KnowledgeInboxQuarantine> quarantined;
   final List<KnowledgeInboxContradiction> contradictions;
 
-  const KnowledgeInboxRunReport({
+  const new({
     required this.processed,
     required this.skipped,
     required this.quarantined,
@@ -911,7 +1036,7 @@ class KnowledgeInboxSkip {
   final String file;
   final String reason;
 
-  const KnowledgeInboxSkip({required this.file, required this.reason});
+  const new({required this.file, required this.reason});
 }
 
 class KnowledgeInboxQuarantine {
@@ -919,7 +1044,7 @@ class KnowledgeInboxQuarantine {
   final String error;
   final int attempts;
 
-  const KnowledgeInboxQuarantine({required this.file, required this.error, required this.attempts});
+  const new({required this.file, required this.error, required this.attempts});
 }
 
 /// A KG contradiction surfaced during ingestion: the conflicting fact is not
@@ -928,7 +1053,7 @@ class KnowledgeInboxContradiction {
   final String file;
   final String detail;
 
-  const KnowledgeInboxContradiction({required this.file, required this.detail});
+  const new({required this.file, required this.detail});
 }
 
 class WikiLintReport {
@@ -937,16 +1062,25 @@ class WikiLintReport {
   final List<String> missingLinks;
   final List<String> orphanPages;
   final List<String> provenanceInconsistencies;
+  final bool degraded;
+  final int processedFiles;
+  final int processedBytes;
+  final List<core.MemorySearchDegradation> degradations;
 
-  const WikiLintReport({
+  const new({
     required this.contradictions,
     required this.stalePages,
     required this.missingLinks,
     required this.orphanPages,
     required this.provenanceInconsistencies,
+    this.degraded = false,
+    this.processedFiles = 0,
+    this.processedBytes = 0,
+    this.degradations = const [],
   });
 
   bool get hasFindings =>
+      degraded ||
       contradictions.isNotEmpty ||
       stalePages.isNotEmpty ||
       missingLinks.isNotEmpty ||
@@ -960,6 +1094,9 @@ class WikiLintReport {
       _summaryPart('missing-link', missingLinks),
       _summaryPart('orphan', orphanPages),
       _summaryPart('provenance-inconsistency', provenanceInconsistencies),
+      if (degraded)
+        'coverage=degraded files=$processedFiles bytes=$processedBytes '
+            'details=${jsonEncode(degradations.map((item) => item.toJson()).toList())}',
     ];
     return parts.join(' ');
   }

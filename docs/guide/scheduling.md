@@ -32,8 +32,9 @@ The agent processes the entire checklist in a single turn. Results are logged bu
 
 1. Read `HEARTBEAT.md` from workspace
 2. If present and non-empty, dispatch to an isolated session (`agent:main:heartbeat:<ISO8601>`)
-3. After a dispatched checklist, run memory consolidation (if MEMORY.md > 32KB)
-4. Attempt to commit workspace changes if git sync is enabled, even when the checklist was missing or empty
+3. Attempt to commit workspace changes if git sync is enabled, even when the checklist was missing or empty
+
+Heartbeat does not autonomously curate personal memory. Run the immutable `memory-curation` system action explicitly when semantic curation is intended; use `memory_observe` for journal-style capture.
 
 ## Cron Jobs
 
@@ -90,6 +91,28 @@ scheduling:
 If not specified, the job inherits the global `agent.model` and `agent.effort` values.
 
 Each scheduled job runs in its own session, isolated from user conversations.
+
+### Run a job on demand
+
+Run a configured prompt job immediately from the Scheduling page, the HTTP API, or the CLI:
+
+```bash
+dartclaw jobs run daily-summary
+```
+
+An on-demand run uses the same isolated cron session, retry policy, delivery mode, and failure alerts as a scheduled
+fire. It does not change the job's timer or pause state, so paused jobs can be tested while remaining paused. A job
+created or edited through the API requires a server restart before it can run.
+
+Only one execution of a job can run at a time. A second request is rejected, and a scheduled fire that lands while an
+on-demand run is active is skipped; the next recurring fire remains on schedule. For a one-time job, a fire skipped in
+this window is lost. Outside that window, an on-demand run neither consumes nor cancels its pending one-time fire.
+
+The same run endpoint exposes the immutable `memory-curation` system action. It creates one bounded, isolated proposal turn and lets the host apply the proposal atomically. It has no cron schedule, retry, delivery, pause/toggle state, or YAML form, and its reserved ID cannot be used by a configured job. A second request while it runs is rejected. Failures and conflicts require another explicit request; DartClaw never starts curation from heartbeat, memory size, or job completion.
+
+Job list/show responses join its persisted lifecycle with current index health. A successful canonical commit therefore
+remains `succeeded` even when the independent derived index is `degraded`; follow the index repair action instead of
+replaying the committed curation.
 
 ## Scheduled Task Jobs
 

@@ -17,8 +17,6 @@ export 'src/context_config.dart' show ContextConfig;
 export 'src/credential_registry.dart' show CredentialRegistry;
 export 'src/credentials_config.dart' show CredentialsConfig, CredentialEntry, CredentialType;
 export 'src/dartclaw_config.dart' show DartclawConfig;
-export 'src/delegation_config.dart'
-    show DelegationAgentConfig, DelegationBudgetAccounting, DelegationConfig, DelegationRateLimitConfig;
 export 'src/duration_parser.dart' show tryParseDuration;
 export 'src/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
 export 'src/gateway_config.dart' show GatewayConfig, ReloadConfig;
@@ -99,4 +97,4 @@ export 'src/prompt_scope.dart' show PromptScope;
 export 'src/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
 export 'src/string_util.dart' show truncate;
 export 'src/dynamic_reader.dart' show normalizeDynamicMap;
-export 'src/search_backend.dart' show SearchBackend;
+export 'src/search_backend.dart' show SearchBackend, SearchResultLayer;

@@ -6,6 +6,7 @@ import 'package:dartclaw_server/src/mcp/memory_tools.dart';
 import 'package:dartclaw_server/src/mcp/onboarding_complete_tool.dart';
 import 'package:dartclaw_server/src/mcp/search_provider.dart';
 import 'package:dartclaw_server/src/mcp/sessions_send_tool.dart';
+import 'package:dartclaw_server/src/mcp/sessions_spawn_tool.dart';
 import 'package:dartclaw_server/src/mcp/tavily_search_tool.dart';
 import 'package:dartclaw_server/src/mcp/web_fetch_tool.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -23,12 +24,19 @@ class _StubSearchBackend implements SearchBackend {
   Future<void> indexAfterWrite() async {}
 
   @override
-  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async => [];
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) async => const MemorySearchOutcome(results: []);
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
 }
 
-SessionDelegate _stubDelegate() => SessionDelegate(
-  dispatch: ({required sessionId, required message, required agentId}) async => '',
-  limits: SubagentLimits(maxConcurrent: 2, maxSpawnDepth: 1, maxChildrenPerAgent: 2),
+LogicalAgentSessionService _stubSessions() => LogicalAgentSessionService(
+  dispatch: ({required sessionId, required message, required agentId, required createSession}) async => '',
   agents: {'search': AgentDefinition.searchAgent()},
 );
 
@@ -49,18 +57,8 @@ void main() {
       );
     }
 
-    ContextResearchTool contextResearchTool() => ContextResearchTool(
-      memorySearch: _StubSearchBackend(),
-      kg: kg,
-      wikiSearch: WikiSearchSource(workspaceDir: '/tmp'),
-      synthesizer: (_) async => '{}',
-    );
-
-    test('MemorySaveTool', () => expectCompliant(MemorySaveTool(handler: (args) async => {})));
-
-    test('MemorySearchTool', () => expectCompliant(MemorySearchTool(handler: (args) async => {})));
-
-    test('MemoryReadTool', () => expectCompliant(MemoryReadTool(handler: (args) async => {})));
+    ContextResearchTool contextResearchTool() =>
+        ContextResearchTool(memorySearch: _StubSearchBackend(), kg: kg, synthesizer: (_) async => '{}');
 
     test('OnboardingCompleteTool', () => expectCompliant(OnboardingCompleteTool(workspaceDir: '/tmp')));
 
@@ -70,7 +68,9 @@ void main() {
 
     test('TavilySearchTool', () => expectCompliant(TavilySearchTool(provider: _StubSearchProvider())));
 
-    test('SessionsSendTool', () => expectCompliant(SessionsSendTool(delegate: _stubDelegate())));
+    test('SessionsSendTool', () => expectCompliant(SessionsSendTool(sessions: _stubSessions())));
+
+    test('SessionsSpawnTool', () => expectCompliant(SessionsSpawnTool(sessions: _stubSessions())));
 
     test('KG tools', () {
       expectCompliant(KgAddTool(kg: kg));
@@ -86,14 +86,15 @@ void main() {
 
     test('all registered object-type tools have additionalProperties: false (regression guard)', () {
       final tools = <McpTool>[
-        MemorySaveTool(handler: (args) async => {}),
+        MemoryApplyTool(handler: (args) async => {}),
         MemorySearchTool(handler: (args) async => {}),
         MemoryReadTool(handler: (args) async => {}),
         OnboardingCompleteTool(workspaceDir: '/tmp'),
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),
         TavilySearchTool(provider: _StubSearchProvider()),
-        SessionsSendTool(delegate: _stubDelegate()),
+        SessionsSpawnTool(sessions: _stubSessions()),
+        SessionsSendTool(sessions: _stubSessions()),
         KgAddTool(kg: kg),
         KgQueryTool(kg: kg),
         KgTimelineTool(kg: kg),

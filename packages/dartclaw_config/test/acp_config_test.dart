@@ -5,6 +5,29 @@ import 'support/load_config.dart';
 
 void main() {
   group('ACP harness config', () {
+    test('direct construction retains normalized lookup compatibility', () {
+      const agent = AcpAgentConfig(binary: 'goose');
+      const config = AcpConfig(agents: {' Goose ': agent});
+
+      expect(config['goose'], same(agent));
+    });
+
+    test('direct construction never routes blank IDs to a default provider', () {
+      const agent = AcpAgentConfig(binary: 'goose');
+      const config = AcpConfig(agents: {'claude': agent, ' ': agent});
+
+      expect(config[' '], isNull);
+      expect(const AcpConfig(agents: {' ': agent})['claude'], isNull);
+    });
+
+    test('direct construction rejects normalized lookup collisions', () {
+      const first = AcpAgentConfig(binary: 'goose-first');
+      const second = AcpAgentConfig(binary: 'goose-second');
+      const config = AcpConfig(agents: {'Goose': first, ' goose ': second});
+
+      expect(() => config['goose'], throwsStateError);
+    });
+
     test('parses a guarded direct ACP agent without provider capacity coupling', () {
       final config = loadYaml('''
 harness:
@@ -39,6 +62,24 @@ providers:
       expect(goose.securityClassification, AcpSecurityClassification.guardMediated);
       expect(config.providers['goose']!.poolSize, 2);
       expect(config.warnings, isEmpty);
+    });
+
+    test('normalizes ACP provider IDs and rejects normalization collisions', () {
+      final config = loadYaml('''
+harness:
+  acp:
+    agents:
+      Goose:
+        binary: goose-first
+        topology: direct
+      goose:
+        binary: goose-second
+        topology: direct
+''');
+
+      expect(config.harness.acp.agents.keys, ['goose']);
+      expect(config.harness.acp['GOOSE']?.binary, 'goose-first');
+      expect(config.warnings, anyElement(contains('collides with another provider after normalization')));
     });
 
     test('skips missing binary without creating an agent', () {
@@ -163,7 +204,7 @@ harness:
       expect(rejected.warnings, anyElement(contains('container_isolation_required: true')));
       expect(accepted.harness.acp['goose']!.containerProfile, AcpContainerProfile.restricted);
       expect(accepted.harness.acp['vibe']!.containerProfile, AcpContainerProfile.workspace);
-      expect(accepted.harness.acp['goose']!.securityClassification, AcpSecurityClassification.containerIsolationOnly);
+      expect(accepted.harness.acp['goose']!.securityClassification, AcpSecurityClassification.hostOnly);
       expect(accepted.warnings, isEmpty);
     });
   });

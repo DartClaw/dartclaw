@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import '../connected_command_support.dart';
 
 class TasksCreateCommand extends ConnectedCommand {
-  TasksCreateCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('title', help: 'Task title')
       ..addOption('description', help: 'Task description')

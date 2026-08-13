@@ -4,7 +4,7 @@
 
 | Language | Version | Notes |
 |----------|---------|-------|
-| Dart | `^3.12.0` | AOT-compiled host runtime. Built-in formatter, analyzer, test runner |
+| Dart | `^3.13.0` | AOT-compiled host runtime. Built-in formatter, analyzer, test runner |
 
 ## Dart SDK Packages
 

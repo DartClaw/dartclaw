@@ -1,6 +1,8 @@
 import '../events/dartclaw_event.dart';
 import '../events/event_bus.dart';
+
 import 'package:dartclaw_config/dartclaw_config.dart' show SlidingWindowRateLimiter;
+
 import 'channel.dart';
 import 'recipient_resolver.dart';
 import 'review_command_dispatcher.dart';
@@ -18,7 +20,7 @@ class ChannelTaskBridgeSupport {
   final EventBus? _eventBus;
   final ReviewCommandDispatcher? _reviewDispatcher;
 
-  ChannelTaskBridgeSupport({
+  new({
     ReviewCommandParser? reviewCommandParser,
     ChannelReviewHandler? reviewHandler,
     TaskLister? taskLister,

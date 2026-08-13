@@ -8,32 +8,63 @@ final _log = Logger('ClaudeProtocol');
 /// Shared between [ClaudeCodeHarness] and [ClaudeBinaryClassifier].
 const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
 
-/// Security-hardening env vars applied to every Claude harness spawn.
+/// Security-hardening env vars applied to every *host* (direct-spawn) Claude
+/// harness launch. Containerized spawns use [claudeContainerHardeningEnvVars].
 ///
-/// Used by both the direct-spawn path (host environment map) and the
-/// containerized-spawn path (`ContainerManager.exec(env:)`).
-///
-/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` also makes the claude CLI force
-/// `--permission-mode default`, printing a benign stderr notice ("Permission
-/// mode forced to default"). That is compatible with every DartClaw spawn
-/// path: workflow one-shot tasks carry their tool policy as `--settings`
+/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` makes the claude CLI scrub the env it
+/// hands to child processes, so an allowlisted child cannot read the host
+/// `ANTHROPIC_API_KEY`. The CLI also treats it as a broader hardening signal:
+/// it forces `--permission-mode default`, printing a benign stderr notice
+/// ("Permission mode forced to default"). That is compatible with every host
+/// spawn path: workflow one-shot tasks carry their tool policy as `--settings`
 /// permission rules, which default mode enforces identically in headless
 /// runs (non-allowed tools are denied, never prompted), and the long-lived
 /// harness fields permission requests over the control protocol. The notice
 /// is operational noise, not a failure cause — verified live 2026-07-07
 /// (allowed tools run, denied tools deny, skills invoke, structured output
-/// completes, with the var set).
+/// completes, with the var set). Full-access (`approval: never`) one-shots
+/// opt out with an explicit `=0` (see `ClaudeCliProvider`), because the
+/// forced default mode would neutralize their bypass posture.
 const claudeHardeningEnvVars = <String, String>{
   'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1',
   'DISABLE_AUTOUPDATER': '1',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
 };
 
+/// Env vars for containerized Claude spawns — [claudeHardeningEnvVars] with
+/// the subprocess env-scrub explicitly disabled.
+///
+/// The scrub buys nothing inside the container boundary: a containerized
+/// spawn starts from this minimal set (never the host environment), and the
+/// only `ANTHROPIC_API_KEY` present is the non-credential placeholder
+/// [containerClaudePlaceholderApiKey] — there is no host secret to scrub.
+/// Worse, the current claude CLI reads `=1` as a demand for host-sandbox
+/// tooling (bubblewrap) that cannot start under the container's own hardening
+/// (`--cap-drop ALL`, `no-new-privileges`). Tool enforcement for containerized
+/// spawns is the guard chain plus the host gateway, never Claude's permission
+/// mode. The explicit `0` wins over any image-level default.
+const claudeContainerHardeningEnvVars = <String, String>{
+  'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '0',
+  'DISABLE_AUTOUPDATER': '1',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+};
+
+/// Placeholder `ANTHROPIC_API_KEY` for a containerized Claude launch.
+///
+/// Not a credential, and deliberately not one: the claude CLI refuses at its
+/// own local auth gate before making any request when no key is present at all
+/// – `duration_api_ms: 0`, "Not logged in" – so a containerized client that is
+/// meant to be mediated would never reach the host bridge. This value only
+/// satisfies that local check. The host adapter drops every client-supplied
+/// credential header and injects the real host key last, so this string cannot
+/// reach a provider.
+const containerClaudePlaceholderApiKey = 'dartclaw-host-mediated-no-credential';
+
 // ---------------------------------------------------------------------------
 // Sealed class hierarchy for claude binary JSONL messages
 // ---------------------------------------------------------------------------
 
-sealed class ClaudeMessage {}
+sealed class ClaudeMessage;
 
 /// System init event — emitted by the CLI at the start of each turn response.
 final class SystemInit extends ClaudeMessage {
@@ -41,7 +72,7 @@ final class SystemInit extends ClaudeMessage {
   final int toolCount;
   final int? contextWindow;
 
-  SystemInit({this.sessionId, required this.toolCount, this.contextWindow});
+  new({this.sessionId, required this.toolCount, this.contextWindow});
 
   @override
   String toString() => 'SystemInit(sessionId: $sessionId, toolCount: $toolCount)';
@@ -51,7 +82,7 @@ final class SystemInit extends ClaudeMessage {
 final class StreamTextDelta extends ClaudeMessage {
   final String text;
 
-  StreamTextDelta(this.text);
+  new(this.text);
 
   @override
   String toString() => 'StreamTextDelta(text: ${text.length > 80 ? '${text.substring(0, 80)}...' : text})';
@@ -63,7 +94,7 @@ final class ToolUseBlock extends ClaudeMessage {
   final String id;
   final Map<String, dynamic> input;
 
-  ToolUseBlock({required this.name, required this.id, required this.input});
+  new({required this.name, required this.id, required this.input});
 
   @override
   String toString() => 'ToolUseBlock(name: $name, id: $id)';
@@ -75,7 +106,7 @@ final class ToolResultBlock extends ClaudeMessage {
   final String output;
   final bool isError;
 
-  ToolResultBlock({required this.toolId, required this.output, this.isError = false});
+  new({required this.toolId, required this.output, this.isError = false});
 
   @override
   String toString() => 'ToolResultBlock(toolId: $toolId, isError: $isError)';
@@ -87,7 +118,7 @@ final class ControlRequest extends ClaudeMessage {
   final String subtype;
   final Map<String, dynamic> data;
 
-  ControlRequest({required this.requestId, required this.subtype, required this.data});
+  new({required this.requestId, required this.subtype, required this.data});
 
   @override
   String toString() => 'ControlRequest(requestId: $requestId, subtype: $subtype)';
@@ -104,7 +135,7 @@ final class CompactBoundary extends ClaudeMessage {
   /// Token count before compaction. May be null if omitted by the binary.
   final int? preTokens;
 
-  CompactBoundary({required this.trigger, this.preTokens});
+  new({required this.trigger, this.preTokens});
 
   @override
   String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
@@ -120,7 +151,7 @@ final class TurnResult extends ClaudeMessage {
   final int? cacheReadInputTokens;
   final int? cacheCreationInputTokens;
 
-  TurnResult({
+  new({
     this.stopReason,
     this.costUsd,
     this.durationMs,

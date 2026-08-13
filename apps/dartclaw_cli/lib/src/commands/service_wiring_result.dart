@@ -25,7 +25,7 @@ WiringResult _assembleWiringResult(
     agentExecutionRepository: storage.agentExecutionRepository,
     taskService: storage.taskService,
     harness: harness.harness,
-    pool: harness.pool,
+    executions: harness.executions,
     heartbeat: scheduling.heartbeat,
     scheduleService: scheduling.scheduleService,
     kvService: storage.kvService,
@@ -36,11 +36,12 @@ WiringResult _assembleWiringResult(
     authEnabled: harness.authEnabled,
     tokenService: harness.tokenService,
     eventBus: ctx.eventBus,
-    containerManagers: security.containerManagers,
+    containerAuthorities: security.containersEnabled ? security.acquireContainerAuthority : null,
     projectService: project.projectService,
     configNotifier: ctx.configNotifier,
     outboundMcpPool: outboundMcpPool,
     workflowRegistry: workflowRegistry,
+    prepareExecutionShutdown: task.prepareExecutionShutdown,
     shutdownExtras: () async {
       try {
         lifecycleManager?.dispose();
@@ -48,6 +49,7 @@ WiringResult _assembleWiringResult(
         await workflowService.dispose();
         await alertRouter.cancel();
         await channel.taskNotificationSubscriber?.dispose();
+        await harness.disposePrimaryContainer();
         await security.dispose();
         groupSessionInit.dispose();
         await scopeReconciler.cancel();
@@ -56,7 +58,11 @@ WiringResult _assembleWiringResult(
         await project.dispose();
         await advisorSubscriber?.dispose();
       } finally {
-        await outboundMcpPool?.close();
+        try {
+          await storage.memoryCorpus.close();
+        } finally {
+          await outboundMcpPool?.close();
+        }
       }
     },
   );

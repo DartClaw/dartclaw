@@ -36,7 +36,7 @@ class GoogleChatWebhookHandler {
   final MessageDeduplicator? _deduplicator;
   final WorkspaceEventsManager? _subscriptionManager;
 
-  GoogleChatWebhookHandler({
+  new({
     required this.channel,
     required this.jwtVerifier,
     required this.config,

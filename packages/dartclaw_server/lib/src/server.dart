@@ -22,7 +22,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
-import 'api/agent_routes.dart';
+import 'api/runner_routes.dart';
 import 'api/chat_command_handler.dart';
 import 'api/config_api_routes.dart';
 import 'api/workflow_routes.dart';
@@ -43,6 +43,7 @@ import 'api/task_sse_routes.dart';
 import 'api/trace_routes.dart';
 import 'api/webhook_routes.dart';
 import 'audit/audit_log_reader.dart';
+import 'execution_coordinator.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/auth_rate_limiter.dart';
 import 'auth/origin_host_guard.dart';
@@ -61,7 +62,7 @@ import 'restart_service.dart';
 import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
-import 'task/agent_observer.dart';
+import 'task/runner_observer.dart';
 import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_event_recorder.dart';
@@ -111,7 +112,7 @@ class DartclawServer {
   TaskEventRecorder? get taskEventRecorder => _tasks.taskEventRecorder;
 
   /// Internal constructor — prefer [DartclawServerBuilder] to assemble instances.
-  DartclawServer.fromDeps({
+  new fromDeps({
     required ServerCoreDeps core,
     required ServerTurnDeps turn,
     required ServerChannelDeps channels,
@@ -229,13 +230,14 @@ class DartclawServer {
     for (final sessionId in _turn.turns.activeSessionIds.toList()) {
       await _turn.turns.cancelTurn(sessionId);
     }
+    await _tasks.executionDrainer?.call();
     await _channels.spaceEventsWiring?.dispose();
     await _observability.eventBusSseBridge?.cancel();
     await _observability.sseBroadcast?.dispose();
     await _channels.channelManager?.dispose();
-    final pool = _turn.pool;
-    if (pool != null) {
-      await pool.dispose();
+    final executions = _turn.executions;
+    if (executions != null) {
+      await executions.dispose();
     } else {
       await _core.worker.dispose();
     }
@@ -260,8 +262,8 @@ class DartclawServer {
       if (_tasks.mergeExecutor == null) {
         throw StateError('taskService requires mergeExecutor');
       }
-      if (_tasks.agentObserver == null) {
-        throw StateError('taskService requires agentObserver');
+      if (_tasks.runnerObserver == null) {
+        throw StateError('taskService requires runnerObserver');
       }
     }
 
@@ -302,7 +304,7 @@ class DartclawServer {
     _mountTaskRoutes(router);
     _mountWorkflowRoutes(router);
     _mountGoogleChatSubscriptionRoutes(router);
-    _mountAgentRoutes(router);
+    _mountRunnerRoutes(router);
     _mountSessionRoutes(router);
     _mountWebRoutes(router);
 
@@ -320,9 +322,14 @@ class DartclawServer {
   }
 
   void _mountMcpRoutes(Router router) {
-    final gt = _core.gatewayToken;
-    if (gt != null) {
-      router.post('/mcp', mcpRoute(_mcpHandler, gatewayToken: gt));
+    final gatewayToken = _core.gatewayToken;
+    final host = _core.config?.server.host;
+    final unauthenticatedLoopback = !_core.authEnabled && host != null && isLoopbackHost(host);
+    if (gatewayToken != null || unauthenticatedLoopback) {
+      router.post(
+        '/mcp',
+        mcpRoute(_mcpHandler, gatewayToken: gatewayToken, requireLoopbackHost: unauthenticatedLoopback),
+      );
     }
   }
 
@@ -451,6 +458,7 @@ class DartclawServer {
         restartService: _core.restartService,
         sseBroadcast: _observability.sseBroadcast,
         scheduleService: _observability.scheduleService,
+        memoryStatusReader: _observability.memoryStatusService?.getStatus,
         whatsAppChannel: _channels.whatsAppChannel,
         signalChannel: _channels.signalChannel,
         googleChatChannel: _channels.googleChatWebhookHandler?.channel,
@@ -562,7 +570,7 @@ class DartclawServer {
       final taskSseRouter = taskSseRoutes(
         taskService,
         eventBus,
-        observer: _tasks.agentObserver,
+        observer: _tasks.runnerObserver,
         projects: _tasks.projectService,
         progressTracker: _tasks.progressTracker,
         workflows: _web.workflowService,
@@ -606,11 +614,11 @@ class DartclawServer {
     router.mount('/', subRouter.call);
   }
 
-  void _mountAgentRoutes(Router router) {
-    final agentObs = _tasks.agentObserver;
-    if (agentObs != null) {
-      final agentRouter = agentRoutes(agentObs);
-      router.mount('/', agentRouter.call);
+  void _mountRunnerRoutes(Router router) {
+    final observer = _tasks.runnerObserver;
+    if (observer != null) {
+      final runnerRouter = runnerRoutes(observer);
+      router.mount('/', runnerRouter.call);
     }
   }
 
@@ -683,7 +691,7 @@ class DartclawServer {
       goalService: _tasks.goalService,
       projectService: _tasks.projectService,
       eventBus: _observability.eventBus,
-      agentObserver: _tasks.agentObserver,
+      runnerObserver: _tasks.runnerObserver,
       kvService: _core.kvService,
       traceService: _tasks.traceService,
       taskEventService: _tasks.taskEventService,
@@ -735,10 +743,11 @@ class DartclawServer {
       // every request admin context so admin-gated routes remain usable.
       pipeline = pipeline.addMiddleware(localAdminMiddleware());
     }
-    // Origin/Host guard: enforces same-origin writes for cookie-authenticated
-    // sessions. Must run after auth middleware so the cookie-auth context flag
-    // is set. Bearer-token and no-auth requests are automatically exempt.
-    pipeline = pipeline.addMiddleware(originHostGuardMiddleware());
+    // Origin/Host guard: enforces same-origin browser writes after auth has
+    // identified cookie and local-admin requests. Origin-less API clients pass.
+    pipeline = pipeline.addMiddleware(
+      originHostGuardMiddleware(localAdminHost: _core.config?.server.host ?? 'localhost'),
+    );
     // Cascade: pass through to styled 404 when router finds no matching route.
     final cascade = Cascade()
         .add(router.call)

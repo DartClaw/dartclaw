@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/templates/project_form.dart';
@@ -248,8 +248,7 @@ void main() {
             'kind': 'diff',
             'name': 'diff.json',
             'content': '{"filesChanged":1}',
-            'renderedHtml':
-                '<div class="task-diff-summary">1 file changed</div><section class="task-diff-file"><strong>lib/main.dart</strong></section>',
+            'renderedHtml': '<div class="task-diff-summary">1 file changed</div><section class="task-diff-file"><strong>lib/main.dart</strong></section>',
           },
         ],
       );

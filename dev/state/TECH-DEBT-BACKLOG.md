@@ -31,6 +31,19 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C06 | Dedupe repeated-poll outage feedback to one persistent toast per failing poll source, cleared on recovery. Polling cadence unchanged. |
 | C09 | Amend canon with a keyboard/ARIA disclosure primitive (native button/details-summary + `aria-expanded`), aligned with the tool-call disclosure card, and apply it to workflow-step disclosure. |
 
+## TD-119 – Logical-agent session cancellation lacks caller-to-child causality
+
+**Status**: Scheduled for 0.27 Phase A alongside TD-110's MCP dispatch seam
+**Severity**: Medium (cancelled/timed-out callers can leave a child holding a worker)
+**Found**: 2026-08-09, 0.24 logical-agent session retrospective
+**Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, logical-agent session ownership, turn cancellation
+
+**Context**: A session tool creates and awaits a child session without receiving the caller session/turn identity. Caller cancellation therefore cannot identify its child, and the MCP server's 120-second `Future.timeout` returns without cancelling the underlying child future. A global “cancel active child” shortcut is unsafe with concurrent callers.
+
+**Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Design the shared context once with TD-110's dispatch-level guard/audit seam.
+
+**Target**: 0.27 Phase A.
+
 ## TD-118 – Inline remediation loop halts on `maxIterations` before the verify-fix gate
 
 **Status**: Open – deferred as the deterministic floor under ADR-044 (orchestration agent); needs loop-control integration decision
@@ -118,7 +131,7 @@ Last reviewed: 2026-05-30
 
 **Context**: Codex CLI currently has no native per-tool allowlist equivalent to Claude permission patterns. `allowedTools` is advisory for Codex, while read-only sandbox and approval policy carry the actual enforcement. A stronger restriction surface may exist through MCP server scoping, profile config, or shell environment policy, but that requires provider-specific investigation.
 
-**Fix**: Research Codex-supported restriction levers, choose a minimal enforceable mapping for DartClaw workflow tool categories, and add contract tests for the selected behavior.
+**Fix**: Research Codex-supported restriction levers, choose a minimal enforceable mapping for DartClaw workflow tool categories, and add contract tests plus a pinned-binary matrix showing which command, file-change, MCP, and web-search operations actually emit approvals.
 
 **Trigger**: Need to run non-read-only Codex workflow steps with a narrowed tool surface, or upstream Codex adds a stable per-tool allowlist/profile capability.
 
@@ -321,7 +334,7 @@ Last reviewed: 2026-05-18
 **Found**: 2026-04-21 workflow↔task boundary review (pre-ADR-023 drafting)
 **Affects**: `packages/dartclaw_server/lib/src/task/task_executor.dart`, `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart`
 
-**Context**: `TaskExecutor._executeCore` branches on `_isWorkflowOrchestrated(task)` to route workflow-orchestrated tasks through `_executeWorkflowOneShotTask()` (via `WorkflowCliRunner`) instead of the normal `reserveTurn()` → `HarnessPool` → `TurnRunner` path. After 0.16.5 S16 decomposes `task_executor.dart`, the branch becomes two methods on `_TaskTurnRunner` (`runWorkflowOneShot` / `runNormal`) – a structural improvement, but the `if (_isWorkflowOrchestrated(task))` dispatch still lives in `_executeCore` as an imperative statement, and the two execution strategies sit on the same concrete class rather than behind a polymorphic interface.
+**Context**: `TaskExecutor._executeCore` branches on `_isWorkflowOrchestrated(task)` to route workflow-orchestrated tasks through `_executeWorkflowOneShotTask()` (via `WorkflowCliRunner`) under a capacity-only lease instead of the normal reusable-worker turn path. After 0.16.5 S16 decomposes `task_executor.dart`, the branch becomes two methods on `_TaskTurnRunner` (`runWorkflowOneShot` / `runNormal`) – a structural improvement, but the `if (_isWorkflowOrchestrated(task))` dispatch still lives in `_executeCore` as an imperative statement, and the two execution strategies sit on the same concrete class rather than behind a polymorphic interface.
 
 **Current state**: Acceptable. One branch with two clear destinations is not a maintenance burden today. ADR-023 names the branch as intentional; S28's fitness test guards the package boundary below it.
 
@@ -352,3 +365,17 @@ Last reviewed: 2026-05-18
 **References**: [ADR-043](../adrs/043-cli-task-execution-provider-placement.md) (placement decision) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
 
 Last reviewed: 2026-06-27
+
+## TD-121 – Per-authority container names unreclaimable after abnormal exit (no prefix/label sweep)
+
+**Severity**: High (one leaked running container per in-flight authority, accumulating across restarts)
+**Found**: 2026-08-11, 0.24 execution-isolation Critic pass
+**Affects**: `ContainerManager.start()` leak reclamation, per-authority container naming
+
+**Context**: container names embed a per-process epoch specifically so they never repeat, but `ContainerManager.start()` reclaims leaks only by removing the *same* deterministic name, and there is no prefix- or label-based sweep. SIGKILL, OOM, or a shutdown-timeout force-exit therefore leaves one running container per in-flight authority, accumulating across restarts. A startup sweep over the `dartclaw-<hash(dataDir)>-` prefix would restore the self-healing the deterministic names used to provide.
+
+**Re-verified 2026-08-11 (0.24 scoped-host-gateway)**: unchanged and now broader in reach — every containerized execution, including each workflow one-shot turn, creates and destroys its own container, so an abnormal exit leaks one container per in-flight authority rather than per profile.
+
+**Needs decision**: multi-instance safety of a `dartclaw-<hash(dataDir)>-` prefix sweep when instances share a data dir.
+
+**Note**: the scoped-host-gateway and container-parity stories of the active 0.24 execution-isolation plan rework these surfaces and may resolve or reshape this item – re-verify before implementing. Full detail: FIS observations, `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md`, Run 2026-08-11 20:13 UTC (repoint to the canonical private-repo spec path if this entry outlives the bundle).

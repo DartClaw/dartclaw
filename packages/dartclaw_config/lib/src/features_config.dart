@@ -18,7 +18,7 @@ class ThreadBindingFeatureConfig {
   final int idleTimeoutMinutes;
 
   /// Creates a thread binding feature config.
-  const ThreadBindingFeatureConfig({this.enabled = false, this.idleTimeoutMinutes = 60});
+  const new({this.enabled = false, this.idleTimeoutMinutes = 60});
 
   @override
   bool operator ==(Object other) =>
@@ -29,7 +29,7 @@ class ThreadBindingFeatureConfig {
   int get hashCode => Object.hash(enabled, idleTimeoutMinutes);
 
   /// Parses from a YAML map. Returns defaults when [yaml] is `null` or empty.
-  factory ThreadBindingFeatureConfig.fromYaml(Map<String, dynamic>? yaml) {
+  factory fromYaml(Map<String, dynamic>? yaml) {
     if (yaml == null) return const ThreadBindingFeatureConfig();
     final timeoutRaw = yaml['idle_timeout_minutes'];
     final timeoutMinutes = timeoutRaw is int ? timeoutRaw : 60;
@@ -48,7 +48,7 @@ class FeaturesConfig {
   final ThreadBindingFeatureConfig threadBinding;
 
   /// Creates a features config.
-  const FeaturesConfig({this.threadBinding = const ThreadBindingFeatureConfig()});
+  const new({this.threadBinding = const ThreadBindingFeatureConfig()});
 
   @override
   bool operator ==(Object other) =>
@@ -58,7 +58,7 @@ class FeaturesConfig {
   int get hashCode => threadBinding.hashCode;
 
   /// Parses from a YAML map. Returns defaults when [yaml] is `null` or empty.
-  factory FeaturesConfig.fromYaml(Map<String, dynamic>? yaml) {
+  factory fromYaml(Map<String, dynamic>? yaml) {
     if (yaml == null) return const FeaturesConfig();
     final threadBindingRaw = yaml['thread_binding'];
     final threadBinding = threadBindingRaw is Map

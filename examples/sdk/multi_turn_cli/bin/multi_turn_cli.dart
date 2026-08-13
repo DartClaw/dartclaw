@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'dart:async';
 import 'dart:io';
 
@@ -91,7 +89,7 @@ Future<void> _runLiveTurn(_ConversationStore store, String sessionId, String pro
 }
 
 final class _ConversationStore {
-  _ConversationStore({required String baseDir})
+  new({required String baseDir})
     : _sessions = SessionService(baseDir: baseDir),
       _messages = MessageService(baseDir: baseDir);
 

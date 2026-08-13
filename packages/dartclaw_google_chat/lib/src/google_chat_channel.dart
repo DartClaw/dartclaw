@@ -46,7 +46,7 @@ class GoogleChatChannel extends Channel {
   final Map<String, String> _pendingReactions = {};
 
   /// Creates a Google Chat channel adapter.
-  GoogleChatChannel({
+  new({
     required this.config,
     required this.restClient,
     ChannelManager? channelManager,

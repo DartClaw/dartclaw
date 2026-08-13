@@ -28,7 +28,7 @@ class GoogleJwtVerifier implements core.GoogleJwtVerifier {
   /// Per-issuer cert caches (legacy and OIDC use different key sets).
   final Map<String, _CertCacheEntry> _certCaches = {};
 
-  GoogleJwtVerifier({
+  new({
     required GoogleChatAudienceConfig audience,
     http.Client? httpClient,
     Duration cacheTtl = const Duration(minutes: 10),
@@ -204,5 +204,5 @@ class GoogleJwtVerifier implements core.GoogleJwtVerifier {
 class _CertCacheEntry {
   final Map<String, RSAPublicKey> certs;
   final DateTime expiry;
-  _CertCacheEntry(this.certs, this.expiry);
+  new(this.certs, this.expiry);
 }

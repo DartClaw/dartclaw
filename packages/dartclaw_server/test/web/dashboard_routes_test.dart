@@ -1,15 +1,15 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
+import '../execution_coordinator_test_support.dart';
 
 String _staticDir() {
   const fromPkg = 'lib/src/static';
@@ -30,7 +30,7 @@ void main() {
   late WorktreeManager worktreeManager;
   late TaskFileGuard taskFileGuard;
   late MergeExecutor mergeExecutor;
-  late AgentObserver agentObserver;
+  late RunnerObserver runnerObserver;
   late DartclawServer server;
   late Handler handler;
 
@@ -52,10 +52,8 @@ void main() {
     taskFileGuard = TaskFileGuard();
     final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
     mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
-    agentObserver = AgentObserver(
-      pool: HarnessPool(
-        runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
-      ),
+    runnerObserver = RunnerObserver(
+      executions: coordinatorForRunners([TurnRunner(harness: worker, messages: messages, behavior: behavior)]),
     );
 
     server =
@@ -86,14 +84,13 @@ void main() {
               ..worktreeManager = worktreeManager
               ..taskFileGuard = taskFileGuard
               ..mergeExecutor = mergeExecutor
-              ..agentObserver = agentObserver)
+              ..runnerObserver = runnerObserver)
             .build();
     handler = server.handler;
   });
 
   tearDown(() async {
     await server.shutdown();
-    agentObserver.dispose();
     await taskService.dispose();
     await kvService.dispose();
     if (tempDir.existsSync()) {
@@ -231,7 +228,7 @@ String _exampleConfigPath(String fileName) {
 }
 
 typedef _ConfiguredServerFixture = ({
-  AgentObserver agentObserver,
+  RunnerObserver runnerObserver,
   Handler handler,
   KvService kvService,
   DartclawServer server,
@@ -258,10 +255,8 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
   final taskFileGuard = TaskFileGuard();
   final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
   final mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
-  final agentObserver = AgentObserver(
-    pool: HarnessPool(
-      runners: [TurnRunner(harness: worker, messages: messages, behavior: behavior)],
-    ),
+  final runnerObserver = RunnerObserver(
+    executions: coordinatorForRunners([TurnRunner(harness: worker, messages: messages, behavior: behavior)]),
   );
   final healthService = includeHealthService
       ? HealthService(
@@ -304,11 +299,11 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
             ..worktreeManager = worktreeManager
             ..taskFileGuard = taskFileGuard
             ..mergeExecutor = mergeExecutor
-            ..agentObserver = agentObserver)
+            ..runnerObserver = runnerObserver)
           .build();
 
   return (
-    agentObserver: agentObserver,
+    runnerObserver: runnerObserver,
     handler: server.handler,
     kvService: kvService,
     server: server,
@@ -319,7 +314,6 @@ _ConfiguredServerFixture _buildConfiguredServer(DartclawConfig config, {bool inc
 
 Future<void> _disposeFixture(_ConfiguredServerFixture fixture) async {
   await fixture.server.shutdown();
-  fixture.agentObserver.dispose();
   await fixture.taskService.dispose();
   await fixture.kvService.dispose();
   if (fixture.tempDir.existsSync()) {

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
 import 'package:logging/logging.dart';
@@ -54,7 +54,7 @@ Future<void> Function(String taskId)? buildAutoAcceptCallback({
 /// Constructs and exposes task-execution layer services.
 ///
 /// Owns worktree manager, merge executor, task file guard, task review service,
-/// diff generator, artifact collector, agent observer, and task executor.
+/// diff generator, artifact collector, runner observer, and task executor.
 ///
 /// Split into two phases:
 /// - [wirePreServer]: builds services needed by [ChannelWiring] (review handler)
@@ -62,25 +62,38 @@ Future<void> Function(String taskId)? buildAutoAcceptCallback({
 /// - [wirePostServer]: builds services that need a live [TurnManager] from the
 ///   constructed server.
 class TaskWiring {
-  TaskWiring({
+  new({
     required this.config,
     required String dataDir,
     required EventBus eventBus,
     required StorageWiring storage,
     ProjectWiring? project,
-    Map<String, ContainerExecutor> containerManagers = const <String, ContainerExecutor>{},
+    ContainerAuthorityProvider? containerAuthorities,
+    Set<String> Function(List<String>? allowedTools)? bridgedMcpToolsResolver,
+    required ProviderExecutionInventory executionInventory,
+    required MessageRedactor messageRedactor,
   }) : _dataDir = dataDir,
        _eventBus = eventBus,
        _storage = storage,
        _project = project,
-       _containerManagers = containerManagers;
+       _containerAuthorities = containerAuthorities,
+       _bridgedMcpToolsResolver = bridgedMcpToolsResolver,
+       _executionInventory = executionInventory,
+       _messageRedactor = messageRedactor;
 
   final DartclawConfig config;
   final String _dataDir;
   final EventBus _eventBus;
   final StorageWiring _storage;
   final ProjectWiring? _project;
-  final Map<String, ContainerExecutor> _containerManagers;
+  final ContainerAuthorityProvider? _containerAuthorities;
+  final ProviderExecutionInventory _executionInventory;
+  final MessageRedactor _messageRedactor;
+
+  /// Derives a containerized workflow step's bridged-MCP grant. Owned by
+  /// `HarnessWiring`; injected here so the workflow runner uses the single
+  /// grant authority rather than a divergent local copy.
+  final Set<String> Function(List<String>? allowedTools)? _bridgedMcpToolsResolver;
 
   static final _log = Logger('TaskWiring');
 
@@ -92,7 +105,7 @@ class TaskWiring {
   late PrCreator _prCreator;
   late DiffGenerator _diffGenerator;
   late ArtifactCollector _artifactCollector;
-  late AgentObserver _agentObserver;
+  late RunnerObserver _runnerObserver;
   late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
   late TaskExecutor _taskExecutor;
   late WorkflowCliRunner _workflowCliRunner;
@@ -100,6 +113,7 @@ class TaskWiring {
   late TaskCancellationSubscriber _taskCancellationSubscriber;
   late ContainerTaskFailureSubscriber _containerTaskFailureSubscriber;
   late CompactionTaskEventSubscriber _compactionTaskEventSubscriber;
+  Future<void>? _prepareShutdownFuture;
 
   WorktreeManager get worktreeManager => _worktreeManager;
   MergeExecutor get mergeExecutor => _mergeExecutor;
@@ -109,7 +123,7 @@ class TaskWiring {
   PrCreator get prCreator => _prCreator;
   DiffGenerator get diffGenerator => _diffGenerator;
   ArtifactCollector get artifactCollector => _artifactCollector;
-  AgentObserver get agentObserver => _agentObserver;
+  RunnerObserver get runnerObserver => _runnerObserver;
   TaskExecutor get taskExecutor => _taskExecutor;
 
   /// The channel review handler — available after [wirePreServer].
@@ -158,11 +172,11 @@ class TaskWiring {
   /// Wires task services that require a live [TurnManager].
   ///
   /// Must be called after server construction. [turns] comes from the
-  /// newly-built server, [pool] from [HarnessWiring].
+  /// newly-built server, [executions] from [HarnessWiring].
   Future<void> wirePostServer({
     required TurnManager turns,
-    required HarnessPool pool,
-    SpawnTaskRunner? onSpawnNeeded,
+    required ExecutionCoordinator executions,
+    required ExecutionPolicyResolver policyResolver,
   }) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
@@ -176,7 +190,10 @@ class TaskWiring {
       baseRef: config.tasks.worktreeBaseRef,
     );
 
-    _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: _storage.taskService);
+    _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(
+      tasks: _storage.taskService,
+      policyResolver: policyResolver,
+    );
     _containerTaskFailureSubscriber.subscribe(_eventBus);
 
     _taskCancellationSubscriber = TaskCancellationSubscriber(tasks: _storage.taskService, turns: turns);
@@ -188,18 +205,25 @@ class TaskWiring {
     );
     _compactionTaskEventSubscriber.subscribe(_eventBus);
 
-    _agentObserver = AgentObserver(pool: pool, eventBus: _eventBus);
+    _runnerObserver = RunnerObserver(executions: executions, eventBus: _eventBus);
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    final workflowProviderIds = <String>{
+      config.agent.provider,
+      ...config.providers.entries.keys,
+    }.map(ProviderIdentity.normalize).toSet();
     _workflowCliRunner = WorkflowCliRunner(
       providers: {
-        for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
+        for (final providerId in workflowProviderIds)
           providerId: WorkflowCliProviderConfig(
             executable: _resolveWorkflowProviderExecutable(config, providerId),
             environment: _providerEnvironmentForWorkflow(providerId, credentialRegistry),
             options: _providerOptionsForWorkflow(config, providerId),
           ),
       },
-      containerManagers: _containerManagers,
+      containerAuthorities: _containerAuthorities,
+      bridgedMcpToolsResolver: _bridgedMcpToolsResolver,
+      executionInventory: _executionInventory,
+      diagnosticRedactor: _messageRedactor,
       eventBus: _eventBus,
     );
 
@@ -218,8 +242,9 @@ class TaskWiring {
         projectService: _project?.projectService,
         kvService: _storage.kvService,
         eventBus: _eventBus,
+        policyResolver: policyResolver,
       ),
-      runners: TaskExecutorRunners(turns: turns, observer: _agentObserver, workflowCliRunner: _workflowCliRunner),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _workflowCliRunner),
       limits: TaskExecutorLimits(
         maxMemoryBytes: config.memory.maxBytes,
         compactInstructions: config.context.compactInstructions,
@@ -231,7 +256,6 @@ class TaskWiring {
         stallAction: config.governance.turnProgress.stallAction,
         defaultStepTimeout: config.governance.turnProgress.maxDuration,
       ),
-      onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
         reviewTask: (taskId) => _taskReviewService.review(taskId, 'accept', trigger: 'auto_accept'),
@@ -271,10 +295,17 @@ class TaskWiring {
     );
   }
 
-  Future<void> dispose() async {
+  Future<void> prepareExecutionShutdown() => _prepareShutdownFuture ??= Future(() async {
+    _taskExecutor.stopPolling();
     await _workflowCliRunner.cancelInflight(cancelFutureProcesses: true);
-    await _taskExecutor.stop();
-    _agentObserver.dispose();
+  });
+
+  Future<void> drainExecutions() => _taskExecutor.drain();
+
+  Future<void> dispose() async {
+    await prepareExecutionShutdown();
+    await drainExecutions();
+    await _runnerObserver.dispose();
     await _taskCancellationSubscriber.dispose();
     await _containerTaskFailureSubscriber.dispose();
     await _compactionTaskEventSubscriber.dispose();
@@ -283,10 +314,7 @@ class TaskWiring {
 }
 
 Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
-  final environment = SafeProcess.sanitize(
-    baseEnvironment: Platform.environment,
-    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-  );
+  final environment = SafeProcess.sanitize(baseEnvironment: Platform.environment);
   final apiKey = registry.getApiKey(providerId);
   if (apiKey != null) {
     for (final envVar in CredentialRegistry.envVarsFor(providerId)) {

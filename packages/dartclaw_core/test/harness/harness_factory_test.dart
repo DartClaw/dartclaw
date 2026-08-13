@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, PlatformCapabilities;
+import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, AcpAgentTopology, PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
@@ -16,16 +16,19 @@ final class _FakeContainerExecutor implements ContainerExecutor {
   @override
   final bool hasProjectMount = true;
 
-  const _FakeContainerExecutor();
+  @override
+  final String generatedStateDir = '/host/state';
+
+  @override
+  final String providerBridgeUrl = 'http://127.0.0.1:8080';
+
+  @override
+  final String? mcpBridgeUrl = null;
+
+  const new();
 
   @override
   String? containerPathForHostPath(String hostPath) => hostPath;
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
 
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) {
@@ -59,7 +62,7 @@ void main() {
         containerManager: containerManager,
         guardChain: guardChain,
         auditLogger: auditLogger,
-        onMemorySave: (payload) async => {'saved': payload},
+        onMemoryApply: (payload) async => {'applied': payload},
         onMemorySearch: (payload) async => {'searched': payload},
         onMemoryRead: (payload) async => {'read': payload},
       );
@@ -77,9 +80,21 @@ void main() {
       expect(claude.guardChain, same(guardChain));
       expect(claude.auditLogger, same(auditLogger));
       expect(claude.providerOptions, isEmpty);
-      expect(claude.onMemorySave, isNotNull);
+      expect(claude.onMemoryApply, isNotNull);
       expect(claude.onMemorySearch, isNotNull);
       expect(claude.onMemoryRead, isNotNull);
+    });
+
+    test('gives the codex harness the same container as claude', () {
+      // Without this the effective policy would silently mean host execution
+      // for one provider and container execution for the other.
+      const containerManager = _FakeContainerExecutor();
+      final harness = HarnessFactory().create(
+        'codex',
+        const HarnessFactoryConfig(cwd: '/tmp/workspace', containerManager: containerManager),
+      );
+
+      expect((harness as CodexHarness).containerManager, same(containerManager));
     });
 
     test('passes claude providerOptions through the factory config', () {
@@ -200,17 +215,15 @@ void main() {
         const AcpAgentConfig(binary: 'goose', args: ['acp'], containerIsolationRequired: false),
       );
 
-      final harness =
-          factory.create(
-                'goose-direct',
-                HarnessFactoryConfig(
-                  cwd: '/tmp/workspace',
-                  guardChain: guardChain,
-                  acpPermissionDecision: permissionDecision,
-                  acpReverseCallAudit: audit,
-                ),
-              )
-              as AcpHarness;
+      final harness = factory.create(
+        'goose-direct',
+        HarnessFactoryConfig(
+          cwd: '/tmp/workspace',
+          guardChain: guardChain,
+          acpPermissionDecision: permissionDecision,
+          acpReverseCallAudit: audit,
+        ),
+      ) as AcpHarness;
 
       expect(harness.guardChain, same(guardChain));
       expect(harness.permissionDecision, same(permissionDecision));
@@ -228,6 +241,36 @@ void main() {
             (error) => error.message,
             'message',
             contains('requires container isolation but no container manager is wired'),
+          ),
+        ),
+      );
+    });
+
+    test('ACP agents refuse a supplied container manager instead of discarding it', () {
+      final factory = HarnessFactory();
+      factory.registerAcpAgent(
+        'goose-direct',
+        const AcpAgentConfig(binary: 'goose', args: ['acp'], topology: AcpAgentTopology.direct),
+      );
+
+      expect(
+        () => factory.create(
+          'goose-direct',
+          const HarnessFactoryConfig(
+            cwd: '/tmp/workspace',
+            containerManager: _FakeContainerExecutor(),
+            environment: {'ANTHROPIC_API_KEY': 'host-secret'},
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('was given a container manager'),
+              contains('no container provider-credential or host-capability mediation'),
+              isNot(contains('host-secret')),
+            ),
           ),
         ),
       );

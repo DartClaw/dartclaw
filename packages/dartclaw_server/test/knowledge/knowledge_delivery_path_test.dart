@@ -43,7 +43,7 @@ void main() {
       failureHook: (text) {
         if (text.contains('force-ingest-failure')) throw StateError('forced ingestion failure');
       },
-      onMemorySave: (args) async => const {},
+      onMemoryObserve: (args, context) async => const {},
     );
     final delivery = RecordingDeliveryService(sessions: sessions);
     final schedule = ScheduleService(turns: turns, sessions: sessions, jobs: [], delivery: delivery);
@@ -72,7 +72,7 @@ void main() {
       scheduleType: ScheduleType.interval,
       intervalMinutes: 60,
       deliveryMode: DeliveryMode.announce,
-      onExecute: () async => wiki.lint().summary(),
+      onExecute: () async => (await wiki.lint()).summary(),
     );
     await schedule.executeJobForTesting(lintJob);
 

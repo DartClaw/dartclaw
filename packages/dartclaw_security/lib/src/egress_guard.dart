@@ -7,7 +7,7 @@ final class EgressGuard extends Guard {
   final Map<String, Set<String>> allowlist;
 
   /// Creates an egress guard from server names mapped to allowed tool names.
-  EgressGuard({required Map<String, Iterable<String>> allowlist})
+  new({required Map<String, Iterable<String>> allowlist})
     : allowlist = Map.unmodifiable({for (final entry in allowlist.entries) entry.key: Set.unmodifiable(entry.value)});
 
   @override

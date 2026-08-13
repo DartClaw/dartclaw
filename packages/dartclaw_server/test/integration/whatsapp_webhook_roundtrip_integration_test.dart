@@ -49,6 +49,9 @@ class _ChannelWorker implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -59,6 +62,7 @@ class _ChannelWorker implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,

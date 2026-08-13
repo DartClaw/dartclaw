@@ -5,9 +5,9 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import '../api/sse_broadcast.dart';
-import '../behavior/memory_consolidator.dart';
 import 'delivery.dart';
 import 'scheduled_job.dart';
+import 'system_action.dart';
 
 final _log = Logger('ScheduleService');
 
@@ -34,13 +34,16 @@ class ScheduleTurnFailureException implements Exception {
   final String message;
   final Object? cause;
 
-  ScheduleTurnFailureException(this.message, {this.cause});
+  new(this.message, {this.cause});
 
   @override
   String toString() => cause != null
       ? 'ScheduleTurnFailureException: $message (cause: $cause)'
       : 'ScheduleTurnFailureException: $message';
 }
+
+/// Result of attempting to start a runnable scheduling entry immediately.
+enum RunScheduledJobResult { started, alreadyRunning, notFound }
 
 /// Manages time-based job execution: cron, interval, and one-time schedules.
 ///
@@ -51,8 +54,12 @@ class ScheduleService implements Reconfigurable {
   final TurnManager _turns;
   final SessionService _sessions;
   final List<ScheduledJob> _jobs;
+  final Map<String, SystemAction> _systemActions;
   final DeliveryService _delivery;
-  final MemoryConsolidator? _consolidator;
+  final String? _workerProviderId;
+  final ExecutionPolicy? _workerPolicy;
+  final Timer Function(Duration duration, void Function() callback) _timerFactory;
+  final DateTime Function() _now;
 
   final Map<String, Timer> _timers = {};
   final Set<String> _running = {};
@@ -60,19 +67,27 @@ class ScheduleService implements Reconfigurable {
   bool _started = false;
   final EventBus? _eventBus;
 
-  ScheduleService({
+  new({
     required TurnManager turns,
     required SessionService sessions,
     required List<ScheduledJob> jobs,
+    List<SystemAction> systemActions = const [],
     DeliveryService? delivery,
-    MemoryConsolidator? consolidator,
     EventBus? eventBus,
+    String? workerProviderId,
+    ExecutionPolicy? workerPolicy,
+    Timer Function(Duration duration, void Function() callback)? timerFactory,
+    DateTime Function()? now,
   }) : _turns = turns,
        _sessions = sessions,
-       _jobs = jobs,
+       _jobs = List.unmodifiable(jobs),
+       _systemActions = _validatedSystemActions(jobs, systemActions),
        _delivery = delivery ?? _defaultDeliveryService(sessions),
-       _consolidator = consolidator,
-       _eventBus = eventBus;
+       _eventBus = eventBus,
+       _workerProviderId = workerProviderId,
+       _workerPolicy = workerPolicy,
+       _timerFactory = timerFactory ?? Timer.new,
+       _now = now ?? DateTime.now;
 
   /// Schedule all jobs. Calculates next fire time for each and sets timers.
   void start() {
@@ -128,11 +143,61 @@ class ScheduleService implements Reconfigurable {
   /// Whether [id] is currently paused.
   bool isJobPaused(String id) => _paused.contains(id);
 
-  void _scheduleNext(ScheduledJob job) {
+  /// Starts a configured prompt job without changing its schedule or pause state.
+  RunScheduledJobResult runJobNow(String id) {
+    if (!_started) return RunScheduledJobResult.notFound;
+
+    final action = _systemActions[id];
+    if (action != null) {
+      if (action.isBlocked?.call() ?? false) return RunScheduledJobResult.alreadyRunning;
+      if (!_running.add(id)) return RunScheduledJobResult.alreadyRunning;
+      unawaited(
+        _executeSystemAction(action).catchError((Object error, StackTrace stackTrace) {
+          _log.severe('System action "$id" failed unexpectedly', error, stackTrace);
+        }),
+      );
+      return RunScheduledJobResult.started;
+    }
+
+    ScheduledJob? job;
+    for (final candidate in _jobs) {
+      if (candidate.id == id && candidate.onExecute == null) {
+        job = candidate;
+        break;
+      }
+    }
+    if (job == null) return RunScheduledJobResult.notFound;
+    if (!_running.add(id)) return RunScheduledJobResult.alreadyRunning;
+
+    unawaited(
+      _executeNow(job).catchError((Object error, StackTrace stackTrace) {
+        _log.severe('Job "$id": on-demand execution failed unexpectedly', error, stackTrace);
+      }),
+    );
+    return RunScheduledJobResult.started;
+  }
+
+  Future<void> _executeSystemAction(SystemAction action) async {
+    _log.info('System action "${action.id}": executing on demand');
+    await action.run();
+    _running.remove(action.id);
+  }
+
+  Future<void> _executeNow(ScheduledJob job) async {
+    _log.info('Job "${job.id}": executing on demand');
+    try {
+      await _executeWithRetry(job);
+    } finally {
+      _running.remove(job.id);
+    }
+  }
+
+  void _scheduleNext(ScheduledJob job, {DateTime? completedCronBoundary}) {
     _timers[job.id]?.cancel();
 
-    final now = DateTime.now();
-    Duration? delay;
+    final now = _now();
+    late final DateTime fireAt;
+    late final Duration delay;
 
     switch (job.scheduleType) {
       case ScheduleType.cron:
@@ -142,7 +207,11 @@ class ScheduleService implements Reconfigurable {
           return;
         }
         try {
-          final next = cron.nextFrom(now);
+          final reference = completedCronBoundary != null && completedCronBoundary.isAfter(now)
+              ? completedCronBoundary
+              : now;
+          final next = cron.nextFrom(reference);
+          fireAt = next;
           delay = next.difference(now);
           _log.info('Job "${job.id}": next fire at $next (${delay.inMinutes}m)');
         } on StateError catch (e) {
@@ -157,6 +226,7 @@ class ScheduleService implements Reconfigurable {
           return;
         }
         delay = Duration(minutes: minutes);
+        fireAt = now.add(delay);
         _log.info('Job "${job.id}": next fire in ${delay.inMinutes}m');
 
       case ScheduleType.once:
@@ -169,23 +239,33 @@ class ScheduleService implements Reconfigurable {
           _log.warning('Job "${job.id}": one-time schedule at $at is in the past — skipping');
           return;
         }
+        fireAt = at;
         delay = at.difference(now);
         _log.info('Job "${job.id}": one-time fire at $at (${delay.inMinutes}m)');
     }
 
-    _timers[job.id] = Timer(delay, () {
-      unawaited(_executeJob(job));
+    _armTimer(job, fireAt, delay, guardBoundary: job.scheduleType != ScheduleType.interval);
+  }
+
+  void _armTimer(ScheduledJob job, DateTime fireAt, Duration delay, {required bool guardBoundary}) {
+    _timers[job.id] = _timerFactory(delay.isNegative ? Duration.zero : delay, () {
+      final remaining = fireAt.difference(_now());
+      if (guardBoundary && remaining > Duration.zero) {
+        _armTimer(job, fireAt, remaining, guardBoundary: true);
+        return;
+      }
+      unawaited(_executeJob(job, scheduledFor: guardBoundary ? fireAt : null));
     });
   }
 
-  Future<void> _executeJob(ScheduledJob job) async {
+  Future<void> _executeJob(ScheduledJob job, {DateTime? scheduledFor}) async {
     if (_paused.contains(job.id)) {
       _log.info('Job "${job.id}": paused — skipping fire');
       return;
     }
     if (_running.contains(job.id)) {
       _log.warning('Job "${job.id}": still running from previous fire — skipping');
-      _reschedule(job);
+      _reschedule(job, completedCronBoundary: scheduledFor);
       return;
     }
 
@@ -196,7 +276,7 @@ class ScheduleService implements Reconfigurable {
       await _executeWithRetry(job);
     } finally {
       _running.remove(job.id);
-      _reschedule(job);
+      _reschedule(job, completedCronBoundary: scheduledFor);
     }
   }
 
@@ -208,7 +288,6 @@ class ScheduleService implements Reconfigurable {
       try {
         final result = await _runJobTurn(job);
         await _delivery.deliver(mode: job.deliveryMode, jobId: job.id, result: result, webhookUrl: job.webhookUrl);
-        await _consolidator?.runIfNeeded();
         _log.info('Job "${job.id}": completed (attempt $attempt/$maxAttempts)');
         return;
       } catch (e) {
@@ -242,7 +321,13 @@ class ScheduleService implements Reconfigurable {
     }
 
     // Create isolated session for this cron job
-    final session = await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
+    final session = await _sessions.getOrCreateByKey(
+      sessionKey,
+      type: SessionType.cron,
+      provider: _workerProviderId,
+      securityProfile: _workerProviderId == null ? null : _workerPolicy?.containerProfile,
+      executionMode: _workerProviderId == null ? null : _workerPolicy?.mode,
+    );
 
     final userMessage = <String, dynamic>{'role': 'user', 'content': job.prompt};
 
@@ -253,6 +338,8 @@ class ScheduleService implements Reconfigurable {
       agentName: 'cron:${job.id}',
       model: job.model,
       effort: job.effort,
+      allowedTools: job.allowedTools,
+      promptScope: PromptScope.task,
     );
     final outcome = await _turns.waitForOutcome(session.id, turnId);
 
@@ -277,7 +364,15 @@ class ScheduleService implements Reconfigurable {
   // Exposed for wiring tests that need to assert composition-root jobs.
   List<ScheduledJob> get jobsForTesting => List.unmodifiable(_jobs);
 
-  void _reschedule(ScheduledJob job) {
+  /// Collision-free read model consumed by scheduling presentation surfaces.
+  List<SchedulingEntry> get entries => List.unmodifiable([
+    for (final job in _jobs)
+      SchedulingEntry(id: job.id, kind: SchedulingEntryKind.job, runnable: job.onExecute == null, mutable: true),
+    for (final action in _systemActions.values)
+      SchedulingEntry(id: action.id, kind: SchedulingEntryKind.systemAction, runnable: true, mutable: false),
+  ]);
+
+  void _reschedule(ScheduledJob job, {DateTime? completedCronBoundary}) {
     if (!_started || _paused.contains(job.id)) return;
 
     // One-time jobs don't reschedule
@@ -287,6 +382,19 @@ class ScheduleService implements Reconfigurable {
       return;
     }
 
-    _scheduleNext(job);
+    _scheduleNext(job, completedCronBoundary: completedCronBoundary);
   }
+}
+
+Map<String, SystemAction> _validatedSystemActions(List<ScheduledJob> jobs, List<SystemAction> actions) {
+  final byId = <String, SystemAction>{};
+  for (final action in actions) {
+    if (action.id.trim().isEmpty) throw ArgumentError.value(action.id, 'systemActions', 'ID must not be blank');
+    if (byId.containsKey(action.id)) {
+      throw ArgumentError.value(action.id, 'systemActions', 'duplicate system-action ID');
+    }
+    byId[action.id] = action;
+  }
+  validateReservedSystemActionIds(jobs.map((job) => job.id), byId.keys);
+  return Map.unmodifiable(byId);
 }

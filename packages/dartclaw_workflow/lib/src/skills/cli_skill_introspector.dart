@@ -7,8 +7,11 @@ import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafePr
 
 import '../workflow/skill_introspector.dart';
 
-typedef SkillProbeRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {Map<String, String>? environment});
+typedef SkillProbeRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+});
 
 typedef SkillProbeEnvironmentBuilder = Map<String, String> Function(String provider);
 
@@ -19,7 +22,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
   final SkillProbeEnvironmentBuilder? _environmentForProvider;
   final _cache = <_SkillProbeKey, Future<Set<String>>>{};
 
-  CliSkillIntrospector({
+  new({
     SkillProbeRunner? runner,
     Map<String, String> environment = const <String, String>{},
     SkillProbeEnvironmentBuilder? environmentForProvider,
@@ -169,7 +172,7 @@ final class _SkillProbeKey {
   final String executable;
   final bool inheritUserSettings;
 
-  const _SkillProbeKey({required this.provider, required this.executable, required this.inheritUserSettings});
+  const new({required this.provider, required this.executable, required this.inheritUserSettings});
 
   @override
   bool operator ==(Object other) =>

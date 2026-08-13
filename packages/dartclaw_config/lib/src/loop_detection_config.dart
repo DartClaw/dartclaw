@@ -42,7 +42,7 @@ class LoopDetectionConfig {
   final LoopAction action;
 
   /// Creates a [LoopDetectionConfig] value.
-  const LoopDetectionConfig({
+  const new({
     this.enabled = false,
     this.maxConsecutiveTurns = 0,
     this.maxTokensPerMinute = 0,
@@ -52,7 +52,7 @@ class LoopDetectionConfig {
   });
 
   /// Creates a [LoopDetectionConfig.defaults] value.
-  const LoopDetectionConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

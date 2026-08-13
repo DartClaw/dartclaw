@@ -295,8 +295,7 @@ void main() {
             await Future<void>.delayed(Duration.zero);
             await h.completeTaskWithOutcome(
               event.taskId,
-              outcomeContent:
-                  'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","spec_path":"fis/s01-a.md"}]}}</workflow-context>',
+              outcomeContent: 'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","spec_path":"fis/s01-a.md"}]}}</workflow-context>',
             );
           });
       addTearDown(completionSub.cancel);

@@ -11,6 +11,7 @@ echo "==> Generating embedded assets"
 dart run dev/tools/embed_assets.dart
 
 echo "==> Testing developer tools"
+bash dev/tools/parallels_linux_test.sh
 bash dev/tools/parallels_windows_test.sh
 bash dev/tools/release_check_test.sh
 bash dev/tools/fitness/test_run_all_prerequisites.sh

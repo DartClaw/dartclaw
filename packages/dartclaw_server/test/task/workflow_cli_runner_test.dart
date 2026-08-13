@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/task/cli_process_supervisor.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
@@ -65,7 +65,7 @@ void main() {
         provider: 'claude',
         prompt: 'Review this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         providerSessionId: 'previous-session',
         model: 'claude-opus-4',
         effort: 'high',
@@ -97,6 +97,20 @@ void main() {
       expect(result.newInputTokens, 10);
     });
 
+    test('derives structured-turn limits at the provider adapter boundary', () {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude'),
+          'codex': WorkflowCliProviderConfig(executable: 'codex'),
+        },
+      );
+
+      expect(runner.maxTurnsForStructuredTurn(provider: 'claude', noTools: false), 5);
+      expect(runner.maxTurnsForStructuredTurn(provider: 'claude', noTools: true), 2);
+      expect(runner.maxTurnsForStructuredTurn(provider: 'codex', noTools: false), isNull);
+      expect(runner.maxTurnsForStructuredTurn(provider: 'codex', noTools: true), isNull);
+    });
+
     test('forwards appendSystemPrompt to Claude when provided', () async {
       late List<String> arguments;
       final runner = claudeRunner(
@@ -110,7 +124,7 @@ void main() {
         provider: 'claude',
         prompt: 'Review this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         appendSystemPrompt: 'Follow the workflow rules',
       );
 
@@ -146,7 +160,7 @@ void main() {
         provider: 'codex',
         prompt: 'Plan this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.providerSessionId, 'codex-thread-1');
@@ -173,7 +187,7 @@ void main() {
         provider: 'my_agent',
         prompt: 'Review this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.providerSessionId, 'recorded-session');
@@ -204,7 +218,7 @@ void main() {
                 provider: 'codex',
                 prompt: 'silent',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepName: 'Implement',
                 stallTimeout: const Duration(seconds: 10),
                 stallAction: TurnProgressAction.cancel,
@@ -294,6 +308,7 @@ void main() {
 
         expect(exitCode, 0);
         expect(supervisor.postTerminalResultExitUnconfirmed, isTrue);
+        expect(supervisor.rootProcessTerminationConfirmed, isFalse);
         expect(fake.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
         supervisor.stop();
       });
@@ -317,7 +332,7 @@ void main() {
                 provider: 'codex',
                 prompt: 'stream',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepName: 'Review',
                 stallTimeout: const Duration(seconds: 10),
                 stallAction: TurnProgressAction.cancel,
@@ -372,7 +387,7 @@ void main() {
                   provider: provider,
                   prompt: 'stream',
                   workingDirectory: Directory.systemTemp.path,
-                  profileId: 'workspace',
+                  policy: const ExecutionPolicy.host(),
                   stepName: 'Ignore chatter',
                   stallTimeout: const Duration(seconds: 10),
                   stallAction: TurnProgressAction.cancel,
@@ -413,7 +428,7 @@ void main() {
                 provider: 'claude',
                 prompt: 'slow',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepName: 'Timeout step',
                 stallTimeout: Duration.zero,
                 stepTimeout: const Duration(seconds: 30),
@@ -449,7 +464,7 @@ void main() {
                 provider: 'claude',
                 prompt: 'done but stuck',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepName: 'Grace reap',
                 stallTimeout: const Duration(seconds: 30),
                 stallAction: TurnProgressAction.cancel,
@@ -499,7 +514,7 @@ void main() {
                 provider: 'claude',
                 prompt: 'done then quiet',
                 workingDirectory: Directory.systemTemp.path,
-                profileId: 'workspace',
+                policy: const ExecutionPolicy.host(),
                 stepName: 'Short stall grace',
                 stallTimeout: const Duration(seconds: 2),
                 stallAction: TurnProgressAction.cancel,
@@ -551,7 +566,7 @@ void main() {
         provider: 'codex',
         prompt: 'Review this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sandboxOverride: 'read-only',
       );
 
@@ -581,7 +596,7 @@ void main() {
         provider: 'codex',
         prompt: 'Review this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sandboxOverride: 'workspace-write',
       );
 
@@ -609,7 +624,7 @@ void main() {
         provider: 'codex',
         prompt: 'Review this',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         sandboxOverride: 'read-only',
       );
 
@@ -688,7 +703,21 @@ void main() {
 
       final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
-        'allow': ['WebFetch', 'WebSearch'],
+        'allow': ['WebFetch'],
+        'deny': ['Edit', 'NotebookEdit', 'Write'],
+      });
+    });
+
+    test('Claude task policy grants WebSearch only for web_search', () async {
+      final arguments = await capturedClaudeArgs(
+        prompt: 'Search this',
+        allowedTools: const ['web_search'],
+        readOnly: true,
+      );
+
+      final decoded = decodedClaudeSettings(arguments);
+      expect(decoded['permissions'], {
+        'allow': ['WebSearch'],
         'deny': ['Edit', 'NotebookEdit', 'Write'],
       });
     });
@@ -731,7 +760,7 @@ void main() {
           provider: 'claude',
           prompt: 'Discover this',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           allowedTools: const ['file_read'],
           readOnly: true,
         ),
@@ -758,7 +787,7 @@ void main() {
           provider: 'claude',
           prompt: 'Discover this',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           allowedTools: const ['file_read'],
           readOnly: true,
         ),
@@ -838,7 +867,7 @@ void main() {
             provider: 'claude',
             prompt: 'Review this',
             workingDirectory: Directory.systemTemp.path,
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
           ),
           throwsA(isA<StateError>().having((e) => e.message, 'message', contains(testCase.message))),
         );
@@ -858,13 +887,13 @@ void main() {
         containerRoot: '/workspace',
         stdout: jsonEncode({'session_id': 'claude-session-container', 'result': 'ok'}),
       );
-      final runner = claudeRunner(containerManagers: {'workspace': container});
+      final runner = claudeRunner(container: container);
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
       );
 
       expect(container.lastCommand, isNot(contains('--setting-sources')));
@@ -878,14 +907,14 @@ void main() {
           'settings': fixture.settingsPath,
           'sandbox': {'enabled': true},
         },
-        containerManagers: {'workspace': fixture.container},
+        container: fixture.container,
       );
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
         workingDirectory: fixture.workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
       );
 
       final settingsIndex = fixture.container.lastCommand.indexOf('--settings');
@@ -895,16 +924,13 @@ void main() {
 
     test('translates plain path-based Claude settings for containerized one-shot runs without overlays', () async {
       final fixture = await claudeSettingsContainerFixture('workflow-cli-runner-claude-settings-plain');
-      final runner = claudeRunner(
-        options: {'settings': fixture.settingsPath},
-        containerManagers: {'workspace': fixture.container},
-      );
+      final runner = claudeRunner(options: {'settings': fixture.settingsPath}, container: fixture.container);
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
         workingDirectory: fixture.workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
       );
 
       final settingsIndex = fixture.container.lastCommand.indexOf('--settings');
@@ -917,16 +943,13 @@ void main() {
         'workflow-cli-runner-claude-settings-relative',
         relativeSettingsPath: p.join('.claude', 'settings.json'),
       );
-      final runner = claudeRunner(
-        options: const {'settings': '.claude/settings.json'},
-        containerManagers: {'workspace': fixture.container},
-      );
+      final runner = claudeRunner(options: const {'settings': '.claude/settings.json'}, container: fixture.container);
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
         workingDirectory: fixture.workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
       );
 
       final settingsIndex = fixture.container.lastCommand.indexOf('--settings');
@@ -969,7 +992,7 @@ void main() {
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         providerSessionId: 'thread-prev',
         model: 'gpt-5-codex',
         jsonSchema: itemsSchema,
@@ -1010,7 +1033,7 @@ void main() {
         provider: 'codex',
         prompt: 'Summarize',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.outputTokens, 20);
@@ -1038,7 +1061,7 @@ void main() {
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.inputTokens, 121000);
@@ -1076,7 +1099,7 @@ void main() {
         provider: 'codex',
         prompt: 'Reply with OK',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         taskId: 'task-progress',
         sessionId: 'sess-progress',
       );
@@ -1122,7 +1145,7 @@ void main() {
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         taskId: 'task-ordered',
         sessionId: 'sess-ordered',
       );
@@ -1135,7 +1158,7 @@ void main() {
       expect(result.newInputTokens, 110);
     });
 
-    test('nonzero Codex exit still includes stdout excerpt after streaming parse', () async {
+    test('nonzero Codex exit reports structure without provider-authored stdout', () async {
       final stdout = jsonEncode({'type': 'error', 'message': 'fatal workflow error'});
       final runner = codexRunner(
         processStarter: (exe, args, {workingDirectory, environment}) async {
@@ -1148,13 +1171,13 @@ void main() {
           provider: 'codex',
           prompt: 'List changed files',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         ),
         throwsA(
           isA<StateError>().having(
             (e) => e.message,
             'message',
-            allOf(contains('stdout:'), contains('fatal workflow error')),
+            allOf(contains('event=error'), isNot(contains('stdout:')), isNot(contains('fatal workflow error'))),
           ),
         ),
       );
@@ -1176,7 +1199,7 @@ void main() {
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         appendSystemPrompt: 'Keep responses strict',
       );
 
@@ -1227,7 +1250,7 @@ void main() {
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
         jsonSchema: itemsSchema,
       );
 
@@ -1259,7 +1282,7 @@ void main() {
           provider: 'codex',
           prompt: 'List changed files',
           workingDirectory: workingDirectory.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           jsonSchema: itemsSchema,
         ),
         throwsA(isA<StateError>()),
@@ -1278,13 +1301,13 @@ void main() {
 
       final container = FakeContainerExecutor(hostRoot: workingDirectory.path, containerRoot: '/workspace');
 
-      final runner = codexRunner(containerManagers: {'workspace': container});
+      final runner = codexRunner(container: container);
 
       await runner.executeTurn(
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: workingDirectory.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.container('workspace'),
         jsonSchema: itemsSchema,
       );
 
@@ -1331,7 +1354,7 @@ void main() {
         provider: 'claude',
         prompt: 'test',
         workingDirectory: tempDir.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(envDump.existsSync(), isTrue, reason: 'fake claude did not run');
@@ -1367,7 +1390,7 @@ void main() {
           provider: 'fake',
           prompt: 'hello',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
         );
 
         expect(runCalled, isTrue);
@@ -1385,13 +1408,13 @@ void main() {
             provider: 'custom',
             prompt: 'hello',
             workingDirectory: Directory.systemTemp.path,
-            profileId: 'workspace',
+            policy: const ExecutionPolicy.host(),
           ),
           throwsA(
             isA<UnsupportedError>().having(
               (e) => e.message,
               'message',
-              contains('Workflow one-shot CLI is not implemented for provider "custom"'),
+              contains('Provider "custom" has no workflow one-shot launch implementation'),
             ),
           ),
         );

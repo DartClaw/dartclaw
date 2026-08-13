@@ -10,33 +10,33 @@ import 'git_credential_env.dart';
 
 /// Result of a remote push attempt.
 sealed class PushResult {
-  const PushResult();
+  const new();
 }
 
 /// Branch was pushed successfully.
 final class PushSuccess extends PushResult {
-  const PushSuccess();
+  const new();
 }
 
 /// Push failed due to authentication or permission error.
 final class PushAuthFailure extends PushResult {
   final String details;
 
-  const PushAuthFailure(this.details);
+  const new(this.details);
 }
 
 /// Remote rejected the push (e.g. non-fast-forward).
 final class PushRejected extends PushResult {
   final String reason;
 
-  const PushRejected(this.reason);
+  const new(this.reason);
 }
 
 /// Push failed for an unknown reason.
 final class PushError extends PushResult {
   final String message;
 
-  const PushError(this.message);
+  const new(this.message);
 }
 
 /// Pushes a branch to a project's remote via [Isolate.run].
@@ -59,7 +59,7 @@ class RemotePushService {
   })?
   _processRunner;
 
-  RemotePushService({
+  new({
     CredentialsConfig? credentials,
     String dataDir = '',
     Future<({int exitCode, String stdout, String stderr})> Function(

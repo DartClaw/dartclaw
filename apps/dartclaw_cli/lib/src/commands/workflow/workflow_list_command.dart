@@ -22,7 +22,7 @@ class WorkflowListCommand extends Command<void> {
   final AssetResolver _assetResolver;
   final WriteLine _writeLine;
 
-  WorkflowListCommand({DartclawConfig? config, AssetResolver? assetResolver, WriteLine? writeLine})
+  new({DartclawConfig? config, AssetResolver? assetResolver, WriteLine? writeLine})
     : _config = config,
       _assetResolver = assetResolver ?? AssetResolver(),
       _writeLine = writeLine ?? stdout.writeln {

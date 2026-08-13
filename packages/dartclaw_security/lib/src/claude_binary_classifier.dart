@@ -7,13 +7,12 @@ import 'anthropic_api_classifier.dart';
 import 'content_classifier.dart';
 
 /// Typedef for subprocess creation — injectable for testing.
-typedef ClassifierProcessFactory =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      Map<String, String>? environment,
-      bool includeParentEnvironment,
-    });
+typedef ClassifierProcessFactory = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+  bool includeParentEnvironment,
+});
 
 /// [ContentClassifier] that spawns `claude --print` for each classification.
 ///
@@ -31,11 +30,8 @@ class ClaudeBinaryClassifier implements ContentClassifier {
   final ClassifierProcessFactory _processFactory;
 
   /// Creates a classifier backed by `claude --print`.
-  ClaudeBinaryClassifier({
-    this.claudeExecutable = 'claude',
-    this.model = 'haiku',
-    ClassifierProcessFactory? processFactory,
-  }) : _processFactory = processFactory ?? Process.start;
+  new({this.claudeExecutable = 'claude', this.model = 'haiku', ClassifierProcessFactory? processFactory})
+    : _processFactory = processFactory ?? Process.start;
 
   @override
   Future<String> classify(String content, {Duration timeout = const Duration(seconds: 15)}) async {

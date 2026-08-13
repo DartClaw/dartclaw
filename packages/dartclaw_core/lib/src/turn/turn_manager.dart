@@ -1,15 +1,12 @@
-import '../harness/harness_pool.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
+import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
+
 import 'turn_outcome.dart';
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
 ///
-/// Uses [HarnessPool.primary] for ordinary sessions and provider-matched task
-/// runners for sessions pinned to a specific provider.
+/// Host-owned agent turn lifecycle boundary.
 abstract interface class TurnManager {
-  /// The pool backing this manager.
-  HarnessPool get pool;
-
   /// Number of runners currently available to accept a new task.
   int get availableRunnerCount;
 
@@ -23,12 +20,16 @@ abstract interface class TurnManager {
 
   TurnOutcome? recentOutcome(String sessionId, String turnId);
 
+  /// Reserves a new turn slot for [sessionId]; [workerPolicy] overrides the
+  /// execution placement otherwise derived from the session's pinned routing.
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -56,11 +57,13 @@ abstract interface class TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    String? systemPromptOverride,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
+    PromptScope? promptScope,
   });
 
   Future<void> cancelTurn(String sessionId);

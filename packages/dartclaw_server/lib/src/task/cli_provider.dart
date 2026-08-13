@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus, ProcessTerminationResult;
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, TurnProgressAction;
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, PlatformCapabilities, TurnProgressAction;
+import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -11,6 +12,14 @@ import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
 final _log = Logger('ProcessBackedCliProvider');
+
+/// Redacts and bounds an untrusted provider diagnostic field for exceptions and logs.
+String boundedProviderDiagnostic(String value, MessageRedactor redactor, {int maxChars = 160}) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final redacted = redactor.redact(normalized);
+  if (redacted.length <= maxChars) return redacted;
+  return '${redacted.substring(0, maxChars - 1).trimRight()}…';
+}
 
 /// Abstraction for a single-turn CLI provider invocation.
 ///
@@ -24,9 +33,13 @@ abstract class CliProvider {
   Future<void> cancelInflight({bool cancelFutureProcesses = false});
 }
 
+abstract interface class StructuredTurnLimitProvider {
+  int? maxTurnsForStructuredTurn({required bool noTools});
+}
+
 /// Shared process ownership for CLI providers backed by one-shot subprocesses.
 abstract class ProcessBackedCliProvider implements CliProvider {
-  ProcessBackedCliProvider({
+  new({
     PlatformCapabilities? platformCapabilities,
     this.terminationGracePeriod = const Duration(seconds: 5),
     this.outputDrainGracePeriod = const Duration(seconds: 2),
@@ -236,13 +249,10 @@ final class WorkflowCliUsageBaseline {
   final int cacheReadTokens;
   final int cacheWriteTokens;
 
-  const WorkflowCliUsageBaseline({
-    this.inputTokens = 0,
-    this.outputTokens = 0,
-    this.cacheReadTokens = 0,
-    this.cacheWriteTokens = 0,
-  });
+  const new({this.inputTokens = 0, this.outputTokens = 0, this.cacheReadTokens = 0, this.cacheWriteTokens = 0});
 }
+
+typedef RootProcessTerminationObserver = FutureOr<void> Function(bool confirmed);
 
 /// Value object bundling all per-turn inputs a [CliProvider] implementation needs.
 ///
@@ -257,7 +267,8 @@ final class CliTurnRequest {
   final String workingDirectory;
 
   /// Profile identifier used to look up the container manager.
-  final String profileId;
+  /// The effective execution policy this turn runs under.
+  final ExecutionPolicy policy;
 
   /// Task identifier propagated to progress events, if any.
   final String? taskId;
@@ -301,6 +312,9 @@ final class CliTurnRequest {
   /// Maximum number of agentic turns (Claude-specific).
   final int? maxTurns;
 
+  /// Reports whether this invocation's managed root process definitely exited.
+  final RootProcessTerminationObserver? onRootProcessTerminationConfirmed;
+
   /// JSON schema for structured output enforcement, if requested.
   final Map<String, dynamic>? jsonSchema;
 
@@ -319,8 +333,12 @@ final class CliTurnRequest {
   /// Decoded YAML provider configuration for this provider.
   final WorkflowCliProviderConfig providerConfig;
 
-  /// Container executor bound to [profileId], or null when running on the host.
+  /// Container executor bound to [policy], or null when running on the host.
   final ContainerExecutor? containerManager;
+
+  /// Whether the caller owns a longer-lived container state boundary and will
+  /// explicitly release provider state with that authority.
+  final bool retainContainerState;
 
   /// Process-spawning collaborator; injected so tests can intercept the spawn.
   final WorkflowCliProcessStarter processStarter;
@@ -334,10 +352,10 @@ final class CliTurnRequest {
   /// Logger for the provider implementation.
   final Logger log;
 
-  const CliTurnRequest({
+  const new({
     required this.prompt,
     required this.workingDirectory,
-    required this.profileId,
+    required this.policy,
     this.taskId,
     this.sessionId,
     this.providerSessionId,
@@ -350,6 +368,7 @@ final class CliTurnRequest {
     this.allowedTools,
     this.readOnly = false,
     this.maxTurns,
+    this.onRootProcessTerminationConfirmed,
     this.jsonSchema,
     this.appendSystemPrompt,
     this.sandboxOverride,
@@ -357,6 +376,7 @@ final class CliTurnRequest {
     this.usageBaseline = const WorkflowCliUsageBaseline(),
     required this.providerConfig,
     required this.containerManager,
+    this.retainContainerState = false,
     required this.processStarter,
     this.eventBus,
     required this.uuid,

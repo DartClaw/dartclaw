@@ -51,6 +51,7 @@ class _AutoCompletingHarness extends FakeAgentHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) {
     final result = super.turn(
       sessionId: sessionId,
@@ -62,6 +63,7 @@ class _AutoCompletingHarness extends FakeAgentHarness {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      agentId: agentId,
     );
     Future<void>.microtask(() {
       emit(DeltaEvent('<step-outcome>{"outcome":"succeeded","reason":"test completed"}</step-outcome>'));
@@ -552,10 +554,15 @@ steps:
       expect(output.every((line) => !line.startsWith('Unknown workflow:')), isTrue);
     });
 
-    test('standalone run provisions explicit provider runners and CLI configs before starting the workflow', () async {
+    test('standalone run configures referenced provider capacity without starting a harness', () async {
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
-        providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
+        providers: const ProvidersConfig(
+          entries: {
+            'codex': ProviderEntry(executable: 'codex', poolSize: 0),
+            'claude': ProviderEntry(executable: 'claude', poolSize: 1),
+          },
+        ),
         server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
@@ -591,20 +598,56 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
       );
-      await wiring.wire();
+      await wiring.wireBaseServices();
+      await wiring.wireExecutionServices({'claude'});
       addTearDown(wiring.dispose);
 
-      expect(wiring.pool.hasTaskRunnerForProvider('claude'), isFalse);
-      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isFalse);
-
-      await wiring.ensureTaskRunnersForProviders({'claude'});
-
-      expect(wiring.pool.hasTaskRunnerForProvider('claude'), isTrue);
+      expect(createdHarnesses.values.expand((harnesses) => harnesses).every((harness) => !harness.startCalled), isTrue);
+      expect(wiring.executions.primary, isNull);
+      expect(wiring.executions.snapshot.providers.keys, {'claude'});
+      expect(wiring.executions.snapshot.providers['claude']!.configured, 1);
       expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
-      expect(createdHarnesses['claude'], isNotEmpty);
     });
 
-    test('S01 logged-out referenced provider aborts before any harness starts', () async {
+    test('standalone capacity wiring canonicalizes referenced provider IDs once', () async {
+      const configuredProviderId = 'OpenAI-Work';
+      const providerId = 'openai-work';
+      config = DartclawConfig(
+        agent: const AgentConfig(provider: 'codex'),
+        providers: const ProvidersConfig(
+          entries: {configuredProviderId: ProviderEntry(executable: 'codex', poolSize: 1)},
+        ),
+        server: ServerConfig(port: 0, dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      );
+      final createdHarnesses = <FakeAgentHarness>[];
+      final factory = HarnessFactory()
+        ..register(providerId, (_) {
+          final harness = FakeAgentHarness();
+          createdHarnesses.add(harness);
+          return harness;
+        });
+      final wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: config.server.dataDir,
+        runWorkflowSkillsBootstrap: false,
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wireBaseServices();
+      addTearDown(wiring.dispose);
+
+      await wiring.wireExecutionServices({configuredProviderId});
+
+      expect(createdHarnesses.every((harness) => !harness.startCalled), isTrue);
+      expect(wiring.executions.primary, isNull);
+      expect(wiring.executions.snapshot.providers.keys, {providerId});
+      expect(wiring.executions.snapshot.providers[providerId]!.configured, 1);
+      expect(wiring.workflowCliRunner.providers.keys, contains(providerId));
+      expect(wiring.workflowCliRunner.providers.keys, isNot(contains(configuredProviderId)));
+    });
+
+    test('S01 logged-out referenced provider aborts before workflow execution', () async {
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
       File(p.join(workflowsDir.path, 'agent-auth.yaml')).writeAsStringSync('''
 name: agent-auth
@@ -736,6 +779,18 @@ steps:
       );
 
       expect(requiredWorkflowProviders(definition, config), isEmpty);
+    });
+
+    test('provider derivation rejects an explicitly blank provider', () {
+      final definition = WorkflowDefinition(
+        name: 'blank-provider',
+        description: 'Invalid direct definition',
+        steps: const [
+          WorkflowStep(id: 'agent', name: 'Agent', provider: ' ', prompts: ['Run']),
+        ],
+      );
+
+      expect(() => requiredWorkflowProviders(definition, config), throwsA(isA<StateError>()));
     });
 
     // Any foreach with mergeResolve enabled materializes the synthetic

@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:dartclaw_server/src/behavior/heartbeat_scheduler.dart';
-import 'package:dartclaw_server/src/behavior/memory_consolidator.dart';
 import 'package:dartclaw_server/src/workspace/workspace_git_sync.dart';
 import 'package:test/test.dart';
 
@@ -18,14 +17,6 @@ Future<WorkspaceGitSync> _recordingGitSync(String workspaceDir, List<List<String
   );
   await sync.isGitAvailable();
   return sync;
-}
-
-class _ThrowingMemoryConsolidator extends MemoryConsolidator {
-  _ThrowingMemoryConsolidator(String workspaceDir)
-    : super(workspaceDir: workspaceDir, dispatch: (sessionKey, message) async {});
-
-  @override
-  Future<void> runIfNeeded() async => throw StateError('unexpected consolidation failure');
 }
 
 void main() {
@@ -108,21 +99,6 @@ void main() {
       // Should still be able to run again
       await scheduler.runOnce();
       expect(callCount, 2);
-    });
-
-    test('syncs workspace when consolidation unexpectedly throws', () async {
-      File('${tmpDir.path}/HEARTBEAT.md').writeAsStringSync('- [ ] task');
-      final gitCalls = <List<String>>[];
-      final scheduler = HeartbeatScheduler(
-        interval: const Duration(minutes: 30),
-        workspaceDir: tmpDir.path,
-        dispatch: (key, msg) async {},
-        gitSync: await _recordingGitSync(tmpDir.path, gitCalls),
-        consolidator: _ThrowingMemoryConsolidator(tmpDir.path),
-      );
-
-      await expectLater(scheduler.runOnce(), throwsStateError);
-      expect(gitCalls.map((call) => call.first), contains('status'));
     });
 
     test('session keys are unique per run', () async {

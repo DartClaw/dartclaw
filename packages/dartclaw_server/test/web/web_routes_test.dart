@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/turn_wait_status.dart';
@@ -337,9 +337,8 @@ void main() {
 
     test('each channel page exposes exactly one h1, from the topbar', () async {
       for (final type in ['whatsapp', 'signal', 'google_chat']) {
-        final body = await (await handler(
-          Request('GET', Uri.parse('http://localhost/settings/channels/$type')),
-        )).readAsString();
+        final body = await (await handler(Request('GET', Uri.parse('http://localhost/settings/channels/$type'))))
+            .readAsString();
 
         expect(RegExp('<h1').allMatches(body), hasLength(1), reason: type);
         expect(body, contains('class="session-title-static t-page-title"'), reason: type);
@@ -1070,7 +1069,7 @@ void main() {
 }
 
 class _RecoveryNoticeTurns implements TurnManager {
-  _RecoveryNoticeTurns(this._sessionIds);
+  new(this._sessionIds);
 
   final Set<String> _sessionIds;
 
@@ -1086,7 +1085,7 @@ class _RecoveryNoticeTurns implements TurnManager {
 }
 
 class _StatusTurns implements TurnManager {
-  _StatusTurns(this._status);
+  new(this._status);
 
   final TurnStatusSnapshot _status;
 

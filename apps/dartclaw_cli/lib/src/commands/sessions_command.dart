@@ -9,7 +9,7 @@ import 'sessions/sessions_show_command.dart';
 
 /// Parent command for session management: `dartclaw sessions <subcommand>`.
 class SessionsCommand extends Command<void> {
-  SessionsCommand() {
+  new() {
     addSubcommand(SessionsListCommand());
     addSubcommand(SessionsShowCommand());
     addSubcommand(SessionsMessagesCommand());

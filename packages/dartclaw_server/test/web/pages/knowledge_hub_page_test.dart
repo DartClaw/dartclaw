@@ -31,7 +31,13 @@ void main() {
     kg = TemporalKnowledgeGraphService(taskDb);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
-    memory.insertChunk(text: 'Merge memory keeps durable context.', source: 'MEMORY.md', category: 'build');
+    searchDb.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
+      'Merge memory keeps durable context.',
+      'MEMORY.md',
+      'build',
+      DateTime(2026).toIso8601String(),
+      'MEMORY.md',
+    ]);
     kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
@@ -60,6 +66,23 @@ void main() {
     expect(html, contains('href="/knowledge/wiki/wiki/onboarding.md"'));
     expect(html, contains('source-attribution'));
     expect(html, contains('citation-marker'));
+  });
+
+  test('S01 renders canonical memory roles as distinct operator labels', () async {
+    final page = KnowledgeHubPage(
+      hubGetter: () => knowledgeHubServiceForWorkspace(
+        workspaceDir: tempDir.path,
+        memory: memory,
+        kg: kg,
+        searchBackend: const _RoleSearchBackend(),
+      ),
+    );
+
+    final html = await _renderHtml(tempDir, sessions, memory, kg, path: '/knowledge?q=role', page: page);
+
+    for (final label in ['CURATED', 'ARCHIVE', 'OBSERVATION', 'LEARNING']) {
+      expect(html, contains('>$label<'), reason: label);
+    }
   });
 
   test('S02 scopes the KG chip to KG results only', () async {
@@ -129,6 +152,31 @@ void main() {
     expect(html, contains('Broaden it or switch layers.'));
     expect(html, isNot(contains('Merge memory keeps durable context.')));
   });
+
+  test('unresolved sources are checked once and expose no authoritative title or link', () async {
+    final resolver = _RecordingResolver();
+    final page = KnowledgeHubPage(
+      resolver: resolver,
+      hubGetter: () => knowledgeHubServiceForWorkspace(
+        workspaceDir: tempDir.path,
+        memory: memory,
+        kg: kg,
+        searchBackend: const _UnresolvedSearchBackend(),
+      ),
+    );
+
+    final html = await _renderHtml(tempDir, sessions, memory, kg, path: '/knowledge?q=unverified', page: page);
+
+    expect(resolver.refs.map((ref) => ref.locator), {'00000000-0000-4000-8000-000000000001', 'wiki/private-source.md'});
+    expect(resolver.refs, hasLength(2));
+    expect(html, contains('private memory snippet'));
+    expect(html, contains('private wiki snippet'));
+    expect(html, contains('Unverified'));
+    expect(html, isNot(contains('Private memory title')));
+    expect(html, isNot(contains('Private Source')));
+    expect(html, isNot(contains('00000000-0000-4000-8000-000000000001')));
+    expect(html, isNot(contains('wiki/private-source.md')));
+  });
 }
 
 Future<String> _renderHtml(
@@ -185,8 +233,95 @@ final _emptySidebarData = (
 );
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  _ThrowingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
+}
+
+final class _RoleSearchBackend implements SearchBackend {
+  const new();
+
+  @override
+  Future<void> indexAfterWrite() async {}
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
+
+  @override
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) async {
+    const roles = ['topic', 'archive', 'observation', 'learning'];
+    return MemorySearchOutcome(
+      results: [
+        for (var index = 0; index < roles.length; index++)
+          MemorySearchResult.canonical(
+            text: '${roles[index]} role result',
+            source: roles[index],
+            score: index.toDouble(),
+            role: roles[index],
+            provenance: 'test',
+            locator: '00000000-0000-0000-0000-00000000000${index + 1}',
+            entryId: '00000000-0000-0000-0000-00000000000${index + 1}',
+            entryRevision: 1,
+          ),
+      ],
+    );
+  }
+}
+
+final class _UnresolvedSearchBackend implements SearchBackend {
+  const new();
+
+  @override
+  Future<void> indexAfterWrite() async {}
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
+
+  @override
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) async {
+    return MemorySearchOutcome(
+      results: [
+        MemorySearchResult.canonical(
+          text: 'private memory snippet',
+          source: 'topic',
+          category: 'Private memory title',
+          score: 1,
+          role: 'topic',
+          provenance: 'test',
+          locator: '00000000-0000-4000-8000-000000000001',
+          entryId: '00000000-0000-4000-8000-000000000001',
+          entryRevision: 1,
+        ),
+        const MemorySearchResult(
+          text: 'private wiki snippet',
+          source: 'wiki/private-source.md',
+          score: 0,
+          role: 'wiki',
+          provenance: 'test',
+          locator: 'wiki/private-source.md',
+        ),
+      ],
+    );
+  }
+}
+
+final class _RecordingResolver implements CitationSourceResolver {
+  final refs = <SourceRef>[];
+
+  @override
+  Future<bool> resolves(SourceRef ref) async {
+    refs.add(ref);
+    return false;
+  }
 }

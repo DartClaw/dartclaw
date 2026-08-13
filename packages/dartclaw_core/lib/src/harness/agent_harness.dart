@@ -10,6 +10,26 @@ enum PromptStrategy {
   append,
 }
 
+/// Host-owned identity for the turn currently executing in a harness.
+final class HarnessTurnContext {
+  const new({required this.sessionId, required this.turnId, required this.source, required this.agentName});
+
+  final String sessionId;
+  final String turnId;
+  final String? source;
+  final String agentName;
+}
+
+/// Receives trusted host turn identity before provider execution begins.
+abstract interface class HarnessTurnContextSink {
+  void setTurnContext(HarnessTurnContext? context);
+}
+
+typedef ContextualMemoryToolHandler = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> arguments,
+  HarnessTurnContext context,
+);
+
 /// Abstract harness interface that decouples consumers from the specific
 /// agent runtime (Deno worker, native CLI, etc.).
 ///
@@ -55,6 +75,11 @@ abstract class AgentHarness {
   /// Current lifecycle state of the harness.
   WorkerState get state;
 
+  /// Whether no managed root process has an unconfirmed termination.
+  ///
+  /// Harnesses that do not manage a root process must return `true` explicitly.
+  bool get isRootProcessTerminationConfirmed;
+
   /// Persistent broadcast stream of bridge events (survives restarts).
   Stream<BridgeEvent> get events;
 
@@ -65,7 +90,10 @@ abstract class AgentHarness {
   ///
   /// [sessionId] identifies the SDK session to use for this turn. [messages]
   /// contains the message history payload forwarded to the runtime.
-  /// [systemPrompt] is the effective behavior prompt for this turn.
+  /// A non-empty [systemPrompt] is the authoritative scoped prompt for this
+  /// turn on every prompt strategy; empty selects the harness's configured
+  /// default.
+  /// [agentId] identifies a logical agent; null denotes the main agent.
   /// [mcpServers] configures inline MCP servers for the request when supported.
   /// When [resume] is true, the harness resumes an existing SDK session
   /// instead of starting a fresh conversation (maps to `options.resume`).
@@ -77,6 +105,7 @@ abstract class AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,

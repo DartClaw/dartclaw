@@ -8,20 +8,101 @@ import 'package:logging/logging.dart';
 /// Bearer tokens, PEM blocks, generic secrets). Custom patterns can be added
 /// via [extraPatterns].
 ///
-/// Redaction uses proportional reveal: `min(matchLength / 2, 8)` characters
+/// Secret assignments preserve their label and replace the value with `***`.
+/// Colon syntax is treated as an assignment only in a structured delimiter,
+/// with a lowercase line label, a quoted value, or a single-token value.
+/// Ambiguous multiword prose is preserved.
+/// Other matches use proportional reveal: `min(matchLength / 2, 8)` characters
 /// preserved + `***`. PEM blocks are fully replaced with `[REDACTED]`.
 ///
 /// The [redact] method never throws — errors are caught internally and the
 /// original text is returned unchanged.
 class MessageRedactor {
   static final _log = Logger('MessageRedactor');
+  static final _authorizationHeader = RegExp(
+    r'(^[ \t]*(?:Authorization|Proxy-Authorization)\s*:\s*)'
+    r'(?:Basic\s+[A-Za-z0-9+/]+=*|Bearer\s+[A-Za-z0-9\-._~+/]+=*|'
+    r'Negotiate\s+[A-Za-z0-9+/]+=*|Digest\s+[^\r\n]+|AWS4-HMAC-SHA256\s+[^\r\n]+)[ \t]*$',
+    caseSensitive: false,
+    multiLine: true,
+  );
+  static final _equalsAssignment = RegExp(
+    r'(^|[^A-Za-z0-9_-])([A-Za-z][A-Za-z0-9_-]*)(\s*=\s*)([^\r\n]*?)'
+    r'(?=(?:(?:[ \t]+|[,;]\s*)[A-Za-z][A-Za-z0-9_-]*\s*[:=])|$)',
+    multiLine: true,
+  );
+  static final _colonAssignment = RegExp(
+    r'(?:(^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?)|([^A-Za-z0-9_\r\n-]))'
+    r'([A-Za-z][A-Za-z0-9_-]*)(\s*:\s*)([^\r\n]*?)'
+    r'(?=(?:(?:[ \t]+|[,;]\s*|(?:[\[{]\s*)+)[A-Za-z][A-Za-z0-9_-]*\s*[:=])|$)',
+    multiLine: true,
+  );
+  static final _quotedColonAssignment = RegExp(
+    r'(^|[,{]\s*)"([A-Za-z][A-Za-z0-9_-]*)"(\s*:\s*)',
+    multiLine: true,
+    caseSensitive: false,
+  );
+  static const _metadataPrefixes = {'has', 'is', 'requires', 'supports'};
+  static final _proseContinuation = RegExp(
+    r'(?:[.!?]\s+(?=\S)|[,;]\s*(?=(?:then|and|but|please|next)\b)|'
+    r'\s+(?=(?:and|but)\s+(?:then|please|next)\b))',
+    caseSensitive: false,
+  );
+  static final _closingDelimiters = RegExp(r'(\s*[}\]]+\s*)$');
+  static final _terminalPunctuation = RegExp(r'([.!?]\s*)$');
+  static final _quotedPlainValue = RegExp(r'^"(?:\\.|[^"\\])*"[.!?]?$');
+  static final _jsonScalar = RegExp(r'(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)');
+  static const _tokenMeasurementPrefixes = {
+    'cached',
+    'completion',
+    'input',
+    'max',
+    'min',
+    'output',
+    'remaining',
+    'total',
+    'used',
+  };
+  static const _secretNouns = {
+    'authorization',
+    'authorizations',
+    'cookie',
+    'cookies',
+    'credential',
+    'credentials',
+    'password',
+    'passwords',
+    'secret',
+    'secrets',
+    'token',
+    'tokens',
+  };
 
   List<({RegExp pattern, bool isPem})> _compiled;
 
   /// Creates a redactor with built-in patterns plus optional [extraPatterns].
   ///
   /// Invalid regexes in [extraPatterns] are logged as warnings and skipped.
-  MessageRedactor({List<String> extraPatterns = const []}) : _compiled = _compilePatterns(extraPatterns);
+  new({List<String> extraPatterns = const []}) : _compiled = _compilePatterns(extraPatterns);
+
+  /// Whether [key] names a credential value rather than related metadata.
+  static bool isSecretKey(Object key) {
+    final words = _keyWords(key);
+    if (words.isEmpty || _metadataPrefixes.contains(words.first)) return false;
+
+    final last = words.last;
+    if (last == 'token' || last == 'tokens') {
+      return words.length == 1 || !_tokenMeasurementPrefixes.contains(words[words.length - 2]);
+    }
+    if (_secretNouns.contains(last)) return true;
+    return (last == 'key' || last == 'keys') &&
+        words.length > 1 &&
+        (words.contains('api') ||
+            words.contains('private') ||
+            words.contains('secret') ||
+            words[words.length - 2] == 'encryption' ||
+            words[words.length - 2] == 'signing');
+  }
 
   /// Recompiles redaction patterns with [extraPatterns] replacing any prior extras.
   void recompilePatterns(List<String> extraPatterns) {
@@ -36,23 +117,16 @@ class MessageRedactor {
     const builtins = <({String pattern, bool isPem, bool caseSensitive, bool dotAll})>[
       // PEM blocks (multi-line)
       (pattern: r'-----BEGIN [^-]+-----.*?-----END [^-]+-----', isPem: true, caseSensitive: true, dotAll: true),
+      // Truncated or malformed PEM blocks remain sensitive without a closing delimiter.
+      (pattern: r'-----BEGIN [^-]+-----.*$', isPem: true, caseSensitive: true, dotAll: true),
       // Stripe-style API keys
       (pattern: r'(?:sk|pk)_(?:live|test)_\w+', isPem: false, caseSensitive: true, dotAll: false),
       // Anthropic API keys
       (pattern: r'sk-ant-[a-zA-Z0-9_-]+', isPem: false, caseSensitive: true, dotAll: false),
       // AWS access key ID
       (pattern: r'AKIA[0-9A-Z]{16}', isPem: false, caseSensitive: true, dotAll: false),
-      // AWS secret access key
-      (pattern: r'aws_secret_access_key\s*=\s*\S+', isPem: false, caseSensitive: false, dotAll: false),
       // Bearer tokens
       (pattern: r'Bearer\s+[A-Za-z0-9\-._~+/]+=*', isPem: false, caseSensitive: true, dotAll: false),
-      // Generic secrets (api_key, secret, token, password = value)
-      (
-        pattern: r'(?:api[_-]?key|secret|token|password)\s*[:=]\s*\S+',
-        isPem: false,
-        caseSensitive: false,
-        dotAll: false,
-      ),
     ];
 
     for (final b in builtins) {
@@ -77,7 +151,35 @@ class MessageRedactor {
   String redact(String input) {
     if (input.isEmpty) return input;
     try {
-      var result = input;
+      var result = input.replaceAllMapped(_authorizationHeader, (match) => '${match.group(1)}***');
+      result = result.replaceAllMapped(
+        _equalsAssignment,
+        (match) => isSecretKey(match.group(2)!)
+            ? _redactAssignmentValue(
+                '${match.group(1)}${match.group(2)}${match.group(3)}',
+                match.group(4)!,
+                preserveClosingDelimiter: _isStructuralPrefix(result, match.start, null, match.group(1)),
+              )
+            : match.group(0)!,
+      );
+      result = _redactQuotedAssignments(result);
+      result = result.replaceAllMapped(
+        _colonAssignment,
+        (match) =>
+            isSecretKey(match.group(3)!) &&
+                _isStructuredColonKey(
+                  atLineStart: match.group(1) != null,
+                  structuredPrefix: _isStructuralPrefix(result, match.start, match.group(1), match.group(2)),
+                  key: match.group(3)!,
+                  value: match.group(5)!,
+                )
+            ? _redactAssignmentValue(
+                '${match.group(1) ?? match.group(2)}${match.group(3)}${match.group(4)}',
+                match.group(5)!,
+                preserveClosingDelimiter: _isStructuralPrefix(result, match.start, match.group(1), match.group(2)),
+              )
+            : match.group(0)!,
+      );
       for (final entry in _compiled) {
         if (entry.isPem) {
           result = result.replaceAll(entry.pattern, '[REDACTED]');
@@ -97,5 +199,113 @@ class MessageRedactor {
     final keep = min(value.length ~/ 2, 8);
     if (keep <= 0) return '***';
     return '${value.substring(0, keep)}***';
+  }
+
+  static bool _isStructuredColonKey({
+    required bool atLineStart,
+    required bool structuredPrefix,
+    required String key,
+    required String value,
+  }) {
+    if (structuredPrefix) return true;
+    if (atLineStart && key == key.toLowerCase()) return true;
+    final trimmed = value.trim();
+    if (_quotedPlainValue.hasMatch(trimmed)) return true;
+    return !trimmed.contains(RegExp(r'\s'));
+  }
+
+  static bool _isStructuralPrefix(String input, int matchStart, String? linePrefix, String? separator) {
+    if ((linePrefix?.trim().isNotEmpty ?? false) || const {'{', '[', ','}.contains(separator)) return true;
+    var index = matchStart - 1;
+    while (index >= 0 && (input.codeUnitAt(index) == 0x20 || input.codeUnitAt(index) == 0x09)) {
+      index--;
+    }
+    return index >= 0 && const {0x7b, 0x5b, 0x2c}.contains(input.codeUnitAt(index));
+  }
+
+  static String _redactAssignmentValue(String prefix, String value, {bool preserveClosingDelimiter = false}) {
+    final closing = preserveClosingDelimiter ? _closingDelimiters.firstMatch(value) : null;
+    final body = closing == null ? value : value.substring(0, closing.start);
+    final punctuation = _terminalPunctuation.firstMatch(body);
+    final secretAndProse = punctuation == null ? body : body.substring(0, punctuation.start);
+    final continuation = _proseContinuation.firstMatch(secretAndProse);
+    return '$prefix***'
+        '${continuation == null ? '' : secretAndProse.substring(continuation.start)}'
+        '${punctuation?.group(0) ?? ''}${closing?.group(0) ?? ''}';
+  }
+
+  static String _redactQuotedAssignments(String input) {
+    final output = StringBuffer();
+    var cursor = 0;
+    for (final match in _quotedColonAssignment.allMatches(input)) {
+      if (match.start < cursor || !isSecretKey(match.group(2)!)) continue;
+      final valueEnd = _jsonValueEnd(input, match.end);
+      if (valueEnd == null) continue;
+      output
+        ..write(input.substring(cursor, match.end))
+        ..write('"***"');
+      cursor = valueEnd;
+    }
+    if (cursor == 0) return input;
+    output.write(input.substring(cursor));
+    return output.toString();
+  }
+
+  static int? _jsonValueEnd(String input, int start) {
+    if (start >= input.length) return null;
+    final first = input.codeUnitAt(start);
+    if (first == 0x22) {
+      var escaped = false;
+      for (var i = start + 1; i < input.length; i++) {
+        final code = input.codeUnitAt(i);
+        if (escaped) {
+          escaped = false;
+        } else if (code == 0x5c) {
+          escaped = true;
+        } else if (code == 0x22) {
+          return i + 1;
+        }
+      }
+      return input.length;
+    }
+    if (first == 0x7b || first == 0x5b) {
+      final stack = <int>[first];
+      var quoted = false;
+      var escaped = false;
+      for (var i = start + 1; i < input.length; i++) {
+        final code = input.codeUnitAt(i);
+        if (quoted) {
+          if (escaped) {
+            escaped = false;
+          } else if (code == 0x5c) {
+            escaped = true;
+          } else if (code == 0x22) {
+            quoted = false;
+          }
+          continue;
+        }
+        if (code == 0x22) {
+          quoted = true;
+        } else if (code == 0x7b || code == 0x5b) {
+          stack.add(code);
+        } else if (code == 0x7d || code == 0x5d) {
+          final expected = code == 0x7d ? 0x7b : 0x5b;
+          if (stack.last != expected) return input.length;
+          stack.removeLast();
+          if (stack.isEmpty) return i + 1;
+        }
+      }
+      return input.length;
+    }
+    return _jsonScalar.matchAsPrefix(input, start)?.end;
+  }
+
+  static List<String> _keyWords(Object key) {
+    final separated = key
+        .toString()
+        .trim()
+        .replaceAllMapped(RegExp(r'([A-Z]+)([A-Z][a-z])'), (match) => '${match.group(1)}_${match.group(2)}')
+        .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (match) => '${match.group(1)}_${match.group(2)}');
+    return separated.toLowerCase().split(RegExp('[^a-z0-9]+')).where((word) => word.isNotEmpty).toList(growable: false);
   }
 }

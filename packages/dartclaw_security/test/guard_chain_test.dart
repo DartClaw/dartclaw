@@ -242,7 +242,7 @@ void main() {
       expect(verdicts[0].guardName, 'input-sanitizer');
     });
 
-    test('evaluateBeforeToolCall propagates rawProviderToolName into GuardContext', () async {
+    test('evaluateBeforeToolCall propagates tool and agent identity into GuardContext', () async {
       GuardContext? capturedContext;
       final chain = buildChain([
         FakeGuard(
@@ -253,11 +253,15 @@ void main() {
         ),
       ]);
 
-      await Function.apply(chain.evaluateBeforeToolCall, ['shell', {}], {#rawProviderToolName: 'Bash'});
+      await chain.evaluateBeforeToolCall('shell', {}, rawProviderToolName: 'Bash', agentId: 'search');
 
       expect(capturedContext, isNotNull);
       expect(capturedContext!.toolName, 'shell');
       expect(capturedContext!.rawProviderToolName, 'Bash');
+      expect(capturedContext!.agentId, 'search');
+
+      await chain.evaluateBeforeToolCall('shell', {});
+      expect(capturedContext!.agentId, isNull);
     });
 
     group('replaceGuards', () {

@@ -12,12 +12,11 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
   ChannelWiring channel, {
   OutboundMcpTransportFactory? outboundMcpTransportFactory,
 }) async {
-  final handlers = harness.memoryHandlers;
-  server.registerTool(DelegateToAgentTool(config: config, pool: harness.pool));
-  server.registerTool(SessionsSendTool(delegate: harness.sessionDelegate));
-  server.registerTool(MemorySaveTool(handler: handlers.onSave));
-  server.registerTool(MemorySearchTool(handler: handlers.onSearch));
-  server.registerTool(MemoryReadTool(handler: handlers.onRead));
+  server.registerTool(SessionsSpawnTool(sessions: harness.logicalAgentSessions));
+  server.registerTool(SessionsSendTool(sessions: harness.logicalAgentSessions));
+  for (final tool in harness.semanticMcpTools) {
+    server.registerTool(tool);
+  }
   final auditLogger = security.auditLogger;
   // Register onboarding_complete only when onboarding is active at startup.
   // The single global MCP surface is shared with task/cron/channel agents;
@@ -45,8 +44,13 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
     ContextResearchTool(
       memorySearch: storage.searchBackend,
       kg: storage.kg,
-      wikiSearch: WikiSearchSource(workspaceDir: config.workspaceDir),
-      synthesizer: ContextResearchTool.delegateSynthesizer(harness.sessionDelegate),
+      sourceResolver: LiveCitationSourceResolver(
+        corpus: storage.memoryCorpus,
+        wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
+        kg: storage.kg,
+        inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
+      ),
+      synthesizer: ContextResearchTool.logicalAgentSynthesizer(harness.logicalAgentSessions),
       metricsSink: (metrics) async {
         ctx.eventBus.fire(
           ContextResearchMetricsEvent(
@@ -61,14 +65,11 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
       },
     ),
   );
-  server.registerTool(
-    WebFetchTool(classifier: security.contentClassifier, failOpenOnClassification: security.contentGuardFailOpen),
-  );
-
   AdvisorSubscriber? advisorSubscriber;
   if (config.advisor.enabled) {
     advisorSubscriber = AdvisorSubscriber(
-      pool: harness.pool,
+      executions: harness.executions,
+      providerId: config.agent.provider,
       sessions: storage.sessions,
       taskService: storage.taskService,
       channelManager: channel.channelManager,
@@ -81,35 +82,9 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
       maxPriorReflections: config.advisor.maxPriorReflections,
       model: config.advisor.model,
       effort: config.advisor.effort,
+      policyResolver: harness.policyResolver,
     );
     advisorSubscriber.subscribe();
-  }
-
-  for (final entry in config.search.providers.entries) {
-    final providerName = entry.key;
-    final providerConfig = entry.value;
-    if (!providerConfig.enabled || providerConfig.apiKey.isEmpty) continue;
-
-    switch (providerName) {
-      case 'brave':
-        server.registerTool(
-          BraveSearchTool(
-            provider: BraveSearchProvider(apiKey: providerConfig.apiKey),
-            contentGuard: security.contentGuard,
-          ),
-        );
-        _mcpToolsLog.info('Registered brave_search MCP tool');
-      case 'tavily':
-        server.registerTool(
-          TavilySearchTool(
-            provider: TavilySearchProvider(apiKey: providerConfig.apiKey),
-            contentGuard: security.contentGuard,
-          ),
-        );
-        _mcpToolsLog.info('Registered tavily_search MCP tool');
-      default:
-        _mcpToolsLog.warning('Unknown search provider: $providerName — skipping');
-    }
   }
 
   final outboundMcpPool = await _registerOutboundMcpTools(

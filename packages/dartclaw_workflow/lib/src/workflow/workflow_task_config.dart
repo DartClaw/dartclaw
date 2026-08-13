@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepExecution, WorkflowStepExecutionRepository;
 
+import 'workflow_run_paths.dart' show stepArtifactsDirEnvVar;
+
 /// Typed accessors and key constants for workflow-owned task execution metadata.
 ///
 /// The `dartclaw_workflow` and `dartclaw_server` packages now communicate
@@ -83,6 +85,15 @@ abstract final class WorkflowTaskConfig {
     return Map<String, String>.fromEntries(
       raw.entries.where((e) => e.value is String).map((e) => MapEntry(e.key.toString(), e.value as String)),
     );
+  }
+
+  /// Reads the host-owned step artifacts directory for [task], when present.
+  ///
+  /// This is the directory the step writes its durable outputs to and the
+  /// extractor reads them back from, so a containerized step needs it mounted.
+  static String? readStepArtifactsDir(Task task) {
+    final dir = readStepArtifactsEnv(task)?[stepArtifactsDirEnvVar]?.trim();
+    return dir == null || dir.isEmpty ? null : dir;
   }
 
   /// Returns the workflow step execution for [task], or null when this is not

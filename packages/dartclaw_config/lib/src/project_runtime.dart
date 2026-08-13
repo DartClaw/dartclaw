@@ -24,7 +24,7 @@ class ProjectAuthStatus {
   final String? errorMessage;
 
   /// Creates a project auth status snapshot.
-  const ProjectAuthStatus({
+  const new({
     this.repository,
     this.credentialsRef,
     this.credentialType,
@@ -46,7 +46,7 @@ class ProjectAuthStatus {
   };
 
   /// Reconstructs a [ProjectAuthStatus] from its JSON representation.
-  factory ProjectAuthStatus.fromJson(Map<String, dynamic> json) => ProjectAuthStatus(
+  factory fromJson(Map<String, dynamic> json) => ProjectAuthStatus(
     repository: json['repository'] as String?,
     credentialsRef: json['credentialsRef'] as String?,
     credentialType: json['credentialType'] as String?,
@@ -134,16 +134,16 @@ class PrConfig {
   final List<String> labels;
 
   /// Creates a [PrConfig] with the given fields.
-  const PrConfig({this.strategy = PrStrategy.branchOnly, this.draft = false, this.labels = const []});
+  const new({this.strategy = PrStrategy.branchOnly, this.draft = false, this.labels = const []});
 
   /// Creates a [PrConfig] with default settings.
-  const PrConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Serializes this config to a JSON-ready map.
   Map<String, dynamic> toJson() => {'strategy': strategy.name, 'draft': draft, if (labels.isNotEmpty) 'labels': labels};
 
   /// Reconstructs a [PrConfig] from its JSON representation.
-  factory PrConfig.fromJson(Map<String, dynamic> json) => PrConfig(
+  factory fromJson(Map<String, dynamic> json) => PrConfig(
     strategy: PrStrategy.fromYaml(json['strategy']),
     draft: json['draft'] as bool? ?? false,
     labels: (json['labels'] as List?)?.cast<String>() ?? const [],
@@ -224,7 +224,7 @@ class Project {
   final DateTime createdAt;
 
   /// Creates an immutable project record.
-  const Project({
+  const new({
     required this.id,
     required this.name,
     required this.remoteUrl,
@@ -293,7 +293,7 @@ class Project {
   };
 
   /// Deserializes a project from JSON.
-  factory Project.fromJson(Map<String, dynamic> json) => Project(
+  factory fromJson(Map<String, dynamic> json) => Project(
     id: json['id'] as String,
     name: json['name'] as String,
     remoteUrl: json['remoteUrl'] as String,

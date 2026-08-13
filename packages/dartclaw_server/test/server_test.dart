@@ -2,18 +2,18 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'test_utils.dart';
+import 'execution_coordinator_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // FakeWorkerService
@@ -55,6 +55,9 @@ class FakeWorkerService implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -65,6 +68,7 @@ class FakeWorkerService implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -101,11 +105,12 @@ class FakeWorkerService implements AgentHarness {
 
   void completeSuccess() => _turnCompleter?.complete({'ok': true});
   Future<void> get turnStarted => _turnStarted.future;
+  bool get hasTurnStarted => _turnStarted.isCompleted;
   Future<void> closeEvents() => _eventsCtrl.close();
 }
 
 class _TestDashboardPage extends DashboardPage {
-  _TestDashboardPage({this.routePath = '/custom-dashboard'});
+  new({this.routePath = '/custom-dashboard'});
 
   final String routePath;
 
@@ -132,13 +137,13 @@ Future<ProcessResult> _successfulProcessResult(
   return ProcessResult(1, 0, '', '');
 }
 
-AgentObserver _buildAgentObserver(FakeWorkerService worker, MessageService messages) {
+RunnerObserver _buildRunnerObserver(FakeWorkerService worker, MessageService messages) {
   final runner = TurnRunner(
     harness: worker,
     messages: messages,
     behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
   );
-  return AgentObserver(pool: HarnessPool(runners: [runner]));
+  return RunnerObserver(executions: coordinatorForRunners([runner]));
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +193,97 @@ void main() {
     expect(response.statusCode, 404);
     expect(response.headers['content-type'], startsWith('text/html'));
     expect(body, contains('Page Not Found'));
+    expect(body, contains('class="error-code t-display text-overlay"'));
+    expect(body, isNot(contains('class="error-code t-display text-gradient"')));
     expect(body, contains('href="/"'));
+  });
+
+  group('MCP route exposure', () {
+    DartclawServer buildServer({required String host, required bool authEnabled, String? gatewayToken}) =>
+        (DartclawServerBuilder()
+              ..sessions = sessions
+              ..messages = messages
+              ..worker = worker
+              ..staticDir = _staticDir()
+              ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+              ..config = DartclawConfig(
+                server: ServerConfig(host: host, dataDir: tempDir.path),
+              )
+              ..authEnabled = authEnabled
+              ..gatewayToken = gatewayToken)
+            .build();
+
+    Request initializeRequest({String? token}) => Request(
+      'POST',
+      Uri.parse('http://localhost/mcp'),
+      body: jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1}),
+      headers: {
+        'host': 'localhost',
+        'content-type': 'application/json',
+        if (token != null) 'authorization': 'Bearer $token',
+      },
+    );
+
+    test('authentication-disabled loopback server mounts the standard MCP endpoint', () async {
+      server = buildServer(host: 'localhost', authEnabled: false);
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 200);
+    });
+
+    test('authentication-enabled MCP route still requires its bearer', () async {
+      server = buildServer(host: '0.0.0.0', authEnabled: true, gatewayToken: 'test-token');
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 401);
+    });
+
+    test('authentication-disabled non-loopback server rejects unsafe MCP requests', () async {
+      server = buildServer(host: '0.0.0.0', authEnabled: false);
+
+      final response = await server.handler(initializeRequest());
+
+      expect(response.statusCode, 403);
+    });
+  });
+
+  test('authentication-disabled run-now rejects cross-origin browser requests', () async {
+    final builder = DartclawServerBuilder()
+      ..sessions = sessions
+      ..messages = messages
+      ..worker = worker
+      ..staticDir = _staticDir()
+      ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+      ..runtimeConfig = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false)
+      ..authEnabled = false;
+    final schedule = ScheduleService(
+      turns: builder.buildTurns(),
+      sessions: sessions,
+      jobs: [
+        ScheduledJob(
+          id: 'memory-journal',
+          prompt: 'Journal memory',
+          scheduleType: ScheduleType.cron,
+          cronExpression: CronExpression.parse('0 22 * * *'),
+        ),
+      ],
+    )..start();
+    addTearDown(schedule.stop);
+    builder.scheduleService = schedule;
+    server = builder.build();
+
+    final response = await server.handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/scheduling/jobs/memory-journal/run'),
+        headers: {'host': 'localhost', 'origin': 'https://attacker.example'},
+      ),
+    );
+
+    expect(response.statusCode, 403);
+    expect(worker.hasTurnStarted, isFalse);
   });
 
   group('shutdown', () {
@@ -304,7 +399,7 @@ void main() {
     late WorktreeManager worktreeManager;
     late TaskFileGuard taskFileGuard;
     late MergeExecutor mergeExecutor;
-    late AgentObserver agentObserver;
+    late RunnerObserver runnerObserver;
 
     setUp(() {
       taskDb = openTaskDbInMemory();
@@ -318,7 +413,7 @@ void main() {
       taskFileGuard = TaskFileGuard();
       final gitGateway = FakeGitGateway()..initWorktree(tempDir.path);
       mergeExecutor = MergeExecutor(projectDir: tempDir.path, gitPort: gitGateway);
-      agentObserver = _buildAgentObserver(worker, messages);
+      runnerObserver = _buildRunnerObserver(worker, messages);
       server =
           (DartclawServerBuilder()
                 ..sessions = sessions
@@ -333,12 +428,11 @@ void main() {
                 ..worktreeManager = worktreeManager
                 ..taskFileGuard = taskFileGuard
                 ..mergeExecutor = mergeExecutor
-                ..agentObserver = agentObserver)
+                ..runnerObserver = runnerObserver)
               .build();
     });
 
     tearDown(() async {
-      agentObserver.dispose();
       await eventBus.dispose();
       await taskService.dispose();
     });

@@ -6,8 +6,10 @@ import 'acp_errors.dart';
 import 'process_types.dart';
 
 /// Executes a target-specific ACP probe and returns operation evidence.
-typedef AcpTargetProbe =
-    Future<Iterable<AcpTargetOperationEvidence>> Function(String providerId, AcpAgentConfig config);
+typedef AcpTargetProbe = Future<Iterable<AcpTargetOperationEvidence>> Function(
+  String providerId,
+  AcpAgentConfig config,
+);
 
 /// Stable operation IDs reported by ACP target validation.
 enum AcpTargetOperation {
@@ -24,7 +26,7 @@ enum AcpTargetOperation {
   /// Expected raw ACP method, when the operation proves a reverse-call path.
   final String? rawMethod;
 
-  const AcpTargetOperation(this.id, this.rawMethod);
+  new(this.id, this.rawMethod);
 
   /// Finds an operation by wire-format [id].
   static AcpTargetOperation? fromId(String id) {
@@ -38,14 +40,14 @@ enum AcpTargetOperation {
 /// Security classification for one ACP target validation operation.
 enum AcpTargetEvidenceStatus {
   guardMediated('guard_mediated'),
-  containerIsolationOnly('container_isolation_only'),
+  hostOnly('host_only'),
   failed('failed'),
   skipped('skipped');
 
   /// Wire-format status.
   final String id;
 
-  const AcpTargetEvidenceStatus(this.id);
+  new(this.id);
 }
 
 /// Overall target validation status.
@@ -57,7 +59,7 @@ enum AcpTargetValidationStatus {
   /// Wire-format status.
   final String id;
 
-  const AcpTargetValidationStatus(this.id);
+  new(this.id);
 }
 
 /// Evidence for one ACP target operation.
@@ -75,7 +77,7 @@ final class AcpTargetOperationEvidence {
   final String? detail;
 
   /// Creates operation evidence.
-  const AcpTargetOperationEvidence({required this.operation, required this.status, this.rawMethod, this.detail});
+  const new({required this.operation, required this.status, this.rawMethod, this.detail});
 
   /// Whether this operation proves guard mediation.
   bool get isGuardMediated => status == AcpTargetEvidenceStatus.guardMediated;
@@ -110,7 +112,7 @@ final class AcpTargetValidationResult {
   final String? message;
 
   /// Creates a target validation result.
-  const AcpTargetValidationResult({
+  const new({
     required this.providerId,
     required this.status,
     required this.securityClassification,
@@ -126,7 +128,7 @@ final class AcpTargetValidationResult {
       AcpTargetOperation.values.every((operation) => evidence[operation]?.isGuardMediated ?? false);
 
   /// Creates a fully guard-mediated result for deterministic probes.
-  factory AcpTargetValidationResult.guardMediated(String providerId) {
+  factory guardMediated(String providerId) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: AcpTargetValidationStatus.passed,
@@ -135,23 +137,23 @@ final class AcpTargetValidationResult {
     );
   }
 
-  /// Creates a container-isolation-only result.
-  factory AcpTargetValidationResult.containerIsolationOnly(String providerId, {String? message}) {
+  /// Creates a host-only result for a registration claiming no guard mediation.
+  factory hostOnly(String providerId, {String? message}) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: AcpTargetValidationStatus.passed,
-      securityClassification: AcpSecurityClassification.containerIsolationOnly,
+      securityClassification: AcpSecurityClassification.hostOnly,
       message: message,
-      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.containerIsolationOnly),
+      evidence: _evidenceForStatus(AcpTargetEvidenceStatus.hostOnly),
     );
   }
 
   /// Creates a structured spawn-failed result for missing optional binaries.
-  factory AcpTargetValidationResult.spawnFailed(String providerId, {required bool required, String? message}) {
+  factory spawnFailed(String providerId, {required bool required, String? message}) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: required ? AcpTargetValidationStatus.failed : AcpTargetValidationStatus.skipped,
-      securityClassification: AcpSecurityClassification.containerIsolationOnly,
+      securityClassification: AcpSecurityClassification.hostOnly,
       errorCode: AcpHarnessErrorCode.spawnFailed.code,
       message: message,
       evidence: _evidenceForStatus(AcpTargetEvidenceStatus.skipped),
@@ -175,7 +177,7 @@ final class AcpTargetValidator {
   final Map<String, AcpVerifiedTargetProfile> profiles;
 
   /// Creates an ACP target validator.
-  const AcpTargetValidator({this.profiles = AcpVerifiedTargetProfile.byProviderId});
+  const new({this.profiles = AcpVerifiedTargetProfile.byProviderId});
 
   /// Validates static config proof requirements before subprocess spawn.
   List<String> validateConfig(
@@ -259,7 +261,7 @@ final class AcpTargetValidator {
         results[providerId] = AcpTargetValidationResult(
           providerId: providerId,
           status: AcpTargetValidationStatus.failed,
-          securityClassification: AcpSecurityClassification.containerIsolationOnly,
+          securityClassification: AcpSecurityClassification.hostOnly,
           message: configErrors.join('; '),
           evidence: _evidenceForStatus(AcpTargetEvidenceStatus.failed),
         );
@@ -284,7 +286,7 @@ final class AcpTargetValidator {
         continue;
       }
       if (!config.requiresGuardMediation) {
-        results[providerId] = AcpTargetValidationResult.containerIsolationOnly(providerId);
+        results[providerId] = AcpTargetValidationResult.hostOnly(providerId);
         continue;
       }
       final probe = targetProbe;
@@ -292,7 +294,7 @@ final class AcpTargetValidator {
         results[providerId] = AcpTargetValidationResult(
           providerId: providerId,
           status: AcpTargetValidationStatus.failed,
-          securityClassification: AcpSecurityClassification.containerIsolationOnly,
+          securityClassification: AcpSecurityClassification.hostOnly,
           message: 'Guard-mediated ACP target requires operation probe evidence',
           evidence: _evidenceForStatus(AcpTargetEvidenceStatus.failed),
         );
@@ -305,7 +307,7 @@ final class AcpTargetValidator {
         status: allOperationsGuardMediated ? AcpTargetValidationStatus.passed : AcpTargetValidationStatus.failed,
         securityClassification: allOperationsGuardMediated
             ? AcpSecurityClassification.guardMediated
-            : AcpSecurityClassification.containerIsolationOnly,
+            : AcpSecurityClassification.hostOnly,
         evidence: evidence,
       );
       results[providerId] = result;
@@ -330,6 +332,6 @@ String acpSecurityClassificationId(AcpSecurityClassification classification) => 
 String _classificationId(AcpSecurityClassification classification) {
   return switch (classification) {
     AcpSecurityClassification.guardMediated => 'guard_mediated',
-    AcpSecurityClassification.containerIsolationOnly => 'container_isolation_only',
+    AcpSecurityClassification.hostOnly => 'host_only',
   };
 }

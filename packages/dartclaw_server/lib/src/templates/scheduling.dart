@@ -35,7 +35,13 @@ String schedulingTemplate({
     final schedule = job['schedule']?.toString() ?? '';
     final delivery = job['delivery']?.toString() ?? 'none';
     final jobStatus = job['status']?.toString() ?? 'active';
+    final lifecycle = job['lifecycle'];
+    final visibleStatus = lifecycle is Map ? lifecycle['state']?.toString() ?? jobStatus : jobStatus;
+    final index = job['index'];
+    final indexStatus = index is Map ? index['state']?.toString() : null;
     final isSystem = systemJobNames.contains(name);
+    final canRun = !isSystem || job['runnable'] == true;
+    final runDisabled = canRun && visibleStatus == 'running';
 
     // Cron human-readable description
     String cronHuman = '';
@@ -51,9 +57,18 @@ String schedulingTemplate({
       _ => '',
     };
 
-    final statusDotClass = switch (jobStatus) {
-      'active' => 'status-dot--live',
-      'error' => 'status-dot--error',
+    final statusDotClass = switch (visibleStatus) {
+      'active' || 'running' => 'status-dot--live',
+      'succeeded' => 'status-dot--success',
+      'conflicted' => 'status-dot--attention',
+      'error' || 'failed' => 'status-dot--error',
+      'unknown' => 'status-dot--warning',
+      _ => 'status-dot--idle',
+    };
+    final indexDotClass = switch (indexStatus) {
+      'healthy' => 'status-dot--success',
+      'rebuilding' => 'status-dot--live',
+      'degraded' || 'unknown' => 'status-dot--warning',
       _ => 'status-dot--idle',
     };
 
@@ -61,13 +76,19 @@ String schedulingTemplate({
       'name': name,
       'schedule': schedule,
       'delivery': delivery,
-      'status': jobStatus,
+      'status': visibleStatus,
       'deliveryBadgeClass': deliveryBadgeClass,
       'statusDotClass': statusDotClass,
-      'rowClass': isSystem ? 'row-system' : (jobStatus == 'error' ? 'row-error' : ''),
-      'isActive': jobStatus == 'active',
+      'hasIndexStatus': indexStatus != null,
+      'indexStatus': indexStatus,
+      'indexDotClass': indexDotClass,
+      'rowClass': isSystem ? 'row-system' : (visibleStatus == 'error' || visibleStatus == 'failed' ? 'row-error' : ''),
+      'isActive': visibleStatus == 'active' || visibleStatus == 'running',
       'isSystem': isSystem,
-      'hasActions': !isSystem,
+      'canRun': canRun,
+      'canStart': canRun && !runDisabled,
+      'runDisabled': runDisabled,
+      'hasActions': !isSystem || canRun,
       'cronHuman': cronHuman,
     };
   }).toList();

@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.23
+**Current through**: 0.24
 
 ---
 
@@ -228,6 +228,9 @@ The full inbound flow from raw platform event to agent turn:
 5. **Deduplication** -- `MessageDeduplicator` (bounded FIFO set, default capacity 1000) prevents the same message from being processed twice when it arrives via both webhook and Pub/Sub. Keyed on message resource name.
 
 6. **ChannelManager routing** -- Finds the owning channel via `ownsJid()`, derives a session key from `SessionScopeConfig`, and delegates to `ChannelTaskBridge` if wired.
+
+Human channel turns use `PromptScope.primary`; the separate human-input flag makes fresh onboarding eligible independently of transport. Tasks,
+scheduled work, workflows, advisors, and logical-agent turns use non-conversational scopes and never receive it.
 
 7. **ChannelTaskBridge** -- Evaluates the message against reserved commands, thread bindings, rate limits, review commands, and task triggers. Returns `true` if consumed.
 

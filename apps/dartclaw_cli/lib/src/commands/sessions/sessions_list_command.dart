@@ -1,7 +1,7 @@
 import '../connected_command_support.dart';
 
 class SessionsListCommand extends ConnectedCommand {
-  SessionsListCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('type', help: 'Filter by session type')
       ..addFlag('json', negatable: false, help: 'Output as JSON');

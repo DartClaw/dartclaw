@@ -6,7 +6,7 @@ A turnkey personal AI assistant that remembers, researches, and reports -- combi
 
 This guide combines patterns from four individual recipes:
 - [Morning Briefing](01-morning-briefing.md) -- daily summary delivered to your phone or web UI
-- [Daily Memory Journal](02-daily-memory-journal.md) -- end-of-day knowledge consolidation
+- [Daily Memory Journal](02-daily-memory-journal.md) -- end-of-day observation capture
 - [Knowledge Inbox](04-knowledge-inbox.md) -- automated web monitoring and curation
 - [Nightly Reflection](07-nightly-reflection.md) -- self-improvement via error and learning analysis
 
@@ -18,9 +18,9 @@ Each is documented in detail in its own guide; this one shows how they work toge
 |--------|----------|-------------|
 | Morning Briefing | 7:00 AM daily | Summarizes weather, news, reminders, and pending items |
 | Knowledge Inbox | 12:00 PM daily | Searches the web for topics you care about, saves new findings |
-| Daily Journal | 10:00 PM daily | Consolidates the day's conversations into structured memory entries |
+| Daily Journal | 10:00 PM daily | Records selected observations from the day's activity |
 | Nightly Reflection | 3:00 AM daily | Reviews errors and learnings, detects patterns, saves insights |
-| Heartbeat | Every 60 min | Processes maintenance tasks, triggers memory consolidation |
+| Heartbeat | Every 60 min | Processes maintenance tasks and git sync |
 
 Plus:
 - **Interactive research** -- ask questions anytime via web UI or channel; the agent searches the web and builds on previous research
@@ -32,9 +32,9 @@ Plus:
 
 Here is how the assistant works across a typical 24-hour period:
 
-**3:00 AM -- Nightly Reflection.** The agent reviews `errors.md` and `learnings.md`, cross-references with previous reflections in memory, and saves 3-5 actionable insights. Uses Sonnet for cost efficiency.
+**3:00 AM – Nightly Reflection.** The agent reviews `errors.md`, retrieves canonical learnings through `memory_search`/`memory_read`, cross-references previous reflections, and saves 3-5 actionable insights. Uses Sonnet for cost efficiency.
 
-**7:00 AM -- Morning Briefing.** The agent reads your USER.md (timezone, location, interests), checks MEMORY.md for reminders and pending action items, searches the web for weather and news, and delivers a concise briefing via `announce` to your phone (WhatsApp/Signal/Google Chat) or web UI.
+**7:00 AM -- Morning Briefing.** The agent reads your USER.md (timezone, location, interests), searches canonical memory for reminders and pending action items, searches the web for weather and news, and delivers a concise briefing via `announce` to your phone (WhatsApp/Signal/Google Chat) or web UI.
 
 **8:30 AM -- You message from your phone.** "What did we decide about the database migration?" The agent searches memory, finds the relevant journal entry from last Tuesday, and responds with context.
 
@@ -42,9 +42,9 @@ Here is how the assistant works across a typical 24-hour period:
 
 **2:15 PM -- Interactive research via web UI.** You ask the agent to compare two libraries. It searches the web, cross-references with previously saved research, and synthesizes a structured comparison. Key findings are saved to memory.
 
-**10:00 PM -- Daily Journal.** The agent reviews the day's context and writes structured entries to MEMORY.md -- categorized as decisions, insights, action items, or learnings. If MEMORY.md exceeds the size cap, the next heartbeat consolidates and deduplicates entries.
+**10:00 PM -- Daily Journal.** The agent reviews the day's context and records selected observations through `memory_observe`. Curated personal memory changes only through an explicit `memory_apply` request.
 
-**Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Triggers memory consolidation when MEMORY.md exceeds `memory.max_bytes`. Git sync commits and pushes workspace changes.
+**Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Git sync commits and pushes workspace changes.
 
 ## Configuration
 
@@ -67,7 +67,7 @@ agent:
 
 # --- Memory ---
 memory:
-  max_bytes: 65536                   # 64KB -- consolidation triggers above this
+  max_bytes: 65536                   # 64KB included in composed agent context
 
 # --- Sessions ---
 sessions:
@@ -101,7 +101,7 @@ scheduling:
       prompt: >
         Prepare my morning briefing. Include:
         1. A brief weather summary for my location (check USER.md for timezone/location)
-        2. Any important dates, reminders, or pending action items from MEMORY.md
+        2. Any important dates, reminders, or pending action items found with memory_search
         3. A concise news summary on topics I care about (check SOUL.md for interests)
         4. Any overnight reflection insights worth noting
         Format for mobile reading: short paragraphs, bullet points, no headers.
@@ -116,8 +116,8 @@ scheduling:
         Run your daily knowledge scan. For each topic in SOUL.md under "## Topics to Track":
         1. Use WebSearch to find recent developments (last 24 hours if possible)
         2. For the most relevant results, use WebFetch to get full content
-        3. Evaluate each finding: Is this new? Does it relate to existing MEMORY.md entries?
-        4. Save genuinely new and important findings using memory_save with category='knowledge-inbox'
+        3. Use memory_search to evaluate each finding: Is this new? Does it relate to an existing canonical entry?
+        4. Record genuinely new and important findings using memory_observe with role='observation'
         5. Skip duplicates or information already in memory
         Format: "[Topic] Brief summary with source URL"
       schedule:
@@ -128,9 +128,8 @@ scheduling:
     # Pillar 3: Daily Journal (10 PM daily)
     - id: daily-journal
       prompt: >
-        Review today's activity and update MEMORY.md with structured entries.
-        For each notable item, categorize as: decisions, insights, action-items, or learnings.
-        Use the memory_save tool. Include timestamps. Be selective -- only record
+        Review today's activity and record notable observations.
+        Use memory_observe with role='observation'. Be selective -- only record
         things worth remembering.
       schedule:
         type: cron
@@ -142,11 +141,12 @@ scheduling:
       prompt: >
         Perform your nightly reflection:
         1. Read errors.md for patterns or recurring issues
-        2. Read learnings.md for insights accumulated today
-        3. Cross-reference with MEMORY.md -- are there recurring themes?
+        2. Use memory_search and memory_read to retrieve canonical learnings accumulated today
+        3. Search canonical memory for previous reflections and recurring themes
         4. Synthesize: What went well? What patterns are emerging? What should change?
-        5. Save conclusions to memory using memory_save with category='reflection'
-        Keep analysis concise -- 3-5 bullet points. Skip if both files are empty.
+        5. Read the current collection revision and add conclusions through
+           memory_apply under topic 'reflection'
+        Keep analysis concise – 3-5 bullet points. Skip if errors.md is empty and no relevant canonical learnings are found.
       schedule:
         type: cron
         expression: "0 3 * * *"
@@ -155,10 +155,11 @@ scheduling:
     # Optional: Weekly Review (Monday 10 AM)
     - id: weekly-review
       prompt: >
-        Summarize this week's activity. Review MEMORY.md for patterns across
-        the week's journal entries and reflections. Highlight: key decisions made,
+        Summarize this week's activity. Use memory_search and memory_read to review
+        the week's canonical observations and reflections. Highlight: key decisions made,
         recurring themes, outstanding action items, and suggested focus areas
-        for next week. Save summary with category='weekly-review'.
+        for next week. Read the current collection revision and add the summary
+        through memory_apply under topic 'weekly-review'.
       schedule:
         type: cron
         expression: "0 10 * * 1"
@@ -229,10 +230,10 @@ You are a personal AI assistant and knowledge companion.
 - Distinguish one-off errors (dismiss) from systematic issues (investigate)
 
 ## Curation Standards
-- Only save findings that are genuinely new (not already in MEMORY.md)
+- Search canonical memory first and save only genuinely new findings
 - Always include source URLs for web-sourced knowledge
 - Prefer primary sources over aggregators
-- One finding per memory_save call (keeps entries atomic and searchable)
+- One finding per `memory_observe` call (keeps observations independently identifiable and searchable)
 ```
 
 ### USER.md
@@ -256,7 +257,7 @@ You are a personal AI assistant and knowledge companion.
 ### HEARTBEAT.md
 
 ```markdown
-- [ ] Review MEMORY.md for duplicate or outdated entries
+- [ ] Search canonical memory for duplicate or outdated entries
 - [ ] Check if any action items from previous days are still pending
 - [ ] Verify workspace git sync is current
 ```
@@ -330,11 +331,11 @@ Uncomment the `channels:` section and configure WhatsApp, Signal, or Google Chat
 
 With `task_trigger` enabled on a channel, send messages like `task: Research Dart isolate patterns` from WhatsApp/Signal/Google Chat to create background tasks. Review results with `accept` or `reject` directly from the channel. See the [Scheduled Task Queue](03-scheduled-task-queue.md) guide for more on the task system.
 
-### Adjust memory and consolidation
+### Adjust memory context and curation
 
 - **Increase memory cap**: Set `memory.max_bytes: 131072` (128KB) if you generate lots of entries
 - **Semantic search**: Set `search.backend: qmd` for concept-based retrieval (requires QMD service)
-- **Faster consolidation**: Decrease `heartbeat.interval_minutes` to trigger consolidation more often
+- **Curate duplicates**: read current revisions, then use one explicit `memory_apply` merge operation
 
 ### Use a cheaper model for scheduled jobs
 
@@ -353,7 +354,7 @@ Each pillar is documented in full detail in its own guide -- configuration optio
 | Guide | What it covers |
 |-------|---------------|
 | [Morning Briefing](01-morning-briefing.md) | Delivery modes, WhatsApp/Google Chat setup, news source customization |
-| [Daily Memory Journal](02-daily-memory-journal.md) | Entry categories, memory consolidation lifecycle, git sync setup |
+| [Daily Memory Journal](02-daily-memory-journal.md) | Observation capture and git sync setup |
 | [Scheduled Task Queue](03-scheduled-task-queue.md) | Multiple job orchestration, concurrency limits, webhook delivery, task system |
 | [Knowledge Inbox](04-knowledge-inbox.md) | Topic tracking, content-guard filtering, duplicate detection |
 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp CRM, allowlist management, action item tracking |
@@ -366,24 +367,24 @@ DartClaw's memory system uses keyword-based search (FTS5 BM25, with QMD hybrid o
 
 ### Common patterns
 
-See [Common Patterns](_common-patterns.md) for reusable templates (SOUL.md, HEARTBEAT.md), cron testing guide, and memory consolidation details.
+See [Common Patterns](_common-patterns.md) for reusable templates (SOUL.md, HEARTBEAT.md), cron testing, and memory routing.
 
 ## Monitoring & Troubleshooting
 
 Once running, verify your assistant is working:
 
 - **Health Dashboard** (`/health-dashboard`) -- server uptime, guard audit log, system status
-- **Memory Dashboard** (`/memory`) -- MEMORY.md size vs budget, entry counts, pruner history
+- **Memory Dashboard** (`/memory`) -- canonical corpus, bounded prompt-index usage, entry counts, and index health
 - **Settings** (`/settings`) -- channel connection status, scheduling job list
 
-For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patterns.md#monitoring-your-assistant). For common issues (jobs not firing, announce not delivering, memory not consolidating), see [Troubleshooting](_troubleshooting.md).
+For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patterns.md#monitoring-your-assistant). For common issues (jobs not firing, announce not delivering, memory conflicts), see [Troubleshooting](_troubleshooting.md).
 
 ## Gotchas & Limitations
 
 - **`announce` delivery targets active channel DMs**: `delivery: announce` broadcasts the result to web UI clients (SSE) and pushes it to active DM sessions on registered channels (WhatsApp/Signal/Google Chat). It does not reach contacts that have no active session, and group sessions are skipped. Use `delivery: webhook` for active push to an external endpoint
 - **Timezone is server-local**: All cron expressions use the server's timezone. Adjust expressions if your server timezone differs from yours
-- **Jobs run in isolated sessions**: Scheduled jobs do not share state directly -- they communicate through MEMORY.md. The daily journal cannot read your main session's chat history; it reviews context via behavior files and memory
-- **Memory consolidation runs during heartbeat only**: Consolidation only triggers when MEMORY.md exceeds `memory.max_bytes` and a heartbeat cycle runs. High-frequency journaling may temporarily exceed the cap
+- **Jobs run in isolated sessions**: Scheduled jobs do not share session state directly; intentionally captured observations remain available through the memory tools. The daily journal cannot read your main session's chat history; it reviews context via behavior files and memory
+- **Curation is explicit**: heartbeat and journal jobs do not autonomously revise, merge, or remove personal memory
 - **Content-guard may truncate web content**: Large pages fetched by the search agent are filtered by content-guard. The knowledge inbox agent should note when a source was truncated
 - **Git sync requires a remote**: Run `git remote add origin <url>` in your workspace directory before enabling `push_enabled`
 - **Model override scope**: Jobs default to the global `agent.model` but accept per-job `model:` and `effort:` overrides. Built-in heartbeat callbacks run without an agent turn, so they have no model. To reduce cron costs, set `model:` on individual jobs or lower `agent.model` globally

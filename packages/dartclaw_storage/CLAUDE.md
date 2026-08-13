@@ -5,18 +5,22 @@
 ## Architecture
 - **DB factories** — `xxxDbFactory` typedef + `openXxxDb(path)` / `openXxxDbInMemory()` pairs. `search_db.dart` opens `search.db` (rebuildable index); `task_db.dart` opens `tasks.db` (authoritative + WAL); `state.db` is opened transiently by `TurnStateStore`.
 - **SQLite repositories** — concrete impls of `dartclaw_core` interfaces, all bound to the shared `tasks.db` `Database` instance: `SqliteTaskRepository`, `SqliteGoalRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `SqliteWorkflowRunRepository`, `SqliteExecutionRepositoryTransactor` (cross-repo transactions).
-- **Memory + FTS5** — `MemoryService` owns the `memory_chunks` content table + `memory_chunks_ai/ad/au` FTS5 triggers; schema created via `_initSchema()`; column migrations branch on `PRAGMA table_info`.
-- **Search backends** — `Fts5SearchBackend` (always-on baseline), `QmdSearchBackend` (wraps `QmdManager`, falls back to FTS5 on unreachable QMD), `SearchBackendFactory` (selects by config).
+- **Memory + FTS5** — `MemoryService` owns canonical record normalization plus role/provenance/locator identity in the rebuildable `memory_chunks` content table and its `memory_chunks_ai/ad/au` FTS5 triggers; schema created via `_initSchema()`; column migrations branch on `PRAGMA table_info`.
+- **Search backends** — `Fts5SearchBackend` owns lexical encoding; `QmdSearchBackend` owns QMD plus visible FTS fallback; `ComposedSearchBackend` is the single request-level personal/wiki composition, ranking, dedupe, and output top-K seam; `SearchBackendFactory` selects and composes them.
 - **Observability writers** — `TurnTraceService` (append-mostly `turns` rows; fire-and-forget via `unawaited()`), `TaskEventService` (synchronous `task_events` audit writes); both backed by `tasks.db`.
 - **Crash-recovery state** — `TurnStateStore` (`state.db`; transient rows written at turn-reservation, deleted in `finally`, bulk-cleaned by `detectAndCleanOrphanedTurns()` on boot — any row found at boot is crash evidence).
-- **Memory pruning** — `MemoryPruner` (operates on `MEMORY.md` + `MEMORY.archive.md` in the workspace dir; undated entries are intentionally never archived nor deduped).
+- **Memory pruning** — `MemoryPruner` selects only index/topic/archive/audit documents through core's `MemoryCorpusService`,
+  collapses only canonical exact replays with complete provenance identity, audits removals in the same commit, preserves
+  legacy/opaque content, and reconciles derived index rows only after canonical commit.
+- **Memory migration** — `LegacyMemoryMigrator` classifies retained preview memory deterministically, preserves opaque bytes plus one no-clobber recovery snapshot, and publishes one bounded pre-index report through core's corpus authority.
+- **Index recovery** — `CanonicalIndexReconciler` consumes independently bounded canonical row batches, proves exact SQLite/FTS row parity, re-authenticates the complete canonical union, then closes and atomically swaps the sibling. `IndexHealthStore` persists current/degraded recovery evidence outside disposable `search.db`.
 - **Knowledge graph** — `src/knowledge/`: `TemporalKnowledgeGraphService` owns the `kg_facts` table (+ `kg_facts_lookup` index) in `tasks.db` and exposes `KnowledgeFact`/`KnowledgeContradiction`; `normalizeKnowledgeEntity` canonicalizes entity strings.
 - **Wiki + webhook stores** — `WikiSearchSource` (`src/search/wiki_search_source.dart`) feeds wiki pages into search; `WebhookDeliveryStore` (`src/storage/webhook_delivery_store.dart`) persists inbound-webhook delivery reservations for idempotency.
 
 ## Boundaries
 - Allowed deps: `dartclaw_core`, `dartclaw_workflow` (for `WorkflowRun`/`WorkflowRunRepository` and related types), plus `sqlite3`, `logging`, `path`. **Don't** depend on `dartclaw_server`, `dartclaw_security`, or `dartclaw_config` (config dep is dev-only).
 - This is the **only** workspace package allowed to import `package:sqlite3` aside from `dartclaw_server` (and the umbrella). If you need an SQLite-backed entity, the contract goes in `dartclaw_core` (`src/task/`, `src/execution/`, `src/search/`) and the impl lands here.
-- No event firing. This package is a persistence layer — events are fired by the wiring layer in `dartclaw_server`. **Exception to the no-HTTP/no-process rule**: `QmdManager` (the optional QMD search backend) spawns and supervises an external `qmd` server process (`Process.run`) and talks to it over HTTP (`HttpClient` against `http://host:port`). That is the one sanctioned outbound/subprocess path here — keep it isolated in `QmdManager`; everything else stays pure persistence.
+- No event firing. This package is a persistence layer – events are fired by the wiring layer in `dartclaw_server`. **Exception to the no-HTTP/no-process rule**: `QmdManager` (the optional QMD search backend) starts and supervises deadline-bounded external `qmd` processes with a minimal allowlisted environment and capped output, and talks to its daemon over loopback HTTP with capped response bodies. Timed-out or over-limit processes are terminated, then force-killed after a short grace period. That is the one sanctioned outbound/subprocess path here – keep it isolated in `QmdManager`; everything else stays pure persistence.
 - Don't expose raw `Database` from public methods. Repositories take `Database` in their constructor and own statement lifecycle internally.
 
 ## Conventions
@@ -26,14 +30,15 @@
 - `turns` table writes via `TurnTraceService` are fire-and-forget — callers `unawaited()` them. `task_events` writes are synchronous (audit semantics).
 - `Fts5SearchBackend` is the always-on baseline. `QmdSearchBackend` wraps a `QmdManager` and falls back to FTS5 on unreachable QMD — never make QMD a hard dependency.
 - FTS5 index uses content-table triggers (`memory_chunks_ai`/`ad`/`au`) — keep the trigger names stable, downstream `dartclaw rebuild-index` relies on the schema shape.
+- `MemoryService.replaceMemoryRows` replaces canonical topic/archive/observation/learning rows transactionally while preserving independent wiki/KG sources. Its retired-source cleanup is migration provenance, not a live tool identity.
 - Repos implementing core interfaces (`TaskRepository`, `GoalRepository`, etc.) must round-trip enum values via stable string names, not ordinals — `TaskStatus.byName(...)`. Renaming an enum value is a breaking schema change.
 
 ## Gotchas
 - `package:sqlite3` ships a bundled native asset that codesigning may block on macOS; the documented escape hatch is `pubspec.yaml` `hooks.user_defines.sqlite3.source: system` — uncommitted local edit only, never the default.
 - `Fts5SearchBackend` requires SQLite built with FTS5; the system fallback above must be verified before trusting tests.
-- `MemoryPruner` operates on `MEMORY.md` and `MEMORY.archive.md` in the workspace dir — undated entries are intentionally never archived nor deduped. Don't add a "best effort" timestamp guess.
+- `MemoryPruner` operates on `MEMORY.md` and `MEMORY.archive.md` in the workspace dir — opaque content stays byte-for-byte in place, and undated entries are never archived or deduped. Don't add a "best effort" timestamp guess.
 - `TurnStateStore` rows are transient: written at turn reservation, deleted in the turn's `finally`, and bulk-cleaned by `detectAndCleanOrphanedTurns()` on startup. Treat any row found at boot as crash evidence.
-- `tasks.db` is authoritative for tasks/goals/executions/turns/events; `search.db` is rebuildable from MEMORY.md (`dartclaw rebuild-index`). Never store irrecoverable data in `search.db`.
+- `tasks.db` is authoritative for tasks/goals/executions/turns/events; `search.db` is rebuildable from the canonical memory corpus (`dartclaw rebuild-index`). Never store irrecoverable data in `search.db`.
 
 ## Testing
 - Layout mirrors `lib/src/` (`test/storage/`, `test/search/`, `test/memory/`).
@@ -46,8 +51,11 @@
 - `lib/dartclaw_storage.dart` — barrel.
 - `lib/src/storage/search_db.dart`, `task_db.dart` — DB open factories.
 - `lib/src/storage/memory_service.dart` — FTS5 schema, triggers, `memory_chunks` table.
+- `lib/src/storage/index_reconciler.dart` — exact sibling rebuild, target preservation, and durable index-health evidence.
 - `lib/src/storage/sqlite_task_repository.dart` (+ goal/agent_execution/workflow_*) — relational repos against `tasks.db`.
 - `lib/src/storage/turn_state_store.dart` — transient `state.db` for crash recovery.
 - `lib/src/storage/turn_trace_service.dart`, `task_event_service.dart` — append-mostly observability writers in `tasks.db`.
 - `lib/src/search/{fts5,qmd}_search_backend.dart`, `search_backend_factory.dart`, `qmd_manager.dart` — `SearchBackend` implementations.
+- `lib/src/search/composed_search_backend.dart` — request-level wiki/personal composition and additive degradation.
 - `lib/src/memory/memory_pruner.dart` — MEMORY.md archival + dedup.
+- `lib/src/memory/legacy_memory_migrator.dart` — one-time lossless canonical migration and startup preflight reporting.

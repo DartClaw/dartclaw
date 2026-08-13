@@ -9,7 +9,7 @@ class WorkflowTurnOutcome {
   /// Normalized turn status name.
   final String status;
 
-  const WorkflowTurnOutcome({required this.status});
+  const new({required this.status});
 }
 
 /// Result of creating or resolving workflow-owned integration branch state.
@@ -20,37 +20,37 @@ class WorkflowGitIntegrationBranchResult {
   /// Optional human-readable note about branch behavior.
   final String? note;
 
-  const WorkflowGitIntegrationBranchResult({required this.integrationBranch, this.note});
+  const new({required this.integrationBranch, this.note});
 }
 
 /// Result of promoting a story/task branch into the integration branch.
 sealed class WorkflowGitPromotionResult {
-  const WorkflowGitPromotionResult();
+  const new();
 }
 
 class WorkflowGitPromotionSuccess extends WorkflowGitPromotionResult {
   final String commitSha;
 
-  const WorkflowGitPromotionSuccess({required this.commitSha});
+  const new({required this.commitSha});
 }
 
 class WorkflowGitPromotionConflict extends WorkflowGitPromotionResult {
   final List<String> conflictingFiles;
   final String details;
 
-  const WorkflowGitPromotionConflict({required this.conflictingFiles, required this.details});
+  const new({required this.conflictingFiles, required this.details});
 }
 
 class WorkflowGitPromotionError extends WorkflowGitPromotionResult {
   final String message;
 
-  const WorkflowGitPromotionError(this.message);
+  const new(this.message);
 }
 
 /// Sentinel returned by `_handleMergeResolveEscalation` when `serializeRemaining`
 /// fires. The outer loop observes this to drain siblings and re-queue.
 class WorkflowGitPromotionSerializeRemaining extends WorkflowGitPromotionResult {
-  const WorkflowGitPromotionSerializeRemaining();
+  const new();
 }
 
 /// Workflow publish status.
@@ -81,13 +81,7 @@ class WorkflowGitPublishResult {
   /// Error detail for failed publish.
   final String? error;
 
-  const WorkflowGitPublishResult({
-    required this.status,
-    required this.branch,
-    required this.remote,
-    required this.prUrl,
-    this.error,
-  });
+  const new({required this.status, required this.branch, required this.remote, required this.prUrl, this.error});
 }
 
 /// Resolved workflow start contract values produced by host-side preflight.
@@ -98,17 +92,16 @@ class WorkflowStartResolution {
   /// Effective branch/ref to use for this run.
   final String? branch;
 
-  const WorkflowStartResolution({this.projectId, this.branch});
+  const new({this.projectId, this.branch});
 }
 
-typedef WorkflowExecuteTurn =
-    void Function(
-      String sessionId,
-      String turnId,
-      List<Map<String, dynamic>> messages, {
-      required String source,
-      required bool resume,
-    });
+typedef WorkflowExecuteTurn = void Function(
+  String sessionId,
+  String turnId,
+  List<Map<String, dynamic>> messages, {
+  required String source,
+  required bool resume,
+});
 
 /// Bundle of callbacks required for workflow continuation turns and map-step
 /// concurrency budgeting.
@@ -196,7 +189,7 @@ class WorkflowTurnAdapter {
   final Future<T> Function<T>({required String projectId, required Future<T> Function() body})?
   runResolverAttemptUnderLock;
 
-  const WorkflowTurnAdapter({
+  const new({
     required this.reserveTurn,
     this.reserveTurnWithWorkflowWorkspaceDir,
     required this.executeTurn,

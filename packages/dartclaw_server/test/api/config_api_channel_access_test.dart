@@ -228,9 +228,8 @@ channels:
   group('PATCH /api/config channel access fields', () {
     test('valid dm_access change returns pendingRestart', () async {
       final router = createRouter();
-      final body = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.dm_access': 'allowlist'});
+      final body = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.dm_access': 'allowlist'});
 
       expect(body['pendingRestart'], contains('channels.whatsapp.dm_access'));
       expect(body['errors'], isEmpty);
@@ -238,18 +237,16 @@ channels:
 
     test('invalid dm_access value returns validation error', () async {
       final router = createRouter();
-      final body = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.dm_access': 'invalid'}, status: 400);
+      final body = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.dm_access': 'invalid'}, status: 400);
 
       expect(body['errors'], isNotEmpty);
     });
 
     test('Signal dm_access pairing succeeds', () async {
       final router = createRouter();
-      final body = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'channels.signal.dm_access': 'pairing'});
+      final body = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'channels.signal.dm_access': 'pairing'});
 
       expect(body['pendingRestart'], contains('channels.signal.dm_access'));
       expect(body['errors'], isEmpty);
@@ -257,9 +254,8 @@ channels:
 
     test('require_mention change returns pendingRestart', () async {
       final router = createRouter();
-      final body = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.require_mention': false});
+      final body = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.require_mention': false});
 
       expect(body['pendingRestart'], contains('channels.whatsapp.require_mention'));
     });

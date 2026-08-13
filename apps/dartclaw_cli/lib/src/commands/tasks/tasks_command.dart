@@ -8,7 +8,7 @@ import 'tasks_show_command.dart';
 import 'tasks_start_command.dart';
 
 class TasksCommand extends Command<void> {
-  TasksCommand() {
+  new() {
     addSubcommand(TasksListCommand());
     addSubcommand(TasksShowCommand());
     addSubcommand(TasksCreateCommand());

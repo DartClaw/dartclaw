@@ -9,12 +9,12 @@ class ReviewCommand {
   /// Optional feedback text for push_back commands.
   final String? comment;
 
-  const ReviewCommand({required this.action, this.taskId, this.comment});
+  const new({required this.action, this.taskId, this.comment});
 }
 
 /// Channel-facing result for a review action.
 sealed class ChannelReviewResult {
-  const ChannelReviewResult();
+  const new();
 }
 
 /// Review action succeeded.
@@ -22,21 +22,21 @@ final class ChannelReviewSuccess extends ChannelReviewResult {
   final String taskTitle;
   final String action;
 
-  const ChannelReviewSuccess({required this.taskTitle, required this.action});
+  const new({required this.taskTitle, required this.action});
 }
 
 /// Review action failed because the task has merge conflicts.
 final class ChannelReviewMergeConflict extends ChannelReviewResult {
   final String taskTitle;
 
-  const ChannelReviewMergeConflict({required this.taskTitle});
+  const new({required this.taskTitle});
 }
 
 /// Review action failed.
 final class ChannelReviewError extends ChannelReviewResult {
   final String message;
 
-  const ChannelReviewError(this.message);
+  const new(this.message);
 }
 
 /// Callback used by [ChannelManager] to execute a review action.
@@ -49,7 +49,7 @@ typedef ChannelReviewHandler = Future<ChannelReviewResult> Function(String taskI
 /// - `reject` / `reject <id>`
 /// - `push back: <feedback>` / `push back <id>: <feedback>`
 class ReviewCommandParser {
-  const ReviewCommandParser();
+  const new();
 
   /// Returns a [ReviewCommand] when [message] is a recognized review command,
   /// otherwise `null`.

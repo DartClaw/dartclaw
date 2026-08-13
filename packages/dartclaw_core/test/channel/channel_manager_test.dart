@@ -469,7 +469,7 @@ void main() {
 }
 
 class _AlwaysTriggerParser extends TaskTriggerParser {
-  const _AlwaysTriggerParser();
+  const new();
 
   @override
   TaskTriggerResult? parse(String message, TaskTriggerConfig config, {bool emptyDescriptionError = false}) {
@@ -485,7 +485,7 @@ class _AlwaysTriggerParser extends TaskTriggerParser {
 class _SessionKeyCapturingBridge extends ChannelTaskBridge {
   final void Function(String sessionKey) onHandle;
 
-  _SessionKeyCapturingBridge({required this.onHandle});
+  new({required this.onHandle});
 
   @override
   Future<bool> tryHandle(

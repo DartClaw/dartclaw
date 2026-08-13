@@ -28,8 +28,31 @@ import 'dart:io';
 // (code moved to dartclaw_models/dartclaw_config, dead code removed), lower both
 // numbers back toward actual usage in the same change — do not let the headroom
 // become a permanent allowance. Current usage at re-baseline: ~14880.
-const _coreLocCeiling = 16500;
-const _coreLocWarnThreshold = 15800;
+//
+// 2026-08-11: bumped 16500 -> 17200, warn 15800 -> 16600. The 0.24 execution
+// isolation work put execution-mode policy into the session/turn runtime
+// (core-owned per the two-axis policy in ADR-012); the prior cap had ~26 lines
+// of headroom left. Usage at bump: 16509. See CHANGELOG [Unreleased].
+// 2026-08-11: raised for the canonical memory value, Markdown codec, and corpus
+// validation primitives. These are core-owned, SQLite-free contracts consumed
+// across the memory implementation; moving them would invert package ownership.
+// 2026-08-11: raised for the atomic canonical-corpus authority. Snapshot,
+// compare-and-swap, journal recovery, and stopped-edit reconciliation must share
+// the core-owned codec/validator and stay SQLite-free.
+// 2026-08-12: raised for the provider-neutral memory tool taxonomy, direct-SDK
+// schemas, and search-result identity contract. These are shared core seams;
+// provider/server-local copies would create semantic drift.
+// 2026-08-12: raised for bounded canonical-corpus inventory and snapshot reads,
+// including resource admission before body allocation. These remain core-owned
+// because every storage and server consumer must share one corpus authority.
+// 2026-08-13: lowered after retiring unused memory adapters and simplifying the
+// canonical authority. The reduced ceiling preserves the recovered headroom.
+// 2026-08-13: integrated execution isolation with canonical memory at 21003
+// lines. Both are provider-neutral core contracts; the tight combined ratchet
+// preserves the memory simplification rather than inheriting either branch's
+// standalone allowance.
+const _coreLocCeiling = 21050;
+const _coreLocWarnThreshold = 20700;
 // Headroom model (see core LOC note above): current dartclaw_workflow/lib usage
 // at baseline is ~23311. The ceiling carries room for ~2 milestones of workflow
 // engine growth; the warn threshold fires before the cap so growth is planned or
@@ -58,12 +81,14 @@ const _expectedWorkspaceDependencies = <String, Set<String>>{
     'dartclaw_whatsapp',
     'dartclaw_workflow',
   },
+  'dartclaw_bridge': {},
   'dartclaw_config': {'dartclaw_models', 'dartclaw_security'},
   'dartclaw_core': {'dartclaw_config', 'dartclaw_models', 'dartclaw_security'},
   'dartclaw_google_chat': {'dartclaw_config', 'dartclaw_core'},
   'dartclaw_models': {},
   'dartclaw_security': {'dartclaw_models'},
   'dartclaw_server': {
+    'dartclaw_bridge',
     'dartclaw_config',
     'dartclaw_core',
     'dartclaw_google_chat',
@@ -93,7 +118,7 @@ final class _CheckResult {
   final bool passed;
   final String detail;
 
-  const _CheckResult({required this.name, required this.passed, required this.detail});
+  const new({required this.name, required this.passed, required this.detail});
 }
 
 Future<void> main() async {
@@ -394,9 +419,10 @@ _CheckResult _checkWorkspacePackageCount(String repoRoot) {
 List<_WorkspaceMember> _workspaceMembers(String repoRoot) {
   return [
     ..._packageMembers(repoRoot),
-    ...Directory(
-      '$repoRoot/apps',
-    ).listSync().whereType<Directory>().map((dir) => _WorkspaceMember(name: _basename(dir.path), path: dir.path)),
+    ...Directory('$repoRoot/apps')
+        .listSync()
+        .whereType<Directory>()
+        .map((dir) => _WorkspaceMember(name: _basename(dir.path), path: dir.path)),
   ];
 }
 
@@ -486,5 +512,5 @@ final class _WorkspaceMember {
   final String name;
   final String path;
 
-  const _WorkspaceMember({required this.name, required this.path});
+  const new({required this.name, required this.path});
 }

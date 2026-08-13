@@ -472,7 +472,6 @@ WorkflowE2eProcessRunner _recordingProcessRunner(ProcessResult Function(String, 
 
 void _writeArtifact(Directory dir, String stepKey, Map<String, dynamic> configJson) {
   final count = dir.listSync().length + 1;
-  File(
-    p.join(dir.path, '$count-$stepKey.json'),
-  ).writeAsStringSync(jsonEncode({'stepKey': stepKey, 'configJson': configJson}));
+  File(p.join(dir.path, '$count-$stepKey.json'))
+      .writeAsStringSync(jsonEncode({'stepKey': stepKey, 'configJson': configJson}));
 }

@@ -18,10 +18,19 @@ void main() {
     }
   });
 
+  void expectMode(File file, String expected) {
+    final mode = file.statSync().mode & 0x1ff;
+    expect(mode.toRadixString(8), expected);
+  }
+
   void expectOwnerOnly(File file) {
     if (Platform.isWindows) return; // POSIX permission model only.
-    final mode = file.statSync().mode & 0x1ff;
-    expect(mode.toRadixString(8), '600');
+    expectMode(file, '600');
+  }
+
+  void setMode(File file, String mode) {
+    final result = Process.runSync('chmod', [mode, file.path]);
+    expect(result.exitCode, 0);
   }
 
   void expectNoTempLeftBehind(Directory dir, File target) {
@@ -59,6 +68,17 @@ void main() {
       expect(target.readAsStringSync(), 'data');
       expectNoTempLeftBehind(tempDir, target);
     });
+
+    test('unrestricted replacement preserves an existing mode 640 target', () async {
+      final target = File('${tempDir.path}/existing-owner-only')..writeAsStringSync('old');
+      setMode(target, '640');
+
+      await secureWriteFile(target, 'new', restrictPermissions: false);
+
+      expect(target.readAsStringSync(), 'new');
+      expectMode(target, '640');
+      expectNoTempLeftBehind(tempDir, target);
+    }, skip: Platform.isWindows);
 
     test('tightens temp file before writing secret contents', () async {
       final target = File('${tempDir.path}/secret');
@@ -102,6 +122,17 @@ void main() {
       expectOwnerOnly(target);
       expectNoTempLeftBehind(tempDir, target);
     });
+
+    test('unrestricted replacement preserves an existing mode 660 target', () {
+      final target = File('${tempDir.path}/existing-owner-only-sync')..writeAsStringSync('old');
+      setMode(target, '660');
+
+      secureWriteFileSync(target, 'new', restrictPermissions: false);
+
+      expect(target.readAsStringSync(), 'new');
+      expectMode(target, '660');
+      expectNoTempLeftBehind(tempDir, target);
+    }, skip: Platform.isWindows);
 
     test('tightens temp file before writing secret contents', () {
       final target = File('${tempDir.path}/secret-sync');

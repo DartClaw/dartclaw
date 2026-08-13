@@ -19,7 +19,7 @@ StreamChannel<String> ndjsonChannel(Stream<List<int>> input, StreamSink<List<int
 class _NdjsonSink implements StreamSink<String> {
   final StreamSink<List<int>> _inner;
 
-  _NdjsonSink(this._inner);
+  new(this._inner);
 
   @override
   void add(String event) {

@@ -30,13 +30,13 @@ class CredentialEntry {
   final List<String> envVars;
 
   /// const CredentialEntry({required String apiKey, this.envVars .
-  const CredentialEntry({required String apiKey, this.envVars = const <String>[]})
+  const new({required String apiKey, this.envVars = const <String>[]})
     : type = CredentialType.apiKey,
       secret = apiKey,
       repository = null;
 
   /// Creates a first-class GitHub token credential.
-  const CredentialEntry.githubToken({required String token, this.repository, this.envVars = const <String>[]})
+  const new githubToken({required String token, this.repository, this.envVars = const <String>[]})
     : type = CredentialType.githubToken,
       secret = token;
 
@@ -80,10 +80,10 @@ class CredentialsConfig {
   final Map<String, CredentialEntry> entries;
 
   /// const CredentialsConfig({this.entries = const {}});.
-  const CredentialsConfig({this.entries = const {}});
+  const new({this.entries = const {}});
 
   /// Creates a [CredentialsConfig.defaults] value.
-  const CredentialsConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns the entry for [name], or `null` if not configured.
   CredentialEntry? operator [](String name) => entries[name];

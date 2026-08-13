@@ -37,14 +37,13 @@ typedef _SetupDefaults = ({
   bool inputSanitizerEnabled,
 });
 
-typedef _PreflightRunner =
-    Future<SetupPreflight> Function({
-      required List<String> providers,
-      required int port,
-      required String instanceDir,
-      bool workflowTrack,
-      Future<ProcessResult> Function(String, List<String>)? runProcess,
-    });
+typedef _PreflightRunner = Future<SetupPreflight> Function({
+  required List<String> providers,
+  required int port,
+  required String instanceDir,
+  bool workflowTrack,
+  Future<ProcessResult> Function(String, List<String>)? runProcess,
+});
 
 abstract class _InitImpl extends Command<void> {
   @override
@@ -59,7 +58,7 @@ abstract class _InitImpl extends Command<void> {
   final SetupVerifier _verifier;
   final ServiceBackend? _serviceBackend;
 
-  _InitImpl({
+  new({
     Logger? logger,
     _PreflightRunner? runPreflight,
     Future<List<String>> Function(SetupState)? applySetup,
@@ -1138,7 +1137,7 @@ class InitCommand extends _InitImpl {
   @override
   String get name => 'init';
 
-  InitCommand({
+  new({
     super.logger,
     super.runPreflight,
     super.applySetup,
@@ -1154,7 +1153,7 @@ class SetupAliasCommand extends _InitImpl {
   @override
   String get name => 'setup';
 
-  SetupAliasCommand({
+  new({
     super.logger,
     super.runPreflight,
     super.applySetup,

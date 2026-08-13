@@ -63,7 +63,7 @@ class SignalCliManager with SequentialLock {
   bool _reconnectPending = false;
   int _rpcId = 0;
 
-  SignalCliManager({
+  new({
     required this.executable,
     this.host = '127.0.0.1',
     this.port = 8080,

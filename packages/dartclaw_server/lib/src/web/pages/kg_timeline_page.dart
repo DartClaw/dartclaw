@@ -11,7 +11,7 @@ import 'knowledge_hub_page.dart';
 
 /// Renders the read-only temporal KG timeline.
 class KgTimelinePage extends DashboardPage implements DashboardNavigationExclusion {
-  KgTimelinePage({TemporalKnowledgeGraphService? Function()? kgGetter, CitationSourceResolver? resolver})
+  new({TemporalKnowledgeGraphService? Function()? kgGetter, CitationSourceResolver? resolver})
     : _kgGetter = kgGetter,
       _resolver = resolver;
 

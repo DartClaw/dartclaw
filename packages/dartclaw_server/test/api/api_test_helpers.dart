@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 /// Keeps route tests focused on the endpoint contract: method, path, expected
 /// status, and decoded response body.
 final class ApiRouteTestClient {
-  ApiRouteTestClient(this.handler);
+  new(this.handler);
 
   final Handler handler;
 

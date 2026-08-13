@@ -166,6 +166,21 @@ packages/dartclaw_foo/lib/src/git_wrapper.dart  # canonical SafeProcess equivale
 
 # Level-2 Fitness Functions
 
+## `memory_architecture_test.dart`
+
+**What it enforces**: Memory curation remains explicit-only; system actions stay outside timer/retry/delivery/YAML;
+locators identify canonical entries or native sources; FTS5 encoding stays inside the backend; and retired public memory
+placeholders do not return. Every core or storage memory symbol exported through its package barrel must have a named
+production consumer outside its declaration and barrel. The same test scans only current normative documents for retired
+operational vocabulary and paths.
+
+### How to resolve a failure
+
+Follow the remediation printed by the failing invariant. Route curation through the immutable run-now action, keep
+natural-language queries at caller boundaries, and use canonical entry IDs or native source locators. These are
+zero-baseline rules and have no allowlist. Unexport a corpus implementation detail with no production consumer, or add
+the concrete production use that justifies its public contract.
+
 ## `dependency_direction_test.dart`
 
 **What it enforces**: Workspace package imports under `packages/<X>/lib/**` and `apps/<X>/lib/**` must match `allowlist/dependency_direction.txt`.

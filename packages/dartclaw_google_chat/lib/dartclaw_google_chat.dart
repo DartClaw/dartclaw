@@ -17,6 +17,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         GroupAccessMode,
         MentionGating,
         TaskTriggerConfig;
+
 export 'src/gcp_auth_service.dart' show GcpAuthService;
 export 'src/chat_card_builder.dart' show ChatCardBuilder, cardDescriptionMaxLength;
 export 'src/google_chat_channel.dart' show GoogleChatChannel;

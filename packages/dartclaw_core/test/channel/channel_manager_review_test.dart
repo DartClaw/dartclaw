@@ -326,7 +326,7 @@ void main() {
 }
 
 class _AlwaysTriggerParser extends TaskTriggerParser {
-  const _AlwaysTriggerParser();
+  const new();
 
   @override
   TaskTriggerResult? parse(String message, TaskTriggerConfig config, {bool emptyDescriptionError = false}) {

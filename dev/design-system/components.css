@@ -1368,7 +1368,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    Compact, centered value + label. The card carries a faint wash of its
    semantic color at rest; hover amplifies the same wash rather than
    introducing it, so a resting dashboard still reads as colored.
-   Use for: health dashboard stats, agent metrics, budget
+   Use for: health dashboard stats, runner metrics, budget
    counters, message counts.
 
    Apply alongside .card: <div class="card card-metric card-metric--accent">

@@ -31,7 +31,7 @@ class GoogleChatApiException implements Exception {
   final Object? cause;
 
   /// Creates a Google Chat API exception.
-  const GoogleChatApiException(this.message, {this.statusCode, this.cause});
+  const new(this.message, {this.statusCode, this.cause});
 
   @override
   String toString() => 'GoogleChatApiException($message${statusCode == null ? '' : ', statusCode: $statusCode'})';
@@ -52,7 +52,7 @@ class GoogleChatRestClient {
   bool _reactionScopeWarned = false;
 
   /// Creates a REST client backed by an authenticated HTTP client.
-  GoogleChatRestClient({
+  new({
     required http.Client authClient,
     http.Client? reactionClient,
     String? apiBase,
@@ -710,7 +710,7 @@ class _SpaceWriteQueue {
   Completer<void> _idle = Completer<void>()..complete();
   bool _draining = false;
 
-  _SpaceWriteQueue({required Future<void> Function(Duration) delay}) : _delay = delay;
+  new({required Future<void> Function(Duration) delay}) : _delay = delay;
 
   Future<T> enqueue<T>(Future<T> Function() write) {
     if (_pending.isEmpty && _idle.isCompleted) {
@@ -759,5 +759,5 @@ class _QueuedWrite<T> {
   final Future<T> Function() run;
   final Completer<T> completer;
 
-  const _QueuedWrite({required this.run, required this.completer});
+  const new({required this.run, required this.completer});
 }

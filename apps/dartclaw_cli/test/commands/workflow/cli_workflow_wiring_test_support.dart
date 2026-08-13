@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowCliProcessStarter;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProcessRunner,
@@ -33,7 +33,7 @@ HarnessFactory capturingHarnessFactory(
   for (final providerId in providerIds) {
     factory.register(providerId, (config) {
       // Ignore capability-probe constructions (cwd:'/', no spawn) — e.g.
-      // `probeContinuityProviders` during pre-harness registry wiring — so
+      // `probeContinuityProviders` during base-service registry wiring — so
       // captures reflect only real runner spawns.
       if (config.cwd != '/') {
         capturedByProvider.putIfAbsent(providerId, () => <HarnessFactoryConfig>[]).add(config);
@@ -45,8 +45,8 @@ HarnessFactory capturingHarnessFactory(
 }
 
 /// A [FakeAgentHarness] whose [start] throws — stands in for a provider whose
-/// real harness would throw from `_verifyAuth`. Used to prove the pre-harness
-/// phase never reaches `harness.start()`.
+/// real harness would throw from `_verifyAuth`. Used to prove base-service
+/// wiring never reaches `harness.start()`.
 class ThrowOnStartHarness extends FakeAgentHarness {
   @override
   Future<void> start() async {
@@ -83,7 +83,7 @@ Future<void> waitFor(bool Function() predicate, {Duration timeout = const Durati
 }
 
 final class CliWorkflowWiringFixture {
-  CliWorkflowWiringFixture(this.tempDir);
+  new(this.tempDir);
 
   final Directory tempDir;
 

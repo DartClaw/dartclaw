@@ -12,8 +12,8 @@ final _log = Logger('ContextMonitor');
 /// needed. Check [checkThreshold] with a session ID to emit a one-shot context
 /// warning per session when usage exceeds [warningThreshold]%.
 ///
-/// This monitor is typically shared across all [TurnRunner] instances in the
-/// harness pool. Warning state is tracked per session via [_warnedSessions].
+/// This monitor is typically shared across all [TurnRunner] instances.
+/// Warning state is tracked per session via [_warnedSessions].
 class ContextMonitor implements Reconfigurable {
   int reserveTokens;
 
@@ -33,7 +33,7 @@ class ContextMonitor implements Reconfigurable {
   int _lastFlushCycleId = -1;
   String? _lastFlushHash;
 
-  ContextMonitor({this.reserveTokens = 20000, this.warningThreshold = 80});
+  new({this.reserveTokens = 20000, this.warningThreshold = 80});
 
   @override
   Set<String> get watchKeys => const {'context.*'};

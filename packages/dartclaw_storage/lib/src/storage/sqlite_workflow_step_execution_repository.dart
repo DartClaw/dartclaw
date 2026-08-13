@@ -8,7 +8,7 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
   final Database _db;
 
   /// Creates the repository against [_db] and initializes its schema.
-  SqliteWorkflowStepExecutionRepository(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

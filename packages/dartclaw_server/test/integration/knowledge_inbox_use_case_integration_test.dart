@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../execution_coordinator_test_support.dart';
 
 class _PromptInjectionClassifier implements ContentClassifier {
   @override
@@ -24,7 +27,7 @@ class _KnowledgeInboxSearchProvider implements SearchProvider {
   final String safeUrl;
   int callCount = 0;
 
-  _KnowledgeInboxSearchProvider({required this.safeUrl});
+  new({required this.safeUrl});
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
@@ -57,13 +60,13 @@ class _KnowledgeInboxWorker implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final TavilySearchTool searchTool;
   final WebFetchTool fetchTool;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>) onMemorySave;
+  final MemoryObserveWithContext onMemoryObserve;
 
   int turnCallCount = 0;
   int savedFindings = 0;
   int blockedFindings = 0;
 
-  _KnowledgeInboxWorker({required this.searchTool, required this.fetchTool, required this.onMemorySave});
+  new({required this.searchTool, required this.fetchTool, required this.onMemoryObserve});
 
   @override
   bool get supportsCostReporting => true;
@@ -90,6 +93,9 @@ class _KnowledgeInboxWorker implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -100,6 +106,7 @@ class _KnowledgeInboxWorker implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -139,7 +146,16 @@ class _KnowledgeInboxWorker implements AgentHarness {
       final body = (fetchResult as ToolResultText).content;
       final compact = body.replaceAll(RegExp(r'\s+'), ' ').trim();
       final summary = compact.length <= 120 ? compact : compact.substring(0, 120);
-      await onMemorySave({'text': '[$title] $summary ($url)', 'category': 'knowledge-inbox'});
+      await onMemoryObserve(
+        {'text': '[$title] $summary ($url)', 'role': 'observation'},
+        MemoryCaptureContext(
+          originKind: MemoryOriginKind.inbox,
+          sourceLocator: url,
+          sourceEvent: url,
+          caller: 'knowledge-inbox',
+          sessionRef: sessionId,
+        ),
+      );
       savedFindings++;
       _eventsCtrl.add(DeltaEvent('Saved finding: $title\n'));
     }
@@ -226,7 +242,7 @@ void main() {
         failOpenOnClassification: false,
         ssrfProtectionEnabled: false, // allow localhost in tests — SSRF protection blocks loopback by default
       ),
-      onMemorySave: memoryHandlers.onSave,
+      onMemoryObserve: memoryHandlers.observe,
     );
 
     final guardChain = GuardChain(
@@ -242,20 +258,24 @@ void main() {
       ],
     );
 
-    turns = TurnManager(
-      messages: messages,
-      worker: worker,
-      behavior: BehaviorFileService(workspaceDir: workspaceDir.path),
-      memoryFile: memoryFile,
-      sessions: sessions,
-      guardChain: guardChain,
-    );
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir.path);
+    turns = turnManagerForRunners([
+      TurnRunner(harness: FakeAgentHarness(), messages: messages, behavior: behavior, sessions: sessions),
+      TurnRunner(
+        harness: worker,
+        messages: messages,
+        behavior: behavior,
+        memoryFile: memoryFile,
+        sessions: sessions,
+        guardChain: guardChain,
+      ),
+    ], sessions: sessions);
 
-    schedule = ScheduleService(turns: turns, sessions: sessions, jobs: const []);
+    schedule = ScheduleService(turns: turns, sessions: sessions, jobs: const [], workerProviderId: 'claude');
   });
 
   tearDown(() async {
-    await worker.dispose();
+    await turns.executions.dispose();
     await messages.dispose();
     await memoryFile.dispose();
     db.close();
@@ -279,10 +299,12 @@ void main() {
     expect(worker.savedFindings, 1);
     expect(worker.blockedFindings, 1);
 
-    final memoryMd = await memoryFile.readMemory();
-    expect(memoryMd, contains('## knowledge-inbox'));
-    expect(memoryMd, contains('Dart 4 roadmap'));
-    expect(memoryMd.toLowerCase(), isNot(contains('ignore all previous instructions')));
+    final observations = (await memoryFile.corpusService.readCorpus()).observations;
+    expect(observations.single.observations.single.content, contains('Dart 4 roadmap'));
+    expect(
+      observations.single.observations.single.content.toLowerCase(),
+      isNot(contains('ignore all previous instructions')),
+    );
 
     final indexed = await searchBackend.search('Dart', limit: 5);
     expect(indexed, isNotEmpty);

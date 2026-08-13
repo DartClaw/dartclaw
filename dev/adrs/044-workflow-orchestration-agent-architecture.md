@@ -95,6 +95,14 @@ The choice interacts with D1's enactable-action enum (option 2 and 3 would each 
 
 ## Consequences
 
+## Amendment (2026-08-12) – prompt-scope vocabulary
+
+The 0.24 prompt model consolidated human-facing turns under `PromptScope.primary` and removed the unused independent
+review scope after a production-reference census found no construction site. D2's proposed dedicated `orchestration`
+scope is therefore withdrawn. The future 0.29 orchestration agent must use a hermetic one-shot prompt assembled by its
+own engine seam without expanding the runtime `PromptScope` enum or inheriting personal memory. The safety and
+read-only decision-object constraints elsewhere in this ADR remain unchanged.
+
 **Positive**
 - Never-auto actions are structurally unreachable — the strongest possible reading of the clarification's hard safety lines.
 - The engine remains the single source of truth for control flow; the agent is a true augmentation that slots into the existing `auto-on-stall` branch.

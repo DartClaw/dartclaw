@@ -8,7 +8,7 @@ import '../helpers/probe_helpers.dart';
 
 void main() {
   group('ACP provider status', () {
-    test('exposes guard-mediated and container-isolation-only validation classifications', () async {
+    test('exposes guard-mediated and host-only validation classifications', () async {
       const validator = AcpTargetValidator();
       const gooseConfig = AcpAgentConfig(
         binary: 'goose',
@@ -19,11 +19,13 @@ void main() {
         requiresGuardMediation: true,
         requiredBuiltins: ['developer'],
       );
+      // Direct and unguarded: the only ACP shape that survives registration, so
+      // the only one an operator can ever read a classification for.
       const vibeConfig = AcpAgentConfig(
         binary: 'vibe-acp',
-        topology: AcpAgentTopology.relay,
-        containerIsolationRequired: true,
-        containerProfile: AcpContainerProfile.restricted,
+        topology: AcpAgentTopology.direct,
+        modelProvider: 'mistral',
+        verification: 'vibe_acp_direct_probe',
       );
       final validation = await validator.validateConfiguredTargets(
         agents: const {'goose': gooseConfig, 'vibe': vibeConfig},
@@ -63,7 +65,7 @@ void main() {
 
       expect(statuses['goose']!.securityClassification, 'guard_mediated');
       expect(statuses['goose']!.validationEvidence!.first['operation'], 'prompt_response');
-      expect(statuses['vibe']!.securityClassification, 'container_isolation_only');
+      expect(statuses['vibe']!.securityClassification, 'host_only');
       expect(statuses, isNot(contains('missing_acp_agent')));
     });
 

@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+
 import 'project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy;
+
 import 'package:path/path.dart' as p;
 
 import 'config_load_warnings.dart';
@@ -24,7 +26,7 @@ class LocalProjectPathValidation {
   final bool gitRepository;
 
   /// Creates a [LocalProjectPathValidation] value.
-  const LocalProjectPathValidation({
+  const new({
     required this.normalizedPath,
     this.errorCode,
     this.errorMessage,
@@ -147,7 +149,7 @@ class ProjectDefinition {
   final bool isDefault;
 
   /// Creates a [ProjectDefinition] value.
-  const ProjectDefinition({
+  const new({
     required this.id,
     this.remote,
     this.localPath,
@@ -197,7 +199,7 @@ class ProjectConfig {
   final List<String> localPathAllowlist;
 
   /// Creates a [ProjectConfig] value.
-  const ProjectConfig({
+  const new({
     this.definitions = const {},
     this.fetchCooldownMinutes = 5,
     this.allowApiLocalPath = false,
@@ -205,7 +207,7 @@ class ProjectConfig {
   });
 
   /// Creates a [ProjectConfig.defaults] value.
-  const ProjectConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Whether any projects are configured.
   bool get isEmpty => definitions.isEmpty;

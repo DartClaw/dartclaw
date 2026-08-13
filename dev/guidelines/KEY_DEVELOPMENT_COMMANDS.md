@@ -22,8 +22,8 @@ dart run dartclaw_cli:dartclaw token rotate
 # Rebuild search index
 dart run dartclaw_cli:dartclaw rebuild-index
 
-# Deployment (setup, config, secrets)
-dart run dartclaw_cli:dartclaw deploy setup
+# Initialize, then manage deployment config and secrets
+dart run dartclaw_cli:dartclaw init
 dart run dartclaw_cli:dartclaw deploy config
 dart run dartclaw_cli:dartclaw deploy secrets
 ```
@@ -113,6 +113,17 @@ The portable mock test requires neither Parallels nor macOS and runs as part of 
 ```bash
 bash dev/tools/parallels_windows_test.sh
 ```
+
+
+## Parallels Linux Agent VM
+
+For a reproducible Ubuntu 24 ARM64 desktop VM on an Apple Silicon Mac, follow
+`dev/guidelines/PARALLELS_LINUX_AGENT_VM.md`. It covers Parallels Tools, Wayland automatic login, key-only SSH, restricted
+host sharing, Cua Driver, optional native-Linux Docker conformance, cold-boot verification, snapshots, and per-agent
+clones.
+
+The guide is the provisioning source of truth. `dev/tools/parallels_linux.sh` is only a runtime lifecycle helper; do
+not use it as a substitute for setup verification. Treat each VM as single-caller unless every agent has its own clone.
 
 
 ## CI-Equivalent Gate

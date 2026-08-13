@@ -12,7 +12,7 @@ class StoredUserCredentials {
   final List<String> scopes;
   final DateTime createdAt;
 
-  const StoredUserCredentials({
+  const new({
     required this.clientId,
     required this.clientSecret,
     required this.refreshToken,
@@ -20,7 +20,7 @@ class StoredUserCredentials {
     required this.createdAt,
   });
 
-  factory StoredUserCredentials.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     return StoredUserCredentials(
       clientId: json['clientId'] as String,
       clientSecret: json['clientSecret'] as String,
@@ -48,7 +48,7 @@ class UserOAuthCredentialStore {
 
   final String _dataDir;
 
-  UserOAuthCredentialStore({required String dataDir}) : _dataDir = dataDir;
+  new({required String dataDir}) : _dataDir = dataDir;
 
   /// Path to the credentials file.
   String get filePath => p.join(_dataDir, _fileName);

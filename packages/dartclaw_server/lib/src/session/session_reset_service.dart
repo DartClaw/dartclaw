@@ -24,7 +24,7 @@ class SessionResetService implements Reconfigurable {
   Timer? _dailyTimer;
   final Map<String, Timer> _idleTimers = {};
 
-  SessionResetService({
+  new({
     required SessionService sessions,
     required MessageService messages,
     int resetHour = 4,

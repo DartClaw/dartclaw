@@ -1,6 +1,8 @@
 # Package Rules — `dartclaw_models`
 
-**Role**: Zero-dependency shared kernel — `Session`/`Message`/`MemoryChunk`, `SessionKey`, `AgentDefinition`, `ContainerConfig`, `ChannelConfig`/`ChannelType`/`SessionScopeConfig`, `TaskType`. All domain-specific models live in their owning packages (see CHANGELOG 0.16.5 Breaking API Changes). Barrel: `lib/dartclaw_models.dart` with explicit `show` clauses.
+**Role**: Zero-dependency shared kernel — `Session`/`Message`, `MemorySearchResult`, `SessionKey`, `AgentDefinition`, `ContainerConfig`, `ChannelConfig`/`ChannelType`/`SessionScopeConfig`, `TaskType`. All domain-specific models live in their owning packages (see CHANGELOG 0.16.5 Breaking API Changes). Barrel: `lib/dartclaw_models.dart` with explicit `show` clauses.
+
+`AgentDefinition.tools` is an optional host-enforced sandbox allowlist; empty means unrestricted except denies. `AgentDefinition.provider`, `securityProfile`, and `execution` feed the routing pinned into each new logical-agent `Session` (`provider` + `securityProfile` + `executionMode`); later sends use the persisted values, not current config. `ExecutionPolicy` is the resolved two-axis value — `host`, or `container` plus its profile — and enforces that a profile exists only for container mode; a profile never selects placement. The built-in search definition uses canonical `web_search`/`web_fetch`, requests the restricted profile, and remains provider-neutral (`provider == null`, `model == null`); composition-root wiring resolves provider/model defaults. Logical agents are never forwarded as provider-native agents. Per-provider worker capacity is the only execution concurrency boundary. `SessionType.logicalAgent` classifies hidden-but-retained logical-agent history.
 
 ## Boundaries
 - Runtime dependencies: `collection` only. Do not add `path`, `yaml`, `sqlite3`, `dart:io`, or anything pulling them in transitively. These types must be importable from any environment (server, CLI, future Flutter clients).
@@ -22,7 +24,7 @@
 
 ## Key files
 - `lib/dartclaw_models.dart` — barrel; canonical export surface.
-- `lib/src/models.dart` — `Session` / `Message` / `MemoryChunk` / `MemorySearchResult` value types.
+- `lib/src/models.dart` — `Session` / `Message` / `MemorySearchResult` / `MemorySearchOutcome` / structured search-degradation value types.
 - `lib/src/session_key.dart` — encoding contract; touch with care.
 - `lib/src/agent_definition.dart`, `lib/src/container_config.dart` — runtime-adjacent shared value types.
 - `lib/src/channel_config.dart`, `lib/src/channel_type.dart`, `lib/src/session_scope_config.dart` — channel/scoping shared types.

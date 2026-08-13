@@ -20,16 +20,19 @@ final class SessionCostSnapshot {
   final int totalTokens;
   final int turnCount;
 
-  const SessionCostSnapshot({required this.totalTokens, required this.turnCount});
+  const new({required this.totalTokens, required this.turnCount});
 }
 
 /// Reports a budget-exceeded outcome for a [Task].
-typedef BudgetFailureHandler =
-    Future<void> Function(Task task, {required String errorSummary, required bool retryable});
+typedef BudgetFailureHandler = Future<void> Function(
+  Task task, {
+  required String errorSummary,
+  required bool retryable,
+});
 
 /// Applies task and goal token-budget policy before task turns execute.
 final class TaskBudgetPolicy {
-  TaskBudgetPolicy({
+  new({
     required TaskService tasks,
     required KvService? kv,
     required TaskBudgetConfig? budgetConfig,

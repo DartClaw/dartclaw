@@ -307,19 +307,24 @@ mcp_servers:
       );
     });
 
-    test('unrelated YAML duplicate keys are not mislabeled as mcp_servers errors', () {
-      final config = loadYaml('''
+    test('unrelated YAML duplicate keys fail as parse errors, not mcp_servers errors', () {
+      expect(
+        () => loadYaml('''
 mcp_servers: {}
 providers:
   codex:
     executable: codex
   codex:
     executable: other
-''');
-
-      expect(config.mcpServers.isEmpty, isTrue);
-      expect(config.warnings, anyElement(contains('YAML parse error')));
-      expect(config.warnings.join('\n'), isNot(contains('mcp_servers contains duplicate')));
+'''),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('YAML parse error'), isNot(contains('mcp_servers contains duplicate'))),
+          ),
+        ),
+      );
     });
 
     test('registry-shaped block scalar text is not scanned as mcp_servers config', () {

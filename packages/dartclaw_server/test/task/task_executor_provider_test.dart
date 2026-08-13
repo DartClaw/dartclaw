@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
-import 'package:dartclaw_server/src/task/task_runner_pool_coordinator.dart' show TaskRunnerPoolCoordinator;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '../execution_coordinator_test_support.dart';
 
 void main() {
   late Directory tempDir;
@@ -84,8 +84,7 @@ void main() {
       behavior: behavior,
       providerId: 'codex',
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
-    final turns = TurnManager.fromPool(pool: pool);
+    final turns = turnManagerForRunners([primaryRunner, taskClaudeRunner, taskCodexRunner]);
     executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
@@ -95,7 +94,7 @@ void main() {
       description: 'Should use the codex pool worker.',
       type: TaskType.coding,
       autoStart: true,
-      provider: 'codex',
+      provider: ' CoDeX ',
     );
 
     final processed = await executor.pollOnce();
@@ -124,8 +123,7 @@ void main() {
       behavior: behavior,
       providerId: 'claude',
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner]);
-    final turns = TurnManager.fromPool(pool: pool);
+    final turns = turnManagerForRunners([primaryRunner, taskClaudeRunner]);
     executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
@@ -174,8 +172,7 @@ void main() {
       behavior: behavior,
       providerId: 'codex',
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
-    final turns = TurnManager.fromPool(pool: pool);
+    final turns = turnManagerForRunners([primaryRunner, taskClaudeRunner, taskCodexRunner]);
     executor = buildExecutor(turns, eventRecorder: eventRecorder);
     addTearDown(executor.stop);
 
@@ -197,50 +194,51 @@ void main() {
     expect((await tasks.get('task-provider-unknown'))!.status, TaskStatus.queued);
     final events = eventService.listForTask('task-provider-unknown', kind: TaskEventKind.taskError);
     expect(events, hasLength(1));
-    expect(events.single.details['message'], contains('Provider "goose" is unavailable'));
+    expect(events.single.details['message'], contains('Provider "goose" is not configured'));
   });
 
-  test(
-    'provider-overridden research task falls back to workspace runner when restricted profile is unavailable',
-    () async {
-      final primaryWorker = _ProviderWorker(responseText: 'primary complete');
-      final codexWorkspaceWorker = _ProviderWorker(responseText: 'codex workspace complete');
-      addTearDown(() async {
-        await primaryWorker.dispose();
-        await codexWorkspaceWorker.dispose();
-      });
+  test('provider-overridden research task stays queued when its restricted profile is unavailable', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary complete');
+    final codexWorkspaceWorker = _ProviderWorker(responseText: 'codex workspace complete');
+    addTearDown(() async {
+      await primaryWorker.dispose();
+      await codexWorkspaceWorker.dispose();
+    });
 
-      final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-      final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
-      final taskCodexWorkspaceRunner = TurnRunner(
-        harness: codexWorkspaceWorker,
-        messages: messages,
-        behavior: behavior,
-        providerId: 'codex',
-      );
-      final pool = HarnessPool(runners: [primaryRunner, taskCodexWorkspaceRunner]);
-      final turns = TurnManager.fromPool(pool: pool);
-      executor = buildExecutor(turns);
-      addTearDown(executor.stop);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
+    final taskCodexWorkspaceRunner = TurnRunner(
+      harness: codexWorkspaceWorker,
+      messages: messages,
+      behavior: behavior,
+      providerId: 'codex',
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
+    final turns = turnManagerForRunners([primaryRunner, taskCodexWorkspaceRunner]);
+    executor = buildExecutor(turns);
+    addTearDown(executor.stop);
 
-      await tasks.create(
-        id: 'task-provider-workspace-fallback',
-        title: 'Codex research task',
-        description: 'Should use the codex workspace worker when restricted is unavailable.',
-        type: TaskType.research,
-        autoStart: true,
-        provider: 'codex',
-      );
+    await tasks.create(
+      id: 'task-provider-profile-missing',
+      title: 'Codex research task',
+      description: 'Must not weaken isolation when the restricted worker is unavailable.',
+      type: TaskType.research,
+      autoStart: true,
+      provider: 'codex',
+    );
 
-      final processed = await executor.pollOnce();
+    final processed = await executor.pollOnce();
 
-      expect(processed, isTrue);
-      await _waitForTaskStatus(tasks, 'task-provider-workspace-fallback', TaskStatus.review);
-      expect(primaryWorker.turnCalls, 0);
-      expect(codexWorkspaceWorker.turnCalls, 1);
-      expect((await tasks.get('task-provider-workspace-fallback'))!.status, TaskStatus.review);
-    },
-  );
+    expect(processed, isFalse);
+    expect(primaryWorker.turnCalls, 0);
+    expect(codexWorkspaceWorker.turnCalls, 0);
+    expect((await tasks.get('task-provider-profile-missing'))!.status, TaskStatus.queued);
+  });
 
   test('task with provider override stays queued when provider exists only in another profile', () async {
     final primaryWorker = _ProviderWorker(responseText: 'primary complete');
@@ -251,16 +249,20 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskCodexRestrictedRunner = TurnRunner(
       harness: codexRestrictedWorker,
       messages: messages,
       behavior: behavior,
-      profileId: 'restricted',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
       providerId: 'codex',
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskCodexRestrictedRunner]);
-    final turns = TurnManager.fromPool(pool: pool);
+    final turns = turnManagerForRunners([primaryRunner, taskCodexRestrictedRunner]);
     executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
@@ -290,15 +292,20 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final primaryRunner = TurnRunner(
+      harness: primaryWorker,
+      messages: messages,
+      behavior: behavior,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskClaudeRunner = TurnRunner(
       harness: claudeTaskWorker,
       messages: messages,
       behavior: behavior,
       providerId: 'claude',
+      executionPolicy: const ExecutionPolicy.container('restricted'),
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner]);
-    final turns = TurnManager.fromPool(pool: pool);
+    final turns = turnManagerForRunners([primaryRunner, taskClaudeRunner]);
     executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
@@ -343,8 +350,7 @@ void main() {
       behavior: behavior,
       providerId: 'codex',
     );
-    final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
-    final turns = TurnManager.fromPool(pool: pool);
+    final turns = turnManagerForRunners([primaryRunner, taskClaudeRunner, taskCodexRunner]);
     executor = buildExecutor(turns);
     addTearDown(executor.stop);
 
@@ -377,62 +383,6 @@ void main() {
     expect((await tasks.get('task-claude'))!.provider, 'claude');
     expect((await tasks.get('task-codex'))!.provider, 'codex');
   });
-
-  test('provider-specific wait triggers spawn even when another provider is idle', () async {
-    final primaryWorker = _ProviderWorker(responseText: 'primary complete');
-    final claudeTaskWorker = _ProviderWorker(responseText: 'claude complete');
-    final codexWorker = _ProviderWorker(responseText: 'codex complete');
-    final secondClaudeWorker = _ProviderWorker(responseText: 'second claude complete');
-    addTearDown(() async {
-      await primaryWorker.dispose();
-      await claudeTaskWorker.dispose();
-      await codexWorker.dispose();
-      await secondClaudeWorker.dispose();
-    });
-
-    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final pool = HarnessPool(
-      runners: [
-        TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior),
-        TurnRunner(harness: claudeTaskWorker, messages: messages, behavior: behavior, providerId: 'claude'),
-        TurnRunner(harness: codexWorker, messages: messages, behavior: behavior, providerId: 'codex'),
-      ],
-      maxConcurrentTasks: 3,
-    );
-    final busyClaude = pool.tryAcquireForProvider('claude');
-    expect(busyClaude, isNotNull);
-    expect(pool.availableCount, 1, reason: 'codex is idle and must not suppress claude provisioning');
-
-    final spawned = Completer<void>();
-    final coordinator = TaskRunnerPoolCoordinator(
-      pool: pool,
-      onSpawnNeeded: (requestedProviderId) async {
-        expect(requestedProviderId, 'claude');
-        pool.addRunner(
-          TurnRunner(harness: secondClaudeWorker, messages: messages, behavior: behavior, providerId: 'claude'),
-        );
-        spawned.complete();
-        return true;
-      },
-    );
-    final task = Task(
-      id: 'task-claude-spawn',
-      title: 'Claude spawn',
-      description: 'Needs another claude worker.',
-      type: TaskType.coding,
-      status: TaskStatus.queued,
-      provider: 'claude',
-      createdAt: DateTime.now(),
-    );
-
-    final firstAttempt = coordinator.acquireRunnerForTask(task, 'workspace');
-    expect(firstAttempt, isNull);
-    await spawned.future.timeout(const Duration(seconds: 1));
-
-    final secondAttempt = coordinator.acquireRunnerForTask(task, 'workspace');
-    expect(secondAttempt, isNotNull);
-    expect(secondAttempt!.providerId, 'claude');
-  });
 }
 
 class _ProviderWorker implements AgentHarness {
@@ -442,7 +392,7 @@ class _ProviderWorker implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final Completer<void> _turnStarted = Completer<void>();
 
-  _ProviderWorker({required this.responseText});
+  new({required this.responseText});
 
   String responseText;
   int turnCalls = 0;
@@ -474,6 +424,9 @@ class _ProviderWorker implements AgentHarness {
   WorkerState get state => WorkerState.idle;
 
   @override
+  bool get isRootProcessTerminationConfirmed => true;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
@@ -484,6 +437,7 @@ class _ProviderWorker implements AgentHarness {
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -530,19 +484,25 @@ Future<void> _waitForTaskStatus(TaskService tasks, String taskId, TaskStatus sta
 }
 
 class _SerialSessionService extends SessionService {
-  _SerialSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   Future<void> _pending = Future<void>.value();
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+  Future<Session> getOrCreateByKey(
+    String key, {
+    SessionType type = SessionType.user,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
     Session? session;
     Object? error;
     StackTrace? stackTrace;
 
     _pending = _pending.then((_) async {
       try {
-        session = await super.getOrCreateByKey(key, type: type, provider: provider);
+        session = await super.getOrCreateByKey(key, type: type, provider: provider, securityProfile: securityProfile);
       } catch (e, st) {
         error = e;
         stackTrace = st;

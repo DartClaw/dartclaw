@@ -3,10 +3,11 @@ import 'package:test/test.dart';
 
 import 'guard_test_support.dart';
 
-GuardContext _fetch(String url) => GuardContext(
+GuardContext _fetch(String url, {String? agentId}) => GuardContext(
   hookPoint: 'beforeToolCall',
   toolName: 'web_fetch',
   toolInput: {'url': url},
+  agentId: agentId,
   timestamp: DateTime.now(),
 );
 
@@ -74,6 +75,47 @@ void main() {
         expect((await guard.evaluate(context)).isPass, isTrue, reason: context.hookPoint);
       }
     });
+
+    test('agent override applies to web fetch and shell only for that agent', () async {
+      final guard = NetworkGuard(
+        config: NetworkGuardConfig(
+          allowedDomains: const {'github.com'},
+          exfilPatterns: const [],
+          agentOverrides: const {
+            'search': {'example.com'},
+          },
+        ),
+      );
+      const url = 'https://example.com/page';
+      GuardContext shell({String? agentId}) => GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'shell',
+        toolInput: const {'command': 'curl $url'},
+        agentId: agentId,
+        timestamp: DateTime.now(),
+      );
+
+      expect((await guard.evaluate(_fetch(url, agentId: 'search'))).isPass, isTrue);
+      expect((await guard.evaluate(shell(agentId: 'search'))).isPass, isTrue);
+      expect((await guard.evaluate(_fetch(url))).message, 'Network blocked: domain not in allowlist (example.com)');
+      expect((await guard.evaluate(shell())).message, 'Network blocked: domain not in allowlist (example.com)');
+    });
+
+    test('remapped own-MCP web fetch is domain-gated for the main agent', () async {
+      final guard = NetworkGuard(
+        config: NetworkGuardConfig(allowedDomains: const {'github.com'}, exfilPatterns: const []),
+      );
+      final context = GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'web_fetch',
+        rawProviderToolName: 'mcp__dartclaw__web_fetch',
+        toolInput: const {'url': 'https://example.com/page'},
+        timestamp: DateTime.now(),
+      );
+
+      expect((await guard.evaluate(context)).message, 'Network blocked: domain not in allowlist (example.com)');
+      expect((await guard.evaluate(_fetch('https://github.com/dartclaw'))).isPass, isTrue);
+    });
   });
 
   group('NetworkGuardConfig', () {
@@ -100,6 +142,27 @@ void main() {
         'extra_exfil_patterns': ['[invalid'],
       });
       expect(cfg.exfilPatterns.length, NetworkGuardConfig.defaults().exfilPatterns.length);
+    });
+  });
+
+  group('isLoopbackHost', () {
+    test('accepts the literal loopback hosts regardless of case', () {
+      expect(isLoopbackHost('localhost'), isTrue);
+      expect(isLoopbackHost('Localhost'), isTrue);
+      expect(isLoopbackHost('LOCALHOST'), isTrue);
+      expect(isLoopbackHost('127.0.0.1'), isTrue);
+      expect(isLoopbackHost('::1'), isTrue);
+    });
+
+    test('rejects anything that is not an exact loopback literal', () {
+      // Names are never resolved and the host must be bare — a port, brackets,
+      // a subdomain, or another 127/8 address all stay non-loopback.
+      expect(isLoopbackHost('localhost:3000'), isFalse);
+      expect(isLoopbackHost('[::1]'), isFalse);
+      expect(isLoopbackHost('localhost.evil.com'), isFalse);
+      expect(isLoopbackHost('127.0.0.2'), isFalse);
+      expect(isLoopbackHost('0.0.0.0'), isFalse);
+      expect(isLoopbackHost(''), isFalse);
     });
   });
 }

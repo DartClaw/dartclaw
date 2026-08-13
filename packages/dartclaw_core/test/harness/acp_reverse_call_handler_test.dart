@@ -29,7 +29,7 @@ void main() {
     test('file calls use the active turn workspace and session authorization', () async {
       final guard = RecordingGuard();
       final handlers = AcpReverseCallHandlers(guardChain: GuardChain(guards: [guard]));
-      handlers.bindTurn(sessionId: 'task-session', effectiveDirectory: worktree.path);
+      handlers.bindTurn(sessionId: 'task-session', agentId: 'search', effectiveDirectory: worktree.path);
       await File(p.join(worktree.path, 'allowed.txt')).writeAsString('visible');
 
       final read = await handlers.readTextFile({'path': 'allowed.txt'});
@@ -40,6 +40,7 @@ void main() {
       expect(File(p.join(worktree.path, 'created.txt')).readAsStringSync(), 'new');
       expect(File(p.join(serviceRoot.path, 'created.txt')).existsSync(), isFalse);
       expect(guard.contexts.map((context) => context.sessionId), everyElement('task-session'));
+      expect(guard.contexts.map((context) => context.agentId), everyElement('search'));
       expect(guard.contexts.map((context) => context.rawProviderToolName), ['fs/read_text_file', 'fs/write_text_file']);
     });
 
@@ -79,16 +80,22 @@ void main() {
     });
 
     test('permission requests require an active turn', () async {
+      AcpPermissionRequest? capturedRequest;
       final handlers = AcpReverseCallHandlers(
-        permissionDecision: (request) async => const AcpPermissionResult(granted: false, reason: 'denied'),
+        permissionDecision: (request) async {
+          capturedRequest = request;
+          return const AcpPermissionResult(granted: false, reason: 'denied');
+        },
       );
 
       await expectLater(handlers.requestPermission({'operation': 'file_write'}), throwsA(isA<Exception>()));
 
-      handlers.bindTurn(sessionId: 'session-1', effectiveDirectory: worktree.path);
+      handlers.bindTurn(sessionId: 'session-1', agentId: 'search', effectiveDirectory: worktree.path);
       final response = await handlers.requestPermission({'operation': 'file_write'});
       expect(response, containsPair('granted', false));
       expect(response, containsPair('reason', 'denied'));
+      expect(capturedRequest?.sessionId, 'session-1');
+      expect(capturedRequest?.agentId, 'search');
     });
 
     test('turn unbind drains accepted calls and rejects new calls', () async {

@@ -7,12 +7,12 @@ DartClaw uses defense-in-depth: multiple independent layers so that no single co
 ```
 User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider Boundary
                            │                        │
-                     Guard Chain              Claude container path:
+                     Guard Chain              Claude/Codex container path:
                      Audit Logger              network:none
-                     Content Guard             CredentialProxy
+                     Content Guard             Host Gateway
                                                Mount Allowlist
                                               Codex: provider approval
-                                              ACP relay/unverified: restricted container
+                                              ACP: host execution only
 ```
 
 ## Guard System
@@ -90,16 +90,36 @@ Mutation and test endpoints return `403` for requests without admin access.
 
 ## Container Isolation
 
-On supported POSIX hosts, when Docker is available, DartClaw runs the claude binary inside a container with:
+On supported POSIX hosts, when Docker is available, DartClaw runs the packaged `claude` or `codex` binary inside a container with:
 - `network:none` -- no direct internet access
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
-- Credential proxy (Unix socket) for API access
+- Host-mediated provider access over framed `docker exec` pipes (see below) -- no credential in the container
 - Mount allowlist for workspace files
 
-Container isolation is unavailable on native Windows even when Docker is installed. Its credential-proxy socket and
-owner-only permissions require POSIX facilities, so `container.enabled: true` fails closed and directs the operator to
-a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
+ACP agents have no container execution: DartClaw mediates no provider credential or host capability for an ACP client,
+so ACP registrations run on the host only and a container-requiring registration is rejected at startup.
+
+Container isolation is unavailable on native Windows even when Docker is installed. Its per-authority pipes and
+owner-only generated state require POSIX facilities, so `container.enabled: true` fails closed and directs the operator
+to a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
+
+### File Ownership on Native Linux
+
+The container image runs its agent process as uid 1000, and on native Linux Docker, bind-mount file ownership passes
+through verbatim. DartClaw aligns the per-execution host directories it mounts (generated state, artifacts) to uid 1000
+with a best-effort `chown` — a no-op when the service already runs as uid 1000 (the default first user on most
+distributions). This is the standard bind-mount uid-mismatch constraint every containerized tool shares, not a
+DartClaw-specific one; Docker Desktop on macOS/Windows masks it entirely through its own uid remapping.
+
+Running the service as a **dedicated non-1000 user** (for example a `dartclaw` system account) therefore needs one of:
+
+- **root or `CAP_CHOWN`** for the service process, so the alignment `chown` succeeds, or
+- **rootless / userns-remapped Docker**, where the daemon maps container uid 1000 into the service user's subordinate
+  uid range — this works with zero extra privileges and is the recommended unprivileged posture.
+
+Without either, containerized executions fail on their mounted state and artifact directories. The alignment is
+best-effort by design (a failed `chown` is logged, never fatal) so uid-remapped daemons are unaffected.
 
 ### Pragmatic Mode
 
@@ -121,12 +141,14 @@ gateway:
 Cookie-authenticated browser sessions are defended against cross-site request forgery in depth, not by a single control:
 
 - **`SameSite=Strict` session cookies** keep the cookie off cross-site requests, so a forged cross-origin request arrives unauthenticated. This is the primary defense and needs no CSRF tokens — strong, but not treated as absolute.
-- **Same-origin Origin/Host check.** For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the server compares the request's `Origin` (or `Referer`) authority against its own `Host` and returns **403** on mismatch or when neither header is present. API clients using a Bearer token and no-auth local-admin sessions are exempt.
+- **Same-origin Origin/Host check.** For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the server compares the request's `Origin` (or `Referer`) authority against its own `Host` and returns **403** on mismatch or when neither header is present. No-auth local-admin writes additionally require both the configured server host and request `Host` to be literal loopback hosts; matching non-local `Origin` and `Host` values are rejected. Origin-less loopback API clients remain supported. API clients using a Bearer token are exempt.
 - **Security headers.** Every response carries a strict `Content-Security-Policy` (including `form-action 'self'` and `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and HSTS when `gateway.hsts` is enabled.
 
-## Credential Proxy
+## Host-Mediated Provider Credentials
 
-The credential proxy currently secures the Claude/Anthropic container path. The Dart host runs a `CredentialProxy` on a Unix socket that injects authentication headers into outbound Anthropic API requests. The container's `network:none` means this proxy is the **sole egress path** for that flow — there is no direct internet access from the Claude container.
+Provider credentials stay on the host. A containerized agent never receives an API key, a login file, or a reusable
+token – it is given a loopback endpoint, and the host decides what that endpoint reaches and what authentication it
+carries. The container keeps `network:none`, so this mediated path is its **only** way to a provider.
 
 ### How It Works
 
@@ -134,59 +156,75 @@ The credential proxy currently secures the Claude/Anthropic container path. The 
 Container (network:none)                          Host
 ┌────────────────────────────┐             ┌───────────────────────┐
 │                            │             │                       │
-│  claude binary             │             │  CredentialProxy      │
-│    ANTHROPIC_BASE_URL=     │             │    Unix socket:       │
-│    http://localhost:8080   │             │    <data>/proxy/      │
-│          │                 │             │    proxy.sock         │
-│          ▼                 │             │    (chmod 600)        │
-│  socat bridge              │  bind-mount │                       │
-│    TCP-LISTEN:8080 ────────┼─────────────┼──► Injects headers:  │
-│    → UNIX-CLIENT:          │             │      x-api-key        │
-│      /var/run/dartclaw/    │             │      Authorization    │
-│      proxy.sock            │             │          │            │
-│                            │             │          ▼            │
-└────────────────────────────┘             │  api.anthropic.com   │
+│  claude / codex binary     │             │  HostGateway          │
+│    endpoint:               │             │    one authority per   │
+│    http://127.0.0.1:8080   │             │    live execution      │
+│          │                 │             │          │            │
+│          ▼                 │             │          ▼            │
+│  dartclaw-bridge           │ docker exec │  Provider adapter     │
+│    (read-only, host-owned) ├──── -i ────►│    pins the upstream  │
+│                            │  stdio pipe │    injects the key    │
+│                            │             │          │            │
+└────────────────────────────┘             │          ▼            │
+                                           │  api.anthropic.com /  │
+                                           │  api.openai.com       │
                                            └───────────────────────┘
 ```
 
-1. **Dart host** starts `CredentialProxy` on `<dataDir>/proxy/proxy.sock` with `chmod 600` (owner-only access). The API key is held in host memory only.
-2. **Container** is created with `--network none`. The socket directory is bind-mounted into the container at `/var/run/dartclaw/`.
-3. **socat** runs inside the container, bridging a local TCP port to the Unix socket: `TCP-LISTEN:8080 → UNIX-CLIENT:/var/run/dartclaw/proxy.sock`.
-4. **`ANTHROPIC_BASE_URL`** environment variable points the `claude` binary at the socat listener (`http://localhost:8080`).
-5. When the Claude agent makes an API call, the request flows through the chain. The proxy injects `x-api-key` and `Authorization: Bearer` headers before forwarding to `api.anthropic.com` over HTTPS.
+1. Each live container authority gets its own container and its own bridge processes. Nothing is shared between
+   executions, and nothing survives one.
+2. The host objects the mediation path adds are the **read-only** `dartclaw-bridge` executable, a writable per-authority
+   generated-state directory mounted at `/home/dartclaw/.dartclaw` (the container's home for generated client
+   configuration, deleted with the authority), and – only for an execution that writes durable artifacts – a writable
+   host-owned directory mounted at `/artifacts`. There is no socket mount, no published port, and no network attachment.
+3. The bridge listens on container loopback and forwards bounded, framed traffic to the host over the `docker exec -i`
+   pipe the host opened. It chooses no destination and holds no credential.
+4. On the host, the adapter bound to that pipe pins the upstream origin, drops any client-supplied credential header,
+   and injects the host-held key before forwarding over HTTPS.
 
 ### Authentication Modes
 
-| Mode | When | Behavior |
-|------|------|----------|
-| **API key** | `ANTHROPIC_API_KEY` is configured | Proxy injects `x-api-key` and `Authorization: Bearer <key>` headers |
-| **OAuth passthrough** | No API key (OAuth or setup token) | Proxy forwards existing auth headers from the `claude` binary unchanged |
+| Provider | Container mode | Host mode |
+|----------|----------------|-----------|
+| **Claude** | Host-held `ANTHROPIC_API_KEY` only. The adapter injects `x-api-key`; the container sees neither the key nor `~/.claude.json` | API key, OAuth login, or setup token |
+| **Codex** | A generated auth-clean home selects a custom Responses provider pointed at the host gateway with client authentication disabled. The host adapter supplies the upstream key | API key or the Codex CLI's own auth |
 
-In OAuth mode, the host's `~/.claude.json` is mounted read-only into the container so the `claude` binary can authenticate directly. The proxy acts as a transparent relay without adding credentials.
+Containerized Claude supports **API-key mediation only**. OAuth and setup-token logins have no credential-free
+mediation contract, so a container execution configured that way is rejected before the turn starts, naming host
+execution as the supported alternative – it is never silently downgraded. Set `ANTHROPIC_API_KEY` on the host for
+container mode, or select `execution: host` for that agent.
 
-> Codex and ACP providers do not use this Anthropic-specific credential proxy path. Codex uses the Codex CLI's own auth flow or `CODEX_API_KEY`; ACP agents use their configured provider's credential mechanism.
+The containerized Codex home is created fresh for each execution, contains only generated client configuration, and is
+deleted when the authority is released. The host's `~/.codex/` is never mounted or copied: a logged-in Codex will
+forward its saved bearer even when the client is told not to authenticate, so the only safe container home is one that
+was never seeded.
 
-For production, prefer API-key based credentials managed by the service environment or secret manager rather than interactive login state. Use `ANTHROPIC_API_KEY` for Claude/Anthropic, `CODEX_API_KEY` for Codex/OpenAI, and provider-specific secrets for ACP targets such as Goose or Vibe. The credential boundary is provider-specific: `CredentialProxy` isolates Claude container credentials, Codex receives only its resolved API key or CLI auth context, and ACP agents receive only the environment or files needed for that configured agent.
+For production, prefer API keys managed by the service environment or a secret manager over interactive login state.
 
 ### Security Properties
 
-- **Key isolation** — API keys never exist inside the container (not in env vars, filesystem, or process memory)
-- **Owner-only socket** — `chmod 600` prevents other host processes from connecting
-- **Sole egress** — `network:none` means the Unix socket is the only way out of the container
-- **Observability** — the proxy tracks request and error counts for health monitoring
+- **Key isolation** – provider credentials never exist inside the container: not in environment variables, mounted or
+  generated files, command arguments, or generated client configuration
+- **No shared token** – containers receive no shared operator MCP bearer; the execution-scoped pipe is the identity
+- **Pinned destination** – the adapter owns the upstream origin and the allowed request paths, so a container cannot
+  name where its traffic goes
+- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container, and the pipe refuses
+  any request declaring a provider-side network tool (web search/fetch, remote MCP connectors), which would otherwise run
+  at the provider where `network:none` cannot reach it. This applies to every container profile, not just `restricted`
+- **Non-replayable** – authority is bound to one execution and revoked on release; a captured pipe cannot be revived
 
-## ACP and Delegation Security Modes
+## ACP and Logical-Agent Security Modes
 
 ACP security claims are topology-scoped:
 
 | Mode | When to use | Security claim |
 |------|-------------|----------------|
 | Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host filesystem reverse-calls | Guard-mediated. ACP `fs/read_text_file` and `fs/write_text_file` are bound to the active task session and evaluated by DartClaw guards before host action |
-| Relay provider | The ACP target forwards work through another provider CLI or relay path | Container-isolation-only. No guard-mediation claim |
-| Unverified | Startup evidence is absent or insufficient | Container-isolation-only until verification proves reverse-call mediation |
-| Codex delegation | Delegated Codex work with approvals/sandbox enabled | Provider-approval mode, not guard-mediated |
+| Relay provider | The ACP target forwards work through another provider CLI or relay path | No guard-mediation claim, so a container is the only boundary it could have — and DartClaw has no ACP container mediation, so the registration is rejected at startup |
+| Unverified | Startup evidence is absent or insufficient | Same as relay: rejected at startup until verification proves reverse-call mediation |
+| Codex agent sessions | Codex with `approval: on-request` | Guard-mediated for supported command, file-change, and MCP operations that emit provider approval requests; unevaluated authority is declined and the sandbox remains an independent boundary |
 
-`delegate_to_agent` enforces these classifications before spawn. If an allowlist entry sets `require_guard_mediation: true`, relay and unverified ACP agents are rejected, and Codex is rejected because its delegated mode is `security_mode: "provider_approval"`. A restricted container profile is the safe default for relay or unverified ACP agents.
+Logical agents select providers through `agent.agents.<id>.provider` and may select `security_profile: workspace|restricted` independently. The built-in search agent requests `restricted`; other agents use an enforced ACP provider profile when present, otherwise `workspace`. Provider startup validation and exact provider/profile worker acquisition enforce the configured boundary before a logical-agent session can run. An unavailable `restricted` profile fails closed instead of falling back to host execution. An ACP provider runs on the host only, so give an agent that uses one an explicit `execution: host`; a resolved container policy is refused before the turn starts.
 
 DartClaw does not advertise ACP `terminal/create` on any host; filesystem reverse-calls remain available. Host terminal execution stays disabled until DartClaw can prove containment of the complete spawned process tree.
 

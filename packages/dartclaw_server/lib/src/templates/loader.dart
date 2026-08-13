@@ -92,12 +92,12 @@ class TemplateLoaderService {
   final Map<String, String> _sources = {};
   late final Trellis trellis;
 
-  TemplateLoaderService(this._basePath, {this.devMode = false}) {
+  new(this._basePath, {this.devMode = false}) {
     _sources.addAll(_loadFilesystemSources());
     _initializeTrellis();
   }
 
-  TemplateLoaderService.embedded(Map<String, String> assets) : _basePath = null, devMode = false {
+  new embedded(Map<String, String> assets) : _basePath = null, devMode = false {
     for (final entry in assets.entries) {
       if (!entry.key.startsWith('templates/') || !entry.key.endsWith('.html')) continue;
       _sources[p.basenameWithoutExtension(entry.key)] = entry.value;

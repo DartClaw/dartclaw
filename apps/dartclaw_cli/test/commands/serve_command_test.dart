@@ -7,11 +7,11 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, LogService;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -51,7 +51,7 @@ AssetResolver _assetResolverFor(Directory tempDir) {
 
 class _ExitIntercept implements Exception {
   final int code;
-  _ExitIntercept(this.code);
+  new(this.code);
 }
 
 class _FakeWorkerService extends FakeAgentHarness {
@@ -69,6 +69,7 @@ class _FakeWorkerService extends FakeAgentHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) async => {'ok': true};
 }
 
@@ -177,6 +178,26 @@ void main() {
       expect(options.containsKey('templates-dir'), isTrue);
       expect(options.containsKey('worker-timeout'), isTrue);
       expect(options.containsKey('offline'), isFalse);
+    });
+
+    test('non-map config exits before server or provider wiring', () async {
+      final tempDir = _tempDirectory('dartclaw_non_map_config_');
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'))..writeAsStringSync('- container\n- enabled\n');
+      var serverBuilt = false;
+      final command = ServeCommand(
+        serverFactory: (builder) {
+          serverBuilt = true;
+          return builder.build();
+        },
+        runWorkflowSkillsBootstrap: false,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(
+        localRunner.run(['--config', configFile.path, 'serve']),
+        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('root must be a map'))),
+      );
+      expect(serverBuilt, isFalse);
     });
 
     group('port validation', () {
@@ -343,9 +364,8 @@ void main() {
         taskDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) async {
-          pairingBody = await (await handler(
-            Request('GET', Uri.parse('http://localhost/whatsapp/pairing')),
-          )).readAsString();
+          pairingBody = await (await handler(Request('GET', Uri.parse('http://localhost/whatsapp/pairing'))))
+              .readAsString();
           return HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         },
         stderrLine: (_) {},
@@ -644,16 +664,26 @@ channels:
       expect(kvContents.containsKey('session_cost:session-a'), isTrue);
     });
 
-    test('search database open failure prints clear startup error', () async {
+    test('search database open failure boots degraded and reports search unavailable', () async {
+      final worker = _FakeWorkerService();
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
-        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        workspace: const WorkspaceConfig(gitSyncEnabled: false),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          templatesDir: _templatesDir,
+          staticDir: _staticDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
       );
 
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => throw FileSystemException('open failed'),
+        harnessFactory: _harnessFactoryFor(worker),
+        serveFn: (handler, address, port) async => throw SocketException('stop after degraded boot'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
@@ -663,9 +693,19 @@ channels:
 
       final logs = await _captureExpectedServeLogs(
         () => _expectExit(localRunner, code: 1),
-        expectedSevereSubstrings: const ['Cannot open search database'],
+        expectedSevereSubstrings: const ['Cannot open search database', 'Cannot bind to localhost:3333'],
       );
-      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open search database')), isTrue);
+      expect(
+        logs.any(
+          (record) =>
+              record.level == Level.SEVERE &&
+              record.message.contains('Cannot open search database') &&
+              record.message.contains('booting with search unavailable'),
+        ),
+        isTrue,
+      );
+      expect(worker.started, isTrue);
+      expect(worker.stopped, isTrue);
     });
 
     test('task database open failure prints clear startup error', () async {

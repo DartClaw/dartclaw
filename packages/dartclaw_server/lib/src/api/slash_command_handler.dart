@@ -29,7 +29,7 @@ class SlashCommandHandler {
   final TaskTriggerConfig _taskTriggerConfig;
   final HtmlEscape _htmlEscape;
 
-  SlashCommandHandler({
+  new({
     TaskService? taskService,
     SessionService? sessionService,
     ChannelManager? channelManager,

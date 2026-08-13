@@ -3,28 +3,49 @@ import 'package:dartclaw_server/src/mcp/memory_tools.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('MemorySaveTool', () {
-    test('has correct name and schema', () {
-      final tool = MemorySaveTool(handler: (args) async => {});
-      expect(tool.name, 'memory_save');
-      expect(tool.description, isNotEmpty);
+  group('MemoryObserveTool', () {
+    test('exposes only text and the closed capture role', () {
+      final tool = MemoryObserveTool(handler: (args) async => {});
+      final schema = tool.inputSchema;
+      final properties = schema['properties'] as Map<String, dynamic>;
+
+      expect(tool.name, 'memory_observe');
+      expect(schema['required'], ['text', 'role']);
+      expect(schema['additionalProperties'], isFalse);
+      expect(properties.keys, unorderedEquals(['text', 'role']));
+      expect((properties['role'] as Map<String, dynamic>)['enum'], ['observation', 'learning']);
+    });
+  });
+
+  group('MemoryApplyTool', () {
+    test('exposes a closed atomic operation schema', () {
+      final tool = MemoryApplyTool(handler: (args) async => {});
+      expect(tool.name, 'memory_apply');
       expect(tool.inputSchema['type'], 'object');
       final required = tool.inputSchema['required'] as List;
-      expect(required, contains('text'));
+      expect(required, ['expectedRevision', 'operations']);
+      final properties = tool.inputSchema['properties'] as Map<String, dynamic>;
+      expect(properties.keys, unorderedEquals(['expectedRevision', 'operations']));
+      expect(properties['operations'], containsPair('minItems', 1));
+      final operationSchema = (properties['operations'] as Map<String, dynamic>)['items'] as Map<String, dynamic>;
+      expect(operationSchema['oneOf'], hasLength(4));
+      for (final schema in (operationSchema['oneOf'] as List).cast<Map<String, dynamic>>()) {
+        expect(schema['additionalProperties'], isFalse);
+      }
     });
 
     test('invokes handler and returns extracted text', () async {
-      final tool = MemorySaveTool(
+      final tool = MemoryApplyTool(
         handler: (args) async => {
           'content': [
-            {'type': 'text', 'text': 'Saved 2 chunk(s) to memory.'},
+            {'type': 'text', 'text': '{"canonicalOutcome":"committed"}'},
           ],
         },
       );
 
-      final result = await tool.call({'text': 'hello', 'category': 'test'});
+      final result = await tool.call({'expectedRevision': 1, 'operations': []});
       expect(result, isA<ToolResultText>());
-      expect((result as ToolResultText).content, 'Saved 2 chunk(s) to memory.');
+      expect((result as ToolResultText).content, contains('committed'));
     });
   });
 
@@ -32,9 +53,12 @@ void main() {
     test('has correct name and schema', () {
       final tool = MemorySearchTool(handler: (args) async => {});
       expect(tool.name, 'memory_search');
-      expect(tool.description, isNotEmpty);
       final required = tool.inputSchema['required'] as List;
       expect(required, contains('query'));
+      final limit = (tool.inputSchema['properties'] as Map<String, dynamic>)['limit'] as Map<String, dynamic>;
+      expect(limit, containsPair('type', 'integer'));
+      expect(limit, containsPair('minimum', 1));
+      expect(limit, containsPair('maximum', 50));
     });
 
     test('invokes handler and returns extracted text', () async {
@@ -57,6 +81,11 @@ void main() {
       final tool = MemoryReadTool(handler: (args) async => {});
       expect(tool.name, 'memory_read');
       expect(tool.description, isNotEmpty);
+      final schema = tool.inputSchema;
+      final properties = schema['properties'] as Map<String, dynamic>;
+      expect(schema['oneOf'], hasLength(2));
+      expect(properties.keys, unorderedEquals(['locator', 'role', 'topic', 'limit']));
+      expect((properties['role'] as Map<String, dynamic>)['enum'], ['topic', 'archive']);
     });
 
     test('invokes handler and returns extracted text', () async {
@@ -68,7 +97,7 @@ void main() {
         },
       );
 
-      final result = await tool.call({});
+      final result = await tool.call({'locator': 'entry-id'});
       expect(result, isA<ToolResultText>());
       expect((result as ToolResultText).content, contains('Some memory entry'));
     });

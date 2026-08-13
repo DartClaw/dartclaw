@@ -14,6 +14,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowTaskService;
+
 import 'workflow_definition.dart'
     show
         WorkflowDefinition,
@@ -23,6 +24,7 @@ import 'workflow_definition.dart'
         WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
 import 'workflow_run_repository.dart' show WorkflowRunRepository;
+
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -109,7 +111,7 @@ class WorkflowService {
   /// shutdown always makes progress.
   static const int maxDisposePromotionAttempts = 8;
 
-  WorkflowService({
+  new({
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
@@ -133,7 +135,7 @@ class WorkflowService {
          options: options,
        );
 
-  WorkflowService.lifecycleOnly({
+  new lifecycleOnly({
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
@@ -159,7 +161,7 @@ class WorkflowService {
          debugBashProcessOwner: debugBashProcessOwner,
        );
 
-  WorkflowService._({
+  new _({
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,

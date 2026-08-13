@@ -18,7 +18,7 @@ class WorkflowRoleDefault {
   final String? model;
   final String? effort;
 
-  const WorkflowRoleDefault({this.provider, this.model, this.effort});
+  const new({this.provider, this.model, this.effort});
 }
 
 /// Runtime role defaults used when workflow YAML references `@workflow`,
@@ -29,7 +29,7 @@ class WorkflowRoleDefaults {
   final WorkflowRoleDefault executor;
   final WorkflowRoleDefault reviewer;
 
-  const WorkflowRoleDefaults({
+  const new({
     this.workflow = const WorkflowRoleDefault(),
     this.planner = const WorkflowRoleDefault(),
     this.executor = const WorkflowRoleDefault(),
@@ -68,7 +68,7 @@ class ResolvedStepConfig {
   final int? timeoutSeconds;
   final List<String>? allowedTools;
 
-  const ResolvedStepConfig({
+  const new({
     this.provider,
     this.model,
     this.effort,

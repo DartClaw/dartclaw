@@ -4,7 +4,7 @@ import 'dart:io';
 /// [Stdout] members via [noSuchMethod].
 class CapturingStdout implements Stdout {
   final List<String> lines;
-  CapturingStdout(this.lines);
+  new(this.lines);
 
   @override
   void writeln([Object? object = '']) => lines.add(object.toString());

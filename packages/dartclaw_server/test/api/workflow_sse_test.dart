@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -52,7 +52,7 @@ WorkflowRun _makeRun({
 }
 
 class _ControllableListTaskService extends TaskService {
-  _ControllableListTaskService(super.repository, {required super.eventBus});
+  new(super.repository, {required super.eventBus});
 
   Completer<void>? _listStarted;
   Completer<void>? _releaseList;

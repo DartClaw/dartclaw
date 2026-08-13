@@ -4,7 +4,7 @@ import 'guard.dart';
 ///
 /// Either [GuardBuildSuccess] (valid config, guards ready) or
 /// [GuardBuildFailure] (invalid config, existing chain must be preserved).
-sealed class GuardBuildResult {}
+sealed class GuardBuildResult;
 
 /// Guard list built successfully.
 ///
@@ -17,7 +17,7 @@ final class GuardBuildSuccess extends GuardBuildResult {
   final List<String> warnings;
 
   /// Creates a successful guard-build result.
-  GuardBuildSuccess({required this.guards, this.warnings = const []});
+  new({required this.guards, this.warnings = const []});
 }
 
 /// Guard list build failed due to invalid config.
@@ -29,5 +29,5 @@ final class GuardBuildFailure extends GuardBuildResult {
   final List<String> errors;
 
   /// Creates a failed guard-build result.
-  GuardBuildFailure({required this.errors});
+  new({required this.errors});
 }

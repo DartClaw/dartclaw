@@ -8,7 +8,7 @@ class _FakeRunner {
   final List<ProcessResult> _launchctlResponses;
   final List<(String, List<String>)> calls = [];
 
-  _FakeRunner(this._responses, {List<ProcessResult> launchctlResponses = const []})
+  new(this._responses, {List<ProcessResult> launchctlResponses = const []})
     : _launchctlResponses = [...launchctlResponses];
 
   Future<ProcessResult> call(String exe, List<String> args) async {
@@ -129,9 +129,10 @@ void main() {
       expect(refresh.message, contains('previous definition cleanup failed'));
       expect(plist.readAsStringSync(), contains('/new/dartclaw'));
       expect(
-        Directory(
-          '$home/Library/LaunchAgents',
-        ).listSync().whereType<File>().any((file) => file.path.contains('.previous_')),
+        Directory('$home/Library/LaunchAgents')
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.path.contains('.previous_')),
         isTrue,
       );
     });
@@ -233,9 +234,10 @@ void main() {
       expect(refresh.message, contains('previous definition remains'));
       expect(plist.readAsStringSync(), contains('/new/dartclaw'));
       expect(
-        Directory('$home/Library/LaunchAgents').listSync().whereType<File>().any(
-          (file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw'),
-        ),
+        Directory('$home/Library/LaunchAgents')
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw')),
         isTrue,
       );
     });
@@ -263,9 +265,10 @@ void main() {
       expect(refresh.message, contains('previous definition remains'));
       expect(plist.readAsStringSync(), contains('/new/dartclaw'));
       expect(
-        Directory('$home/Library/LaunchAgents').listSync().whereType<File>().any(
-          (file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw'),
-        ),
+        Directory('$home/Library/LaunchAgents')
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw')),
         isTrue,
       );
     });

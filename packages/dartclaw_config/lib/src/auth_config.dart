@@ -9,10 +9,10 @@ class AuthConfig {
   final List<String> trustedProxies;
 
   /// const AuthConfig({this.cookieSecure = false, this.trustedPro.
-  const AuthConfig({this.cookieSecure = false, this.trustedProxies = const []});
+  const new({this.cookieSecure = false, this.trustedProxies = const []});
 
   /// Default configuration.
-  const AuthConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

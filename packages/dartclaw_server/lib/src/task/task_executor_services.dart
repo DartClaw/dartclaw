@@ -2,6 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
 
+import '../execution_policy_resolver.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
 import 'task_event_recorder.dart';
@@ -11,7 +12,7 @@ import 'worktree_manager.dart';
 
 /// Repository, bus, and service dependencies for [TaskExecutor].
 class TaskExecutorServices {
-  const TaskExecutorServices({
+  const new({
     required this.tasks,
     this.goals,
     required this.sessions,
@@ -26,6 +27,7 @@ class TaskExecutorServices {
     this.projectService,
     this.kvService,
     this.eventBus,
+    this.policyResolver,
   });
 
   final TaskService tasks;
@@ -41,5 +43,9 @@ class TaskExecutorServices {
   final WorkflowRunRepository? workflowRunRepository;
   final ProjectService? projectService;
   final KvService? kvService;
+
+  /// Resolves the effective execution policy for identityless background work.
+  /// Absent in single-harness compositions, which follow the primary runner.
+  final ExecutionPolicyResolver? policyResolver;
   final EventBus? eventBus;
 }

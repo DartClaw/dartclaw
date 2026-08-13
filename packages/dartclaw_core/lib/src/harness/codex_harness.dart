@@ -4,12 +4,15 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import '../bridge/bridge_events.dart';
+import '../container/container_executor.dart';
 import '../worker/worker_state.dart';
 
 import 'agent_harness.dart';
 import 'base_harness.dart';
+import 'canonical_tool.dart';
 import 'codex_environment.dart';
 import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
@@ -68,10 +71,18 @@ class CodexHarness extends BaseHarness {
   /// Platform policy used for executable lookup and process semantics.
   final PlatformCapabilities platformCapabilities;
 
+  /// Container this harness executes in, or `null` for host execution.
+  ///
+  /// Set by the effective execution policy, never inferred: a Codex harness
+  /// given a container executes there or fails, and one given `null` executes
+  /// on the host. There is no third behavior.
+  final ContainerExecutor? containerManager;
+
   static final _log = Logger('CodexHarness');
 
-  final Map<String, String> _threadIds = <String, String>{};
+  final Map<String, ({String threadId, String? instructions})> _threads = {};
   String? _activeSessionId;
+  String? _activeAgentId;
   int _nextRequestId = 0;
   Object? _initializeRequestId;
   Object? _threadStartRequestId;
@@ -85,7 +96,7 @@ class CodexHarness extends BaseHarness {
   final Duration _killGracePeriod;
   final Duration _initializeTimeout;
 
-  CodexHarness({
+  new({
     required super.cwd,
     this.executable = 'codex',
     super.turnTimeout = const Duration(seconds: 600),
@@ -100,6 +111,7 @@ class CodexHarness extends BaseHarness {
     this.guardChain,
     CodexProtocolAdapter? adapter,
     PlatformCapabilities? platformCapabilities,
+    this.containerManager,
     Duration killGracePeriod = const Duration(seconds: 2),
     Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
@@ -136,17 +148,13 @@ class CodexHarness extends BaseHarness {
     beforeStart: () async {
       isStopping = false;
       await _cleanupEnvironment();
-      await _verifyCodexExecutable(executable, commandProbe);
-      _environment = CodexEnvironment(
-        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
-        mcpServerUrl: harnessConfig.mcpServerUrl,
-        mcpGatewayToken: harnessConfig.mcpGatewayToken,
-        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
-        platformCapabilities: platformCapabilities,
-      );
+      if (containerManager == null) {
+        await _verifyCodexExecutable(executable, commandProbe);
+      }
     },
     start: () async {
       try {
+        await _prepareEnvironment();
         await _environment!.setup();
         await _spawnProcess();
         await _initialize();
@@ -159,11 +167,79 @@ class CodexHarness extends BaseHarness {
     },
   );
 
+  /// Builds the Codex home lifecycle for the effective execution location.
+  ///
+  /// The container is started first: its generated-state mount has to exist
+  /// before the auth-clean home can be written into it.
+  Future<void> _prepareEnvironment() async {
+    final container = containerManager;
+    if (container == null) {
+      _environment = CodexEnvironment(
+        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+        mcpServerUrl: harnessConfig.mcpServerUrl,
+        mcpGatewayToken: harnessConfig.mcpGatewayToken,
+        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
+        platformCapabilities: platformCapabilities,
+      );
+      return;
+    }
+
+    await container.start();
+    if (!await containerExecutableRuns(container, _containerExecutable)) {
+      _throwMissingCodexExecutable('$_containerExecutable (container ${container.profileId})');
+    }
+    final hostHome = p.join(container.generatedStateDir, 'codex-home');
+    final containerHome = container.containerPathForHostPath(hostHome);
+    if (containerHome == null) {
+      throw StateError('Codex container home is not mounted in the container: $hostHome');
+    }
+    _environment = CodexEnvironment.containerAuthClean(
+      developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+      hostHomePath: hostHome,
+      containerHomePath: containerHome,
+      gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+      // Provider-side web search escapes `network:none` because it runs at the
+      // provider. Host mediation refuses it for every containerized execution;
+      // turning it off here keeps the client from asking.
+      nativeWebSearch: false,
+      mcpServerUrl: container.mcpBridgeUrl,
+      platformCapabilities: platformCapabilities,
+    );
+  }
+
+  /// The binary the container image ships, unless an absolute path was pinned.
+  String get _containerExecutable => executable.contains('/') ? executable : containerCodexExecutable;
+
+  /// Where the harness's own process runs.
+  ///
+  /// A restricted container deliberately mounts no workspace, so an unmapped
+  /// default cwd is the expected state, not an error: it resolves to the
+  /// profile's own working directory rather than leaking a host path into the
+  /// container.
+  String _resolveDefaultWorkingDirectory() {
+    final container = containerManager;
+    if (container == null) return cwd;
+    return container.containerPathForHostPath(cwd) ?? container.workingDir;
+  }
+
+  /// Translates a directory a turn explicitly asked for, refusing an unmounted
+  /// one rather than silently running somewhere else.
+  String _resolveRequestedWorkingDirectory(String hostDirectory) {
+    final container = containerManager;
+    if (container == null) return hostDirectory;
+    final translated = container.containerPathForHostPath(hostDirectory);
+    if (translated == null) {
+      throw StateError('Requested working directory is not mounted in the container: $hostDirectory');
+    }
+    return translated;
+  }
+
   @override
   Future<Map<String, dynamic>> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
+    String? agentId,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
     String? directory,
@@ -199,15 +275,23 @@ class CodexHarness extends BaseHarness {
 
     currentState = WorkerState.busy;
     _activeSessionId = sessionId;
+    _activeAgentId = agentId;
     _turnCompleter = Completer<Map<String, dynamic>>();
     final stopwatch = Stopwatch();
     final deadline = DateTime.now().add(turnTimeout);
 
     try {
+      final scopedInstructions = systemPrompt.trim().isEmpty ? null : systemPrompt;
+      var thread = _threads[sessionId];
+      if (thread != null && thread.instructions != scopedInstructions) {
+        _threads.remove(sessionId);
+        thread = null;
+      }
       final threadId =
-          _threadIds[sessionId] ??
+          thread?.threadId ??
           await _startThread(
             sessionId,
+            scopedInstructions,
           ).timeout(_remainingUntil(deadline), onTimeout: () => _stopAfterTurnTimeout<String>());
 
       final previousMessages = messages.length > 1
@@ -220,13 +304,14 @@ class CodexHarness extends BaseHarness {
         history: previousMessages,
         settings: CodexSettings.buildDynamicSettings(
           model: model ?? harnessConfig.model,
-          cwd: directory,
+          effort: effort ?? harnessConfig.effort,
+          cwd: directory == null || directory.trim().isEmpty ? null : _resolveRequestedWorkingDirectory(directory),
           sandbox: _stringProviderOption('sandbox'),
           approval: _stringProviderOption('approval'),
         ),
         resume: resume,
       );
-      payload['id'] = _nextJsonRpcId();
+      payload['id'] = ++_nextRequestId;
       final promptPreview = stringifyMessageContent(messages.last['content']);
       final params = payload['params'] as Map<String, dynamic>?;
       final sandboxPolicy = params?['sandboxPolicy'] as Map<String, dynamic>?;
@@ -268,6 +353,7 @@ class CodexHarness extends BaseHarness {
       _threadStartRequestId = null;
       _turnCompleter = null;
       _activeSessionId = null;
+      _activeAgentId = null;
     }
   }
 
@@ -312,7 +398,7 @@ class CodexHarness extends BaseHarness {
 
   @override
   Future<void> resetSessionContinuity(String sessionId) async {
-    _threadIds.remove(sessionId);
+    _threads.remove(sessionId);
   }
 
   @override
@@ -332,7 +418,7 @@ class CodexHarness extends BaseHarness {
     }
 
     currentState = WorkerState.stopped;
-    _threadIds.clear();
+    _threads.clear();
     _completePendingWithError(StateError('CodexHarness stopped'));
 
     if (cancellationResult != null && !platformCapabilities.posixSignalsAvailable) {
@@ -356,13 +442,18 @@ class CodexHarness extends BaseHarness {
   }
 
   Future<void> _spawnProcess() async {
-    final spawnEnvironment = <String, String>{...environment, ...?_environment?.environmentOverrides()};
-
     // Build app-server args with sandbox permissions from provider options.
     // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
     // sandbox must be configured at process startup via `-c sandbox_permissions`.
     final args = ['app-server'];
-    final sandboxOption = _stringProviderOption('sandbox');
+    final container = containerManager;
+    // Containerized spawns always run danger-full-access: the container is the
+    // isolation boundary, and Codex's own sandbox tooling can neither ship in
+    // the image nor start under the hardening – honoring a stricter configured
+    // value would fail every tool call while the turn still reports success
+    // (security-architecture.md § Multi-Provider Sandbox Interaction). Host
+    // approvals/guards stay active either way.
+    final sandboxOption = container != null ? 'danger-full-access' : _stringProviderOption('sandbox');
     if (sandboxOption != null) {
       final permissions = _sandboxPermissions(sandboxOption);
       if (permissions != null) {
@@ -371,23 +462,42 @@ class CodexHarness extends BaseHarness {
       }
     }
 
-    final process = await processFactory(
-      executable,
-      args,
-      workingDirectory: cwd,
-      environment: spawnEnvironment,
-      includeParentEnvironment: false,
-    );
+    final workingDirectory = _resolveDefaultWorkingDirectory();
+    final Process process;
+    if (container == null) {
+      process = await processFactory(
+        executable,
+        args,
+        workingDirectory: workingDirectory,
+        environment: <String, String>{...environment, ...?_environment?.environmentOverrides()},
+        includeParentEnvironment: false,
+      );
+    } else {
+      // The host environment stays on the host: the container process gets
+      // only the generated home pointer, so no provider credential, host login
+      // path, or shared MCP bearer can reach it through the spawn env.
+      process = await container.exec(
+        [_containerExecutable, ...args],
+        workingDirectory: workingDirectory,
+        env: _environment?.environmentOverrides() ?? const <String, String>{},
+      );
+    }
 
-    _log.info('Codex process spawned (pid: ${process.pid}, cwd: $cwd)');
+    _log.info('Codex process spawned (pid: ${process.pid}, cwd: $workingDirectory)');
     attachProcess(process, dropEmptyStdoutLines: true);
   }
 
   /// Maps DartClaw sandbox config values to Codex `sandbox_permissions` TOML arrays.
   Future<void> _restartAfterCrash() async {
     await cancelTrackedSubscriptions();
-    _threadIds.clear();
+    _threads.clear();
     try {
+      // Same path as a cold start, so a restart re-verifies the container and
+      // rebuilds its auth-clean home instead of respawning against whatever
+      // state the crashed process left behind.
+      await _cleanupEnvironment();
+      await _prepareEnvironment();
+      await _environment!.setup();
       await _spawnProcess();
       await _initialize();
       currentState = WorkerState.idle;
@@ -404,7 +514,7 @@ class CodexHarness extends BaseHarness {
 
   Future<void> _cleanupStartupFailure() async {
     currentState = WorkerState.stopped;
-    _threadIds.clear();
+    _threads.clear();
     _completePendingWithError(StateError('CodexHarness startup failed'));
 
     await shutdownCurrentProcess(
@@ -426,7 +536,7 @@ class CodexHarness extends BaseHarness {
   }
 
   Future<void> _initialize() async {
-    final id = _nextJsonRpcId();
+    final id = ++_nextRequestId;
     _initializeRequestId = id;
     _initializeCompleter = Completer<Map<String, dynamic>>();
     _writeLine(adapter.buildInitializeRequest(id: id));
@@ -438,8 +548,8 @@ class CodexHarness extends BaseHarness {
     _writeLine(adapter.buildInitializedNotification());
   }
 
-  Future<String> _startThread(String sessionId) async {
-    final id = _nextJsonRpcId();
+  Future<String> _startThread(String sessionId, String? developerInstructions) async {
+    final id = ++_nextRequestId;
     _threadStartRequestId = id;
     _threadStartCompleter = Completer<String>();
     // Per Codex issues #14068/#15310: thread/start must include sandbox +
@@ -447,6 +557,9 @@ class CodexHarness extends BaseHarness {
     // Note: thread/start uses kebab-case values (e.g. "danger-full-access"),
     // unlike turn/start which uses camelCase in a sandboxPolicy object.
     final threadParams = <String, dynamic>{'thread_id': '$sessionId-thread-$id'};
+    if (developerInstructions != null) {
+      threadParams['developerInstructions'] = developerInstructions;
+    }
     final sandboxOption = _stringProviderOption('sandbox');
     if (sandboxOption != null) {
       threadParams['sandbox'] = sandboxOption;
@@ -457,7 +570,7 @@ class CodexHarness extends BaseHarness {
     }
     _writeLine(adapter.buildThreadStartRequest(id: id, params: threadParams));
     final threadId = await _threadStartCompleter!.future;
-    _threadIds[sessionId] = threadId;
+    _threads[sessionId] = (threadId: threadId, instructions: developerInstructions);
     return threadId;
   }
 
@@ -501,7 +614,9 @@ class CodexHarness extends BaseHarness {
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _log.fine('Control request: $subtype (id=$requestId)');
-        unawaited(_dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId));
+        unawaited(
+          _dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId, agentId: _activeAgentId),
+        );
 
       case proto.TurnComplete(
         :final stopReason,
@@ -567,7 +682,7 @@ class CodexHarness extends BaseHarness {
     if (currentState == WorkerState.stopped || isStopping) {
       return;
     }
-    _threadIds.clear();
+    _threads.clear();
     currentState = WorkerState.crashed;
     crashCount++;
     _completePendingWithError(StateError('Codex process exited with code $exitCode'));
@@ -616,14 +731,28 @@ class CodexHarness extends BaseHarness {
     String subtype,
     Map<String, dynamic> data, {
     String? sessionId,
+    String? agentId,
   }) async {
+    if (subtype == 'unsupported_elicitation' ||
+        subtype == 'unsupported_permission_request' ||
+        subtype == 'unsupported_command_request' ||
+        subtype == 'unsupported_server_request') {
+      if (subtype == 'unsupported_command_request') {
+        _log.warning('Declining unsupported Codex command request: ${data['dartclawUnsupportedReasons']}');
+      }
+      emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: subtype));
+      if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'Unsupported Codex request')) {
+        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+      }
+      return;
+    }
     if (subtype != 'approval') {
       _log.fine('Ignoring unsupported Codex control request subtype: $subtype');
       return;
     }
 
     try {
-      await _handleApprovalRequest(requestId, data, sessionId: sessionId);
+      await _handleApprovalRequest(requestId, data, sessionId: sessionId, agentId: agentId);
     } catch (error, stackTrace) {
       _log.severe('Failed to handle Codex approval request $requestId: $error', error, stackTrace);
       if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'Approval handler error: $error')) {
@@ -632,36 +761,42 @@ class CodexHarness extends BaseHarness {
     }
   }
 
-  Future<void> _handleApprovalRequest(String requestId, Map<String, dynamic> data, {String? sessionId}) async {
+  Future<void> _handleApprovalRequest(
+    String requestId,
+    Map<String, dynamic> data, {
+    String? sessionId,
+    String? agentId,
+  }) async {
     final rawToolName = data['tool_name'] as String? ?? '';
     emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
     final providerToolInput = Map<String, dynamic>.from(mapValue(data['tool_input']) ?? const <String, dynamic>{});
-    // Codex approval responses can only allow or deny; they cannot mutate the
-    // provider's actual tool_input. Redact and normalize a DartClaw-side copy
-    // so guards and audit logs never see raw credentials.
-    final guardToolInput = _prepareGuardToolInput(rawToolName, providerToolInput);
-    final kind = rawToolName == 'file_change' ? _inferFileChangeKind(guardToolInput) : null;
-    final canonicalTool = adapter.mapToolName(rawToolName, kind: kind);
-    final guardToolName = canonicalTool?.stableName ?? 'codex:$rawToolName';
-
-    if (canonicalTool == null) {
-      _log.warning('Falling back to unmapped Codex tool name: $rawToolName -> $guardToolName');
+    final evaluations = rawToolName == 'file_change'
+        ? _fileChangeGuardEvaluations(providerToolInput)
+        : [_guardEvaluation(rawToolName, providerToolInput)];
+    if (evaluations == null || evaluations.isEmpty) {
+      if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'File change context is incomplete')) {
+        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+      }
+      return;
     }
 
     final chain = guardChain;
     if (chain != null) {
       try {
-        final verdict = await chain.evaluateBeforeToolCall(
-          guardToolName,
-          guardToolInput,
-          sessionId: sessionId,
-          rawProviderToolName: rawToolName,
-        );
-        if (verdict.isBlock) {
-          if (_tryWriteApprovalResponse(requestId, allow: false, reason: verdict.message)) {
-            emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+        for (final evaluation in evaluations) {
+          final verdict = await chain.evaluateBeforeToolCall(
+            evaluation.$1,
+            evaluation.$2,
+            sessionId: sessionId,
+            agentId: agentId,
+            rawProviderToolName: rawToolName,
+          );
+          if (verdict.isBlock) {
+            if (_tryWriteApprovalResponse(requestId, allow: false, reason: verdict.message)) {
+              emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+            }
+            return;
           }
-          return;
         }
       } catch (error, stackTrace) {
         _log.severe('GuardChain evaluation failed for Codex approval $requestId: $error', error, stackTrace);
@@ -675,6 +810,54 @@ class CodexHarness extends BaseHarness {
     if (_tryWriteApprovalResponse(requestId, allow: true)) {
       emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
     }
+  }
+
+  (String, Map<String, dynamic>) _guardEvaluation(String rawToolName, Map<String, dynamic> providerToolInput) {
+    final canonicalTool = adapter.mapToolName(
+      rawToolName,
+      mcpServer: stringValue(providerToolInput['server']),
+      mcpTool: stringValue(providerToolInput['tool']),
+    );
+    final semanticMcpArguments = rawToolName == 'mcp_tool_call' && canonicalTool != CanonicalTool.mcpCall
+        ? mapValue(providerToolInput['arguments'])
+        : null;
+    final guardToolInput = _prepareGuardToolInput(rawToolName, semanticMcpArguments ?? providerToolInput);
+    final guardToolName = canonicalTool?.stableName ?? 'codex:$rawToolName';
+    if (canonicalTool == null) {
+      _log.warning('Falling back to unmapped Codex tool name: $rawToolName -> $guardToolName');
+    }
+    return (guardToolName, guardToolInput);
+  }
+
+  List<(String, Map<String, dynamic>)>? _fileChangeGuardEvaluations(Map<String, dynamic> providerToolInput) {
+    if (stringValue(providerToolInput['grantRoot']) case final grantRoot? when grantRoot.isNotEmpty) {
+      return null;
+    }
+    final rawChanges = providerToolInput['changes'];
+    final changes = rawChanges is List
+        ? rawChanges.map(mapValue).whereType<Map<String, dynamic>>().toList()
+        : [providerToolInput];
+    if (changes.isEmpty || (rawChanges is List && changes.length != rawChanges.length)) {
+      return null;
+    }
+
+    final evaluations = <(String, Map<String, dynamic>)>[];
+    for (final change in changes) {
+      final kind = codexFileChangeKind(change['kind']);
+      final path = stringValue(change['path']);
+      final movePath = stringValue(mapValue(change['kind'])?['move_path']);
+      final canonicalTool = switch (kind) {
+        'add' || 'create' => CanonicalTool.fileWrite,
+        'modify' || 'update' => CanonicalTool.fileEdit,
+        _ => null,
+      };
+      if (canonicalTool == null || path == null || path.isEmpty || (movePath != null && movePath.isNotEmpty)) {
+        return null;
+      }
+      final input = Map<String, dynamic>.from(change)..['kind'] = kind;
+      evaluations.add((canonicalTool.stableName, _prepareGuardToolInput('file_change', input)));
+    }
+    return evaluations;
   }
 
   void _handlePendingResponse(String line) {
@@ -738,11 +921,6 @@ class CodexHarness extends BaseHarness {
     }
   }
 
-  int _nextJsonRpcId() {
-    _nextRequestId += 1;
-    return _nextRequestId;
-  }
-
   bool _tryWriteApprovalResponse(String requestId, {required bool allow, String? reason}) {
     try {
       _writeLine(adapter.buildApprovalResponse(requestId, allow: allow, reason: reason));
@@ -755,26 +933,6 @@ class CodexHarness extends BaseHarness {
 
   void _writeLine(Map<String, dynamic> message) {
     writeJsonLine(message, processNotRunningMessage: 'Codex process is not running');
-  }
-
-  static String? _inferFileChangeKind(Map<String, dynamic> toolInput) {
-    final directKind = toolInput['kind'];
-    if (directKind is String && directKind.isNotEmpty) {
-      return directKind;
-    }
-
-    final changes = toolInput['changes'];
-    if (changes is List) {
-      for (final change in changes) {
-        final changeMap = mapValue(change);
-        final nestedKind = changeMap?['kind'];
-        if (nestedKind is String && nestedKind.isNotEmpty) {
-          return nestedKind;
-        }
-      }
-    }
-
-    return null;
   }
 
   static Map<String, dynamic> _prepareGuardToolInput(String rawToolName, Map<String, dynamic> providerToolInput) {
@@ -876,7 +1034,7 @@ class CodexHarness extends BaseHarness {
 
   String? _stringProviderOption(String key) {
     final value = providerOptions[key];
-    return value is String && value.trim().isNotEmpty ? value : null;
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
   }
 
   bool _boolProviderOption(String key, {required bool defaultValue}) {

@@ -27,7 +27,7 @@ part 'workflow_one_shot_runner_helpers.dart';
 final class WorkflowOneShotRunner {
   static const _legacySessionCostFreshInputKey = 'new_input_tokens';
 
-  WorkflowOneShotRunner({
+  new({
     required WorkflowCliRunner? runner,
     required WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     required MessageService messages,
@@ -59,7 +59,7 @@ final class WorkflowOneShotRunner {
     required String sessionId,
     required String pendingMessage,
     required String provider,
-    required String profileId,
+    required ExecutionPolicy policy,
     required String? workingDirectory,
     required String? modelOverride,
     required String? effortOverride,
@@ -69,6 +69,7 @@ final class WorkflowOneShotRunner {
     required Duration stallTimeout,
     required TurnProgressAction stallAction,
     required Duration? defaultStepTimeout,
+    RootProcessTerminationObserver? onRootProcessTerminationConfirmed,
   }) async {
     final runner = _runner;
     if (runner == null) {
@@ -101,6 +102,9 @@ final class WorkflowOneShotRunner {
     // any merge-resolve entries (distinct names, no collision) so the agent's
     // shell tool call resolves $DARTCLAW_STEP_ARTIFACTS_DIR from the process env.
     final extraEnvironment = <String, String>{...?mergeResolveEnv, ...?stepArtifactsEnv};
+    // A containerized step must be able to write where the host reads back, so
+    // the artifacts dir crosses the boundary as a mount, not just as a path.
+    final stepArtifactsDir = WorkflowTaskConfig.readStepArtifactsDir(task);
     // The host owns the per-step artifacts dir: create it before the first turn
     // so agents (and the review skill's no-mkdir precheck) can rely on it.
     for (final dir in (stepArtifactsEnv ?? const <String, String>{}).values) {
@@ -116,6 +120,13 @@ final class WorkflowOneShotRunner {
     var outputTokens = 0;
     var cacheReadTokens = 0;
     var cacheWriteTokens = 0;
+    var allRootProcessTerminationsConfirmed = true;
+    Future<void> observeRootProcessTermination(bool confirmed) async {
+      allRootProcessTerminationsConfirmed = allRootProcessTerminationsConfirmed && confirmed;
+      final observer = onRootProcessTerminationConfirmed;
+      if (observer != null) await observer(allRootProcessTerminationsConfirmed);
+    }
+
     final sessionUsageBaseline = providerSessionId != null && providerSessionId.isNotEmpty
         ? await _readSessionUsageBaseline(sessionId)
         : const WorkflowCliUsageBaseline();
@@ -135,227 +146,262 @@ final class WorkflowOneShotRunner {
       );
     }
 
-    final prompts = <String>[pendingMessage, ...followUps];
-    for (final prompt in prompts) {
-      final (budgetVerdict, budgetWarningMessage) = await _budgetPolicy.checkBudget(task, sessionId);
-      if (budgetVerdict == BudgetVerdict.exceeded) {
-        return TurnOutcome(
-          turnId: 'workflow-oneshot-budget',
-          sessionId: sessionId,
-          status: TurnStatus.failed,
-          errorMessage: 'Workflow one-shot task exceeded its token budget',
-          completedAt: DateTime.now(),
-        );
-      }
-      if (budgetWarningMessage != null) {
-        await _messages.insertMessage(sessionId: sessionId, role: 'system', content: budgetWarningMessage);
-      }
-
-      await _messages.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
-      final turnResult = await runner.executeTurn(
-        provider: provider,
-        prompt: prompt,
-        workingDirectory: cwd,
-        profileId: profileId,
-        taskId: task.id,
-        sessionId: sessionId,
-        providerSessionId: providerSessionId,
-        model: modelOverride,
-        effort: effortOverride,
-        stepName: stepName,
-        stallTimeout: stallTimeout,
-        stallAction: stallAction,
-        stepTimeout: stepTimeout,
-        allowedTools: allowedTools,
-        readOnly: readOnly,
-        appendSystemPrompt: appendSystemPrompt,
-        sandboxOverride: sandboxOverride,
-        extraEnvironment: extraEnvironment,
-        usageBaseline: sessionUsageBaseline,
-      );
-      if (turnResult.cancelled) {
-        return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
-      }
-      await accumulateUsage(turnResult);
-      final assistantText = turnResult.structuredOutput != null
-          ? jsonEncode(turnResult.structuredOutput)
-          : turnResult.responseText;
-      await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: assistantText);
-    }
-
-    // Runs one no-tools structured turn (finalizer or legacy extraction),
-    // accumulating usage and appending the assistant reply. Returns null when
-    // the turn was cancelled during teardown.
-    Future<WorkflowCliTurnResult?> runStructuredTurn(String prompt, {required bool noTools}) async {
-      await _messages.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
-      final turnResult = await runner.executeTurn(
-        provider: provider,
-        prompt: prompt,
-        workingDirectory: cwd,
-        profileId: profileId,
-        taskId: task.id,
-        sessionId: sessionId,
-        providerSessionId: providerSessionId,
-        model: modelOverride,
-        effort: effortOverride,
-        stepName: stepName,
-        stallTimeout: stallTimeout,
-        stallAction: stallAction,
-        stepTimeout: stepTimeout,
-        // No-tools finalizer: empty Claude allowlist + tight turn cap; Codex
-        // read-only sandbox (advisory prompt instruction rides in the schema).
-        // The cap must leave room for ONE structured-output schema retry: a
-        // single rejected StructuredOutput attempt (e.g. the model passing a
-        // JSON-encoded string where the schema wants an object) otherwise
-        // surfaces as error_max_turns and fails the whole step.
-        allowedTools: noTools ? const <String>[] : allowedTools,
-        readOnly: noTools ? true : readOnly,
-        maxTurns: provider == 'claude' ? (noTools ? 2 : 5) : null,
-        jsonSchema: structuredSchema,
-        appendSystemPrompt: null,
-        sandboxOverride: sandboxOverride,
-        extraEnvironment: extraEnvironment,
-        usageBaseline: sessionUsageBaseline,
-      );
-      if (turnResult.cancelled) return turnResult;
-      await accumulateUsage(turnResult);
-      await _messages.insertMessage(
-        sessionId: sessionId,
-        role: 'assistant',
-        content: turnResult.structuredOutput != null
-            ? jsonEncode(turnResult.structuredOutput)
-            : turnResult.responseText,
-      );
-      return turnResult;
-    }
-
-    TurnOutcome? cancelledStructuredTurn(WorkflowCliTurnResult? result) {
-      return result != null && result.cancelled
-          ? _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt)
-          : null;
-    }
-
-    Map<String, dynamic>? structuredPayload;
-    String? finalizerFailureReason;
-    if (structuredSchema != null && isExecutionEnvelopeSchema(structuredSchema)) {
-      // Standard agent-step completion: always run the no-tools finalization
-      // turn (no inline short-circuit), even when the main turn emitted a legacy
-      // <workflow-context> block.
-      final declaredKeys = executionEnvelopeDeclaredOutputKeys(structuredSchema);
-      final eventKey = declaredKeys.isEmpty ? executionEnvelopeOutputsKey : declaredKeys.first;
-      final resumableSession = providerSessionId;
-      if (resumableSession == null || resumableSession.isEmpty) {
-        // No resumable session — a context-free finalizer would fabricate a
-        // schema-valid envelope. Charge the workflow retry path instead.
-        finalizerFailureReason = 'missing_provider_session';
-      } else {
-        final finalizerPrompt = buildFinalizerPrompt(structuredSchema);
-        var turnResult = await runStructuredTurn(finalizerPrompt, noTools: true);
-        final cancelledFirstFinalizer = cancelledStructuredTurn(turnResult);
-        if (cancelledFirstFinalizer != null) return cancelledFirstFinalizer;
-        structuredPayload = turnResult?.structuredOutput;
-        if (structuredPayload == null) {
-          // One same-session re-ask before charging the workflow retry budget.
-          turnResult = await runStructuredTurn(
-            '$finalizerPrompt\n\nYour previous response did not contain the required JSON envelope. '
-            'Output ONLY the JSON object now.',
-            noTools: true,
+    // One container authority for the whole step, reused across every turn so
+    // the provider session resumes and the finalizer sees live session state
+    // (one owner, one trust principal). A lease-acquire failure fails the step
+    // closed — never a host fallback — and the held lease is released exactly
+    // once on every exit path below (success, failure, cancel, timeout, and an
+    // exception before the first turn).
+    final stepContainer = await runner.leaseStepContainer(
+      policy,
+      provider: provider,
+      sessionId: sessionId,
+      taskId: task.id,
+      allowedTools: allowedTools,
+      artifactsDir: stepArtifactsDir,
+    );
+    try {
+      final prompts = <String>[pendingMessage, ...followUps];
+      for (final prompt in prompts) {
+        final (budgetVerdict, budgetWarningMessage) = await _budgetPolicy.checkBudget(task, sessionId);
+        if (budgetVerdict == BudgetVerdict.exceeded) {
+          return TurnOutcome(
+            turnId: 'workflow-oneshot-budget',
+            sessionId: sessionId,
+            status: TurnStatus.failed,
+            errorMessage: 'Workflow one-shot task exceeded its token budget',
+            completedAt: DateTime.now(),
           );
-          final cancelledRetry = cancelledStructuredTurn(turnResult);
-          if (cancelledRetry != null) return cancelledRetry;
+        }
+        if (budgetWarningMessage != null) {
+          await _messages.insertMessage(sessionId: sessionId, role: 'system', content: budgetWarningMessage);
+        }
+
+        await _messages.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
+        final turnResult = await runner.executeTurn(
+          provider: provider,
+          prompt: prompt,
+          workingDirectory: cwd,
+          policy: policy,
+          taskId: task.id,
+          sessionId: sessionId,
+          providerSessionId: providerSessionId,
+          model: modelOverride,
+          effort: effortOverride,
+          stepName: stepName,
+          stallTimeout: stallTimeout,
+          stallAction: stallAction,
+          stepTimeout: stepTimeout,
+          allowedTools: allowedTools,
+          readOnly: readOnly,
+          appendSystemPrompt: appendSystemPrompt,
+          sandboxOverride: sandboxOverride,
+          extraEnvironment: extraEnvironment,
+          artifactsDir: stepArtifactsDir,
+          stepContainer: stepContainer,
+          usageBaseline: sessionUsageBaseline,
+          onRootProcessTerminationConfirmed: observeRootProcessTermination,
+        );
+        if (turnResult.cancelled) {
+          return _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt);
+        }
+        await accumulateUsage(turnResult);
+        final assistantText = turnResult.structuredOutput != null
+            ? jsonEncode(turnResult.structuredOutput)
+            : turnResult.responseText;
+        await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: assistantText);
+      }
+
+      // Runs one no-tools structured turn (finalizer or legacy extraction),
+      // accumulating usage and appending the assistant reply. Returns null when
+      // the turn was cancelled during teardown.
+      Future<WorkflowCliTurnResult?> runStructuredTurn(String prompt, {required bool noTools}) async {
+        await _messages.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
+        final turnResult = await runner.executeTurn(
+          provider: provider,
+          prompt: prompt,
+          workingDirectory: cwd,
+          policy: policy,
+          taskId: task.id,
+          sessionId: sessionId,
+          providerSessionId: providerSessionId,
+          model: modelOverride,
+          effort: effortOverride,
+          stepName: stepName,
+          stallTimeout: stallTimeout,
+          stallAction: stallAction,
+          stepTimeout: stepTimeout,
+          // No-tools finalizer: empty Claude allowlist + tight turn cap; Codex
+          // read-only sandbox (advisory prompt instruction rides in the schema).
+          // The cap must leave room for ONE structured-output schema retry: a
+          // single rejected StructuredOutput attempt (e.g. the model passing a
+          // JSON-encoded string where the schema wants an object) otherwise
+          // surfaces as error_max_turns and fails the whole step.
+          allowedTools: noTools ? const <String>[] : allowedTools,
+          readOnly: noTools ? true : readOnly,
+          maxTurns: runner.maxTurnsForStructuredTurn(provider: provider, noTools: noTools),
+          jsonSchema: structuredSchema,
+          appendSystemPrompt: null,
+          sandboxOverride: sandboxOverride,
+          extraEnvironment: extraEnvironment,
+          artifactsDir: stepArtifactsDir,
+          stepContainer: stepContainer,
+          usageBaseline: sessionUsageBaseline,
+          onRootProcessTerminationConfirmed: observeRootProcessTermination,
+        );
+        if (turnResult.cancelled) return turnResult;
+        await accumulateUsage(turnResult);
+        await _messages.insertMessage(
+          sessionId: sessionId,
+          role: 'assistant',
+          content: turnResult.structuredOutput != null
+              ? jsonEncode(turnResult.structuredOutput)
+              : turnResult.responseText,
+        );
+        return turnResult;
+      }
+
+      TurnOutcome? cancelledStructuredTurn(WorkflowCliTurnResult? result) {
+        return result != null && result.cancelled
+            ? _cancelledOutcome(task.id, sessionId: sessionId, startedAt: startedAt)
+            : null;
+      }
+
+      Map<String, dynamic>? structuredPayload;
+      String? finalizerFailureReason;
+      if (structuredSchema != null && isExecutionEnvelopeSchema(structuredSchema)) {
+        // Standard agent-step completion: always run the no-tools finalization
+        // turn (no inline short-circuit), even when the main turn emitted a legacy
+        // <workflow-context> block.
+        final declaredKeys = executionEnvelopeDeclaredOutputKeys(structuredSchema);
+        final eventKey = declaredKeys.isEmpty ? executionEnvelopeOutputsKey : declaredKeys.first;
+        final resumableSession = providerSessionId;
+        if (resumableSession == null || resumableSession.isEmpty) {
+          // No resumable session — a context-free finalizer would fabricate a
+          // schema-valid envelope. Charge the workflow retry path instead.
+          finalizerFailureReason = 'missing_provider_session';
+        } else {
+          final finalizerPrompt = buildFinalizerPrompt(structuredSchema);
+          var turnResult = await runStructuredTurn(finalizerPrompt, noTools: true);
+          final cancelledFirstFinalizer = cancelledStructuredTurn(turnResult);
+          if (cancelledFirstFinalizer != null) return cancelledFirstFinalizer;
+          structuredPayload = turnResult?.structuredOutput;
+          if (structuredPayload == null) {
+            // One same-session re-ask before charging the workflow retry budget.
+            turnResult = await runStructuredTurn(
+              '$finalizerPrompt\n\nYour previous response did not contain the required JSON envelope. '
+              'Output ONLY the JSON object now.',
+              noTools: true,
+            );
+            final cancelledRetry = cancelledStructuredTurn(turnResult);
+            if (cancelledRetry != null) return cancelledRetry;
+            structuredPayload = turnResult?.structuredOutput;
+          }
+        }
+        // Host-side envelope validation: a non-null payload that does not conform
+        // to the strict envelope schema (absent/empty declared `outputs`, missing
+        // `step_outcome`) must not be stamped as authoritative — that would advance
+        // a finalizer-required step with fabricated success. Route it through the
+        // same validation-failure/retry path as a missing envelope.
+        if (structuredPayload != null) {
+          final schemaWarnings = const SchemaValidator().validate(structuredPayload, structuredSchema);
+          if (schemaWarnings.isNotEmpty) {
+            _log.warning(
+              "Workflow '${task.id}': finalizer envelope failed schema validation: ${schemaWarnings.take(3).join('; ')}",
+            );
+            structuredPayload = null;
+            finalizerFailureReason = 'malformed_envelope';
+          }
+        }
+        if (structuredPayload == null) {
+          finalizerFailureReason ??= 'missing_envelope';
+          if (workflowStepId != null) {
+            _eventRecorder?.recordStructuredOutputValidationFailed(
+              task.id,
+              stepId: workflowStepId,
+              outputKey: eventKey,
+              failureReason: finalizerFailureReason,
+            );
+          }
+        } else {
+          // Stamp the envelope marker so consumers discriminate envelope vs legacy
+          // flat payloads deterministically (never shape-sniffed).
+          structuredPayload = {...structuredPayload, executionEnvelopeMarkerKey: executionEnvelopeVersion};
+          if (workflowStepId != null) {
+            _eventRecorder?.recordStructuredOutputFinalizerUsed(task.id, stepId: workflowStepId, outputKey: eventKey);
+          }
+        }
+      } else if (structuredSchema != null) {
+        // Legacy flat-schema fallback (pre-envelope rows / opt-out steps):
+        // inline-first, then a second extraction turn.
+        structuredPayload = await _tryExtractInlineStructuredPayload(sessionId, structuredSchema);
+        if (structuredPayload != null) {
+          final outputKey = WorkflowTurnExtractor.structuredOutputKey(structuredSchema);
+          if (workflowStepId != null && outputKey != null) {
+            _eventRecorder?.recordStructuredOutputInlineUsed(task.id, stepId: workflowStepId, outputKey: outputKey);
+          }
+        } else {
+          final turnResult = await runStructuredTurn(
+            'Based on your work above, produce the structured output. '
+            'Output ONLY the JSON object. Do NOT use any tools.',
+            noTools: false,
+          );
+          final cancelledExtraction = cancelledStructuredTurn(turnResult);
+          if (cancelledExtraction != null) return cancelledExtraction;
           structuredPayload = turnResult?.structuredOutput;
         }
       }
-      // Host-side envelope validation: a non-null payload that does not conform
-      // to the strict envelope schema (absent/empty declared `outputs`, missing
-      // `step_outcome`) must not be stamped as authoritative — that would advance
-      // a finalizer-required step with fabricated success. Route it through the
-      // same validation-failure/retry path as a missing envelope.
-      if (structuredPayload != null) {
-        final schemaWarnings = const SchemaValidator().validate(structuredPayload, structuredSchema);
-        if (schemaWarnings.isNotEmpty) {
-          _log.warning(
-            "Workflow '${task.id}': finalizer envelope failed schema validation: ${schemaWarnings.take(3).join('; ')}",
-          );
-          structuredPayload = null;
-          finalizerFailureReason = 'malformed_envelope';
-        }
-      }
-      if (structuredPayload == null) {
-        finalizerFailureReason ??= 'missing_envelope';
-        if (workflowStepId != null) {
-          _eventRecorder?.recordStructuredOutputValidationFailed(
-            task.id,
-            stepId: workflowStepId,
-            outputKey: eventKey,
-            failureReason: finalizerFailureReason,
-          );
-        }
-      } else {
-        // Stamp the envelope marker so consumers discriminate envelope vs legacy
-        // flat payloads deterministically (never shape-sniffed).
-        structuredPayload = {...structuredPayload, executionEnvelopeMarkerKey: executionEnvelopeVersion};
-        if (workflowStepId != null) {
-          _eventRecorder?.recordStructuredOutputFinalizerUsed(task.id, stepId: workflowStepId, outputKey: eventKey);
-        }
-      }
-    } else if (structuredSchema != null) {
-      // Legacy flat-schema fallback (pre-envelope rows / opt-out steps):
-      // inline-first, then a second extraction turn.
-      structuredPayload = await _tryExtractInlineStructuredPayload(sessionId, structuredSchema);
-      if (structuredPayload != null) {
-        final outputKey = WorkflowTurnExtractor.structuredOutputKey(structuredSchema);
-        if (workflowStepId != null && outputKey != null) {
-          _eventRecorder?.recordStructuredOutputInlineUsed(task.id, stepId: workflowStepId, outputKey: outputKey);
-        }
-      } else {
-        final turnResult = await runStructuredTurn(
-          'Based on your work above, produce the structured output. '
-          'Output ONLY the JSON object. Do NOT use any tools.',
-          noTools: false,
+
+      if (repo == null) {
+        throw StateError(
+          'Workflow one-shot execution requires a WorkflowStepExecutionRepository. '
+          'Wire workflowStepExecutionRepository into TaskExecutor before running workflow steps.',
         );
-        final cancelledExtraction = cancelledStructuredTurn(turnResult);
-        if (cancelledExtraction != null) return cancelledExtraction;
-        structuredPayload = turnResult?.structuredOutput;
       }
-    }
-
-    if (repo == null) {
-      throw StateError(
-        'Workflow one-shot execution requires a WorkflowStepExecutionRepository. '
-        'Wire workflowStepExecutionRepository into TaskExecutor before running workflow steps.',
+      final finalProviderSessionId = providerSessionId;
+      if (finalProviderSessionId != null && finalProviderSessionId.isNotEmpty) {
+        await WorkflowTaskConfig.writeProviderSessionId(task, repo, finalProviderSessionId);
+      }
+      await WorkflowTaskConfig.writeTokenBreakdown(
+        task,
+        repo,
+        inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+        cacheReadTokens: cacheReadTokens,
+        outputTokens: outputTokens,
       );
-    }
-    final finalProviderSessionId = providerSessionId;
-    if (finalProviderSessionId != null && finalProviderSessionId.isNotEmpty) {
-      await WorkflowTaskConfig.writeProviderSessionId(task, repo, finalProviderSessionId);
-    }
-    await WorkflowTaskConfig.writeTokenBreakdown(
-      task,
-      repo,
-      inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
-      cacheReadTokens: cacheReadTokens,
-      outputTokens: outputTokens,
-    );
-    await _writeWorkflowTokenBreakdownToTaskConfig(
-      task,
-      inputTokens: inputTokens,
-      cacheReadTokens: cacheReadTokens,
-      outputTokens: outputTokens,
-    );
-    if (structuredPayload != null) {
-      await WorkflowTaskConfig.writeStructuredOutputPayload(task, repo, structuredPayload);
-    }
+      await _writeWorkflowTokenBreakdownToTaskConfig(
+        task,
+        inputTokens: inputTokens,
+        cacheReadTokens: cacheReadTokens,
+        outputTokens: outputTokens,
+      );
+      if (structuredPayload != null) {
+        await WorkflowTaskConfig.writeStructuredOutputPayload(task, repo, structuredPayload);
+      }
 
-    // A required finalizer envelope that never materialized is a workflow
-    // validation failure eligible for the existing retry path — the lifecycle
-    // accepted→succeeded fallback must not advance the run as successful.
-    if (finalizerFailureReason != null) {
+      // A required finalizer envelope that never materialized is a workflow
+      // validation failure eligible for the existing retry path — the lifecycle
+      // accepted→succeeded fallback must not advance the run as successful.
+      if (finalizerFailureReason != null) {
+        return TurnOutcome(
+          turnId: 'workflow-oneshot-${task.id}',
+          sessionId: sessionId,
+          status: TurnStatus.failed,
+          errorMessage: 'Workflow finalization envelope was missing or malformed ($finalizerFailureReason)',
+          inputTokens: inputTokens,
+          outputTokens: outputTokens,
+          cacheReadTokens: cacheReadTokens,
+          cacheWriteTokens: cacheWriteTokens,
+          turnDuration: DateTime.now().difference(startedAt),
+          completedAt: DateTime.now(),
+        );
+      }
+
       return TurnOutcome(
         turnId: 'workflow-oneshot-${task.id}',
         sessionId: sessionId,
-        status: TurnStatus.failed,
-        errorMessage: 'Workflow finalization envelope was missing or malformed ($finalizerFailureReason)',
+        status: TurnStatus.completed,
+        responseText: structuredPayload != null ? jsonEncode(structuredPayload) : null,
         inputTokens: inputTokens,
         outputTokens: outputTokens,
         cacheReadTokens: cacheReadTokens,
@@ -363,20 +409,16 @@ final class WorkflowOneShotRunner {
         turnDuration: DateTime.now().difference(startedAt),
         completedAt: DateTime.now(),
       );
+    } finally {
+      if (stepContainer != null) {
+        try {
+          await runner.releaseStepContainer(provider, stepContainer);
+        } catch (_) {
+          await observeRootProcessTermination(false);
+          rethrow;
+        }
+      }
     }
-
-    return TurnOutcome(
-      turnId: 'workflow-oneshot-${task.id}',
-      sessionId: sessionId,
-      status: TurnStatus.completed,
-      responseText: structuredPayload != null ? jsonEncode(structuredPayload) : null,
-      inputTokens: inputTokens,
-      outputTokens: outputTokens,
-      cacheReadTokens: cacheReadTokens,
-      cacheWriteTokens: cacheWriteTokens,
-      turnDuration: DateTime.now().difference(startedAt),
-      completedAt: DateTime.now(),
-    );
   }
 
   TurnOutcome _cancelledOutcome(String taskId, {required String sessionId, required DateTime startedAt}) {

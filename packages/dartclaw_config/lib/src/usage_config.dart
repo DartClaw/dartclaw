@@ -7,10 +7,10 @@ class UsageConfig {
   final int maxFileSizeBytes;
 
   /// const UsageConfig({this.budgetWarningTokens, this.maxFileSiz.
-  const UsageConfig({this.budgetWarningTokens, this.maxFileSizeBytes = 10 * 1024 * 1024});
+  const new({this.budgetWarningTokens, this.maxFileSizeBytes = 10 * 1024 * 1024});
 
   /// Default configuration.
-  const UsageConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

@@ -41,7 +41,7 @@ void main() {
       await eventBus.dispose();
     });
 
-    test('subscriber forwards raw provider tool name into persisted audit entry', () async {
+    test('subscriber persists raw, canonical, and logical-agent tool identity', () async {
       final tmpDir = Directory.systemTemp.createTempSync('guard_audit_subscriber_');
       addTearDown(() {
         if (tmpDir.existsSync()) {
@@ -63,6 +63,8 @@ void main() {
           verdictMessage: 'blocked!',
           hookPoint: 'beforeToolCall',
           rawProviderToolName: 'Bash',
+          toolName: 'shell',
+          agentId: 'search',
           sessionId: 'sess-2',
           timestamp: timestamp,
         ),
@@ -74,6 +76,9 @@ void main() {
       final auditFile = File('${tmpDir.path}/audit-${timestamp.toIso8601String().substring(0, 10)}.ndjson');
       final entry = jsonDecode(auditFile.readAsLinesSync().single) as Map<String, dynamic>;
       expect(entry['rawProviderToolName'], 'Bash');
+      expect(entry['tool'], 'shell');
+      expect(entry['agentId'], 'search');
+      expect(entry['sessionId'], 'sess-2');
 
       await subscriber.cancel();
       await eventBus.dispose();

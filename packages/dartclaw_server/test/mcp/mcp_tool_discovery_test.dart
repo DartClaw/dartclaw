@@ -17,7 +17,7 @@ class _StubTool implements McpTool {
   @override
   final Map<String, dynamic> inputSchema;
 
-  _StubTool(this.name, {String? description})
+  new(this.name, {String? description})
     : description = description ?? 'Stub $name',
       inputSchema = {'type': 'object', 'properties': {}};
 
@@ -70,11 +70,12 @@ void main() {
 
     test('tools/list includes memory, sessions, and web_fetch tools', () async {
       for (final name in [
-        'memory_save',
+        'memory_apply',
+        'memory_observe',
         'memory_search',
         'memory_read',
+        'sessions_spawn',
         'sessions_send',
-        'delegate_to_agent',
         'web_fetch',
       ]) {
         handler.registerTool(_StubTool(name));
@@ -84,9 +85,17 @@ void main() {
       final names = tools.map((t) => t['name']).toSet();
       expect(
         names,
-        containsAll(['memory_save', 'memory_search', 'memory_read', 'sessions_send', 'delegate_to_agent', 'web_fetch']),
+        containsAll([
+          'memory_apply',
+          'memory_observe',
+          'memory_search',
+          'memory_read',
+          'sessions_spawn',
+          'sessions_send',
+          'web_fetch',
+        ]),
       );
-      expect(tools, hasLength(6));
+      expect(tools, hasLength(7));
     });
 
     test('tools/list includes search tools when registered', () async {

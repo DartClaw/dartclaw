@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, MapIterationCompletedEvent;
+
 import 'workflow_definition.dart' show WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 
@@ -9,13 +10,13 @@ import 'workflow_turn_adapter.dart';
 
 /// Outcome of a single iteration promotion attempt.
 sealed class PromotionOutcome {
-  const PromotionOutcome();
+  const new();
 }
 
 /// Promotion succeeded.
 final class PromotionSuccess extends PromotionOutcome {
   final String commitSha;
-  const PromotionSuccess(this.commitSha);
+  const new(this.commitSha);
 }
 
 /// Promotion encountered a conflict.
@@ -23,39 +24,39 @@ final class PromotionConflict extends PromotionOutcome {
   final List<String> conflictingFiles;
   final String details;
   final String failureMessage;
-  const PromotionConflict({required this.conflictingFiles, required this.details, required this.failureMessage});
+  const new({required this.conflictingFiles, required this.details, required this.failureMessage});
 }
 
 /// Promotion encountered a hard error.
 final class PromotionError extends PromotionOutcome {
   final String failureMessage;
-  const PromotionError(this.failureMessage);
+  const new(this.failureMessage);
 }
 
 /// The promote callback is not configured on the turn adapter.
 final class PromotionNotConfigured extends PromotionOutcome {
-  const PromotionNotConfigured();
+  const new();
 }
 
 /// The iteration has no project binding.
 final class PromotionNoProjectBinding extends PromotionOutcome {
-  const PromotionNoProjectBinding();
+  const new();
 }
 
 /// The task worktree branch is unavailable.
 final class PromotionNoBranch extends PromotionOutcome {
-  const PromotionNoBranch();
+  const new();
 }
 
 /// The integration branch is not initialized.
 final class PromotionNoIntegrationBranch extends PromotionOutcome {
-  const PromotionNoIntegrationBranch();
+  const new();
 }
 
 /// Serialize-remaining sentinel: the outer loop must drain siblings before
 /// re-dispatching this iteration (only possible from foreach, not map).
 final class PromotionSerializeRemaining extends PromotionOutcome {
-  const PromotionSerializeRemaining();
+  const new();
 }
 
 /// Fires an [MapIterationCompletedEvent] for a failed iteration.

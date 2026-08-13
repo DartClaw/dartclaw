@@ -11,7 +11,28 @@ library;
 
 export 'package:dartclaw_config/dartclaw_config.dart';
 export 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException, PromptScope, TurnOutcome, TurnStatus;
-export 'src/harness_pool.dart' show HarnessPool;
+
+export 'src/execution_coordinator.dart'
+    show
+        AdmitExecution,
+        CreateExecutionWorker,
+        DestroyContainerAuthority,
+        ExecutionAdmission,
+        ExecutionCoordinator,
+        ExecutionEvent,
+        ExecutionEventKind,
+        ExecutionLane,
+        ExecutionLease,
+        ExecutionNow,
+        ExecutionReleaseContext,
+        ExecutionReleaseHook,
+        ExecutionRequest,
+        ExecutionSnapshot,
+        ExecutionSurface,
+        ProviderCapacitySnapshot,
+        ReleaseExecutionAdmission,
+        WorkerCreationException;
+export 'src/execution_policy_resolver.dart' show ExecutionPolicyException, ExecutionPolicyResolver;
 export 'src/security/security_exports.dart' show GoogleJwtVerifier, buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
 export 'src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;

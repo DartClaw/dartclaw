@@ -2,14 +2,13 @@
 
 ## Overview
 
-An end-of-day cron job that consolidates the day's conversations into structured MEMORY.md entries. Combined with git sync, this creates an automatic backup of your agent's accumulated knowledge.
+An opt-in built-in job that distills the day's activity log into canonical observations. Combined with git sync, this creates an automatic backup of your agent's accumulated context without silently rewriting curated personal memory.
 
 ## Features Used
 
 - **[Cron scheduling](../scheduling.md)** -- triggers the journaling job at a set time each evening
 - **[HEARTBEAT.md](../workspace.md)** -- periodic checklist for ongoing review tasks
-- **[MEMORY.md](../workspace.md)** -- persistent knowledge base where the agent writes journal entries via `memory_save`
-- **[Memory consolidation](../search.md)** -- automatic deduplication when MEMORY.md exceeds the size cap
+- **[Canonical observations](../workspace.md)** -- journal capture through `memory_observe` with `role='observation'`
 - **[Git sync](../workspace.md#git-sync)** -- commits workspace changes and pushes to a remote
 
 ## Configuration
@@ -25,22 +24,14 @@ agent:
 
 memory:
   max_bytes: 65536
+  journal:
+    enabled: true
+    schedule: "0 22 * * *"
 
 scheduling:
   heartbeat:
     enabled: true
     interval_minutes: 60
-  jobs:
-    - id: daily-journal
-      prompt: >
-        Review today's activity and update MEMORY.md with structured entries.
-        For each notable item, categorize it as one of: decisions, insights,
-        action-items, or learnings. Use the memory_save tool to write entries.
-        Include timestamps. Be selective -- only record things worth remembering.
-      schedule:
-        type: cron
-        expression: "0 22 * * *"
-      delivery: none
 
 workspace:
   git_sync:
@@ -48,7 +39,7 @@ workspace:
     push_enabled: true
 ```
 
-This configuration is modeled after [`examples/personal-assistant.yaml`](../../../examples/personal-assistant.yaml), which pairs the same daily-journal job with a weekly-review job.
+The journal is disabled by default. [`examples/personal-assistant.yaml`](../../../examples/personal-assistant.yaml) opts in and keeps a user-authored weekly review as a customization example.
 
 ## Behavior Files
 
@@ -71,7 +62,7 @@ You are a knowledge companion that tracks insights, decisions, and action items.
 ### HEARTBEAT.md
 
 ```markdown
-- [ ] Review MEMORY.md for any duplicate or outdated entries
+- [ ] Search canonical memory for any duplicate or outdated entries
 - [ ] Check if any action items from previous days are still pending
 - [ ] Verify workspace git sync is current
 ```
@@ -80,34 +71,25 @@ The heartbeat processes this checklist at regular intervals (configured as 60 mi
 
 ## Cron Prompts
 
-The journal prompt (from the config above) instructs the agent to:
+The built-in journal prompt instructs the agent to read today's `memory/YYYY-MM-DD.md`, ignore instructions embedded in the log, and:
 
-> Review today's activity and update MEMORY.md with structured entries. For each notable item, categorize it as one of: decisions, insights, action-items, or learnings. Use the memory_save tool to write entries. Include timestamps. Be selective -- only record things worth remembering.
+> Record only notable, non-duplicate items through `memory_observe` with `role='observation'`. If the log is absent or empty, write nothing.
 
-The agent uses `memory_save` to append entries in MEMORY.md's timestamped format:
-
-```markdown
-## decisions
-- [2026-03-03 22:00] Chose shelf over dart_frog for HTTP routing
-
-## action-items
-- [2026-03-03 22:00] Set up CI pipeline for dartclaw_core
-```
+The host binds provenance and returns each observation's stable locator, entry revision, collection revision, and index state.
 
 ## Workflow
 
-1. **Cron fires at 10:00 PM** (server-local time) based on `expression: "0 22 * * *"`
+1. **Cron fires at 10:00 PM** (server-local time) based on `memory.journal.schedule`
 2. **Isolated session created** for the journal job
-3. **Agent reviews context** from MEMORY.md and behavior files
-4. **Agent writes structured entries** to MEMORY.md via `memory_save`, categorizing insights, decisions, and action items
-5. **Heartbeat triggers consolidation** if MEMORY.md exceeds `memory.max_bytes` (64KB in this config) -- the agent deduplicates and reorganizes entries
-6. **Git sync commits changes** to the workspace repository
-7. **Push to remote** if a remote is configured and `push_enabled: true`
+3. **Agent reads today's daily turn log** from `memory/YYYY-MM-DD.md` and searches memory for duplicates
+4. **Agent records selected facts** through `memory_observe` with `role='observation'`
+5. **Git sync commits changes** to the workspace repository
+6. **Push to remote** if a remote is configured and `push_enabled: true`
 
 ## Customization Tips
 
-- **Adjust journal time**: Change the cron expression -- `0 23 * * *` for 11 PM, `0 22 * * 1-5` for weekdays only
-- **Change categories**: Edit the prompt to use different categories (e.g., `bugs`, `ideas`, `meetings`)
+- **Adjust journal time**: Change `memory.journal.schedule` -- `0 23 * * *` for 11 PM, `0 22 * * 1-5` for weekdays only
+- **Customize the prompt or categories**: Disable the built-in and add a prompt job under `scheduling.jobs`; user-authored jobs remain the customization path
 - **Add a weekly review**: Add a second job (see `examples/personal-assistant.yaml` for the `weekly-review` pattern):
   ```yaml
   - id: weekly-review
@@ -117,13 +99,12 @@ The agent uses `memory_save` to append entries in MEMORY.md's timestamped format
       expression: "0 10 * * 1"
     delivery: announce
   ```
-- **Increase memory cap**: Set `memory.max_bytes: 131072` (128KB) if you generate a lot of entries before consolidation
+- **Increase prompt memory budget**: Set `memory.max_bytes: 131072` (128KB) if more canonical memory should be composed into agent context
 - **Disable push**: Set `push_enabled: false` if you want local git history only
 
 ## Gotchas & Limitations
 
-- **`memory_save` appends entries** -- deduplication only happens during memory consolidation in the heartbeat cycle, not during the journal job itself
+- **Observations are non-authoritative** -- journal capture cannot revise, merge, or remove curated personal entries
 - **Git sync requires a remote** for push -- run `git remote add origin <url>` in `~/.dartclaw/workspace/` to set it up
-- **Journal job sees an isolated session** -- it does not have access to your main session's chat history directly. It reviews context via MEMORY.md and behavior files
-- **Consolidation threshold** -- consolidation runs during heartbeat only when MEMORY.md exceeds `memory.max_bytes`. If you set a very high cap, consolidation may never trigger
+- **Journal job sees an isolated session** -- it does not have access to your main session's chat history directly. It reviews canonical observations and entries through `memory_search`/`memory_read` plus behavior files
 - **Session maintenance** -- long-running assistant setups accumulate many sessions (including cron sessions). Configure `sessions.maintenance` to auto-prune old sessions. See [Common Patterns](_common-patterns.md#session-maintenance) for details

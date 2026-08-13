@@ -16,19 +16,16 @@ class GcpAuthService {
   final http.Client? httpClient;
 
   /// Creates an auth service from raw service-account JSON text.
-  GcpAuthService({required String serviceAccountJson, required List<String> scopes, http.Client? httpClient})
+  new({required String serviceAccountJson, required List<String> scopes, http.Client? httpClient})
     : this._parsed(
         parsedServiceAccount: _parseServiceAccount(serviceAccountJson),
         scopes: scopes,
         httpClient: httpClient,
       );
 
-  GcpAuthService._parsed({
-    required _ParsedServiceAccount parsedServiceAccount,
-    required this.scopes,
-    required this.httpClient,
-  }) : _clientEmail = parsedServiceAccount.clientEmail,
-       _privateKey = parsedServiceAccount.privateKey;
+  new _parsed({required _ParsedServiceAccount parsedServiceAccount, required this.scopes, required this.httpClient})
+    : _clientEmail = parsedServiceAccount.clientEmail,
+      _privateKey = parsedServiceAccount.privateKey;
 
   /// Builds an auto-refreshing authenticated client for Google APIs.
   Future<AutoRefreshingAuthClient> initialize() async {
@@ -38,7 +35,7 @@ class GcpAuthService {
         ClientId.serviceAccount('service-account'),
         _privateKey,
       );
-      return clientViaServiceAccount(credentials, scopes, baseClient: httpClient);
+      return await clientViaServiceAccount(credentials, scopes, baseClient: httpClient);
     } catch (error) {
       throw StateError('Failed to initialize GCP auth client: $error');
     }
@@ -132,5 +129,5 @@ class _ParsedServiceAccount {
   final String clientEmail;
   final String privateKey;
 
-  const _ParsedServiceAccount({required this.clientEmail, required this.privateKey});
+  const new({required this.clientEmail, required this.privateKey});
 }

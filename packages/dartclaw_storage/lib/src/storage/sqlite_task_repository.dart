@@ -9,7 +9,7 @@ import 'sqlite_execution_row_mappers.dart';
 /// SQLite-backed task persistence for [Task] and [TaskArtifact].
 class SqliteTaskRepository implements TaskRepository {
   /// Creates the repository against [_db] and initializes its schema.
-  SqliteTaskRepository(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

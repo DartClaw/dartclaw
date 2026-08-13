@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult, SearchBackend, SearchResultLayer;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show MemoryService, TemporalKnowledgeGraphService, WikiSearchSource;
 
@@ -14,7 +15,7 @@ enum KnowledgeHubLayer {
   final String wireName;
   final String label;
 
-  const KnowledgeHubLayer(this.wireName, this.label);
+  new(this.wireName, this.label);
 
   static Iterable<KnowledgeHubLayer> get searchable => values.where((layer) => layer != all);
 
@@ -34,12 +35,7 @@ final class KnowledgeHubQuery {
   final int page;
   final int perPage;
 
-  const KnowledgeHubQuery({
-    this.query = '',
-    this.layer = KnowledgeHubLayer.all,
-    this.page = 1,
-    this.perPage = defaultPerPage,
-  });
+  const new({this.query = '', this.layer = KnowledgeHubLayer.all, this.page = 1, this.perPage = defaultPerPage});
 
   KnowledgeHubQuery normalized() {
     final trimmed = query.trim();
@@ -57,16 +53,18 @@ final class KnowledgeHubResult {
   final List<KnowledgeHubItem> items;
   final Map<KnowledgeHubLayer, int> layerCounts;
   final List<KnowledgeHubLayer> failedLayers;
+  final List<String> degradedLayers;
   final int totalItems;
   final int totalPages;
   final bool hasPreviousPage;
   final bool hasNextPage;
 
-  const KnowledgeHubResult({
+  const new({
     required this.query,
     required this.items,
     required this.layerCounts,
     required this.failedLayers,
+    this.degradedLayers = const [],
     required this.totalItems,
     required this.totalPages,
     required this.hasPreviousPage,
@@ -82,7 +80,7 @@ final class KnowledgeHubItem {
   final String sourceLabel;
   final SourceRef sourceRef;
 
-  const KnowledgeHubItem({
+  const new({
     required this.layer,
     required this.title,
     required this.snippet,
@@ -96,13 +94,22 @@ final class KnowledgeHubService {
   final WikiSearchSource wiki;
   final TemporalKnowledgeGraphService kg;
   final MemoryService memory;
+  final SearchBackend searchBackend;
   final KnowledgeInboxReadService inbox;
+  final CitationSourceResolver? sourceResolver;
 
-  KnowledgeHubService({required this.wiki, required this.kg, required this.memory, required this.inbox});
+  new({
+    required this.wiki,
+    required this.kg,
+    required this.memory,
+    required this.searchBackend,
+    required this.inbox,
+    this.sourceResolver,
+  });
 
   Future<KnowledgeHubResult> search(KnowledgeHubQuery rawQuery) async {
     final query = rawQuery.normalized();
-    final failed = <KnowledgeHubLayer>[];
+    final degraded = <String>[];
     final items = <KnowledgeHubItem>[];
 
     Future<void> collect(KnowledgeHubLayer layer, Future<List<KnowledgeHubItem>> Function() read) async {
@@ -110,14 +117,46 @@ final class KnowledgeHubService {
       try {
         items.addAll(await read());
       } catch (_) {
-        failed.add(layer);
+        degraded.add(layer.wireName);
       }
     }
 
-    final limit = query.perPage * query.page + query.perPage;
-    await collect(KnowledgeHubLayer.wiki, () => _wikiItems(query.query, limit: limit));
+    final limit = (query.perPage * query.page + query.perPage).clamp(1, KnowledgeHubQuery.maxPerPage);
+    if (query.query.isEmpty) {
+      if (query.layer == KnowledgeHubLayer.all || query.layer == KnowledgeHubLayer.wiki) {
+        try {
+          final scan = await wiki.listScan();
+          if (scan.degraded) degraded.add('wiki');
+          items.addAll(_wikiItems(scan.results.take(limit)));
+        } on Object {
+          degraded.add('wiki');
+        }
+      }
+      await collect(KnowledgeHubLayer.memory, () => _recentMemoryItems(limit: limit));
+    } else if (query.layer == KnowledgeHubLayer.all ||
+        query.layer == KnowledgeHubLayer.wiki ||
+        query.layer == KnowledgeHubLayer.memory) {
+      try {
+        final layers = switch (query.layer) {
+          KnowledgeHubLayer.wiki => const {SearchResultLayer.wiki},
+          KnowledgeHubLayer.memory => const {SearchResultLayer.memory},
+          _ => null,
+        };
+        final outcome = await searchBackend.search(query.query, limit: limit, userId: 'owner', layers: layers);
+        degraded.addAll(outcome.degradedLayers);
+        items.addAll(
+          outcome.results
+              .where((result) {
+                final layer = result.role == 'wiki' ? KnowledgeHubLayer.wiki : KnowledgeHubLayer.memory;
+                return query.layer == KnowledgeHubLayer.all || query.layer == layer;
+              })
+              .map(_searchItem),
+        );
+      } on Object {
+        degraded.add('memory');
+      }
+    }
     await collect(KnowledgeHubLayer.kg, () => _kgItems(query.query, limit: limit));
-    await collect(KnowledgeHubLayer.memory, () => _memoryItems(query.query, limit: limit));
     await collect(KnowledgeHubLayer.inbox, () => _inboxItems(query.query, limit: limit));
 
     final counts = <KnowledgeHubLayer, int>{for (final layer in KnowledgeHubLayer.searchable) layer: 0};
@@ -130,11 +169,17 @@ final class KnowledgeHubService {
     final pagedItems = offset >= items.length
         ? const <KnowledgeHubItem>[]
         : items.skip(offset).take(query.perPage).toList();
+    final uniqueDegraded = [...degraded.toSet()];
+    final failed = <KnowledgeHubLayer>[
+      for (final layer in KnowledgeHubLayer.searchable)
+        if (uniqueDegraded.contains(layer.wireName)) layer,
+    ];
     return KnowledgeHubResult(
       query: query,
       items: pagedItems,
       layerCounts: counts,
       failedLayers: failed,
+      degradedLayers: uniqueDegraded,
       totalItems: items.length,
       totalPages: totalPages,
       hasPreviousPage: query.page > 1,
@@ -142,8 +187,7 @@ final class KnowledgeHubService {
     );
   }
 
-  Future<List<KnowledgeHubItem>> _wikiItems(String query, {required int limit}) async {
-    final results = query.isEmpty ? await wiki.list(limit: limit) : await wiki.search(query, limit: limit);
+  List<KnowledgeHubItem> _wikiItems(Iterable<MemorySearchResult> results) {
     return [
       for (final result in results)
         KnowledgeHubItem(
@@ -152,7 +196,7 @@ final class KnowledgeHubService {
           snippet: result.text,
           sourceHref: _sourceHref(CitationLayer.wiki, result.source),
           sourceLabel: result.source,
-          sourceRef: SourceRef(layer: CitationLayer.wiki, locator: result.source, label: result.source),
+          sourceRef: SourceRef(layer: CitationLayer.wiki, locator: result.locator, label: result.locator, role: 'wiki'),
         ),
     ];
   }
@@ -167,24 +211,43 @@ final class KnowledgeHubService {
           snippet: '${fact.predicate}: ${fact.value}',
           sourceHref: _sourceHref(CitationLayer.kg, '${fact.id}'),
           sourceLabel: fact.source,
-          sourceRef: SourceRef(layer: CitationLayer.kg, locator: '${fact.id}', label: fact.source),
+          sourceRef: SourceRef(layer: CitationLayer.kg, locator: '${fact.id}', label: fact.source, role: 'kg'),
         ),
     ];
   }
 
-  Future<List<KnowledgeHubItem>> _memoryItems(String query, {required int limit}) async {
-    final results = query.isEmpty ? memory.listRecent(limit: limit) : memory.search(query, limit: limit);
+  Future<List<KnowledgeHubItem>> _recentMemoryItems({required int limit}) async {
+    final results = memory.listRecent(limit: limit, userId: 'owner');
     return [
       for (final result in results)
         KnowledgeHubItem(
           layer: KnowledgeHubLayer.memory,
           title: result.category ?? 'Memory',
           snippet: result.text,
-          sourceHref: _sourceHref(CitationLayer.memory, result.source),
-          sourceLabel: result.source,
-          sourceRef: SourceRef(layer: CitationLayer.memory, locator: result.source, label: result.source),
+          sourceHref: _sourceHref(CitationLayer.memory, result.locator),
+          sourceLabel: result.locator,
+          sourceRef: SourceRef(
+            layer: CitationLayer.memory,
+            locator: result.locator,
+            label: result.locator,
+            role: result.role,
+          ),
         ),
     ];
+  }
+
+  KnowledgeHubItem _searchItem(MemorySearchResult result) {
+    final isWiki = result.role == 'wiki';
+    final layer = isWiki ? KnowledgeHubLayer.wiki : KnowledgeHubLayer.memory;
+    final citationLayer = isWiki ? CitationLayer.wiki : CitationLayer.memory;
+    return KnowledgeHubItem(
+      layer: layer,
+      title: isWiki ? _titleFromSource(result.locator) : result.category ?? 'Memory',
+      snippet: result.text,
+      sourceHref: _sourceHref(citationLayer, result.locator),
+      sourceLabel: result.locator,
+      sourceRef: SourceRef(layer: citationLayer, locator: result.locator, label: result.locator, role: result.role),
+    );
   }
 
   Future<List<KnowledgeHubItem>> _inboxItems(String query, {required int limit}) async {
@@ -197,7 +260,12 @@ final class KnowledgeHubService {
           snippet: item.snippet,
           sourceHref: _sourceHref(CitationLayer.inbox, item.locator),
           sourceLabel: item.locator,
-          sourceRef: SourceRef(layer: CitationLayer.inbox, locator: item.locator, label: item.locator),
+          sourceRef: SourceRef(
+            layer: CitationLayer.inbox,
+            locator: item.locator,
+            label: item.locator,
+            role: 'knowledge-inbox',
+          ),
         ),
     ];
   }

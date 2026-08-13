@@ -9,12 +9,12 @@ import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/protocol_adapter.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart' show WorkerState;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, FakeProcess;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 final class _LineRecordingHarness extends BaseHarness {
-  _LineRecordingHarness(this.adapter)
+  new(this.adapter)
     : super(
         log: Logger.detached('base-harness-crlf-test'),
         cwd: '/tmp',
@@ -78,10 +78,18 @@ final class _LineRecordingHarness extends BaseHarness {
     String? model,
     String? effort,
     int? maxTurns,
+    String? agentId,
   }) async => const <String, dynamic>{};
 }
 
 void main() {
+  test('in-memory harnesses explicitly confirm no root-process ownership', () {
+    final harness = FakeAgentHarness();
+    addTearDown(harness.dispose);
+
+    expect(harness.isRootProcessTerminationConfirmed, isTrue);
+  });
+
   test('shared provider stream parsing tolerates CRLF and split CRLF chunks', () async {
     final cases = <({ProtocolAdapter adapter, Map<String, dynamic> line})>[
       (adapter: ClaudeProtocolAdapter(), line: {'type': 'result', 'stop_reason': 'end_turn', 'is_error': false}),
@@ -117,9 +125,12 @@ void main() {
     final harness = _LineRecordingHarness(ClaudeProtocolAdapter())..attach(process, watchForUnexpectedExit: true);
     addTearDown(harness.dispose);
 
+    expect(harness.isRootProcessTerminationConfirmed, isFalse);
+
     await harness.shutdownForTest();
 
     expect(harness.ownsProcess, isFalse);
+    expect(harness.isRootProcessTerminationConfirmed, isTrue);
     await expectLater(harness.startForTest(), completes);
 
     await pumpEventQueue();
@@ -132,6 +143,9 @@ void main() {
     final harness = _LineRecordingHarness(ClaudeProtocolAdapter())..attach(process);
     addTearDown(harness.dispose);
     var restarted = false;
+
+    await harness.shutdownForTest();
+    expect(harness.isRootProcessTerminationConfirmed, isFalse);
 
     await expectLater(
       harness.recoverForTest(() async => restarted = true),

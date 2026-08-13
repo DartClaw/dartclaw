@@ -1,7 +1,7 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult, SearchBackend;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show MemorySearchOutcome, MemorySearchResult, SearchBackend, SearchResultLayer;
 
 import '../storage/memory_service.dart';
-import 'wiki_search_source.dart';
 
 /// FTS5-based search backend — wraps the existing [MemoryService].
 ///
@@ -9,20 +9,28 @@ import 'wiki_search_source.dart';
 /// so [indexAfterWrite] is a no-op.
 class Fts5SearchBackend implements SearchBackend {
   final MemoryService _memoryService;
-  final WikiSearchSource? _wikiSearch;
 
   /// Creates an FTS5 backend that delegates lookups to [memoryService].
-  Fts5SearchBackend({required MemoryService memoryService, WikiSearchSource? wikiSearch})
-    : _memoryService = memoryService,
-      _wikiSearch = wikiSearch;
+  new({required MemoryService memoryService}) : _memoryService = memoryService;
 
   @override
-  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async {
-    final wiki = await _wikiSearch?.search(query, limit: limit) ?? const <MemorySearchResult>[];
-    final raw = _memoryService.search(query, limit: limit, userId: userId);
-    final combined = [...wiki, ...raw]..sort((a, b) => a.score.compareTo(b.score));
-    return combined.take(limit).toList();
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) async {
+    if (layers != null && !layers.contains(SearchResultLayer.memory)) {
+      return const MemorySearchOutcome(results: []);
+    }
+    final encoded = MemoryService.encodeNaturalLanguageQuery(query);
+    if (encoded == null) return const MemorySearchOutcome(results: []);
+    final raw = _memoryService.search(encoded, limit: limit, userId: userId);
+    return MemorySearchOutcome(results: raw);
   }
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
 
   @override
   Future<void> indexAfterWrite() async {

@@ -17,6 +17,24 @@ List<int> _sseHtmlFrame(String event, String htmlContent) {
 /// Sanitizes a tool ID for use as an HTML element id attribute.
 String _sanitizeToolId(String raw) => 'tool-${raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}';
 
+List<int> _turnErrorFrame(String message) {
+  const htmlEscape = HtmlEscape();
+  return _sseHtmlFrame('turn_error', '<div class="turn-error">${htmlEscape.convert(message)}</div>');
+}
+
+Iterable<List<int>> _terminalFrames(TurnOutcome outcome) sync* {
+  switch (outcome.status) {
+    case TurnStatus.completed:
+      yield _sseHtmlFrame('done', '');
+    case TurnStatus.cancelled:
+      yield _sseHtmlFrame('turn_cancelled', '');
+      yield _sseHtmlFrame('done', '');
+    case TurnStatus.failed:
+      yield _turnErrorFrame(outcome.errorMessage ?? 'Turn failed');
+      yield _sseHtmlFrame('done', '');
+  }
+}
+
 /// Returns an SSE [Response] that streams turn events in real time.
 Response sseStreamResponse(
   AgentHarness worker,
@@ -25,9 +43,11 @@ Response sseStreamResponse(
   String turnId, {
   MessageRedactor? redactor,
 }) {
-  // 1. Already completed — no content.
+  // A fast turn may settle before EventSource connects, so replay its terminal contract.
   final outcome = turns.recentOutcome(sessionId, turnId);
-  if (outcome != null) return Response(204);
+  if (outcome != null) {
+    return sseResponse(Stream.fromIterable(_terminalFrames(outcome)), headers: eventStreamHeadersNoBuffer);
+  }
 
   // 2. Unknown turn — not active and no cached outcome.
   if (!turns.isActiveTurn(sessionId, turnId)) {
@@ -87,16 +107,15 @@ Response sseStreamResponse(
     try {
       final result = await turns.waitForOutcome(sessionId, turnId);
       if (controller.isClosed) return;
-      if (result.status == TurnStatus.completed) {
-        controller.add(_sseHtmlFrame('done', ''));
-      } else {
-        final message = result.errorMessage ?? 'Turn failed';
-        controller.add(_sseHtmlFrame('turn_error', '<div class="turn-error">${htmlEscape.convert(message)}</div>'));
+      for (final frame in _terminalFrames(result)) {
+        controller.add(frame);
       }
     } catch (e) {
       if (!controller.isClosed) {
         try {
-          controller.add(_sseHtmlFrame('turn_error', '<div class="turn-error">Internal error</div>'));
+          controller
+            ..add(_turnErrorFrame('Internal error'))
+            ..add(_sseHtmlFrame('done', ''));
         } catch (e) {
           // Controller closed — safe to ignore.
         }

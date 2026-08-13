@@ -194,5 +194,5 @@ class WorkflowMaterializer {
 class _ManagedWorkflowState {
   final String fingerprint;
 
-  const _ManagedWorkflowState({required this.fingerprint});
+  const new({required this.fingerprint});
 }

@@ -1,10 +1,12 @@
 import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show MemoryService, TemporalKnowledgeGraphService, WikiSearchSource;
+    show ComposedSearchBackend, Fts5SearchBackend, MemoryService, TemporalKnowledgeGraphService, WikiSearchSource;
+import 'package:dartclaw_core/dartclaw_core.dart' show MemoryCorpusService, SearchBackend;
 import 'package:shelf/shelf.dart';
 
 import '../../knowledge/knowledge_hub_service.dart';
 import '../../knowledge/knowledge_inbox_service.dart';
 import '../../mcp/citation_packet.dart';
+import '../../mcp/live_citation_source_resolver.dart';
 import '../../templates/knowledge_hub.dart';
 import '../../templates/source_attribution.dart';
 import '../dashboard_page.dart';
@@ -14,7 +16,7 @@ import '../web_utils.dart';
 class KnowledgeHubPage extends DashboardPage {
   static const navigationTitle = 'Knowledge';
 
-  KnowledgeHubPage({KnowledgeHubService? Function()? hubGetter, CitationSourceResolver? resolver})
+  new({KnowledgeHubService? Function()? hubGetter, CitationSourceResolver? resolver})
     : _hubGetter = hubGetter,
       _resolver = resolver;
 
@@ -49,24 +51,27 @@ class KnowledgeHubPage extends DashboardPage {
       page: int.tryParse(request.url.queryParameters['page'] ?? '') ?? 1,
     );
     final result = await hub.search(query);
-    final resolver = _resolver ?? _resolverFor(hub, result);
+    final resolver = _resolver ?? hub.sourceResolver ?? _resolverFor(hub, result);
     final itemViews = <KnowledgeHubItemView>[];
     for (var i = 0; i < result.items.length; i++) {
       final item = result.items[i];
+      final sourceResolved = await resolver.resolves(item.sourceRef);
       itemViews.add(
         KnowledgeHubItemView(
           layerClass: 'layer-badge--${item.layer.wireName}',
-          layerLabel: item.layer.label.toUpperCase(),
+          layerLabel: citationSourceRoleLabel(item.sourceRef).toUpperCase(),
           title: item.title,
           snippet: item.snippet,
           sourceHref: item.sourceHref,
           sourceLabel: item.sourceLabel,
+          sourceResolved: sourceResolved,
           attributionHtml: await sourceAttributionFragment(
             sourceRef: item.sourceRef,
             marker: i + 1,
             resolver: resolver,
             excerpt: item.snippet,
             showLayerBadge: false,
+            resolved: sourceResolved,
           ),
         ),
       );
@@ -87,13 +92,27 @@ class KnowledgeHubPage extends DashboardPage {
 KnowledgeHubService knowledgeHubServiceForWorkspace({
   required String workspaceDir,
   required MemoryService memory,
+  SearchBackend? searchBackend,
+  MemoryCorpusService? memoryCorpus,
   required TemporalKnowledgeGraphService kg,
 }) {
+  final wiki = WikiSearchSource(workspaceDir: workspaceDir);
+  final inbox = KnowledgeInboxReadService(workspaceDir: workspaceDir);
+  final effectiveSearch =
+      searchBackend ??
+      ComposedSearchBackend(
+        personal: Fts5SearchBackend(memoryService: memory),
+        wiki: wiki,
+      );
   return KnowledgeHubService(
-    wiki: WikiSearchSource(workspaceDir: workspaceDir),
+    wiki: wiki,
     kg: kg,
     memory: memory,
-    inbox: KnowledgeInboxReadService(workspaceDir: workspaceDir),
+    searchBackend: effectiveSearch,
+    inbox: inbox,
+    sourceResolver: memoryCorpus == null
+        ? null
+        : LiveCitationSourceResolver(corpus: memoryCorpus, wiki: wiki, kg: kg, inbox: inbox),
   );
 }
 

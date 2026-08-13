@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, PlatformCapabilities;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProcessTerminationResult;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
@@ -54,7 +54,7 @@ void main() {
           provider: provider,
           prompt: 'Test',
           workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
+          policy: const ExecutionPolicy.host(),
           stepName: 'Bound output',
         );
         await pumpEventQueue();
@@ -82,6 +82,7 @@ void main() {
       final stdoutController = StreamController<List<int>>();
       final stderrController = StreamController<List<int>>();
       late FakeProcess process;
+      bool? rootTerminationConfirmed;
       final implementation = switch (provider) {
         'claude' => ClaudeCliProvider(outputDrainGracePeriod: Duration.zero),
         _ => CodexCliProvider(outputDrainGracePeriod: Duration.zero),
@@ -103,7 +104,8 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
+        onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
       await pumpEventQueue();
 
@@ -116,6 +118,7 @@ void main() {
       final result = await turn;
 
       expect(result.responseText, 'done');
+      expect(rootTerminationConfirmed, isTrue);
       await stdoutController.close();
       await stderrController.close();
     });
@@ -144,7 +147,7 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
       );
 
       expect(result.cancelled, isTrue);
@@ -157,6 +160,7 @@ void main() {
       addTearDown(stdoutController.close);
       addTearDown(stderrController.close);
       late _CloseFailsAfterKillProcess process;
+      bool? rootTerminationConfirmed;
       final capabilities = PlatformCapabilities(operatingSystem: 'linux');
       final implementation = switch (provider) {
         'claude' => ClaudeCliProvider(
@@ -189,10 +193,12 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
+        onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
 
       expect(result.cancelled, isTrue);
+      expect(rootTerminationConfirmed, isFalse);
       expect(process.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
       await runner.cancelInflight();
       expect(process.killSignals, [
@@ -210,6 +216,7 @@ void main() {
       addTearDown(stdoutController.close);
       addTearDown(stderrController.close);
       late FakeProcess process;
+      bool? rootTerminationConfirmed;
       final capabilities = PlatformCapabilities(operatingSystem: 'windows');
       final implementation = switch (provider) {
         'claude' => ClaudeCliProvider(
@@ -242,7 +249,8 @@ void main() {
         provider: provider,
         prompt: 'Test',
         workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
+        policy: const ExecutionPolicy.host(),
+        onRootProcessTerminationConfirmed: (confirmed) => rootTerminationConfirmed = confirmed,
       );
       await pumpEventQueue();
 
@@ -250,6 +258,7 @@ void main() {
       final result = await turn;
 
       expect(result.cancelled, isTrue);
+      expect(rootTerminationConfirmed, isTrue);
       expect(process.killSignals, [ProcessSignal.sigterm]);
       expect(implementation.cancellationRequestedFor(process), isFalse);
       await runner.cancelInflight();
@@ -259,7 +268,7 @@ void main() {
 }
 
 final class _AcceptedTreeProvider extends ProcessBackedCliProvider {
-  _AcceptedTreeProvider()
+  new()
     : super(
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
         terminationGracePeriod: Duration.zero,
@@ -278,7 +287,7 @@ final class _AcceptedTreeProvider extends ProcessBackedCliProvider {
 }
 
 final class _CloseFailsAfterKillProcess extends FakeProcess {
-  _CloseFailsAfterKillProcess({
+  new({
     required super.stdoutController,
     required super.stderrController,
     super.completeExitOnKill = true,
@@ -305,7 +314,7 @@ final class _CloseFailsAfterKillProcess extends FakeProcess {
 }
 
 final class _CloseFailsAfterKillSink extends NullIoSink {
-  _CloseFailsAfterKillSink(this._isKilled, {required this.killed, required this.waitForKill});
+  new(this._isKilled, {required this.killed, required this.waitForKill});
 
   final bool Function() _isKilled;
   final Future<void> killed;

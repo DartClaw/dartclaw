@@ -6,7 +6,7 @@ class SqliteGoalRepository implements GoalRepository {
   final Database _db;
 
   /// Creates the repository against [_db] and initializes its schema.
-  SqliteGoalRepository(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

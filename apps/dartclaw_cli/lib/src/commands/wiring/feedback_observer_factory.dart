@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' show TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 
 /// Builds a [TurnObserver] that bridges [TurnRunner.progressEvents] to a
@@ -48,7 +48,7 @@ class FeedbackObserverFactory {
         placeholderMessageId: sourceChannel.peekPlaceholderMessageId(spaceName: recipientJid, turnId: message.id),
       );
 
-      final runners = turnManagerGetter().pool.runners.cast<TurnRunner>();
+      final runners = turnManagerGetter().executions.runners;
 
       // Configure status tick interval on runners.
       for (final runner in runners) {

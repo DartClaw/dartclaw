@@ -9,7 +9,7 @@ class AlertTarget {
   final String recipient;
 
   /// const AlertTarget({required this.channel, required this.reci.
-  const AlertTarget({required this.channel, required this.recipient});
+  const new({required this.channel, required this.recipient});
 
   @override
   bool operator ==(Object other) =>
@@ -49,7 +49,7 @@ class AlertsConfig {
   final Map<String, List<String>> routes;
 
   /// Creates a [AlertsConfig] value.
-  const AlertsConfig({
+  const new({
     this.enabled = false,
     this.cooldownSeconds = 300,
     this.burstThreshold = 5,
@@ -58,7 +58,7 @@ class AlertsConfig {
   });
 
   /// Creates a [AlertsConfig.defaults] value.
-  const AlertsConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

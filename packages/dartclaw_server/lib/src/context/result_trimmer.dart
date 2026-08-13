@@ -16,7 +16,7 @@ class ResultTrimmer implements Reconfigurable {
   static const _headBytes = 2048;
   static const _tailBytes = 2048;
 
-  ResultTrimmer({int maxBytes = 50 * 1024}) : _maxBytes = maxBytes;
+  new({int maxBytes = 50 * 1024}) : _maxBytes = maxBytes;
 
   int get maxBytes => _maxBytes;
 

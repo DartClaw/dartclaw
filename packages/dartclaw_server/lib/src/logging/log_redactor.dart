@@ -7,7 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 class LogRedactor {
   final MessageRedactor _redactor;
 
-  LogRedactor({MessageRedactor? redactor}) : _redactor = redactor ?? MessageRedactor();
+  new({MessageRedactor? redactor}) : _redactor = redactor ?? MessageRedactor();
 
   String redact(String input) => _redactor.redact(input);
 }

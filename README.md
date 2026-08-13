@@ -6,7 +6,7 @@
 
 _Agentic powers. No supply-chain roulette. Secure by design._
 
-**DartClaw turns coding agents into a persistent, security-conscious personal AI – equal parts assistant, context engine, and software factory.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or any ACP-compliant agent and equips it with long-term memory and a citation-backed Context Engine, chat access via WhatsApp, Signal, and Google Chat, scheduled jobs and background tasks, subagent delegation, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. And the supply chain won't keep you up at night: no Node.js, no npm, a dependency list short enough to audit, every asset compiled into the binary, and a bundled SQLite as the only native companion. What you install is exactly what runs.
+**DartClaw turns coding agents into a persistent, security-conscious personal AI – equal parts assistant, context engine, and software factory.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or any ACP-compliant agent and equips it with long-term memory and a citation-backed Context Engine, chat access via WhatsApp, Signal, and Google Chat, scheduled jobs and background tasks, logical-agent conversations, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. And the supply chain won't keep you up at night: no Node.js, no npm, a dependency list short enough to audit, every asset compiled into the binary, and a bundled SQLite as the only native companion. What you install is exactly what runs.
 
 > [!NOTE]
 > DartClaw is **experimental** (soft-published, pre-alpha) – breaking changes are expected while the core matures.
@@ -25,11 +25,11 @@ _Agentic powers. No supply-chain roulette. Secure by design._
 - **Your AI, on your phone** – WhatsApp, Signal, and Google Chat channels with DM/group access control, mention gating, and thread-bound task sessions. **Crowd coding**: a group chat collaboratively steers a shared agent session.
 - **It remembers** – the Context Engine maintains an LLM-curated wiki, a temporal knowledge graph, and long-term memory, synthesized into compact citation-backed packets served to agents over MCP (`context_research`) – browsable in the web UI's read-only Knowledge Hub with a point-in-time timeline. Hybrid FTS5/QMD search across all of it.
 - **A software factory** – built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows take work from spec to reviewed code, plus custom workflows triggered from chat, web forms, or GitHub PR webhooks. Run server-backed or fully server-less, with approval gates, live CLI progress, and per-step token accounting.
-- **Task orchestration** – background tasks with review queues, task types, goals, git worktrees, and per-task provider overrides; heterogeneous worker pools run mixed providers in parallel.
+- **Task orchestration** – background tasks with review queues, task types, goals, git worktrees, and per-task provider overrides; bounded per-provider worker capacity runs mixed providers in parallel.
 - **Scheduled autonomy** – heartbeat and cron jobs with configurable delivery: morning briefings, nightly reflection, a knowledge inbox – see the [recipes](docs/guide/recipes/README.md).
 - **Runtime governance** – admin senders, per-sender rate limits, daily token budgets, loop detection, and `/stop` / `/pause` / `/resume` emergency controls.
-- **Delegation & outbound MCP** – agents delegate to allowlisted subagents (`delegate_to_agent`), and DartClaw consumes external MCP servers through a guard-mediated, audited egress boundary.
-- **Operable from anywhere** – full web UI (HTMX, SSE streaming), REST API, and a CLI covering serve, sessions, tasks, agents, workflow, jobs, projects, service, and more ([CLI reference](docs/guide/cli-reference.md)).
+- **Agent conversations & outbound MCP** – agents start or continue provider-independent logical-agent sessions through `sessions_spawn` and `sessions_send`, while external MCP traffic crosses a guard-mediated, audited egress boundary.
+- **Operable from anywhere** – full web UI (HTMX, SSE streaming), REST API, and a CLI covering serve, sessions, tasks, runners, workflow, jobs, projects, service, and more ([CLI reference](docs/guide/cli-reference.md)).
 
 ## Installation
 
@@ -94,7 +94,7 @@ The build produces `build/bin/dartclaw` next to a `build/lib/` holding the bundl
 - **Agent CLI** – at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
 - **API key** – `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI – primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
 - **Docker** – optional, for container isolation
-- **Dart SDK** >= 3.12.0 – source builds only; the prebuilt binaries need no Dart toolchain
+- **Dart SDK** >= 3.13.0 – source builds only; the prebuilt binaries need no Dart toolchain
 - **SQLite** – bundled with the prebuilt binaries and source builds
 
 ## How it works
@@ -159,7 +159,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 - **[Governance](docs/guide/governance.md)** – admin senders, rate limits, token budgets, loop detection, emergency controls
 - **[Tasks](docs/guide/tasks.md)** – task orchestration, review workflow, coding tasks, provider overrides
 - **[Workflows](docs/guide/workflows.md)** – authoring guide, trigger surfaces, built-in workflows ([YAML reference](docs/guide/workflows-reference.md))
-- **[Agents](docs/guide/agents.md)** – subagent delegation, ACP agent registration, model selection, provider-aware pool
+- **[Agents](docs/guide/agents.md)** – logical-agent sessions, provider selection, model selection, shared worker capacity
 - **[Channels](docs/guide/whatsapp.md)** – [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) setup and access control
 - **[Scheduling](docs/guide/scheduling.md)** – heartbeat, cron jobs
 - **[Search & Memory](docs/guide/search.md)** – search agent, FTS5/QMD hybrid search
@@ -189,7 +189,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 
 ```
 apps/
-  dartclaw_cli/                 AOT-compilable CLI app – serve, workflow, tasks, sessions, agents,
+  dartclaw_cli/                 AOT-compilable CLI app – serve, workflow, tasks, sessions, runners,
                                 jobs, projects, service, deploy, and more (see CLI reference)
 packages/
   dartclaw/                     Published umbrella – re-exports core + models + storage

@@ -30,7 +30,7 @@ class PairingCode {
   final String? displayName;
 
   /// Creates a pending pairing record.
-  PairingCode({required this.code, required this.jid, required this.expiresAt, this.displayName});
+  new({required this.code, required this.jid, required this.expiresAt, this.displayName});
 
   /// Whether this pairing has expired and should be evicted.
   bool get isExpired => DateTime.now().isAfter(expiresAt);
@@ -49,7 +49,7 @@ class DmAccessController {
   final Random _random;
 
   /// Creates a DM access controller with an optional initial allowlist.
-  DmAccessController({required this.mode, Set<String>? allowlist, Random? random})
+  new({required this.mode, Set<String>? allowlist, Random? random})
     : _allowlist = allowlist ?? {},
       _random = random ?? Random.secure();
 

@@ -12,7 +12,7 @@ abstract interface class SkillIntrospector {
 final class WorkflowPreflightException implements Exception {
   final String message;
 
-  const WorkflowPreflightException(this.message);
+  const new(this.message);
 
   @override
   String toString() => message;
@@ -24,7 +24,7 @@ final class WorkflowSkillPreflightConfig {
   final Map<String, Map<String, dynamic>> providerOptions;
   final Set<String> configuredProviders;
 
-  const WorkflowSkillPreflightConfig({
+  const new({
     this.defaultProvider,
     this.providerExecutables = const <String, String>{},
     this.providerOptions = const <String, Map<String, dynamic>>{},

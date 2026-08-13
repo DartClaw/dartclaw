@@ -4,7 +4,7 @@ class SearchResult {
   final String url;
   final String snippet;
 
-  const SearchResult({required this.title, required this.url, required this.snippet});
+  const new({required this.title, required this.url, required this.snippet});
 
   Map<String, dynamic> toJson() => {'title': title, 'url': url, 'snippet': snippet};
 }

@@ -4,7 +4,7 @@ import 'package:logging/logging.dart';
 
 /// Typed view over generic task configuration used by task execution.
 final class TaskConfigView {
-  TaskConfigView(this.task, {Logger? log}) : _log = log ?? Logger('TaskConfigView');
+  new(this.task, {Logger? log}) : _log = log ?? Logger('TaskConfigView');
 
   final Task task;
   final Logger _log;

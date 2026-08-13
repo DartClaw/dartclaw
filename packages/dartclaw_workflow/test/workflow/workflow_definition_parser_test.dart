@@ -97,6 +97,20 @@ stepDefaults:
       );
     });
 
+    test('rejects blank step and step-default providers', () {
+      expectParseFormatError(stepYaml("prompt: Run\nprovider: '   '"), messageContains: ['provider', 'blank']);
+      expectParseFormatError(
+        workflowYaml(
+          rootFields: '''
+stepDefaults:
+  - match: "*"
+    provider: " "''',
+          stepFields: 'prompt: Run',
+        ),
+        messageContains: ['stepDefaults.provider', 'blank'],
+      );
+    });
+
     test('parses aggregateReviews on aggregate-reviews steps', () {
       const yaml = '''
 name: aggregate-workflow

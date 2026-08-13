@@ -1,17 +1,18 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../serve_command.dart' show ExitFn;
+import 'container_authority_cleanup_owner.dart';
 
 /// Constructs and exposes security-layer services.
 ///
-/// Owns container setup (credential proxy, container managers, health monitor),
-/// guard chain, content guard, audit subscriber, and session lifecycle subscriber.
+/// Owns container setup (host gateway, container authority lifecycle, health
+/// monitor), guard chain, content guard, audit subscriber, and session
+/// lifecycle subscriber.
 ///
 /// **Security reload seam** — two participants are registered with [ConfigNotifier]:
 ///
@@ -25,7 +26,7 @@ import '../serve_command.dart' show ExitFn;
 ///
 /// Both registrations happen in [wire], after [ConfigNotifier] is available.
 class SecurityWiring implements Reconfigurable {
-  SecurityWiring({
+  new({
     required this.config,
     required String dataDir,
     required EventBus eventBus,
@@ -33,7 +34,9 @@ class SecurityWiring implements Reconfigurable {
     PlatformCapabilities? platformCapabilities,
     ConfigNotifier? configNotifier,
     MessageRedactor? messageRedactor,
+    McpProtocolHandler Function()? mcpHandlerRef,
   }) : _dataDir = dataDir,
+       _mcpHandlerRef = mcpHandlerRef,
        _eventBus = eventBus,
        _exitFn = exitFn,
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
@@ -48,11 +51,23 @@ class SecurityWiring implements Reconfigurable {
   final ConfigNotifier? _configNotifier;
   final MessageRedactor? _messageRedactorForRegistration;
 
+  /// Resolved lazily: the MCP handler exists only after the server is built,
+  /// while authorities are created at turn time.
+  final McpProtocolHandler Function()? _mcpHandlerRef;
+
   static final _log = Logger('SecurityWiring');
 
-  CredentialProxy? _credentialProxy;
+  HostGateway? _gateway;
+  BridgeBinaryProvisioner? _bridgeBinaries;
+  String? _bridgeBinaryPath;
   ContainerHealthMonitor? _containerHealthMonitor;
-  final Map<String, ContainerManager> _containerManagers = {};
+  final Map<String, _ContainerTemplate> _containerTemplates = {};
+  final ContainerAuthorityCleanupOwner _containerAuthorities = ContainerAuthorityCleanupOwner();
+  // Authority suffixes must not repeat across process restarts: ContainerManager
+  // adopts a healthy same-named container, so a recycled name could hand a new
+  // authority an orphan from a previous run.
+  final String _authorityEpoch = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+  var _nextAuthorityId = 1;
   GuardChain? _guardChain;
   late GuardAuditLogger _auditLogger;
   ContentGuard? _contentGuard;
@@ -62,15 +77,99 @@ class SecurityWiring implements Reconfigurable {
   GuardAuditSubscriber? _guardAuditSubscriber;
   SessionLifecycleSubscriber? _sessionLifecycleSubscriber;
 
-  CredentialProxy? get credentialProxy => _credentialProxy;
+  HostGateway? get gateway => _gateway;
   ContainerHealthMonitor? get containerHealthMonitor => _containerHealthMonitor;
-  Map<String, ContainerManager> get containerManagers => Map.unmodifiable(_containerManagers);
+
+  /// Whether this deployment can run container executions at all.
+  bool get containersEnabled => _gateway != null;
   GuardChain? get guardChain => _guardChain;
   GuardAuditLogger get auditLogger => _auditLogger;
   ContentGuard? get contentGuard => _contentGuard;
   ContentClassifier? get contentClassifier => _contentClassifier;
   bool get contentGuardFailOpen => _contentGuardFailOpen;
   ToolPolicyCascade get toolPolicyCascade => _toolPolicyCascade;
+
+  /// Container profiles this deployment can actually run.
+  Set<String> get availableContainerProfiles => _containerTemplates.keys.toSet();
+
+  Map<String, CanonicalTool> _mcpToolCanonicals = const {};
+
+  /// Binds the canonical-name mapping bridged MCP authorization uses.
+  ///
+  /// Harness wiring owns the mapping and sets it during its own wire, which
+  /// still precedes any container authority.
+  set mcpToolCanonicals(Map<String, CanonicalTool> value) => _mcpToolCanonicals = Map.unmodifiable(value);
+
+  /// Creates a container dedicated to one live execution authority, with its
+  /// host mediation established.
+  ///
+  /// Every admitted container execution gets its own container, process
+  /// namespace, and bridge processes, so a later authority cannot inherit a
+  /// predecessor's PIDs, temp files, generated home, or pipes. The lease is
+  /// returned only after every required surface has handshaked and is
+  /// listening — a turn never starts on a partial boundary.
+  Future<ContainerAuthorityLease> acquireContainerAuthority(
+    GatewayPrincipal principal, {
+    Set<String> allowedMcpTools = const {},
+    String? artifactsDir,
+  }) async {
+    final profileId = principal.containerProfile;
+    final template = profileId == null ? null : _containerTemplates[profileId];
+    final gateway = _gateway;
+    if (template == null || gateway == null) {
+      throw StateError('No container profile "$profileId" is available in this deployment');
+    }
+
+    final containerName = ContainerManager.generateName(_dataDir, '$profileId-$_authorityEpoch${_nextAuthorityId++}');
+    final manager = template(
+      containerName,
+      generatedStateDir: p.join(_dataDir, 'containers', containerName),
+      hasMcpBridge: allowedMcpTools.isNotEmpty,
+      artifactsDir: artifactsDir,
+    );
+    // Registration rejects a provider this deployment cannot mediate – an
+    // unusable Claude auth mode included – before any container is created.
+    final authority = gateway.register(principal: principal, allowedMcpTools: allowedMcpTools);
+    final lease = _containerAuthorities.own(
+      _ContainerAuthorityLease(
+        manager: manager,
+        authority: authority,
+        gateway: gateway,
+        eventBus: _eventBus,
+        monitor: _containerHealthMonitor,
+      ),
+    );
+    try {
+      await manager.start();
+      _eventBus.fire(
+        ContainerStartedEvent(
+          profileId: manager.profileId,
+          containerName: manager.containerName,
+          timestamp: DateTime.now(),
+        ),
+      );
+      _containerHealthMonitor?.watch(manager.containerName, manager, taskId: principal.taskId);
+      for (final surface in authority.requiredSurfaces) {
+        final channel = await manager.startBridge(surface, bridgePortFor(surface));
+        try {
+          gateway.attach(authority, surface, channel);
+        } catch (_) {
+          // Nothing owns the process until the pipe does.
+          await channel.close();
+          rethrow;
+        }
+      }
+      await authority.ready.timeout(_bridgeReadyTimeout);
+    } catch (_) {
+      await lease.release();
+      rethrow;
+    }
+    return lease;
+  }
+
+  /// How long a bridge has to handshake and start listening before the
+  /// authority is abandoned. Startup is local process work, not model work.
+  static const _bridgeReadyTimeout = Duration(seconds: 30);
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
     // Assigned before anything that can throw: dispose() flushes it, and a
@@ -107,13 +206,6 @@ class SecurityWiring implements Reconfigurable {
     _wireGuardChain(agentDefs);
     _wireAuditAndLifecycle();
     _wireContentGuard();
-
-    // Ensure agent session directories exist.
-    for (final agent in agentDefs) {
-      if (agent.sessionStorePath.isNotEmpty) {
-        Directory(p.join(config.workspaceDir, agent.sessionStorePath)).createSync(recursive: true);
-      }
-    }
 
     // Register security-layer services with ConfigNotifier via adapters.
     // (dartclaw_security cannot depend on dartclaw_core — adapters bridge the gap.)
@@ -180,38 +272,21 @@ class SecurityWiring implements Reconfigurable {
       _exitFn(1);
     }
 
-    final apiKey = Platform.environment['ANTHROPIC_API_KEY']?.trim();
-    String? hostClaudeJsonPath;
-    if (apiKey == null || apiKey.isEmpty) {
-      final authResult = await Process.run(config.server.claudeExecutable, ['auth', 'status']);
-      if (authResult.exitCode != 0) {
-        _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-        _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
-        _exitFn(1);
-      }
-      try {
-        final status = jsonDecode(authResult.stdout as String) as Map<String, dynamic>;
-        if (status['loggedIn'] != true) {
-          _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
-          _log.severe('Configure auth with `claude auth login`, `claude setup-token`, or ANTHROPIC_API_KEY');
-          _exitFn(1);
-        }
-      } on FormatException {
-        _log.severe('Unable to verify Claude auth status for container mode');
-        _exitFn(1);
-      }
-
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-      if (home == null) {
-        _log.severe('Cannot locate HOME to mount Claude OAuth credentials into the container');
-        _exitFn(1);
-      }
-      final claudeJson = File(p.join(home, '.claude.json'));
-      if (!claudeJson.existsSync()) {
-        _log.severe('Claude OAuth appears configured, but ~/.claude.json was not found');
-        _exitFn(1);
-      }
-      hostClaudeJsonPath = claudeJson.path;
+    // Containerized Claude is mediated by the host adapter, which needs a
+    // host-held API key. OAuth/setup-token has no credential-free mediation
+    // contract, so it is a host-execution mode only. This is a warning, not a
+    // startup failure: a deployment may legitimately run only Codex or only
+    // host Claude. The rejection itself happens at authority registration.
+    final claudeApiKey = CredentialRegistry(
+      credentials: config.credentials,
+      env: Platform.environment,
+    ).getApiKey('claude');
+    if (claudeApiKey == null || claudeApiKey.isEmpty) {
+      _log.warning(
+        'No host-held Claude API key is configured – containerized Claude executions will be rejected. '
+        'Set ANTHROPIC_API_KEY for container mode, or select execution: host for Claude agents '
+        '(OAuth/setup-token authentication is supported for host execution only).',
+      );
     }
 
     final profiles = [
@@ -223,62 +298,106 @@ class SecurityWiring implements Reconfigurable {
       SecurityProfile.restricted,
     ];
     final localPathProjectMounts = _localPathProjectMounts();
-    final proxySocketDir = p.join(_dataDir, 'proxy');
-    for (final profile in profiles) {
-      _containerManagers[profile.id] = ContainerManager(
-        config: config.container,
-        containerName: ContainerManager.generateName(_dataDir, profile.id),
-        profileId: profile.id,
-        workspaceMounts: profile.id == 'workspace'
-            ? [...profile.workspaceMounts, ...localPathProjectMounts]
-            : profile.workspaceMounts,
-        localPathAllowlist: config.projects.localPathAllowlist,
-        proxySocketDir: proxySocketDir,
-        hostClaudeJsonPath: hostClaudeJsonPath,
-        buildContextDir: Directory.current.path,
-        workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
-      );
-    }
-    final workspaceContainerManager = _containerManagers['workspace']!;
+    // A profile is a filesystem/capability template, not a running container:
+    // each live container authority is built from it and owns its own
+    // container, bridge processes, and generated state.
+    ContainerManager buildManager(
+      SecurityProfile profile,
+      String containerName, {
+      required String generatedStateDir,
+      String? artifactsDir,
+      bool hasMcpBridge = false,
+    }) => ContainerManager(
+      config: config.container,
+      containerName: containerName,
+      profileId: profile.id,
+      workspaceMounts: profile.id == 'workspace'
+          ? [...profile.workspaceMounts, ...localPathProjectMounts]
+          : profile.workspaceMounts,
+      generatedStateDir: generatedStateDir,
+      artifactsDir: artifactsDir,
+      hasMcpBridge: hasMcpBridge,
+      localPathAllowlist: config.projects.localPathAllowlist,
+      bridgeBinaryPath: _bridgeBinaryPath,
+      buildContextDir: Directory.current.path,
+      workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
+    );
 
-    if (!await workspaceContainerManager.isDockerAvailable()) {
+    final probe = buildManager(
+      SecurityProfile.restricted,
+      'dartclaw-probe',
+      generatedStateDir: p.join(_dataDir, 'containers', 'dartclaw-probe'),
+    );
+    if (!await probe.isDockerAvailable()) {
       _log.severe('Docker is required when container.enabled: true');
       _log.severe('Install or start Docker: https://docs.docker.com/get-docker/');
       _exitFn(1);
     }
+    await probe.ensureImage();
 
-    final proxyApiKey = Platform.environment['ANTHROPIC_API_KEY']?.trim();
-    _credentialProxy = CredentialProxy(socketPath: p.join(_dataDir, 'proxy', 'proxy.sock'), apiKey: proxyApiKey);
-    await _credentialProxy!.start();
-
+    final architecture = await probe.serverArchitecture();
+    if (architecture == null) {
+      _log.severe('Unsupported Docker engine architecture; no container bridge binary ships for it');
+      _exitFn(1);
+    }
+    _bridgeBinaries = BridgeBinaryProvisioner(dataDir: _dataDir);
     try {
-      await workspaceContainerManager.ensureImage();
-      for (final entry in _containerManagers.entries) {
-        await entry.value.start();
-        _eventBus.fire(
-          ContainerStartedEvent(
-            profileId: entry.key,
-            containerName: entry.value.containerName,
-            timestamp: DateTime.now(),
-          ),
-        );
-      }
-    } catch (e) {
-      for (final manager in _containerManagers.values) {
-        try {
-          await manager.stop();
-        } catch (stopErr) {
-          _log.fine('Error stopping container during startup failure cleanup', stopErr);
-        }
-      }
-      await _credentialProxy!.stop();
-      rethrow;
+      _bridgeBinaryPath = await _bridgeBinaries!.ensureAvailable(architecture);
+    } on StateError catch (error) {
+      _log.severe('Container isolation cannot start: ${error.message}');
+      _exitFn(1);
     }
 
-    _containerHealthMonitor = ContainerHealthMonitor(containerManagers: _containerManagers, eventBus: _eventBus);
-    _containerHealthMonitor!.start();
+    for (final profile in profiles) {
+      _containerTemplates[profile.id] =
+          (containerName, {required generatedStateDir, required hasMcpBridge, required artifactsDir}) => buildManager(
+            profile,
+            containerName,
+            generatedStateDir: generatedStateDir,
+            artifactsDir: artifactsDir,
+            hasMcpBridge: hasMcpBridge,
+          );
+    }
 
-    _log.info('Container isolation enabled — ${_containerManagers.length} profiles (image: ${config.container.image})');
+    _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
+    _gateway = HostGateway(
+      providerAdapters: _buildProviderAdapters(),
+      mcpHandler: _mcpHandlerRef,
+      mcpToolCanonicals: () => _mcpToolCanonicals,
+      onDenied: _auditGatewayDenial,
+    );
+
+    _log.info(
+      'Container isolation enabled — ${_containerTemplates.length} profiles, host-mediated '
+      'linux-$architecture bridge (image: ${config.container.image})',
+    );
+  }
+
+  Map<String, ProviderMediator> _buildProviderAdapters() {
+    final registry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    // Each adapter owns one fixed upstream. Nothing downstream — least of all a
+    // container — can retarget it, and there is deliberately no configuration
+    // knob to point a credentialed adapter somewhere else.
+    return {
+      'claude': AnthropicMessagesAdapter(apiKey: () => registry.getApiKey('claude')),
+      'codex': OpenAiResponsesAdapter(apiKey: () => registry.getApiKey('codex')),
+    };
+  }
+
+  /// Routes a bridge refusal into the existing guard audit trail.
+  void _auditGatewayDenial(GatewayPrincipal principal, String reason) {
+    _eventBus.fire(
+      GuardBlockEvent(
+        guardName: 'host-gateway',
+        guardCategory: 'isolation',
+        verdict: 'block',
+        verdictMessage: reason,
+        hookPoint: 'bridge',
+        agentId: principal.logicalAgentId,
+        sessionId: principal.sessionId,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   List<String> _localPathProjectMounts() {
@@ -339,6 +458,8 @@ class SecurityWiring implements Reconfigurable {
                 verdictMessage: message,
                 hookPoint: ctx.hookPoint,
                 rawProviderToolName: ctx.rawProviderToolName,
+                toolName: ctx.toolName,
+                agentId: ctx.agentId,
                 sessionId: ctx.sessionId,
                 channel: ctx.source,
                 peerId: ctx.peerId,
@@ -392,22 +513,11 @@ class SecurityWiring implements Reconfigurable {
   }
 
   Future<void> dispose() async {
-    for (final entry in _containerManagers.entries) {
-      try {
-        await entry.value.stop();
-        _eventBus.fire(
-          ContainerStoppedEvent(
-            profileId: entry.key,
-            containerName: entry.value.containerName,
-            timestamp: DateTime.now(),
-          ),
-        );
-      } catch (e) {
-        _log.fine('Error stopping container ${entry.key} during shutdown', e);
-      }
-    }
-    await _credentialProxy?.stop();
     await _containerHealthMonitor?.stop();
+    await _containerAuthorities.dispose();
+    // Revoking every live authority also kills its bridge processes; the
+    // containers themselves are destroyed by their own leases.
+    await _gateway?.dispose();
     await _guardAuditSubscriber?.cancel();
     await _sessionLifecycleSubscriber?.cancel();
     // Cancelling stops new verdicts; queued NDJSON appends are fire-and-forget
@@ -416,11 +526,73 @@ class SecurityWiring implements Reconfigurable {
   }
 }
 
+/// One container authority's container, bridges, and registration held together.
+///
+/// Release order is the isolation order: stop watching (so teardown is not a
+/// crash), revoke the pipes while the container still exists but can no longer
+/// use them, then destroy the container. Every step runs even if an earlier one
+/// fails. Confirmed release is idempotent; failed destruction stays retryable.
+class _ContainerAuthorityLease implements ContainerAuthorityLease {
+  new({
+    required this.manager,
+    required this.authority,
+    required HostGateway gateway,
+    required EventBus eventBus,
+    required ContainerHealthMonitor? monitor,
+  }) : _gateway = gateway,
+       _eventBus = eventBus,
+       _monitor = monitor;
+
+  static final _log = Logger('ContainerAuthorityLease');
+
+  final ContainerManager manager;
+  final GatewayAuthority authority;
+  final HostGateway _gateway;
+  final EventBus _eventBus;
+  final ContainerHealthMonitor? _monitor;
+
+  @override
+  ContainerExecutor get container => manager;
+
+  @override
+  Future<void> release() async {
+    _monitor?.unwatch(manager.containerName);
+    try {
+      await _gateway.revoke(authority);
+    } catch (error, stackTrace) {
+      _log.severe('Failed to revoke gateway authority ${authority.id}', error, stackTrace);
+    }
+    try {
+      // stop() throws when removal cannot be confirmed, so this event is only
+      // reached once the container is gone.
+      await manager.stop();
+      _eventBus.fire(
+        ContainerStoppedEvent(
+          profileId: manager.profileId,
+          containerName: manager.containerName,
+          timestamp: DateTime.now(),
+        ),
+      );
+    } catch (error, stackTrace) {
+      _log.severe('Failed to destroy container ${manager.containerName}', error, stackTrace);
+      rethrow;
+    }
+  }
+}
+
+/// Builds one live authority's container from a profile template.
+typedef _ContainerTemplate = ContainerManager Function(
+  String containerName, {
+  required String generatedStateDir,
+  required String? artifactsDir,
+  required bool hasMcpBridge,
+});
+
 /// Bridges [MessageRedactor] (in dartclaw_security, which cannot depend on
 /// dartclaw_core) to the [Reconfigurable] interface (in dartclaw_core).
 class _MessageRedactorAdapter implements Reconfigurable {
   final MessageRedactor _redactor;
-  _MessageRedactorAdapter(this._redactor);
+  new(this._redactor);
 
   @override
   Set<String> get watchKeys => const {'logging.*'};

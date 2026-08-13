@@ -8,7 +8,9 @@
 library;
 
 // Storage services
-export 'src/storage/memory_service.dart' show MemoryService;
+export 'src/storage/memory_service.dart' show MemoryIndexRow, MemoryService;
+export 'src/storage/index_reconciler.dart'
+    show CanonicalIndexReconciler, IndexHealthEvidence, IndexHealthState, IndexHealthStore, IndexReconcileResult;
 export 'src/storage/search_db.dart' show SearchDbFactory, openSearchDb, openSearchDbInMemory;
 export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
 export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
@@ -28,7 +30,8 @@ export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;
 export 'src/search/search_backend_factory.dart' show createSearchBackend;
 export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
 export 'src/search/qmd_manager.dart' show QmdManager;
-export 'src/search/wiki_search_source.dart' show WikiSearchSource;
+export 'src/search/wiki_search_source.dart' show WikiSearchSource, WikiSearchScan;
+export 'src/search/composed_search_backend.dart' show ComposedSearchBackend, SearchIndexHealthProbe;
 
 // Knowledge
 export 'src/knowledge/known_systems.dart' show normalizeKnowledgeEntity;
@@ -37,3 +40,5 @@ export 'src/knowledge/temporal_knowledge_graph_service.dart'
 
 // Memory
 export 'src/memory/memory_pruner.dart' show MemoryPruner, PruneResult;
+export 'src/memory/legacy_memory_migrator.dart'
+    show MemoryPreflightStatus, MemoryPreflightResult, MemoryPreflightException, LegacyMemoryMigrator;

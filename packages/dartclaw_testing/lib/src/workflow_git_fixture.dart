@@ -14,12 +14,7 @@ import 'package:path/path.dart' as p;
 /// directly against the fixture's paths to exercise the merge / worktree /
 /// artifact-committer plumbing without a real agent harness.
 class WorkflowGitFixture {
-  WorkflowGitFixture._({
-    required this.tempRoot,
-    required this.projectDir,
-    required this.runId,
-    required this.integrationBranch,
-  });
+  new _({required this.tempRoot, required this.projectDir, required this.runId, required this.integrationBranch});
 
   /// Temp directory holding the fixture. Deleted on [dispose].
   final Directory tempRoot;

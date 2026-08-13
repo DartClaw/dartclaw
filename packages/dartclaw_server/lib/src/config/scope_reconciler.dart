@@ -11,7 +11,7 @@ class ScopeReconciler {
   final LiveScopeConfig liveScopeConfig;
   StreamSubscription<ConfigChangedEvent>? _subscription;
 
-  ScopeReconciler({required this.liveScopeConfig});
+  new({required this.liveScopeConfig});
 
   void subscribe(EventBus bus) {
     _subscription = bus.on<ConfigChangedEvent>().listen(_onConfigChanged);

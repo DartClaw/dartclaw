@@ -8,7 +8,7 @@ class ServiceResult {
   final bool success;
   final String message;
 
-  const ServiceResult({required this.success, required this.message});
+  const new({required this.success, required this.message});
 }
 
 /// Abstraction over platform-specific user-scoped service management.
@@ -66,7 +66,7 @@ class MacOSLaunchAgentBackend implements ServiceBackend {
   final String _home;
   final String _path;
 
-  MacOSLaunchAgentBackend({
+  new({
     Future<ProcessResult> Function(String, List<String>)? run,
     String? home,
     Map<String, String>? environment,
@@ -224,7 +224,7 @@ class LinuxSystemdUserBackend implements ServiceBackend {
   final Future<ProcessResult> Function(String, List<String>) _run;
   final String _home;
 
-  LinuxSystemdUserBackend({Future<ProcessResult> Function(String, List<String>)? run, String? home})
+  new({Future<ProcessResult> Function(String, List<String>)? run, String? home})
     : _run = run ?? Process.run,
       _home = home ?? Platform.environment['HOME'] ?? '.';
 

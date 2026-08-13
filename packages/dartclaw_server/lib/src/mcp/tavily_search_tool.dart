@@ -15,9 +15,7 @@ class TavilySearchProvider implements SearchProvider {
   final String _apiKey;
   final Duration _timeout;
 
-  TavilySearchProvider({required String apiKey, Duration timeout = const Duration(seconds: 15)})
-    : _apiKey = apiKey,
-      _timeout = timeout;
+  new({required String apiKey, Duration timeout = const Duration(seconds: 15)}) : _apiKey = apiKey, _timeout = timeout;
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
@@ -52,7 +50,7 @@ class TavilySearchProvider implements SearchProvider {
 
 /// MCP tool that searches via Tavily Search API.
 class TavilySearchTool extends SearchMcpTool {
-  TavilySearchTool({required super.provider, super.contentGuard})
+  new({required super.provider, super.contentGuard})
     : super(
         name: 'tavily_search',
         description: 'Search the web using Tavily Search API. Returns titles, URLs, and snippets.',

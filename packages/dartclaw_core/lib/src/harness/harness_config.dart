@@ -22,9 +22,6 @@ class HarnessConfig {
   /// - Codex/GPT-5: `low` | `medium` | `high` | `xhigh`
   final String? effort;
 
-  /// Optional sub-agent configuration forwarded during initialization.
-  final Map<String, dynamic>? agents;
-
   /// Content to pass via --append-system-prompt CLI flag at spawn.
   /// Null means no flag (replace-mode harnesses use per-turn JSONL instead).
   final String? appendSystemPrompt;
@@ -49,21 +46,21 @@ class HarnessConfig {
   /// version-controlled directories.
   final String? mcpServerUrl;
 
-  /// Gateway token used for MCP bearer auth.
+  /// Optional gateway token used for MCP bearer auth.
   ///
   /// Written into the ephemeral `--mcp-config` temp file as
   /// `Authorization: Bearer <token>`. Only used when [mcpServerUrl] is
   /// non-null. The same token authenticates both the web UI and MCP
-  /// endpoint via the gateway middleware.
+  /// endpoint via the gateway middleware. Null omits the header for an
+  /// authentication-disabled loopback gateway.
   final String? mcpGatewayToken;
 
   /// Creates immutable initialize-handshake options for a harness.
-  const HarnessConfig({
+  const new({
     this.disallowedTools = const [],
     this.maxTurns,
     this.model,
     this.effort,
-    this.agents,
     this.appendSystemPrompt,
     this.mcpServerUrl,
     this.mcpGatewayToken,
@@ -75,7 +72,6 @@ class HarnessConfig {
     int? maxTurns,
     String? model,
     String? effort,
-    Map<String, dynamic>? agents,
     String? appendSystemPrompt,
     String? mcpServerUrl,
     String? mcpGatewayToken,
@@ -85,7 +81,6 @@ class HarnessConfig {
       maxTurns: maxTurns ?? this.maxTurns,
       model: model ?? this.model,
       effort: effort ?? this.effort,
-      agents: agents ?? this.agents,
       appendSystemPrompt: appendSystemPrompt ?? this.appendSystemPrompt,
       mcpServerUrl: mcpServerUrl ?? this.mcpServerUrl,
       mcpGatewayToken: mcpGatewayToken ?? this.mcpGatewayToken,
@@ -99,7 +94,6 @@ class HarnessConfig {
       if (maxTurns != null) 'maxTurns': maxTurns,
       if (model != null) 'model': model,
       if (effort != null) 'effort': effort,
-      if (agents != null) 'agents': agents,
     };
   }
 }

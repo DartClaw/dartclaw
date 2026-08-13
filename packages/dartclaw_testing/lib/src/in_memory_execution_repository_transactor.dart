@@ -4,7 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show ExecutionRepositoryTransa
 
 /// In-memory [ExecutionRepositoryTransactor] used by tests.
 final class InMemoryExecutionRepositoryTransactor implements ExecutionRepositoryTransactor {
-  const InMemoryExecutionRepositoryTransactor();
+  const new();
 
   @override
   Future<T> transaction<T>(FutureOr<T> Function() action) async => await action();

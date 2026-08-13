@@ -11,7 +11,7 @@ class MentionGating {
   String ownJid;
 
   /// Creates mention-gating rules for group message processing.
-  MentionGating({required this.requireMention, required List<String> mentionPatterns, required this.ownJid})
+  new({required this.requireMention, required List<String> mentionPatterns, required this.ownJid})
     : _patterns = mentionPatterns.map(RegExp.new).toList();
 
   /// Whether the given message should be processed.

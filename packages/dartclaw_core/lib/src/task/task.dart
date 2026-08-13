@@ -1,6 +1,7 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
 
 import 'package:dartclaw_config/dartclaw_config.dart' show AgentExecution, WorkflowStepExecution;
+
 import 'task_status.dart';
 
 /// Immutable task value object for orchestrated work.
@@ -109,7 +110,7 @@ class Task {
   final int retryCount;
 
   /// Creates an immutable task record.
-  Task({
+  new({
     required this.id,
     required this.title,
     required this.description,
@@ -304,7 +305,7 @@ class Task {
   };
 
   /// Deserializes a task from persisted JSON.
-  factory Task.fromJson(Map<String, dynamic> json) => Task(
+  factory fromJson(Map<String, dynamic> json) => Task(
     id: json['id'] as String,
     title: json['title'] as String,
     description: json['description'] as String,

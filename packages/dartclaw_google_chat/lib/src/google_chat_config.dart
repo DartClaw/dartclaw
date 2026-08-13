@@ -16,17 +16,17 @@ class PubSubConfig {
   final int maxMessagesPerPull;
 
   /// Creates immutable Cloud Pub/Sub pull client configuration.
-  const PubSubConfig({this.projectId, this.subscription, this.pollIntervalSeconds = 2, this.maxMessagesPerPull = 100});
+  const new({this.projectId, this.subscription, this.pollIntervalSeconds = 2, this.maxMessagesPerPull = 100});
 
   /// Creates a disabled (all-defaults) Pub/Sub configuration.
-  const PubSubConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Whether both [projectId] and [subscription] are configured.
   bool get isConfigured =>
       projectId != null && projectId!.isNotEmpty && subscription != null && subscription!.isNotEmpty;
 
   /// Parses Pub/Sub configuration from YAML, appending warnings to [warns].
-  factory PubSubConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final projectIdRaw = yaml['project_id'];
     String? projectId;
     if (projectIdRaw is String) {
@@ -104,7 +104,7 @@ class SpaceEventsConfig {
   final bool includeResource;
 
   /// Creates immutable Workspace Events subscription configuration.
-  const SpaceEventsConfig({
+  const new({
     this.enabled = false,
     this.pubsubTopic,
     this.eventTypes = const ['message.created'],
@@ -112,7 +112,7 @@ class SpaceEventsConfig {
   });
 
   /// Creates a disabled (all-defaults) Space Events configuration.
-  const SpaceEventsConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Event types expanded to fully-qualified Workspace Events names.
   List<String> get expandedEventTypes => eventTypes.map(expandEventType).toList();
@@ -173,7 +173,7 @@ class SpaceEventsConfig {
   }
 
   /// Parses Space Events configuration from YAML, appending warnings to [warns].
-  factory SpaceEventsConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final enabled = readBool('enabled', yaml, warns, defaultValue: false, warnKey: 'google_chat.space_events.enabled')!;
 
     final pubsubTopicRaw = yaml['pubsub_topic'];
@@ -261,16 +261,16 @@ class GoogleChatFeedbackConfig {
   final Duration statusInterval;
   final GoogleChatFeedbackStatusStyle statusStyle;
 
-  const GoogleChatFeedbackConfig({
+  const new({
     this.enabled = false,
     this.minFeedbackDelay = Duration.zero,
     this.statusInterval = const Duration(seconds: 30),
     this.statusStyle = GoogleChatFeedbackStatusStyle.creative,
   });
 
-  const GoogleChatFeedbackConfig.disabled() : this();
+  const new disabled() : this();
 
-  factory GoogleChatFeedbackConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final enabled = readBool('enabled', yaml, warns, defaultValue: false, warnKey: 'google_chat.feedback.enabled')!;
 
     var minFeedbackDelay = Duration.zero;
@@ -338,7 +338,7 @@ class GoogleChatAudienceConfig {
   final String value;
 
   /// Creates immutable Google Chat audience settings.
-  const GoogleChatAudienceConfig({required this.mode, required this.value});
+  const new({required this.mode, required this.value});
 }
 
 /// Runtime configuration for the Google Chat channel integration.
@@ -398,7 +398,7 @@ class GoogleChatConfig {
   final GoogleChatFeedbackConfig feedback;
 
   /// Creates immutable Google Chat channel configuration.
-  const GoogleChatConfig({
+  const new({
     this.enabled = false,
     this.serviceAccount,
     this.oauthCredentials,
@@ -420,7 +420,7 @@ class GoogleChatConfig {
   });
 
   /// Creates a disabled Google Chat configuration.
-  const GoogleChatConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Returns the group IDs from [groupAllowlist] as a plain string list.
   ///
@@ -441,7 +441,7 @@ class GoogleChatConfig {
       quoteReplyMode == QuoteReplyMode.native ? {'https://www.googleapis.com/auth/chat.messages.create'} : {};
 
   /// Parses Google Chat configuration from YAML, appending warnings to [warns].
-  factory GoogleChatConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final enabled = yaml['enabled'];
     if (enabled != null && enabled is! bool) {
       warns.add('Invalid type for google_chat.enabled: "${enabled.runtimeType}" — using default');

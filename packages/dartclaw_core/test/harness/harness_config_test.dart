@@ -14,25 +14,14 @@ void main() {
       expect(fields, {'maxTurns': 50});
       expect(fields.containsKey('disallowedTools'), isFalse);
       expect(fields.containsKey('model'), isFalse);
-      expect(fields.containsKey('agents'), isFalse);
     });
 
     test('all fields included when set', () {
-      final config = HarnessConfig(
-        disallowedTools: ['Computer', 'Bash'],
-        maxTurns: 25,
-        model: 'sonnet',
-        agents: {
-          'search': {'description': 'Search agent'},
-        },
-      );
+      final config = HarnessConfig(disallowedTools: ['Computer', 'Bash'], maxTurns: 25, model: 'sonnet');
       final fields = config.toInitializeFields();
       expect(fields['disallowedTools'], ['Computer', 'Bash']);
       expect(fields['maxTurns'], 25);
       expect(fields['model'], 'sonnet');
-      expect(fields['agents'], {
-        'search': {'description': 'Search agent'},
-      });
     });
 
     test('empty disallowedTools list is omitted', () {

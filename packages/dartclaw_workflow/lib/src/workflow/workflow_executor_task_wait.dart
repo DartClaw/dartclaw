@@ -1,7 +1,7 @@
 part of 'workflow_executor.dart';
 
 class _WorkflowRunWaitAbort implements Exception {
-  const _WorkflowRunWaitAbort(this.message);
+  const new(this.message);
 
   final String message;
 

@@ -27,13 +27,12 @@ import '../fixtures/e2e_fixture.dart';
 import '_support/workflow_test_paths.dart';
 import 'workflow_e2e_test_support.dart';
 
-typedef _WorkflowE2eProcessRunner =
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
+typedef _WorkflowE2eProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
 
 WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
   required String remediationPlan,
@@ -246,7 +245,7 @@ final class _GitCredentialHelper {
   final Directory _directory;
   final String path;
 
-  _GitCredentialHelper._(this._directory, this.path);
+  new _(this._directory, this.path);
 
   static _GitCredentialHelper create(String token) {
     final directory = Directory.systemTemp.createTempSync('dartclaw_fixture_git_credentials_');
@@ -697,7 +696,8 @@ void main() {
     );
     diagnosticSubs.add(
       w.eventBus.on<WorkflowRunStatusChangedEvent>().listen((e) {
-        diagLog.info('Workflow ${e.runId}: ${e.oldStatus} → ${e.newStatus}');
+        final error = e.errorMessage == null ? '' : ' – ${e.errorMessage}';
+        diagLog.info('Workflow ${e.runId}: ${e.oldStatus} → ${e.newStatus}$error');
       }),
     );
 

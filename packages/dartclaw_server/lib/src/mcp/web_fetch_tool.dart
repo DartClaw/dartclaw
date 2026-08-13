@@ -18,7 +18,7 @@ class WebFetchTool implements McpTool {
   final bool _failOpenOnClassification;
   final bool _ssrfProtectionEnabled;
 
-  WebFetchTool({
+  new({
     ContentClassifier? classifier,
     Duration timeout = const Duration(seconds: 30),
     int defaultMaxLength = 50000,
@@ -258,5 +258,5 @@ class _FetchResult {
   final String body;
   final String contentType;
 
-  _FetchResult({required this.body, required this.contentType});
+  new({required this.body, required this.contentType});
 }

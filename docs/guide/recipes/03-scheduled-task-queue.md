@@ -55,10 +55,10 @@ scheduling:
     - id: weekly-cleanup
       prompt: >
         Perform weekly maintenance:
-        1. Review MEMORY.md for stale or outdated entries
+        1. Search canonical memory for stale or outdated entries
         2. Summarize the week's health check patterns
         3. Suggest any configuration improvements
-        Write findings to MEMORY.md via memory_save.
+        Record findings through memory_observe with role='observation'.
       schedule:
         type: cron
         expression: "0 3 * * 0"
@@ -113,18 +113,18 @@ Each job has its own prompt tailored to its purpose:
 > Generate an end-of-day summary report. Include: system health overview, issues detected, action items. Format as a brief status report.
 
 **Weekly cleanup** (Sunday 3 AM):
-> Perform weekly maintenance: review MEMORY.md for stale entries, summarize health check patterns, suggest configuration improvements. Write findings to MEMORY.md.
+> Perform weekly maintenance: review personal memory for stale entries, summarize health check patterns, and suggest configuration improvements. Record findings through `memory_observe` with `role='observation'`.
 
 ## Workflow
 
 Multiple jobs coexist and run independently:
 
 1. **Health check fires every 5 minutes** -- quick status check, results logged only (`delivery: none`)
-2. **Heartbeat fires every 30 minutes** -- processes HEARTBEAT.md checklist in an isolated session, runs memory consolidation if needed
+2. **Heartbeat fires every 30 minutes** -- processes the HEARTBEAT.md checklist in an isolated session
 3. **Daily report fires at 6:00 PM** -- summarizes the day's findings (`announce` broadcasts to the web UI and any active channel DM sessions)
-4. **Weekly cleanup fires Sunday at 3:00 AM** -- maintenance tasks, results saved to MEMORY.md
+4. **Weekly cleanup fires Sunday at 3:00 AM** -- maintenance tasks, findings captured as observations
 
-Each job runs in its own isolated session. Jobs do not share state directly -- they communicate through MEMORY.md. The `max_parallel_turns: 3` setting limits how many concurrent agent turns can run.
+Each job runs in its own isolated session. Jobs do not share session state directly; durable observations remain available through the memory tools. The `max_parallel_turns: 3` setting limits how many concurrent agent turns can run.
 
 ## Customization Tips
 
@@ -167,7 +167,7 @@ Or create tasks from WhatsApp/Signal/Google Chat via [channel-to-task triggers](
 
 ## Gotchas & Limitations
 
-- **Jobs run in isolated sessions** -- there is no shared state between jobs except via MEMORY.md. A health check cannot directly pass data to the daily report
+- **Jobs run in isolated sessions** -- there is no shared session state between jobs. A health check cannot directly pass data to the daily report; intentionally captured observations remain available through memory search
 - **`max_parallel_turns` limits concurrent execution** -- if multiple jobs trigger simultaneously and the limit is reached, excess jobs queue until a slot opens
 - **Interval jobs drift over time** -- `type: interval` measures time since the last run, not wall-clock alignment. A 5-minute interval job started at 10:03 runs at 10:08, 10:13, etc., not at 10:05, 10:10
 - **Webhook delivery requires a reachable endpoint** -- DartClaw POSTs results to the configured URL. If the endpoint is down, the result is logged but delivery fails

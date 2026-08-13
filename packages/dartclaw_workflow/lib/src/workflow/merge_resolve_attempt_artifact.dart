@@ -17,7 +17,7 @@ final class MergeResolveAttemptArtifact {
   final DateTime? startedAt;
   final int? elapsedMs;
 
-  const MergeResolveAttemptArtifact({
+  const new({
     required this.iterationIndex,
     required this.storyId,
     required this.attemptNumber,
@@ -47,7 +47,7 @@ final class MergeResolveAttemptArtifact {
 
   String toJsonString() => jsonEncode(toJson());
 
-  factory MergeResolveAttemptArtifact.fromJson(Map<String, dynamic> json) => MergeResolveAttemptArtifact(
+  factory fromJson(Map<String, dynamic> json) => MergeResolveAttemptArtifact(
     iterationIndex: json['iteration_index'] as int,
     storyId: json['story_id'] as String? ?? '',
     attemptNumber: json['attempt_number'] as int,

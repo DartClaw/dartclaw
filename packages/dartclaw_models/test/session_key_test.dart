@@ -56,6 +56,11 @@ void main() {
         actual: SessionKey.taskSession(taskId: 'task with spaces'),
         expected: 'agent:main:task:task%20with%20spaces',
       ),
+      (
+        name: 'logicalAgentSession encodes agent and conversation IDs',
+        actual: SessionKey.logicalAgentSession(agentId: 'review:security', conversationId: 'turn/123'),
+        expected: 'agent:review%3Asecurity:logical:turn%2F123',
+      ),
     ];
 
     for (final testCase in keyCases) {
@@ -80,6 +85,14 @@ void main() {
         build: () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: ''),
       ),
       (name: 'taskSession empty taskId', build: () => SessionKey.taskSession(taskId: '')),
+      (
+        name: 'logicalAgentSession empty agentId',
+        build: () => SessionKey.logicalAgentSession(agentId: '', conversationId: 'id'),
+      ),
+      (
+        name: 'logicalAgentSession empty conversationId',
+        build: () => SessionKey.logicalAgentSession(agentId: 'search', conversationId: ''),
+      ),
     ];
 
     for (final testCase in invalidCases) {

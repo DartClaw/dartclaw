@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/auth/request_auth_context.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -52,7 +52,13 @@ workspace:
   });
 
   /// Creates a test router with injected dependencies.
-  Router createRouter({DartclawConfig? config, RuntimeConfig? runtime, EventBus? eventBus}) {
+  Router createRouter({
+    DartclawConfig? config,
+    RuntimeConfig? runtime,
+    EventBus? eventBus,
+    ScheduleService? scheduleService,
+    Future<Map<String, dynamic>> Function()? memoryStatusReader,
+  }) {
     final cfg = config ?? const DartclawConfig.defaults();
     final rc =
         runtime ??
@@ -75,6 +81,8 @@ workspace:
       runtimeConfig: rc,
       dataDir: dataDir,
       eventBus: bus,
+      scheduleService: scheduleService,
+      memoryStatusReader: memoryStatusReader,
     );
   }
 
@@ -133,6 +141,16 @@ channels:
   void writeJobsToYaml(List<Map<String, dynamic>> jobs) {
     final jobsYaml = jobs
         .map((j) {
+          if (j['type'] == 'task') {
+            final task = j['task'] as Map<String, dynamic>;
+            return '  - id: ${j['id']}\n'
+                '    type: task\n'
+                '    schedule: "${j['schedule']}"\n'
+                '    task:\n'
+                '      title: "${task['title']}"\n'
+                '      description: "${task['description']}"\n'
+                '      type: ${task['type']}';
+          }
           return '  - name: ${j['name']}\n'
               '    schedule: "${j['schedule']}"\n'
               '    prompt: "${j['prompt']}"\n'
@@ -257,6 +275,39 @@ github:
   });
 
   group('GET /api/scheduling/jobs', () {
+    test('merges immutable system actions into list and show', () async {
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(
+        scheduleService: schedule,
+        memoryStatusReader: () async => {
+          'curation': {
+            'state': 'succeeded',
+            'committedRevision': 43,
+            'changedIds': ['A', 'B'],
+            'noOpIds': ['C'],
+          },
+          'index': {'state': 'degraded', 'canonicalRevision': 43},
+        },
+      );
+
+      final list = await api(router).expectJsonList('GET', '/api/scheduling/jobs');
+      final action = list.single as Map<String, dynamic>;
+      expect(action, containsPair('name', memoryCurationActionId));
+      expect(action, containsPair('type', 'system_action'));
+      expect(action, containsPair('schedule', 'on demand'));
+      expect(action, containsPair('mutable', false));
+      expect(action['lifecycle'], containsPair('committedRevision', 43));
+      expect(action['index'], containsPair('state', 'degraded'));
+      final shown = await api(router).expectJsonObject('GET', '/api/scheduling/jobs/$memoryCurationActionId');
+      expect(shown['runnable'], true);
+      schedule.stop();
+    });
+
     test('returns jobs from the current YAML config', () async {
       writeJobsToYaml([
         {'name': 'daily-summary', 'schedule': '0 8 * * *', 'prompt': 'Summarize', 'delivery': 'announce'},
@@ -292,9 +343,8 @@ github:
   group('PATCH /api/config — validation', () {
     test('request without admin context returns 403 before mutating config', () async {
       final router = createRouter();
-      final json = await api(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'guards.content.enabled': false}, status: 403);
+      final json = await api(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'guards.content.enabled': false}, status: 403);
 
       expect(json, containsPair('error', containsPair('code', 'FORBIDDEN')));
     });
@@ -305,9 +355,8 @@ github:
       // localAdminMiddleware is what the server installs when auth is disabled;
       // without it the admin gate above would 403 every request in no-auth mode.
       final handler = const Pipeline().addMiddleware(localAdminMiddleware()).addHandler(router.call);
-      final json = await ApiRouteTestClient(
-        handler,
-      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
+      final json = await ApiRouteTestClient(handler)
+          .expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
 
       expect(json['applied'], ['scheduling.heartbeat.enabled']);
       expect(runtime.heartbeatEnabled, false);
@@ -325,9 +374,8 @@ github:
       (name: 'invalid value (port 0)', patch: {'port': 0}, field: 'port'),
     ]) {
       test('${testCase.name} returns 400 with field error', () async {
-        final json = await adminApi(
-          createRouter(),
-        ).expectJsonObject('PATCH', '/api/config', json: testCase.patch, status: 400);
+        final json = await adminApi(createRouter())
+            .expectJsonObject('PATCH', '/api/config', json: testCase.patch, status: 400);
 
         final errors = json['errors'] as List;
         expect(errors, isNotEmpty);
@@ -337,9 +385,8 @@ github:
 
     test('scheduling.jobs key returns 400', () async {
       final router = createRouter();
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.jobs': []}, status: 400);
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'scheduling.jobs': []}, status: 400);
 
       expect(json['error']['code'], 'INVALID_INPUT');
       expect(json['error']['message'], contains('job CRUD'));
@@ -347,9 +394,8 @@ github:
 
     test('enabling google chat without required auth fields returns 400', () async {
       final router = createRouter();
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'channels.google_chat.enabled': true}, status: 400);
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'channels.google_chat.enabled': true}, status: 400);
 
       final errors = json['errors'] as List;
       final fields = errors.map((error) => (error as Map<String, dynamic>)['field']).toSet();
@@ -365,9 +411,8 @@ github:
 
     test('enabling github without a webhook secret returns 400', () async {
       final router = createRouter();
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'github.enabled': true}, status: 400);
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'github.enabled': true}, status: 400);
 
       final errors = json['errors'] as List;
       expect(errors, hasLength(1));
@@ -438,9 +483,8 @@ channels:
       type: project-number
       value: "123456789"''');
       final router = createRouter();
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'channels.google_chat.service_account': '   '}, status: 400);
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'channels.google_chat.service_account': '   '}, status: 400);
 
       final errors = json['errors'] as List;
       expect((errors.first as Map<String, dynamic>)['field'], 'channels.google_chat.service_account');
@@ -451,9 +495,8 @@ channels:
     test('heartbeat toggle applied immediately, no restart.pending', () async {
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
       final router = createRouter(runtime: runtime);
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
 
       expect(json['applied'], ['scheduling.heartbeat.enabled']);
       expect(json['pendingRestart'], isEmpty);
@@ -496,9 +539,8 @@ channels:
       );
       expect(before, SessionKey.dmPerContact(peerId: 'alice@s.whatsapp.net'));
 
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'sessions.dm_scope': 'shared'});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'sessions.dm_scope': 'shared'});
       expect(json['applied'], ['sessions.dm_scope']);
       expect(json['pendingRestart'], isEmpty);
 
@@ -516,9 +558,8 @@ channels:
       ConfigChangeSubscriber(runtimeConfig: runtime, contextMonitor: contextMonitor).subscribe(eventBus);
       final router = createRouter(runtime: runtime, eventBus: eventBus);
 
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'context.warning_threshold': 90});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'context.warning_threshold': 90});
 
       expect(json['applied'], contains('context.warning_threshold'));
       expect(json['pendingRestart'], isEmpty);
@@ -575,9 +616,8 @@ channels:
     test('live + restart fields both handled', () async {
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
       final router = createRouter(runtime: runtime);
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false, 'port': 3001});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false, 'port': 3001});
 
       expect(json['applied'], ['scheduling.heartbeat.enabled']);
       expect(json['pendingRestart'], ['port']);
@@ -602,6 +642,112 @@ channels:
   });
 
   group('Job CRUD', () {
+    test('reserved system action rejects create before config or restart state changes', () async {
+      final before = File(configPath).readAsStringSync();
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(scheduleService: schedule);
+
+      final code = await api(router).expectJsonErrorCode(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {'name': memoryCurationActionId, 'schedule': '0 7 * * *', 'prompt': 'shadow', 'delivery': 'none'},
+        status: 409,
+      );
+
+      expect(code, 'RESERVED_SYSTEM_ACTION');
+      expect(File(configPath).readAsStringSync(), before);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), isFalse);
+      schedule.stop();
+    });
+
+    test('reserved system action rejects edit and delete as immutable', () async {
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(scheduleService: schedule);
+
+      expect(
+        await api(router).expectJsonErrorCode(
+          'PUT',
+          '/api/scheduling/jobs/$memoryCurationActionId',
+          json: {'schedule': '0 8 * * *'},
+          status: 409,
+        ),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('DELETE', '/api/scheduling/jobs/$memoryCurationActionId', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      schedule.stop();
+    });
+
+    test('complete proposed job set rejects a pre-existing reserved collision before unrelated writes', () async {
+      writeJobsToYaml([
+        {'name': memoryCurationActionId, 'schedule': '0 1 * * *', 'prompt': 'external collision', 'delivery': 'none'},
+        {'name': 'harmless', 'schedule': '0 2 * * *', 'prompt': 'safe', 'delivery': 'none'},
+        {
+          'id': 'harmless-task',
+          'type': 'task',
+          'schedule': '0 4 * * *',
+          'task': {'title': 'safe', 'description': 'safe', 'type': 'code'},
+        },
+      ]);
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(scheduleService: schedule);
+      final before = File(configPath).readAsBytesSync();
+      final liveBefore = schedule.entries.map((entry) => entry.id).toList();
+
+      expect(
+        await api(router).expectJsonErrorCode('GET', '/api/scheduling/jobs', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('GET', '/api/scheduling/jobs/$memoryCurationActionId', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+
+      expect(
+        await api(router).expectJsonErrorCode(
+          'POST',
+          '/api/scheduling/jobs',
+          json: {'name': 'unrelated', 'schedule': '0 3 * * *', 'prompt': 'safe', 'delivery': 'none'},
+          status: 409,
+        ),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router)
+            .expectJsonErrorCode('PUT', '/api/scheduling/jobs/harmless', json: {'prompt': 'still safe'}, status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('DELETE', '/api/scheduling/jobs/harmless', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('DELETE', '/api/scheduling/tasks/harmless-task', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(File(configPath).readAsBytesSync(), before);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), isFalse);
+      expect(schedule.entries.map((entry) => entry.id), liveBefore);
+      schedule.stop();
+    });
+
     test('POST creates a new job', () async {
       final router = createRouter();
       final json = await api(router).expectJsonObject(
@@ -665,9 +811,8 @@ channels:
       writeJobsToYaml(jobs);
       final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
-      final json = await api(
-        router,
-      ).expectJsonObject('PUT', '/api/scheduling/jobs/my-job', json: {'schedule': '0 8 * * *'});
+      final json = await api(router)
+          .expectJsonObject('PUT', '/api/scheduling/jobs/my-job', json: {'schedule': '0 8 * * *'});
 
       expect(json['job']['schedule'], '0 8 * * *');
       expect(json['job']['name'], 'my-job');
@@ -676,9 +821,8 @@ channels:
 
     test('PUT non-existent job returns 404', () async {
       final router = createRouter();
-      await api(
-        router,
-      ).expectResponse('PUT', '/api/scheduling/jobs/nonexistent', json: {'schedule': '0 8 * * *'}, status: 404);
+      await api(router)
+          .expectResponse('PUT', '/api/scheduling/jobs/nonexistent', json: {'schedule': '0 8 * * *'}, status: 404);
     });
 
     test('DELETE removes job', () async {
@@ -719,9 +863,8 @@ channels:
         final fetched = await api(router).expectJsonObject('GET', '/api/scheduling/jobs/$encoded');
         expect(fetched['name'], specialName);
 
-        final updated = await api(
-          router,
-        ).expectJsonObject('PUT', '/api/scheduling/jobs/$encoded', json: {'schedule': '0 8 * * *'});
+        final updated = await api(router)
+            .expectJsonObject('PUT', '/api/scheduling/jobs/$encoded', json: {'schedule': '0 8 * * *'});
         expect(updated['job']['name'], specialName);
         expect(updated['job']['schedule'], '0 8 * * *');
 
@@ -825,9 +968,8 @@ channels:
         },
       ]);
       final router = createRouter();
-      final json = await api(
-        router,
-      ).expectJsonObject('PUT', '/api/scheduling/tasks/my-task', json: {'enabled': false, 'title': 'New title'});
+      final json = await api(router)
+          .expectJsonObject('PUT', '/api/scheduling/tasks/my-task', json: {'enabled': false, 'title': 'New title'});
 
       expect(json['task']['enabled'], false);
       expect(json['task']['task']['title'], 'New title');
@@ -841,9 +983,8 @@ channels:
 
     test('PUT /api/scheduling/tasks/<id> returns 404 for missing task', () async {
       final router = createRouter();
-      await api(
-        router,
-      ).expectResponse('PUT', '/api/scheduling/tasks/nonexistent', json: {'enabled': false}, status: 404);
+      await api(router)
+          .expectResponse('PUT', '/api/scheduling/tasks/nonexistent', json: {'enabled': false}, status: 404);
     });
 
     test('DELETE /api/scheduling/tasks/<id> removes from scheduling.jobs', () async {
@@ -884,9 +1025,8 @@ channels:
         status: 201,
       );
 
-      final updated = await api(
-        router,
-      ).expectJsonObject('PUT', '/api/scheduling/tasks/$encoded', json: {'enabled': false});
+      final updated = await api(router)
+          .expectJsonObject('PUT', '/api/scheduling/tasks/$encoded', json: {'enabled': false});
       expect(updated['task']['enabled'], false);
 
       final deleted = await api(router).expectJsonObject('DELETE', '/api/scheduling/tasks/$encoded');
@@ -937,9 +1077,8 @@ workspace:
     push_enabled: true
 ''');
       final router = createRouter();
-      final json = await api(
-        router,
-      ).expectJsonObject('PUT', '/api/scheduling/jobs/job-with-id', json: {'enabled': false});
+      final json = await api(router)
+          .expectJsonObject('PUT', '/api/scheduling/jobs/job-with-id', json: {'enabled': false});
 
       expect(json['job']['enabled'], false);
     });
@@ -989,9 +1128,8 @@ workspace:
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final pairing = ctrl.createPairing('+15551234567', displayName: 'Alice')!;
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final json = await api(
-        router,
-      ).expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': pairing.code});
+      final json = await api(router)
+          .expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': pairing.code});
 
       expect(json['confirmed'], true);
       expect(json['senderId'], '+15551234567');
@@ -1002,18 +1140,16 @@ workspace:
     test('confirm with expired/unknown code returns 404', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      await api(
-        router,
-      ).expectResponse('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': 'INVALID!'}, status: 404);
+      await api(router)
+          .expectResponse('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': 'INVALID!'}, status: 404);
     });
 
     test('reject removes pairing without adding to allowlist', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final pairing = ctrl.createPairing('+15551234567')!;
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final json = await api(
-        router,
-      ).expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/reject', json: {'code': pairing.code});
+      final json = await api(router)
+          .expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/reject', json: {'code': pairing.code});
 
       expect(json['rejected'], true);
       expect(ctrl.isAllowed('+15551234567'), isFalse);
@@ -1023,9 +1159,8 @@ workspace:
     test('reject with unknown code returns 404', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      await api(
-        router,
-      ).expectResponse('POST', '/api/channels/whatsapp/dm-pairing/reject', json: {'code': 'NONEXIST'}, status: 404);
+      await api(router)
+          .expectResponse('POST', '/api/channels/whatsapp/dm-pairing/reject', json: {'code': 'NONEXIST'}, status: 404);
     });
 
     test('GET on non-configured channel returns 404', () async {
@@ -1079,9 +1214,8 @@ workspace:
       final router = createRouterWithNotifier(notifier);
 
       // concurrency.max_parallel_turns is reloadable
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
 
       expect(json['applied'], contains('concurrency.max_parallel_turns'));
       expect(json['pendingRestart'], isEmpty);
@@ -1109,9 +1243,8 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4, 'port': 9090});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4, 'port': 9090});
 
       expect(json['applied'], contains('concurrency.max_parallel_turns'));
       expect(json['pendingRestart'], contains('port'));
@@ -1122,9 +1255,8 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'workflow.defaults.reviewer.model': 'codex/gpt-5-codex'});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'workflow.defaults.reviewer.model': 'codex/gpt-5-codex'});
 
       expect(json['pendingRestart'], contains('workflow.defaults.reviewer.model'));
       expect(json['pendingRestart'], contains('workflow.defaults.reviewer.provider'));
@@ -1139,9 +1271,8 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'agent.model': 'codex/gpt-5.4'});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'agent.model': 'codex/gpt-5.4'});
 
       expect(json['pendingRestart'], contains('agent.model'));
       expect(json['pendingRestart'], contains('agent.provider'));
@@ -1156,9 +1287,8 @@ workspace:
       // Use _ThrowingConfigNotifier to simulate a reload() failure.
       final throwingRouter = _buildRouterWithThrowingNotifier(configPath, dataDir);
 
-      final json = await adminApi(
-        throwingRouter,
-      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
+      final json = await adminApi(throwingRouter)
+          .expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
 
       // Field written to YAML but reload failed → falls back to pendingRestart
       expect(json['applied'], isEmpty);
@@ -1188,9 +1318,8 @@ workspace:
       );
 
       // scheduling.heartbeat.enabled is a live field
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
 
       expect(json['applied'], contains('scheduling.heartbeat.enabled'));
       expect(json['pendingRestart'], isEmpty);
@@ -1202,9 +1331,8 @@ workspace:
       // createRouter() does not wire a ConfigNotifier
       final router = createRouter();
 
-      final json = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
+      final json = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
 
       expect(json['applied'], isEmpty);
       expect(json['pendingRestart'], contains('concurrency.max_parallel_turns'));
@@ -1251,9 +1379,8 @@ workspace:
       final iterator = StreamIterator(sseResponse.read().transform(utf8.decoder));
       addTearDown(iterator.cancel);
 
-      final patchJson = await adminApi(
-        router,
-      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
+      final patchJson = await adminApi(router)
+          .expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
       expect(patchJson['applied'], contains('concurrency.max_parallel_turns'));
       expect(patchJson['pendingRestart'], isEmpty);
 
@@ -1327,7 +1454,7 @@ Router _buildRouterWithThrowingNotifier(String configPath, String dataDir) {
 
 /// [ConfigNotifier] subclass whose [reload] always throws.
 class _ThrowingConfigNotifier extends ConfigNotifier {
-  _ThrowingConfigNotifier(super.initial);
+  new(super.initial);
 
   @override
   ConfigDelta? reload(DartclawConfig newConfig) {

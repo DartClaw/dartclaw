@@ -45,14 +45,14 @@ tasks:
       expect(config.tasks.budget.warningThreshold, 0.75);
     });
 
-    test('budget section does not affect other tasks fields', () {
+    test('parses a budget alongside other task configuration', () {
       final config = _loadConfig('''
 tasks:
-  max_concurrent: 5
+  artifact_retention_days: 5
   budget:
     default_max_tokens: 200000
 ''');
-      expect(config.tasks.maxConcurrent, 5);
+      expect(config.tasks.artifactRetentionDays, 5);
       expect(config.tasks.budget.defaultMaxTokens, 200000);
     });
 
@@ -92,6 +92,15 @@ tasks:
     default_max_tokens: 0
 ''');
       expect(config.tasks.budget.defaultMaxTokens, isNull);
+    });
+
+    test('removed max_concurrent warns and does not create a second capacity limit', () {
+      final config = _loadConfig('''
+tasks:
+  max_concurrent: 5
+''');
+
+      expect(config.warnings, anyElement(contains('providers.<id>.pool_size')));
     });
   });
 }

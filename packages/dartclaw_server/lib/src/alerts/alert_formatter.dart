@@ -13,7 +13,7 @@ import 'alert_classifier.dart';
 class AlertFormatter {
   final ChatCardBuilder _cardBuilder;
 
-  const AlertFormatter({ChatCardBuilder cardBuilder = const ChatCardBuilder()}) : _cardBuilder = cardBuilder;
+  const new({ChatCardBuilder cardBuilder = const ChatCardBuilder()}) : _cardBuilder = cardBuilder;
 
   /// Formats [event] into a [ChannelResponse] appropriate for [channelType].
   ///
@@ -126,7 +126,7 @@ class AlertFormatter {
     MapStepCompletedEvent() => event.runtimeType.toString(),
     WorkflowSerializationEnactedEvent() => event.runtimeType.toString(),
     StepSkippedEvent() => event.runtimeType.toString(),
-    AgentStateChangedEvent() => event.runtimeType.toString(),
+    RunnerStateChangedEvent() => event.runtimeType.toString(),
     AgentExecutionStatusChangedEvent() => event.runtimeType.toString(),
     OutboundMcpGovernanceEvent() => event.runtimeType.toString(),
     ContextResearchMetricsEvent() => event.runtimeType.toString(),
@@ -180,7 +180,7 @@ class AlertFormatter {
     MapStepCompletedEvent() => null,
     WorkflowSerializationEnactedEvent() => null,
     StepSkippedEvent() => null,
-    AgentStateChangedEvent() => null,
+    RunnerStateChangedEvent() => null,
     AgentExecutionStatusChangedEvent() => null,
     OutboundMcpGovernanceEvent() => null,
     ContextResearchMetricsEvent() => null,

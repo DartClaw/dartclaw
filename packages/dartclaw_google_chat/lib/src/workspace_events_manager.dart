@@ -24,12 +24,7 @@ class SubscriptionRecord {
   /// When the subscription was created (UTC).
   final DateTime createdAt;
 
-  const SubscriptionRecord({
-    required this.spaceId,
-    required this.subscriptionName,
-    required this.expireTime,
-    required this.createdAt,
-  });
+  const new({required this.spaceId, required this.subscriptionName, required this.expireTime, required this.createdAt});
 
   /// Whether this subscription has expired.
   bool get isExpired => isExpiredAt();
@@ -38,7 +33,7 @@ class SubscriptionRecord {
   bool isExpiredAt([DateTime? now]) => (now ?? DateTime.now().toUtc()).isAfter(expireTime);
 
   /// Parses a record from persisted JSON.
-  factory SubscriptionRecord.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     return SubscriptionRecord(
       spaceId: json['spaceId'] as String,
       subscriptionName: json['subscriptionName'] as String,
@@ -108,7 +103,7 @@ class WorkspaceEventsManager {
   /// [dataDir] — directory for persisting subscription metadata.
   /// [delay] — optional delay override for testing.
   /// [clock] — optional clock override for testing.
-  WorkspaceEventsManager({
+  new({
     required http.Client authClient,
     required SpaceEventsConfig config,
     required String dataDir,
@@ -430,7 +425,7 @@ class WorkspaceEventsManager {
       // Handle 409 ALREADY_EXISTS — subscription exists server-side but
       // was lost locally (e.g. after restart). Recover by fetching it.
       if (response.statusCode == 409) {
-        return _recoverExistingSubscription(spaceId, response.body);
+        return await _recoverExistingSubscription(spaceId, response.body);
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {

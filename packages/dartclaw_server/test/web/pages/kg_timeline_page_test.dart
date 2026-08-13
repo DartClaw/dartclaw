@@ -362,14 +362,14 @@ final _emptySidebarData = (
 );
 
 final class _NeverResolver implements CitationSourceResolver {
-  const _NeverResolver();
+  const new();
 
   @override
   Future<bool> resolves(SourceRef ref) async => false;
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  _ThrowingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');

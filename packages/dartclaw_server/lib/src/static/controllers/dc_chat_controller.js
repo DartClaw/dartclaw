@@ -22,6 +22,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.activeReferenceIndex = 0;
     this.streaming = false;
     this.recoveryActive = false;
+    this.turnFinalized = false;
     this.canCancel = false;
     this.turnStatusTimer = null;
     this.turnStatusPollGeneration = 0;
@@ -169,6 +170,7 @@ export default class DcChatController extends Stimulus.Controller {
       textarea.placeholder = 'Agent is responding...';
     }
     this.streaming = true;
+    this.turnFinalized = false;
     document.body.classList.add('streaming');
     this.form?.classList.add('composer--streaming');
     if (button) button.disabled = false;
@@ -361,7 +363,12 @@ export default class DcChatController extends Stimulus.Controller {
     this.sseStickyIntent = null;
   }
 
-  handleSseClose() {
+  handleTurnCancelled() {
+    this.showRecovery('Turn stopped. Edit your message or send again.');
+  }
+
+  handleSseClose(event) {
+    if (event.detail?.type !== 'message') return;
     this.finalizeTurn({ preserveInput: this.recoveryActive });
   }
 
@@ -371,10 +378,11 @@ export default class DcChatController extends Stimulus.Controller {
     const message = turnError ? turnError.textContent : 'Stream error';
     if (container) container.innerHTML = '';
     this.showRecovery(message + ' Retry by editing and sending again.');
-    this.finalizeTurn({ preserveInput: true, refreshMessages: true });
   }
 
   finalizeTurn(options = {}) {
+    if (this.turnFinalized) return;
+    this.turnFinalized = true;
     const preserveInput = Boolean(options.preserveInput);
     const refreshMessages = options.refreshMessages !== false;
     document.body.classList.remove('streaming');

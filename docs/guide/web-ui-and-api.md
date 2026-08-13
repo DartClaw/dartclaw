@@ -74,6 +74,11 @@ The interface has three main areas:
 - **Attribution**: The shared source-attribution component keeps wiki pages, KG facts, memory entries, and inbox sources traceable
 - **Read-only**: Ingestion and invalidation remain MCP/tool or job operations
 
+**Memory lifecycle**
+- **Inspect**: `/memory` separates canonical roles, raw observations, the bounded prompt index, and rebuildable search rows
+- **Curate**: **Curate now** uses the same immutable `memory-curation` run-now action as Scheduling and `dartclaw jobs run`
+- **Recover**: Degraded index states keep canonical success intact and point to the stopped-runtime `dartclaw rebuild-index` path
+
 **Temporal KG Timeline**
 - **Open**: Select **Timeline** within **Knowledge**, or open `/knowledge/timeline` directly
 - **As-of view**: Add `as_of=<ISO-8601 timestamp>` to inspect the graph at a point in time, for example `/knowledge/timeline?as_of=2026-01-01T00:00:00Z`
@@ -126,7 +131,8 @@ Returns the persisted session metadata for a single session.
 POST /api/sessions
 ```
 
-No body required. Returns the new session.
+No body required. Returns the new session. Interactive session creation does not accept a provider override; sends use
+the fixed primary lane and global `agent.provider`.
 
 ```json
 {
@@ -323,6 +329,13 @@ Requires admin access. Non-admin or unauthenticated requests receive `403`.
 
 ### Scheduling
 
+#### `POST /api/scheduling/jobs/:name/run`
+
+Starts a live prompt job immediately and returns `202` with `{"name":"daily-summary","status":"started"}`. Returns
+`409 CONFLICT` when the job is already running, `404 NOT_FOUND` when it is absent from the live scheduler or not
+runnable on demand, and `404 NOT_AVAILABLE` when scheduling is not configured. The route uses the same authentication
+as the other scheduling APIs. Job changes require a restart before this endpoint can run them.
+
 #### List jobs
 
 ```
@@ -371,7 +384,11 @@ DELETE /api/scheduling/jobs/:name
 GET /api/memory/status
 ```
 
-Returns memory overview: file sizes, entry counts, pruner status.
+Returns the operator projection: `collection`, `promptIndex`, `observations`, `index`, and optional `curation` objects.
+Counts are nullable when evidence is unavailable. Observation `usageKind` is `exact`, `lowerBound`, or `unknown`, while
+its warning is `none`, `active`, or `unknown`. Curation is absent only before the first run; corrupt lifecycle evidence
+is returned as unknown. The warning is informational – status never deletes observations or blocks writes by aggregate
+usage alone.
 
 #### Read memory file
 
@@ -405,7 +422,7 @@ Supports filtering by `taskId`, `sessionId`, `provider`, `since`, `until`, `limi
 GET /api/traces/:id
 ```
 
-Returns a single persisted turn trace, including token totals, duration, and tool call records.
+Returns a single persisted turn trace, including token totals, duration, bounded `toolCalls` detail, exact `toolCallCount` and `failedToolCallCount`, and `toolCallsTruncated`. When truncated, detail contains the first 63 records plus the latest.
 
 ### Workflows
 
@@ -594,7 +611,10 @@ Global SSE stream for system-level events (e.g., `server_restart`). Separate fro
 GET /api/tasks/events
 ```
 
-Task/dashboard clients receive JSON Server-Sent Events. Existing event types include `connected`, `task_status_changed`, `agent_state`, `project_status`, `task_progress`, `task_event`, and `workflow_sidebar_update`. Turn monitor updates are delivered on the same stream as `turn_wait_state`, using the same authoritative `wait_reason` and `can_cancel` semantics as `GET /api/sessions/:id/turn-status`:
+Task/dashboard clients receive JSON Server-Sent Events. Existing event types include `connected`, `task_status_changed`, `runner_state`, `project_status`, `task_progress`, `task_event`, and `workflow_sidebar_update`. Turn monitor updates are delivered on the same stream as `turn_wait_state`, using the same authoritative `wait_reason` and `can_cancel` semantics as `GET /api/sessions/:id/turn-status`:
+
+`runner_state` reflects coordinator lease events and currently observed runners. Worker IDs are runtime identities, not
+static pool slots; configured/effective/active/queued/cached/quarantined counts come from the same lease snapshot.
 
 ```json
 {
@@ -669,11 +689,12 @@ These tools are available to the agent during conversations. They're exposed via
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `memory_save` | `text` (required), `category` (optional) | Save text to persistent memory. Categories: general, preferences, facts, etc. |
-| `memory_search` | `query` (required), `limit` (optional, default 5) | Search memory using FTS5 full-text search. Returns ranked results. |
-| `memory_read` | – | Read the full contents of MEMORY.md |
+| `memory_apply` | `expectedRevision`, nonempty `operations` array | Atomically add, revise, merge, or remove curated personal entries. Every operation supplies a unique `correlationId`; revise/merge/remove use entry revisions. |
+| `memory_observe` | `text`, `role` (`observation` or `learning`) | Capture non-authoritative observations or bounded runtime learnings. |
+| `memory_search` | `query` (required), `limit` (optional integer, 1–50, default 5) | Search canonical memory and sourced knowledge using the configured backend's natural-language query path. Non-integer or out-of-range limits are rejected. Returns ranked results with explicit degraded-layer metadata. |
+| `memory_read` | `locator`, or `role` + `topic`; optional `limit` | Read a bounded canonical record or reopen a native wiki, knowledge-graph, knowledge-inbox, or eligible QMD search locator through its source owner. `role` + `topic` addresses canonical topic-bearing roles only. |
 
-The agent decides when to use these tools based on the conversation context. Memory persists across sessions.
+`memory_apply` is personal-memory-only and uses the collection revision returned by canonical reads/search results. A valid changed request commits once; an exact no-op does not advance revision. Results report canonical and derived-index outcomes separately. Removal audit records contain the entry ID, time, host provenance, and the caller's unfiltered verbatim reason. The host never copies entry content into the record, though the caller's reason may independently quote it.
 
 ## Temporal Knowledge Graph MCP Tools
 

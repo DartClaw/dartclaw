@@ -7,13 +7,13 @@ class KnowledgeConfig {
   final KnowledgeWikiLintConfig wikiLint;
 
   /// Creates a [KnowledgeConfig] value.
-  const KnowledgeConfig({
+  const new({
     this.inbox = const KnowledgeInboxConfig.defaults(),
     this.wikiLint = const KnowledgeWikiLintConfig.defaults(),
   });
 
   /// Creates a [KnowledgeConfig.defaults] value.
-  const KnowledgeConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -44,7 +44,7 @@ class KnowledgeInboxConfig {
   final String deliveryMode;
 
   /// Creates a [KnowledgeInboxConfig] value.
-  const KnowledgeInboxConfig({
+  const new({
     required this.enabled,
     required this.intervalMinutes,
     required this.maxBytes,
@@ -54,7 +54,7 @@ class KnowledgeInboxConfig {
   });
 
   /// Creates a [KnowledgeInboxConfig.defaults] value.
-  const KnowledgeInboxConfig.defaults()
+  const new defaults()
     : enabled = false,
       intervalMinutes = 5,
       maxBytes = 1024 * 1024,
@@ -90,10 +90,10 @@ class KnowledgeWikiLintConfig {
   final String deliveryMode;
 
   /// Creates a [KnowledgeWikiLintConfig] value.
-  const KnowledgeWikiLintConfig({required this.enabled, required this.intervalMinutes, required this.deliveryMode});
+  const new({required this.enabled, required this.intervalMinutes, required this.deliveryMode});
 
   /// Creates a [KnowledgeWikiLintConfig.defaults] value.
-  const KnowledgeWikiLintConfig.defaults() : enabled = false, intervalMinutes = 60, deliveryMode = 'announce';
+  const new defaults() : enabled = false, intervalMinutes = 60, deliveryMode = 'announce';
 
   @override
   bool operator ==(Object other) =>

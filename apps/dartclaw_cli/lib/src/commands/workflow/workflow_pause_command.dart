@@ -1,7 +1,7 @@
 import 'workflow_run_id_command.dart';
 
 class WorkflowPauseCommand extends WorkflowRunIdCommand {
-  WorkflowPauseCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,
@@ -30,7 +30,7 @@ class WorkflowPauseCommand extends WorkflowRunIdCommand {
     if (isStandalone) {
       await runStandaloneLifecycle(
         runId: runId,
-        provisionTaskRunners: false,
+        provisionWorkers: false,
         runWorkflowSkillsBootstrap: false,
         action: (session) async {
           final paused = await session.wiring.workflowService.pause(runId);

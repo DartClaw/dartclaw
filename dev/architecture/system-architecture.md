@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.23
+**Current through**: 0.24
 
 ---
 
@@ -56,10 +56,10 @@ DartClaw is a **2-layer agent runtime**. The Dart host is the control plane (ful
 | Concern | Layer 1 (Dart Host) | Layer 2 (Execution-Plane Providers) |
 |---------|--------------------|-----------------------|
 | State | Sessions, messages, memory, tasks, config, audit logs | Stateless (no session persistence) |
-| Security | Guard chain, Claude container orchestration, credential proxy, audit | Tool execution inside the active provider boundary |
+| Security | Guard chain, container orchestration, host gateway mediation, audit | Tool execution inside the active provider boundary |
 | Networking | HTTP server, SSE streaming, channel webhooks, MCP endpoint | Constrained by the active boundary (Claude container or Codex sandbox/runtime) |
-| Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, delegation admission | LLM reasoning, tool selection and execution inside the provider boundary |
-| Credentials | Owns all API keys; injects them through provider-specific boundaries (proxy for Claude, env for Codex, ACP target-specific environment or CLI auth) | Provider binaries receive only the credentials required for their family |
+| Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, logical-agent session admission | LLM reasoning, tool selection and execution inside the provider boundary |
+| Credentials | Owns all API keys; container executions reach their provider only through the host gateway, host executions receive their provider-scoped credential directly (ACP is host-only) | Provider binaries receive only the credentials required for their family |
 
 Design rationale: [ADR-001 (SDK Integration & Security Architecture)](../adrs/001-sdk-integration-and-security-architecture.md)
 
@@ -113,7 +113,7 @@ and context-specific remediation text.
 │  ┌──────────┐  ┌──────────────▼───────────────┐  ┌────────────────────┐ │
 │  │ Event    │  │ Turn Orchestration            │  │ Task Orchestrator  │ │
 │  │ Bus      │◄─┤ TurnManager · TurnRunner     │  │ TaskExecutor       │ │
-│  │          │  │ HarnessPool · SessionLock     │  │ WorktreeManager    │ │
+│  │          │  │ ExecutionCoordinator · locks │  │ WorktreeManager    │ │
 │  └────┬─────┘  └──────────────┬───────────────┘  │ DiffGenerator      │ │
 │       │                       │                   │ MergeExecutor      │ │
 │       │        ┌──────────────▼───────────────┐   └────────┬───────────┘ │
@@ -131,8 +131,8 @@ and context-specific remediation text.
 │  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
 │  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
 │  │ Cmd/File │  │ CredentialRegistry            │  │ SQLite: search.db  │ │
-│  │ Net/Cont │  │ CredentialProxy               │  │         tasks.db   │ │
-│  │          │  │ Docker (per-profile)          │  │         state.db   │ │
+│  │ Net/Cont │  │ HostGateway (per authority)   │  │         tasks.db   │ │
+│  │          │  │ Docker (per authority)        │  │         state.db   │ │
 │  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
 │                                                                          │
 │  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
@@ -144,7 +144,7 @@ and context-specific remediation text.
 │                                                                          │
 │  ┌──────────────────────────┐  ┌──────────────────────────────────────┐  │
 │  │ Project Management       │  │ Agent Observability                  │  │
-│  │ ProjectService           │  │ AgentObserver                        │  │
+│  │ ProjectService           │  │ RunnerObserver                        │  │
 │  │ RemotePushService        │  │ TurnTraceService · TaskEventService  │  │
 │  │ PrCreator · Isolate git  │  │ TaskEventRecorder                    │  │
 │  └──────────────────────────┘  └──────────────────────────────────────┘  │
@@ -177,7 +177,7 @@ and context-specific remediation text.
 │  ACP path (stdio JSON-RPC):                                               │
 │    ├── AcpHarness + AcpClient                                             │
 │    ├── Direct-provider targets can be guard-mediated after verification   │
-│    └── Relay or unverified targets remain container-isolation-only        │
+│    └── Relay or unverified targets are unavailable (host-only ACP)        │
 │                                                                          │
 │  Sidecar binaries (outpost pattern):                                     │
 │    ├── GOWA (Go) — WhatsApp Web protocol                                │
@@ -220,15 +220,21 @@ Turn orchestration coordinates message flow from user input through guard evalua
 
 | Component | File | Role |
 |-----------|------|------|
-| `TurnManager` | `turn_manager.dart` | Entry point for interactive turns (web, channels, cron). Delegates to `TurnRunner` |
-| `TurnRunner` | `turn_runner.dart` | Per-harness turn engine: guard evaluation, message persistence, SSE event streaming, progress-aware stall handling, cost tracking, crash recovery. One per harness in the pool |
+| `TurnManager` | `turn_manager.dart` | Entry point for turns after routing. Acquires an execution lease and delegates to `TurnRunner` |
+| `TurnRunner` | `turn_runner.dart` | Per-harness turn engine: guard evaluation, message persistence, SSE event streaming, progress-aware stall handling, cost tracking, crash recovery |
 | `TurnProgressMonitor` | `turn_progress_monitor.dart` | Resettable stall timer used by `TurnRunner`. Watches forward-progress events (`DeltaEvent`, `ToolUseEvent`, `ToolResultEvent`) and triggers warn/cancel/ignore actions when a turn goes silent |
-| `HarnessPool` | `harness_pool.dart` | Pool of `TurnRunner` instances. Index 0 = primary (interactive use), indices 1..N = task pool. Configurable `maxConcurrent` |
+| `ExecutionCoordinator` | `execution_coordinator.dart` | Post-governance authority: one fixed serialized primary lane for main user/channel turns; hard per-provider worker leases for tasks, scheduled/system/advisor work, and logical agents; capacity-only leases for workflow one-shots |
 | `SessionLockManager` | `concurrency/session_lock_manager.dart` | Per-session FIFO lock to serialize concurrent turns to the same session |
 | `ContextMonitor` | `context/context_monitor.dart` | Tracks context window usage; suppresses heuristic flush when deterministic compaction signals exist; deduplicates pre-compaction flushes per cycle; emits SSE `context_warning` when usage exceeds configurable threshold (one-shot per session) |
 | `ResultTrimmer` | `context/result_trimmer.dart` | Head+tail truncation for oversized tool results (fallback for `ExplorationSummarizer`) |
 | `ExplorationSummarizer` | `context/exploration_summarizer.dart` | Type-aware structural summaries for large tool output (JSON schema, CSV columns, source code declarations); falls back to `ResultTrimmer` for unrecognized types or parse failures |
 | `CompactionTaskEventSubscriber` | `task/compaction_task_event_subscriber.dart` | Listens for `CompactionCompletedEvent` and records a `compaction` task-timeline event when the compacted session belongs to an active running task |
+
+`providers.<id>.pool_size` is the hard concurrent worker-lease limit for that provider, not a target runner count.
+Workers are created on demand. After release, a healthy idle worker may be retained and reused only when its
+provider and security profile match within the immutable coordinator composition; the exact prior session is preferred. Reuse is
+an optimization, never the capacity authority. Provider/profile containers have their own lifecycle and may be shared by
+multiple workers, so container count and worker capacity are independent.
 
 **Context management strategy** (0.10): Layered mechanisms preserve useful context in long-running sessions:
 1. **Compact instructions** — `BehaviorFileService.composeSystemPrompt()` appends a `# Compact instructions` section for long-running session types (web, DM, group, cron), guiding the binary on what to preserve during auto-compaction. Configurable via `context.compact_instructions`.
@@ -330,7 +336,7 @@ The task orchestrator transforms DartClaw from a single-session assistant into a
 | `MergeExecutor` | `task/merge_executor.dart` | Squash/merge worktree back to main branch, conflict detection |
 | `TaskFileGuard` | `task/task_file_guard.dart` | Path containment via `p.isWithin()` — coding tasks restricted to worktree directory |
 | `ArtifactCollector` | `task/artifact_collector.dart` | Collects task outputs as typed artifacts (`diff`, `document`, `data`, `log`) |
-| `AgentObserver` | `task/agent_observer.dart` | Per-agent metrics: busy/idle tracking, turn counts, harness status |
+| `RunnerObserver` | `task/runner_observer.dart` | Current runner lifecycle and cumulative turn metrics derived from coordinator events |
 | `TaskReviewService` | `task/task_review_service.dart` | Shared accept/reject/push-back lifecycle for both HTTP and channel review paths. Owns state transition, merge execution (coding tasks), conflict artifact persistence, worktree cleanup, and `TaskStatusChangedEvent` firing. Single shared instance wired into both `task_routes.dart` and `ChannelManager` |
 | `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions (queued, running, review, accepted, rejected, failed). Notification text is conditioned on task type — worktree-backed tasks include merge outcome language; non-coding tasks do not. When thread binding is enabled and the origin channel is Google Chat, the initial `running` notification is sent in a new thread (via `sendMessageWithThread`); the returned `thread.name` is used to create a `ThreadBinding`, and subsequent notifications for that task are threaded into the same conversation |
 | `AdvisorSubscriber` | `advisor/advisor_subscriber.dart` | EventBus-driven crowd-coding observer. Accumulates a bounded normalized context window, evaluates triggers (`periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`), acquires a pooled runner for an advisory turn, parses structured output, then routes the result to bound channels and the event bus |
@@ -360,10 +366,10 @@ Defense-in-depth across five layers:
 
 ```
 Layer 5:  OS-level container isolation (Docker kernel namespaces)
-Layer 4:  Network isolation (network:none + Dart credential proxy)
+Layer 4:  Network isolation (network:none + host-gateway mediation)
 Layer 3:  Guard chain (command/file/network/content/input sanitizer)
 Layer 2:  Prompt-level safety rules (AGENTS.md, hardcoded rules)
-Layer 1:  Credential isolation (Claude API keys stay behind CredentialProxy; Codex/ACP credentials are provider-scoped)
+Layer 1:  Credential isolation (container provider traffic is mediated by the host gateway; credentials stay host-side)
 ```
 
 | Component | File | Role |
@@ -374,7 +380,7 @@ Layer 1:  Credential isolation (Claude API keys stay behind CredentialProxy; Cod
 | `NetworkGuard` | `security/network_guard.dart` | Domain allowlist + SSRF detection (DNS resolution + address range validation) |
 | `ContentGuard` | `security/content_guard.dart` | LLM-based content classification at agent boundary (Haiku) |
 | `InputSanitizer` | `security/input_sanitizer.dart` | Length cap + regex scrub on inbound channel messages |
-| `MessageRedactor` | `security/message_redactor.dart` | Pattern-based redaction of secrets/PII in logged output |
+| `MessageRedactor` | `security/message_redactor.dart` | Best-effort pattern-based redaction of secrets in logged output |
 | `GuardAuditLogger` | `security/guard_audit.dart` | Date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup |
 | `ContainerManager` | `container/container_manager.dart` | Docker lifecycle: create, start, exec, stop. Per-security-profile containers |
 | `ContentClassifier` | `security/content_classifier.dart` | Pluggable backends: `ClaudeBinaryClassifier` (default) or `AnthropicApiClassifier` |
@@ -463,7 +469,10 @@ The config API now partitions fields into three mutability classes:
 
 In 0.16, this powers hot-reload for context settings, scheduling services, alert routing config, guard-chain rebuilds, queue/lock tuning, and other runtime-owned services. Server socket bindings (`server.port`, `server.host`, `server.data_dir`) remain explicitly non-reloadable and are excluded from `ConfigDelta`.
 
-Behavior files (`SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`) are re-read every turn — no restart needed for behavior changes.
+Every turn receives an authoritative prompt for its scope. Replace-mode providers recompose current behavior files and,
+for primary turns, a fresh bounded canonical-memory index projection. Append-mode providers receive scoped static
+behavior plus the same fresh bounded projection through the turn prompt; topic bodies remain available on demand through
+`memory_search` and `memory_read`.
 
 **Package**: `dartclaw_core` (live config notifier, delta, runtime-facing interfaces), `dartclaw_config` (typed config model, metadata, validator, writer), `dartclaw_server` (API routes), `dartclaw_cli` (reload triggers)
 
@@ -516,8 +525,8 @@ sealed class DartclawEvent
 ├── EmergencyStopEvent           — /stop command executed
 ├── AdvisorMentionEvent          — explicit `@advisor` invocation from channel traffic
 ├── AdvisorInsightEvent          — structured advisor output routed to channels and SSE
-├── sealed AgentLifecycleEvent
-│   └── AgentStateChangedEvent   — harness busy/idle transitions
+├── sealed RunnerLifecycleEvent
+│   └── RunnerStateChangedEvent   — harness busy/idle transitions
 └── sealed ContainerLifecycleEvent
     ├── ContainerStartedEvent    — container started
     ├── ContainerStoppedEvent    — container stopped
@@ -568,21 +577,23 @@ The shipped alert classification model covers guard blocks, container crashes, n
 #### Memory & Search
 
 ```
-MEMORY.md ──(source of truth)──► search.db (FTS5 index, rebuildable)
-daily logs  ─────────────────────┘
+canonical topic + archive + observation + learning roles ──► search.db (FTS5 projection, rebuildable)
 ```
+
+Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
+union that `dartclaw rebuild-index` restores.
 
 | Component | File | Role |
 |-----------|------|------|
-| `MemoryFileService` | `memory/memory_file.dart` | Read/write MEMORY.md with size cap and atomic writes |
-| `SelfImprovementService` | `memory/self_improvement.dart` | Auto-populate `errors.md` on failures, route `learnings.md` via memory_save |
-| `MemoryPruner` | `memory/memory_pruner.dart` | Archive entries >90d, exact dedup, keep under cap |
-| `MemoryService` | `storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
-| `SearchDb` | `storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
-| `Fts5SearchBackend` | `search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
-| `QmdSearchBackend` | `search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar for neural reranking |
+| `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Daily-observation adapter over `MemoryCorpusService`, plus bounded source reads and indexing helpers |
+| `SelfImprovementService` | `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
+| `MemoryPruner` | `packages/dartclaw_storage/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
+| `MemoryService` | `packages/dartclaw_storage/lib/src/storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
+| `SearchDb` | `packages/dartclaw_storage/lib/src/storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
+| `Fts5SearchBackend` | `packages/dartclaw_storage/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
+| `QmdSearchBackend` | `packages/dartclaw_storage/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
 
-Memory MCP tools (`memory_save`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
+Memory MCP tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 
 #### Context Research Synthesis
 
@@ -597,7 +608,7 @@ At call time the tool fans out retrieval across:
 - wiki/source documents exposed through the knowledge layer.
 
 Results are deduplicated while preserving source metadata. Synthesis then runs through the injected background-turn
-seam; production wiring uses the existing session delegation path, while tests can inject a deterministic synthesizer.
+seam; production wiring uses the logical-agent session path, while tests can inject a deterministic synthesizer.
 The returned `CitationPacket` contains statements, source references, degraded layers, and a
 `noSourcesFound` flag. If no sources are found, the packet reports that state instead of fabricating an answer. If the
 synthesizer returns malformed output, assembly falls back to citation-preserving snippets.
@@ -657,8 +668,9 @@ Internal MCP server hosted as a `/mcp` endpoint on the existing shelf HTTP serve
 |-----------|------|------|
 | `McpProtocolHandler` | `mcp/mcp_server.dart` | MCP protocol handling, tool registration |
 | `McpRouter` | `mcp/mcp_router.dart` | Shelf route adapter for MCP HTTP transport |
-| `MemoryTools` | `mcp/memory_tools.dart` | `memory_save`, `memory_search`, `memory_read` |
-| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Inter-agent delegation (sync) |
+| `MemoryTools` | `mcp/memory_tools.dart` | `memory_apply`, `memory_observe`, `memory_search`, `memory_read` |
+| `SessionsSpawnTool` | `mcp/sessions_spawn_tool.dart` | Create a configured logical-agent conversation (sync) |
+| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Continue a logical-agent conversation (sync) |
 | `WebFetchTool` | `mcp/web_fetch_tool.dart` | SSRF-hardened fetch with inline ContentGuard scanning |
 | `BraveSearchTool` | `mcp/brave_search_tool.dart` | Brave Search API |
 | `TavilySearchTool` | `mcp/tavily_search_tool.dart` | Tavily Search API |
@@ -710,7 +722,7 @@ The `dartclaw` umbrella package re-exports `dartclaw_core`, `dartclaw_storage`, 
 
 | Package | Owns | Key Constraint |
 |---------|------|----------------|
-| `dartclaw_models` | `Session`, `Message`, `MemoryChunk`, `SessionKey`, `Task`, `Goal`, `TaskStatus`, `Project`, `ToolCallRecord`, `TaskEvent`, `TaskEventKind` | Zero dependencies — shareable everywhere |
+| `dartclaw_models` | `Session`, `Message`, `MemorySearchResult`, `SessionKey`, `Task`, `Goal`, `TaskStatus`, `Project`, `ToolCallRecord`, `TaskEvent`, `TaskEventKind` | Zero dependencies — shareable everywhere |
 | `dartclaw_security` | `Guard`, `GuardChain`, concrete guards, content classification interfaces, message redaction, guard audit primitives | Isolated security surface — no EventBus or server wiring |
 | `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file-based services (`SessionService`, `MessageService`, `KvService`, `MemoryFileService`), `EventBus`, workflow/task seams | **No sqlite3, no config parsing, no container orchestration** — shareable with future Flutter app |
 | `dartclaw_config` | `DartclawConfig`, typed config sections, `ConfigMeta`, `ConfigValidator`, `ConfigWriter` | Config loading/authoring isolated below core |
@@ -719,9 +731,9 @@ The `dartclaw` umbrella package re-exports `dartclaw_core`, `dartclaw_storage`, 
 | `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends on config + core – Signal-specific logic isolated |
 | `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Depends on config + core – Google auth + HTTP isolated from core |
 | `dartclaw_storage` | `MemoryService` (FTS5), `SearchDb`, `TaskDb`, `TurnStateStore`, `SqliteTaskRepository`, `SqliteGoalRepository`, `MemoryPruner`, `TurnTraceService`, `TaskEventService`, search backends (FTS5, QMD) | sqlite3 dependency isolated here |
-| `dartclaw_server` | `DartclawServer`, `TurnManager`, `TurnRunner`, `HarnessPool`, `TaskService`, `TaskExecutor`, `ProjectService`, `TaskEventRecorder`, `AlertRouter`, container orchestration, scheduling, behavior/workspace/maintenance/observability services, project API routes, trace query API, workflow HTTP routes, MCP server, web routes, templates, auth | shelf, http, workflow — server-only, not Flutter-compatible |
+| `dartclaw_server` | `DartclawServer`, `TurnManager`, `TurnRunner`, `ExecutionCoordinator`, `TaskService`, `TaskExecutor`, `ProjectService`, `TaskEventRecorder`, `AlertRouter`, container orchestration, scheduling, behavior/workspace/maintenance/observability services, project API routes, trace query API, workflow HTTP routes, MCP server, web routes, templates, auth | shelf, http, workflow — server-only, not Flutter-compatible |
 | `dartclaw_testing` | Shared test doubles and in-memory test helpers (`FakeAgentHarness`, `FakeGuard`, `InMemorySessionService`, `InMemoryTaskRepository`, `TestEventBus`) | Test-only support package; keep production code free of test helpers |
-| `dartclaw_cli` | CLI runner, `DartclawApiClient`, connected command groups (`workflow`, `tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, `jobs`), plus local lifecycle/maintenance commands (`serve`, `status`, `init`, `service`, `deploy`, `token`, `rebuild-index`, `sessions cleanup`) | args — application entry point and loopback operations surface |
+| `dartclaw_cli` | CLI runner, `DartclawApiClient`, connected command groups (`workflow`, `tasks`, `config`, `projects`, `sessions`, `runners`, `traces`, `jobs`), plus local lifecycle/maintenance commands (`serve`, `status`, `init`, `service`, `deploy`, `token`, `rebuild-index`, `sessions cleanup`) | args — application entry point and loopback operations surface |
 | `dartclaw` | Umbrella re-export of `dartclaw_core`, `dartclaw_storage`, `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat` | Lean SDK entry point; prefer direct packages for narrower dependency graphs |
 
 ### Why These Boundaries?
@@ -803,35 +815,35 @@ Runtime dependencies:
 - Bundled SQLite library (`lib/sqlite3.*`; `lib/sqlite3.dll` on Windows) — for search index and task persistence
 - Channel sidecars (optional): GOWA binary (WhatsApp), signal-cli (Signal)
 
-### Claude Container Isolation Topology
+### Container Isolation Topology
 
 ```
 Host OS
   ├── dartclaw binary (Dart AOT)
   │     ├── HTTP server (port 3000)
-  │     ├── CredentialProxy (Unix socket)
+  │     ├── HostGateway (one authority per live container execution)
   │     └── Container orchestrator
   │
-  ├── Docker: dartclaw-<id>-workspace
-  │     ├── claude binary (docker exec per turn)
-  │     ├── /workspace:rw mount
-  │     ├── /project:ro mount
-  │     ├── socat → Unix socket proxy
+  ├── Docker: dartclaw-<hash>-workspace-<authority>
+  │     ├── claude or codex binary packaged in the image
+  │     ├── dartclaw-bridge (read-only mount) → framed stdio over docker exec
+  │     ├── /workspace:rw mount, /project:ro mount
+  │     ├── per-authority generated-state mount (destroyed with the container)
   │     └── network:none, cap-drop=ALL, read-only rootfs
   │
-  ├── Docker: dartclaw-<id>-restricted
-  │     ├── claude binary (docker exec per turn)
+  ├── Docker: dartclaw-<hash>-restricted-<authority>
+  │     ├── claude or codex binary packaged in the image
+  │     ├── dartclaw-bridge (read-only mount)
   │     ├── No workspace mount
-  │     ├── socat → Unix socket proxy
   │     └── network:none, cap-drop=ALL, read-only rootfs
   │
   ├── GOWA sidecar (optional, Go binary)
   └── signal-cli sidecar (optional)
 ```
 
-Credential flow: API keys live on the host. The `CredentialProxy` listens on a Unix socket, injecting credentials into API requests. Containers mount the socket directory and use `ANTHROPIC_BASE_URL=http+unix:///var/run/proxy.sock` to route API calls through the proxy. Credentials never exist inside Claude container environments.
+Credential flow: API keys live on the host and never enter a container environment. Each live authority owns its own container plus a pair of framed `docker exec` pipes served by `HostGateway`; the provider adapter strips any client-supplied credential and injects the host one per request. A container reaches exactly one upstream, holds no reusable credential, and has no network of its own.
 
-Codex does not use this proxy path in 0.13. Both shipped Codex harnesses run as direct subprocesses and receive `OPENAI_API_KEY` via environment injection instead.
+Both Claude and Codex have a verified provider adapter and run on either execution boundary. ACP registrations have none, so they have no mediated container execution — see [Control Protocol](control-protocol.md) for the computed compatibility rule.
 
 ### Dev Mode
 
@@ -970,9 +982,9 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 6.  Memory services (MemoryFileService, MemoryService, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `InputSanitizer`, `MessageRedactor`, and `GuardAuditLogger` from `dartclaw_security`; guard config + `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_server`)
 8.  Container managers (per-profile: workspace, restricted)
-9.  Configured provider harnesses and provider-scoped pools
-10. Turn runners (TurnRunner × harness count)
-11. Harness pool (HarnessPool wrapping turn runners)
+9.  Primary provider harness and `TurnRunner`
+10. Execution coordinator (primary lane + per-provider capacity gates; workers remain lazy)
+11. Execution observers derived from coordinator leases and snapshots
 12. Event bus + subscribers
 13. Channels (dartclaw_whatsapp, dartclaw_signal, dartclaw_google_chat — if configured)
 14. Scheduling (HeartbeatScheduler, ScheduleService)
@@ -980,7 +992,7 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 16. Project management (ProjectService, RemotePushService)
 17. Workflow engine (WorkflowRegistry, WorkflowService, WorkflowExecutor)
 18. Alert routing (AlertRouter, AlertDeliveryAdapter — if alerts configured)
-19. MCP server (register tools: memory, sessions_send, web_fetch, search)
+19. MCP server (register tools: memory, sessions_spawn, sessions_send, web_fetch, search)
 20. DartclawServer (shelf handler assembly, page registration)
 21. Reload triggers (`ReloadTriggerService`) for `SIGUSR1` / file-watch hot-reload
 ```
@@ -995,7 +1007,7 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 
 | Document | Path | Content |
 |----------|------|---------|
-| Control protocol & harness | [`dev/architecture/control-protocol.md`](control-protocol.md) | JSONL protocol spec, multi-provider comparison, harness pool lifecycle |
+| Control protocol & harness | [`dev/architecture/control-protocol.md`](control-protocol.md) | JSONL protocol spec, multi-provider comparison, harness lifecycle |
 | Security architecture | [`dev/architecture/security-architecture.md`](security-architecture.md) | Defense-in-depth model, guard pipeline, container isolation, credential security |
 | Data model & persistence | [`dev/architecture/data-model.md`](data-model.md) | Entity models, storage zones, write safety, rotation |
 | Workflow architecture | [`dev/architecture/workflow-architecture.md`](workflow-architecture.md) | Workflow engine deep-dive: parser, executor, skill system, map/fan-out |

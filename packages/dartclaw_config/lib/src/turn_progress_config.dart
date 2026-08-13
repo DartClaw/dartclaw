@@ -44,14 +44,14 @@ class TurnProgressConfig {
   bool get enabled => stallTimeout > Duration.zero;
 
   /// Creates turn-progress settings.
-  const TurnProgressConfig({
+  const new({
     this.stallTimeout = defaultStallTimeout,
     this.stallAction = TurnProgressAction.cancel,
     this.maxDuration = defaultMaxDuration,
   });
 
   /// Creates a [TurnProgressConfig.defaults] value.
-  const TurnProgressConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

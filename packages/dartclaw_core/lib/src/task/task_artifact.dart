@@ -37,7 +37,7 @@ class TaskArtifact {
   final DateTime createdAt;
 
   /// Creates an immutable task artifact record.
-  const TaskArtifact({
+  const new({
     required this.id,
     required this.taskId,
     required this.name,
@@ -57,7 +57,7 @@ class TaskArtifact {
   };
 
   /// Deserializes an artifact from persisted JSON.
-  factory TaskArtifact.fromJson(Map<String, dynamic> json) => TaskArtifact(
+  factory fromJson(Map<String, dynamic> json) => TaskArtifact(
     id: json['id'] as String,
     taskId: json['taskId'] as String,
     name: json['name'] as String,

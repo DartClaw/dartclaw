@@ -16,7 +16,7 @@ import 'process_types.dart';
 
 /// Shared lifecycle base for subprocess-backed harnesses.
 abstract class BaseHarness extends AgentHarness with SequentialLock {
-  BaseHarness({
+  new({
     required this.log,
     required this.cwd,
     required this.turnTimeout,
@@ -68,6 +68,9 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
 
   @override
   WorkerState get state => _state;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => currentProcess == null;
 
   @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;

@@ -124,6 +124,7 @@ $goalSelectMarkup
                 <label><input type="checkbox" name="allowedTools" value="file_write"> File Write</label>
                 <label><input type="checkbox" name="allowedTools" value="file_edit"> File Edit</label>
                 <label><input type="checkbox" name="allowedTools" value="web_fetch"> Web Fetch</label>
+                <label><input type="checkbox" name="allowedTools" value="web_search"> Web Search</label>
                 <label><input type="checkbox" name="allowedTools" value="mcp_call"> MCP Call</label>
               </div>
             </fieldset>

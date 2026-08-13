@@ -20,6 +20,13 @@ Encode architectural invariants as **executable fitness functions** — plain Da
 
 ## Consequences
 
+## Amendment (2026-08-12) – memory architecture zero baselines
+
+The cheap Dart fitness suite now guards explicit-only memory curation, immutable run-only system actions, canonical or
+native locators, backend-owned FTS encoding, and retired public memory placeholders. Each scan has an in-memory negative
+fixture and actionable remediation, excludes generated Dart, uses no allowlist, and leaves semantic collision and
+single-wiki-traversal behavior to their focused integration suites.
+
 ### Positive
 
 - Architectural invariants are enforced continuously and at PR time, with resolution guidance.

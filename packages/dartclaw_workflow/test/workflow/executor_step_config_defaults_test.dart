@@ -83,9 +83,8 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      final task = (await executeAndCompleteQueuedTasks(
-        () => h.executor.execute(run, definition, WorkflowContext()),
-      )).single;
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
+          .single;
 
       expect(task.model, equals('claude-opus-4'));
       expect(task.configJson.containsKey('model'), isFalse);
@@ -104,9 +103,8 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      final task = (await executeAndCompleteQueuedTasks(
-        () => h.executor.execute(run, definition, WorkflowContext()),
-      )).single;
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
+          .single;
 
       expect(task.provider, equals('explicit-provider'));
     });
@@ -127,9 +125,8 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      final task = (await executeAndCompleteQueuedTasks(
-        () => h.executor.execute(run, definition, WorkflowContext()),
-      )).single;
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
+          .single;
 
       expect(task.model, equals('opus'));
     });
@@ -147,9 +144,8 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      final task = (await executeAndCompleteQueuedTasks(
-        () => h.executor.execute(run, definition, WorkflowContext()),
-      )).single;
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
+          .single;
 
       expect(task.configJson.containsKey('model'), isFalse);
     });
@@ -167,9 +163,8 @@ void main() {
       final run = makeDefaultsRun(definition);
       await h.repository.insert(run);
 
-      final task = (await executeAndCompleteQueuedTasks(
-        () => h.executor.execute(run, definition, WorkflowContext()),
-      )).single;
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
+          .single;
 
       expect(task.configJson[WorkflowTaskConfig.workflowTimeoutSeconds], 900);
     });

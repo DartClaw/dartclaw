@@ -23,7 +23,7 @@ class GuardContext {
   /// Non-null for 'messageReceived' and 'beforeAgentSend' hooks.
   final String? messageContent;
 
-  /// Active agent ID when evaluating in sub-agent context (null = main agent).
+  /// Active logical-agent ID when evaluating its context (null = main agent).
   final String? agentId;
 
   /// Message origin: 'channel', 'web', 'cron', 'heartbeat', or null.
@@ -39,7 +39,7 @@ class GuardContext {
   final DateTime timestamp;
 
   /// Creates the immutable context shared with a guard evaluation.
-  const GuardContext({
+  const new({
     required this.hookPoint,
     this.toolName,
     this.rawProviderToolName,
@@ -78,8 +78,13 @@ abstract class Guard {
 
 /// Evaluates a list of [Guard]s in order. First block verdict wins.
 /// Exceptions from individual guards are treated as block (fail-closed).
-typedef GuardVerdictCallback =
-    void Function(String guardName, String guardCategory, String verdict, String? message, GuardContext context);
+typedef GuardVerdictCallback = void Function(
+  String guardName,
+  String guardCategory,
+  String verdict,
+  String? message,
+  GuardContext context,
+);
 
 /// Composes multiple [Guard] instances into a single ordered evaluation pipeline.
 class GuardChain {
@@ -102,9 +107,7 @@ class GuardChain {
   final bool failOpen;
 
   /// Creates a guard chain with optional verdict reporting.
-  GuardChain({required List<Guard> guards, this.onVerdict, this.failOpen = false})
-    : _guards = List.of(guards),
-      _base = null;
+  new({required List<Guard> guards, this.onVerdict, this.failOpen = false}) : _guards = List.of(guards), _base = null;
 
   /// Creates a chain that evaluates all of [base]'s guards followed by [guards].
   ///
@@ -113,7 +116,7 @@ class GuardChain {
   /// chain's own [guards] survive the rebuild. [onVerdict] and [failOpen] are
   /// inherited from [base]; with a null [base] only [guards] are evaluated,
   /// fail-closed and without verdict reporting.
-  GuardChain.layered({required GuardChain? base, required List<Guard> guards})
+  new layered({required GuardChain? base, required List<Guard> guards})
     : _guards = List.of(guards),
       _base = base,
       onVerdict = base?.onVerdict,
@@ -142,6 +145,7 @@ class GuardChain {
     String toolName,
     Map<dynamic, dynamic> toolInput, {
     String? sessionId,
+    String? agentId,
     String? rawProviderToolName,
   }) {
     final context = GuardContext(
@@ -150,6 +154,7 @@ class GuardChain {
       rawProviderToolName: rawProviderToolName,
       toolInput: Map<String, dynamic>.from(toolInput),
       sessionId: sessionId,
+      agentId: agentId,
       timestamp: DateTime.now(),
     );
     return _evaluate(context);

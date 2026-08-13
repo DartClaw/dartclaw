@@ -19,7 +19,6 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         EventBus,
         ExecutionRepositoryTransactor,
         GoogleJwtVerifier,
-        HarnessPool,
         PromptStrategy,
         ProjectService,
         SessionKey,
@@ -41,6 +40,7 @@ export 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
     show GoogleChatAudienceConfig, GoogleChatAudienceMode, GoogleChatRestClient;
 export 'package:dartclaw_security/dartclaw_security.dart' show Guard, GuardContext, GuardVerdict;
 export 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskBindingCoordinator;
+
 export 'src/channel_test_helpers.dart'
     show RecordingReviewHandler, TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
 export 'src/codex_harness_test_helpers.dart'
@@ -65,7 +65,7 @@ export 'src/fake_google_jwt_verifier.dart' show FakeGoogleJwtVerifier;
 export 'src/fake_guard.dart' show FakeGuard;
 export 'src/fake_git_gateway.dart' show FakeGitGateway;
 export 'src/fake_project_service.dart' show FakeProjectService;
-export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
+export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
 export 'src/fake_provider_auth_preflight.dart' show FakeProviderAuthPreflight;
 export 'src/fake_skill_introspector.dart' show FakeSkillIntrospector;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;

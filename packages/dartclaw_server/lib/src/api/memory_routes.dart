@@ -1,14 +1,13 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show KvService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner;
 import 'package:logging/logging.dart';
-import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../memory/memory_status_service.dart';
+import '../memory/workspace_file_reader.dart';
 import 'api_helpers.dart';
 
 final _log = Logger('memory_routes');
@@ -29,6 +28,7 @@ Router memoryRoutes({
   KvService? kvService,
 }) {
   final router = Router();
+  final workspaceFiles = WorkspaceFileReader(workspaceDir);
 
   // GET /api/memory/status
   router.get('/api/memory/status', (Request request) async {
@@ -47,15 +47,8 @@ Router memoryRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Unknown file name: "$name". Valid names: ${_fileMap.keys.join(', ')}');
     }
 
-    final filePath = p.join(workspaceDir, relativePath);
-    final file = File(filePath);
-
-    if (!file.existsSync()) {
-      return Response.ok('', headers: {'content-type': 'text/plain; charset=utf-8'});
-    }
-
     try {
-      final content = file.readAsStringSync();
+      final content = workspaceFiles.read(relativePath)?.content ?? '';
       return Response.ok(content, headers: {'content-type': 'text/plain; charset=utf-8'});
     } catch (e) {
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read file: $e');

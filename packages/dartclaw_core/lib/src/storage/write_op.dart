@@ -6,7 +6,7 @@ class WriteOp {
   final Future<void> Function() fn;
   final Completer<void> completer;
 
-  WriteOp(this.fn) : completer = Completer<void>();
+  new(this.fn) : completer = Completer<void>();
 }
 
 class BoundedWriteQueue {
@@ -19,7 +19,7 @@ class BoundedWriteQueue {
   int _pending = 0;
   bool _warningEmitted = false;
 
-  BoundedWriteQueue({Logger? logger}) : _log = logger ?? Logger('BoundedWriteQueue') {
+  new({Logger? logger}) : _log = logger ?? Logger('BoundedWriteQueue') {
     _subscription = _controller.stream
         .asyncMap((op) async {
           try {

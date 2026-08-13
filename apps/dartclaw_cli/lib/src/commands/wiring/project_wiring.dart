@@ -7,7 +7,7 @@ import 'package:logging/logging.dart';
 
 /// Constructs and exposes the project management service.
 class ProjectWiring {
-  ProjectWiring({required this.config, required String dataDir, required EventBus eventBus})
+  new({required this.config, required String dataDir, required EventBus eventBus})
     : _dataDir = dataDir,
       _eventBus = eventBus;
 

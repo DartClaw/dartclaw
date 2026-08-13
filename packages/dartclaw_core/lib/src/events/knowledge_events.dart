@@ -21,7 +21,7 @@ final class ContextResearchMetricsEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a context research metrics event.
-  ContextResearchMetricsEvent({
+  new({
     required this.inputTokens,
     required this.outputTokens,
     required this.sourcesCount,

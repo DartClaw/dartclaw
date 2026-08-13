@@ -11,7 +11,7 @@ final class PosixProcessInspectionException implements Exception {
   final String message;
   final Object? cause;
 
-  const PosixProcessInspectionException(this.message, [this.cause]);
+  const new(this.message, [this.cause]);
 
   @override
   String toString() => cause == null ? message : '$message: $cause';
@@ -583,9 +583,9 @@ Future<List<int>> _pgrepChildPids(int pid) async {
     if (result.exitCode != 0) {
       throw PosixProcessInspectionException('pgrep failed for PID $pid with exit code ${result.exitCode}');
     }
-    final parsed = LineSplitter.split(
-      '${result.stdout}',
-    ).map((line) => int.tryParse(line.trim())).toList(growable: false);
+    final parsed = LineSplitter.split('${result.stdout}')
+        .map((line) => int.tryParse(line.trim()))
+        .toList(growable: false);
     if (parsed.any((child) => child == null)) {
       throw PosixProcessInspectionException('pgrep returned malformed child data for PID $pid');
     }

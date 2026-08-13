@@ -4,19 +4,19 @@ part of 'workflow_executor.dart';
 /// retry loop without having to translate `return`/`continue` inside the
 /// closure passed to [WorkflowTurnAdapter.runResolverAttemptUnderLock].
 sealed class _ResolverAttemptDecision {
-  const _ResolverAttemptDecision();
+  const new();
 }
 
 /// Exit the resolver loop and return [value] to the caller of
 /// `_resolveMergePromotionConflict`.
 final class _ResolverExit extends _ResolverAttemptDecision {
   final WorkflowGitPromotionResult? value;
-  const _ResolverExit(this.value);
+  const new(this.value);
 }
 
 /// Advance to the next attempt in the resolver loop.
 final class _ResolverContinue extends _ResolverAttemptDecision {
-  const _ResolverContinue();
+  const new();
 }
 
 extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
@@ -230,8 +230,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           outputs: const {
             'merge_resolve.outcome': OutputConfig(
               format: OutputFormat.text,
-              description:
-                  "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'.",
+              description: "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'.",
             ),
             'merge_resolve.conflicted_files': OutputConfig(
               format: OutputFormat.json,
@@ -244,8 +243,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
             ),
             'merge_resolve.error_message': OutputConfig(
               format: OutputFormat.text,
-              description:
-                  "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'.",
+              description: "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'.",
             ),
           },
           maxTokens: config.tokenCeiling,

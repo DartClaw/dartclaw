@@ -1,4 +1,5 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionScopeConfig;
+
 import 'session_maintenance_config.dart';
 
 /// Configuration for the session subsystem.
@@ -16,7 +17,7 @@ class SessionConfig {
   final SessionMaintenanceConfig maintenanceConfig;
 
   /// Creates a [SessionConfig] value.
-  const SessionConfig({
+  const new({
     this.resetHour = 4,
     this.idleTimeoutMinutes = 0,
     this.scopeConfig = const SessionScopeConfig.defaults(),
@@ -24,7 +25,7 @@ class SessionConfig {
   });
 
   /// Default configuration.
-  const SessionConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

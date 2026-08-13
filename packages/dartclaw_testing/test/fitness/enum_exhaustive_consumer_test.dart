@@ -52,7 +52,7 @@ const _eventTargets = [
       'ToolPermissionDeniedEvent',
       'ConfigChangedEvent',
       'ScheduledJobFailedEvent',
-      'AgentStateChangedEvent',
+      'RunnerStateChangedEvent',
       'TaskStatusChangedEvent',
       'TaskReviewReadyEvent',
       'TaskEventCreatedEvent',

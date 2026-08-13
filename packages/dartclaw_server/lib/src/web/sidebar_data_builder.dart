@@ -11,7 +11,7 @@ typedef _SidebarDataCallback = Future<SidebarData> Function({String? activeSessi
 
 /// Builds sidebar view data from the request-scoped services.
 class SidebarDataBuilder {
-  SidebarDataBuilder({
+  new({
     required this.sessions,
     this.kvService,
     this.defaultProvider = 'claude',
@@ -21,7 +21,7 @@ class SidebarDataBuilder {
     this.workflowService,
   }) : _callback = null;
 
-  SidebarDataBuilder.fromCallback(Future<SidebarData> Function() loadSidebarData)
+  new fromCallback(Future<SidebarData> Function() loadSidebarData)
     : sessions = null,
       kvService = null,
       defaultProvider = 'claude',
@@ -83,6 +83,7 @@ class SidebarDataBuilder {
         case SessionType.cron:
           break;
         case SessionType.task:
+        case SessionType.logicalAgent:
           break;
         case SessionType.user:
           activeEntries.add(entry);

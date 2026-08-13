@@ -17,8 +17,7 @@ final class WorkflowGitPortProcess implements WorkflowGitPort {
   final WorktreeManager? worktreeManager;
   final RemotePushService? remotePushService;
 
-  WorkflowGitPortProcess({RepoLock? repoLock, this.worktreeManager, this.remotePushService})
-    : _repoLock = repoLock ?? RepoLock();
+  new({RepoLock? repoLock, this.worktreeManager, this.remotePushService}) : _repoLock = repoLock ?? RepoLock();
 
   @override
   Future<String> revParse(String worktreePath, String ref) async {
@@ -240,5 +239,5 @@ final class _GitProcessResult {
   final String stdout;
   final String stderr;
 
-  const _GitProcessResult({required this.exitCode, required this.stdout, required this.stderr});
+  const new({required this.exitCode, required this.stdout, required this.stderr});
 }

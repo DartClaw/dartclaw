@@ -3,13 +3,12 @@ import 'dart:convert';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:http/http.dart' as http;
 
-typedef GoogleChatSendMessageCallback =
-    Future<String?> Function(
-      String spaceName,
-      String text, {
-      String? quotedMessageName,
-      String? quotedMessageLastUpdateTime,
-    });
+typedef GoogleChatSendMessageCallback = Future<String?> Function(
+  String spaceName,
+  String text, {
+  String? quotedMessageName,
+  String? quotedMessageLastUpdateTime,
+});
 
 typedef GoogleChatSendMessageWithQuoteFallbackCallback =
     Future<({String? messageName, bool usedQuotedMessageMetadata})> Function(
@@ -21,13 +20,12 @@ typedef GoogleChatSendMessageWithQuoteFallbackCallback =
       bool fallbackOnQuoteFailure,
     });
 
-typedef GoogleChatSendCardCallback =
-    Future<String?> Function(
-      String spaceName,
-      Map<String, dynamic> cardPayload, {
-      String? quotedMessageName,
-      String? quotedMessageLastUpdateTime,
-    });
+typedef GoogleChatSendCardCallback = Future<String?> Function(
+  String spaceName,
+  Map<String, dynamic> cardPayload, {
+  String? quotedMessageName,
+  String? quotedMessageLastUpdateTime,
+});
 
 typedef GoogleChatEditMessageCallback = Future<bool> Function(String messageName, String newText);
 
@@ -47,7 +45,7 @@ typedef GoogleChatDownloadMediaCallback = Future<List<int>?> Function(String res
 
 /// Recording [GoogleChatRestClient] fake with configurable operation callbacks.
 class FakeGoogleChatRestClient extends GoogleChatRestClient {
-  FakeGoogleChatRestClient({
+  new({
     this.quoteFallbackUsesQuotedMessageMetadata = true,
     this.failQuotedSend = false,
     this.failCard = false,

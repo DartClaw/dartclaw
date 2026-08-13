@@ -178,7 +178,7 @@ void main() {
 }
 
 class _SpyChannel extends Channel {
-  _SpyChannel({required Set<String> ownedJids, required this.sentOut}) : _ownedJids = ownedJids;
+  new({required Set<String> ownedJids, required this.sentOut}) : _ownedJids = ownedJids;
 
   final Set<String> _ownedJids;
   final List<(String, ChannelResponse)> sentOut;
@@ -206,7 +206,7 @@ class _SpyChannel extends Channel {
 class _BoundThreadBridge extends ChannelTaskBridge {
   final ThreadBinding binding;
 
-  _BoundThreadBridge(this.binding);
+  new(this.binding);
 
   @override
   bool isReservedCommand(String text) => false;

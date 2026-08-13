@@ -5,9 +5,7 @@ import 'package:test/test.dart';
 void main() {
   group('DockerValidator', () {
     test('accepts valid config', () {
-      final errors = DockerValidator.validate(
-        const ContainerConfig(enabled: true, extraMounts: ['/data/workspace:/workspace:rw']),
-      );
+      final errors = DockerValidator.validate(const ContainerConfig(enabled: true));
       expect(errors, isEmpty);
     });
 
@@ -45,25 +43,35 @@ void main() {
       expect(errors, isNotEmpty);
     });
 
-    test('rejects sensitive mount: /etc', () {
-      final errors = DockerValidator.validate(const ContainerConfig(enabled: true, extraMounts: ['/etc:/etc:ro']));
-      expect(errors, isNotEmpty);
-      expect(errors.first, contains('/etc'));
+    test('rejects every raw Docker argument, including unenumerated overrides', () {
+      for (final args in const [
+        ['--net=host'],
+        ['--cap-add', 'SYS_ADMIN'],
+        ['--device', '/dev/kvm'],
+        ['--userns=host'],
+        ['--security-opt', 'apparmor=unconfined'],
+      ]) {
+        expect(
+          DockerValidator.validate(ContainerConfig(enabled: true, extraArgs: args)),
+          anyElement(contains('raw Docker arguments')),
+          reason: '$args must not bypass mandatory container hardening',
+        );
+      }
     });
 
-    test('rejects sensitive mount: /.ssh', () {
-      final errors = DockerValidator.validate(
-        const ContainerConfig(enabled: true, extraMounts: ['/home/user/.ssh:/root/.ssh:ro']),
-      );
-      expect(errors, isNotEmpty);
-      expect(errors.first, contains('.ssh'));
-    });
-
-    test('rejects docker socket mount', () {
-      final errors = DockerValidator.validate(
-        const ContainerConfig(enabled: true, extraMounts: ['/var/run/docker.sock:/var/run/docker.sock']),
-      );
-      expect(errors, isNotEmpty);
+    test('rejects every arbitrary host mount', () {
+      for (final mount in const [
+        '/tmp/shared:/shared:ro',
+        '/:/project/subdir:rw',
+        '/tmp/shared:/etc:rw',
+        '/var/run/docker.sock:/var/run/docker.sock',
+      ]) {
+        expect(
+          DockerValidator.validate(ContainerConfig(enabled: true, extraMounts: [mount])),
+          anyElement(contains('container.mounts is unsupported')),
+          reason: '$mount must not bypass the execution boundary',
+        );
+      }
     });
 
     test('multiple errors are all reported', () {

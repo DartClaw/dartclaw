@@ -6,7 +6,7 @@ class ProjectsRemoveCommand extends ConnectedCommand {
   final bool Function() _hasTerminal;
   final String? Function() _readLine;
 
-  ProjectsRemoveCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,

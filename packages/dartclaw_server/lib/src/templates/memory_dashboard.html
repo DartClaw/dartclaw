@@ -79,6 +79,95 @@
         </div>
         </section>
 
+        <section class="memory-dashboard-section" aria-labelledby="memory-lifecycle-title">
+        <h2 id="memory-lifecycle-title" class="section-title">Memory lifecycle</h2>
+        <div class="settings-grid">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Canonical collection</span>
+              <span class="status-badge" tl:classappend="${collectionUnknown} ? 'status-badge-warning' : 'status-badge-success'"
+                    tl:text="${collectionUnknown} ? 'Unknown' : 'Available'">Available</span>
+            </div>
+            <div class="card-rows">
+              <div class="card-row"><span class="card-row-label">Revision</span><span class="card-row-value" tl:text="${collectionRevision}">42</span></div>
+              <div class="card-row"><span class="card-row-label">Curated entries</span><span class="card-row-value" tl:text="${curatedRoleCount}">12</span></div>
+              <div class="card-row"><span class="card-row-label">Topics</span><span class="card-row-value" tl:text="${topicRoleCount}">3</span></div>
+              <div class="card-row"><span class="card-row-label">Archive</span><span class="card-row-value" tl:text="${archiveRoleCount}">4</span></div>
+              <div class="card-row"><span class="card-row-label">Learnings</span><span class="card-row-value" tl:text="${learningRoleCount}">2</span></div>
+              <div class="card-row"><span class="card-row-label">Opaque legacy sources</span><span class="card-row-value" tl:text="${opaqueLegacyCount}">0</span></div>
+              <div class="card-row"><span class="card-row-label">Opaque legacy locators</span><code class="card-row-value" tl:text="${opaqueLegacyLocators}">none</code></div>
+              <div class="card-row"><span class="card-row-label">Migration</span><span class="card-row-value" tl:text="${migrationState}">not applicable</span></div>
+              <div class="card-row" tl:unless="${migrationSnapshotAbsent}"><span class="card-row-label">Retained snapshot</span><code class="card-row-value" tl:text="${migrationSnapshot}"></code></div>
+            </div>
+            <p tl:if="${migrationAction}" class="card-detail card-detail-muted" tl:text="${migrationAction}"></p>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Fresh prompt index</span></div>
+            <div class="card-rows">
+              <div class="card-row"><span class="card-row-label">Bytes used / budget</span><span class="card-row-value" tl:text="${promptBytes}">20480 / 32768</span></div>
+              <div class="card-row"><span class="card-row-label">Lines used / budget</span><span class="card-row-value" tl:text="${promptLines}">101 / 150</span></div>
+              <div class="card-row"><span class="card-row-label">Selection</span><span class="card-row-value" tl:text="${promptTruncated} ? 'Truncated to budget' : 'Complete'">Complete</span></div>
+            </div>
+            <p tl:if="${promptReason}" class="card-detail warning-text" tl:text="${promptReason}"></p>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Raw observations</span>
+              <span class="status-badge" tl:classappend="${observationWarningClass}" tl:text="${observationWarning}">none</span>
+            </div>
+            <div class="card-rows">
+              <div class="card-row"><span class="card-row-label">Entries</span><span class="card-row-value" tl:text="${observationCount}">7</span></div>
+              <div class="card-row"><span class="card-row-label">Usage</span><span class="card-row-value" tl:text="${observationUsage}">20 KB</span></div>
+              <div class="card-row"><span class="card-row-label">Coverage</span><span class="card-row-value" tl:text="${observationCoverage}">exact</span></div>
+              <div class="card-row"><span class="card-row-label">Files scanned / omitted / failed</span><span class="card-row-value"><span tl:text="${observationScanned}">1</span> / <span tl:text="${observationOmitted}">0</span> / <span tl:text="${observationFailed}">0</span></span></div>
+              <div class="card-row"><span class="card-row-label">Oldest / newest</span><span class="card-row-value"><span tl:text="${observationOldest}">1 Aug</span> / <span tl:text="${observationNewest}">12 Aug</span></span></div>
+            </div>
+            <p class="card-detail card-detail-muted">Observations are raw captured evidence. This status view never deletes or rewrites them.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Derived search index</span>
+              <span class="status-badge" tl:classappend="${indexBadgeClass}" tl:text="${indexState}">healthy</span>
+            </div>
+            <div class="card-rows">
+              <div class="card-row"><span class="card-row-label">Canonical / indexed revision</span><span class="card-row-value"><span tl:text="${indexCanonicalRevision}">42</span> / <span tl:text="${indexRevision}">42</span></span></div>
+              <div class="card-row"><span class="card-row-label">Derived chunks</span><span class="card-row-value"><span tl:text="${derivedChunkCount}">28</span> <span class="metric-sub-inline">rebuildable rows</span></span></div>
+              <div class="card-row"><span class="card-row-label">Wiki sources</span><span class="card-row-value" tl:text="${wikiSourceCount}">5</span></div>
+              <div class="card-row"><span class="card-row-label">Last reconciliation</span><span class="card-row-value" tl:text="${indexLastReconciliation}">now</span></div>
+              <div tl:if="${indexFailureStage}" class="card-row"><span class="card-row-label">Failure stage</span><span class="card-row-value" tl:text="${indexFailureStage}">validation</span></div>
+            </div>
+            <p tl:if="${indexReason}" class="card-detail warning-text" tl:text="${indexReason}"></p>
+            <p tl:if="${indexAction}" class="card-detail card-detail-muted" tl:text="${indexAction}"></p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Semantic curation</span>
+            <span class="status-badge" tl:classappend="${curationBadgeClass}" tl:text="${curationState}">not run</span>
+          </div>
+          <div tl:if="${hasCuration}" class="card-rows">
+            <div class="card-row"><span class="card-row-label">Started / completed</span><span class="card-row-value"><span tl:text="${curationStarted}">now</span> / <span tl:text="${curationCompleted}">now</span></span></div>
+            <div class="card-row"><span class="card-row-label">Last success</span><span class="card-row-value" tl:text="${curationLastSuccess}">never</span></div>
+            <div class="card-row"><span class="card-row-label">Committed / current revision</span><span class="card-row-value"><span tl:text="${curationCommittedRevision}">43</span> / <span tl:text="${curationCurrentRevision}">43</span></span></div>
+            <div class="card-row"><span class="card-row-label">Changed IDs</span><code class="card-row-value" tl:text="${curationChangedIds}">A, B</code></div>
+            <div class="card-row"><span class="card-row-label">Exact no-op IDs</span><code class="card-row-value" tl:text="${curationNoOpIds}">C</code></div>
+            <div class="card-row"><span class="card-row-label">Operation reasons</span><span class="card-row-value" tl:text="${curationOperationReasons}">none</span></div>
+          </div>
+          <p tl:unless="${hasCuration}" class="card-detail card-detail-muted">No curation run has been recorded.</p>
+          <p tl:if="${curationReason}" class="card-detail warning-text" tl:text="${curationReason}"></p>
+          <p tl:if="${curationAction}" class="card-detail card-detail-muted" tl:text="${curationAction}"></p>
+          <div class="card-actions">
+            <button tl:if="${curationRunning}" class="btn btn-primary" disabled aria-disabled="true">Curation running…</button>
+            <button tl:unless="${curationRunning}" class="btn btn-primary" data-action="click->dc-memory#curateMemory">Curate now</button>
+            <span class="sr-only" aria-live="polite" data-memory-curation-result></span>
+          </div>
+        </div>
+        </section>
+
         <!-- Section 2: Pruning -->
         <section class="memory-dashboard-section" aria-labelledby="memory-pruning-title">
         <h2 id="memory-pruning-title" class="section-title">Memory Pruning</h2>
@@ -147,7 +236,7 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">Search Backend</span>
-            <span class="card-badge badge-success">Active</span>
+            <span class="status-badge" tl:classappend="${searchBadgeClass}" tl:text="${searchState}">unknown</span>
           </div>
           <div class="card-rows">
             <div class="card-row">
@@ -161,7 +250,7 @@
             </div>
             <div class="card-row">
               <span class="card-row-label">Index entries</span>
-              <span class="card-row-value"><span tl:text="${searchIndexTotal}">0</span> <span class="metric-sub-inline">(<span tl:text="${searchIndexLive}">0</span> live, <span tl:text="${searchIndexArchived}">0</span> archived)</span></span>
+              <span class="card-row-value" tl:text="${searchIndexTotal}">unknown</span>
             </div>
             <div class="card-row">
               <span class="card-row-label">DB size</span>
@@ -183,21 +272,21 @@
         <section class="memory-dashboard-section" aria-labelledby="memory-files-title">
         <h2 id="memory-files-title" class="section-title">Memory Files</h2>
         <div class="card" id="memory-files-card">
-          <div class="tabs" role="tablist">
-            <button class="tab t-label active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
-            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
-            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
-            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
+          <div class="tabs" role="tablist" aria-label="Memory files" data-action="keydown->dc-memory#navigateTabs">
+            <button type="button" id="memory-file-tab-memory" class="tab t-label active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory" tabindex="0">MEMORY.md</button>
+            <button type="button" id="memory-file-tab-errors" class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors" tabindex="-1">errors.md</button>
+            <button type="button" id="memory-file-tab-learnings" class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings" tabindex="-1">learnings.md</button>
+            <button type="button" id="memory-file-tab-archive" class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive" tabindex="-1">Archive</button>
             <div class="tabs-actions">
-              <div class="toggle-btn-group">
-                <button class="toggle-btn active" data-action="click->dc-memory#toggleView" data-mode="raw">Raw</button>
-                <button class="toggle-btn" data-action="click->dc-memory#toggleView" data-mode="rendered">Rendered</button>
+              <div class="toggle-btn-group" role="group" aria-label="Preview mode">
+                <button type="button" class="toggle-btn active" data-action="click->dc-memory#toggleView" data-mode="raw" aria-pressed="true">Raw</button>
+                <button type="button" class="toggle-btn" data-action="click->dc-memory#toggleView" data-mode="rendered" aria-pressed="false">Rendered</button>
               </div>
             </div>
           </div>
 
           <!-- Tab: MEMORY.md -->
-          <div class="tab-panel active" id="tab-memory" role="tabpanel">
+          <div class="tab-panel active" id="tab-memory" role="tabpanel" aria-labelledby="memory-file-tab-memory">
             <div class="tab-meta">
               <!-- Entry count and file size are Overview tiles. This card sits
                    outside the 30s poll so the reader's tab and loaded preview
@@ -240,7 +329,7 @@
           </div>
 
           <!-- Tab: errors.md -->
-          <div class="tab-panel" id="tab-errors" role="tabpanel">
+          <div class="tab-panel" id="tab-errors" role="tabpanel" aria-labelledby="memory-file-tab-errors">
             <div class="tab-meta">
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
@@ -251,7 +340,7 @@
           </div>
 
           <!-- Tab: learnings.md -->
-          <div class="tab-panel" id="tab-learnings" role="tabpanel">
+          <div class="tab-panel" id="tab-learnings" role="tabpanel" aria-labelledby="memory-file-tab-learnings">
             <div class="tab-meta">
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
@@ -262,7 +351,7 @@
           </div>
 
           <!-- Tab: Archive -->
-          <div class="tab-panel" id="tab-archive" role="tabpanel">
+          <div class="tab-panel" id="tab-archive" role="tabpanel" aria-labelledby="memory-file-tab-archive">
             <div class="tab-meta">
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>

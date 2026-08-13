@@ -31,7 +31,7 @@ class ContentGuard extends Guard {
   final bool failOpen;
 
   /// Creates a content guard around a concrete [ContentClassifier].
-  ContentGuard({
+  new({
     required ContentClassifier classifier,
     this.maxContentBytes = 50 * 1024,
     this.timeout = const Duration(seconds: 15),
@@ -94,5 +94,13 @@ class ContentGuard extends Guard {
 String truncateUtf8Bytes(String text, int maxBytes) {
   final encoded = utf8.encode(text);
   if (encoded.length <= maxBytes) return text;
-  return utf8.decode(encoded.sublist(0, maxBytes), allowMalformed: true);
+  var end = maxBytes;
+  while (end > 0) {
+    try {
+      return utf8.decode(encoded.sublist(0, end));
+    } on FormatException {
+      end--;
+    }
+  }
+  return '';
 }

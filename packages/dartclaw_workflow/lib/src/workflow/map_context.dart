@@ -29,7 +29,7 @@ class MapContext {
   /// eventually resolve outer aliases without a call-chain signature change.
   final MapContext? parent;
 
-  const MapContext({required this.item, required this.index, required this.length, this.alias, this.parent});
+  const new({required this.item, required this.index, required this.length, this.alias, this.parent});
 
   /// Extracts a non-empty `id` field from the current item when present.
   String? get itemId {

@@ -19,7 +19,7 @@ class GoogleChatFeedbackStrategy implements ChannelFeedbackStrategy {
   final GoogleChatFeedbackStatusStyle _statusStyle;
   final Map<String, DateTime> _lastUpdateAt = {};
 
-  GoogleChatFeedbackStrategy({
+  new({
     required GoogleChatRestClient restClient,
     DateTime Function() now = DateTime.now,
     Duration throttleWindow = const Duration(seconds: 1),

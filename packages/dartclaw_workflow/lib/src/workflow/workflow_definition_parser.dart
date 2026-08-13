@@ -569,7 +569,7 @@ class WorkflowDefinitionParser {
       skill: skill,
       prompts: prompts,
       taskType: stepType,
-      provider: _optionalStringValue(raw['provider'], 'Step "$id": "provider"', sourcePath),
+      provider: _optionalProviderValue(raw['provider'], 'Step "$id": "provider"', sourcePath),
       model: _optionalStringValue(raw['model'], 'Step "$id": "model"', sourcePath),
       effort: _optionalStringValue(raw['effort'], 'Step "$id": "effort"', sourcePath),
       gatingSeverity: _parseGatingSeverity(raw['gatingSeverity'], 'Step "$id": "gatingSeverity"', sourcePath),
@@ -1124,7 +1124,7 @@ class WorkflowDefinitionParser {
           }
           return StepConfigDefault(
             match: match,
-            provider: _optionalStringValue(entry['provider'], 'stepDefaults.provider', sourcePath),
+            provider: _optionalProviderValue(entry['provider'], 'stepDefaults.provider', sourcePath),
             model: _optionalStringValue(entry['model'], 'stepDefaults.model', sourcePath),
             effort: _optionalStringValue(entry['effort'], 'stepDefaults.effort', sourcePath),
             gatingSeverity: _parseGatingSeverity(entry['gatingSeverity'], 'stepDefaults.gatingSeverity', sourcePath),
@@ -1189,6 +1189,14 @@ class WorkflowDefinitionParser {
     throw FormatException('$fieldPath must be a string${_at(sourcePath)}.');
   }
 
+  String? _optionalProviderValue(Object? raw, String fieldPath, String? sourcePath) {
+    final value = _optionalStringValue(raw, fieldPath, sourcePath);
+    if (value != null && value.trim().isEmpty) {
+      throw FormatException('$fieldPath must not be blank${_at(sourcePath)}.');
+    }
+    return value;
+  }
+
   bool? _optionalBool(Object? raw, String fieldPath, String? sourcePath) {
     if (raw == null) return null;
     if (raw is bool) return raw;
@@ -1208,7 +1216,7 @@ class _ParsedSteps {
   final List<WorkflowStep> steps;
   final List<WorkflowLoop> inlineLoops;
 
-  const _ParsedSteps({required this.steps, required this.inlineLoops});
+  const new({required this.steps, required this.inlineLoops});
 }
 
 class _ParsedInlineLoopStep {
@@ -1216,7 +1224,7 @@ class _ParsedInlineLoopStep {
   final List<WorkflowStep> steps;
   final WorkflowStep? finalizerStep;
 
-  const _ParsedInlineLoopStep({required this.loop, required this.steps, this.finalizerStep});
+  const new({required this.loop, required this.steps, this.finalizerStep});
 }
 
 class _ParsedInlineForeachStep {
@@ -1234,7 +1242,7 @@ class _ParsedInlineForeachStep {
   /// definition's `steps` list but owned by the loop, not the foreach node.
   final List<WorkflowStep> nestedLoopSteps;
 
-  const _ParsedInlineForeachStep({
+  const new({
     required this.controller,
     required this.childSteps,
     this.nestedLoops = const [],

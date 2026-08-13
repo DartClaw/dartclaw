@@ -10,7 +10,7 @@ final class _ResolvedSourceAttribution {
   final String? excerpt;
   final bool showLayerBadge;
 
-  const _ResolvedSourceAttribution({
+  const new({
     required this.sourceRef,
     required this.attributed,
     required this.marker,
@@ -22,15 +22,17 @@ final class _ResolvedSourceAttribution {
 /// Resolves and renders a single source reference through the shared attribution fragment.
 ///
 /// Set [showLayerBadge] to false when the host row already renders the layer
-/// badge; the popover keeps its own copy either way.
+/// badge; the popover keeps its own copy either way. A host that already
+/// resolved the reference may pass [resolved] to avoid resolving it twice.
 Future<String> sourceAttributionFragment({
   required SourceRef? sourceRef,
   required int marker,
   required CitationSourceResolver resolver,
   String? excerpt,
   bool showLayerBadge = true,
+  bool? resolved,
 }) async {
-  final attributed = sourceRef != null && await resolver.resolves(sourceRef);
+  final attributed = sourceRef != null && (resolved ?? await resolver.resolves(sourceRef));
   return _renderSourceAttribution(
     _ResolvedSourceAttribution(
       sourceRef: sourceRef,
@@ -125,7 +127,7 @@ String _renderSourceAttribution(_ResolvedSourceAttribution attribution) {
       'controllerName': attributed ? 'dc-attribution' : null,
       'marker': '${attribution.marker}',
       'layerClass': attributed ? 'layer-badge--${sourceRef.layer.wireName}' : '',
-      'layerLabel': attributed ? _layerLabel(sourceRef.layer) : '',
+      'layerLabel': attributed ? citationSourceRoleLabel(sourceRef) : '',
       'sourceHref': attributed ? _sourceHref(sourceRef) : '',
       'sourceLabel': attributed ? sourceRef.label : '',
       'locator': attributed ? sourceRef.locator : '',
@@ -143,11 +145,16 @@ String _renderFragment({required String fragment, required Map<String, dynamic> 
   );
 }
 
-String _layerLabel(CitationLayer layer) => switch (layer) {
-  CitationLayer.wiki => 'Wiki',
-  CitationLayer.kg => 'KG',
-  CitationLayer.memory => 'Memory',
-  CitationLayer.inbox => 'Inbox',
+/// Returns the operator-visible source role without collapsing canonical roles.
+String citationSourceRoleLabel(SourceRef ref) => switch ((ref.layer, ref.role)) {
+  (CitationLayer.memory, 'topic') => 'Curated',
+  (CitationLayer.memory, 'archive') => 'Archive',
+  (CitationLayer.memory, 'observation') => 'Observation',
+  (CitationLayer.memory, 'learning') => 'Learning',
+  (CitationLayer.wiki, _) => 'Wiki',
+  (CitationLayer.kg, _) => 'KG',
+  (CitationLayer.inbox, _) => 'Inbox',
+  (CitationLayer.memory, _) => 'Memory',
 };
 
 String _sourceHref(SourceRef ref) {

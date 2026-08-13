@@ -22,7 +22,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
 
 /// Records [merge] invocations and returns a pre-configured [result].
 class RecordingMergeExecutor extends MergeExecutor {
-  RecordingMergeExecutor({required this.result}) : super(projectDir: '.');
+  new({required this.result}) : super(projectDir: '.');
 
   final MergeResult result;
   int callCount = 0;
@@ -43,7 +43,7 @@ class RecordingMergeExecutor extends MergeExecutor {
 
 /// Records the task ids (and their project ids) whose worktrees were cleaned up.
 class RecordingWorktreeManager extends WorktreeManager {
-  RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
+  new() : super(dataDir: '/tmp', projectDir: '/tmp');
 
   final List<String> cleanedTaskIds = [];
   final List<String?> cleanedProjectIds = [];
@@ -69,7 +69,7 @@ class RecordingTaskFileGuard extends TaskFileGuard {
 
 /// Records [push] calls and returns a pre-configured [result].
 class FakeRemotePushService extends RemotePushService {
-  FakeRemotePushService({required this.result});
+  new({required this.result});
 
   final PushResult result;
   int callCount = 0;
@@ -83,7 +83,7 @@ class FakeRemotePushService extends RemotePushService {
 
 /// Returns a pre-configured [result] from [create].
 class FakePrCreator extends PrCreator {
-  FakePrCreator({required this.result});
+  new({required this.result});
 
   final PrCreationResult result;
 

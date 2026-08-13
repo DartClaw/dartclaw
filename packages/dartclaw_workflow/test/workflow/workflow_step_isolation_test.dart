@@ -6,7 +6,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowCliProviderConfig, WorkflowCliRunner;
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show ExecutionPolicy, TaskService, WorkflowCliProviderConfig, WorkflowCliRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -227,7 +228,7 @@ class _StepExecutionResult {
   final Map<String, dynamic> outputs;
   final String artifactPath;
 
-  const _StepExecutionResult({
+  const new({
     required this.stepId,
     required this.stepName,
     required this.taskId,
@@ -384,7 +385,7 @@ void main() {
       model: executorModel,
       prompt: prompt,
       workingDirectory: fixtureDir,
-      profileId: 'default',
+      policy: const ExecutionPolicy.host(),
       extraEnvironment: {stepArtifactsDirEnvVar: stepArtifactsDir},
       stepTimeout: stepTimeout,
       stepName: step.name,
@@ -523,75 +524,71 @@ void main() {
     expect((storySpecs.single as Map<Object?, Object?>)['spec_path'], fisPath, reason: planResult.artifactPath);
   }, timeout: const Timeout(Duration(minutes: 10)));
 
-  test(
-    'plan emits stories and story_specs in a single pass from the reviewed PRD',
-    () async {
-      const prdPath = 'docs/specs/workflow-testing/prd.md';
-      File(p.join(fixtureDir, prdPath))
-        ..createSync(recursive: true)
-        ..writeAsStringSync(
-          '# Product Requirements Document\n\n'
-          '## Executive Summary\n\n'
-          'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
-          '## User Stories\n\n'
-          '- Author a single markdown note file.\n'
-          '- Validate that the note content matches expectations.\n',
-        );
-
-      final result = await executeStep(
-        step: _stepById(planDefinition, 'plan'),
-        context: WorkflowContext(
-          variables: const {
-            'FEATURE':
-                'Create a tiny note-taking improvement: add one markdown note file and a follow-up validation step.',
-            'PROJECT': 'workflow-testing',
-            'BRANCH': 'main',
-            'MAX_PARALLEL': '1',
-          },
-          data: {
-            'project_index': {
-              'framework': 'markdown',
-              'project_root': fixtureDir,
-              'document_locations': {'prd': prdPath, 'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-              'state_protocol': {'state_file': 'STATE.md'},
-            },
-            'prd': prdPath,
-          },
-        ),
-        stepTimeout: const Duration(minutes: 14),
+  test('plan emits stories and story_specs in a single pass from the reviewed PRD', () async {
+    const prdPath = 'docs/specs/workflow-testing/prd.md';
+    File(p.join(fixtureDir, prdPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        '# Product Requirements Document\n\n'
+        '## Executive Summary\n\n'
+        'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
+        '## User Stories\n\n'
+        '- Author a single markdown note file.\n'
+        '- Validate that the note content matches expectations.\n',
       );
 
-      // The plan step declares `story_specs` (story_specs schema) and `plan`
-      // (format=path). The richer `stories` output was removed when the plan
-      // bundle was collapsed onto the one-story-per-FIS invariant; assert on
-      // `story_specs` + `plan` instead.
-      final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
-      expect(storySpecsList, isNotEmpty);
-      final firstStorySpec = storySpecsList.first;
-      expectStorySpecShape(firstStorySpec);
+    final result = await executeStep(
+      step: _stepById(planDefinition, 'plan'),
+      context: WorkflowContext(
+        variables: const {
+          'FEATURE':
+              'Create a tiny note-taking improvement: add one markdown note file and a follow-up validation step.',
+          'PROJECT': 'workflow-testing',
+          'BRANCH': 'main',
+          'MAX_PARALLEL': '1',
+        },
+        data: {
+          'project_index': {
+            'framework': 'markdown',
+            'project_root': fixtureDir,
+            'document_locations': {'prd': prdPath, 'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+            'state_protocol': {'state_file': 'STATE.md'},
+          },
+          'prd': prdPath,
+        },
+      ),
+      stepTimeout: const Duration(minutes: 14),
+    );
 
-      _requireRelativeExistingPlanPath(result, 'plan', rootDir: fixtureDir);
-      for (final storySpec in storySpecsList.whereType<Map<Object?, Object?>>()) {
-        _requireRelativeExistingMarkdownPath(
-          storySpec['spec_path'],
-          rootDir: fixtureDir,
-          artifactPath: result.artifactPath,
-          label: 'story_specs.items[].spec_path',
-        );
-      }
+    // The plan step declares `story_specs` (story_specs schema) and `plan`
+    // (format=path). The richer `stories` output was removed when the plan
+    // bundle was collapsed onto the one-story-per-FIS invariant; assert on
+    // `story_specs` + `plan` instead.
+    final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
+    expect(storySpecsList, isNotEmpty);
+    final firstStorySpec = storySpecsList.first;
+    expectStorySpecShape(firstStorySpec);
 
-      final resolvedStorySpec = templateEngine.resolveWithMap(
-        '{{map.item}}',
-        WorkflowContext(data: result.outputs, variables: const {}),
-        MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
+    _requireRelativeExistingPlanPath(result, 'plan', rootDir: fixtureDir);
+    for (final storySpec in storySpecsList.whereType<Map<Object?, Object?>>()) {
+      _requireRelativeExistingMarkdownPath(
+        storySpec['spec_path'],
+        rootDir: fixtureDir,
+        artifactPath: result.artifactPath,
+        label: 'story_specs.items[].spec_path',
       );
-      expect(resolvedStorySpec.trim(), contains('"id"'));
-      expect(resolvedStorySpec.trim(), contains('"spec_path"'));
-      // AC is resolved from the FIS body at spec_path, not carried inline.
-      expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
-    },
-    timeout: const Timeout(Duration(minutes: 15)),
-  );
+    }
+
+    final resolvedStorySpec = templateEngine.resolveWithMap(
+      '{{map.item}}',
+      WorkflowContext(data: result.outputs, variables: const {}),
+      MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
+    );
+    expect(resolvedStorySpec.trim(), contains('"id"'));
+    expect(resolvedStorySpec.trim(), contains('"spec_path"'));
+    // AC is resolved from the FIS body at spec_path, not carried inline.
+    expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
+  }, timeout: const Timeout(Duration(minutes: 15)));
 
   // Live authoring probe for spec-and-implement. The heavy spec-and-implement
   // e2e feeds a pre-authored FIS and skips the `spec` step, so the one live
@@ -600,120 +597,110 @@ void main() {
   // synthesized spec with a parseable confidence and an on-disk FIS. Downstream
   // branch coverage stays in the stubbed built-in suite; the plan-authoring
   // counterpart is the "plan emits stories and story_specs" test above.
-  test(
-    'spec authors a synthesized FIS with a self-rated confidence for a free-text feature',
-    () async {
-      final result = await executeStep(
-        step: _stepById(specDefinition, 'spec'),
-        context: WorkflowContext(
-          variables: const {
-            'FEATURE':
-                'Add exactly one new markdown note file at notes/spec-probe.md with one heading '
-                '"Spec Probe" and one bullet "Authored by the spec step".',
-            'PROJECT': 'workflow-testing',
-            'BRANCH': 'main',
+  test('spec authors a synthesized FIS with a self-rated confidence for a free-text feature', () async {
+    final result = await executeStep(
+      step: _stepById(specDefinition, 'spec'),
+      context: WorkflowContext(
+        variables: const {
+          'FEATURE':
+              'Add exactly one new markdown note file at notes/spec-probe.md with one heading '
+              '"Spec Probe" and one bullet "Authored by the spec step".',
+          'PROJECT': 'workflow-testing',
+          'BRANCH': 'main',
+        },
+        data: {
+          'project_index': {
+            'framework': 'markdown',
+            'project_root': fixtureDir,
+            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+            'state_protocol': {'state_file': 'STATE.md'},
           },
-          data: {
-            'project_index': {
-              'framework': 'markdown',
-              'project_root': fixtureDir,
-              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-              'state_protocol': {'state_file': 'STATE.md'},
-            },
-          },
-        ),
-        stepTimeout: const Duration(minutes: 14),
-        artifactLabel: 'spec-synthesized-free-text-feature',
-      );
+        },
+      ),
+      stepTimeout: const Duration(minutes: 14),
+      artifactLabel: 'spec-synthesized-free-text-feature',
+    );
 
-      expect(
-        result.outputs['spec_source'],
-        'synthesized',
-        reason:
-            'the spec step authors a new FIS from free text, so spec_source is synthesized. '
-            'Artifact: ${result.artifactPath}',
-      );
-      final confidence = switch (result.outputs['spec_confidence']) {
-        final int numeric => numeric,
-        final value => int.tryParse('$value'),
-      };
-      expect(
-        confidence,
-        isNotNull,
-        reason: 'spec_confidence must be parseable as an int. Artifact: ${result.artifactPath}',
-      );
-      expect(
-        confidence,
-        inInclusiveRange(1, 10),
-        reason: 'a synthesized spec self-rates readiness 1-10. Artifact: ${result.artifactPath}',
-      );
-      _requireRelativeExistingMarkdownPath(
-        result.outputs['spec_path'],
-        rootDir: fixtureDir,
-        artifactPath: result.artifactPath,
-        label: 'spec_path',
-      );
-    },
-    timeout: const Timeout(Duration(minutes: 15)),
-  );
+    expect(
+      result.outputs['spec_source'],
+      'synthesized',
+      reason:
+          'the spec step authors a new FIS from free text, so spec_source is synthesized. '
+          'Artifact: ${result.artifactPath}',
+    );
+    final confidence = switch (result.outputs['spec_confidence']) {
+      final int numeric => numeric,
+      final value => int.tryParse('$value'),
+    };
+    expect(
+      confidence,
+      isNotNull,
+      reason: 'spec_confidence must be parseable as an int. Artifact: ${result.artifactPath}',
+    );
+    expect(
+      confidence,
+      inInclusiveRange(1, 10),
+      reason: 'a synthesized spec self-rates readiness 1-10. Artifact: ${result.artifactPath}',
+    );
+    _requireRelativeExistingMarkdownPath(
+      result.outputs['spec_path'],
+      rootDir: fixtureDir,
+      artifactPath: result.artifactPath,
+      label: 'spec_path',
+    );
+  }, timeout: const Timeout(Duration(minutes: 15)));
 
-  test(
-    'integrated-review returns verdict with findings_count for a trivial markdown change',
-    () async {
-      final result = await executeStep(
-        step: _stepById(specDefinition, 'integrated-review'),
-        context: WorkflowContext(
-          variables: const {
-            'FEATURE': 'Create exactly one new markdown file at notes/e2e-test.md with one heading and one bullet.',
-            'PROJECT': 'workflow-testing',
-            'BRANCH': 'main',
+  test('integrated-review returns verdict with findings_count for a trivial markdown change', () async {
+    final result = await executeStep(
+      step: _stepById(specDefinition, 'integrated-review'),
+      context: WorkflowContext(
+        variables: const {
+          'FEATURE': 'Create exactly one new markdown file at notes/e2e-test.md with one heading and one bullet.',
+          'PROJECT': 'workflow-testing',
+          'BRANCH': 'main',
+        },
+        data: {
+          'project_index': {
+            'framework': 'markdown',
+            'project_root': fixtureDir,
+            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+            'state_protocol': {'state_file': 'STATE.md'},
           },
-          data: {
-            'project_index': {
-              'framework': 'markdown',
-              'project_root': fixtureDir,
-              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-              'state_protocol': {'state_file': 'STATE.md'},
-            },
-            'spec_document':
-                '# Specification\n\nCreate `notes/e2e-test.md` containing one heading "E2E Test" and one bullet "Automated test artifact".',
-            'validation_summary':
-                'Implementation validated. File notes/e2e-test.md exists with expected content. No issues found.',
-            'diff_summary':
-                'diff --git a/notes/e2e-test.md b/notes/e2e-test.md\n'
-                'new file mode 100644\n'
-                '--- /dev/null\n'
-                '+++ b/notes/e2e-test.md\n'
-                '@@ -0,0 +1,2 @@\n'
-                '+# E2E Test\n'
-                '+- Automated test artifact\n',
-            'acceptance_criteria':
-                '- One markdown file notes/e2e-test.md exists\n- Contains heading "E2E Test"\n- Contains bullet "Automated test artifact"',
-          },
-        ),
-        artifactLabel: 'integrated-review-trivial-markdown-change',
-      );
+          'spec_document': '# Specification\n\nCreate `notes/e2e-test.md` containing one heading "E2E Test" and one bullet "Automated test artifact".',
+          'validation_summary':
+              'Implementation validated. File notes/e2e-test.md exists with expected content. No issues found.',
+          'diff_summary':
+              'diff --git a/notes/e2e-test.md b/notes/e2e-test.md\n'
+              'new file mode 100644\n'
+              '--- /dev/null\n'
+              '+++ b/notes/e2e-test.md\n'
+              '@@ -0,0 +1,2 @@\n'
+              '+# E2E Test\n'
+              '+- Automated test artifact\n',
+          'acceptance_criteria': '- One markdown file notes/e2e-test.md exists\n- Contains heading "E2E Test"\n- Contains bullet "Automated test artifact"',
+        },
+      ),
+      artifactLabel: 'integrated-review-trivial-markdown-change',
+    );
 
-      // integrated-review step declares the scoped output key
-      // `integrated-review.findings_count` (so the remediation loop gate
-      // `integrated-review.findings_count > 0` disambiguates it from
-      // re-review.findings_count). ContextExtractor stores results under the
-      // literal declared key – assert on that key directly.
-      _expectReviewReportPathOrCleanCounts(
-        result,
-        'integrated-review.review_report_path',
-        'integrated-review.findings_count',
-        rootDir: fixtureDir,
-        runtimeArtifactsDir: runtimeArtifactsDir,
-      );
-      _expectGatingCountNotGreaterThanTotal(
-        result,
-        'integrated-review.findings_count',
-        'integrated-review.gating_findings_count',
-      );
-    },
-    timeout: _defaultLiveTestTimeout,
-  );
+    // integrated-review step declares the scoped output key
+    // `integrated-review.findings_count` (so the remediation loop gate
+    // `integrated-review.findings_count > 0` disambiguates it from
+    // re-review.findings_count). ContextExtractor stores results under the
+    // literal declared key – assert on that key directly.
+    _expectReviewReportPathOrCleanCounts(
+      result,
+      'integrated-review.review_report_path',
+      'integrated-review.findings_count',
+      rootDir: fixtureDir,
+      runtimeArtifactsDir: runtimeArtifactsDir,
+    );
+    _expectGatingCountNotGreaterThanTotal(
+      result,
+      'integrated-review.findings_count',
+      'integrated-review.gating_findings_count',
+    );
+  }, timeout: _defaultLiveTestTimeout);
 
   test('simplify-code runs against the provider and writes no context outputs', () async {
     // simplify-code declares no outputs – its --fix invocation absorbs any
@@ -992,10 +979,8 @@ void main() {
           'implementation_summary':
               'Both planned stories were implemented exactly as specified. '
               'Alpha and Beta note files exist with the expected heading and bullet, and the batch is otherwise clean.',
-          'validation_summary':
-              'Post-remediation validation is clean. Both note files still exist with the exact expected content, and no validation findings remain.',
-          'remediation_summary':
-              'Performed a consistency pass over the batch summary and confirmed that no code or content changes were required.',
+          'validation_summary': 'Post-remediation validation is clean. Both note files still exist with the exact expected content, and no validation findings remain.',
+          'remediation_summary': 'Performed a consistency pass over the batch summary and confirmed that no code or content changes were required.',
           'diff_summary': 'No file changes were necessary because the implementation already matched the story specs.',
         },
       ),

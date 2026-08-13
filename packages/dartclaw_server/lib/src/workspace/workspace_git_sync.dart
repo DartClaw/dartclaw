@@ -9,8 +9,11 @@ import 'package:logging/logging.dart';
 import '../task/git_credential_env.dart';
 
 /// Callback for running shell commands (injectable for tests).
-typedef CommandRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
+typedef CommandRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// Version-controls the workspace directory via git.
 ///
@@ -19,14 +22,14 @@ typedef CommandRunner =
 class WorkspaceGitSync implements Reconfigurable {
   static final _log = Logger('WorkspaceGitSync');
 
-  static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\nerrors.md\nlearnings.md\n';
+  static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\nerrors.md\n';
 
   final String workspaceDir;
   bool pushEnabled;
   final CommandRunner _run;
   bool _gitAvailable = false;
 
-  WorkspaceGitSync({required this.workspaceDir, this.pushEnabled = true, CommandRunner? commandRunner})
+  new({required this.workspaceDir, this.pushEnabled = true, CommandRunner? commandRunner})
     : _run = commandRunner ?? _defaultRunner;
 
   bool get gitAvailable => _gitAvailable;
@@ -60,6 +63,7 @@ class WorkspaceGitSync implements Reconfigurable {
   Future<void> initIfNeeded() async {
     if (!_gitAvailable) return;
 
+    Directory(workspaceDir).createSync(recursive: true);
     final gitMetadataPath = '$workspaceDir/.git';
     final repoExists = FileSystemEntity.typeSync(gitMetadataPath, followLinks: false) != FileSystemEntityType.notFound;
 

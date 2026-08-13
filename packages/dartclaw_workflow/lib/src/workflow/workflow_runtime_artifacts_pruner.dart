@@ -22,12 +22,7 @@ class RuntimeArtifactsPruneAction {
   /// True when the deletion was applied (enforce mode), false when only planned.
   final bool applied;
 
-  const RuntimeArtifactsPruneAction({
-    required this.runId,
-    required this.path,
-    required this.reclaimedBytes,
-    required this.applied,
-  });
+  const new({required this.runId, required this.path, required this.reclaimedBytes, required this.applied});
 }
 
 /// Summary of a runtime-artifacts retention pass.
@@ -47,7 +42,7 @@ class RuntimeArtifactsPruneReport {
   /// Per-run actions taken or planned.
   final List<RuntimeArtifactsPruneAction> actions;
 
-  const RuntimeArtifactsPruneReport({
+  const new({
     required this.mode,
     this.prunedRuns = 0,
     this.reclaimedBytes = 0,
@@ -68,7 +63,7 @@ class WorkflowRuntimeArtifactsPruner {
   final WorkflowRuntimeArtifactsRetentionConfig config;
   final String dataDir;
 
-  const WorkflowRuntimeArtifactsPruner({required this.config, required this.dataDir});
+  const new({required this.config, required this.dataDir});
 
   /// Runs the retention pass over [completedRuns].
   ///

@@ -12,7 +12,7 @@ class TurnTraceService {
   final Database _db;
 
   /// Creates the service against [_db] and initializes its schema.
-  TurnTraceService(this._db) {
+  new(this._db) {
     _initSchema();
   }
 
@@ -69,7 +69,12 @@ class TurnTraceService {
         trace.cacheWriteTokens,
         trace.isError ? 1 : 0,
         trace.errorType,
-        jsonEncode(trace.toolCalls.map((t) => t.toJson()).toList()),
+        jsonEncode({
+          'records': trace.toolCalls.map((t) => t.toJson()).toList(),
+          'count': trace.toolCallCount,
+          'failedCount': trace.failedToolCallCount,
+          'truncated': trace.toolCallsTruncated,
+        }),
       ]);
     } finally {
       stmt.close();
@@ -148,14 +153,7 @@ class TurnTraceService {
           final toolRows = toolCountStmt.select(params);
           for (final row in toolRows) {
             final tc = row['tool_calls'] as String?;
-            if (tc != null) {
-              try {
-                final list = jsonDecode(tc) as List;
-                totalToolCalls += list.length;
-              } catch (_) {
-                // malformed JSON — skip
-              }
-            }
+            if (tc != null) totalToolCalls += _decodeToolCalls(tc).count;
           }
         } finally {
           toolCountStmt.close();
@@ -216,16 +214,7 @@ class TurnTraceService {
   }
 
   TurnTrace _traceFromRow(Row row) {
-    List<ToolCallRecord> toolCalls = const [];
-    final toolCallsJson = row['tool_calls'] as String?;
-    if (toolCallsJson != null) {
-      try {
-        final list = jsonDecode(toolCallsJson) as List;
-        toolCalls = list.map((e) => ToolCallRecord.fromJson(e as Map<String, dynamic>)).toList();
-      } catch (_) {
-        // malformed JSON — return empty list
-      }
-    }
+    final storedToolCalls = _decodeToolCalls(row['tool_calls'] as String?);
     return TurnTrace(
       id: row['id'] as String,
       sessionId: row['session_id'] as String,
@@ -241,8 +230,29 @@ class TurnTraceService {
       cacheWriteTokens: row['cache_write_tokens'] as int,
       isError: (row['is_error'] as int) != 0,
       errorType: row['error_type'] as String?,
-      toolCalls: toolCalls,
+      toolCalls: storedToolCalls.records,
+      toolCallCount: storedToolCalls.count,
+      failedToolCallCount: storedToolCalls.failedCount,
     );
+  }
+}
+
+({List<ToolCallRecord> records, int count, int failedCount}) _decodeToolCalls(String? encoded) {
+  if (encoded == null) return (records: const [], count: 0, failedCount: 0);
+  try {
+    final decoded = jsonDecode(encoded);
+    final rawRecords = decoded is List ? decoded : (decoded as Map<String, dynamic>)['records'] as List? ?? const [];
+    final records = rawRecords.map((value) => ToolCallRecord.fromJson(value as Map<String, dynamic>)).toList();
+    if (decoded is! Map<String, dynamic>) {
+      return (records: records, count: records.length, failedCount: records.where((call) => !call.success).length);
+    }
+    return (
+      records: records,
+      count: (decoded['count'] as num?)?.toInt() ?? records.length,
+      failedCount: (decoded['failedCount'] as num?)?.toInt() ?? records.where((call) => !call.success).length,
+    );
+  } catch (_) {
+    return (records: const [], count: 0, failedCount: 0);
   }
 }
 
@@ -255,7 +265,7 @@ class TraceQueryResult {
   final TurnTraceSummary summary;
 
   /// Creates a query result from [traces] and their [summary].
-  const TraceQueryResult({required this.traces, required this.summary});
+  const new({required this.traces, required this.summary});
 
   /// Serializes this result to a JSON-ready map.
   Map<String, dynamic> toJson() => {'traces': traces.map((t) => t.toJson()).toList(), 'summary': summary.toJson()};

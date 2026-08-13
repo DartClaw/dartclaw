@@ -25,7 +25,7 @@ class SlidingWindowRateLimiter {
   final Map<String, List<DateTime>> _events = {};
 
   /// Creates a [SlidingWindowRateLimiter] with [limit] events per [window].
-  SlidingWindowRateLimiter({required this.limit, required this.window});
+  new({required this.limit, required this.window});
 
   /// Checks whether a new event for [key] is within the rate limit.
   ///

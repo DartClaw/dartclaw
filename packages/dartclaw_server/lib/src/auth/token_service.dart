@@ -14,7 +14,7 @@ import 'auth_utils.dart';
 class TokenService {
   String? _token;
 
-  TokenService({String? token}) : _token = token;
+  new({String? token}) : _token = token;
 
   /// Returns the current token, generating one if not yet set.
   String get token => _token ??= generate();

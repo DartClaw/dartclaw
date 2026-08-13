@@ -7,7 +7,7 @@ class AuthRateLimiter {
   final DateTime Function() _now;
   final Map<String, ListQueue<DateTime>> _attempts = {};
 
-  AuthRateLimiter({this.maxAttempts = 5, this.windowDuration = const Duration(minutes: 1), DateTime Function()? now})
+  new({this.maxAttempts = 5, this.windowDuration = const Duration(minutes: 1), DateTime Function()? now})
     : _now = now ?? DateTime.now;
 
   bool shouldLimit(String key) {

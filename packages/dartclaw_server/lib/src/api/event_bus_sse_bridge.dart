@@ -19,7 +19,7 @@ class EventBusSseBridge {
   final StreamSubscription<AdvisorInsightEvent> _advisorInsightSub;
   final StreamSubscription<CompactionStartingEvent> _compactionStartingSub;
 
-  EventBusSseBridge({required EventBus bus, required SseBroadcast broadcast})
+  new({required EventBus bus, required SseBroadcast broadcast})
     : _loopDetectedSub = bus.on<LoopDetectedEvent>().listen((event) {
         broadcast.broadcast('loop_detected', {
           'sessionId': event.sessionId,

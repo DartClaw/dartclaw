@@ -108,6 +108,17 @@ void main() {
       expect((body['agentExecution'] as Map<String, dynamic>)['provider'], 'codex');
     });
 
+    test('returns 400 for a blank provider override', () async {
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Task', 'description': 'Describe the work', 'type': 'coding', 'provider': ' '},
+        status: 400,
+      );
+
+      expect(code, 'INVALID_INPUT');
+    });
+
     test('persists model, sessionId, and maxTokens onto agent execution', () async {
       final body = await api.expectJsonObject(
         'POST',
@@ -1202,7 +1213,7 @@ void main() {
 }
 
 class _CancelTrackingTurns extends TurnManager {
-  _CancelTrackingTurns()
+  new()
     : super(
         messages: _ThrowingMessageService(),
         worker: FakeAgentHarness(),
@@ -1226,7 +1237,7 @@ class _MockMergeExecutor extends MergeExecutor {
   final MergeResult result;
   int callCount = 0;
 
-  _MockMergeExecutor({required this.result}) : super(projectDir: '/mock');
+  new({required this.result}) : super(projectDir: '/mock');
 
   @override
   Future<MergeResult> merge({
@@ -1245,7 +1256,7 @@ class _MockMergeExecutor extends MergeExecutor {
 class _ThrowingMergeExecutor extends MergeExecutor {
   final Object error;
 
-  _ThrowingMergeExecutor(this.error) : super(projectDir: '/mock');
+  new(this.error) : super(projectDir: '/mock');
 
   @override
   Future<MergeResult> merge({

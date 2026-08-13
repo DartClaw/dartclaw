@@ -12,7 +12,7 @@ final class ExtractedTurn {
   final List<String> missingKeys;
   final List<String> logEntries;
 
-  const ExtractedTurn({
+  const new({
     required this.inlinePayload,
     required this.toolCallOutputs,
     required this.isPartial,
@@ -23,7 +23,7 @@ final class ExtractedTurn {
 
 /// Extracts workflow-context payloads from provider stdout or assistant text.
 final class WorkflowTurnExtractor {
-  WorkflowTurnExtractor({Logger? log}) : _log = log ?? Logger('WorkflowTurnExtractor');
+  new({Logger? log}) : _log = log ?? Logger('WorkflowTurnExtractor');
 
   final Logger _log;
 
@@ -125,9 +125,10 @@ final class WorkflowTurnExtractor {
   }
 
   List<String> _toolCallOutputs(String text) {
-    final tagged = RegExp(
-      r'<workflow-tool-output>\s*([\s\S]*?)\s*</workflow-tool-output>',
-    ).allMatches(text).map((match) => match.group(1)).whereType<String>();
+    final tagged = RegExp(r'<workflow-tool-output>\s*([\s\S]*?)\s*</workflow-tool-output>')
+        .allMatches(text)
+        .map((match) => match.group(1))
+        .whereType<String>();
     final jsonLines = text.split('\n').map(_toolOutputFromJsonLine).whereType<String>();
     return [...tagged, ...jsonLines].toList(growable: false);
   }

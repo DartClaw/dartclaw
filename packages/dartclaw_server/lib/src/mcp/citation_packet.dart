@@ -15,7 +15,7 @@ enum CitationLayer {
   /// Stable JSON wire value.
   final String wireName;
 
-  const CitationLayer(this.wireName);
+  new(this.wireName);
 
   /// Parses [value] from the wire shape.
   static CitationLayer fromWire(String value) => switch (value) {
@@ -38,18 +38,27 @@ final class SourceRef {
   /// Human-readable label shown to agents or UI renderers.
   final String label;
 
+  /// Role that owns [locator] when the layer contains multiple source roles.
+  final String? role;
+
   /// Creates a source reference.
-  const SourceRef({required this.layer, required this.locator, required this.label});
+  const new({required this.layer, required this.locator, required this.label, this.role});
 
   /// Hydrates a source reference from JSON.
-  factory SourceRef.fromJson(Map<String, dynamic> json) => SourceRef(
+  factory fromJson(Map<String, dynamic> json) => SourceRef(
     layer: CitationLayer.fromWire(json['layer'] as String),
     locator: json['locator'] as String,
     label: json['label'] as String,
+    role: json['role'] as String?,
   );
 
   /// Converts this reference to the shared JSON wire shape.
-  Map<String, dynamic> toJson() => {'layer': layer.wireName, 'locator': locator, 'label': label};
+  Map<String, dynamic> toJson() => {
+    'layer': layer.wireName,
+    'locator': locator,
+    'label': label,
+    if (role != null) 'role': role,
+  };
 }
 
 /// Synthesized statement with one or more source references.
@@ -64,10 +73,10 @@ final class CitationStatement {
   final bool unattributed;
 
   /// Creates a cited statement.
-  const CitationStatement({required this.text, required this.sourceRefs, this.unattributed = false});
+  const new({required this.text, required this.sourceRefs, this.unattributed = false});
 
   /// Hydrates a statement from JSON.
-  factory CitationStatement.fromJson(Map<String, dynamic> json) => CitationStatement(
+  factory fromJson(Map<String, dynamic> json) => CitationStatement(
     text: json['text'] as String,
     sourceRefs: ((json['sourceRefs'] as List?) ?? const [])
         .cast<Map<String, dynamic>>()
@@ -99,7 +108,7 @@ final class CitationPacket {
   final bool noSourcesFound;
 
   /// Creates a citation packet.
-  const CitationPacket({
+  const new({
     required this.statements,
     required this.sourceList,
     this.degradedLayers = const [],
@@ -107,7 +116,7 @@ final class CitationPacket {
   });
 
   /// Hydrates a citation packet from JSON.
-  factory CitationPacket.fromJson(Map<String, dynamic> json) => CitationPacket(
+  factory fromJson(Map<String, dynamic> json) => CitationPacket(
     statements: ((json['statements'] as List?) ?? const [])
         .cast<Map<String, dynamic>>()
         .map(CitationStatement.fromJson)
@@ -143,7 +152,7 @@ final class CitationSourceIndexResolver implements CitationSourceResolver {
   final bool Function(int id) _kgFactExists;
 
   /// Creates a resolver over known live source locators.
-  CitationSourceIndexResolver({
+  new({
     Iterable<String> wikiLocators = const [],
     Iterable<String> memoryLocators = const [],
     Iterable<String> inboxLocators = const [],

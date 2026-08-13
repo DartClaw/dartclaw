@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show ensureDartclawGoogleChatRegistered;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -70,7 +70,7 @@ class WiringResult {
   final AgentExecutionRepository agentExecutionRepository;
   final TaskService taskService;
   final AgentHarness harness;
-  final HarnessPool pool;
+  final ExecutionCoordinator executions;
   final HeartbeatScheduler? heartbeat;
   final ScheduleService? scheduleService;
   final KvService kvService;
@@ -81,8 +81,12 @@ class WiringResult {
   final bool authEnabled;
   final TokenService? tokenService;
   final EventBus eventBus;
-  final Map<String, ContainerManager> containerManagers;
+
+  /// Leases a dedicated container authority for one containerized execution,
+  /// or `null` in host-only deployments.
+  final ContainerAuthorityProvider? containerAuthorities;
   final Future<void> Function() shutdownExtras;
+  final Future<void> Function()? prepareExecutionShutdown;
   final ProjectService projectService;
   final ConfigNotifier configNotifier;
   final OutboundMcpPool? outboundMcpPool;
@@ -93,13 +97,13 @@ class WiringResult {
   /// registry.
   final WorkflowRegistry workflowRegistry;
 
-  const WiringResult({
+  const new({
     required this.server,
     required this.searchDb,
     required this.agentExecutionRepository,
     required this.taskService,
     required this.harness,
-    required this.pool,
+    required this.executions,
     required this.heartbeat,
     required this.scheduleService,
     required this.kvService,
@@ -110,8 +114,9 @@ class WiringResult {
     required this.authEnabled,
     required this.tokenService,
     required this.eventBus,
-    required this.containerManagers,
+    required this.containerAuthorities,
     required this.shutdownExtras,
+    this.prepareExecutionShutdown,
     required this.projectService,
     required this.configNotifier,
     this.outboundMcpPool,
@@ -137,7 +142,7 @@ final class _WiringContext {
   late DartclawServer _serverRef;
   late TurnManager _serverTurns;
 
-  _WiringContext({
+  new({
     required this.eventBus,
     required this.configNotifier,
     required this.dataDir,
@@ -197,7 +202,7 @@ class ServiceWiring {
 
   static final _log = Logger('ServiceWiring');
 
-  ServiceWiring({
+  new({
     required this.config,
     required this.dataDir,
     required this.port,
@@ -253,7 +258,7 @@ class ServiceWiring {
     // 3. Harness
     final harness = await _wireHarness(ctx, storage, security);
     // 4. Tasks (pre-server)
-    final task = await _wirePreServerTasks(ctx, storage, project, security);
+    final task = await _wirePreServerTasks(ctx, storage, project, security, harness);
     // 5. Channels
     final channel = await _wireChannels(ctx, storage, task, harness);
     final alertRouter = _wireAlertRouter(ctx, storage, channel);
@@ -265,7 +270,11 @@ class ServiceWiring {
     await ctx._serverTurns.detectAndCleanOrphanedTurns();
     ctx.configNotifier.register(ctx._serverTurns);
     // 7. Tasks (post-server)
-    await task.wirePostServer(turns: ctx._serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
+    await task.wirePostServer(
+      turns: ctx._serverTurns,
+      executions: harness.executions,
+      policyResolver: harness.policyResolver,
+    );
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
     final workflowRegistry = await _wireWorkflowRegistry(ctx, harness, workflowRoleDefaults);
@@ -385,6 +394,9 @@ class ServiceWiring {
       platformCapabilities: platformCapabilities,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
+      // Server ref resolved lazily – the MCP registry exists only after the
+      // server is built, while authorities are created at turn time.
+      mcpHandlerRef: () => ctx.serverRefGetter().mcpHandler,
     );
     await security.wire(agentDefs: agentDefs);
     return security;
@@ -413,6 +425,7 @@ class ServiceWiring {
     StorageWiring storage,
     ProjectWiring project,
     SecurityWiring security,
+    HarnessWiring harness,
   ) async {
     final task = TaskWiring(
       config: config,
@@ -420,7 +433,13 @@ class ServiceWiring {
       eventBus: ctx.eventBus,
       storage: storage,
       project: project,
-      containerManagers: security.containerManagers,
+      containerAuthorities: security.containersEnabled ? security.acquireContainerAuthority : null,
+      // The workflow lane's grant is derived by the one owner (HarnessWiring),
+      // paired with container mediation so a containerized step's bridge grant
+      // gets the same deny/servable treatment as every other execution.
+      bridgedMcpToolsResolver: security.containersEnabled ? harness.workflowBridgedMcpTools : null,
+      executionInventory: harness.executionInventory,
+      messageRedactor: ctx.messageRedactor,
     );
     await task.wirePreServer();
     return task;
@@ -450,13 +469,13 @@ class ServiceWiring {
       budgetEnforcer: harness.budgetEnforcer,
     );
     _configureBudgetWarningNotifiers(
-      pool: harness.pool,
+      executions: harness.executions,
       sessions: storage.sessions,
       taskService: storage.taskService,
       channelManager: channel.channelManager,
     );
     _configureLoopDetectionNotifiers(
-      pool: harness.pool,
+      executions: harness.executions,
       sessions: storage.sessions,
       taskService: storage.taskService,
       channelManager: channel.channelManager,
@@ -503,7 +522,7 @@ class ServiceWiring {
       providers: ProvidersConfig(entries: harness.providerStatusEntries),
       registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
       defaultProvider: config.agent.provider,
-      pool: harness.pool,
+      executions: harness.executions,
     );
     await providerStatus.probe();
     return providerStatus;
@@ -514,10 +533,14 @@ class ServiceWiring {
   }
 
   Map<String, String> _providerProbeEnvironment(String providerId, config_tools.CredentialRegistry registry) {
+    final providerFamily = config_tools.ProviderIdentity.resolveFamily(
+      providerId,
+      executable: resolveWorkflowProviderExecutable(config, providerId),
+      options: workflowProviderOptions(config, providerId),
+    );
     final environment = SafeProcess.sanitize(
       baseEnvironment: Platform.environment,
-      sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-      extraEnvironment: claudeHardeningEnvVars,
+      extraEnvironment: providerFamily == config_tools.ProviderIdentity.claude ? claudeHardeningEnvVars : const {},
     );
     final apiKey = registry.getApiKey(providerId);
     if (apiKey != null) {
@@ -582,10 +605,7 @@ class ServiceWiring {
     HarnessWiring harness,
     WorkflowRoleDefaults workflowRoleDefaults,
   ) async {
-    final continuityProviders = harness.pool.runners
-        .where((r) => r.harness.supportsSessionContinuity)
-        .map((r) => r.providerId)
-        .toSet();
+    final continuityProviders = harness.continuityProviders;
     final resolvedWorkflowsDir = ctx.resolvedAssets.workflowsDir;
     await WorkflowMaterializer.materialize(
       dataDir: ctx.dataDir,
@@ -647,7 +667,13 @@ class ServiceWiring {
       final messages = [
         {'role': 'user', 'content': feedback},
       ];
-      await ctx._serverRef.turns.startTurn(session.id, messages, source: 'push-back');
+      await ctx._serverRef.turns.startTurn(
+        session.id,
+        messages,
+        source: 'push-back',
+        isHumanInput: true,
+        promptScope: PromptScope.primary,
+      );
     }
 
     return (lifecycleManager, pushBackFeedback);
@@ -667,12 +693,15 @@ class ServiceWiring {
       channel: channel,
       security: security,
       sseBroadcast: harness.sseBroadcast,
+      memoryHandlers: harness.memoryHandlers,
+      behavior: harness.behavior,
       configNotifier: ctx.configNotifier,
     );
     await scheduling.wire(
       serverRefGetter: ctx.serverRefGetter,
       turns: ctx._serverTurns,
       contextMonitor: harness.contextMonitor,
+      policyResolver: harness.policyResolver,
     );
     return scheduling;
   }

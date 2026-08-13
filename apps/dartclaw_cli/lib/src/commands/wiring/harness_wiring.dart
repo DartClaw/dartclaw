@@ -1,7 +1,8 @@
 import 'dart:io';
-import 'dart:math';
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
+
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessConfig;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show WikiSearchSource;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -9,22 +10,16 @@ import '../serve_command.dart' show ExitFn, mcpDisallowedTools;
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
 
-typedef _SpawnPlanEntry = ({
-  String providerId,
-  String profileId,
-  String executable,
-  String credentialProviderId,
-  Map<String, dynamic> options,
-  bool requiresContainer,
-});
-
 /// Constructs and exposes harness-layer services.
 ///
-/// Owns agent definitions, primary + task harnesses, harness pool, token service,
-/// usage tracker, health service, context management, session delegate, behavior
+/// Owns agent definitions, primary + worker harnesses, execution capacity, token service,
+/// usage tracker, health service, context management, logical-agent sessions, behavior
 /// service, self-improvement, SSE broadcast, and auth state.
 class HarnessWiring {
-  HarnessWiring({
+  static const _preCompactObservationMaxBytes = 32 * 1024;
+  static const _preCompactMessageCount = 12;
+
+  new({
     required this.config,
     required String dataDir,
     required int port,
@@ -60,13 +55,25 @@ class HarnessWiring {
 
   late AgentHarness _harness;
   late GuardChain _primaryGuardChain;
-  late HarnessPool _pool;
+  late ExecutionCoordinator _executions;
+  late ExecutionPolicyResolver _policyResolver;
+  late ProviderExecutionInventory _executionInventory;
+  late ExecutionPolicy _primaryPolicy;
+  final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
+      Map<TurnRunner, ContainerAuthorityLease>.identity();
+  ContainerAuthorityLease? _primaryContainer;
+
+  /// The primary authority's container name, captured on acquisition so a crash
+  /// event can be attributed to the primary lane specifically.
+  String? _primaryContainerName;
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
+  late List<McpTool> _semanticMcpTools;
+  late Map<String, CanonicalTool> _ownMcpToolCanonicals;
   late BehaviorFileService _behavior;
   late SelfImprovementService _selfImprovement;
-  late SessionDelegate _sessionDelegate;
+  late LogicalAgentSessionService _logicalAgentSessions;
   late UsageTracker _usageTracker;
   late HealthService _healthService;
   late SseBroadcast _sseBroadcast;
@@ -75,27 +82,25 @@ class HarnessWiring {
   late ResultTrimmer _resultTrimmer;
   late SessionLockManager _lockManager;
   late SessionResetService _resetService;
-  late ({
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
-  })
-  _memoryHandlers;
+  late MemoryHandlers _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
-  SpawnTaskRunner? _onSpawnNeeded;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
   TokenService? _tokenService;
   String? _resolvedGatewayToken;
 
   AgentHarness get harness => _harness;
-  HarnessPool get pool => _pool;
+  ExecutionCoordinator get executions => _executions;
+  ExecutionPolicyResolver get policyResolver => _policyResolver;
+  ProviderExecutionInventory get executionInventory => _executionInventory;
   HarnessConfig get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
+  List<McpTool> get semanticMcpTools => _semanticMcpTools;
+  Map<String, CanonicalTool> get ownMcpToolCanonicals => _ownMcpToolCanonicals;
   BehaviorFileService get behavior => _behavior;
   SelfImprovementService get selfImprovement => _selfImprovement;
-  SessionDelegate get sessionDelegate => _sessionDelegate;
+  LogicalAgentSessionService get logicalAgentSessions => _logicalAgentSessions;
   UsageTracker get usageTracker => _usageTracker;
   HealthService get healthService => _healthService;
   SseBroadcast get sseBroadcast => _sseBroadcast;
@@ -103,46 +108,92 @@ class HarnessWiring {
   ExplorationSummarizer get explorationSummarizer => _explorationSummarizer;
   SessionLockManager get lockManager => _lockManager;
   SessionResetService get resetService => _resetService;
-  ({
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
-  })
-  get memoryHandlers => _memoryHandlers;
+  MemoryHandlers get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
-  SpawnTaskRunner? get onSpawnNeeded => _onSpawnNeeded;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
+  Set<String> get continuityProviders => _harnessFactory.probeContinuityProviders();
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
 
   /// Wires harness services. [serverRefGetter] is resolved lazily for
-  /// the session delegate dispatch closure.
+  /// the logical-agent session dispatch closure.
   Future<void> wire({required DartclawServer Function() serverRefGetter}) async {
     _behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
       projectDir: p.join(Directory.current.path, '.dartclaw'),
       maxMemoryBytes: config.memory.maxBytes,
+      memoryCorpus: _storage.memoryCorpus,
       onboardingExpiryDays: config.onboarding.expiryDays,
       compactInstructions: config.context.compactInstructions,
       identifierPreservation: config.context.identifierPreservation,
       identifierInstructions: config.context.identifierInstructions,
     );
-    final staticPrompt = await _behavior.composeStaticPrompt();
+    final staticPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.primary);
 
-    _selfImprovement = SelfImprovementService(workspaceDir: config.workspaceDir);
+    _selfImprovement = SelfImprovementService(workspaceDir: config.workspaceDir, corpusService: _storage.memoryCorpus);
 
     _memoryHandlers = createMemoryHandlers(
       memory: _storage.memory,
       memoryFile: _storage.memoryFile,
+      corpusService: _storage.memoryCorpus,
       searchBackend: _storage.searchBackend,
+      nativeSourceResolver: LiveMemorySourceResolver(
+        wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
+        kg: _storage.kg,
+        inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
+      ),
       selfImprovement: _selfImprovement,
     );
 
-    _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
-    _agentMap = {for (final a in _agentDefs) a.id: a};
-    final agentsPayload = {for (final a in _agentDefs) a.id: a.toInitializePayload()};
+    final semanticMcpTools = <McpTool>[
+      WebFetchTool(classifier: _security.contentClassifier, failOpenOnClassification: _security.contentGuardFailOpen),
+      MemoryApplyTool(handler: _memoryHandlers.onApply, contextualHandler: _memoryHandlers.apply),
+      MemoryObserveTool(handler: _memoryHandlers.onObserve, contextualHandler: _memoryHandlers.observe),
+      MemorySearchTool(handler: _memoryHandlers.onSearch),
+      MemoryReadTool(handler: _memoryHandlers.onRead),
+    ];
+    for (final entry in config.search.providers.entries) {
+      if (!entry.value.enabled || entry.value.apiKey.isEmpty) continue;
+      switch (entry.key) {
+        case 'brave':
+          semanticMcpTools.add(
+            BraveSearchTool(
+              provider: BraveSearchProvider(apiKey: entry.value.apiKey),
+              contentGuard: _security.contentGuard,
+            ),
+          );
+        case 'tavily':
+          semanticMcpTools.add(
+            TavilySearchTool(
+              provider: TavilySearchProvider(apiKey: entry.value.apiKey),
+              contentGuard: _security.contentGuard,
+            ),
+          );
+        default:
+          _log.warning('Unknown search provider: ${entry.key} — skipping');
+      }
+    }
+    _semanticMcpTools = List.unmodifiable(semanticMcpTools);
+    _ownMcpToolCanonicals = Map.unmodifiable({
+      'sessions_spawn': CanonicalTool.sessionsSpawn,
+      'sessions_send': CanonicalTool.sessionsSend,
+      for (final tool in _semanticMcpTools)
+        tool.name: switch (tool.name) {
+          'web_fetch' => CanonicalTool.webFetch,
+          'brave_search' || 'tavily_search' => CanonicalTool.webSearch,
+          'memory_apply' => CanonicalTool.memoryApply,
+          'memory_observe' => CanonicalTool.memoryObserve,
+          'memory_search' => CanonicalTool.memorySearch,
+          'memory_read' => CanonicalTool.memoryRead,
+          _ => throw StateError('Missing canonical mapping for own MCP tool: ${tool.name}'),
+        },
+    });
 
+    if (config.agent.provider.trim().isEmpty) {
+      throw StateError('agent.provider must not be blank');
+    }
+    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
     _authEnabled = config.gateway.authMode != 'none';
     if (_authEnabled) {
       _resolvedGatewayToken = config.gateway.token ?? TokenService.loadFromFile(_dataDir);
@@ -154,34 +205,78 @@ class HarnessWiring {
       _tokenService = TokenService(token: _resolvedGatewayToken!);
     } else {
       final host = config.server.host;
-      final isLoopback = host == 'localhost' || host == '127.0.0.1';
-      if (isLoopback) {
+      if (isLoopbackHost(host)) {
         _log.warning('Auth disabled on loopback — acceptable for local dev only');
       } else {
         _log.severe('CRITICAL: Auth disabled on network-accessible host $host');
       }
     }
 
-    final mcpEnabled = _resolvedGatewayToken != null;
+    final mcpEnabled = _resolvedGatewayToken != null || (!_authEnabled && isLoopbackHost(config.server.host));
+    _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
+    for (final definition in _agentDefs) {
+      if (definition.provider != null && definition.provider!.trim().isEmpty) {
+        throw StateError('agents.${definition.id}.provider must not be blank');
+      }
+    }
+    _agentMap = {for (final a in _agentDefs) a.id: a};
+    // Bridged MCP authorization resolves registered tool names through the
+    // same canonical taxonomy the guard cascade uses.
+    _security.mcpToolCanonicals = _ownMcpToolCanonicals;
+    _policyResolver = ExecutionPolicyResolver(
+      config: config,
+      availableContainerProfiles: _security.availableContainerProfiles,
+    );
     _harnessConfig = HarnessConfig(
       disallowedTools: mcpDisallowedTools(
         mcpEnabled: mcpEnabled,
-        searchEnabled: _hasSearchProvider(config),
+        searchEnabled: _ownMcpToolCanonicals.containsValue(CanonicalTool.webSearch),
         userDisallowed: config.agent.disallowedTools,
       ),
       maxTurns: config.agent.maxTurns,
       model: config.agent.model,
       effort: config.agent.effort,
-      agents: agentsPayload,
       appendSystemPrompt: staticPrompt,
-      mcpServerUrl: _resolvedGatewayToken != null ? 'http://127.0.0.1:$_port/mcp' : null,
+      mcpServerUrl: mcpEnabled ? 'http://localhost:$_port/mcp' : null,
       mcpGatewayToken: _resolvedGatewayToken,
     );
 
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
-    final defaultProviderId = config.agent.provider;
-    final acpValidationResults = await _validateConfiguredAcpTargets(config);
-    for (final entry in config.harness.acp.agents.entries) {
+    _warnToolPolicyEnforcementBoundaries(defaultProviderId);
+    final acpAgents = ProviderIdentity.normalizeKeys(config.harness.acp.agents, subject: 'Configured ACP provider IDs');
+    final acpRequirementErrors = [
+      for (final entry in acpAgents.entries) ?acpContainerRequirementError(entry.key, entry.value),
+    ];
+    if (acpRequirementErrors.isNotEmpty) {
+      throw StateError(acpRequirementErrors.join('\n'));
+    }
+    _executionInventory = ProviderExecutionInventory.of(
+      providerIds: {defaultProviderId, ...ProviderIdentity.normalizeKeys(config.providers.entries).keys},
+      acpProviderIds: acpAgents.keys.toSet(),
+    );
+    // One startup emission point for every execution-boundary diagnostic:
+    // deliberate weakenings, contexts that fail closed at first dispatch, and
+    // combinations this deployment resolves to but cannot run.
+    for (final warning in _policyResolver.hostOverrideWarnings()) {
+      _log.warning(warning);
+    }
+    for (final warning in _policyResolver.failClosedWarnings(agents: _agentDefs)) {
+      _log.warning(warning);
+    }
+    for (final warning in _policyResolver.providerCompatibilityWarnings(
+      inventory: _executionInventory,
+      defaultProviderId: defaultProviderId,
+      agents: _agentDefs,
+    )) {
+      _log.warning(warning);
+    }
+    // Reports an agent allowed a host tool this deployment cannot serve at
+    // startup rather than at that agent's first container turn.
+    for (final definition in _agentDefs) {
+      _bridgedMcpToolsFor(agentId: definition.id);
+    }
+    final acpValidationResults = await _validateConfiguredAcpTargets(config, acpAgents);
+    for (final entry in acpAgents.entries) {
       if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
         continue;
       }
@@ -190,10 +285,26 @@ class HarnessWiring {
     // Each runner gets its own TaskToolFilterGuard so per-task/per-turn
     // allowedTools enforcement is isolated across concurrent runners.
     final primaryFilter = TaskToolFilterGuard();
-    _primaryGuardChain = _buildRunnerGuardChain(_security.guardChain, primaryFilter);
+    _primaryGuardChain = _buildRunnerGuardChain(_security.guardChain, primaryFilter, _security.toolPolicyCascade);
+    late final Map<String, ProviderEntry> providerEntries;
+    late final Map<String, List<String>> providerProfiles;
+    late final Map<String, int> providerCapacities;
     try {
+      final available = _security.availableContainerProfiles;
+      final profileIds = available.isEmpty ? ['workspace'] : available.toList(growable: false);
+      providerEntries = _effectiveWorkerProviderEntries(config, acpAgents, acpValidationResults);
+      _providerStatusEntries = providerEntries;
+      providerProfiles = {for (final providerId in providerEntries.keys) providerId: profileIds};
+      providerCapacities = {
+        for (final providerEntry in providerEntries.entries) providerEntry.key: providerEntry.value.effectivePoolSize,
+      };
+      final totalCapacity = providerCapacities.values.fold(0, (sum, capacity) => sum + capacity);
+      if (totalCapacity > 0) {
+        _log.info('Worker capacity: up to $totalCapacity execution(s) + 1 primary-interactive lane');
+      }
+
       final validationProviders = ProvidersConfig(
-        entries: _effectiveValidationProviderEntries(config, acpValidationResults),
+        entries: _effectiveValidationProviderEntries(config, providerEntries),
       );
       final validation = await ProviderValidator.validate(
         providers: validationProviders,
@@ -207,26 +318,29 @@ class HarnessWiring {
         throw StateError(validation.errors.join('\n'));
       }
 
+      _primaryPolicy = _policyResolver.resolveForPrimary(providerId: defaultProviderId);
+      // The primary lane's own grant, and the disallow list resolved against
+      // the MCP surface it will really have — a containerized primary that is
+      // granted no bridged search keeps its native one instead of losing both.
+      final primaryBridgedMcpTools = _primaryPolicy.isContainer ? _primaryBridgedMcpTools() : const <String>{};
+      final primaryHarnessConfig = _harnessConfig.copyWith(
+        disallowedTools: workerDisallowedTools(
+          containerProfile: _primaryPolicy.containerProfile,
+          hostDisallowedTools: _harnessConfig.disallowedTools,
+          userDisallowedTools: config.agent.disallowedTools,
+        ),
+      );
       _harness = _harnessFactory.create(
         defaultProviderId,
-        HarnessFactoryConfig(
-          cwd: Directory.current.path,
+        _buildFactoryConfig(
           executable: _resolveProviderExecutable(config, defaultProviderId),
-          turnTimeout: Duration(seconds: config.server.workerTimeout),
-          onMemorySave: _memoryHandlers.onSave,
-          onMemorySearch: _memoryHandlers.onSearch,
-          onMemoryRead: _memoryHandlers.onRead,
-          onPermissionDenied: (toolName, reason) {
-            _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
-          },
-          harnessConfig: _harnessConfig,
-          historyConfig: config.agent.history,
+          harnessConfig: primaryHarnessConfig,
           providerOptions: _providerOptions(config, defaultProviderId),
-          containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
+          containerManager: await _primaryContainerManager(defaultProviderId, allowedMcpTools: primaryBridgedMcpTools),
           guardChain: _primaryGuardChain,
-          acpPermissionDecision: _acpPermissionDecision,
-          acpReverseCallAudit: _auditAcpReverseCall,
           environment: _providerEnvironment(
+            config,
+            defaultProviderId,
             _credentialProviderIdForProvider(config, defaultProviderId),
             credentialRegistry,
           ),
@@ -238,68 +352,10 @@ class HarnessWiring {
       _log.severe('Failed to start harness', e, st);
       await _storage.memoryFile.dispose();
       await _storage.turnStateStore.dispose();
-      for (final manager in _security.containerManagers.values) {
-        try {
-          await manager.stop();
-        } catch (stopErr) {
-          _log.fine('Error stopping container during harness startup failure cleanup', stopErr);
-        }
-      }
-      await _security.credentialProxy?.stop();
+      await _releaseContainerQuietly(_primaryContainer);
+      _primaryContainer = null;
       await _storage.dispose();
       _exitFn(1);
-    }
-
-    // Task pool capacity — runners are spawned lazily on first task creation.
-    final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
-    final providerEntries = _effectiveTaskProviderEntries(config, acpValidationResults);
-    _providerStatusEntries = providerEntries;
-    final useLegacyTaskPool = config.providers.isEmpty && config.harness.acp.isEmpty;
-    final maxConcurrent = useLegacyTaskPool
-        ? config.tasks.maxConcurrent
-        : providerEntries.values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
-
-    // Build a spawn plan: one entry per future task runner, consumed in order.
-    final spawnPlan = <_SpawnPlanEntry>[];
-    if (useLegacyTaskPool) {
-      final taskRunnerCount = config.tasks.maxConcurrent == 0
-          ? 0
-          : (_security.containerManagers.isEmpty
-                ? config.tasks.maxConcurrent
-                : max(config.tasks.maxConcurrent, profileIds.length));
-      final legacyProviderId = defaultProviderId;
-      final legacyExecutable = _resolveProviderExecutable(config, legacyProviderId);
-      final legacyProviderOptions = _providerOptions(config, legacyProviderId);
-      for (var i = 0; i < taskRunnerCount; i++) {
-        spawnPlan.add((
-          providerId: legacyProviderId,
-          profileId: profileIds[i % profileIds.length],
-          executable: legacyExecutable,
-          credentialProviderId: _credentialProviderIdForProvider(config, legacyProviderId),
-          options: legacyProviderOptions,
-          requiresContainer: false,
-        ));
-      }
-    } else {
-      for (final providerEntry in providerEntries.entries) {
-        final providerId = providerEntry.key;
-        final entry = providerEntry.value;
-        final acpEntry = config.harness.acp[providerId];
-        final planProfiles = _profilesForProvider(config, providerId, profileIds);
-        for (var i = 0; i < entry.effectivePoolSize; i++) {
-          spawnPlan.add((
-            providerId: providerId,
-            profileId: planProfiles[i % planProfiles.length],
-            executable: entry.executable,
-            credentialProviderId: _credentialProviderIdForProvider(config, providerId),
-            options: entry.options,
-            requiresContainer: acpEntry?.containerIsolationRequired ?? false,
-          ));
-        }
-      }
-    }
-    if (maxConcurrent > 0) {
-      _log.info('Task pool: lazy, up to $maxConcurrent task runner(s) + 1 primary');
     }
 
     _sseBroadcast = SseBroadcast();
@@ -311,6 +367,18 @@ class HarnessWiring {
     // resolved per runner inside TurnRunner from that harness's capability.
     // CompactionCompletedEvent advances the shared cycle counter for dedup.
     _eventBus.on<CompactionCompletedEvent>().listen((_) => _contextMonitor.onCompactionCompleted());
+    // The primary agent's container is a single-use authority: once it dies its
+    // bridges are gone and nothing re-acquires it (auto-recovery is deliberately
+    // deferred). Emit a distinct, operator-actionable signal — separate from the
+    // per-task crash handling — naming the primary lane and the only recovery.
+    _eventBus.on<ContainerCrashedEvent>().listen((event) {
+      if (_primaryContainerName != null && event.containerName == _primaryContainerName) {
+        _log.severe(
+          'The primary agent\'s container (${event.containerName}) was lost; the chat cannot recover on its own. '
+          'Restart the service to recover.',
+        );
+      }
+    });
     _resultTrimmer = ResultTrimmer(maxBytes: config.context.maxResultBytes);
     _explorationSummarizer = ExplorationSummarizer(
       trimmer: _resultTrimmer,
@@ -347,31 +415,94 @@ class HarnessWiring {
       usageTracker: _usageTracker,
     );
 
-    final totalConcurrent = _agentDefs.fold(0, (sum, a) => sum + a.maxConcurrent);
-    final subagentLimits = SubagentLimits(
-      maxConcurrent: totalConcurrent,
-      maxSpawnDepth: 1,
-      maxChildrenPerAgent: totalConcurrent,
-    );
+    _logicalAgentSessions = LogicalAgentSessionService(
+      dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
+        final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
+        final persona = definition.prompt.trim().isEmpty ? null : definition.prompt;
+        final trimmedModel = definition.model?.trim();
+        final trimmedEffort = definition.effort?.trim();
+        final configuredProvider = definition.provider?.trim();
+        final agentProviderId = configuredProvider == null || configuredProvider.isEmpty
+            ? defaultProviderId
+            : ProviderIdentity.normalize(configuredProvider);
+        Session? session;
+        if (createSession) {
+          final policy = _policyResolver.resolveForAgent(definition, providerId: agentProviderId);
+          session = await _storage.sessions.getOrCreateByKey(
+            sessionId,
+            type: SessionType.logicalAgent,
+            provider: agentProviderId,
+            securityProfile: policy.containerProfile,
+            executionMode: policy.mode,
+          );
+        } else {
+          session = await _storage.sessions.getByKey(sessionId);
+          if (session == null || session.type != SessionType.logicalAgent) {
+            throw StateError('Unknown logical-agent session: $sessionId');
+          }
+        }
+        if (session.provider == null) {
+          throw StateError('Logical-agent session is missing its pinned provider: $sessionId');
+        }
+        // A session pinned before execution mode existed carries only a
+        // profile; the resolver derives its mode and TurnManager persists the
+        // derived value forward. A missing mode is never itself a rejection.
+        final sessionPolicy = _policyResolver.resolveForPinnedSession(
+          sessionId: session.id,
+          executionMode: session.executionMode,
+          securityProfile: session.securityProfile,
+        );
 
-    _sessionDelegate = SessionDelegate(
-      dispatch: ({required sessionId, required message, required agentId}) async {
-        final session = await _storage.sessions.getOrCreateByKey(sessionId);
-        final userMsg = <String, dynamic>{'role': 'user', 'content': message};
         final srv = serverRefGetter();
-        final turnId = await srv.turns.startTurn(session.id, [userMsg], agentName: agentId);
+        final turnId = await srv.turns.reserveTurn(
+          session.id,
+          agentName: agentId,
+          model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
+          effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
+          systemPromptOverride: persona,
+          workerPolicy: sessionPolicy,
+          promptScope: PromptScope.task,
+        );
+        try {
+          await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
+          final history = await _storage.messages.getMessages(session.id);
+          srv.turns.executeTurn(
+            session.id,
+            turnId,
+            [
+              for (final entry in history) {'role': entry.role, 'content': entry.content},
+            ],
+            source: createSession ? 'sessions_spawn' : 'sessions_send',
+            agentName: agentId,
+          );
+        } catch (_) {
+          srv.turns.releaseTurn(session.id, turnId);
+          rethrow;
+        }
         final outcome = await srv.turns.waitForOutcome(session.id, turnId);
         if (outcome.status != TurnStatus.completed) {
           throw StateError('Agent turn failed: ${outcome.errorMessage}');
         }
-        final msgs = await _storage.messages.getMessages(session.id);
-        final lastAssistant = msgs.lastWhere(
-          (m) => m.role == 'assistant',
-          orElse: () => throw StateError('No assistant response in session'),
-        );
-        return lastAssistant.content;
+        return outcome.responseText ?? (throw StateError('No assistant response in session'));
       },
-      limits: subagentLimits,
+      discardSession: (sessionId) async {
+        final session = await _storage.sessions.getByKey(sessionId);
+        if (session == null) {
+          await _storage.sessions.removeKeyMapping(sessionId);
+          return;
+        }
+        try {
+          await serverRefGetter().turns.resetProviderSessionContinuity(session.id);
+        } finally {
+          try {
+            if (session.type == SessionType.logicalAgent) {
+              await _storage.sessions.updateSessionType(session.id, SessionType.archive);
+            }
+          } finally {
+            await _storage.sessions.removeKeyMapping(sessionId);
+          }
+        }
+      },
       agents: _agentMap,
       contentGuard: _security.contentGuard,
       auditLogger: _security.auditLogger,
@@ -403,7 +534,7 @@ class HarnessWiring {
       required GuardChain guardChain,
       required TaskToolFilterGuard toolFilter,
       required String providerId,
-      String profileId = 'workspace',
+      required ExecutionPolicy executionPolicy,
     }) => TurnRunner(
       harness: harness,
       messages: _storage.messages,
@@ -429,105 +560,377 @@ class HarnessWiring {
       eventBus: _eventBus,
       turnMonitor: config.harness.turnMonitor,
       globalTimeout: globalTimeout,
-      profileId: profileId,
+      executionPolicy: executionPolicy,
       providerId: providerId,
     );
 
-    // Build primary TurnRunner and pool (task runners spawned lazily).
+    // Append-mode providers receive behavior content when their process starts.
+    // Snapshot the task prompt once so all workers in this coordinator share the
+    // same construction inputs and are safe to reuse.
+    final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
+
+    // Build the primary lane and on-demand worker authority.
     final primaryRunner = buildRunner(
       harness: _harness,
       guardChain: _primaryGuardChain,
       toolFilter: primaryFilter,
       providerId: defaultProviderId,
+      executionPolicy: _primaryPolicy,
     );
-    _pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrent);
-
-    // Lazy spawn callback — consumed by TaskExecutor when tasks arrive.
-    final consumedSpawnPlanIndexes = <int>{};
-    _onSpawnNeeded = spawnPlan.isEmpty
-        ? null
-        : (requestedProviderId) async {
-            if (_pool.spawnableCount <= 0) return false;
-            final planIndex = _nextSpawnPlanIndex(
-              spawnPlan,
-              consumedSpawnPlanIndexes,
-              requestedProviderId: requestedProviderId,
+    _executions = ExecutionCoordinator(
+      primary: primaryRunner,
+      providerCapacities: providerCapacities,
+      admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+      releaseAdmission: primaryRunner.releaseAdmission,
+      createWorker: (request) async {
+        final entry = providerEntries[request.providerId];
+        final allowedProfiles = providerProfiles[request.providerId];
+        final containerProfile = request.policy.containerProfile;
+        if (entry == null ||
+            allowedProfiles == null ||
+            (containerProfile != null && !allowedProfiles.contains(containerProfile))) {
+          throw WorkerCreationException(
+            'Provider "${request.providerId}" cannot execute as ${request.policy.describe()}',
+          );
+        }
+        final verdict = _executionInventory.verdictFor(
+          providerId: request.providerId,
+          surface: ProviderLaunchSurface.longLived,
+          policy: request.policy,
+        );
+        if (!verdict.isSupported) {
+          throw WorkerCreationException(verdict.message);
+        }
+        final bridgedMcpTools = _bridgedMcpToolsFor(
+          agentId: request.logicalAgentId,
+          allowedTools: request.allowedTools,
+        );
+        ContainerAuthorityLease? lease;
+        if (containerProfile != null) {
+          _warnIfUngranted(bridgedMcpTools, request: request, containerProfile: containerProfile);
+          try {
+            lease = await _security.acquireContainerAuthority(
+              GatewayPrincipal(
+                sessionId: request.sessionId,
+                providerId: request.providerId,
+                policy: request.policy,
+                sourceSessionId: request.sessionId,
+                logicalAgentId: request.logicalAgentId,
+                taskId: request.taskId,
+              ),
+              allowedMcpTools: bridgedMcpTools,
             );
-            if (planIndex == null) {
-              _log.warning(
-                requestedProviderId == null
-                    ? 'No task runner spawn-plan entry remains'
-                    : 'No task runner spawn-plan entry remains for provider "$requestedProviderId"',
-              );
-              return false;
-            }
-            final plan = spawnPlan[planIndex];
-            final containerManager = _security.containerManagers[plan.profileId];
-            if (plan.requiresContainer && containerManager == null) {
-              _log.warning(
-                'ACP provider "${plan.providerId}" requires unavailable container profile "${plan.profileId}"',
-              );
-              return false;
-            }
-            try {
-              // Each task runner gets its own TaskToolFilterGuard so per-task
-              // allowedTools enforcement is isolated across concurrent runners.
-              final taskFilter = TaskToolFilterGuard();
-              final taskGuardChain = _buildRunnerGuardChain(_security.guardChain, taskFilter);
-              final taskPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
-              final taskHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: taskPrompt);
-              final taskHarness = _harnessFactory.create(
-                plan.providerId,
-                HarnessFactoryConfig(
-                  cwd: Directory.current.path,
-                  executable: plan.executable,
-                  turnTimeout: Duration(seconds: config.server.workerTimeout),
-                  onMemorySave: _memoryHandlers.onSave,
-                  onMemorySearch: _memoryHandlers.onSearch,
-                  onMemoryRead: _memoryHandlers.onRead,
-                  onPermissionDenied: (toolName, reason) {
-                    _eventBus.fire(
-                      ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()),
-                    );
-                  },
-                  harnessConfig: taskHarnessConfig,
-                  historyConfig: config.agent.history,
-                  providerOptions: plan.options,
-                  containerManager: containerManager,
-                  guardChain: taskGuardChain,
-                  environment: {
-                    ..._providerEnvironment(plan.credentialProviderId, credentialRegistry),
-                    ..._taskRunnerSubagentEnvironment,
-                  },
-                ),
-              );
-              _wireCompactionCallbacks(taskHarness);
-              await taskHarness.start();
-              final runner = buildRunner(
-                harness: taskHarness,
-                guardChain: taskGuardChain,
-                toolFilter: taskFilter,
-                profileId: plan.profileId,
-                providerId: plan.providerId,
-              );
-              _pool.addRunner(runner);
-              consumedSpawnPlanIndexes.add(planIndex);
-              return true;
-            } catch (e) {
-              _log.warning('Failed to spawn task runner: $e');
-              return false;
-            }
-          };
+          } catch (error) {
+            throw WorkerCreationException(
+              'Provider "${request.providerId}" requires unavailable container profile "$containerProfile": $error',
+            );
+          }
+        }
+        final containerManager = lease?.container;
+        final workerFilter = TaskToolFilterGuard();
+        final workerGuardChain = _buildRunnerGuardChain(
+          _security.guardChain,
+          workerFilter,
+          _security.toolPolicyCascade,
+        );
+        final workerHarnessConfig = _harnessConfig.copyWith(
+          appendSystemPrompt: workerPrompt,
+          disallowedTools: workerDisallowedTools(
+            containerProfile: containerProfile,
+            hostDisallowedTools: _harnessConfig.disallowedTools,
+            userDisallowedTools: config.agent.disallowedTools,
+          ),
+        );
+        try {
+          final workerHarness = _harnessFactory.create(
+            request.providerId,
+            _buildFactoryConfig(
+              executable: entry.executable,
+              harnessConfig: workerHarnessConfig,
+              providerOptions: entry.options,
+              containerManager: containerManager,
+              guardChain: workerGuardChain,
+              environment: _providerEnvironment(
+                config,
+                request.providerId,
+                _credentialProviderIdForProvider(config, request.providerId),
+                credentialRegistry,
+              ),
+            ),
+          );
+          _wireCompactionCallbacks(workerHarness);
+          final runner = buildRunner(
+            harness: workerHarness,
+            guardChain: workerGuardChain,
+            toolFilter: workerFilter,
+            executionPolicy: request.policy,
+            providerId: request.providerId,
+          );
+          if (lease != null) _workerContainers[runner] = lease;
+          return runner;
+        } catch (_) {
+          await _releaseContainerQuietly(lease);
+          rethrow;
+        }
+      },
+      destroyContainerAuthority: (context) async {
+        await _workerContainers.remove(context.runner)?.release();
+      },
+    );
   }
 
-  Future<AcpPermissionResult> _acpPermissionDecision(AcpPermissionRequest request) async {
-    if (_security.guardChain == null) {
-      return const AcpPermissionResult(granted: false, reason: 'Guard chain unavailable');
+  /// Creates the container backing the primary harness, or returns `null` when
+  /// the primary agent's resolved policy places it on the host.
+  ///
+  /// The primary harness is a live container authority like any other, so it
+  /// owns a dedicated container rather than sharing a per-profile one. A
+  /// provider whose resolved boundary this deployment cannot enforce rejects
+  /// before any container exists rather than running somewhere else.
+  Future<ContainerExecutor?> _primaryContainerManager(String providerId, {required Set<String> allowedMcpTools}) async {
+    final verdict = _executionInventory.verdictFor(
+      providerId: providerId,
+      surface: ProviderLaunchSurface.longLived,
+      policy: _primaryPolicy,
+    );
+    if (!verdict.isSupported) {
+      throw StateError(verdict.message);
     }
+    if (!_primaryPolicy.isContainer) return null;
+    _primaryContainer = await _security.acquireContainerAuthority(
+      GatewayPrincipal(sessionId: _primaryAuthoritySessionId, providerId: providerId, policy: _primaryPolicy),
+      allowedMcpTools: allowedMcpTools,
+    );
+    final container = _primaryContainer!.container;
+    if (container is ContainerManager) _primaryContainerName = container.containerName;
+    return container;
+  }
+
+  /// The primary lane has no session of its own; its authority is still one
+  /// principal, named so audit entries can be told apart from worker turns.
+  static const _primaryAuthoritySessionId = 'primary';
+
+  /// Canonical MCP tool names one containerized execution may reach.
+  ///
+  /// Deny-by-default: only an explicit allowlist exposes anything — the logical
+  /// agent's `allowed_tools`, or the tool policy already in force for the task
+  /// — and only entries that name a canonical tool participate, since a
+  /// provider-native tool name says nothing about host MCP.
+  /// The tool policy authorizing an execution, before any canonical or
+  /// servability filtering — `null` when the execution carries none at all.
+  Set<String>? _requestedToolPolicy({String? agentId, List<String>? allowedTools}) =>
+      (agentId == null ? null : _agentMap[agentId])?.allowedTools ?? allowedTools?.toSet();
+
+  /// The bridged-MCP grant for a workflow one-shot step, derived by the one
+  /// owner of the deny set and the servable set.
+  ///
+  /// A workflow step carries no agent definition, so its grant comes from the
+  /// step's own tool policy — the same derivation background worker tasks use
+  /// (deny subtraction + servable intersection). Injected into the workflow
+  /// runner so the workflow lane never re-derives a divergent, unguarded grant.
+  Set<String> workflowBridgedMcpTools(List<String>? allowedTools) => _bridgedMcpToolsFor(allowedTools: allowedTools);
+
+  Set<String> _bridgedMcpToolsFor({String? agentId, List<String>? allowedTools}) {
+    final definition = agentId == null ? null : _agentMap[agentId];
+    final requested = _requestedToolPolicy(agentId: agentId, allowedTools: allowedTools);
+    if (requested == null || requested.isEmpty) return const {};
+    // `mcp_call` names every tool without a semantic canonical, so it can
+    // never act as a bridged grant.
+    final canonicalNames = {
+      for (final tool in CanonicalTool.values)
+        if (tool != CanonicalTool.mcpCall) tool.stableName,
+    };
+    // Both sides carry provider-native or canonical spellings; normalize to
+    // canonical stable names first so a native-spelled allow entry is not
+    // silently dropped and a native-spelled deny is not silently ignored.
+    final denied = {
+      ...?definition?.deniedTools,
+      ...config.agent.disallowedTools,
+    }.map(ToolPolicyCascade.normalizeEntry).toSet();
+    final granted = requested
+        .map(ToolPolicyCascade.normalizeEntry)
+        .where(canonicalNames.contains)
+        .toSet()
+        .difference(denied);
+    return _servableGrant(granted, subject: agentId == null ? 'This deployment' : 'Agent "$agentId"');
+  }
+
+  /// The primary lane's bridged grant.
+  ///
+  /// The primary agent is the deployment itself, not a scoped logical agent:
+  /// on the host it reaches the whole registered MCP surface, so containerizing
+  /// it must not silently drop web and memory capability. Session-spawning
+  /// tools stay out — orchestrating other executions is not a capability a
+  /// container needs to keep working.
+  Set<String> _primaryBridgedMcpTools() {
+    final semantic = {for (final tool in _semanticMcpTools) ?_ownMcpToolCanonicals[tool.name]?.stableName};
+    // Normalize provider-native deny spellings (`WebSearch`) to canonical names
+    // (`web_search`) so the operator's global deny actually subtracts.
+    return semantic.difference(config.agent.disallowedTools.map(ToolPolicyCascade.normalizeEntry).toSet());
+  }
+
+  /// Drops grants no registered host tool can serve, naming each one once.
+  ///
+  /// A canonical the deployment does not implement — `web_search` with no
+  /// configured `search.providers` — would otherwise be granted, suppress the
+  /// provider-native tool that could have replaced it, and fail only when the
+  /// agent first calls it.
+  Set<String> _servableGrant(Set<String> granted, {required String subject}) {
+    final servable = {for (final canonical in _ownMcpToolCanonicals.values) canonical.stableName};
+    for (final tool in granted.difference(servable)) {
+      if (!_warnedUnservableGrants.add('$subject/$tool')) continue;
+      _log.warning(
+        '$subject is allowed host MCP tool "$tool", but this deployment registers no such tool – '
+        'containerized executions will run without it. '
+        'Configure the provider that serves it (for example search.providers.* for web_search).',
+      );
+    }
+    return granted.intersection(servable);
+  }
+
+  /// Reports a containerized execution that was meant to reach host tools but
+  /// reaches none.
+  ///
+  /// Bridged MCP is deny-by-default, so an ordinary workspace coding task with
+  /// no tool policy is capability-free *by design* — warning on it would fire
+  /// on every default-config containerized turn. Two cases are real capability
+  /// loss instead: the `restricted` profile, whose whole point is web-shaped
+  /// work with no workspace to fall back on, and an execution whose configured
+  /// policy asked for host tools that all turned out unservable.
+  void _warnIfUngranted(
+    Set<String> bridgedMcpTools, {
+    required ExecutionRequest request,
+    required String containerProfile,
+  }) {
+    if (bridgedMcpTools.isNotEmpty) return;
+    final grantConfigured =
+        _requestedToolPolicy(agentId: request.logicalAgentId, allowedTools: request.allowedTools)?.isNotEmpty ?? false;
+    if (containerProfile != SecurityProfile.restricted.id && !grantConfigured) return;
+    final subject = request.logicalAgentId == null
+        ? '${request.surface.name} executions'
+        : 'Logical agent "${request.logicalAgentId}"';
+    if (!_warnedUnservableGrants.add('ungranted $subject $containerProfile')) return;
+    _log.warning(
+      '$subject run in container profile "$containerProfile" with no host MCP tools: '
+      'nothing was allowed, so they reach no search, fetch, or memory capability. '
+      'Allow the canonical tools they need (an agent\'s allowed_tools, or the task\'s tool policy), '
+      'or select host execution for them.',
+    );
+  }
+
+  final Set<String> _warnedUnservableGrants = {};
+
+  /// Destroys the primary harness's dedicated container, if it has one.
+  ///
+  /// The primary authority lives for the process, so its container is released
+  /// at shutdown rather than per lease.
+  Future<void> disposePrimaryContainer() async {
+    final lease = _primaryContainer;
+    if (lease == null) return;
+    _primaryContainer = null;
+    await _releaseContainerQuietly(lease);
+  }
+
+  Future<void> _releaseContainerQuietly(ContainerAuthorityLease? lease) async {
+    if (lease == null) return;
     try {
-      final verdict = await _primaryGuardChain.evaluateBeforeToolCall(
+      await lease.release();
+    } catch (error, stackTrace) {
+      _log.warning('Failed to release container authority', error, stackTrace);
+    }
+  }
+
+  HarnessFactoryConfig _buildFactoryConfig({
+    required String executable,
+    required HarnessConfig harnessConfig,
+    required Map<String, dynamic> providerOptions,
+    required ContainerExecutor? containerManager,
+    required GuardChain guardChain,
+    required Map<String, String> environment,
+  }) => HarnessFactoryConfig(
+    cwd: Directory.current.path,
+    executable: executable,
+    turnTimeout: Duration(seconds: config.server.workerTimeout),
+    onMemoryApply: _memoryHandlers.onApply,
+    onMemoryObserve: _memoryHandlers.onObserve,
+    onContextualMemoryApply: (arguments, context) =>
+        _memoryHandlers.apply(arguments, _memoryCaptureContext('memory_apply', context)),
+    onContextualMemoryObserve: (arguments, context) =>
+        _memoryHandlers.observe(arguments, _memoryCaptureContext('memory_observe', context)),
+    onMemorySearch: _memoryHandlers.onSearch,
+    onMemoryRead: _memoryHandlers.onRead,
+    onPermissionDenied: (toolName, reason) {
+      _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
+    },
+    harnessConfig: harnessConfig,
+    historyConfig: config.agent.history,
+    providerOptions: providerOptions,
+    containerManager: containerManager,
+    guardChain: guardChain,
+    ownMcpToolCanonicals: _ownMcpToolCanonicals,
+    acpPermissionDecision: (request) => _acpPermissionDecision(guardChain, request),
+    acpReverseCallAudit: _auditAcpReverseCall,
+    environment: environment,
+  );
+
+  MemoryCaptureContext _memoryCaptureContext(String toolName, HarnessTurnContext context) {
+    final isJournal = context.source == 'cron' && context.agentName == 'cron:memory-journal';
+    return MemoryCaptureContext(
+      originKind: isJournal ? MemoryOriginKind.journal : MemoryOriginKind.turn,
+      sourceLocator: isJournal ? 'memory-journal' : 'session:${context.sessionId}',
+      sourceEvent: 'turn:${context.turnId}',
+      caller: context.agentName == 'main' ? toolName : context.agentName,
+      sessionRef: context.sessionId,
+    );
+  }
+
+  void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
+    final hasToolPolicy =
+        config.agent.disallowedTools.isNotEmpty ||
+        _agentDefs.any((agent) => agent.allowedTools.isNotEmpty || agent.deniedTools.isNotEmpty) ||
+        config.memory.journalEnabled ||
+        config.knowledge.inbox.enabled;
+    if (!hasToolPolicy) return;
+
+    if (_security.guardChain == null) {
+      _log.warning('Security guards are disabled – only configured tool policy and per-turn filters remain');
+    }
+
+    final providers = {...config.providers.entries.keys, defaultProviderId};
+    for (final providerId in providers.where(
+      (id) =>
+          ProviderIdentity.resolveFamily(
+            id,
+            executable: _resolveProviderExecutable(config, id),
+            options: _providerOptions(config, id),
+          ) ==
+          ProviderIdentity.codex,
+    )) {
+      final approvalValue = _providerOptions(config, providerId)['approval'];
+      final approval = approvalValue is String && approvalValue.trim().isNotEmpty ? approvalValue.trim() : null;
+      if (approval != 'on-request') {
+        _log.warning(
+          'Tool-restricted agent or job turns are configured while a Codex harness uses approval: '
+          '${approval ?? 'not explicitly set'} – '
+          'host tool-policy enforcement is partial or inactive for that harness; use approval: on-request for the '
+          'broadest available interception',
+        );
+      }
+    }
+    if (config.harness.acp.agents.isNotEmpty) {
+      _log.warning(
+        'Tool-restricted agent or job turns are configured for an ACP harness – host tool-policy enforcement covers only '
+        'guard-evaluated reverse calls and permission requests',
+      );
+    }
+  }
+
+  Future<AcpPermissionResult> _acpPermissionDecision(GuardChain runnerGuardChain, AcpPermissionRequest request) async {
+    try {
+      final verdict = await runnerGuardChain.evaluateBeforeToolCall(
         request.operation,
         request.params,
+        sessionId: request.sessionId,
+        agentId: request.agentId,
         rawProviderToolName: 'session/request_permission',
       );
       return AcpPermissionResult(granted: !verdict.isBlock, reason: verdict.message);
@@ -549,8 +952,12 @@ class HarnessWiring {
   /// compaction callback fields.
   void _wireCompactionCallbacks(AgentHarness harness) {
     if (harness is! ClaudeCodeHarness) return;
-    harness.onCompactionStarting = (sessionId, trigger) {
-      _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
+    harness.onCompactionStarting = (sessionId, trigger) async {
+      try {
+        await _capturePreCompactObservation(sessionId, trigger);
+      } finally {
+        _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
+      }
     };
     harness.onCompactionCompleted = (trigger, preTokens) {
       final sessionId = harness.sessionId ?? '';
@@ -564,30 +971,84 @@ class HarnessWiring {
       );
     };
   }
+
+  Future<void> _capturePreCompactObservation(String sessionId, String trigger) async {
+    final messages = await _storage.messages.getMessagesTail(sessionId, count: _preCompactMessageCount);
+    if (messages.isEmpty) return;
+    final triggerLabel = trigger == 'manual' ? 'manual' : 'auto';
+    final tail = messages.map((message) => '[${message.role}] ${_messageRedactor.redact(message.content)}').join('\n');
+    final text = truncateUtf8Bytes(
+      'Pre-compaction conversation context ($triggerLabel):\n$tail',
+      _preCompactObservationMaxBytes,
+    );
+    await _memoryHandlers.observe(
+      {'text': text, 'role': 'observation'},
+      MemoryCaptureContext(
+        originKind: MemoryOriginKind.turn,
+        sourceLocator: 'session:$sessionId',
+        sourceEvent: 'pre-compact:${messages.last.id}',
+        caller: 'claude:PreCompact',
+        sessionRef: sessionId,
+      ),
+    );
+  }
 }
 
-const _taskRunnerSubagentEnvironment = <String, String>{'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet'};
+/// Tools a worker must refuse, resolved against the MCP surface it will really
+/// have.
+///
+/// On the host a provider-native web tool is suppressed only where the
+/// deployment MCP endpoint replaces it, already folded into
+/// [hostDisallowedTools]. Every container loses both of them regardless of what
+/// its bridge serves: they run at the provider rather than in the container, so
+/// `network:none` cannot contain them and the host gateway refuses any request
+/// declaring one. Keeping a native tool the gateway would 403 buys no
+/// capability — it only moves the failure to the agent's first call.
+List<String> workerDisallowedTools({
+  required String? containerProfile,
+  required List<String> hostDisallowedTools,
+  required List<String> userDisallowedTools,
+}) {
+  if (containerProfile == null) return hostDisallowedTools;
+  return [...userDisallowedTools, 'WebFetch', 'WebSearch'];
+}
 
 /// Creates a per-runner [GuardChain] layering the runner's [filter] after all
 /// guards of [base].
 ///
-/// Each runner (primary and task) requires its own chain so that mutating
+/// Each runner (primary and worker) requires its own chain so that mutating
 /// [filter] policies for one runner does not affect others. The base guard
 /// list is tracked live: a guards.* hot-reload ([GuardChain.replaceGuards] on
 /// [base]) reaches every runner chain while the filter survives the rebuild.
-/// When [base] is null, returns a chain with only the filter guard.
-GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter) =>
-    GuardChain.layered(base: base, guards: [filter]);
+/// When [base] is null, configured tool policy remains active independently of
+/// the optional security-guard bundle.
+GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter, ToolPolicyCascade cascade) =>
+    GuardChain.layered(
+      base: base,
+      guards: [
+        if (base == null) ToolPolicyGuard(cascade: cascade),
+        filter,
+      ],
+    );
 
-Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
+Map<String, String> _providerEnvironment(
+  DartclawConfig config,
+  String providerId,
+  String credentialProviderId,
+  CredentialRegistry registry,
+) {
+  final providerFamily = ProviderIdentity.resolveFamily(
+    providerId,
+    executable: _resolveProviderExecutable(config, providerId),
+    options: _providerOptions(config, providerId),
+  );
   final environment = SafeProcess.sanitize(
     baseEnvironment: Platform.environment,
-    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-    extraEnvironment: claudeHardeningEnvVars,
+    extraEnvironment: providerFamily == ProviderIdentity.claude ? claudeHardeningEnvVars : const {},
   );
-  final apiKey = registry.getApiKey(providerId);
+  final apiKey = registry.getApiKey(credentialProviderId);
   if (apiKey != null) {
-    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
+    for (final envVar in CredentialRegistry.envVarsFor(credentialProviderId)) {
       environment[envVar] = apiKey;
     }
   }
@@ -624,26 +1085,25 @@ String _resolveProviderExecutable(DartclawConfig config, String providerId) {
 Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) =>
     config.providers[providerId]?.options ?? const <String, dynamic>{};
 
-bool _hasSearchProvider(DartclawConfig config) =>
-    config.search.providers.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
-
-Map<String, ProviderEntry> _effectiveTaskProviderEntries(
+Map<String, ProviderEntry> _effectiveWorkerProviderEntries(
   DartclawConfig config,
+  Map<String, AcpAgentConfig> acpAgents,
   Map<String, AcpTargetValidationResult> acpValidationResults,
 ) {
-  final entries = {
-    for (final entry in config.providers.entries.entries)
+  final entries = <String, ProviderEntry>{
+    for (final entry in ProviderIdentity.normalizeKeys(config.providers.entries).entries)
       entry.key: ProviderEntry(
         executable: entry.value.executable,
         poolSize: entry.value.poolSize,
         options: _withoutAcpValidationOptions(entry.value.options),
       ),
   };
-  for (final acpEntry in config.harness.acp.agents.entries) {
-    final providerOverride = entries[acpEntry.key];
-    final validation = acpValidationResults[acpEntry.key];
+  for (final acpEntry in acpAgents.entries) {
+    final providerId = acpEntry.key;
+    final providerOverride = entries[providerId];
+    final validation = acpValidationResults[providerId];
     final validationJson = validation?.toJson();
-    entries[acpEntry.key] = ProviderEntry(
+    entries[providerId] = ProviderEntry(
       executable: acpEntry.value.binary,
       poolSize: validation?.status == AcpTargetValidationStatus.passed ? providerOverride?.poolSize ?? 0 : 0,
       options: {
@@ -655,8 +1115,10 @@ Map<String, ProviderEntry> _effectiveTaskProviderEntries(
     );
   }
   entries.putIfAbsent(
-    config.agent.provider,
-    () => ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
+    ProviderIdentity.normalize(config.agent.provider),
+    () => ProviderEntry(
+      executable: _resolveProviderExecutable(config, ProviderIdentity.normalize(config.agent.provider)),
+    ),
   );
   return entries;
 }
@@ -669,26 +1131,29 @@ Map<String, dynamic> _withoutAcpValidationOptions(Map<String, dynamic> options) 
   return sanitized;
 }
 
-Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(DartclawConfig config) async {
-  if (config.harness.acp.isEmpty) {
+Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(
+  DartclawConfig config,
+  Map<String, AcpAgentConfig> agents,
+) async {
+  if (agents.isEmpty) {
     return const {};
   }
   const validator = AcpTargetValidator();
+  final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
   final results = await validator.validateConfiguredTargets(
-    agents: config.harness.acp.agents,
+    agents: agents,
     commandProbe: Process.run,
     advertisedCapabilities: {
-      for (final providerId in config.harness.acp.agents.keys) providerId: const {'fs', 'terminal'},
+      for (final providerId in agents.keys) providerId: const {'fs', 'terminal'},
     },
-    requiredTargets: config.harness.acp.agents.entries
-        .where((entry) => entry.key == config.agent.provider || entry.value.requiresGuardMediation)
+    requiredTargets: agents.entries
+        .where((entry) => entry.key == defaultProviderId || entry.value.requiresGuardMediation)
         .map((entry) => entry.key)
         .toSet(),
   );
   final failures = results.entries.where(
     (entry) =>
-        entry.value.status == AcpTargetValidationStatus.failed &&
-        config.harness.acp[entry.key]?.requiresGuardMediation == true,
+        entry.value.status == AcpTargetValidationStatus.failed && agents[entry.key]?.requiresGuardMediation == true,
   );
   if (failures.isNotEmpty) {
     throw StateError(
@@ -702,61 +1167,11 @@ Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(Dar
 
 Map<String, ProviderEntry> _effectiveValidationProviderEntries(
   DartclawConfig config,
-  Map<String, AcpTargetValidationResult> acpValidationResults,
+  Map<String, ProviderEntry> workerEntries,
 ) {
   if (config.providers.isEmpty && config.harness.acp.isEmpty) {
-    return {
-      config.agent.provider: ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
-    };
+    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
+    return {defaultProviderId: ProviderEntry(executable: _resolveProviderExecutable(config, defaultProviderId))};
   }
-  return _effectiveTaskProviderEntries(config, acpValidationResults);
-}
-
-List<String> _profilesForProvider(DartclawConfig config, String providerId, List<String> fallbackProfiles) {
-  final acpEntry = config.harness.acp[providerId];
-  final profile = acpEntry?.containerProfile;
-  if (acpEntry != null && acpEntry.containerIsolationRequired && profile != null) {
-    return [_containerProfileId(profile)];
-  }
-  return fallbackProfiles;
-}
-
-ContainerExecutor? _containerManagerForProvider(DartclawConfig config, SecurityWiring security, String providerId) {
-  final acpEntry = config.harness.acp[providerId];
-  if (acpEntry == null) {
-    return security.containerManagers['workspace'];
-  }
-  if (!acpEntry.containerIsolationRequired) {
-    return null;
-  }
-  final profile = acpEntry.containerProfile;
-  if (profile == null) {
-    throw StateError('ACP provider "$providerId" requires container isolation without a container_profile');
-  }
-  final profileId = _containerProfileId(profile);
-  final manager = security.containerManagers[profileId];
-  if (manager == null) {
-    throw StateError('ACP provider "$providerId" requires unavailable container profile "$profileId"');
-  }
-  return manager;
-}
-
-String _containerProfileId(AcpContainerProfile profile) {
-  return switch (profile) {
-    AcpContainerProfile.restricted => 'restricted',
-    AcpContainerProfile.workspace => 'workspace',
-  };
-}
-
-int? _nextSpawnPlanIndex(
-  List<_SpawnPlanEntry> spawnPlan,
-  Set<int> consumedIndexes, {
-  required String? requestedProviderId,
-}) {
-  for (var i = 0; i < spawnPlan.length; i++) {
-    if (consumedIndexes.contains(i)) continue;
-    if (requestedProviderId != null && spawnPlan[i].providerId != requestedProviderId) continue;
-    return i;
-  }
-  return null;
+  return workerEntries;
 }

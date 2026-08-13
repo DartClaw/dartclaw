@@ -27,7 +27,7 @@ final class TextChunkSlice {
   final int end;
 
   /// Creates a source-backed text chunk.
-  const TextChunkSlice({required this.text, required this.start, required this.end});
+  const new({required this.text, required this.start, required this.end});
 }
 
 /// Splits [text] like [chunkText] while preserving source offsets.
@@ -161,7 +161,7 @@ const _multipartMarkupReserve = 10;
 final _nativeLinkPattern = RegExp(r'<[^<>\n|]+\|[^<>\n]+>');
 
 final class _ProtectedTextRange {
-  const _ProtectedTextRange(this.start, this.end);
+  const new(this.start, this.end);
 
   final int start;
   final int end;

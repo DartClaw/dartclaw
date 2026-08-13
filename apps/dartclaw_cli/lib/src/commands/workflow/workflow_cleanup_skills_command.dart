@@ -18,7 +18,7 @@ class WorkflowCleanupSkillsCommand extends Command<void> {
   final WorkflowCleanupExitFn _exitFn;
   final String _currentDirectory;
 
-  WorkflowCleanupSkillsCommand({
+  new({
     DartclawConfig? config,
     WorkspaceSkillLinker? linker,
     WriteLine? writeLine,

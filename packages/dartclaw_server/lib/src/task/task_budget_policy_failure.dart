@@ -2,7 +2,7 @@ part of 'task_budget_policy.dart';
 
 /// Handles failure transitions and retry loop prevention for task execution.
 final class TaskFailureHandler {
-  TaskFailureHandler({required TaskService tasks, TaskEventRecorder? eventRecorder, Logger? log})
+  new({required TaskService tasks, TaskEventRecorder? eventRecorder, Logger? log})
     : _tasks = tasks,
       _eventRecorder = eventRecorder,
       _log = log ?? Logger('TaskFailureHandler');

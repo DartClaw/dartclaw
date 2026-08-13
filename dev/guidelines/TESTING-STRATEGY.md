@@ -1,7 +1,7 @@
 # DartClaw Testing Strategy
 
 > **Status**: Active
-> **Current through**: 0.23
+> **Current through**: 0.24
 > **Scope**: All packages in the DartClaw pub workspace
 
 ---
@@ -261,7 +261,7 @@ DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-4-7 \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
-**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned planner, executor, and any distinct reviewer configuration (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). For codex it also writes a profile-owned hermetic `CODEX_HOME` under the log dir (`auth.json` seeded from the operator's `~/.codex`, `config.toml` pinning the executor-model preset) and exports it, so operator dotfiles (`~/.codex/config.toml` model/effort) can't override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct one-shot spawns.
+**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned planner, executor, and any distinct reviewer configuration (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). Codex runs require the AndThen plugin under `~/.codex/plugins/cache/andthen`; the script copies and enables it in a profile-owned hermetic `CODEX_HOME` with seeded `auth.json` and a pinned executor model. Operator config cannot override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct one-shot spawns.
 
 ### Visual / UI Smoke Tests (Manual)
 

@@ -111,35 +111,21 @@ void main() {
       });
     });
 
-    group('DelegationConfig', () {
-      test('allowlist and budget fields participate in equality', () {
-        const a = DelegationConfig(
-          enabled: true,
-          agents: [DelegationAgentConfig(id: 'goose', requireGuardMediation: true)],
-          maxBudgetTokens: 50000,
-          budgetAccounting: DelegationBudgetAccounting.estimateIfUnreported,
-          rateLimit: DelegationRateLimitConfig(maxPerMinute: 6),
-        );
-        const b = DelegationConfig(
-          enabled: true,
-          agents: [DelegationAgentConfig(id: 'goose', requireGuardMediation: true)],
-          maxBudgetTokens: 50000,
-          budgetAccounting: DelegationBudgetAccounting.estimateIfUnreported,
-          rateLimit: DelegationRateLimitConfig(maxPerMinute: 6),
-        );
-        const c = DelegationConfig(enabled: true, agents: [DelegationAgentConfig(id: 'codex')]);
-
-        expect(a, equals(b));
-        expect(a.hashCode, equals(b.hashCode));
-        expect(a, isNot(equals(c)));
-      });
-    });
-
     group('WorkspaceConfig', () {
       test('equal instances match', () {
         const a = WorkspaceConfig(gitSyncEnabled: false);
         const b = WorkspaceConfig(gitSyncEnabled: false);
         expect(a, equals(b));
+      });
+
+      test('journal settings participate in equality', () {
+        const defaults = MemoryConfig.defaults();
+        final enabled = MemoryConfig(journalEnabled: true);
+        final rescheduled = MemoryConfig(journalSchedule: '0 6 * * *');
+
+        expect(defaults, isNot(equals(enabled)));
+        expect(defaults, isNot(equals(rescheduled)));
+        expect(defaults.hashCode, isNot(enabled.hashCode));
       });
 
       test('different gitSyncEnabled are not equal', () {
@@ -174,8 +160,8 @@ void main() {
 
     group('MemoryConfig', () {
       test('equal instances match', () {
-        const a = MemoryConfig(maxBytes: 64 * 1024);
-        const b = MemoryConfig(maxBytes: 64 * 1024);
+        final a = MemoryConfig(maxBytes: 64 * 1024);
+        final b = MemoryConfig(maxBytes: 64 * 1024);
         expect(a, equals(b));
       });
     });

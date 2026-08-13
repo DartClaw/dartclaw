@@ -484,13 +484,16 @@
               </div>
 
               <div class="provider-detail-item">
-                <div class="detail-label">Harness Pool</div>
-                <div class="detail-value" tl:text="${provider.poolUsageText}">0 of 0 Workers busy</div>
-                <div class="pool-bar-wrapper">
-                  <div class="pool-bar">
-                    <div class="pool-bar-fill" tl:attr="style=${provider.poolUsageWidthStyle}"></div>
+                <div class="detail-label">Worker Capacity</div>
+                <div class="detail-value" tl:text="${provider.capacityUsageText}">0 of 0 worker leases active</div>
+                <div class="meter-wrapper">
+                  <div class="meter-label">
+                    <span tl:text="${provider.capacityUsageLabel}">0% of worker capacity in use</span>
                   </div>
-                  <div class="pool-bar-label" tl:text="${provider.poolUsageLabel}">0% of Harness Pool in use</div>
+                  <div class="meter" tl:classappend="${provider.capacityMeterEmptyClass}">
+                    <div class="meter-fill" tl:attr="style=${provider.capacityUsageWidthStyle}"></div>
+                  </div>
+                  <div class="t-caption text-muted" tl:text="${provider.capacityDetails}">0 queued · 0 warm · 0 quarantined</div>
                 </div>
               </div>
             </div>

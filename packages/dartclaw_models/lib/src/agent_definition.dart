@@ -1,34 +1,44 @@
-/// Configuration for a sub-agent (e.g. search agent).
+import 'package:collection/collection.dart';
+
+import 'execution_policy.dart';
+
+/// Configuration for a logical agent (e.g. search agent).
 ///
-/// Defines the agent's identity, tool sandbox, spawn limits, and session
-/// isolation. Serializes to the `agents` field in the initialize handshake.
+/// Defines the agent's identity, execution provider, prompt, and tool policy.
 class AgentDefinition {
-  /// Stable agent identifier referenced by delegation tools.
+  /// Stable agent identifier accepted by the session tools.
   final String id;
 
-  /// Human-readable description provided to the runtime.
+  /// Human-readable description exposed in the spawn tool schema.
   final String description;
 
-  /// System prompt used when the agent is spawned.
+  /// System prompt used for this agent's turns.
   final String prompt;
+
+  /// Optional harness provider. Null inherits the deployment's primary provider.
+  final String? provider;
+
+  /// Optional worker security profile. Null uses the provider or host default.
+  ///
+  /// Describes container posture only; it never selects host or container
+  /// placement. See [execution].
+  final String? securityProfile;
+
+  /// Whether [securityProfile] was configured by the operator for this agent
+  /// rather than supplied as a built-in default.
+  ///
+  /// A host execution mode the agent inherits may drop a default profile, but
+  /// never a configured one — that combination is rejected as contradictory.
+  final bool profileIsOperatorConfigured;
+
+  /// Optional explicit execution mode. Null inherits the primary agent's mode.
+  final ExecutionMode? execution;
 
   /// Explicit allowlist of tools available to the agent.
   final Set<String> allowedTools;
 
   /// Explicit denylist of tools blocked for the agent.
   final Set<String> deniedTools;
-
-  /// Maximum nesting depth at which this agent may spawn children.
-  final int maxSpawnDepth;
-
-  /// Maximum number of concurrent sessions for this agent.
-  final int maxConcurrent;
-
-  /// Maximum number of direct children this agent may own.
-  final int maxChildrenPerAgent;
-
-  /// Relative session-store path used by the runtime.
-  final String sessionStorePath;
 
   /// Maximum response size returned to the caller in bytes.
   final int maxResponseBytes;
@@ -39,52 +49,52 @@ class AgentDefinition {
   /// Optional reasoning effort override for this agent.
   final String? effort;
 
-  /// Extra initialize payload fields preserved from configuration.
-  final Map<String, dynamic> extra;
-
-  /// Creates a sub-agent definition.
-  const AgentDefinition({
+  /// Creates a logical-agent definition.
+  const new({
     required this.id,
     required this.description,
     required this.prompt,
+    this.provider,
+    this.securityProfile,
+    this.profileIsOperatorConfigured = false,
+    this.execution,
     this.allowedTools = const {},
     this.deniedTools = const {},
-    this.maxSpawnDepth = 0,
-    this.maxConcurrent = 1,
-    this.maxChildrenPerAgent = 0,
-    this.sessionStorePath = '',
     this.maxResponseBytes = 5 * 1024 * 1024,
     this.model,
     this.effort,
-    this.extra = const {},
   });
 
   /// Default search agent with web_search + web_fetch only.
-  factory AgentDefinition.searchAgent({
-    String prompt = _defaultSearchPrompt,
-    int maxConcurrent = 2,
-    int maxResponseBytes = 5 * 1024 * 1024,
-    String model = 'haiku',
-  }) {
+  factory searchAgent({String prompt = _defaultSearchPrompt, int maxResponseBytes = 5 * 1024 * 1024, String? model}) {
     return AgentDefinition(
       id: 'search',
       description:
           'Web search agent with restricted tool access. '
           'Can only use web_search and web_fetch.',
       prompt: prompt,
-      allowedTools: const {'WebSearch', 'WebFetch'},
+      securityProfile: 'restricted',
+      allowedTools: const {'web_search', 'web_fetch'},
       deniedTools: const {},
-      maxSpawnDepth: 0,
-      maxConcurrent: maxConcurrent,
-      maxChildrenPerAgent: 0,
-      sessionStorePath: 'agents/search/sessions',
       maxResponseBytes: maxResponseBytes,
       model: model,
     );
   }
 
   /// Builds a config entry for `AgentDefinition.fromYaml`.
-  factory AgentDefinition.fromYaml(String id, Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(String id, Map<String, dynamic> yaml, List<String> warns) {
+    const removedKeys = {
+      'max_spawn_depth': 'nested logical-agent execution is bounded by shared worker capacity',
+      'max_children_per_agent': 'nested logical-agent execution is bounded by shared worker capacity',
+      'max_concurrent': 'configure worker capacity with providers.<id>.pool_size',
+      'session_store_path': 'logical-agent session storage is host-owned',
+    };
+    for (final entry in removedKeys.entries) {
+      if (yaml.containsKey(entry.key)) {
+        warns.add('Ignoring removed agent.agents.$id.${entry.key}; ${entry.value}.');
+      }
+    }
+
     final tools = yaml['tools'];
     final allowedTools = <String>{};
     if (tools is List) {
@@ -99,61 +109,110 @@ class AgentDefinition {
       deniedTools.addAll(denied.whereType<String>());
     }
 
-    final resolvedTools = allowedTools.isEmpty && id == 'search' ? const {'WebSearch', 'WebFetch'} : allowedTools;
+    final resolvedTools = allowedTools.isEmpty && id == 'search' ? const {'web_search', 'web_fetch'} : allowedTools;
     if (resolvedTools.isEmpty && id != 'search') {
-      warns.add('Agent "$id" has no tools configured — it will not be able to use any tools');
+      warns.add('Agent "$id" has no tools configured – no sandbox allowlist will be enforced');
     }
+    final profile = yaml['security_profile'];
+    final defaultProfile = id == 'search' ? 'restricted' : null;
+    String? securityProfile;
+    var profileIsOperatorConfigured = false;
+    if (profile == null) {
+      securityProfile = defaultProfile;
+    } else if (profile is String && const {'workspace', 'restricted'}.contains(profile)) {
+      securityProfile = profile;
+      profileIsOperatorConfigured = true;
+    } else {
+      warns.add('Invalid agents.$id.security_profile: "$profile" – using the default');
+      securityProfile = defaultProfile;
+    }
+
+    final execution = _parseExecutionMode(yaml['execution'], 'agent.agents.$id.execution');
+    if (execution == ExecutionMode.host && profileIsOperatorConfigured) {
+      throw FormatException(
+        'agent.agents.$id.execution: host contradicts agent.agents.$id.security_profile: "$securityProfile". '
+        'Container profiles are valid only for container execution — remove the profile or select '
+        'execution: container.',
+      );
+    }
+    final providerValue = yaml['provider'];
+    String? provider;
+    if (providerValue is String) {
+      final normalizedProvider = providerValue.trim().toLowerCase();
+      if (normalizedProvider.isEmpty) {
+        throw FormatException('agents.$id.provider must not be blank');
+      }
+      provider = normalizedProvider;
+    } else if (providerValue != null) {
+      warns.add('Invalid agents.$id.provider: "$providerValue" – using agent.provider');
+    }
+
     return AgentDefinition(
       id: id,
       description: yaml['description'] as String? ?? 'Agent: $id',
-      prompt: yaml['prompt'] as String? ?? _defaultSearchPrompt,
+      prompt: yaml['prompt'] as String? ?? (id == 'search' ? _defaultSearchPrompt : ''),
       allowedTools: resolvedTools,
       deniedTools: deniedTools,
-      maxSpawnDepth: yaml['max_spawn_depth'] as int? ?? 0,
-      maxConcurrent: yaml['max_concurrent'] as int? ?? 1,
-      maxChildrenPerAgent: yaml['max_children_per_agent'] as int? ?? 0,
-      sessionStorePath: yaml['session_store_path'] as String? ?? 'agents/$id/sessions',
       maxResponseBytes: yaml['max_response_bytes'] as int? ?? 5 * 1024 * 1024,
       model: yaml['model'] as String?,
       effort: yaml['effort'] as String?,
-      extra: _extractExtra(yaml),
+      provider: provider,
+      securityProfile: securityProfile,
+      profileIsOperatorConfigured: profileIsOperatorConfigured,
+      execution: execution,
     );
   }
 
-  /// Serializes to the claude binary's `agents` initialize handshake format.
-  Map<String, dynamic> toInitializePayload() {
-    return {
-      'description': description,
-      'prompt': prompt,
-      if (model != null) 'model': model,
-      if (effort != null) 'effort': effort,
-      if (deniedTools.isNotEmpty) 'disallowedTools': deniedTools.toList(),
-      ...extra,
-    };
+  /// Parses an `execution:` scalar at [yamlPath], rejecting unknown values.
+  ///
+  /// Returns `null` when the key is absent. Throws [FormatException] naming
+  /// [yamlPath] and the accepted values otherwise.
+  static ExecutionMode? parseExecutionMode(Object? value, String yamlPath) => _parseExecutionMode(value, yamlPath);
+
+  static ExecutionMode? _parseExecutionMode(Object? value, String yamlPath) {
+    if (value == null) return null;
+    final mode = value is String ? ExecutionMode.fromYaml(value) : null;
+    if (mode == null) {
+      throw FormatException(
+        '$yamlPath: "$value" is not a valid execution mode. '
+        'Accepted values: ${ExecutionMode.acceptedYamlValues.join(', ')}.',
+      );
+    }
+    return mode;
   }
 
-  static Map<String, dynamic> _extractExtra(Map<String, dynamic> yaml) {
-    const reserved = {
-      'tools',
-      'denied_tools',
-      'description',
-      'prompt',
-      'model',
-      'effort',
-      'max_spawn_depth',
-      'max_concurrent',
-      'max_children_per_agent',
-      'session_store_path',
-      'max_response_bytes',
-    };
-    final extra = <String, dynamic>{};
-    for (final entry in yaml.entries) {
-      if (!reserved.contains(entry.key)) {
-        extra[entry.key] = entry.value;
-      }
-    }
-    return extra;
-  }
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AgentDefinition &&
+          id == other.id &&
+          description == other.description &&
+          prompt == other.prompt &&
+          provider == other.provider &&
+          securityProfile == other.securityProfile &&
+          profileIsOperatorConfigured == other.profileIsOperatorConfigured &&
+          execution == other.execution &&
+          const SetEquality<String>().equals(allowedTools, other.allowedTools) &&
+          const SetEquality<String>().equals(deniedTools, other.deniedTools) &&
+          maxResponseBytes == other.maxResponseBytes &&
+          model == other.model &&
+          effort == other.effort;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    description,
+    prompt,
+    provider,
+    securityProfile,
+    profileIsOperatorConfigured,
+    execution,
+    const SetEquality<String>().hash(allowedTools),
+    const SetEquality<String>().hash(deniedTools),
+    maxResponseBytes,
+    model,
+    effort,
+  );
 
   static const _defaultSearchPrompt =
       'You are a web search assistant. Search the web for information and '

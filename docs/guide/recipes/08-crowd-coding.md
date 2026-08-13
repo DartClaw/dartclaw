@@ -63,6 +63,10 @@ agent:
   model: sonnet
   max_turns: 100
 
+providers:
+  claude:
+    pool_size: 5
+
 governance:
   crowd_coding:
     model: sonnet                    # default model for shared crowd-coding group turns
@@ -127,7 +131,6 @@ sessions:
   #     model: opus                    # per-channel override beats sessions.model
 
 tasks:
-  max_concurrent: 5
   completion_action: accept           # auto-accept completed tasks (skip manual review cycle)
 
 guards:
@@ -566,7 +569,7 @@ The advisor is a soft observer. It never blocks or overrides the main agent.
 
 ## Customization Tips
 
-- **Adjust concurrency**: Lower `tasks.max_concurrent` (e.g., 2) to keep sessions focused; raise it (up to 10) for large hackathons with many parallel tracks
+- **Adjust concurrency**: Set each provider's `pool_size` to the number of shared task and logical-agent workers you want available
 - **Warn vs block budget**: Use `action: warn` for exploratory workshops where you want cost visibility without interrupting flow; use `action: block` for budget-constrained events
 - **Multi-channel governance**: Add WhatsApp or Signal participants alongside Google Chat -- governance (rate limits, budgets, loop detection) applies across all channels uniformly. Thread binding remains Google Chat Spaces only
 - **Cross-channel task rooms**: Start a task in Google Chat, then use `/bind` from a WhatsApp or Signal group if you want mobile participants to steer the same task session
@@ -622,7 +625,7 @@ The default 600s timeout means a single stuck turn blocks the shared session for
 - **Empty `admin_senders` = all are admins**: Convenient for small trusted groups, but anyone can run `/stop` in a larger workshop. Add specific user IDs before public events
 - **Budget enforcement is pre-turn**: The token budget check happens before a turn starts. An in-flight turn may overshoot the budget by the cost of that single turn
 - **Pause queue has a 200-message hard cap**: Messages sent while paused are queued up to 200. Messages beyond that cap are acknowledged with a "queue full" notice and not processed. Use `/stop` instead if you need to halt processing entirely
-- **Advisor turns use task-pool capacity**: when every task runner is busy, the advisor skips that trigger instead of queueing behind active work
+- **Advisor turns use worker capacity**: when every worker lease is active, the advisor skips that trigger instead of queueing behind active work
 - **Rate limit state resets on server restart**: Per-sender and global counters are in-memory only. A restart clears all rate limit history -- useful for resetting between sessions, but unexpected during rolling restarts
 - **`push back` transitions task to running**: When a participant sends `push back: <feedback>`, the task moves from `review` back to `running` -- it is not a new task. The agent revises the existing work and resubmits for review
 - **Project clone happens on first task**: When using `projects:`, the repo is cloned on first use (or server start). Large repos may take time -- verify the clone completes before the workshop starts by creating a test task

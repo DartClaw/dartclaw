@@ -4,6 +4,116 @@ import 'package:test/test.dart';
 import 'acp_test_support.dart';
 
 void main() {
+  test('ACP prepends scoped instructions before user content', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final turnFuture = harness.turn(
+      sessionId: 'logical-agent',
+      messages: const [
+        {'role': 'user', 'content': 'find it'},
+      ],
+      systemPrompt: 'SEARCH PERSONA',
+    );
+    await process.respondTo('session/new', {'sessionId': 'acp-logical-agent'});
+    final request = await process.waitForRequest('session/prompt');
+    expect((request['params'] as Map<String, dynamic>)['prompt'], 'SEARCH PERSONA\n\nfind it');
+    await process.respondTo('session/prompt', {'text': 'found'});
+    await process.respondTo('session/close', {});
+    await turnFuture;
+  });
+
+  test('ACP fresh sessions receive the current scoped revision after DartClaw base instructions', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final prompts = <String>[];
+    final requestCounts = <String, int>{};
+    Future<Map<String, dynamic>> nextRequest(String method) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (DateTime.now().isBefore(deadline)) {
+        final requests = process.capturedStdinJson.where((message) => message['method'] == method).toList();
+        final requestCount = requestCounts[method] ?? 0;
+        if (requests.length > requestCount) {
+          requestCounts[method] = requestCount + 1;
+          return requests.last;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      fail('Timed out waiting for ACP request $method');
+    }
+
+    for (final revision in [41, 42]) {
+      final turnFuture = harness.turn(
+        sessionId: 'primary',
+        messages: [
+          {'role': 'user', 'content': 'question $revision'},
+        ],
+        systemPrompt: 'SAFE DARTCLAW BASE\n\nCollection revision: $revision',
+      );
+      final sessionRequest = await nextRequest('session/new');
+      process.emitLine({
+        'jsonrpc': '2.0',
+        'id': sessionRequest['id'],
+        'result': {'sessionId': 'acp-primary-$revision'},
+      });
+      final request = await nextRequest('session/prompt');
+      prompts.add((request['params'] as Map<String, dynamic>)['prompt'] as String);
+      process.emitLine({
+        'jsonrpc': '2.0',
+        'id': request['id'],
+        'result': {'text': 'answer'},
+      });
+      final closeRequest = await nextRequest('session/close');
+      process.emitLine({'jsonrpc': '2.0', 'id': closeRequest['id'], 'result': {}});
+      await turnFuture;
+    }
+
+    expect(prompts[0], startsWith('SAFE DARTCLAW BASE\n\nCollection revision: 41\n\nquestion 41'));
+    expect(prompts[1], startsWith('SAFE DARTCLAW BASE\n\nCollection revision: 42\n\nquestion 42'));
+    expect(prompts[1], isNot(contains('Collection revision: 41')));
+  });
+
+  test('ACP replays persisted history into each fresh provider session', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final turnFuture = harness.turn(
+      sessionId: 'logical-agent',
+      messages: const [
+        {'role': 'user', 'content': 'remember amber'},
+        {'role': 'assistant', 'content': 'I will remember amber'},
+        {'role': 'user', 'content': 'what color?'},
+      ],
+      systemPrompt: 'SEARCH PERSONA',
+    );
+    await process.respondTo('session/new', {'sessionId': 'acp-logical-agent'});
+    final request = await process.waitForRequest('session/prompt');
+    final prompt = (request['params'] as Map<String, dynamic>)['prompt'] as String;
+    expect(prompt, startsWith('SEARCH PERSONA\n\n<conversation_history>'));
+    expect(prompt, contains('[user]: remember amber'));
+    expect(prompt, contains('[assistant]: I will remember amber'));
+    expect(prompt, endsWith('</conversation_history>\n\nwhat color?'));
+    await process.respondTo('session/prompt', {'text': 'amber'});
+    await process.respondTo('session/close', {});
+    await turnFuture;
+  });
+
   group('ACP harness S04 event routing', () {
     test('emits ordered DeltaEvent, ToolUseEvent, and ToolResultEvent without thought response pollution', () async {
       final process = FakeAcpProcess();

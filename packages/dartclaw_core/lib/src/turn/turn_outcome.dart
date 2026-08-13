@@ -1,7 +1,7 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show LoopDetection;
+
 import 'tool_call_record.dart';
 import 'turn_trace.dart' show computeEffectiveTokens;
-
-import 'package:dartclaw_config/dartclaw_config.dart' show LoopDetection;
 import 'turn_status.dart';
 
 /// Result of a completed turn including status and optional error.
@@ -17,18 +17,16 @@ class TurnOutcome {
   final int cacheWriteTokens;
   final Duration turnDuration;
   final List<ToolCallRecord> toolCalls;
+  final int toolCallCount;
+  final int failedToolCallCount;
   final DateTime completedAt;
 
   /// Non-null when the turn was cancelled due to mid-turn loop detection.
-  ///
-  /// [TaskExecutor] checks this field to distinguish loop-caused cancellation
-  /// from user-initiated cancellation, and transitions the task to `failed`.
   final LoopDetection? loopDetection;
 
   int get totalTokens => inputTokens + outputTokens;
 
-  /// Billing-weighted token count — see [computeEffectiveTokens]. Prefer this
-  /// over [totalTokens] when comparing runs across harnesses.
+  /// Billing-weighted token count – see [computeEffectiveTokens].
   int get effectiveTokens => computeEffectiveTokens(
     inputTokens: inputTokens,
     outputTokens: outputTokens,
@@ -36,7 +34,10 @@ class TurnOutcome {
     cacheWriteTokens: cacheWriteTokens,
   );
 
-  TurnOutcome({
+  /// Whether [toolCalls] omits invocation details retained only in the counters.
+  bool get toolCallsTruncated => toolCalls.length < toolCallCount;
+
+  new({
     required this.turnId,
     required this.sessionId,
     required this.status,
@@ -47,8 +48,12 @@ class TurnOutcome {
     this.cacheReadTokens = 0,
     this.cacheWriteTokens = 0,
     this.turnDuration = Duration.zero,
-    this.toolCalls = const [],
+    List<ToolCallRecord> toolCalls = const [],
+    int? toolCallCount,
+    int? failedToolCallCount,
     required this.completedAt,
     this.loopDetection,
-  });
+  }) : toolCalls = toolCalls,
+       toolCallCount = toolCallCount ?? toolCalls.length,
+       failedToolCallCount = failedToolCallCount ?? toolCalls.where((call) => !call.success).length;
 }

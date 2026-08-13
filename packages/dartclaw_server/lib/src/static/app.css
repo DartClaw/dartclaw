@@ -2010,22 +2010,22 @@ select.form-select.channel-mode-select-hidden {
   .task-review-bar { position: fixed; bottom: 0; left: 0; right: 0; border-radius: 0; }
 }
 
-/* === AGENT OVERVIEW === */
-.agent-overview {
+/* === EXECUTION OVERVIEW === */
+.execution-overview {
   margin-top: var(--sp-5);
   padding-top: var(--sp-5);
   border-top: var(--border);
 }
-.agent-overview h3 {
+.execution-overview h2 {
   color: var(--fg);
   margin: 0 0 var(--sp-3);
 }
 /* Tile geometry only — the card surface, padding and radius come from canon
    `.card`, and the run-card anatomy from canon's orchestration family. */
-.agent-pool-runners {
+.execution-runners {
   display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-3);
 }
-.agent-pool-runners > .card {
+.execution-runners > .card {
   min-width: 180px; max-width: 220px; flex: 1;
 }
 .run-card-metrics {
@@ -2038,8 +2038,8 @@ select.form-select.channel-mode-select-hidden {
   font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg);
 }
 @media (max-width: 768px) {
-  .agent-pool-runners { flex-direction: column; }
-  .agent-pool-runners > .card { max-width: none; }
+  .execution-runners { flex-direction: column; }
+  .execution-runners > .card { max-width: none; }
 }
 
 /* === TASK TIMELINE === */
@@ -2172,7 +2172,7 @@ select.form-select.channel-mode-select-hidden {
 .task-event-icon-warning    { color: var(--warning); }
 .task-event-icon-compaction { color: var(--fg-sub1); }
 
-.task-agent-badge {
+.task-runner-badge {
   font-size: var(--text-xs);
   color: var(--fg-sub0);
   font-weight: var(--weight-medium);
@@ -2271,6 +2271,15 @@ select.form-select.channel-mode-select-hidden {
 .workflow-detail-page {
   margin: 0 auto;
 }
+
+.workflow-run-identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.workflow-run-identity > div { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.workflow-run-identity code { overflow-wrap: anywhere; }
+@media (max-width: 560px) { .workflow-run-identity { grid-template-columns: 1fr; } }
 
 .workflow-error-message {
   margin-top: var(--sp-3);
@@ -3203,8 +3212,7 @@ input.form-input--search::-webkit-search-cancel-button {
 }
 
 .detail-subvalue,
-.credential-env,
-.pool-bar-label {
+.credential-env {
   margin-top: 2px;
   color: var(--fg-overlay);
   font-size: var(--text-xs);
@@ -3236,23 +3244,6 @@ input.form-input--search::-webkit-search-cancel-button {
   background: var(--error);
 }
 
-.pool-bar-wrapper {
-  margin-top: var(--sp-1);
-}
-
-.pool-bar {
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg-surface0);
-}
-
-.pool-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
 .provider-error-banner {
   display: flex;
   align-items: flex-start;
@@ -3280,6 +3271,8 @@ input.form-input--search::-webkit-search-cancel-button {
 }
 .provider-section-note {
   margin: 0;
+  display: block;
+  line-height: var(--leading-relaxed);
 }
 
 .guard-editor-shell {

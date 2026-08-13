@@ -87,7 +87,7 @@ class StepOutcomePayload {
   final String outcome;
   final String reason;
 
-  const StepOutcomePayload({required this.outcome, required this.reason});
+  const new({required this.outcome, required this.reason});
 }
 
 /// Parses the last well-formed `<step-outcome>` payload from [message].

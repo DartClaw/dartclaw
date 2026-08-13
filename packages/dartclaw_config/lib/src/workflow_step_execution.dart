@@ -51,7 +51,7 @@ final class WorkflowStepExecution {
   final String? stepTokenBreakdownJson;
 
   /// Creates an immutable workflow step execution record.
-  const WorkflowStepExecution({
+  const new({
     required this.taskId,
     required this.agentExecutionId,
     required this.workflowRunId,
@@ -134,7 +134,7 @@ final class WorkflowStepExecution {
   };
 
   /// Deserializes a workflow step execution from persisted JSON.
-  factory WorkflowStepExecution.fromJson(Map<String, dynamic> json) => WorkflowStepExecution(
+  factory fromJson(Map<String, dynamic> json) => WorkflowStepExecution(
     taskId: json['taskId'] as String,
     agentExecutionId: json['agentExecutionId'] as String,
     workflowRunId: json['workflowRunId'] as String,

@@ -6,7 +6,7 @@ final class _CodexSandboxDecision {
   final String? sandbox;
   final bool hasExplicitSandbox;
 
-  factory _CodexSandboxDecision({String? defaultSandbox, String? sandboxOverride}) {
+  factory({String? defaultSandbox, String? sandboxOverride}) {
     final normalizedDefault = _normalize(defaultSandbox);
     final normalizedOverride = _normalize(sandboxOverride);
     final resolvedSandbox = _resolve(normalizedDefault, normalizedOverride);
@@ -19,7 +19,7 @@ final class _CodexSandboxDecision {
     return _CodexSandboxDecision._(resolvedSandbox);
   }
 
-  const _CodexSandboxDecision._(this.sandbox) : hasExplicitSandbox = sandbox != null;
+  const new _(this.sandbox) : hasExplicitSandbox = sandbox != null;
 
   static String? _normalize(String? raw) {
     if (raw == null) return null;

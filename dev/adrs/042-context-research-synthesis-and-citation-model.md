@@ -38,9 +38,16 @@ The citation contract is:
 
 The Dart value types are `CitationLayer`, `SourceRef`, `CitationStatement`, and `CitationPacket`. The shared resolver contract is `CitationSourceResolver`, with the tool applying it at packet assembly so unresolved references mark statements `unattributed` rather than authoritative.
 
-Synthesis runs through an injected background-turn seam. Production wiring dispatches through the existing session delegation path; tests can inject a deterministic synthesizer. If synthesis output is malformed, packet assembly falls back to citation-preserving candidate snippets rather than fabricating uncited claims.
+Synthesis runs through an injected background-turn seam. Production wiring dispatches through the logical-agent session path; tests can inject a deterministic synthesizer. If synthesis output is malformed, packet assembly falls back to citation-preserving candidate snippets rather than fabricating uncited claims.
 
 ## Consequences
+
+## Amendment (2026-08-12) – converged search and locator contract
+
+`context_research`, the Knowledge Hub, MCP memory search, and direct search share one request-level composition owner.
+Callers pass trimmed natural language; the FTS5 adapter owns MATCH encoding. Personal-memory citations use stable entry
+UUID locators and revisions, while wiki/KG retain native locators and provenance. Native wiki wins over a duplicate QMD
+copy, and failure of one layer is reported without discarding healthy results.
 
 ### Positive
 

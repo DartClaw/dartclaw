@@ -29,13 +29,11 @@ export default class DcMemoryController extends Stimulus.Controller {
   }
 
   initMemoryViewToggle() {
-    if (localStorage.getItem('dartclaw-memory-view') !== 'rendered') return;
-
-    this.element.querySelectorAll('.toggle-btn[data-mode="rendered"]').forEach((button) => {
-      button.classList.add('active');
-      if (button.previousElementSibling) {
-        button.previousElementSibling.classList.remove('active');
-      }
+    const mode = localStorage.getItem('dartclaw-memory-view') === 'rendered' ? 'rendered' : 'raw';
+    this.element.querySelectorAll('.toggle-btn[data-mode]').forEach((button) => {
+      const active = button.dataset.mode === mode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
   }
 
@@ -64,9 +62,11 @@ export default class DcMemoryController extends Stimulus.Controller {
     card.querySelectorAll('.tab').forEach((tab) => {
       tab.classList.remove('active');
       tab.setAttribute('aria-selected', 'false');
+      tab.setAttribute('tabindex', '-1');
     });
     button.classList.add('active');
     button.setAttribute('aria-selected', 'true');
+    button.setAttribute('tabindex', '0');
 
     card.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
     const panel = card.querySelector('#' + CSS.escape(tabId));
@@ -78,6 +78,40 @@ export default class DcMemoryController extends Stimulus.Controller {
     }
   }
 
+  navigateTabs(event) {
+    const tablist = event?.currentTarget;
+    const tab = event?.target?.closest?.('[role="tab"]');
+    if (!tablist || !tab || !tablist.contains(tab)) return;
+
+    const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+    const index = tabs.indexOf(tab);
+    if (index === -1) return;
+
+    let next;
+    switch (event.key) {
+      case 'ArrowRight':
+        next = tabs[(index + 1) % tabs.length];
+        break;
+      case 'ArrowLeft':
+        next = tabs[(index - 1 + tabs.length) % tabs.length];
+        break;
+      case 'Home':
+        next = tabs[0];
+        break;
+      case 'End':
+        next = tabs[tabs.length - 1];
+        break;
+      default:
+        return;
+    }
+    if (!next) return;
+
+    event.preventDefault();
+    next.click();
+    next.focus();
+    next.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   toggleView(event) {
     const button = event?.currentTarget;
     const mode = button?.dataset?.mode;
@@ -85,9 +119,12 @@ export default class DcMemoryController extends Stimulus.Controller {
 
     const group = button.closest('.toggle-btn-group');
     if (group) {
-      group.querySelectorAll('.toggle-btn').forEach((toggleButton) => toggleButton.classList.remove('active'));
+      group.querySelectorAll('.toggle-btn').forEach((toggleButton) => {
+        const active = toggleButton === button;
+        toggleButton.classList.toggle('active', active);
+        toggleButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
     }
-    button.classList.add('active');
     localStorage.setItem('dartclaw-memory-view', mode);
     this.element.querySelectorAll('.memory-preview[data-loaded]').forEach((preview) => this.applyMemoryViewMode(preview));
   }
@@ -155,6 +192,15 @@ export default class DcMemoryController extends Stimulus.Controller {
     const mode = localStorage.getItem('dartclaw-memory-view') || 'raw';
     if (mode === 'rendered' && window.marked && window.DOMPurify) {
       preview.innerHTML = window.DOMPurify.sanitize(window.marked.parse(rawContent));
+      preview.querySelectorAll('h1, h2, h3, h4, h5').forEach((heading) => {
+        const level = Math.min(Number(heading.tagName.slice(1)) + 2, 6);
+        const replacement = document.createElement('h' + level);
+        for (const attribute of heading.attributes) {
+          replacement.setAttribute(attribute.name, attribute.value);
+        }
+        replacement.append(...heading.childNodes);
+        heading.replaceWith(replacement);
+      });
     } else {
       preview.textContent = rawContent;
     }
@@ -179,6 +225,37 @@ export default class DcMemoryController extends Stimulus.Controller {
     } catch (_) {
       this.setPruneState(button, 'Failed', 'btn-danger-fill', true);
       window.setTimeout(() => this.resetPruneButton(button), 2000);
+    }
+  }
+
+  async curateMemory(event) {
+    const button = event?.currentTarget;
+    if (!button) return;
+    const result = this.element.querySelector('[data-memory-curation-result]');
+    button.disabled = true;
+    button.textContent = 'Starting…';
+    try {
+      const response = await fetch('/api/scheduling/jobs/memory-curation/run' + this.apiQs, { method: 'POST' });
+      if (response.status === 409) {
+        button.textContent = 'Curation running…';
+        if (result) result.textContent = 'Memory curation is already running.';
+        return;
+      }
+      if (!response.ok) throw new Error('Memory curation request failed');
+      button.textContent = 'Curation running…';
+      if (result) result.textContent = 'Memory curation started.';
+      const content = document.getElementById('memory-content');
+      if (content) {
+        htmx.ajax('GET', '/memory/content' + this.apiQs, {
+          target: '#memory-content',
+          swap: 'innerHTML',
+          select: '#memory-inner',
+        });
+      }
+    } catch (_) {
+      button.disabled = false;
+      button.textContent = 'Curate now';
+      if (result) result.textContent = 'Memory curation could not be started.';
     }
   }
 

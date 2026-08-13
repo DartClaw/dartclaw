@@ -88,6 +88,15 @@ Replace Drift ORM with:
 
 ## Alternatives Considered
 
+## Amendment (2026-08-12) – canonical memory corpus and derived projection
+
+The file-canonical decision now covers one validated collection: bounded index, topic documents, archive, observation
+partitions, learnings, and deletion audit. Entries carry stable identity, revision, and provenance; every canonical write
+advances the collection revision atomically. `search.db` remains wholly derived and rebuildable, projecting only topic,
+archive, observation, and learning entries. The content-free `MEMORY.audit.md` participates in validation, inventory, and
+fingerprinting but is never indexed. Vector-search placeholders were removed; native hybrid search remains owned by
+[ADR-050](050-native-hybrid-search.md).
+
 ### Keep Drift, fix the friction
 
 Could update Drift, wait for sqlite3 v3 support, accept the codegen step. Rejected because the fundamental mismatch remains: Drift is an ORM for relational data, but sessions/messages are append-only logs.

@@ -30,7 +30,7 @@ class CommandGuardConfig {
   final Set<String> safePipeTargets;
 
   /// Creates a command guard configuration from precompiled rules.
-  CommandGuardConfig({
+  new({
     required this.destructivePatterns,
     required this.forcePatterns,
     required this.forkBombPatterns,
@@ -40,7 +40,7 @@ class CommandGuardConfig {
   });
 
   /// Hardcoded safe defaults — used when config is missing or malformed.
-  factory CommandGuardConfig.defaults() => CommandGuardConfig(
+  factory defaults() => CommandGuardConfig(
     destructivePatterns: _defaultDestructive,
     forcePatterns: _defaultForce,
     forkBombPatterns: _defaultForkBombs,
@@ -50,7 +50,7 @@ class CommandGuardConfig {
   );
 
   /// Merges extra patterns from YAML config with defaults.
-  factory CommandGuardConfig.fromYaml(Map<String, dynamic> yaml) {
+  factory fromYaml(Map<String, dynamic> yaml) {
     final defaults = CommandGuardConfig.defaults();
 
     // Extra blocked patterns (regex strings)
@@ -174,7 +174,7 @@ class CommandGuard extends Guard {
   final CommandGuardConfig config;
 
   /// Creates a command guard with defaults unless overridden.
-  CommandGuard({CommandGuardConfig? config}) : config = config ?? CommandGuardConfig.defaults();
+  new({CommandGuardConfig? config}) : config = config ?? CommandGuardConfig.defaults();
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {

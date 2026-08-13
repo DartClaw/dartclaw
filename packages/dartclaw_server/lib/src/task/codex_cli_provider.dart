@@ -3,12 +3,22 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowCliTurnProgressEvent, stringValue;
+import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show CodexEnvironment, ContainerExecutor, WorkflowCliTurnProgressEvent, containerCodexExecutable, stringValue;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
+import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor;
 
-import 'claude_cli_provider.dart' show resolveContainerWorkDir, startCliProcess;
+import 'claude_cli_provider.dart'
+    show
+        containerExtraEnvironment,
+        resolveCliExecutable,
+        resolveContainerWorkDir,
+        startCliProcess,
+        verifyContainerCliExecutable;
+import 'cli_provider.dart' show boundedProviderDiagnostic;
 import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
@@ -21,27 +31,51 @@ part 'codex_cli_provider_types.dart';
 class CodexCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('CodexCliProvider');
 
-  CodexCliProvider({
+  new({
     super.platformCapabilities,
     super.terminationGracePeriod,
     super.outputDrainGracePeriod,
     this.maxOutputBytes = CliProcessSupervisor.defaultOutputLimitBytes,
-  });
+    MessageRedactor? diagnosticRedactor,
+  }) : _diagnosticRedactor = diagnosticRedactor ?? MessageRedactor();
 
   final int maxOutputBytes;
+  final MessageRedactor _diagnosticRedactor;
 
   static const _maxUsageEntries = 512;
 
   final Map<String, _CodexUsageSnapshot> _usageByRequestKey = <String, _CodexUsageSnapshot>{};
+  final Map<ContainerExecutor, CodexEnvironment> _containerHomes = Map.identity();
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
+    final container = req.containerManager;
+    // A containerized turn never reads the user's Codex home: it gets a freshly
+    // created, never-seeded one holding only generated client configuration,
+    // destroyed with the authority.
+    final codexHome = container == null
+        ? null
+        : req.retainContainerState
+        ? _containerHomes.putIfAbsent(container, () => _buildContainerHome(req, container))
+        : _buildContainerHome(req, container);
+    if (container != null) {
+      await verifyContainerCliExecutable(
+        container,
+        resolveCliExecutable(req.providerConfig.executable, container, containerCodexExecutable),
+      );
+    }
+    await codexHome?.setup();
     final built = _buildCommand(req);
     final command = built.command;
     final String? tempSchemaPath = built.tempSchemaPath;
-    final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, req.containerManager);
+    final resolvedWorkDir = resolveContainerWorkDir(req.workingDirectory, container);
 
-    final env = req.extraEnvironment == null || req.extraEnvironment!.isEmpty
+    // The host environment stays on the host. In container mode the process is
+    // given only its generated home pointer, so no provider credential, host
+    // login state, or shared MCP bearer can reach it through the spawn env.
+    final env = container != null
+        ? {...codexHome!.environmentOverrides(), ...containerExtraEnvironment(req.extraEnvironment, container)}
+        : req.extraEnvironment == null || req.extraEnvironment!.isEmpty
         ? req.providerConfig.environment
         : {...req.providerConfig.environment, ...req.extraEnvironment!};
 
@@ -126,7 +160,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       } catch (_) {
         if (cancellationRequestedFor(process)) {
           final termination = await waitForInflightTermination(process);
-          final exitCode = termination?.exitConfirmed == true ? await process.exitCode : -1;
+          final exitCode = await supervisor.waitForTerminationResult(termination);
           await waitForCliOutputDrain(
             supervisor: supervisor,
             stdoutDone: stdoutDone.future,
@@ -180,6 +214,10 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       if (activeProcess != null) {
         finishInflightRun(activeProcess);
       }
+      final observer = req.onRootProcessTerminationConfirmed;
+      if (observer != null) {
+        await observer(activeProcess == null || supervisor?.rootProcessTerminationConfirmed == true);
+      }
       if (tempSchemaPath != null) {
         try {
           await File(tempSchemaPath).delete();
@@ -187,7 +225,37 @@ class CodexCliProvider extends ProcessBackedCliProvider {
           _log.warning('Failed to delete temporary Codex schema file at $tempSchemaPath', error, stackTrace);
         }
       }
+      if (!req.retainContainerState) await codexHome?.cleanup();
     }
+  }
+
+  /// Deletes the auth-clean home owned by [container].
+  Future<void> releaseContainerState(ContainerExecutor container) async {
+    await _containerHomes.remove(container)?.cleanup();
+  }
+
+  /// Builds this turn's auth-clean container home.
+  ///
+  /// The custom Responses provider it generates points only at the authority's
+  /// own provider bridge and disables client-side authentication: the container
+  /// holds no credential, and the host gateway supplies the upstream one.
+  CodexEnvironment _buildContainerHome(CliTurnRequest req, ContainerExecutor container) {
+    final hostHome = p.join(container.generatedStateDir, 'codex-home-${req.uuid.v4()}');
+    final containerHome = container.containerPathForHostPath(hostHome);
+    if (containerHome == null) {
+      throw StateError('Codex container home is not mounted in the container: $hostHome');
+    }
+    return CodexEnvironment.containerAuthClean(
+      developerInstructions: req.appendSystemPrompt ?? '',
+      hostHomePath: hostHome,
+      containerHomePath: containerHome,
+      gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+      // Provider-side web search escapes `network:none` because it runs at the
+      // provider. Host mediation refuses it for every containerized execution;
+      // turning it off here keeps the client from asking.
+      nativeWebSearch: false,
+      mcpServerUrl: container.mcpBridgeUrl,
+    );
   }
 
   /// Exposed for command-vector assertions without spawning a process.
@@ -206,7 +274,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     final req = CliTurnRequest(
       prompt: prompt,
       workingDirectory: schemaDirectory,
-      profileId: '',
+      policy: const ExecutionPolicy.host(),
       providerSessionId: providerSessionId,
       model: model,
       effort: effort,
@@ -223,18 +291,34 @@ class CodexCliProvider extends ProcessBackedCliProvider {
   }
 
   StateError _codexNonZeroExitError(int exitCode, String stdout, String stderr) {
-    // For Codex --json mode, the real error is often in stdout (as JSON events
-    // like {"type":"error",...}), while stderr may only contain informational
-    // messages like "Reading additional input from stdin...".
     final errorDetails = <String>[
-      if (stderr.trim().isNotEmpty) stderr.trim(),
-      if (stdout.trim().isNotEmpty)
-        'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
+      ?_codexErrorEventDiagnostic(stdout),
+      if (stderr.trim().isNotEmpty) 'provider stderr reported failure details',
     ];
     return StateError(
       'Workflow one-shot codex command failed with exit code $exitCode'
       '${errorDetails.isEmpty ? '' : ': ${errorDetails.join('; ')}'}',
     );
+  }
+
+  String? _codexErrorEventDiagnostic(String stdout) {
+    for (final line in const LineSplitter().convert(stdout)) {
+      try {
+        final decoded = jsonDecode(line);
+        if (decoded is! Map<String, dynamic>) continue;
+        final type = stringValue(decoded['type']);
+        if (type != 'error' && type != 'turn.failed') continue;
+        final error = decoded['error'];
+        final code = error is Map<String, dynamic> ? stringValue(error['code']) : null;
+        return [
+          'event=${boundedProviderDiagnostic(type!, _diagnosticRedactor)}',
+          if (code != null && code.isNotEmpty) 'code=${boundedProviderDiagnostic(code, _diagnosticRedactor)}',
+        ].join(' ');
+      } on FormatException {
+        continue;
+      }
+    }
+    return null;
   }
 
   bool _hasCodexFailureEvidence(String stdout, String stderr) {
@@ -268,10 +352,20 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     if (requestedAllowedTools != null && requestedAllowedTools.isNotEmpty && !req.readOnly) {
       _log.fine('Codex one-shot ignores workflow allowedTools: $requestedAllowedTools');
     }
-    final sandboxDecision = _CodexSandboxDecision(
-      defaultSandbox: req.providerConfig.options['sandbox']?.toString(),
-      sandboxOverride: req.readOnly ? 'read-only' : req.sandboxOverride,
-    );
+    // Containerized non-read-only runs disable Codex's own OS sandbox: the
+    // container is the isolation boundary, and the sandbox tooling Codex
+    // demands (bubblewrap) neither ships in the image nor can start under
+    // `--cap-drop ALL`/`no-new-privileges` — every tool call would panic while
+    // the turn still reports success. Read-only keeps its sandbox flag even
+    // containerized: Codex has no tool allowlist, so dropping it would turn a
+    // read-only step writable; if its sandbox cannot start either, tool calls
+    // fail closed rather than open.
+    final sandboxDecision = req.containerManager != null && !req.readOnly
+        ? const _CodexSandboxDecision._('danger-full-access')
+        : _CodexSandboxDecision(
+            defaultSandbox: req.providerConfig.options['sandbox']?.toString(),
+            sandboxOverride: req.readOnly ? 'read-only' : req.sandboxOverride,
+          );
     final args = <String>[
       'exec',
       '--json',
@@ -286,7 +380,10 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     if (req.effort != null && req.effort!.trim().isNotEmpty) {
       args.addAll(['-c', 'model_reasoning_effort="${req.effort}"']);
     }
-    if (req.appendSystemPrompt != null && req.appendSystemPrompt!.trim().isNotEmpty) {
+    // In container mode the instructions travel in the generated home's
+    // config.toml alongside the custom provider block, so no launch flag is
+    // needed and the two cannot disagree.
+    if (req.containerManager == null && req.appendSystemPrompt != null && req.appendSystemPrompt!.trim().isNotEmpty) {
       args.addAll(['-c', 'developer_instructions=${jsonEncode(req.appendSystemPrompt)}']);
     }
     if (sandboxDecision.sandbox != null) {
@@ -312,7 +409,12 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       args.addAll(['resume', req.providerSessionId!]);
     }
     args.add(req.prompt);
-    return _CodexCommand((req.providerConfig.executable, args), tempSchemaPath: schemaPath);
+    final executable = resolveCliExecutable(
+      req.providerConfig.executable,
+      req.containerManager,
+      containerCodexExecutable,
+    );
+    return _CodexCommand((executable, args), tempSchemaPath: schemaPath);
   }
 
   bool _handleLine(String line, _CodexStreamState state, {required CliTurnRequest req, bool emitProgress = false}) {
@@ -331,7 +433,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     switch (type) {
       case 'thread.started':
         state.providerSessionId = stringValue(event['thread_id']) ?? state.providerSessionId;
-        break;
 
       case 'turn.started':
         if (emitProgress) {
@@ -341,7 +442,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             '${state.providerSessionId.isEmpty ? '<pending>' : state.providerSessionId}',
           );
         }
-        break;
 
       case 'item.started':
       case 'item.updated':
@@ -357,7 +457,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             _log.fine('CodexCliProvider: codex agent message completed: ${_previewText(state.responseText)}');
           }
         }
-        break;
 
       case 'turn.completed':
         final previousCumulative = state.inputTokens + state.outputTokens;
@@ -396,7 +495,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             ),
           );
         }
-        break;
 
       case 'turn.failed':
       case 'error':
@@ -548,7 +646,7 @@ final class _CodexUsageSnapshot {
   final int cacheReadTokens;
   final int cacheWriteTokens;
 
-  const _CodexUsageSnapshot({
+  const new({
     this.inputTokens = 0,
     this.newInputTokens = 0,
     this.outputTokens = 0,
@@ -556,7 +654,7 @@ final class _CodexUsageSnapshot {
     this.cacheWriteTokens = 0,
   });
 
-  factory _CodexUsageSnapshot.fromState(_CodexStreamState state) {
+  factory fromState(_CodexStreamState state) {
     final newInputTokens = math.max(0, state.inputTokens - state.cacheReadTokens);
     return _CodexUsageSnapshot(
       inputTokens: state.inputTokens,
@@ -567,7 +665,7 @@ final class _CodexUsageSnapshot {
     );
   }
 
-  factory _CodexUsageSnapshot.fromBaseline(WorkflowCliUsageBaseline baseline) => _CodexUsageSnapshot(
+  factory fromBaseline(WorkflowCliUsageBaseline baseline) => _CodexUsageSnapshot(
     inputTokens: baseline.inputTokens + baseline.cacheReadTokens,
     newInputTokens: baseline.inputTokens,
     outputTokens: baseline.outputTokens,
@@ -580,5 +678,5 @@ class _CodexCommand {
   final (String, List<String>) command;
   final String? tempSchemaPath;
 
-  const _CodexCommand(this.command, {this.tempSchemaPath});
+  const new(this.command, {this.tempSchemaPath});
 }

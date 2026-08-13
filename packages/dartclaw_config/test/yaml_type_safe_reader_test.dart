@@ -1,6 +1,5 @@
 import 'package:test/test.dart';
 
-// ignore: implementation_imports
 import 'package:dartclaw_config/src/yaml_type_safe_reader.dart';
 
 void main() {

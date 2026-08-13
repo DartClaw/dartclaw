@@ -7,7 +7,7 @@ const _ellipsis = '...';
 class GoalService {
   final GoalRepository _repo;
 
-  GoalService(this._repo);
+  new(this._repo);
 
   /// Creates a new goal.
   Future<Goal> create({

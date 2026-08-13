@@ -27,36 +27,14 @@ class DockerValidator {
     if (allArgs.contains('--ipc=host') || allArgs.contains('--ipc host')) {
       errors.add('Dangerous: --ipc=host shares host IPC namespace');
     }
+    if (config.extraArgs.isNotEmpty) {
+      errors.add('container.extra_args is unsupported because raw Docker arguments can override mandatory hardening');
+    }
 
-    // Check mounts for sensitive paths
-    for (final mount in config.extraMounts) {
-      _validateMount(mount, errors);
+    if (config.extraMounts.isNotEmpty) {
+      errors.add('container.mounts is unsupported because arbitrary host mounts bypass the execution boundary');
     }
 
     return errors;
-  }
-
-  static void _validateMount(String mount, List<String> errors) {
-    // Normalize: handle both -v and --mount formats
-    final path = mount.split(':').first.trim();
-    final normalized = path.replaceAll(r'\', '/');
-
-    const sensitivePatterns = [
-      '/etc',
-      '/root',
-      '/home',
-      '/.ssh',
-      '/.aws',
-      '/.gnupg',
-      '/.config/gcloud',
-      '/var/run/docker.sock',
-    ];
-
-    for (final pattern in sensitivePatterns) {
-      if (normalized == pattern || normalized.startsWith('$pattern/') || normalized.endsWith(pattern)) {
-        errors.add('Dangerous mount: "$mount" exposes sensitive path "$pattern"');
-        break;
-      }
-    }
   }
 }

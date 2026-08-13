@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.21 (native Windows Git Bash policy plus embedded workflow assets)
+**Current through**: 0.24
 
 ---
 
@@ -370,11 +370,13 @@ Multi-prompt steps require a continuity-capable provider; the validator rejects 
 
 ### 4.4a One-Shot Workflow Execution
 
-Workflow agent steps use a single one-shot CLI execution path. The task lifecycle still exists, but the task executor runs the workflow prompt chain as direct provider CLI invocations instead of routing follow-up prompts back through the interactive harness pool.
+Workflow agent steps use a single one-shot CLI execution path. The task lifecycle still exists, but the task executor runs the workflow prompt chain as direct provider CLI invocations instead of routing follow-up prompts through a long-lived streaming harness.
 
 Practical consequences:
 
 - Workflow prompt chains can reuse provider-native session continuity (`--resume` / `resume`) across prompts.
+- Each running one-shot holds a provider `capacityOnly` execution lease. This enforces the same hard
+  `providers.<id>.pool_size` limit without constructing an unused streaming worker harness.
 - The task/session transcript is still recorded in DartClaw's own session store.
 - Workflow tasks set `task.type = TaskType.coding` uniformly; workflow step type no longer flows through task-system bookkeeping.
 - Workflow step read-only behavior is derived from effective `allowedTools` via `step_config_policy.stepIsReadOnly`, and the mutation check runs against the provisioned worktree path when present.
@@ -521,7 +523,7 @@ Key additional fields over `MapNode`:
 
 Each iteration runs its substeps in declared order. Substeps share a per-iteration context overlay: each substep's outputs are written into the overlay under the keys declared in its `outputs:` block (bare keys), so later sibling substeps read them directly — e.g. `quick-review` reads `{{context.story_result}}` produced by `implement`. There is no automatic step-id prefixing in the overlay; if a substep needs to expose its output under a `<stepId>.<key>` form (for disambiguation when two substeps emit the same generic key), it must declare that prefixed key explicitly in its own `outputs:` block. The per-iteration overlay is isolated from the plan-level context during execution; results are aggregated back after all items complete, keyed by child step id. See the user guide's [Step-Prefixed References](../../docs/guide/workflows.md#step-prefixed-references-contextstepidkey) section for the full reference-form grammar.
 
-`ForeachNode` reuses the same `MapStepContext` concurrency and dependency-graph machinery as `MapNode`, so `maxParallel`, `maxItems`, pool availability, and story-level `dependencies` fields all work identically.
+`ForeachNode` reuses the same `MapStepContext` concurrency and dependency-graph machinery as `MapNode`, so `maxParallel`, `maxItems`, coordinator availability, and story-level `dependencies` fields all work identically.
 
 `plan-and-implement` uses `ForeachNode` for its `story-pipeline` step, running `implement → quick-review` per story before any plan-level review or remediation. `dartclaw-exec-spec` is responsible for running analysis/tests/linting and fixing issues before emitting the story result.
 
@@ -533,9 +535,10 @@ Both `MapNode` and `ForeachNode` execution respects three concurrency controls:
 |---|---|---|
 | `maxParallel` | Step definition | Caps simultaneous iterations |
 | `maxItems` | Step definition, when set | Optional ceiling on collection size; omitted means uncapped |
-| Pool availability | `WorkflowTurnAdapter.availableRunnerCount()` | Bounds concurrency to available harness runners |
+| Coordinator availability | `WorkflowTurnAdapter.availableRunnerCount()` | Bounds initial iteration dispatch to available provider worker leases |
 
-Effective concurrency is `min(maxParallel, poolAvailable, collection.length)`.
+Effective concurrency is `min(maxParallel, coordinatorAvailable, collection.length)`. Every one-shot still acquires a
+capacity-only lease, which is the authoritative limit if the snapshot changes after dispatch.
 
 When collection items declare `id` and `dependencies` fields, the `DependencyGraph` enforces ordering:
 
@@ -879,7 +882,7 @@ Workflows can currently be triggered from six surfaces:
 
 All server-managed trigger surfaces converge on `WorkflowService.start()`: the HTTP API, HTMX launch form, chat command interceptor, and GitHub webhook handler all resolve a `WorkflowDefinition` and hand it to the same service. The connected CLI path is therefore an API client over the same server-owned lifecycle rather than a separate executor path.
 
-The standalone CLI path still exists for serverless or CI use. `WorkflowRunCommand` wires a minimal local service stack via `CliWorkflowWiring` — database, event bus, harness pool, and workflow executor — without starting the HTTP server, then calls `WorkflowService.start(..., headless: true)` directly.
+The standalone CLI path still exists for serverless or CI use. `WorkflowRunCommand` wires a minimal local service stack via `CliWorkflowWiring` — database, event bus, provider capacity coordinator, and workflow executor — without starting the HTTP server or a primary lane, then calls `WorkflowService.start(..., headless: true)` directly. One-shot work consumes capacity-only leases and spawns only the provider CLI process that does the work.
 
 The web UI now exposes both workflow management and launch at `/workflows`, and run detail at `/workflows/<runId>` with real-time SSE updates.
 

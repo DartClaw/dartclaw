@@ -1079,7 +1079,7 @@ void main() {
         ),
       );
 
-      expect(turns.lastPromptScope, PromptScope.webInteractive);
+      expect(turns.lastPromptScope, PromptScope.primary);
     });
   });
 
@@ -1203,7 +1203,7 @@ void main() {
           stuckAfter: Duration(milliseconds: 25),
         ),
       );
-      addTearDown(realTurns.pool.dispose);
+      addTearDown(realTurns.executions.dispose);
       final realHandler = localAdminMiddleware()(sessionRoutes(sessions, messages, realTurns, failingWorker).call);
       final session = await sessions.createSession();
       final turnId = await realTurns.startTurn(session.id, [
@@ -1224,7 +1224,7 @@ void main() {
 
       expect(res.statusCode, 200);
       expect(body['status'], 'cancelled');
-      expect(body['released_session_lock'], isTrue);
+      expect(body['released_session_lock'], isFalse, reason: 'the coordinator holds admission through recovery');
       expect(failingWorker.cancelCalled, isTrue);
       expect(failingWorker.stopCalled, isTrue);
       expect(realTurns.activeTurnId(session.id), isNull);
@@ -1779,7 +1779,7 @@ void main() {
       expect(await errorCode(res), equals('TURN_NOT_FOUND'));
     });
 
-    test('returns 204 when turn outcome is cached (reconnect guard)', () async {
+    test('returns a terminal SSE frame when turn outcome is cached', () async {
       final session = await sessions.createSession();
       const turnId = 'fake-turn-id';
       final outcome = TurnOutcome(
@@ -1789,11 +1789,11 @@ void main() {
         completedAt: DateTime.now(),
       );
       turns.setRecentOutcome(turnId, outcome);
-      // isActiveTurn returns false (no active entry), recentOutcome returns the outcome
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/stream?turn=$turnId')),
       );
-      expect(res.statusCode, equals(204));
+      expect(res.statusCode, equals(200));
+      expect(await res.readAsString(), contains('event: done'));
     });
 
     test('returns 200 SSE stream for active turn', () async {
@@ -1818,7 +1818,7 @@ void main() {
 }
 
 final class PausingTailMessageService extends MessageService {
-  PausingTailMessageService({required super.baseDir});
+  new({required super.baseDir});
 
   final firstTailReadStarted = Completer<void>();
   final resumeFirstTailRead = Completer<void>();
@@ -1836,7 +1836,7 @@ final class PausingTailMessageService extends MessageService {
 }
 
 final class PausingInsertMessageService extends MessageService {
-  PausingInsertMessageService({required super.baseDir});
+  new({required super.baseDir});
 
   final insertStarted = Completer<void>();
   final resumeInsert = Completer<void>();
@@ -1855,7 +1855,7 @@ final class PausingInsertMessageService extends MessageService {
 }
 
 final class PausingUpdateTitleSessionService extends SessionService {
-  PausingUpdateTitleSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final updateStarted = Completer<void>();
   final resumeUpdate = Completer<void>();
@@ -1863,8 +1863,19 @@ final class PausingUpdateTitleSessionService extends SessionService {
   Session? _initialSession;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
-    final created = await super.createSession(type: type, channelKey: channelKey, provider: provider);
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
+    final created = await super.createSession(
+      type: type,
+      channelKey: channelKey,
+      provider: provider,
+      securityProfile: securityProfile,
+    );
     _initialSession ??= created;
     return created;
   }
@@ -1894,7 +1905,7 @@ final class PausingUpdateTitleSessionService extends SessionService {
 }
 
 final class PausingUpdateSessionTypeSessionService extends SessionService {
-  PausingUpdateSessionTypeSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final updateStarted = Completer<void>();
   final resumeUpdate = Completer<void>();
@@ -1922,7 +1933,7 @@ final class PausingUpdateSessionTypeSessionService extends SessionService {
 }
 
 final class PausingFirstGetSessionService extends SessionService {
-  PausingFirstGetSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final firstReadStarted = Completer<void>();
   final resumeFirstRead = Completer<void>();
@@ -1941,15 +1952,26 @@ final class PausingFirstGetSessionService extends SessionService {
 }
 
 final class OpenTrackingSessionService extends SessionService {
-  OpenTrackingSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final replacementCreateStarted = Completer<void>();
   Session? _initialSession;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
+  Future<Session> createSession({
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+  }) async {
     if (_initialSession != null) replacementCreateStarted.complete();
-    final created = await super.createSession(type: type, channelKey: channelKey, provider: provider);
+    final created = await super.createSession(
+      type: type,
+      channelKey: channelKey,
+      provider: provider,
+      securityProfile: securityProfile,
+    );
     _initialSession ??= created;
     return created;
   }
@@ -1967,7 +1989,7 @@ final class OpenTrackingSessionService extends SessionService {
 }
 
 final class QueuingFakeTurnManager extends FakeTurnManager {
-  QueuingFakeTurnManager(super.messages, super.worker);
+  new(super.messages, super.worker);
 
   final queuedReservationStarted = Completer<void>();
   final resumeQueuedReservation = Completer<void>();
@@ -1980,6 +2002,8 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
     String? directory,
     String? model,
     String? effort,
+    String? systemPromptOverride,
+    ExecutionPolicy? workerPolicy,
     int? maxTurns,
     String? taskId,
     bool isHumanInput = false,
@@ -1999,6 +2023,8 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
       directory: directory,
       model: model,
       effort: effort,
+      systemPromptOverride: systemPromptOverride,
+      workerPolicy: workerPolicy,
       maxTurns: maxTurns,
       taskId: taskId,
       isHumanInput: isHumanInput,

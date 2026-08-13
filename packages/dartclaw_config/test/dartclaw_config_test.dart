@@ -9,7 +9,7 @@ import 'support/load_config.dart';
 class _FakeGoogleChatConfig {
   final bool enabled;
 
-  const _FakeGoogleChatConfig({this.enabled = false});
+  const new({this.enabled = false});
 }
 
 void _ensureTestGoogleChatRegistered() {
@@ -140,7 +140,6 @@ providers:
         expect(config.server.name, 'DartClaw');
         expect(config.server.dataDir, p.normalize('/workspace/dartclaw/dartclaw'));
         expect(config.gateway.authMode, 'token');
-        expect(config.tasks.maxConcurrent, 3);
         expect(config.governance.rateLimits.perSender.messages, 0);
         expect(config.workflow.defaults.workflow.provider, 'claude');
       });
@@ -256,10 +255,11 @@ projects:
         expect(config.server.port, 4444);
       });
 
-      test('YAML parse error collects warning and uses defaults', () {
-        final config = loadYaml('{\n  invalid: [unclosed');
-        expect(config.server.port, 3333);
-        expect(config.warnings, anyElement(contains('YAML parse error')));
+      test('YAML parse error is startup-fatal, never a silent defaults boot', () {
+        expect(
+          () => loadYaml('{\n  invalid: [unclosed'),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('YAML parse error'))),
+        );
       });
 
       test('~ expansion in data_dir', () {
@@ -432,10 +432,8 @@ projects:
         expect(config.warnings, anyElement(contains('null')));
       });
 
-      test('non-map YAML root collects warning and uses defaults', () {
-        final config = loadYaml('- item1\n- item2\n');
-        expect(config.server.port, 3333);
-        expect(config.warnings, anyElement(contains('not a map')));
+      test('non-map YAML root fails closed', () {
+        expect(() => loadYaml('- item1\n- item2\n'), throwsFormatException);
       });
 
       test('DARTCLAW_CONFIG pointing to non-existent file collects warning and uses defaults', () {

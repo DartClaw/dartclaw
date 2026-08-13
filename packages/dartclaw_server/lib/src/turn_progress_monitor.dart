@@ -9,7 +9,7 @@ class TurnProgressMonitor {
   Timer? _stallTimer;
   bool _running = false;
 
-  TurnProgressMonitor({
+  new({
     required this.stallTimeout,
     required this.onStall,
     Timer Function(Duration duration, void Function() callback)? timerFactory,

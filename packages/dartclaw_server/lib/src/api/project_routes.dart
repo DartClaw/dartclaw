@@ -358,7 +358,6 @@ Future<void> _cascadeDeleteProject(
             message: 'Project "$projectId" was deleted before task execution started.',
           );
           await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
-          break;
         case TaskStatus.interrupted:
           continue cancelTask;
         case TaskStatus.review:
@@ -368,7 +367,6 @@ Future<void> _cascadeDeleteProject(
             message: 'Project "$projectId" was deleted while the task was awaiting review.',
           );
           await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
-          break;
         cancelTask:
         case TaskStatus.draft:
           try {
@@ -379,7 +377,6 @@ Future<void> _cascadeDeleteProject(
           if (task.status != TaskStatus.draft) {
             await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           }
-          break;
         default:
           // completed, accepted, rejected, cancelled, failed — no action
           break;

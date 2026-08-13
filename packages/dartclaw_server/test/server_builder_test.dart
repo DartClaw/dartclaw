@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
@@ -90,6 +90,27 @@ void main() {
       worker.completeSuccess();
       final outcome = await turns.waitForOutcome(session.id, turnId);
       expect(outcome.status, TurnStatus.completed);
+    });
+  });
+
+  group('DartclawServerBuilder.buildTurns execution placement', () {
+    test('a host composing a container-backed worker reports its real placement', () {
+      // The builder receives an already-constructed worker and cannot infer
+      // where it runs, so an SDK host that containerized one must be able to
+      // say so — the policy is the runner's reported placement and its
+      // never-cache-container reuse identity.
+      final builder = builderWith()..executionPolicy = const ExecutionPolicy.container('restricted');
+      final turns = builder.buildTurns();
+      addTearDown(turns.executions.dispose);
+
+      expect(turns.executions.primary!.executionPolicy, const ExecutionPolicy.container('restricted'));
+    });
+
+    test('an unset policy stays host, what an SDK host composes by default', () {
+      final turns = builderWith().buildTurns();
+      addTearDown(turns.executions.dispose);
+
+      expect(turns.executions.primary!.executionPolicy, const ExecutionPolicy.host());
     });
   });
 }

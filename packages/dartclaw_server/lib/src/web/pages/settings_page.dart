@@ -17,7 +17,7 @@ import '../web_utils.dart';
 
 /// Renders the runtime-settings dashboard page.
 class SettingsPage extends DashboardPage {
-  SettingsPage({
+  new({
     this.healthService,
     this.workerStateGetter,
     this.whatsAppChannel,
@@ -126,7 +126,10 @@ List<Map<String, Object?>> _buildProviderCards(List<ProviderStatus> providers) {
 Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
   final healthUi = _providerHealthUi(provider.health);
   final credentialOk = provider.credentialStatus != 'missing';
-  final poolUsagePercent = _poolUsagePercent(activeWorkers: provider.activeWorkers, poolSize: provider.poolSize);
+  final capacityUsagePercent = _capacityUsagePercent(
+    activeWorkers: provider.activeWorkers,
+    effectiveWorkers: provider.effectiveWorkers,
+  );
 
   return <String, Object?>{
     'id': provider.id,
@@ -158,24 +161,24 @@ Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
       'oauth' => 'OAuth / subscription login',
       _ => provider.credentialEnvVar ?? 'Credential source not configured',
     },
-    'poolUsageText': provider.poolSize > 0
-        ? '${provider.activeWorkers} of ${provider.poolSize} Task Workers busy'
-        : 'No Workers configured',
-    'poolUsageLabel': provider.poolSize > 0
-        ? '$poolUsagePercent% of Task Harness Pool in use'
-        : 'Configure pool_size to reserve task Workers',
-    'poolUsageWidthStyle': 'width: $poolUsagePercent%;',
+    'capacityUsageText': '${provider.activeWorkers} of ${provider.effectiveWorkers} worker leases active',
+    'capacityUsageLabel': '$capacityUsagePercent% of worker capacity in use',
+    'capacityUsageWidthStyle': 'width: $capacityUsagePercent%;',
+    'capacityMeterEmptyClass': capacityUsagePercent == 0 ? 'meter--empty' : '',
+    'capacityDetails':
+        '${provider.queuedWorkers} queued · ${provider.cachedWorkers} warm · '
+        '${provider.quarantinedWorkers} quarantined',
     'hasError': provider.errorMessage != null,
     'errorTitle': _providerErrorTitle(provider),
     'errorMessage': provider.errorMessage,
   };
 }
 
-int _poolUsagePercent({required int activeWorkers, required int poolSize}) {
-  if (poolSize <= 0) {
+int _capacityUsagePercent({required int activeWorkers, required int effectiveWorkers}) {
+  if (effectiveWorkers <= 0) {
     return 0;
   }
-  final percent = ((activeWorkers / poolSize) * 100).round();
+  final percent = ((activeWorkers / effectiveWorkers) * 100).round();
   return percent.clamp(0, 100).toInt();
 }
 

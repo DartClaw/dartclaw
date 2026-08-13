@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import '../security/guard_builder.dart';
 
 const guardEditorFamilies = {'command', 'file', 'network', 'input-sanitizer'};
-const _guardEditorToolPolicyCascade = ToolPolicyCascade();
+final _guardEditorToolPolicyCascade = ToolPolicyCascade();
 
 final class GuardEditorResult {
   final String guard;
@@ -17,7 +17,7 @@ final class GuardEditorResult {
   final List<String> applied;
   final List<String> pendingRestart;
 
-  const GuardEditorResult({
+  const new({
     required this.guard,
     required this.field,
     required this.entries,
@@ -38,11 +38,11 @@ final class GuardEditorResult {
 final class GuardEditorValidationException implements Exception {
   final List<String> errors;
 
-  const GuardEditorValidationException(this.errors);
+  const new(this.errors);
 }
 
 final class GuardEditorService {
-  GuardEditorService({required this.writer, required this.dataDir, this.configNotifier, this.guardChain});
+  new({required this.writer, required this.dataDir, this.configNotifier, this.guardChain});
 
   final ConfigWriter writer;
   final String dataDir;
@@ -361,6 +361,7 @@ Future<GuardVerdict> _evaluateTestChain(GuardChain chain, GuardContext context) 
     'beforeToolCall' => chain.evaluateBeforeToolCall(
       context.toolName ?? '',
       context.toolInput ?? const <String, dynamic>{},
+      agentId: context.agentId,
       rawProviderToolName: context.rawProviderToolName,
     ),
     'messageReceived' => chain.evaluateMessageReceived(

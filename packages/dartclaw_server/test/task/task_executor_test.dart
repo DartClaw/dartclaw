@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -13,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'task_executor_test_support.dart';
+import '../execution_coordinator_test_support.dart';
 
 void main() {
   late FakeTaskWorker worker;
@@ -61,6 +61,32 @@ void main() {
     pollInterval: pollInterval,
   );
 
+  TaskExecutor buildWorkflowCapacityExecutor({
+    WorkflowCliRunner? workflowCliRunner,
+    Future<void> Function(String taskId)? onAutoAccept,
+    TaskEventRecorder? eventRecorder,
+  }) {
+    final primary = ctx.turns.executions.primary!;
+    final turns = TurnManager.fromCoordinator(
+      coordinator: ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        primary: primary,
+        admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primary.releaseAdmission,
+        createWorker: (_) => throw StateError('Workflow one-shot tests must not create reusable workers'),
+      ),
+    );
+    return ctx.harness.buildWorkflowExecutor(
+      turnManager: turns,
+      workflowCliRunner: workflowCliRunner,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      kvService: ctx.kvService,
+      onAutoAccept: onAutoAccept,
+      eventRecorder: eventRecorder,
+    );
+  }
+
   Future<void> seedWorkflowExecution(
     String taskId, {
     String? agentExecutionId,
@@ -94,6 +120,7 @@ void main() {
     );
 
     final processed = await executor.pollOnce();
+    await executor.drain();
 
     expect(processed, isTrue);
     final updated = await tasks.get('task-1');
@@ -133,6 +160,7 @@ void main() {
     );
 
     await executor.pollOnce();
+    await executor.drain();
     final reviewed = await tasks.get('task-2');
     final firstSessionId = reviewed!.sessionId!;
 
@@ -144,6 +172,7 @@ void main() {
 
     worker.responseText = 'Updated output';
     await executor.pollOnce();
+    await executor.drain();
 
     final rerun = await tasks.get('task-2');
     expect(rerun!.status, TaskStatus.review);
@@ -169,6 +198,7 @@ void main() {
     );
 
     await executor.pollOnce();
+    await executor.drain();
 
     expect(worker.lastModel, 'opus');
     expect((await tasks.get('task-model'))!.status, TaskStatus.review);
@@ -203,7 +233,9 @@ void main() {
     );
 
     await autoAcceptExecutor.pollOnce();
+    await autoAcceptExecutor.drain();
     await autoAcceptExecutor.pollOnce();
+    await autoAcceptExecutor.drain();
 
     expect(calls, ['task-auto-accept']);
     expect((await tasks.get('task-auto-accept'))!.status, TaskStatus.review);
@@ -228,12 +260,13 @@ void main() {
     );
 
     await autoAcceptExecutor.pollOnce();
+    await autoAcceptExecutor.drain();
 
     expect((await tasks.get('task-auto-accept-error'))!.status, TaskStatus.review);
   });
 
   test('fails workflow-owned tasks when auto-accept callback errors', () async {
-    final autoAcceptExecutor = buildExecutor(
+    final autoAcceptExecutor = buildWorkflowCapacityExecutor(
       onAutoAccept: (taskId) async {
         throw StateError('auto-accept failed for $taskId');
       },
@@ -259,13 +292,14 @@ void main() {
     );
 
     await autoAcceptExecutor.pollOnce();
+    await autoAcceptExecutor.drain();
 
     expect((await tasks.get('task-auto-accept-workflow-error'))!.status, TaskStatus.review);
   });
 
   test('skips auto-accept for workflow git tasks so workflow promotion owns publish', () async {
     final calls = <String>[];
-    final autoAcceptExecutor = buildExecutor(
+    final autoAcceptExecutor = buildWorkflowCapacityExecutor(
       onAutoAccept: (taskId) async {
         calls.add(taskId);
       },
@@ -291,6 +325,7 @@ void main() {
     );
 
     await autoAcceptExecutor.pollOnce();
+    await autoAcceptExecutor.drain();
 
     expect(calls, isEmpty);
     expect((await tasks.get('task-auto-accept-workflow-git'))!.status, TaskStatus.review);
@@ -321,6 +356,7 @@ void main() {
     );
 
     await budgetExecutor.pollOnce();
+    await budgetExecutor.drain();
 
     final failed = await tasks.get('task-budget');
     expect(failed!.status, TaskStatus.failed);
@@ -350,6 +386,7 @@ void main() {
     );
 
     await failingExecutor.pollOnce();
+    await failingExecutor.drain();
 
     final failed = await tasks.get('task-3');
     expect(failed!.status, TaskStatus.failed);
@@ -382,6 +419,7 @@ void main() {
     );
 
     await cancellingExecutor.pollOnce();
+    await cancellingExecutor.drain();
 
     final task = await tasks.get('task-cancelled-then-fails');
     expect(task!.status, TaskStatus.cancelled);
@@ -410,13 +448,14 @@ void main() {
     );
 
     await cancellingExecutor.pollOnce();
+    await cancellingExecutor.drain();
 
     expect((await tasks.get('task-cancelled'))!.status, TaskStatus.cancelled);
     expect(calls, isEmpty);
   });
 
   test('does not throw when a workflow one-shot task is cancelled before token mirroring', () async {
-    final cancellingExecutor = buildExecutor();
+    final cancellingExecutor = buildWorkflowCapacityExecutor();
     addTearDown(cancellingExecutor.stop);
     final records = <LogRecord>[];
     final sub = Logger('TaskExecutor').onRecord.listen(records.add);
@@ -444,6 +483,7 @@ void main() {
     );
 
     await cancellingExecutor.pollOnce();
+    await cancellingExecutor.drain();
 
     final task = await tasks.get('task-workflow-cancelled');
     expect(task?.status.terminal, isTrue);
@@ -470,6 +510,7 @@ void main() {
     );
 
     await executor.pollOnce();
+    await executor.drain();
 
     expect((await tasks.get('task-old'))!.status, TaskStatus.review);
     expect((await tasks.get('task-new'))!.status, TaskStatus.queued);
@@ -496,12 +537,13 @@ void main() {
     );
 
     await executor.pollOnce();
+    await executor.drain();
 
     expect((await tasks.get('task-a'))!.status, TaskStatus.review);
     expect((await tasks.get('task-b'))!.status, TaskStatus.queued);
   });
 
-  test('executes tasks via pool-mode when maxConcurrentTasks > 0', () async {
+  test('executes tasks via pool-mode when maxConcurrentWorkers > 0', () async {
     final poolWorker1 = FakeTaskWorker();
     final poolWorker2 = FakeTaskWorker();
     poolWorker1.responseText = 'pool result';
@@ -514,30 +556,143 @@ void main() {
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
     final taskRunner = TurnRunner(harness: poolWorker1, messages: messages, behavior: behavior, sessions: sessions);
-    final pool = HarnessPool(runners: [primaryRunner, taskRunner]);
-    final poolTurns = TurnManager.fromPool(pool: pool);
+    final poolTurns = turnManagerForRunners([primaryRunner, taskRunner]);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
     addTearDown(poolExecutor.stop);
 
     await tasks.create(
       id: 'task-pool',
       title: 'Pool task',
-      description: 'Should execute via acquired task runner.',
+      description: 'Should execute via acquired worker.',
       type: TaskType.automation,
       autoStart: true,
     );
 
     final processed = await poolExecutor.pollOnce();
+    await poolExecutor.drain();
 
     expect(processed, isTrue);
     final completed = await waitForTaskStatus(tasks, 'task-pool', until: const {TaskStatus.review});
     expect(completed?.status, TaskStatus.review);
-    // Task runner was released back to pool.
-    expect(pool.availableCount, 1);
-    expect(pool.activeCount, 0);
+    // The worker was released back to the pool.
+    expect(poolTurns.executions.snapshot.availableWorkers, 1);
+    expect(poolTurns.executions.snapshot.activeWorkers, 0);
   });
 
-  test('provider-less workflow pool task spawns and acquires configured default provider', () async {
+  test('uses the durable task session for first-attempt execution lifecycle events', () async {
+    final poolWorker = FakeTaskWorker()..responseText = 'done';
+    addTearDown(poolWorker.dispose);
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final taskRunner = TurnRunner(harness: poolWorker, messages: messages, behavior: behavior, sessions: sessions);
+    final poolTurns = turnManagerForRunners([primaryRunner, taskRunner]);
+    final events = <ExecutionEvent>[];
+    final subscription = poolTurns.executions.events.listen(events.add);
+    addTearDown(subscription.cancel);
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
+    addTearDown(poolExecutor.stop);
+
+    await tasks.create(
+      id: 'task-durable-admission',
+      title: 'Durable admission identity',
+      description: 'Use one identity from admission through execution release.',
+      type: TaskType.automation,
+      provider: 'claude',
+      autoStart: true,
+    );
+
+    await poolExecutor.pollOnce();
+    await poolExecutor.drain();
+
+    final sessionId = (await tasks.get('task-durable-admission'))!.sessionId!;
+    final lifecycleEvents = events.where(
+      (event) => const {ExecutionEventKind.acquired, ExecutionEventKind.released}.contains(event.kind),
+    );
+    expect(sessionId, isNot('task-durable-admission'));
+    expect(lifecycleEvents.map((event) => event.kind), contains(ExecutionEventKind.acquired));
+    expect(lifecycleEvents.map((event) => event.request.sessionId).toSet(), {sessionId});
+  });
+
+  test('serializes two tasks that continue the same durable session', () async {
+    final firstGate = Completer<void>();
+    final secondGate = Completer<void>();
+    final firstStarted = Completer<void>();
+    final secondStarted = Completer<void>();
+    var started = 0;
+    var active = 0;
+    var maxActive = 0;
+
+    Future<void> blockTurn(String _) async {
+      final index = started++;
+      active++;
+      if (active > maxActive) maxActive = active;
+      if (index == 0) {
+        firstStarted.complete();
+        await firstGate.future;
+      } else {
+        secondStarted.complete();
+        await secondGate.future;
+      }
+      active--;
+    }
+
+    final firstWorker = FakeTaskWorker()..beforeComplete = blockTurn;
+    final secondWorker = FakeTaskWorker()..beforeComplete = blockTurn;
+    addTearDown(() async {
+      if (!firstGate.isCompleted) firstGate.complete();
+      if (!secondGate.isCompleted) secondGate.complete();
+      await firstWorker.dispose();
+      await secondWorker.dispose();
+    });
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final firstRunner = TurnRunner(harness: firstWorker, messages: messages, behavior: behavior, sessions: sessions);
+    final secondRunner = TurnRunner(harness: secondWorker, messages: messages, behavior: behavior, sessions: sessions);
+    final poolTurns = turnManagerForRunners([primaryRunner, firstRunner, secondRunner]);
+    final acquiredSessionIds = <String>[];
+    final subscription = poolTurns.executions.events.listen((event) {
+      if (event.kind == ExecutionEventKind.acquired) acquiredSessionIds.add(event.request.sessionId);
+    });
+    addTearDown(subscription.cancel);
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
+    addTearDown(poolExecutor.stop);
+    final sharedSession = await sessions.getOrCreateByKey(
+      SessionKey.taskSession(taskId: 'shared-root'),
+      type: SessionType.task,
+    );
+    final queuedAt = DateTime.parse('2026-03-10T10:00:00Z');
+    for (final id in const ['task-continue-a', 'task-continue-b']) {
+      await tasks.create(
+        id: id,
+        title: id,
+        description: 'Continue one durable session.',
+        type: TaskType.automation,
+        provider: 'claude',
+        autoStart: true,
+        configJson: {'_continueSessionId': sharedSession.id},
+        now: queuedAt,
+      );
+    }
+
+    final poll = poolExecutor.pollOnce();
+    await firstStarted.future;
+    await pumpEventQueue();
+    expect(secondStarted.isCompleted, isFalse);
+    expect((await tasks.get('task-continue-b'))!.status, TaskStatus.queued);
+
+    firstGate.complete();
+    await secondStarted.future;
+    expect(maxActive, 1);
+    secondGate.complete();
+    await poll;
+    await poolExecutor.drain();
+
+    expect((await tasks.get('task-continue-a'))!.sessionId, sharedSession.id);
+    expect((await tasks.get('task-continue-b'))!.sessionId, sharedSession.id);
+    expect(acquiredSessionIds, [sharedSession.id, sharedSession.id]);
+  });
+
+  test('provider-less workflow acquires default-provider capacity without creating a worker', () async {
     String? executable;
     final spawnRequests = <String?>[];
     final cliRunner = echoCliRunner(
@@ -549,31 +704,27 @@ void main() {
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
-    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
-    final poolTurns = TurnManager.fromPool(pool: pool);
+    final executions = ExecutionCoordinator(
+      providerCapacities: const {'codex': 1},
+      primary: primaryRunner,
+      createWorker: (request) async {
+        spawnRequests.add(request.providerId);
+        return TurnRunner(
+          harness: codexWorker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessions,
+          providerId: 'codex',
+        );
+      },
+    );
+    final poolTurns = TurnManager.fromCoordinator(coordinator: executions);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(
       turnManager: poolTurns,
       workflowCliRunner: cliRunner,
       workflowRunRepository: workflowRuns,
       workflowStepExecutionRepository: workflowStepExecutions,
       limits: const TaskExecutorLimits(defaultProviderId: 'codex'),
-      onSpawnNeeded: (requestedProviderId) async {
-        spawnRequests.add(requestedProviderId);
-        var spawned = false;
-        if (requestedProviderId == 'codex') {
-          pool.addRunner(
-            TurnRunner(
-              harness: codexWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessions,
-              providerId: 'codex',
-            ),
-          );
-          spawned = true;
-        }
-        return spawned;
-      },
     );
     addTearDown(poolExecutor.stop);
 
@@ -593,48 +744,42 @@ void main() {
     );
 
     final processed = await poolExecutor.pollOnce();
+    await poolExecutor.drain();
 
     expect(processed, isTrue);
     final completed = await waitForTaskStatus(tasks, 'task-pool-default-provider', until: const {TaskStatus.review});
-    expect(spawnRequests, ['codex']);
+    expect(spawnRequests, isEmpty);
     expect(executable, 'codex');
     expect(completed?.status, TaskStatus.review);
-    expect(pool.hasTaskRunnerForProvider('codex'), isTrue);
-    expect(pool.hasTaskRunnerForProvider('claude'), isFalse);
+    expect(executions.snapshot.providers.keys, ['codex']);
   });
 
   test('lazy spawn provider demand follows FIFO task ordering', () async {
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
     final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
-    final codexWorker = FakeTaskWorker()..responseText = 'codex result';
-    addTearDown(codexWorker.dispose);
-    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
-    final poolTurns = TurnManager.fromPool(pool: pool);
     final spawnRequests = <String?>[];
     final spawnRequested = Completer<void>();
-    final poolExecutor = ctx.harness.buildWorkflowExecutor(
-      turnManager: poolTurns,
-      onSpawnNeeded: (requestedProviderId) async {
-        spawnRequests.add(requestedProviderId);
-        var spawned = false;
-        if (requestedProviderId == 'codex') {
-          pool.addRunner(
-            TurnRunner(
-              harness: codexWorker,
-              messages: messages,
-              behavior: behavior,
-              sessions: sessions,
-              providerId: 'codex',
-            ),
-          );
-          spawned = true;
-        }
-        if (!spawnRequested.isCompleted) {
-          spawnRequested.complete();
-        }
-        return spawned;
+    final executions = ExecutionCoordinator(
+      providerCapacities: const {'codex': 1, 'claude': 1},
+      primary: primaryRunner,
+      admitExecution: (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+      releaseAdmission: primaryRunner.releaseAdmission,
+      createWorker: (request) async {
+        spawnRequests.add(request.providerId);
+        if (!spawnRequested.isCompleted) spawnRequested.complete();
+        final worker = FakeTaskWorker()..responseText = '${request.providerId} result';
+        return TurnRunner(
+          harness: worker,
+          messages: messages,
+          behavior: behavior,
+          sessions: sessions,
+          providerId: request.providerId,
+        );
       },
     );
+    addTearDown(executions.dispose);
+    final poolTurns = TurnManager.fromCoordinator(coordinator: executions);
+    final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
     addTearDown(poolExecutor.stop);
 
     await tasks.create(
@@ -657,10 +802,11 @@ void main() {
     );
 
     final processed = await poolExecutor.pollOnce();
+    await poolExecutor.drain();
     await spawnRequested.future;
 
     expect(processed, isTrue);
-    expect(spawnRequests, ['codex']);
+    expect(spawnRequests, ['codex', 'claude']);
   });
 
   test('dispatches multiple queued tasks concurrently when multiple runners are idle', () async {
@@ -676,11 +822,28 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
-    final taskRunner1 = TurnRunner(harness: poolWorker1, messages: messages, behavior: behavior, sessions: sessions);
-    final taskRunner2 = TurnRunner(harness: poolWorker2, messages: messages, behavior: behavior, sessions: sessions);
-    final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
-    final poolTurns = TurnManager.fromPool(pool: pool);
+    final primaryRunner = TurnRunner(
+      harness: worker,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessions,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
+    final taskRunner1 = TurnRunner(
+      harness: poolWorker1,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessions,
+      executionPolicy: const ExecutionPolicy.container('restricted'),
+    );
+    final taskRunner2 = TurnRunner(
+      harness: poolWorker2,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessions,
+      executionPolicy: const ExecutionPolicy.container('restricted'),
+    );
+    final poolTurns = turnManagerForRunners([primaryRunner, taskRunner1, taskRunner2]);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(turnManager: poolTurns);
     addTearDown(poolExecutor.stop);
 
@@ -704,8 +867,8 @@ void main() {
     expect(processed, isTrue);
     expect((await tasks.get('task-pool-a'))!.status, TaskStatus.running);
     expect((await tasks.get('task-pool-b'))!.status, TaskStatus.running);
-    expect(pool.availableCount, 0);
-    expect(pool.activeCount, 2);
+    expect(poolTurns.executions.snapshot.availableWorkers, 0);
+    expect(poolTurns.executions.snapshot.activeWorkers, 2);
 
     poolWorker1.responseText = 'done a';
     poolWorker2.responseText = 'done b';
@@ -727,11 +890,16 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final primaryRunner = TurnRunner(
+      harness: worker,
+      messages: messages,
+      behavior: behavior,
+      sessions: sessions,
+      executionPolicy: const ExecutionPolicy.container('workspace'),
+    );
     final taskRunner1 = TurnRunner(harness: poolWorker1, messages: messages, behavior: behavior, sessions: sessions);
     final taskRunner2 = TurnRunner(harness: poolWorker2, messages: messages, behavior: behavior, sessions: sessions);
-    final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
-    final poolTurns = TurnManager.fromPool(pool: pool);
+    final poolTurns = turnManagerForRunners([primaryRunner, taskRunner1, taskRunner2]);
     final poolExecutor = ctx.harness.buildWorkflowExecutor(
       turnManager: poolTurns,
       workflowRunRepository: workflowRuns,
@@ -810,6 +978,7 @@ void main() {
     );
 
     final processed = await contentionExecutor.pollOnce();
+    await contentionExecutor.drain();
 
     expect(processed, isTrue);
     expect((await tasks.get('task-busy'))!.status, TaskStatus.review);
@@ -837,6 +1006,7 @@ void main() {
     );
 
     await traceExecutor.pollOnce();
+    await traceExecutor.drain();
     // Allow the unawaited trace insert to complete.
     await pumpEventQueue();
 
@@ -861,6 +1031,7 @@ void main() {
     );
 
     final processed = await executor.pollOnce();
+    await executor.drain();
 
     expect(processed, isTrue);
     expect((await tasks.get('task-no-trace'))!.status, TaskStatus.review);
@@ -893,9 +1064,42 @@ void main() {
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
+      await scopeExecutor.drain();
       await pumpEventQueue();
+      expect((await tasks.get('task-scope-regular'))!.status, TaskStatus.review);
       expect(capturing.lastPromptScope, PromptScope.task);
       expect(capturing.lastTaskId, 'task-scope-regular');
+    });
+
+    test('task tool policy is turn-local and does not leak to the next task', () async {
+      await tasks.create(
+        id: 'task-policy-scoped',
+        title: 'Scoped policy',
+        description: 'Carry a closed policy for this turn only.',
+        type: TaskType.automation,
+        autoStart: true,
+        configJson: const {
+          'allowedTools': ['file_read'],
+          'readOnly': true,
+        },
+      );
+      await scopeExecutor.pollOnce();
+      await scopeExecutor.drain();
+      expect(capturing.lastAllowedTools, ['file_read']);
+      expect(capturing.lastReadOnly, isTrue);
+
+      await tasks.create(
+        id: 'task-policy-default',
+        title: 'Default policy',
+        description: 'Must not inherit the preceding task policy.',
+        type: TaskType.automation,
+        autoStart: true,
+      );
+      await scopeExecutor.pollOnce();
+      await scopeExecutor.drain();
+
+      expect(capturing.lastAllowedTools, isNull);
+      expect(capturing.lastReadOnly, isFalse);
     });
 
     test('workflow workspace override keeps task scope and behavior path', () async {
@@ -912,6 +1116,7 @@ void main() {
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
+      await scopeExecutor.drain();
       await pumpEventQueue();
       expect(capturing.lastPromptScope, PromptScope.task);
       expect(capturing.lastBehaviorOverride?.workspaceDir, workflowWorkspaceDir);
@@ -936,6 +1141,7 @@ void main() {
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
+      await scopeExecutor.drain();
       await pumpEventQueue();
       expect(capturing.lastPromptScope, PromptScope.task);
       expect(capturing.lastBehaviorOverride?.workspaceDir, workflowWorkspaceDir);
@@ -973,6 +1179,7 @@ void main() {
         await agentExecutions.update(existingExecution.copyWith(workspaceDir: workflowWorkspaceDir));
       }
       await projectExecutor.pollOnce();
+      await projectExecutor.drain();
       await pumpEventQueue();
 
       expect(capturing.lastPromptScope, PromptScope.task);

@@ -77,7 +77,7 @@ WorkflowWorktreeBinder _binder({WorktreeManager? worktreeManager}) => WorkflowWo
 );
 
 final class _ThrowingWorktreeManager extends WorktreeManager {
-  _ThrowingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
+  new() : super(dataDir: '/tmp', projectDir: '/tmp');
 
   @override
   Future<WorktreeInfo> create(

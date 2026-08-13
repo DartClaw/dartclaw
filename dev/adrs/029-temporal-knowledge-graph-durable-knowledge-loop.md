@@ -23,6 +23,13 @@ S03 introduced a full **durable knowledge loop** — inbox ingestion → wiki sy
 
 ## Consequences
 
+## Amendment (2026-08-12) – native knowledge ownership and stable citations
+
+Wiki and KG remain source-backed knowledge, distinct from personal canonical memory. Request-level search composition has
+one native wiki traversal owner; a QMD copy of the same page yields to native wiki provenance. Citations carry stable
+canonical entry UUIDs for personal memory and native wiki/KG locators for knowledge sources. Healthy personal results
+survive wiki degradation.
+
 ### Positive
 
 - The agent reasons from durable, synthesized, time-aware memory instead of re-deriving context each turn.

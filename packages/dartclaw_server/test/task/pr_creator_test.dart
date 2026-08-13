@@ -20,13 +20,12 @@ Task _makeTask({
 );
 
 typedef _ApiCall = ({String method, Uri uri, Map<String, String> headers, String? body});
-typedef _ApiRunner =
-    Future<({int statusCode, String body})> Function(
-      String method,
-      Uri uri, {
-      required Map<String, String> headers,
-      String? body,
-    });
+typedef _ApiRunner = Future<({int statusCode, String body})> Function(
+  String method,
+  Uri uri, {
+  required Map<String, String> headers,
+  String? body,
+});
 
 _ApiRunner _recordingRunner(List<_ApiCall> calls, {List<({int statusCode, String body})> responses = const []}) {
   var index = 0;

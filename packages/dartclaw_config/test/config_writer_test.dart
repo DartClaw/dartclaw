@@ -260,6 +260,20 @@ another_unknown:
     });
   });
 
+  test('rejects every invalid memory integer representation without changing config bytes', () async {
+    File(configPath).writeAsStringSync('memory:\n  max_bytes: 32768\n');
+    final before = File(configPath).readAsBytesSync();
+
+    for (final value in [0, -1, 1.5, '1', double.infinity]) {
+      expect(
+        () => writer.updateFields({'memory.max_bytes': value}),
+        throwsA(isA<ArgumentError>().having((error) => '$error', 'message', contains('positive integer'))),
+      );
+    }
+
+    expect(File(configPath).readAsBytesSync(), before);
+  });
+
   group('dispose', () {
     test('dispose completes without error', () async {
       await writer.dispose();

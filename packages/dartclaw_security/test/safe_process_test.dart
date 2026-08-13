@@ -5,7 +5,7 @@ final class _FakePlan implements ProcessEnvironmentPlan {
   @override
   final Map<String, String> environment;
 
-  const _FakePlan(this.environment);
+  const new(this.environment);
 }
 
 void main() {
@@ -18,6 +18,7 @@ void main() {
           'ANTHROPIC_API_KEY': 'secret',
           'GITHUB_TOKEN': 'ghs_secret',
           'CUSTOM_SECRET': 'bad',
+          'CLAUDE_CODE_SUBAGENT_MODEL': 'inherited-model',
           'SAFE_VAR': 'ok',
         },
       );
@@ -28,6 +29,7 @@ void main() {
       expect(env.containsKey('ANTHROPIC_API_KEY'), isFalse);
       expect(env.containsKey('GITHUB_TOKEN'), isFalse);
       expect(env.containsKey('CUSTOM_SECRET'), isFalse);
+      expect(env.containsKey('CLAUDE_CODE_SUBAGENT_MODEL'), isFalse);
     });
 
     test('applies allowlist after stripping sensitive entries', () {

@@ -28,10 +28,10 @@ class CrowdCodingConfig {
   final String? effort;
 
   /// const CrowdCodingConfig({this.model, this.effort});.
-  const CrowdCodingConfig({this.model, this.effort});
+  const new({this.model, this.effort});
 
   /// Creates a [CrowdCodingConfig.defaults] value.
-  const CrowdCodingConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

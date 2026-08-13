@@ -358,10 +358,17 @@ void main() {
       // The topbar stays the page's only <h1>.
       expect(RegExp('<h1').allMatches(html), hasLength(1));
 
-      for (final section in ['Overview', 'Memory Pruning', 'Search &amp; Index', 'Memory Files', 'Daily Logs']) {
+      for (final section in [
+        'Overview',
+        'Memory lifecycle',
+        'Memory Pruning',
+        'Search &amp; Index',
+        'Memory Files',
+        'Daily Logs',
+      ]) {
         expect(html, contains('class="section-title">$section</h2>'));
       }
-      expect(RegExp('class="memory-dashboard-section"').allMatches(html), hasLength(5));
+      expect(RegExp('class="memory-dashboard-section"').allMatches(html), hasLength(6));
       // .section-label survives only on in-card subsections.
       expect(html, isNot(contains('<h2 class="section-label">')));
       final withSubsections = memoryDashboardTemplate(
@@ -425,6 +432,43 @@ void main() {
     test('the pruner action is a real destructive control', () {
       expect(render(), contains('<button class="btn btn-danger" data-action="click->dc-memory#confirmPrune">'));
     });
+
+    test('the memory file controls expose selected state and keyboard tab semantics', () {
+      final html = render();
+
+      expect(html, contains('role="tablist" aria-label="Memory files" data-action="keydown->dc-memory#navigateTabs"'));
+      expect(
+        RegExp(r'role="tab" aria-selected="true" aria-controls="tab-memory" tabindex="0"').allMatches(html),
+        hasLength(1),
+      );
+      expect(
+        RegExp(r'role="tab" aria-selected="false" aria-controls="tab-[^"]+" tabindex="-1"').allMatches(html),
+        hasLength(3),
+      );
+      expect(html, contains('role="group" aria-label="Preview mode"'));
+      expect(RegExp(r'data-mode="raw" aria-pressed="true"').allMatches(html), hasLength(1));
+      expect(RegExp(r'data-mode="rendered" aria-pressed="false"').allMatches(html), hasLength(1));
+      expect(RegExp(r'role="tabpanel" aria-labelledby="memory-file-tab-[^"]+"').allMatches(html), hasLength(4));
+    });
+
+    test('next run uses future-aware relative time', () {
+      final status = sampleStatus();
+      final nextRun = DateTime.now().add(const Duration(hours: 49)).toUtc().toIso8601String();
+      (status['pruner'] as Map<String, dynamic>)['nextRun'] = nextRun;
+
+      final html = memoryDashboardTemplate(
+        status: status,
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+      final nextRunRow = RegExp(r'<span class="card-row-label">Next run</span>([\s\S]*?)</div>').firstMatch(html);
+
+      expect(nextRunRow, isNotNull);
+      expect(nextRunRow!.group(1), contains('>in 2d</span>'));
+      expect(nextRunRow.group(1), isNot(contains('just now')));
+      expect(nextRunRow.group(1), contains('title="$nextRun"'));
+    });
   });
 
   group('memoryDashboardContentFragment', () {
@@ -435,6 +479,156 @@ void main() {
       expect(html, contains('Overview'));
       expect(html, contains('Memory Pruning'));
       // Should not have sidebar/topbar (they are empty strings in fragment)
+    });
+  });
+
+  group('operator-visible memory lifecycle', () {
+    test('Overview uses authoritative unknowns instead of legacy zero or stale counts', () {
+      final status = sampleStatus(entryCount: 12, archivedCount: 5, learningsCount: 7)
+        ..['collection'] = {'state': 'unknown'}
+        ..['memoryMd'] = {...sampleStatus()['memoryMd'] as Map<String, dynamic>, 'coverage': 'lowerBound'};
+
+      final html = memoryDashboardTemplate(
+        status: status,
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+
+      expect(RegExp(r'>unknown</(?:span|div)>').allMatches(html).length, greaterThanOrEqualTo(4));
+      expect(html, isNot(contains('<span class="metric-number">12</span>')));
+      expect(html, isNot(contains('<span class="metric-number">5</span>')));
+      expect(html, isNot(contains('<span class="metric-number">7</span>')));
+    });
+
+    test('renders independent healthy collection, degraded index, and succeeded curation states', () {
+      final status = sampleStatus()
+        ..addAll({
+          'collection': {
+            'state': 'available',
+            'revision': 42,
+            'curatedEntryCount': 12,
+            'topicCount': 3,
+            'archiveEntryCount': 4,
+            'learningEntryCount': 2,
+            'opaqueLegacyCount': 1,
+            'opaqueLegacyLocators': ['memory/legacy/<opaque>'],
+            'migration': {'state': 'migrated', 'snapshotPath': '<snapshot>', 'action': '<inspect>'},
+          },
+          'promptIndex': {
+            'usedBytes': 20480,
+            'budgetBytes': 32768,
+            'usedLines': 101,
+            'lineBudget': 150,
+            'truncated': false,
+          },
+          'observations': {
+            'entryCount': 7,
+            'usageBytes': 1024,
+            'usageKind': 'exact',
+            'scannedFiles': 3,
+            'omittedFiles': 0,
+            'failedFiles': 0,
+            'oldestRecorded': '2020-01-01T00:00:00.000Z',
+            'newestRecorded': '2021-02-02T00:00:00.000Z',
+            'warning': 'none',
+          },
+          'index': {
+            'state': 'degraded',
+            'canonicalRevision': 42,
+            'indexedRevision': 41,
+            'derivedChunkCount': null,
+            'wikiSourceCount': 5,
+            'failureStage': '<validation>',
+            'reason': '<index failed>',
+            'action': 'Stop DartClaw then rebuild.',
+          },
+          'curation': {
+            'state': 'succeeded',
+            'committedRevision': 42,
+            'changedIds': ['A', '<B>'],
+            'noOpIds': ['C'],
+            'operationReasons': {'<B>': '<invalid proposal>'},
+          },
+        });
+      final html = memoryDashboardTemplate(
+        status: status,
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+
+      expect(html, contains('Canonical collection'));
+      expect(html, contains('Curated entries'));
+      expect(html, contains('Raw observations'));
+      expect(html, contains('rebuildable rows'));
+      expect(html, contains('status-badge-success">succeeded'));
+      expect(html, contains('status-badge-warning">degraded'));
+      expect(html, contains('<span class="card-row-value">unknown</span>'));
+      expect(html, contains('&lt;snapshot&gt;'));
+      expect(html, contains('memory/legacy/&lt;opaque&gt;'));
+      expect(html, contains('1 Jan 2020'));
+      expect(html, contains('2 Feb 2021'));
+      expect(html, contains('&lt;validation&gt;'));
+      expect(html, contains('A, &lt;B&gt;'));
+      expect(html, contains('&lt;B&gt;: &lt;invalid proposal&gt;'));
+      expect(html, isNot(contains('<index failed>')));
+    });
+
+    test('Search card never republishes stale derived rows as active', () {
+      final status = sampleStatus()
+        ..['search'] = {'backend': 'fts5', 'depth': 10, 'indexEntries': 987, 'indexArchived': 654, 'dbSizeBytes': null}
+        ..['index'] = {'state': 'rebuilding', 'derivedChunkCount': null};
+
+      final html = memoryDashboardTemplate(
+        status: status,
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+      final searchCard = html.substring(html.indexOf('Search &amp; Index'), html.indexOf('<!-- Outside the 30s poll'));
+
+      expect(searchCard, contains('status-badge-running">rebuilding'));
+      expect(searchCard, contains('>unknown</span>'));
+      expect(searchCard, isNot(contains('>Active</span>')));
+      expect(searchCard, isNot(anyOf(contains('987'), contains('654'), contains('1641'))));
+      expect(searchCard, isNot(contains('>0 B</span>')));
+    });
+
+    test('only active lifecycle states use the running badge and disable curation', () {
+      String render(String curation, String index) => memoryDashboardTemplate(
+        status: sampleStatus()
+          ..addAll({
+            'curation': {'state': curation},
+            'index': {'state': index},
+          }),
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+
+      final running = render('running', 'rebuilding');
+      expect(RegExp('status-badge-running').allMatches(running), hasLength(3));
+      expect(running, contains('disabled="" aria-disabled="true"'));
+      for (final terminal in ['succeeded', 'conflicted', 'failed']) {
+        final html = render(terminal, 'healthy');
+        expect(RegExp('status-badge-running').allMatches(html), isEmpty, reason: terminal);
+        expect(html, contains('data-action="click->dc-memory#curateMemory"'), reason: terminal);
+      }
+    });
+
+    test('poll swaps only lifecycle content while the file reader stays outside', () {
+      final html = memoryDashboardTemplate(
+        status: sampleStatus(),
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+      final pollEnd = html.indexOf('<div class="memory-dashboard-static">');
+      expect(html.substring(0, pollEnd), contains('Memory lifecycle'));
+      expect(html.substring(0, pollEnd), isNot(contains('id="memory-files-card"')));
+      expect(html.substring(pollEnd), contains('id="memory-files-card"'));
+      expect(html, contains('aria-live="polite"'));
     });
   });
 }

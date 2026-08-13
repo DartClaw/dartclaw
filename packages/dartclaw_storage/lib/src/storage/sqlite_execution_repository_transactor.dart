@@ -13,7 +13,7 @@ final class SqliteExecutionRepositoryTransactor implements ExecutionRepositoryTr
   Future<void> _tail = Future<void>.value();
 
   /// Creates the transactor bound to a single SQLite [Database] connection.
-  SqliteExecutionRepositoryTransactor(this._db);
+  new(this._db);
 
   @override
   Future<T> transaction<T>(FutureOr<T> Function() action) {

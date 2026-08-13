@@ -14,7 +14,7 @@ final _processLifecycleLog = Logger('WorkflowCliProcess');
 final class CliProcessSupervisor {
   static const defaultOutputLimitBytes = 16 * 1024 * 1024;
 
-  CliProcessSupervisor({
+  new({
     required this.process,
     required this.provider,
     required this.stepName,
@@ -59,12 +59,15 @@ final class CliProcessSupervisor {
   bool _postTerminalResultTerminationStarted = false;
   bool _postTerminalResultExitUnconfirmed = false;
   bool _externalCancellationExitUnconfirmed = false;
+  bool _rootProcessTerminationConfirmed = false;
 
   bool get postTerminalResultTerminationStarted => _postTerminalResultTerminationStarted;
 
   bool get terminalResultRecorded => _terminalResultRecorded;
 
   bool get postTerminalResultExitUnconfirmed => _postTerminalResultExitUnconfirmed;
+
+  bool get rootProcessTerminationConfirmed => _rootProcessTerminationConfirmed;
 
   void start() {
     if (stallTimeout > Duration.zero) {
@@ -144,7 +147,16 @@ final class CliProcessSupervisor {
   }
 
   Future<int> waitForExitCode() async {
-    final exitCode = process.exitCode.then<Object>((code) => code);
+    final exitCode = process.exitCode.then<Object>(
+      (code) {
+        _rootProcessTerminationConfirmed = true;
+        return code;
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _rootProcessTerminationConfirmed = false;
+        Error.throwWithStackTrace(error, stackTrace);
+      },
+    );
     final terminalCleanup = _postTerminalResultCleanup.future.then<Object>((_) => 0);
     final waits = <Future<Object>>[exitCode, _failure.future, terminalCleanup];
     final cancellation = externalCancellation;
@@ -162,11 +174,26 @@ final class CliProcessSupervisor {
       throw failure;
     }
     if (result is ProcessTerminationResult) {
-      if (result.exitConfirmed) return process.exitCode;
-      _externalCancellationExitUnconfirmed = true;
-      return -1;
+      final exitCode = await waitForTerminationResult(result);
+      if (!_rootProcessTerminationConfirmed) _externalCancellationExitUnconfirmed = true;
+      return exitCode;
     }
     return result as int;
+  }
+
+  Future<int> waitForTerminationResult(ProcessTerminationResult? result) async {
+    if (result?.exitConfirmed != true) {
+      _rootProcessTerminationConfirmed = false;
+      return -1;
+    }
+    try {
+      final exitCode = await process.exitCode;
+      _rootProcessTerminationConfirmed = true;
+      return exitCode;
+    } catch (_) {
+      _rootProcessTerminationConfirmed = false;
+      rethrow;
+    }
   }
 
   Future<void> waitForOutputDrain({
@@ -233,9 +260,22 @@ final class CliProcessSupervisor {
   }
 
   Future<ProcessTerminationResult> _terminateProcess() async {
-    final terminator = processTerminator;
-    if (terminator != null) return terminator();
-    return terminateCliProcess(process, grace: terminationGrace, log: log, platformCapabilities: platformCapabilities);
+    try {
+      final terminator = processTerminator;
+      final result = terminator != null
+          ? await terminator()
+          : await terminateCliProcess(
+              process,
+              grace: terminationGrace,
+              log: log,
+              platformCapabilities: platformCapabilities,
+            );
+      _rootProcessTerminationConfirmed = result.exitConfirmed;
+      return result;
+    } catch (_) {
+      _rootProcessTerminationConfirmed = false;
+      rethrow;
+    }
   }
 }
 

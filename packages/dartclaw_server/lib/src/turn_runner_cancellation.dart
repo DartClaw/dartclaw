@@ -74,6 +74,10 @@ extension TurnRunnerCancellation on TurnRunner {
       return const TurnCancelResult(status: TurnWaitState.cancelled, releasedSessionLock: false);
     }
 
+    if (_postProviderTurns.contains(turnId)) {
+      throw const TurnCancelException('TURN_NOT_CANCELLABLE', 'Turn is not cancellable', statusCode: 409);
+    }
+
     if (enforceCanCancel) {
       final snapshot = turnStatus(sessionId);
       if (!snapshot.canCancel) {
@@ -86,8 +90,8 @@ extension TurnRunnerCancellation on TurnRunner {
     _cancelledTurns.add(turnId);
     _externallyCompletedTurns.add(turnId);
     _acceptedCancelCleanupPending.add(turnId);
-    await _completeAcceptedCancel(sessionId, turnId);
-    final recovery = _restartWorkerAfterAcceptedCancel(turnId);
+    final recoveryCompleter = Completer<void>();
+    final recovery = recoveryCompleter.future;
     _acceptedCancelRecovery[sessionId] = recovery;
     unawaited(
       recovery
@@ -98,7 +102,22 @@ extension TurnRunnerCancellation on TurnRunner {
           })
           .catchError((Object _) {}),
     );
-    return const TurnCancelResult(status: TurnWaitState.cancelled, releasedSessionLock: true);
+    try {
+      await _completeAcceptedCancel(sessionId, turnId);
+    } catch (e, st) {
+      recoveryCompleter.completeError(e, st);
+      rethrow;
+    }
+    unawaited(
+      _restartWorkerAfterAcceptedCancel(turnId).then(
+        (_) => recoveryCompleter.complete(),
+        onError: (Object e, StackTrace st) => recoveryCompleter.completeError(e, st),
+      ),
+    );
+    return TurnCancelResult(
+      status: TurnWaitState.cancelled,
+      releasedSessionLock: !_externallyAdmittedTurns.contains(turnId),
+    );
   }
 
   Future<void> _restartWorkerAfterAcceptedCancel(String turnId) async {
@@ -121,6 +140,9 @@ extension TurnRunnerCancellation on TurnRunner {
       throw StateError('Worker recovery failed after accepted turn cancel for session $sessionId: $e');
     }
   }
+
+  @visibleForTesting
+  bool hasAcceptedCancelRecovery(String sessionId) => _acceptedCancelRecovery.containsKey(sessionId);
 
   /// Scans [TurnStateStore] for orphaned turns from a previous crash.
   Future<List<String>> detectAndCleanOrphanedTurns() async {
@@ -188,10 +210,15 @@ extension TurnRunnerCancellation on TurnRunner {
     final active = _activeTurns[sessionId];
     if (active == null || active.turnId != turnId) return;
     final completedAt = DateTime.now();
+    final toolHooks = _turnToolHooks[turnId];
+    toolHooks?.finalizePendingToolCalls(endedAt: completedAt);
     final outcome = TurnOutcome(
       turnId: turnId,
       sessionId: sessionId,
       status: TurnStatus.cancelled,
+      toolCalls: List.unmodifiable(toolHooks?.completedToolCalls ?? const <ToolCallRecord>[]),
+      toolCallCount: toolHooks?.toolCallCount,
+      failedToolCallCount: toolHooks?.failedToolCallCount,
       completedAt: completedAt,
     );
     _rememberRecentOutcome(outcome, taskId: active.taskId, cachedAt: completedAt);
@@ -203,9 +230,8 @@ extension TurnRunnerCancellation on TurnRunner {
     _cancellingTurns.remove(turnId);
     _turnProgressSnapshots.remove(sessionId);
     _runtimeWaits.remove(sessionId)?.dispose();
-    _lockManager.release(sessionId);
-    _taskToolFilterGuard?.setSessionToolFilter(sessionId, null);
-    _taskToolFilterGuard?.setSessionReadOnly(sessionId, false);
+    if (!_externallyAdmittedTurns.contains(turnId)) _lockManager.release(sessionId);
+    _clearTurnPolicy(sessionId, turnId);
     final turnState = _turnState;
     if (turnState != null) {
       unawaited(
@@ -269,18 +295,23 @@ extension TurnRunnerCancellation on TurnRunner {
   }
 
   void _rememberRecentOutcome(TurnOutcome outcome, {String? taskId, DateTime? cachedAt}) {
+    final firstSettlement = !_recentOutcomes.containsKey(outcome.turnId);
     _recentOutcomes[outcome.turnId] = (outcome: outcome, expiresAt: (cachedAt ?? DateTime.now()).add(_outcomeTtl));
     if (taskId != null) {
       _recentTaskIds[outcome.turnId] = taskId;
     } else {
       _recentTaskIds.remove(outcome.turnId);
     }
+    if (firstSettlement) _outcomeObserver?.call(outcome);
   }
 
   void _evictExpiredOutcomes() {
     final now = DateTime.now();
     _recentOutcomes.removeWhere((_, v) => v.expiresAt.isBefore(now));
     _recentTaskIds.removeWhere((turnId, _) => !_recentOutcomes.containsKey(turnId));
+    _executionSettledPending.removeWhere(
+      (turnId, pending) => pending.completer.isCompleted && !_recentOutcomes.containsKey(turnId),
+    );
   }
 }
 
@@ -296,7 +327,7 @@ class _RuntimeWaitTracker {
   Timer? _stuckTimer;
   _RuntimeWaitSnapshot _snapshot;
 
-  _RuntimeWaitTracker({
+  new({
     required this.waitWarningAfter,
     required this.stuckAfter,
     required this.timerFactory,
@@ -347,12 +378,7 @@ class _RuntimeWaitSnapshot {
   final DateTime? stuckSince;
   final TurnWaitReason reason;
 
-  const _RuntimeWaitSnapshot({
-    required this.waitingSince,
-    required this.reason,
-    this.warningVisibleAt,
-    this.stuckSince,
-  });
+  const new({required this.waitingSince, required this.reason, this.warningVisibleAt, this.stuckSince});
 
   _RuntimeWaitSnapshot copyWith({DateTime? warningVisibleAt, DateTime? stuckSince}) {
     return _RuntimeWaitSnapshot(

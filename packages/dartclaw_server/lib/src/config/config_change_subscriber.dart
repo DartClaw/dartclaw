@@ -17,7 +17,7 @@ class ConfigChangeSubscriber {
   final ContextMonitor? contextMonitor;
   StreamSubscription<ConfigChangedEvent>? _subscription;
 
-  ConfigChangeSubscriber({required this.runtimeConfig, this.heartbeat, this.gitSync, this.contextMonitor});
+  new({required this.runtimeConfig, this.heartbeat, this.gitSync, this.contextMonitor});
 
   /// Start listening on the given [EventBus].
   void subscribe(EventBus bus) {

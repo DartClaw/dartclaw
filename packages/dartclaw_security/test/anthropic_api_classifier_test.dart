@@ -35,7 +35,7 @@ class _FakeRequest implements HttpClientRequest {
   final _headers = _FakeHeaders();
   final _body = StringBuffer();
 
-  _FakeRequest(this._client);
+  new(this._client);
 
   @override
   HttpHeaders get headers => _headers;
@@ -73,7 +73,7 @@ class _FakeResponse extends Stream<List<int>> implements HttpClientResponse {
   final int statusCode;
   final String _body;
 
-  _FakeResponse(this.statusCode, this._body);
+  new(this.statusCode, this._body);
 
   @override
   StreamSubscription<List<int>> listen(
@@ -82,9 +82,8 @@ class _FakeResponse extends Stream<List<int>> implements HttpClientResponse {
     void Function()? onDone,
     bool? cancelOnError,
   }) {
-    return Stream.value(
-      utf8.encode(_body),
-    ).listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
+    return Stream.value(utf8.encode(_body))
+        .listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   }
 
   @override

@@ -14,7 +14,7 @@ class MockQmdManager extends QmdManager {
   final _content = <Map<String, dynamic>>[];
   bool fakeRunning = true;
 
-  MockQmdManager()
+  new()
     : super(
         commandRunner: (exe, args, {workingDirectory}) async {
           return ProcessResult(0, 0, '', '');
@@ -61,7 +61,7 @@ void main() {
       name: 'FTS5',
       createBackend: () => Fts5SearchBackend(memoryService: memoryService),
       indexContent: (text, source) async {
-        memoryService.insertChunk(text: text, source: source);
+        _seed(db, text: text, source: source);
       },
     );
   });
@@ -89,8 +89,17 @@ void main() {
       ),
       indexContent: (text, source) async {
         mockQmd.addContent(text, source);
-        memoryService.insertChunk(text: text, source: source);
+        _seed(db, text: text, source: source);
       },
     );
   });
+}
+
+void _seed(Database db, {required String text, required String source}) {
+  db.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
+    text,
+    source,
+    DateTime(2026).toIso8601String(),
+    source,
+  ]);
 }
